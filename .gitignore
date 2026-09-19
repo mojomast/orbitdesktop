@@ -2,4 +2,9 @@ node_modules/
 dist/
 .sites-runtime/
 .env
+.env.*
 *.log
+browser-hermes-verified.png
+browser-verification.json
+live-agent-verification.json
+__pycache__/

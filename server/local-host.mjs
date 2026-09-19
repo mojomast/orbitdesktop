@@ -13,6 +13,7 @@ export class LocalHostProvider {
       COLORTERM: "truecolor",
     };
     delete env.ORBIT_TOKEN;
+    delete env.HERMES_API_KEY;
     return pty.spawn(shell, [], {
       name: "xterm-256color",
       cols,

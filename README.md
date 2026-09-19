@@ -1,6 +1,6 @@
 # Orbit Desktop
 
-A local-first spatial workspace built with **Three.js + TypeScript + Vite**, real **xterm.js / node-pty terminals**, embedded browser panes, and a deliberately stubbed agent chat interface.
+A local-first spatial workspace built with **Three.js + TypeScript + Vite**, real **xterm.js / node-pty terminals**, embedded browser panes, and authenticated **Hermes agent chat**.
 
 ## Start locally
 
@@ -30,7 +30,7 @@ The shell runs on the machine running `npm start`, as that OS user. This is a re
 - Local layout persistence, validated JSON import/export, and single/dual/triple presets.
 - Real host shells with authentication, origin/Host checks, output backpressure, heartbeat, session limits, and disconnect cleanup.
 - Browser URL navigation, home, reload, and open in a new tab. The built-in workspace guide works without network access.
-- Stub chat accepts messages and returns a clearly labeled local placeholder. It sends no agent requests and does not execute tools.
+- Hermes chat connects to a configured Hermes API server, with separate conversations per pane, follow-up context, run status, stop controls, and allow-once/deny tool approvals. Hermes tools execute in the Hermes environment, not automatically in Orbit's terminal container.
 - Three.js CSS3D remains interactive without WebGL; the decorative WebGL room is optional.
 
 ## Controls
@@ -50,7 +50,7 @@ The shell runs on the machine running `npm start`, as that OS user. This is a re
 
 More monitors make the overview smaller. Focus mode is the primary reading/typing surface on small screens. Use 100% browser/display zoom for spatial mode; Three.js documents this CSS3DRenderer limitation. Focus mode supports normal browser zoom.
 
-Layouts persist, but shell processes, terminal buffers, session tokens, and chat messages do not survive a page reload. Adjusting geometry or using focus mode preserves connected terminals. Closing a pane, switching its type, changing presets, or importing a replacement layout closes affected shells after confirmation. Reconnecting starts a new shell. Deliberately detached background programs are not a job-management feature; use tmux if that is needed.
+Layouts persist. Chat messages and active run IDs survive reloads within the same browser tab using sessionStorage; the Orbit token remains memory-only and must be entered again. Hermes retains server-side session history. Shell processes and terminal buffers do not survive a page reload. Closing a chat pane does not stop an active Hermes run: use Stop first. Adjusting geometry or using focus mode preserves connected terminals. Closing a pane, switching its type, changing presets, or importing a replacement layout closes affected shells after confirmation. Reconnecting starts a new shell. Deliberately detached background programs are not a job-management feature; use tmux if that is needed.
 
 ## Browser limits
 
@@ -90,4 +90,4 @@ Environment:
 
 Read [Architecture](docs/ARCHITECTURE.md), [Research decisions](docs/RESEARCH.md), [Roadmap](docs/ROADMAP.md), [Security boundary](docs/SECURITY.md), and [Verification](docs/VERIFICATION.md).
 
-This release is single-user and loopback-only. It is ready for local experimentation, not Internet-facing deployment. Direct SSH host adapters, durable sessions, real agent connections, remote authentication, and a full browser engine are roadmap work.
+This release remains single-user and binds to loopback. The private deployment uses Tailscale Serve with an exact HTTPS origin allowlist; do not publish it with Funnel or a public reverse proxy. See [Hermes integration and deployment](docs/HERMES.md). Direct SSH host adapters, multi-user isolation, and a full browser engine remain roadmap work.

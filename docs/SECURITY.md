@@ -12,9 +12,9 @@ Implemented controls:
 - Sandboxed third-party iframe panes; same-origin Orbit embedding rejected.
 - Maximum 16 pending/active connections; bounded input/output and PTY dimensions.
 - Consumption-based output flow control, stalled-consumer timeout, heartbeat, and session cleanup.
-- No automatic shell connection or terminal command from the agent stub.
-- Tokens are excluded from layout exports and from the child shell's explicit `ORBIT_TOKEN` environment variable.
+- No automatic Orbit shell connection. Hermes chat can execute tools in the separately configured Hermes environment; its normal approval policy applies. Orbit exposes only allow-once and deny, never persistent approvals.
+- Tokens are excluded from layout exports. `ORBIT_TOKEN` and `HERMES_API_KEY` are removed from the child shell's explicit environment. This is not protection against a malicious same-UID process inspecting its parent's environment; this remains a trusted single-owner service.
 
 Out of scope: malicious local OS users/processes, compromised npm dependencies, an exploited allowed remote iframe/browser, full process-tree supervision of deliberately detached jobs, remote identity, multi-user isolation, credential vaults, auditing, shell sandboxing, and independent penetration testing. High-entropy token authentication is not rate-limited by identity in this prototype; connection and payload limits bound the local service.
 
-Run as a normal user. Do not forward or expose this port publicly. For development origins, allow only exact origins you control; do not add wildcard handling. A future remote deployment needs the dedicated security work in the roadmap.
+Run as a normal user. Do not expose this port publicly. The deployed private setup uses Tailscale Serve, an exact `ORBIT_PUBLIC_ORIGIN`, and the existing Orbit token for both terminal and chat access. For development origins, allow only exact origins you control; do not add wildcard handling. Public or multi-user deployment still needs the dedicated security work in the roadmap. See [Hermes integration](HERMES.md) for scope and limitations.

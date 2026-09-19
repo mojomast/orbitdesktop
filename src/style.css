@@ -491,6 +491,16 @@ p {
   border: 1px solid #536440;
   border-radius: 3px;
 }
+.agent-status { font-size: 10px; color: #c2ed90; margin-left: auto; }
+.agent-notice, .agent-progress { padding: 8px 16px; font-size: 12px; color: #aec0ba; }
+.agent-progress:empty, .agent-approvals:empty { display: none; }
+.agent-controls { display: flex; gap: 8px; padding: 0 16px; }
+.agent-controls [hidden] { display: none; }
+.agent-approvals { padding: 10px 16px; max-height: 180px; overflow: auto; background: #34301c; }
+.agent-approvals pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+.agent-approvals button { margin-right: 8px; }
+.chat-message { flex-shrink: 0; }
+.agent-meta { flex-wrap: wrap; }
 .chat-messages {
   flex: 1;
   min-height: 0;

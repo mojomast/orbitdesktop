@@ -2,6 +2,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { el, button, select } from "./dom";
+import { createAgentChat } from "./agent-chat";
 import type { Pane, PaneKind } from "./model";
 export interface PaneView {
   element: HTMLElement;
@@ -18,6 +19,7 @@ export interface PaneActions {
 export let sessionToken = "";
 export function setToken(t: string) {
   sessionToken = t;
+  window.dispatchEvent(new Event('orbit-host-connected'));
 }
 export function createPane(p: Pane, font: number, a: PaneActions): PaneView {
   const root = el("section", "pane");
@@ -305,57 +307,7 @@ export function createPane(p: Pane, font: number, a: PaneActions): PaneView {
       zoomFrame();
     };
   } else {
-    body.classList.add("chat-body");
-    const badge = el("div", "agent-meta");
-    badge.append(
-      el("span", "agent-avatar", "✳"),
-      el("div", "", "Workspace agent"),
-      el("span", "stub-badge", "STUB"),
-    );
-    const messages = el("div", "chat-messages");
-    const greeting = el("div", "chat-message assistant");
-    greeting.append(
-      el("small", "", "ORBIT ASSISTANT"),
-      el("p", "", "A place for your next agent."),
-      el(
-        "p",
-        "muted",
-        "The chat interface is ready. Connect your agent provider in the next phase. No messages leave this device.",
-      ),
-    );
-    messages.append(greeting);
-    const form = el("form", "chat-form"),
-      input = el("textarea");
-    input.placeholder = "Try a message…";
-    input.rows = 2;
-    input.maxLength = 4000;
-    input.setAttribute("aria-label", "Message to stub agent");
-    const send = button("↑", "Send message to stub agent", () => submit());
-    function submit() {
-      const value = input.value.trim();
-      if (!value) return;
-      const mine = el("div", "chat-message user", value),
-        reply = el(
-          "div",
-          "chat-message assistant",
-          "[Stub response] Your message reached this local interface. An agent adapter will handle responses and tool approvals here.",
-        );
-      messages.append(mine, reply);
-      input.value = "";
-      messages.scrollTop = messages.scrollHeight;
-    }
-    form.append(input, send);
-    form.onsubmit = (e) => {
-      e.preventDefault();
-      submit();
-    };
-    input.onkeydown = (e) => {
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        submit();
-      }
-    };
-    body.append(badge, messages, form);
+    cleanup = createAgentChat(body, p.id, () => sessionToken);
   }
   return { element: root, resize, setFont, dispose: cleanup };
 }

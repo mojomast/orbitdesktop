@@ -585,15 +585,15 @@ importInput.onchange = async () => {
 function connectHost() {
   const d = el("dialog", "dialog");
   d.append(
-    el("div", "eyebrow", "LOCAL HOST"),
-    el("h2", "", "Connect your machine"),
+    el("div", "eyebrow", "PRIVATE WORKSPACE"),
+    el("h2", "", "Unlock terminals and Hermes"),
     el(
       "p",
       "",
-      "Start Orbit locally, then paste the session token printed by the server. Each terminal runs with your user’s permissions.",
+      "Paste your Orbit session token. This unlocks terminal access and the connected Hermes agent, which can use tools in its own host environment.",
     ),
   );
-  const code = el("pre", "", "npm install\nnpm run build\nnpm start");
+  const code = el("p", "muted", "Keep this token private. It stays in browser memory and must be entered again after a reload.");
   const input = el("input");
   input.type = "password";
   input.autocomplete = "off";
@@ -616,13 +616,13 @@ function connectHost() {
           throw Error(
             r.status === 401
               ? "That token was not accepted."
-              : "Local server unavailable. Open Orbit using the URL printed by npm start.",
+              : "Orbit server unavailable. Check your connection and try again.",
           );
         setToken(input.value);
         input.value = "";
         hostStatus.textContent = "●  Host unlocked";
         d.close();
-        notify("Host unlocked. Select Connect shell in a terminal pane.");
+        notify("Unlocked. Chat with Hermes or select Connect shell.");
       } catch (e) {
         msg.textContent =
           e instanceof Error ? e.message : "Unable to reach local server";

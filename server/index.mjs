@@ -4,8 +4,9 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
-import { tokenMatches, geometry, allowedRequest } from "./security.mjs";
+import { tokenMatches, geometry, allowedRequest, publicHost } from "./security.mjs";
 import { LocalHostProvider } from "./local-host.mjs";
+import { createAgentHandler } from "./agent.mjs";
 const port = Number(process.env.PORT || 4318);
 if (!Number.isInteger(port) || port < 1024 || port > 65535)
   throw Error("PORT must be between 1024 and 65535");
@@ -35,15 +36,18 @@ function reply(res, status, data) {
   });
   res.end(JSON.stringify(data));
 }
+const agentHandler = createAgentHandler({ token, port, devOrigins, reply });
 const server = http.createServer(async (req, res) => {
   const allowedHosts = new Set([
     `127.0.0.1:${port}`,
     `localhost:${port}`,
     `[::1]:${port}`,
+    ...(publicHost ? [publicHost] : []),
   ]);
   if (!allowedHosts.has(req.headers.host))
     return reply(res, 403, { error: "Host rejected" });
   const url = new URL(req.url, "http://localhost");
+  if (url.pathname === "/api/agent") return agentHandler(req, res);
   if (url.pathname === "/api/health")
     return reply(res, 200, {
       service: "orbit",
