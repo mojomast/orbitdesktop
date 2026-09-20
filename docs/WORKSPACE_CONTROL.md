@@ -1,5 +1,19 @@
 # Comet/Orbit workspace control
 
+## Default rule: perform and deliver changes, do not ask the owner to reload
+
+Use the scoped controller below for layout, geometry, fonts, pane content, and sidebar changes. Use `scripts/workspace_appearance.py` for wallpaper and visual styling. Use `publish` for app previews. These paths update already-open pages without replacing the workspace document or restarting shells. Do not implement ordinary appearance/layout requests by changing application JavaScript.
+
+For appearance changes, first read `src/workspace-theme.css` and preserve unrelated owner customizations. Write a complete updated CSS override file, then run:
+
+```sh
+python3 /home/mojo/.hermes-instances/fresh/workspace/orbitdesktop/scripts/workspace_appearance.py --css-file /absolute/path/to/updated-theme.css
+```
+
+This serializes appearance edits, saves the override, builds the actual production CSS, and makes it available to the existing live stylesheet watcher. It restores the previous override if the build fails. Wallpaper example: `.workspace { background: #0b2457 url('/clown-wallpaper.svg') center / cover no-repeat; }`. Use absolute, versioned asset URLs. Appearance is shared across this single-owner deployment, whereas layout operations are scoped to the specified workspace. This is trusted owner CSS, not untrusted app content.
+
+Successful build output means the change is saved and available, not proof that a browser displayed it. For verification, inspect the connected browser when accessible. Do not fabricate acknowledgement. If no browser is open, layout and appearance changes still persist and appear when it next opens; never claim to have changed pixels in a closed browser. A pre-watcher browser cannot gain the watcher retroactively. Arbitrary core-JavaScript upgrades still require loading the new application; distinguish that from routine workspace customization.
+
 The owner uses "Comet" to refer to this Orbit Desktop deployment. Hermes can edit and build this workspace through its normal tools and the scoped controller below. Do not claim to have modified the UI merely because a file was written: inspect the command result's `browser_applied` and `observed_revision`.
 
 ## Read and change the workspace

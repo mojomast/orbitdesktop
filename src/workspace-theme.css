@@ -1,0 +1,3 @@
+/* Owner-managed workspace appearance. Apply through scripts/workspace_appearance.py.
+   Use absolute /asset URLs (version them when replacing image contents).
+   This stylesheet is loaded after the default workspace styles. */
