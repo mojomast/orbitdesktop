@@ -1,5 +1,11 @@
 # Hermes agent chat
 
+## Workspace operator guidance
+
+The bridge now injects `docs/AGENT_GUIDE.md` into workspace-aware run context alongside the active workspace ID, controller path and bounded state metadata. It is read at context-generation time, so subsequent requests pick up guide edits. The guide teaches plugin-first publication/lifecycle, safe config replacement, checkpoint limits, persistent terminal identity and acknowledgement-based verification. `AGENTS.md` covers repository work. This is guidance, not a guarantee of model compliance; inspect actual changes and tests.
+
+The current plugin-oriented architecture is documented in [PLUGINS.md](PLUGINS.md) and [ARCHITECTURE.md](ARCHITECTURE.md). The current private backend is `orbitdesktop-plugins.service` on 4333; older deployment port notes below are historical. A live read-only browser test verified the embedded agent used the workspace controller and correctly identified the plugin publisher, install operation, browser acknowledgement and tmux persistence. The first live attempt reached ATTENTION; a retry passed, so this is not a claim of infallible availability.
+
 ## Skills and toolsets
 
 The tools menu's **Skills and tools** browser reads `/v1/skills` and `/v1/toolsets` only when advertised by the gateway capabilities endpoint. Search names/descriptions and tool names, expand entries, switch catalog types, or refresh. Toolsets display upstream enabled/configured flags and concrete tool names; these flags are metadata, not a guarantee that execution succeeds. The view is read-only and neither installs nor enables anything. API keys and filesystem paths are not forwarded. Lists are bounded to 500 entries and text fields to 2000 characters. No inference is used.

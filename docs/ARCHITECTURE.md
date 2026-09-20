@@ -1,52 +1,49 @@
 # Architecture
 
+Orbit is a single-owner agent-customizable workspace. It separates trusted core/integration code from sandboxed generated app plugins; it is not fully modular yet.
+
+## State and control
+
+`src/model.ts` validates layout, structured appearance and plugin instances. `src/workspace-ops.ts` applies targeted operations to a clone; `src/plugins.ts` implements plugin lifecycle. The service in `server/workspace.mjs` authenticates browser requests with Orbit token/origin checks, and agent requests with a workspace-scoped capability. Batches validate before commit, use revision checks and save checkpoints before controller/plugin mutations. Filesystem records live in `.runtime/workspaces`; individual writes use atomic rename, not a multi-record transaction database.
+
+`src/workspace-sync.ts` polls and tracks browser acknowledgement. An acknowledged revision does not prove a widget rendered correctly. Local layout persistence and imports remain supported. Offline changes can be saved server-side; display acknowledgement waits for the browser.
+
+## Two extension boundaries
+
+Trusted built-ins use `src/workspace-extensions.ts`: typed activation entries dynamically load plugin manager, checkpoints, skills catalog, outputs and jobs. Live activity is also loaded on demand. These modules run in the parent page and are reviewed application code. They are not user-installable privileged plugins.
+
+Generated app plugins use a strict API-v1 manifest and config contract. `scripts/plugin_publish.py` copies static bundles to content-addressed folders. Lifecycle/config/entry references are part of workspace state and checkpoints. The existing sandboxed browser pane hosts the app; no host credentials or privileged message bridge are granted. Network access is allowed by the current app CSP. See [PLUGINS.md](PLUGINS.md) for limitations, including the absence of filesystem-enforced immutability, dependency resolution and independent safe boot.
+
+## Hermes
+
+`server/agent.mjs` bridges authenticated runs, bounded server-loaded conversation history, approvals, stop, steering, activity, capabilities, catalog and job controls. `server/workspace.mjs` supplies the active workspace context and reads `docs/AGENT_GUIDE.md` into it at request time. Editing that guide updates subsequent contexts without copying instructions into several prompts. `src/agent-chat.ts` retains per-pane UI state; Hermes is a real runtime, not a chat stub.
+
+The gateway's tool environment may differ from the terminal host. Local workspace control requires access to the repository/runtime; it is not automatically available to a remote gateway. Layout metadata does not expose terminal buffers or embedded app DOM.
+
+## Terminals
+
+An authenticated same-origin `/api/terminal` WebSocket creates a node-pty client. `auth` accepts `token`, `cols`, `rows` and stable `pane_id`. On the verified Linux deployment, `LocalHostProvider` attaches valid pane IDs to `/usr/bin/tmux -L orbit-persistent` session `pane-<id>`. The client can die while the shell survives. Unlock/reconnect after page reload reattaches; `exit` ends the shell. Legacy requests without a valid pane ID still use direct shells. Host reboot persistence is not implemented.
+
+Transport retains input/resize/data/ack/exit/error messages, bounded output, heartbeat and backpressure. ACK uses JavaScript UTF-16 string length after xterm consumes output. Killing a tmux client is not killing the detached shell. Detached sessions consume resources and require owner cleanup. This is one OS user's workspace, not per-user process isolation.
+
 ## Rendering
 
-A shared Three.js PerspectiveCamera drives two scenes: WebGL for the room/grid and CSS3DRenderer for real HTML monitor surfaces. This keeps text selectable, xterm inputs functional, and browser/chat controls native. It avoids trying to photograph live DOM into a canvas texture.
+Three.js PerspectiveCamera drives WebGL decoration plus CSS3DRenderer HTML monitor surfaces. Text, xterm and iframe controls remain native DOM. Stable pane IDs preserve views where possible. Focus mode moves a monitor element to a flat layer; iframe reparenting can reload embedded content. CSS3D is not a browser engine or WebXR layer. Spatial units express relative layout, not real-world calibrated dimensions.
 
-`DesktopScene` owns transforms, camera, renderer lifecycle, geometry and materials. Rendering is invalidated by geometry/camera/viewport changes, with device pixel ratio capped at 1.75. The scheduling callback remains active but skips render work while clean or hidden. CSS3D and WebGL have separate compositing: arbitrary physical occlusion between them is not implemented. The shallow room deliberately avoids geometry in front of screens.
-
-Each CSS3D object wraps a stable monitor DOM element. Focus mode moves that element to a regular document layer while its Three.js anchor remains in the scene. It returns to the same anchor without re-creating terminal instances. CSS3D overview is the arrangement surface; flat focus is the dense text/accessibility surface.
-
-Spatial positions are relative scene units; diagonal inches express proportions, not real-world calibration. Monitor presets arrange screens horizontally with optional wrap. Height/offset support stacked or staggered arrangements. Automatic collision avoidance is not implemented; users can intentionally overlap monitors.
+`src/scene.ts`, `src/windows.ts`, `src/main.ts` and `src/panes.ts` still contain the core renderer/pane coordination. These have not been replaced by plugins. Appearance tokens apply through `src/workspace-appearance.ts`; built stylesheet swapping is separate from plugin lifecycle and does not hot-replace production JavaScript.
 
 ## Source map
 
-| File                    | Responsibility                                                                             |
-| ----------------------- | ------------------------------------------------------------------------------------------ |
-| `src/model.ts`          | Versioned workspace schema, validation, split tree operations, relative dimensions         |
-| `src/dom.ts`            | Safe DOM helpers; user content uses textContent                                            |
-| `src/scene.ts`          | Three.js camera, monitor transforms, rendering and disposal                                |
-| `src/panes.ts`          | Terminal, embedded browser and stub agent pane lifecycles                                  |
-| `src/main.ts`           | Workspace UI/actions, local persistence, monitor inspector, import/export, optional WebMCP |
-| `server/index.mjs`      | Same-origin static server and authenticated WebSocket protocol                             |
-| `server/local-host.mjs` | Local PTY adapter; the seam for future host providers                                      |
-| `server/security.mjs`   | Token, origin/Host and dimensions validation                                               |
-| `tests/`                | Local PTY/security integration and workspace-model tests                                   |
+| Component | Files |
+| --- | --- |
+| State and operations | `src/model.ts`, `src/workspace-ops.ts`, `src/plugins.ts` |
+| Workspace persistence / context | `server/workspace.mjs`, `src/workspace-sync.ts` |
+| Checkpoints | `server/checkpoints.mjs`, `src/workspace-history.ts` |
+| Trusted extensions | `src/workspace-extensions.ts` |
+| Plugin management / publishing | `src/plugin-manager.ts`, `scripts/plugin_publish.py` |
+| Agent bridge / UI | `server/agent.mjs`, `src/agent-chat.ts` |
+| Host PTYs | `server/local-host.mjs`, `server/index.mjs`, `src/panes.ts` |
+| Security | `server/security.mjs`, sandbox headers in `server/workspace.mjs` |
+| Agent instructions | `docs/AGENT_GUIDE.md`, `AGENTS.md` |
 
-Pane views are keyed by stable pane IDs. Rebuilding a split tree reuses terminal objects; switching a pane's kind disposes the old view. LocalStorage and exports store layout metadata and browser addresses only. Tokens live in JavaScript memory for that tab. Browser iframe reparenting can reload a page when changing its split/layout or switching focus; a real browser-engine integration is required for robust browser tab persistence.
-
-## Protocol v1
-
-Connection: same-origin `/api/terminal`, one PTY per authenticated WebSocket.
-
-| Direction       | Message                    | Meaning                                             |
-| --------------- | -------------------------- | --------------------------------------------------- |
-| Client → server | `auth {token, cols, rows}` | First message, within 5 seconds                     |
-| Server → client | `ready {protocol: 1}`      | PTY created                                         |
-| Client → server | `input {data}`             | Raw terminal input                                  |
-| Client → server | `resize {cols, rows}`      | Validated PTY dimensions                            |
-| Server → client | `data {data}`              | Raw terminal output, rendered only by xterm         |
-| Client → server | `ack {length}`             | UTF-16 code-unit count after xterm's write callback |
-| Server → client | `exit {code}`              | Shell exit code                                     |
-| Server → client | `error {message}`          | Safe user-facing failure                            |
-
-ACK units deliberately match JavaScript `string.length` on both sides; they are not UTF-8 byte counts. At 128,000 unacknowledged code units the server pauses its PTY; below 32,000 it resumes. There are additional transport/output bounds, a stalled-consumer timeout, and a ping/pong health check. Do not replace the write-callback ACK with an ACK on WebSocket receipt: that would stop measuring xterm consumption.
-
-## Extension contracts
-
-The implemented local host adapter returns node-pty's `write`, `resize`, `pause`, `resume`, `kill`, `onData`, and `onExit` interface. A future `HostProvider` must normalize those semantics and errors rather than exposing SSH-specific transport details to the UI. Add a validated host ID to pane state/protocol only alongside authorization and credential lookup.
-
-A real `AgentProvider` should stream typed events: message-start, text-delta, tool-proposal, approval-required, tool-result, message-end, error. The current stub is intentionally not a provider implementation. Keep agent execution authority separate from the terminal's input transport. Never turn model text directly into terminal commands.
-
-Optional WebMCP tools expose layout metadata and focus navigation only. They do not expose credentials, terminal output/input, or agent chat. They are feature-detected, and ordinary browsers work without them.
+For operation contracts use [Workspace control](WORKSPACE_CONTROL.md), not architecture prose. For shipped versus proposed scope use [Roadmap](ROADMAP.md).

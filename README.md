@@ -1,117 +1,168 @@
 # Orbit Desktop
 
-A local-first spatial workspace built with **Three.js + TypeScript + Vite**, real **xterm.js / node-pty terminals**, embedded browser panes, and authenticated **Hermes agent chat**.
+### A workspace you can build with your agent—not just talk to.
 
-## Start locally
+Orbit brings **Hermes, persistent host terminals, sandboxed app plugins, and a live customizable desktop** into one private workspace. Ask Hermes to build a tool, place it beside your work, change its configuration, or restore an earlier layout. Use familiar windows or a Three.js spatial view without changing the underlying workspace.
 
-Requires Node.js **22.12+** (verified here on Node 24, Linux). Extract the ZIP and open a terminal in `orbit-desktop`:
+**Local-first · Single-owner · Agent-operated · Checkpointed customization**
+
+![Orbit workspace with terminal, browser, Hermes chat and a configurable notes plugin](docs/images/workspace.png)
+
+> **Project status:** actively developed, working software. Sandboxed app plugins and a trusted integration registry are implemented. Orbit is **not yet a fully modular operating system**, a multi-user cloud desktop, or a general-purpose browser engine. See [what is implemented](#what-you-can-do-today) and the [roadmap](docs/ROADMAP.md).
+
+[Quick start](#quick-start) · [Use cases](#make-it-yours) · [Plugin guide](docs/PLUGINS.md) · [Hermes operator guide](docs/AGENT_GUIDE.md) · [Security](docs/SECURITY.md)
+
+## Make it yours
+
+| Workflow | Ask Hermes | What Orbit provides |
+| --- | --- | --- |
+| Focus station | “Build a configurable focus timer beside my terminal.” | Publish a static widget, install it as a plugin, configure it and open a movable pane. |
+| Project cockpit | “Arrange my shell, documentation and this chat for development.” | Targeted layout operations, pane splits, Windows/Spatial/Focus views and saved geometry. |
+| Personal workspace | “Use a dark background, round the windows and hide the sidebar.” | Validated live appearance settings and checkpointed workspace changes. |
+| Iterative tools | “Update this widget, but keep a way back if it breaks.” | Content-addressed bundles, plugin updates and restoration of prior entry/configuration references. |
+| Long-running work | Reload the page while a shell command is running. | Unlock host access and reconnect the same pane to its tmux-backed shell. |
+| Agent operations | Inspect what Hermes is doing without sending another prompt. | Real tool activity, supported live events, mid-run guidance, approvals and scheduled-task controls. |
+
+These are workflows, not preloaded canned prompts. Hermes needs an appropriately configured API server and tool access; generated apps still need real testing.
+
+## What you can do today
+
+**Compose a live desktop.** Move and resize windows in flat or spatial view, split panes, change text size, hide the sidebar and focus a single display. Layout updates synchronize through revision-checked workspace operations. Structured background, wallpaper, inherited text color and corner radius changes require no frontend rebuild.
+
+**Build tools as plugins.** Install, enable, configure, update, disable and remove sandboxed static apps. A plugin has a versioned manifest, a published entry point and primitive-valued configuration. New bundles receive content-addressed URLs so old bundles can remain available for rollback. Open **Hermes tools → Workspace plugins**, or **Ctrl+Alt+P** with the workspace focused.
+
+![Workspace plugin manager showing an installed notes module](docs/images/plugins.png)
+
+**Recover deliberately.** Agent controller mutations and plugin-manager changes save a checkpoint. Restore layout, structured appearance, plugin registration, configuration and entry references. A restore saves another checkpoint first. Checkpoints do not undo external actions or snapshot arbitrary files, terminal processes or conversations.
+
+![Workspace checkpoint history with restore entries](docs/images/checkpoints.png)
+
+**Keep shells through reloads.** Terminal panes connect to real host-account shells through xterm.js, node-pty and tmux. Reloading disconnects the client, not the persistent shell. Re-enter the host token and reconnect. `exit` ends the shell; closing its pane detaches it. Host reboot persistence and automatic migration of legacy shells are not provided.
+
+**Use Hermes directly.** Separate conversations per pane, server-backed follow-up context, stop/approval controls, draft recovery, transcript export, active-run guidance, tool inspection, gateway-gated live events, skill/toolset discovery and scheduled-task listing with confirmed pause/resume. Available features depend on your Hermes gateway. [Integration details →](docs/HERMES.md)
+
+## Quick start
+
+### Requirements
+
+The verified target is **Linux**, an ordinary user account, **Node.js 22.12+**, npm, Python 3, and **tmux installed at `/usr/bin/tmux`**. Node 24 has been used for live testing. Other operating systems need terminal-adapter work and are not currently verified for persistent shells.
+
+`node-pty` is native. If a prebuilt binary is unavailable, install Python 3, make and a C++ compiler. On Debian/Ubuntu, the relevant packages include `python3`, `make`, `g++` and `tmux`.
 
 ```sh
+git clone https://github.com/mojomast/orbitdesktop.git
+cd orbitdesktop
 npm ci
 npm run build
 npm start
 ```
 
-Open **http://127.0.0.1:4318**. Click **Connect host**, paste the session token printed in your terminal, then click **Connect shell** in a terminal pane. A fresh token is generated each server start. Keep the server terminal open.
+Open **http://127.0.0.1:4318**. Use **Connect host**, enter the token printed by the server, then choose **Connect shell** in a terminal pane. The server stays running. Without a configured `ORBIT_TOKEN`, a new token is generated at startup.
 
-The shell runs on the machine running `npm start`, as that OS user. This is a real terminal: interactive programs, ANSI output, Ctrl-C, and resize are supported. Use an ordinary user account.
+> This grants a real shell as the server's OS user. Do not run Orbit as root or expose it to the public Internet.
 
-`node-pty` is a native dependency. If installation needs compilation, Linux needs Python 3, make and a C++ compiler; macOS needs the Xcode command line tools; native Windows needs Python and Visual Studio C++ build tools. Windows selects PowerShell. Native Windows/macOS execution is not verified in this release. WSL2 runs the Linux path; its terminals operate inside WSL, not the Windows host.
+### Connect Hermes
 
-## What works
+Start your Hermes API server separately. Configure its base URL and API key on the **Orbit server**, not in browser code. See [the exact environment settings and setup](docs/HERMES.md). The gateway's tools must be able to reach the Orbit repository/runtime for the local workspace controller to work.
 
-- 1–8 independently configured windows/monitors; up to 8 panes per window. Windows view supports title-bar dragging, corner resizing, stacking, and persistent geometry. Spatial and focus views remain available.
-- Hide/show the settings sidebar from the top bar; its state persists.
-- 16:9, 16:10, 21:9, 32:9, 4:3, portrait 9:16, and square screens.
-- 20–55 inch relative diagonal sizes, height, depth, pitch, yaw, horizontal offset, and layout wrap angle. Position values use scene units (`u`), not calibrated physical meters.
-- Nested side-by-side and stacked pane splits; pointer or keyboard divider resizing.
-- Switch each pane between terminal, browser, and agent chat.
-- On-monitor text controls, settings selection, and focus button. Browser text controls scale the embedded page as a whole; they cannot change a cross-origin site's typography.
-- Spatial camera orbit and zoom; full-size flat focus mode using the same pane instances.
-- Local layout persistence, validated JSON import/export, and single/dual/triple presets.
-- Real host shells with authentication, origin/Host checks, output backpressure, heartbeat, session limits, and disconnect cleanup.
-- Browser URL navigation, home, reload, and open in a new tab. The built-in workspace guide works without network access.
-- Hermes chat connects to a configured Hermes API server, with separate conversations per pane, follow-up context, run status, stop controls, and allow-once/deny tool approvals. It receives live workspace context and can change layouts, build apps, and open isolated previews using the scoped workspace controller. Production terminals run as the owner on the real host; Hermes tools still use their configured execution environment.
-- Three.js CSS3D remains interactive without WebGL; the decorative WebGL room is optional.
+Orbit injects its [operator guide](docs/AGENT_GUIDE.md), the active workspace ID, controller location and bounded workspace metadata into workspace-aware chat. The guide covers plugin-first development, checkpoints, safe configuration updates, terminal preservation and verification. A repository-level [AGENTS.md](AGENTS.md) also guides coding agents working on Orbit itself.
 
-## Build your workspace with Hermes
+### Private remote access
 
-Connect with the Orbit session token and open an **agent** pane. With the Hermes backend configured, try:
+Use a private authenticated network such as Tailscale Serve, with Orbit's exact public origin configured. Keep the backend on loopback. Do not use Funnel or an unauthenticated public proxy. Deployment examples are under [`deploy/`](deploy/); their absolute paths are examples from one installation and must be adapted.
 
-> Build a timer app, open it beside this chat, and hide the settings panel.
+## Your first plugin
 
-Hermes receives the current workspace layout and can rename, move, resize, add, split, or close windows/panes, change views, and toggle the sidebar. It can build a static app and publish it into a sandboxed browser pane. Workspace changes use revision checks and browser acknowledgements; an offline browser cannot confirm a change until it reconnects.
+Publish the included notes example:
 
-The agent sees layout metadata, not terminal buffers or embedded-page contents. Its build tools run in the configured Hermes environment, which may differ from the terminal host. Backend services require additional integration; the built-in publisher serves static frontend builds. Closing a window can terminate its shells, so ask for targeted changes when preserving work matters.
+```sh
+python3 scripts/plugin_publish.py examples/plugins/notes \
+  --id notes --version 1.0.0 --title 'Workspace notes'
+```
 
-See [Workspace control and app publishing](docs/WORKSPACE_CONTROL.md), [live verification results](docs/WORKSPACE_VERIFICATION.md), and the [counter example](examples/comet-counter-test/index.html). Published app bundles must not contain secrets: app files are readable by anyone able to reach the deployment, even without the Orbit token.
+Copy the emitted manifest into **Workspace plugins → Plugin manifest JSON → Install disabled**, then enable it. Use **Configure** to set, for example:
+
+```json
+{"title":"My project","message":"Keep the next useful action visible."}
+```
+
+The example's scratch text is temporary; its configuration is checkpointed. Hermes can perform the same lifecycle using `scripts/workspace_control.py` and the active workspace ID. Updates do not require editing Orbit's source. [Manifest, API, publisher and rollback reference →](docs/PLUGINS.md)
+
+Plugins run in sandboxed iframes, not in the parent application's JavaScript context. They receive no host credentials or privileged bridge. Network access is currently allowed. Published files are reachable by anyone who can reach the deployment: **never put secrets in a bundle or plugin configuration**.
+
+## Live updates and persistence: the precise contract
+
+| Change or data | Behavior |
+| --- | --- |
+| Layout / structured appearance / plugin lifecycle | Saved server-side; connected pages synchronize, normally on the next 1.2-second poll. |
+| Browser closed | Changes remain saved; visual acknowledgement waits for reconnection. |
+| Plugin configuration or entry update | The affected iframe may reload; its unsaved in-memory state may be lost. |
+| Terminal reload | Same stable pane ID resumes its tmux shell after unlock/reconnect; not a serialized xterm scrollback snapshot. |
+| Chat reload | Tab-local draft/run/conversation state plus Hermes server history; not a cross-device conversation library. |
+| Checkpoint restore | Workspace metadata and plugin entry/config references, not shell side effects, emails, image bytes or app databases. |
+| Built stylesheet changes | Existing pages can swap updated styles without replacing the document. |
+| Orbit core JavaScript changes | Load the new frontend once in a new tab or reload. This is not arbitrary core hot replacement. |
+
+Do not overwrite or delete old published bundle folders if checkpoints reference them. Content-addressed publication avoids overwrites through that publisher; it is not filesystem-enforced immutability or a disaster backup.
 
 ## Controls
 
-| Action            | Control                                              |
-| ----------------- | ---------------------------------------------------- |
-| Move a window     | Drag its title bar in Windows or Spatial view        |
-| Resize a window   | Drag its bottom-right corner in either view          |
-| Change view       | Top-bar Windows / Spatial toggle                     |
-| Hide/show sidebar | Top-bar side-panel toggle                            |
-| Select a monitor  | Click its surface or its bottom display tab          |
-| Move camera       | Drag empty space, or Alt + drag                      |
-| Zoom camera       | Scroll over empty space, Alt + scroll, or bottom −/+ |
-| Restore camera    | Bottom crosshair button                              |
-| Focus one display | Monitor ⛶ or top Focus button                        |
-| Leave focus       | Back button or Escape                                |
-| Split a pane      | ◫ for columns; ⬒ for rows                            |
-| Resize a split    | Drag the divider; focus it and use arrow keys        |
-| Resize text       | Monitor A−/A+ or inspector slider                    |
-| Change pane type  | Pane dropdown                                        |
+| Action | Control |
+| --- | --- |
+| Move / resize | Window title bar / bottom-right corner in Windows or Spatial view |
+| Focus / return | Display focus control / Back or Escape |
+| Change view | Windows / Spatial toggle |
+| Change text size | A−/A+ or inspector; 6–32 px |
+| Split panes | Pane toolbar; drag or keyboard-adjust the divider |
+| Hide settings | Side-panel toggle |
+| Camera | Drag empty space or Alt-drag; scroll/Alt-scroll to zoom |
+| Manage plugins | Hermes tools menu or Ctrl+Alt+P |
+| Save / restore | Hermes tools → Workspace checkpoints |
 
-More monitors make the overview smaller. Focus mode is the primary reading/typing surface on small screens. Use 100% browser/display zoom for spatial mode; Three.js documents this CSS3DRenderer limitation. Focus mode supports normal browser zoom.
+Spatial diagonal sizing is relative, not calibrated physical inches; the former 55-inch ceiling is gone. Existing window/pane count and numeric validation limits still apply. Embedded sites may refuse framing or login; open them externally rather than bypassing their security headers.
 
-Layouts persist. Chat messages and active run IDs survive reloads within the same browser tab using sessionStorage; the Orbit token remains memory-only and must be entered again. Hermes retains server-side session history. Shell processes and terminal buffers do not survive a page reload. Closing a chat pane does not stop an active Hermes run: use Stop first. Adjusting geometry or using focus mode preserves connected terminals. Closing a pane, switching its type, changing presets, or importing a replacement layout closes affected shells after confirmation. Reconnecting starts a new shell. Deliberately detached background programs are not a job-management feature; use tmux if that is needed.
+## Architecture at a glance
 
-## Browser limits
+```text
+Hermes API  ← authenticated bridge →  Orbit core
+                                      ├─ revisioned workspace + checkpoints
+                                      ├─ trusted, lazy-loaded integration modules
+                                      ├─ sandboxed app-plugin windows
+                                      └─ authenticated terminal transport → tmux → host shell
+```
 
-Spatial dragging adjusts horizontal offset and height; corner resizing changes the monitor diagonal while preserving its aspect ratio. The former 55-inch cap is removed; enter a larger value in the Diagonal number field or keep dragging. Camera framing stays stable while enlarging, so oversized windows can extend beyond the viewport. The minimum is 20; finite numeric safety limits still apply. Use the inspector for depth, pitch, yaw, and aspect ratio. Text size supports 6–32 px through A−/A+ and the slider. Alt-drag remains camera movement. Changes render during the gesture and persist afterward.
+TypeScript + Vite + Three.js/CSS3D on the client; Node.js + node-pty on the host. Trusted integration modules use a typed activation registry. User-generated apps use the separate sandboxed plugin lifecycle. Authentication, recovery, terminals and the main renderer remain core responsibilities. [Architecture and source map →](docs/ARCHITECTURE.md)
 
-Built stylesheet changes (including wallpaper CSS) are hot-swapped in existing pages, normally within 1.5 seconds after `npm run build`. This preserves terminals, chat, and document state; failed stylesheet loads retain the previous styling. JavaScript changes still require loading the new application version. The one-time installation of this watcher also requires a new tab or reload. When changing wallpaper image content at the same URL, use a versioned URL in the CSS to ensure a new stylesheet hash and image request.
+## Development and verification
 
-While connected, Hermes layout changes and edits to published app builds appear automatically on the next workspace poll (normally within 1.2 seconds plus request/load time). Only the changed app iframe reloads; the workspace, chat, and shell panes remain mounted. App-local unsaved state may reset. Framework source edits must first be built and published; this is not hot replacement of Orbit's own production JavaScript. Existing tabs need one reload or a new tab to load this upgrade.
+```sh
+npm run check                         # typecheck, build, Node tests
+python3 tests/plugin-publish.test.py   # bundle reuse, version retention, symlink rejection
+```
 
-A pane embeds a website in a sandboxed iframe; it is not a complete Chromium browser. Sites can refuse embedding through CSP `frame-ancestors` or `X-Frame-Options`, and some sign-in flows will not work in an iframe. Use **↗** for those sites. Orbit does not strip these protections or proxy arbitrary sites. Iframe success cannot reliably be detected cross-origin, so the UI does not claim that a remote page loaded successfully.
-
-## Development
-
-Terminal A (POSIX shell):
+For frontend development, start the backend with:
 
 ```sh
 ORBIT_DEV_ORIGINS=http://localhost:4173,http://127.0.0.1:4173 npm start
 ```
 
-Terminal B:
+Run `npm run dev` in another terminal and open http://localhost:4173. Use the loopback production server for ordinary use; the Vite development server binds broadly.
 
-```sh
-npm run dev
-```
+Real Playwright checks under `tests/browser-*.py` exercise plugin lifecycle/rollback, terminal reloads, agent runtime controls and appearance changes. They require a configured live deployment and Playwright Chromium; they are not all run by `npm run check`. Screenshots above were captured from a separate demo browser workspace with synthetic content using [`scripts/capture_readme.py`](scripts/capture_readme.py), not from private user conversations.
 
-Open http://localhost:4173. Vite proxies `/api` to port 4318. On PowerShell, set `$env:ORBIT_DEV_ORIGINS="http://localhost:4173,http://127.0.0.1:4173"` before `npm start`. The production single-origin path requires no development-origin setting. The Vite server binds broadly for development preview; use the production server for normal local use.
+## Documentation
 
-```sh
-npm run check   # TypeScript, production build, integration + model tests
-npm run format # Format source and docs
-```
+| Guide | Purpose |
+| --- | --- |
+| [Hermes operator guide](docs/AGENT_GUIDE.md) | What the embedded agent should do—and avoid |
+| [Workspace controller](docs/WORKSPACE_CONTROL.md) | Layout, appearance, publishing and deployment notes |
+| [Plugins](docs/PLUGINS.md) | Manifest, lifecycle, configuration, security and rollback |
+| [Architecture](docs/ARCHITECTURE.md) | Modules, state, rendering and transport boundaries |
+| [Hermes integration](docs/HERMES.md) | Gateway configuration and direct runtime features |
+| [Checkpoints](docs/CHECKPOINTS.md) | Recovery coverage and exclusions |
+| [Security](docs/SECURITY.md) | Authentication and host-access risks |
+| [Roadmap](docs/ROADMAP.md) | Delivered capabilities versus unfinished work |
 
-Environment:
+## What's next
 
-| Variable            | Default           | Purpose                                                      |
-| ------------------- | ----------------- | ------------------------------------------------------------ |
-| `PORT`              | `4318`            | Local HTTP + WebSocket port                                  |
-| `ORBIT_CWD`         | OS home directory | Starting shell directory                                     |
-| `ORBIT_TOKEN`       | Random each run   | Optional 32+ character secret for controlled local setups    |
-| `ORBIT_DEV_ORIGINS` | Empty             | Exact comma-separated frontend origins for local development |
-
-## Foundation and next steps
-
-Read [Architecture](docs/ARCHITECTURE.md), [Research decisions](docs/RESEARCH.md), [Roadmap](docs/ROADMAP.md), [Security boundary](docs/SECURITY.md), and [Verification](docs/VERIFICATION.md).
-For the current host deployment and agent-driven app-building workflow, read [Workspace control](docs/WORKSPACE_CONTROL.md). Use a fresh tab for the upgraded UI without disconnecting an older shell.
-
-This release remains single-user and binds to loopback. The private deployment uses Tailscale Serve with an exact HTTPS origin allowlist; do not publish it with Funnel or a public reverse proxy. See [Hermes integration and deployment](docs/HERMES.md). Direct SSH host adapters, multi-user isolation, and a full browser engine remain roadmap work.
+The next architectural steps are permission-controlled backend integrations, independent recovery boot, staged plugin validation/promotion, and further extraction of pane/scene behavior into modules. Dependency resolution, multi-user isolation, direct SSH adapters, full browser-engine sessions and reboot-persistent shells are **not implemented**. See the [roadmap](docs/ROADMAP.md) rather than treating the design proposal as shipped functionality.

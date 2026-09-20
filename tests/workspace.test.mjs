@@ -35,6 +35,11 @@ test('checkpoints restore layout, reject stale writes, and keep a before-restore
  assert.equal((await req({action:'history'},false,'bad')).status,403);
  assert.equal(JSON.parse(fs.readFileSync(path.join(root,'workspaces',id+'.json'),'utf8')).revision,3);
 });
+test('agent context includes live operator guide and never workspace capability',async t=>{
+ const {req,service,id,root}=await setup(t);await req({action:'sync',state:initial()});
+ const context=service.context(id);for(const word of ['plugin_install','plugin_update','browser_applied','tmux','base_revision']) assert.ok(context.includes(word),word);
+ const record=JSON.parse(fs.readFileSync(path.join(root,'workspaces',id+'.json'),'utf8'));assert.ok(!context.includes(record.capability));assert.ok(context.includes(id));
+});
 test('plugin browser mutations require current revision and checkpoint before commit',async t=>{
  const {req}=await setup(t);await req({action:'sync',state:initial()});
  const operations=[{action:'plugin_install',manifest:{apiVersion:1,id:'notes',title:'Notes',version:'1.0.0',entry:'/apps/notes/index.html'}},{action:'plugin_enable',plugin_id:'notes'}];

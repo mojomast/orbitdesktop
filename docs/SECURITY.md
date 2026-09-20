@@ -1,5 +1,11 @@
 # Local security boundary
 
+## Plugin and persistence additions
+
+Sandboxed app plugins reuse the app CSP described below. They have no privileged host bridge, but network access is allowed. Configuration is passed in a URL fragment and must not contain secrets. Trusted built-in extensions run in the parent page; they are application code, not arbitrary installable plugins. Content-addressed publication is not filesystem-enforced immutability.
+
+Terminal client cleanup now detaches tmux-backed shells rather than ending them. Connection limits do not bound the total number of detached tmux sessions. Owners must monitor and terminate unused sessions; host reboot persistence and per-user isolation are not implemented. Checkpoints restore workspace metadata, not security revocations, external actions or process state.
+
 This release grants the holder of its session token a real shell as the server user. It intentionally serves only on IPv4 loopback. It is a single-user development foundation, not an Internet-facing terminal service.
 
 The current native deployment runs as mojo on the host. The Orbit token therefore grants real host-account access, not a disposable container. Workspace control also uses owner-only per-workspace capability files; these are not sent to browsers or previews. Agent tools retain their existing Hermes permissions.
