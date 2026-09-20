@@ -46,6 +46,12 @@ export function connectWorkspace(getState: () => Workspace, apply: (state: Works
   }
   flush = async () => { await sync(); if (changes !== sent) await sync(); };
   window.addEventListener('orbit-host-connected', () => { void sync().catch(e => status(e.message)); });
+  window.addEventListener('keydown', event => {
+    if (event.ctrlKey && event.altKey && event.code === 'KeyP') {
+      event.preventDefault();
+      if (!document.querySelector('dialog[aria-label="Workspace plugins"]')) void import('./plugin-manager').then(m => m.showPlugins(getToken)).catch(e => status(String(e)));
+    }
+  });
   const timer = setInterval(() => { if (getToken() && !pending) void sync().catch(e => status(e.message)); }, 1200);
   window.addEventListener('pagehide', () => clearInterval(timer), { once: true });
   return { changed: () => { changes++; }, sync };

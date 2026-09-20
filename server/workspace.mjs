@@ -59,6 +59,15 @@ export function createWorkspaceService({ token, port, devOrigins, reply, root = 
         record.state = next; record.revision++; persist(record);
         return reply(res, 200, safe(record));
       }
+      if (!control && body.action === 'plugins_apply') {
+        if (body.base_revision !== record.revision) return reply(res, 409, { error: 'Workspace changed; refresh and retry' });
+        if (!Array.isArray(body.operations) || !body.operations.length || body.operations.length > 32 || body.operations.some(op => !op || typeof op.action !== 'string' || !op.action.startsWith('plugin_'))) throw Error('Expected plugin operations');
+        let next = record.state;
+        for (const op of body.operations) next = applyOperation(next, op);
+        checkpoints.save(record, 'Before plugin change');
+        record.state = next; record.revision++; persist(record);
+        return reply(res, 200, safe(record));
+      }
       if (control) {
         if (body.action === 'read') return reply(res, 200, safe(record));
         if (body.action !== 'apply') return reply(res, 400, { error: 'Unknown control action' });

@@ -1,7 +1,9 @@
+import { pluginOperation } from './plugins.ts';
 import { validate, monitor, leaves, replace, remove, pane, type Workspace, type PaneKind, type Monitor } from './model.ts';
 
 export function applyOperation(input: Workspace, op: Record<string, any>): Workspace {
   let state = structuredClone(input);
+  if (typeof op.action === 'string' && op.action.startsWith('plugin_')) { pluginOperation(state, op); return validate(state); }
   const target = () => { const m = state.monitors.find(m => m.id === op.window_id); if (!m) throw Error('Unknown window_id'); return m; };
   switch (op.action) {
     case 'set_workspace': return validate(structuredClone(op.state));

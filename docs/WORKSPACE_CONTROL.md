@@ -1,5 +1,9 @@
 # Comet/Orbit workspace control
 
+## Modular workspace plugins
+
+Use the plugin lifecycle for new widgets/apps rather than modifying Orbit source. Read `docs/PLUGINS.md` for the manifest, content-addressed publisher, configuration contract and lifecycle operations. The controller now supports `plugin_install`, `plugin_enable`, `plugin_configure`, `plugin_update`, `plugin_disable`, `plugin_remove` and `plugin_disable_all`, with automatic checkpoints. Manager: Hermes tools → Workspace plugins, or Ctrl+Alt+P. Built-in integration dialogs use the trusted `workspace-extensions.ts` registry. Current backend is `orbitdesktop-plugins.service` on 4333; older port notes below describe previous deployments.
+
 ## Persistent terminals and more appearance controls
 
 Current backend: orbitdesktop-persistent.service on 4332. Terminal panes send their stable pane ID and attach to `/usr/bin/tmux -L orbit-persistent` session `pane-<id>`. Reload/unlock/reconnect resumes the shell; closing the pane detaches rather than kills it. Use `exit` to end the shell, or owner tmux administration to remove orphaned sessions. This requires tmux and does not survive host reboot. Existing non-tmux shells are not migrated. Scrollback is tmux-managed, not a full serialized xterm buffer. Old servers remain alive for legacy sessions. The real browser reload test passed.

@@ -35,6 +35,17 @@ test('checkpoints restore layout, reject stale writes, and keep a before-restore
  assert.equal((await req({action:'history'},false,'bad')).status,403);
  assert.equal(JSON.parse(fs.readFileSync(path.join(root,'workspaces',id+'.json'),'utf8')).revision,3);
 });
+test('plugin browser mutations require current revision and checkpoint before commit',async t=>{
+ const {req}=await setup(t);await req({action:'sync',state:initial()});
+ const operations=[{action:'plugin_install',manifest:{apiVersion:1,id:'notes',title:'Notes',version:'1.0.0',entry:'/apps/notes/index.html'}},{action:'plugin_enable',plugin_id:'notes'}];
+ assert.equal((await req({action:'plugins_apply',base_revision:0,operations})).status,409);
+ assert.equal((await req({action:'plugins_apply',base_revision:1,operations},false,'bad')).status,403);
+ assert.equal((await req({action:'plugins_apply',base_revision:1,operations:[...operations,{action:'plugin_enable',plugin_id:'missing'}]})).status,400);
+ assert.equal((await req({action:'history'})).body.checkpoints.length,0);
+ const ok=await req({action:'plugins_apply',base_revision:1,operations});assert.equal(ok.status,200);assert.equal(ok.body.state.plugins[0].enabled,true);
+ const history=(await req({action:'history'})).body;assert.equal(history.checkpoints.length,1);
+ const restored=await req({action:'restore',checkpoint_id:history.checkpoints[0].id,base_revision:2,confirm:true});assert.equal(restored.status,200);assert.equal(restored.body.state.plugins,undefined);
+});
 test('appearance operations are checkpointable and reject CSS or remote URL injection',()=>{
  const state=initial();const next=applyOperation(state,{action:'set_appearance',appearance:{background:'#123456',wallpaper:'/neon-horizon-v1.svg'}});
  assert.deepEqual(next.appearance,{background:'#123456',wallpaper:'/neon-horizon-v1.svg'});assert.equal(state.appearance,undefined);

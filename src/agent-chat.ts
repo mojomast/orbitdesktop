@@ -1,7 +1,4 @@
-import { showHistory } from './workspace-history';
-import { showCatalog } from './hermes-catalog';
-import { showShelf, showLive } from './hermes-surfaces';
-import { showHermesJobs } from './hermes-jobs';
+import { workspaceExtensions } from './workspace-extensions';
 import './hermes-tools.css';
 import { el, button } from './dom';
 import { workspaceId, ensureWorkspaceSynced } from './workspace-sync';
@@ -83,13 +80,12 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     dialog.className = 'hermes-tools-dialog'; dialog.setAttribute('aria-label', 'Hermes tools');
     const close = button('Close', 'Close Hermes tools', () => dialog.close());
     dialog.append(el('h2', '', 'Hermes tools'), close);
-    dialog.append(button('Workspace checkpoints', 'Open workspace checkpoints', () => { dialog.close(); showHistory(getToken); }));
-    dialog.append(button('Skills and tools', 'Browse actual Hermes capabilities', () => { dialog.close(); showCatalog(api); }));
-    dialog.append(button('Apps and outputs', 'Open published apps and outputs', () => { dialog.close(); void showShelf(getToken); }));
-    const live = button('Live activity', 'Open live Hermes activity', () => { if (state.run) { dialog.close(); void showLive(getToken, state.session, state.run); } });
+    for (const extension of workspaceExtensions) dialog.append(button(extension.title, extension.label, () => {
+      dialog.close(); void extension.activate({token:getToken,api}).catch(error=>window.alert(`Module ${extension.id} could not open: ${String(error)}`));
+    }));
+    const live = button('Live activity', 'Open live Hermes activity', () => { if (state.run) { dialog.close(); const run = state.run; void import('./hermes-surfaces').then(m => m.showLive(getToken, state.session, run)).catch(e => window.alert(String(e))); } });
     live.disabled = true; dialog.append(live);
     if (state.run) void api({action:'capabilities'}).then(data => { live.disabled = !data.features?.run_events_sse; }).catch(() => { live.title = 'Streaming unavailable; use Tool activity'; });
-    dialog.append(button('Scheduled tasks', 'Open actual Hermes scheduled tasks', () => { dialog.close(); showHermesJobs(api); }));
     const activity = el('div', 'hermes-activity');
     let activitySnapshot = '';
     let activityTimer: ReturnType<typeof setTimeout> | undefined;

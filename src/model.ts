@@ -1,3 +1,4 @@
+import { validatePlugins, type PluginInstance } from './plugins.ts';
 export type PaneKind = "terminal" | "browser" | "agent";
 export interface Pane {
   id: string;
@@ -28,6 +29,7 @@ export interface Monitor {
   layout: Layout;
 }
 export interface Workspace {
+  plugins?: PluginInstance[];
   appearance?: { background?: string; wallpaper?: string; textColor?: string; cornerRadius?: number };
   view?: "windows" | "spatial";
   sidebarHidden?: boolean;
@@ -175,6 +177,11 @@ export function validate(value: unknown): Workspace {
     if (a.cornerRadius !== undefined && !finite(a.cornerRadius, 0, 40)) throw Error('Invalid corner radius');
     if (a.background !== undefined && !/^#[0-9a-fA-F]{6}$/.test(a.background)) throw Error('Use a six-digit hex background');
     if (a.wallpaper !== undefined && (typeof a.wallpaper !== 'string' || a.wallpaper.length > 300 || (a.wallpaper !== '' && (!/^\/[a-zA-Z0-9/_-]+\.(svg|png|jpg|jpeg|webp)$/.test(a.wallpaper) || a.wallpaper.startsWith('//'))))) throw Error('Use a local wallpaper asset path');
+  }
+  validatePlugins(s.plugins);
+  for (const plugin of s.plugins || []) {
+    validate({ ...s, plugins: undefined, monitors: [plugin.window], selected: plugin.window.id });
+    plugin.enabled = s.monitors.some(m => m.id === plugin.window.id);
   }
   return s;
 }
