@@ -1,3 +1,4 @@
+import { jevSuggest, jevCandidates } from './jev.mjs';
 import { checkpointStore } from './checkpoints.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -49,6 +50,19 @@ export function createWorkspaceService({ token, port, devOrigins, reply, root = 
         return reply(res, 200, safe(record));
       }
       if (control && !tokenMatches((req.headers.authorization || '').replace(/^Bearer /, ''), record.capability)) return reply(res, 403, { error: 'Workspace capability required' });
+      if (!control && body.action === 'jev_suggest') {
+        const result = await jevSuggest(record.state, body.request, body.api_key, body.consent);
+        return reply(res, 200, { ...result, base_revision: record.revision });
+      }
+      if (!control && body.action === 'jev_apply') {
+        if (body.confirm !== true || body.base_revision !== record.revision) return reply(res, 409, {error:'Confirm against current revision; request a new preview.'});
+        const candidates = jevCandidates(record.state);
+        if (!Object.hasOwn(candidates, body.action_id) || body.action_id === 'hermes') throw Error('Unsupported quick action');
+        let next = record.state;
+        for (const op of candidates[body.action_id].operations) next = applyOperation(next,op);
+        checkpoints.save(record,'Before confirmed Jev quick action');record.state=next;record.revision++;persist(record);
+        return reply(res,200,safe(record));
+      }
       if (body.action === 'history') return reply(res, 200, { checkpoints: checkpoints.list(record.id), revision: record.revision });
       if (body.action === 'checkpoint') return reply(res, 200, { checkpoint: checkpoints.save(record, body.label).id });
       if (body.action === 'restore') {

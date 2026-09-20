@@ -40,6 +40,13 @@ test('agent context includes live operator guide and never workspace capability'
  const context=service.context(id);for(const word of ['plugin_install','plugin_update','browser_applied','tmux','base_revision']) assert.ok(context.includes(word),word);
  const record=JSON.parse(fs.readFileSync(path.join(root,'workspaces',id+'.json'),'utf8'));assert.ok(!context.includes(record.capability));assert.ok(context.includes(id));
 });
+test('Jev quick actions require confirmation, reject stale revisions and create checkpoints',async t=>{
+ const {req}=await setup(t);await req({action:'sync',state:initial()});
+ assert.equal((await req({action:'jev_apply',action_id:'spatial',base_revision:1})).status,409);
+ assert.equal((await req({action:'jev_apply',action_id:'spatial',base_revision:0,confirm:true})).status,409);
+ assert.equal((await req({action:'jev_suggest',request:'3d',api_key:'test-key',consent:false})).status,400);
+ const result=await req({action:'jev_apply',action_id:'spatial',base_revision:1,confirm:true});assert.equal(result.status,200);assert.equal(result.body.state.view,'spatial');assert.equal((await req({action:'history'})).body.checkpoints.length,1);
+});
 test('plugin browser mutations require current revision and checkpoint before commit',async t=>{
  const {req}=await setup(t);await req({action:'sync',state:initial()});
  const operations=[{action:'plugin_install',manifest:{apiVersion:1,id:'notes',title:'Notes',version:'1.0.0',entry:'/apps/notes/index.html'}},{action:'plugin_enable',plugin_id:'notes'}];

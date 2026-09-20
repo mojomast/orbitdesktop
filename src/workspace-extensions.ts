@@ -8,6 +8,7 @@ export interface WorkspaceExtension {
 }
 // Trusted, built-in modules only. User-generated plugins never execute in this realm.
 export const workspaceExtensions: readonly WorkspaceExtension[] = [
+ {id:'jev',title:'Jev quick actions',label:'Open Jev quick actions',activate:async c=>(await import('./jev-ui')).showJev(c.token)},
  {id:'plugins',title:'Workspace plugins',label:'Manage workspace plugins',activate:async c=>(await import('./plugin-manager')).showPlugins(c.token)},
  {id:'checkpoints',title:'Workspace checkpoints',label:'Open workspace checkpoints',activate:async c=>(await import('./workspace-history')).showHistory(c.token)},
  {id:'catalog',title:'Skills and tools',label:'Browse actual Hermes capabilities',activate:async c=>(await import('./hermes-catalog')).showCatalog(c.api)},

@@ -71,6 +71,10 @@ Orbit injects its [operator guide](docs/AGENT_GUIDE.md), the active workspace ID
 
 Use a private authenticated network such as Tailscale Serve, with Orbit's exact public origin configured. Keep the backend on loopback. Do not use Funnel or an unauthenticated public proxy. Deployment examples are under [`deploy/`](deploy/); their absolute paths are examples from one installation and must be adapted.
 
+## Optional Jev quick actions
+
+Open **Hermes tools → Jev quick actions** to supply a TypeSafe key and explicitly authorize a limited workspace summary. This experimental typed-decision path previews view/sidebar changes and installed-plugin enable/disable before a checkpointed apply. Keys are not saved. Complex requests stay with Hermes. Live provider quality and speedup have not yet been measured; contract/browser tests use a synthetic provider decision. [Research, privacy and limits →](docs/JEV.md)
+
 ## Your first plugin
 
 Publish the included notes example:

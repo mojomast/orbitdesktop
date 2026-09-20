@@ -1,5 +1,9 @@
 # Hermes workspace operator guide
 
+## Optional Jev quick actions
+
+The user can opt into Hermes tools → Jev quick actions using their TypeSafe API key and explicit external-data consent. This is an experimental separate fast path for view/sidebar and installed plugin enable/disable only. It does not accelerate your ordinary tool calls automatically. Never request keys in chat, read stored secrets to activate it, or send workspace data externally without consent. Complex requests remain your responsibility using normal controller tools. No real provider latency/quality benchmark has been established; do not promise speedups. Read `docs/JEV.md` for the exact payload and boundaries.
+
 ## Default behavior
 
 Act on the workspace ID supplied by the Orbit conversation context. Never choose another workspace by scanning runtime records. Run the controller yourself rather than instructing the owner to paste commands. Read current state first. The CLI keeps capability credentials private; never print runtime JSON or `.env` files.
