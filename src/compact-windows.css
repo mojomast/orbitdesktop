@@ -1,0 +1,31 @@
+/* Two compact header rows: monitor title + pane tools/chat controls. */
+.monitor .monitor-bar { height: 26px; min-height: 26px; padding: 0 6px; gap: 5px; font-size: 12px; }
+.monitor .monitor-bar button { padding: 2px 4px; font-size: 12px; }
+.monitor .monitor-meta { display: none; }
+.monitor .monitor-content { padding: 2px; }
+.monitor .pane { position: relative; container-type: inline-size; }
+.monitor .pane-head { height: 26px; min-height: 26px; flex-shrink: 0; padding: 0 4px; gap: 2px; }
+.monitor .pane-head select { font-size: 11px; padding: 2px; min-width: 0; }
+.monitor .pane-head button { padding: 2px 4px; font-size: 13px; }
+.monitor .pane:has(.chat-body) .pane-head { padding-right: 145px; }
+.monitor .agent-meta { position: absolute; top: 0; right: 4px; height: 26px; width: 137px; padding: 0; gap: 5px; flex-wrap: nowrap; border: 0; background: transparent; font-size: 10px; }
+.monitor .agent-meta > .agent-avatar, .monitor .agent-meta > div { display: none; }
+.monitor .agent-meta .small-button { font-size: 10px; padding: 3px 5px; white-space: nowrap; }
+.monitor .agent-status { font-size: 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.monitor .agent-notice { display: none; }
+.monitor .agent-controls:has(button:not([hidden])) { padding: 3px 6px; }
+.monitor .agent-progress { padding: 3px 6px; font-size: 10px; max-height: 48px; overflow: auto; }
+.monitor .chat-messages { padding: 8px; }
+.monitor .chat-form { padding: 6px; gap: 6px; }
+/* Browser navigation and shell status share the same second row too. */
+.monitor .pane:has(.browser-nav) .pane-head,
+.monitor .pane:has(.terminal-bar) .pane-head { width: 45%; overflow-x: auto; }
+.monitor .browser-nav, .monitor .terminal-bar { position: absolute; top: 0; right: 0; width: 55%; height: 26px; min-height: 26px; padding: 2px 4px; gap: 3px; margin: 0; overflow: hidden; }
+.monitor .browser-nav input { min-width: 20px; width: 0; flex: 1; padding: 2px; font-size: 10px; }
+.monitor .browser-nav button, .monitor .terminal-bar button { padding: 2px 3px; font-size: 10px; white-space: nowrap; }
+.monitor .terminal-bar .connection-state { font-size: 9px; letter-spacing: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@container (max-width: 300px) {
+ .monitor .pane:has(.chat-body) .pane-head { padding-right: 65px; }
+ .monitor .agent-meta { width: 60px; }
+ .monitor .agent-meta .agent-status { display: none; }
+}

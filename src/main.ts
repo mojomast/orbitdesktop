@@ -1,5 +1,6 @@
 import "./style.css";
 import "./windows.css";
+import "./compact-windows.css";
 import "./workspace-theme.css";
 import { el, button, select } from "./dom";
 import {
