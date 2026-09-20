@@ -1,5 +1,13 @@
 # Hermes agent chat
 
+## Live activity and published outputs
+
+The tools menu offers **Live activity** during an active run when the gateway advertises `run_events_sse`. It proxies the native event stream with server-side authentication and checks the run's Orbit session before subscribing. Expand event rows to inspect their payloads (up to 150 rows, 12K characters per displayed payload). This is an initial event inspector, not a polished token-by-token transcript. Closing the viewer disconnects its stream, not the agent. Normal chat status polling continues; on stream failure use Check status and saved Tool activity. Reopening is possible but replay is not guaranteed. Avoid multiple viewers for the same run: upstream stream fan-out semantics vary by Hermes version. Event payloads can contain sensitive tool data.
+
+**Apps and outputs** lists deliberately published files under Orbit's existing app publication root, never arbitrary home-directory files. HTML apps/reports, text, CSV, and common images can be opened in a sandboxed preview dialog or downloaded. The shelf is profile-wide and persists through the published files themselves, bounded to 100 app folders, 300 entries and four nested directory levels; hidden files and symlinks are excluded. Refresh updates the index. Use the existing workspace controller `publish` command to publish folders. This is not yet a separate artifact registry, PDF viewer, or draggable persistent shelf pane. Published URLs retain the existing app-serving access model; do not publish secrets.
+
+`tests/browser-hermes-surfaces-live.py` verified an existing published preview and real Hermes SSE tool events, then confirmed the chat finished after the stream viewer closed. No mocked agent results were used.
+
 ## Scheduled tasks
 
 Open ⋯ → Scheduled tasks to inspect this gateway profile's real cron jobs through Hermes `/api/jobs?include_disabled=true`. The view shows task names/IDs, available state, schedule, next/last run timestamps and last result. It refreshes every 15 seconds while open, supports filtering and manual refresh, and marks refresh failures as potentially stale data. Timestamps retain the upstream timezone. This is profile-wide, not limited to tasks created by the current chat.

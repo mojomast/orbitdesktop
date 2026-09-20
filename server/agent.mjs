@@ -35,6 +35,23 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
       let body;
       try { body = JSON.parse(raw); } catch { return reply(res, 400, { error: 'Invalid JSON' }); }
       if (!body || typeof body !== 'object' || !sessionPattern.test(body.session_id || '')) return reply(res, 400, { error: 'Invalid Orbit conversation.' });
+      if (body.action === 'capabilities') {
+        const data = await upstream('/v1/capabilities');
+        return reply(res, 200, { features: { run_events_sse: data.features?.run_events_sse === true } });
+      }
+      if (body.action === 'events') {
+        if (!runPattern.test(body.run_id || '')) return reply(res, 400, { error: 'Invalid run.' });
+        const run = await upstream(`/v1/runs/${body.run_id}`);
+        if (run.session_id !== body.session_id) return reply(res, 404, { error: 'Run not found in this Orbit conversation.' });
+        const caps = await upstream('/v1/capabilities');
+        if (!caps.features?.run_events_sse) return reply(res, 409, { error: 'Streaming unavailable; use status polling.' });
+        const abort = new AbortController(); res.on('close', () => abort.abort());
+        const stream = await fetchImpl(`${apiUrl.replace(/\/$/, '')}/v1/runs/${body.run_id}/events`, { headers: { Authorization: `Bearer ${apiKey}` }, signal: abort.signal, redirect: 'error' });
+        if (!stream.ok) return reply(res, 502, { error: 'Activity stream unavailable; use status polling.' });
+        res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' });
+        try { for await (const chunk of stream.body) { if (!res.write(chunk)) await new Promise(resolve => { res.once('drain', resolve); res.once('close', resolve); }); if (res.destroyed) break; } } finally { abort.abort(); res.end(); }
+        return;
+      }
       if (body.action === 'job_control') {
         if (!['pause', 'resume'].includes(body.operation) || typeof body.job_id !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(body.job_id) || body.confirm !== true) return reply(res, 400, { error: 'Confirm a valid pause or resume operation.' });
         await upstream(`/api/jobs/${encodeURIComponent(body.job_id)}/${body.operation}`, {});
@@ -116,6 +133,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
       }
       return reply(res, 200, { run_id: run.run_id, status: run.status, output: typeof run.output === 'string' ? run.output : '', error: run.error ? 'Hermes reported a run failure. Try again or check the Hermes dashboard.' : undefined, last_event: run.last_event, approvals });
     } catch (error) {
+      if (res.headersSent) { res.end(); return; }
       return reply(res, error.status || 502, { error: error.status ? error.message : 'Cannot reach Hermes right now. Your run may still be active; retry status before sending again.' });
     }
   };

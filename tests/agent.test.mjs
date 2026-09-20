@@ -46,8 +46,8 @@ test('start forwards only constrained fields and keeps API credentials server-si
 });
 test('run status and controls cannot touch non-Orbit or other-pane sessions',async t=>{
  const {request,calls}=await setup(t,()=>json({session_id:'dashboard-other',status:'running'}));
- for(const action of ['status','stop','approval','steer']) assert.equal((await request({action,run_id:runId,choice:'once',input:'guidance'})).status,404);
- assert.equal(calls.length,4);
+ for(const action of ['status','stop','approval','steer','events']) assert.equal((await request({action,run_id:runId,choice:'once',input:'guidance'})).status,404);
+ assert.equal(calls.length,5);
 });
 test('completed run returns output without unrelated upstream metadata',async t=>{
  const {request}=await setup(t,()=>json({run_id:runId,session_id:session,status:'completed',output:'Hello!',private:'not for client'}));
@@ -76,6 +76,12 @@ test('job controls require confirmation and allow only scoped pause/resume',asyn
  for(const extra of [{confirm:false},{operation:'run'},{job_id:'../other'},{job_id:42}]) assert.equal((await request({action:'job_control',operation:'pause',job_id:'test-job',confirm:true,...extra})).status,400);
  assert.equal((await request({action:'job_control',operation:'pause',job_id:'test-job',confirm:true},{Authorization:'Bearer wrong'})).status,401);
  assert.equal(calls.length,n);
+});
+test('live streaming is capability-gated and session-scoped',async t=>{
+ const {request,calls}=await setup(t,url=>json(url.endsWith('/capabilities')?{features:{run_events_sse:false},secret:'hidden'}:{session_id:session}));
+ assert.deepEqual((await request({action:'capabilities'})).body,{features:{run_events_sse:false}});
+ assert.equal((await request({action:'events',run_id:runId})).status,409);
+ assert.ok(!calls.some(c=>c.url.endsWith('/events')));
 });
 test('steering is scoped and forwards only guidance',async t=>{
  const {request,calls}=await setup(t,url=>json(url.endsWith('/steer')?{accepted:true}:{session_id:session,status:'running'}));

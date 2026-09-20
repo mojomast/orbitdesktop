@@ -58,6 +58,21 @@ export function createWorkspaceService({ token, port, devOrigins, reply, root = 
         record.state = next; record.revision++; record.api = `http://127.0.0.1:${port}`; persist(record);
         return reply(res, 200, safe(record));
       }
+      if (!control && body.action === 'shelf') {
+        const items = [];
+        for (const slug of Object.keys(appVersions()).slice(0, 100)) {
+          const dir = path.join(root, 'apps', slug);
+          const walk = (folder, prefix = '', depth = 0) => { if (depth > 4 || items.length >= 300) return;
+            for (const entry of fs.readdirSync(folder, { withFileTypes: true })) {
+              if (entry.name.startsWith('.') || entry.isSymbolicLink() || items.length >= 300) continue;
+              const relative = prefix + entry.name;
+              if (entry.isDirectory()) walk(path.join(folder, entry.name), relative + '/', depth + 1);
+              else if (/\.(html|txt|csv|png|jpg|jpeg|webp|gif)$/i.test(entry.name)) items.push({ title: `${slug} / ${relative}`, url: '/apps/' + slug + '/' + relative.split('/').map(encodeURIComponent).join('/'), kind: entry.name.endsWith('.html') ? 'app/report' : 'output' });
+            }
+          }; walk(dir);
+        }
+        return reply(res, 200, { items });
+      }
       record.browser_seen = Date.now();
       record.observed_revision = Math.min(record.revision, Number(body.observed_revision) || 0);
       record.api = `http://127.0.0.1:${port}`;
