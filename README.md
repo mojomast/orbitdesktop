@@ -62,6 +62,12 @@ Revision-checked controller mutations and supported plugin changes create checkp
 
 Checkpoints are not filesystem backups. They do not restore documents, shell processes, conversations, container state, emails, or other external effects.
 
+## Hermes plugin integration
+
+Orbit includes a native Hermes agent plugin in [`hermes-plugin/`](hermes-plugin/README.md). It registers one `orbit_workspace` tool for scoped workspace reads, previews, revision-checked edits, history, checkpoints and confirmed restores. It defaults to read-only and requires an explicitly configured local workspace; no credentials are pasted into chat and no services start automatically.
+
+The Hermes catalog submission is pending review. See the [plugin installation and configuration guide](hermes-plugin/README.md) for pinned installation from this repository and the trust boundaries. This adapter is distinct from Orbit's sandboxed HTML app plugins and does not embed Orbit into the Hermes Desktop Electron renderer. Keep running Orbit normally; Xpra and its Linux desktop shortcuts remain separately deployed integrations.
+
 ## Everyday workflows
 
 Writing and research: open Writer and Chromium beside Hermes. Develop an outline, check sources, and save the document to the Linux apps' shared Documents folder.
