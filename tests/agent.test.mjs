@@ -46,8 +46,8 @@ test('start forwards only constrained fields and keeps API credentials server-si
 });
 test('run status and controls cannot touch non-Orbit or other-pane sessions',async t=>{
  const {request,calls}=await setup(t,()=>json({session_id:'dashboard-other',status:'running'}));
- for(const action of ['status','stop','approval']) assert.equal((await request({action,run_id:runId,choice:'once'})).status,404);
- assert.equal(calls.length,3);
+ for(const action of ['status','stop','approval','steer']) assert.equal((await request({action,run_id:runId,choice:'once',input:'guidance'})).status,404);
+ assert.equal(calls.length,4);
 });
 test('completed run returns output without unrelated upstream metadata',async t=>{
  const {request}=await setup(t,()=>json({run_id:runId,session_id:session,status:'completed',output:'Hello!',private:'not for client'}));
@@ -61,6 +61,17 @@ test('stop works and approvals allow only once or deny, never persistent approva
  assert.equal((await request({action:'approval',run_id:runId,choice:'always'})).status,400);
  assert.equal((await request({action:'approval',run_id:runId,choice:'once'})).body.resolved,1);
  assert.deepEqual(JSON.parse(calls.at(-1).options.body),{choice:'once'});
+});
+test('steering is scoped and forwards only guidance',async t=>{
+ const {request,calls}=await setup(t,url=>json(url.endsWith('/steer')?{accepted:true}:{session_id:session,status:'running'}));
+ assert.equal((await request({action:'steer',run_id:runId,input:'use blue'})).body.accepted,true);
+ assert.deepEqual(JSON.parse(calls.at(-1).options.body),{input:'use blue'});
+ assert.equal((await request({action:'steer',run_id:runId,input:''})).status,400);
+});
+test('tool activity exposes bounded calls/results, not system messages',async t=>{
+ const {request}=await setup(t,()=>json({data:[{role:'system',content:'private instructions'},{role:'assistant',tool_calls:[{id:'t1',function:{name:'terminal',arguments:'{}'}}]},{role:'tool',tool_call_id:'t1',content:'x'.repeat(10000)}]}));
+ const r=await request({action:'activity'});assert.equal(r.body.activity.length,2);assert.equal(r.body.activity[1].detail.length,8000);assert.ok(!JSON.stringify(r.body).includes('private instructions'));
+ assert.equal((await request({action:'activity',session_id:'other'})).status,400);
 });
 test('pending approval details are scoped to this run',async t=>{
  const {request,calls}=await setup(t,url=>json(url.includes('pending?')?{approvals:[{command:'example command',reason:'approval needed'}]}:{session_id:session,status:'waiting_for_approval'}));

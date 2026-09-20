@@ -1,5 +1,15 @@
 # Hermes agent chat
 
+## Direct Hermes runtime integration
+
+**Send guidance** appears while a run is active. Type a correction in the composer and press that button to call Hermes's native `/v1/runs/{id}/steer` endpoint. This does not start another turn or stop/restart the existing run. Guidance is consumed at a safe point; already-executing commands are not undone. Rejected/late guidance leaves the draft intact. Orbit confirms acceptance only when Hermes reports `accepted: true`.
+
+**Tool activity** in the tools menu fetches the current Orbit conversation's actual persisted tool calls, arguments, and results from Hermes. It polls every three seconds while open. Expand entries to inspect commands, file operations, and tool output. This is persisted history, not SSE streaming: in-flight tools may appear only after persistence. The latest 80 message records are queried, with bounded/truncated output. System instructions are excluded. Tool results can contain private file contents or credentials produced by tools; this owner-authenticated view is not a secrets-redaction boundary. Nothing is rendered as HTML.
+
+The server retains upstream authentication and checks that steering targets the requested Orbit session. Non-Orbit session identifiers are rejected. Tool activity is read-only; it does not rerun commands. Existing Stop and approval controls remain separate.
+
+Live verification: `tests/browser-hermes-runtime-live.py` starts a real harmless terminal tool call, sends native steering through Orbit, observes the changed final answer, and verifies the real terminal arguments/result in the activity viewer. No mocked Hermes replies were used for that acceptance test.
+
 ## Tools menu, history, and drafts
 
 The `⋯` button beside the composer opens Hermes tools without adding another header row.

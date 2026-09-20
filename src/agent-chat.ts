@@ -52,7 +52,19 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     finally { stop.disabled = false; }
   }, 'small-button');
   const resume = button('Check status', 'Resume checking the active Hermes run', () => { void poll(); }, 'small-button');
-  controls.append(stop, resume);
+  const steer = button('Send guidance', 'Send composer text to the active Hermes run', async () => {
+    const text = input.value.trim(); if (!state.run || !text) return;
+    steer.disabled = true;
+    try {
+      const result = await api({ action: 'steer', run_id: state.run, input: text });
+      if (!result.accepted) throw Error('Hermes did not accept this guidance. Your draft is preserved.');
+      state.messages.push({ role: 'user', text: `[Guidance to active run] ${text}` }); save(); render();
+      if (input.value.trim() === text) { input.value = ''; try { sessionStorage.removeItem(draftKey); } catch {} }
+      progress.textContent = 'Guidance accepted by Hermes. It will be consumed at a safe point; already-running tool actions are not undone.';
+    } catch (error) { showError(error); }
+    finally { steer.disabled = false; }
+  }, 'small-button');
+  controls.append(stop, resume, steer);
   const form = el('form', 'chat-form');
   const input = el('textarea');
   input.placeholder = 'Ask Hermes…'; input.rows = 2; input.maxLength = 8000;
@@ -67,6 +79,27 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     dialog.className = 'hermes-tools-dialog'; dialog.setAttribute('aria-label', 'Hermes tools');
     const close = button('Close', 'Close Hermes tools', () => dialog.close());
     dialog.append(el('h2', '', 'Hermes tools'), close);
+    const activity = el('div', 'hermes-activity');
+    let activitySnapshot = '';
+    let activityTimer: ReturnType<typeof setTimeout> | undefined;
+    async function loadActivity() {
+      try {
+        const result = await api({ action: 'activity' });
+        if (!dialog.open || disposed) return;
+        if (activitySnapshot === JSON.stringify(result)) { activityTimer = setTimeout(() => { void loadActivity(); }, 3000); return; }
+        activitySnapshot = JSON.stringify(result);
+        activity.replaceChildren(el('p', '', result.note));
+        if (!result.activity?.length) activity.append(el('p', '', 'No persisted tool calls yet.'));
+        for (const item of result.activity || []) {
+          const detail = document.createElement('details');
+          detail.append(el('summary', '', `${item.kind === 'call' ? 'CALL' : 'RESULT'} · ${item.name}`), el('pre', '', item.detail));
+          activity.append(detail);
+        }
+      } catch (error) { if (dialog.open) activity.textContent = error instanceof Error ? error.message : 'Activity unavailable'; }
+      if (dialog.open && !disposed) activityTimer = setTimeout(() => { void loadActivity(); }, 3000);
+    }
+    dialog.append(button('Tool activity', 'Inspect actual Hermes tool calls and results', () => { clearTimeout(activityTimer); void loadActivity(); }), activity);
+    dialog.addEventListener('close', () => clearTimeout(activityTimer));
     dialog.append(el('p', '', 'History and drafts stay in this browser tab. Exports may contain private conversation content.'));
     dialog.append(button('Export conversation', 'Download this Hermes conversation', () => {
       const blob = new Blob([transcript(state)], { type: 'text/plain;charset=utf-8' });
@@ -100,7 +133,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   function update() {
     const active = busy || !!state.run;
     send.disabled = active; newChat.disabled = active;
-    stop.hidden = !state.run; resume.hidden = !state.run;
+    stop.hidden = !state.run; resume.hidden = !state.run; steer.hidden = !state.run;
     // Allow composing the next message while Hermes works; Send remains disabled.
     input.disabled = false;
   }

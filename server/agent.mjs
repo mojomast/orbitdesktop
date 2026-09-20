@@ -35,6 +35,24 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
       let body;
       try { body = JSON.parse(raw); } catch { return reply(res, 400, { error: 'Invalid JSON' }); }
       if (!body || typeof body !== 'object' || !sessionPattern.test(body.session_id || '')) return reply(res, 400, { error: 'Invalid Orbit conversation.' });
+      if (body.action === 'activity') {
+        const data = await upstream(`/api/sessions/${body.session_id}/messages?limit=80&order=latest`);
+        const activity = [];
+        let budget = 80000;
+        for (const m of (data.data || []).slice(-80)) {
+          for (const call of (Array.isArray(m.tool_calls) ? m.tool_calls : []).slice(0, 100 - activity.length)) {
+            const f = call.function || call;
+            const detail = (typeof f.arguments === 'string' ? f.arguments : JSON.stringify(f.arguments || {})).slice(0, Math.min(4000, budget)); budget -= detail.length;
+            activity.push({ kind: 'call', name: String(f.name || 'tool').slice(0, 100), id: String(call.id || '').slice(0, 150), detail });
+          }
+          if (m.role === 'tool') {
+            const detail = String(m.content || '').slice(0, Math.min(8000, budget)); budget -= detail.length;
+            activity.push({ kind: 'result', name: String(m.name || 'Tool result').slice(0, 100), id: String(m.tool_call_id || '').slice(0, 150), detail });
+          }
+          if (budget <= 0 || activity.length >= 100) break;
+        }
+        return reply(res, 200, { activity, note: 'Persisted tool history for this conversation; active tools may appear only after Hermes saves them. Results are truncated.' });
+      }
       if (body.action === 'start') {
         if (typeof body.input !== 'string' || !body.input.trim() || body.input.length > 8000) return reply(res, 400, { error: 'Enter a message of 1–8000 characters.' });
         // Older Hermes Runs implementations persist sessions but do not reload
@@ -61,11 +79,16 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
         const data = await upstream('/v1/runs', { input: body.input.trim(), session_id: body.session_id, instructions: instructions + context, conversation_history });
         return reply(res, 202, { run_id: data.run_id, status: data.status });
       }
-      if (!['status', 'stop', 'approval'].includes(body.action) || !runPattern.test(body.run_id || '')) return reply(res, 400, { error: 'Invalid agent action.' });
+      if (!['status', 'stop', 'approval', 'steer'].includes(body.action) || !runPattern.test(body.run_id || '')) return reply(res, 400, { error: 'Invalid agent action.' });
       const path = `/v1/runs/${body.run_id}`;
       const run = await upstream(path);
       // Never let Orbit operate on another dashboard's sessions/runs.
       if (run.session_id !== body.session_id) return reply(res, 404, { error: 'Run not found in this Orbit conversation.' });
+      if (body.action === 'steer') {
+        if (typeof body.input !== 'string' || !body.input.trim() || body.input.length > 8000) return reply(res, 400, { error: 'Guidance must contain 1–8000 characters.' });
+        const data = await upstream(`${path}/steer`, { input: body.input.trim() });
+        return reply(res, 200, { accepted: data.accepted === true });
+      }
       if (body.action === 'stop') {
         await upstream(`${path}/stop`, {});
         return reply(res, 200, { status: 'stopping' });

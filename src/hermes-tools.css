@@ -1,4 +1,7 @@
 .hermes-tools-dialog { width: min(480px, 90vw); max-height: 80vh; overflow: auto; padding: 18px; background: #152126; color: #d6e3de; border: 1px solid #7c9b63; border-radius: 10px; }
+.hermes-activity { max-height: 45vh; overflow: auto; }
+.hermes-activity pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; padding: 8px; background: #0d161a; }
+.hermes-activity summary { cursor: pointer; padding: 5px; font-size: 12px; }
 .hermes-tools-dialog::backdrop { background: #0008; }
 .hermes-tools-dialog h2 { font-size: 18px; }
 .hermes-tools-dialog h3 { margin: 16px 0 6px; font-size: 13px; }
