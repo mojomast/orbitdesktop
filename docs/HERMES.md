@@ -1,5 +1,13 @@
 # Hermes agent chat
 
+## Scheduled tasks
+
+Open ⋯ → Scheduled tasks to inspect this gateway profile's real cron jobs through Hermes `/api/jobs?include_disabled=true`. The view shows task names/IDs, available state, schedule, next/last run timestamps and last result. It refreshes every 15 seconds while open, supports filtering and manual refresh, and marks refresh failures as potentially stale data. Timestamps retain the upstream timezone. This is profile-wide, not limited to tasks created by the current chat.
+
+This first integration is read-only: it does not create, pause, run, or delete jobs. Tasks continue on the gateway independently of Orbit. The authenticated server allowlists metadata fields and excludes job prompts and delivery destinations; up to 200 jobs are displayed. No extra inference is used. Closing the dialog stops polling.
+
+Live acceptance: `tests/browser-hermes-jobs-live.py` displayed seven actual gateway tasks and checked filtering, refresh, close, omitted private fields, and browser JavaScript errors. No production schedules were modified.
+
 ## Direct Hermes runtime integration
 
 **Send guidance** appears while a run is active. Type a correction in the composer and press that button to call Hermes's native `/v1/runs/{id}/steer` endpoint. This does not start another turn or stop/restart the existing run. Guidance is consumed at a safe point; already-executing commands are not undone. Rejected/late guidance leaves the draft intact. Orbit confirms acceptance only when Hermes reports `accepted: true`.

@@ -62,6 +62,13 @@ test('stop works and approvals allow only once or deny, never persistent approva
  assert.equal((await request({action:'approval',run_id:runId,choice:'once'})).body.resolved,1);
  assert.deepEqual(JSON.parse(calls.at(-1).options.body),{choice:'once'});
 });
+test('scheduled tasks are read-only, authenticated, and omit prompts and destinations',async t=>{
+ const {request,calls}=await setup(t,()=>json({jobs:[{id:'job1',name:'Example',enabled:true,prompt:'SECRET',deliver:'PRIVATE',last_status:'ok'}]}));
+ assert.equal((await request({action:'jobs'},{Authorization:'Bearer wrong'})).status,401);
+ assert.equal(calls.length,0);
+ const result=await request({action:'jobs'});assert.equal(result.body.jobs[0].last_status,'ok');assert.ok(!JSON.stringify(result.body).includes('SECRET'));assert.ok(!JSON.stringify(result.body).includes('PRIVATE'));
+ assert.ok(calls[0].url.endsWith('/api/jobs?include_disabled=true'));assert.equal(calls[0].options.method,'GET');
+});
 test('steering is scoped and forwards only guidance',async t=>{
  const {request,calls}=await setup(t,url=>json(url.endsWith('/steer')?{accepted:true}:{session_id:session,status:'running'}));
  assert.equal((await request({action:'steer',run_id:runId,input:'use blue'})).body.accepted,true);

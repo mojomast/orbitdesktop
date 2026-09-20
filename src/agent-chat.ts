@@ -1,3 +1,4 @@
+import { showHermesJobs } from './hermes-jobs';
 import './hermes-tools.css';
 import { el, button } from './dom';
 import { workspaceId, ensureWorkspaceSynced } from './workspace-sync';
@@ -79,6 +80,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     dialog.className = 'hermes-tools-dialog'; dialog.setAttribute('aria-label', 'Hermes tools');
     const close = button('Close', 'Close Hermes tools', () => dialog.close());
     dialog.append(el('h2', '', 'Hermes tools'), close);
+    dialog.append(button('Scheduled tasks', 'Open actual Hermes scheduled tasks', () => { dialog.close(); showHermesJobs(api); }));
     const activity = el('div', 'hermes-activity');
     let activitySnapshot = '';
     let activityTimer: ReturnType<typeof setTimeout> | undefined;
