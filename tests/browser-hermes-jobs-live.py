@@ -15,6 +15,19 @@ with sync_playwright() as p:
  jobs=data['jobs'];assert len(jobs)>0
  expect(g.locator('.hermes-job')).to_have_count(len(jobs));assert all('prompt' not in j and 'deliver' not in j for j in jobs)
  g.get_by_role('textbox',name='Filter Hermes tasks').fill(jobs[0]['id']);expect(g.locator('.hermes-job')).to_have_count(1)
+ controls=[]
+ def intercept(route):
+  data=route.request.post_data_json
+  if data.get('action')=='job_control':
+   controls.append(data);route.fulfill(status=200,content_type='application/json',body='{"accepted":true}')
+  else:route.continue_()
+ g.route('**/api/agent',intercept)
+ g.locator('.hermes-job button').filter(has_text='Pause').click();g.get_by_role('button',name='Cancel schedule change',exact=True).click();assert not controls
+ for label,op in [('Pause','pause'),('Resume','resume')]:
+  g.locator('.hermes-job button').filter(has_text=label).click();g.get_by_role('button',name='Confirm schedule change',exact=True).click()
+  expect(g.get_by_role('dialog',name='Confirm schedule change')).to_have_count(0)
+  assert controls[-1]['operation']==op and controls[-1]['confirm'] is True
+ print('PASS: pause/resume confirmation and cancellation browser flows (mutation responses mocked; production schedules untouched).')
  g.get_by_role('textbox',name='Filter Hermes tasks').fill('impossible-no-task-match');expect(g.locator('.hermes-job-list')).to_contain_text('No matching tasks')
  g.get_by_role('button',name='Refresh scheduled tasks',exact=True).click()
  g.get_by_role('button',name='Close scheduled tasks').click();expect(g.get_by_role('dialog',name='Hermes scheduled tasks')).to_have_count(0)

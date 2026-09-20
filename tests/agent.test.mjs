@@ -69,6 +69,14 @@ test('scheduled tasks are read-only, authenticated, and omit prompts and destina
  const result=await request({action:'jobs'});assert.equal(result.body.jobs[0].last_status,'ok');assert.ok(!JSON.stringify(result.body).includes('SECRET'));assert.ok(!JSON.stringify(result.body).includes('PRIVATE'));
  assert.ok(calls[0].url.endsWith('/api/jobs?include_disabled=true'));assert.equal(calls[0].options.method,'GET');
 });
+test('job controls require confirmation and allow only scoped pause/resume',async t=>{
+ const {request,calls}=await setup(t,()=>json({job:{prompt:'never expose'}}));
+ for(const operation of ['pause','resume']) {const r=await request({action:'job_control',job_id:'test-job',operation,confirm:true});assert.equal(r.status,200);assert.equal(r.body.accepted,true);assert.ok(calls.at(-1).url.endsWith('/test-job/'+operation));assert.equal(calls.at(-1).options.method,'POST');assert.ok(!JSON.stringify(r.body).includes('never expose'));}
+ const n=calls.length;
+ for(const extra of [{confirm:false},{operation:'run'},{job_id:'../other'},{job_id:42}]) assert.equal((await request({action:'job_control',operation:'pause',job_id:'test-job',confirm:true,...extra})).status,400);
+ assert.equal((await request({action:'job_control',operation:'pause',job_id:'test-job',confirm:true},{Authorization:'Bearer wrong'})).status,401);
+ assert.equal(calls.length,n);
+});
 test('steering is scoped and forwards only guidance',async t=>{
  const {request,calls}=await setup(t,url=>json(url.endsWith('/steer')?{accepted:true}:{session_id:session,status:'running'}));
  assert.equal((await request({action:'steer',run_id:runId,input:'use blue'})).body.accepted,true);

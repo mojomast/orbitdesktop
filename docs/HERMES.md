@@ -4,7 +4,9 @@
 
 Open ⋯ → Scheduled tasks to inspect this gateway profile's real cron jobs through Hermes `/api/jobs?include_disabled=true`. The view shows task names/IDs, available state, schedule, next/last run timestamps and last result. It refreshes every 15 seconds while open, supports filtering and manual refresh, and marks refresh failures as potentially stale data. Timestamps retain the upstream timezone. This is profile-wide, not limited to tasks created by the current chat.
 
-This first integration is read-only: it does not create, pause, run, or delete jobs. Tasks continue on the gateway independently of Orbit. The authenticated server allowlists metadata fields and excludes job prompts and delivery destinations; up to 200 jobs are displayed. No extra inference is used. Closing the dialog stops polling.
+Pause and Resume call the native Hermes job endpoints after a confirmation dialog. Pausing prevents future scheduled executions; it does not cancel an active task. Orbit does not create, run-now, or delete jobs. Tasks continue on the gateway independently of Orbit. The authenticated server allowlists metadata fields and excludes job prompts and delivery destinations; up to 200 jobs are displayed. No extra inference is used. Closing the dialog stops polling. Errors preserve uncertainty: refresh job state before retrying a timed-out mutation.
+
+Control verification: backend tests exercise exact endpoint forwarding, confirmation, authentication, and rejection of unsupported operations/path traversal. Browser tests exercise cancellation and both confirmation flows with intercepted mutation responses, while listing real jobs. Production schedules were not modified; successful real gateway mutations have not been tested in this pass.
 
 Live acceptance: `tests/browser-hermes-jobs-live.py` displayed seven actual gateway tasks and checked filtering, refresh, close, omitted private fields, and browser JavaScript errors. No production schedules were modified.
 

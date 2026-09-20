@@ -35,6 +35,11 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
       let body;
       try { body = JSON.parse(raw); } catch { return reply(res, 400, { error: 'Invalid JSON' }); }
       if (!body || typeof body !== 'object' || !sessionPattern.test(body.session_id || '')) return reply(res, 400, { error: 'Invalid Orbit conversation.' });
+      if (body.action === 'job_control') {
+        if (!['pause', 'resume'].includes(body.operation) || typeof body.job_id !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(body.job_id) || body.confirm !== true) return reply(res, 400, { error: 'Confirm a valid pause or resume operation.' });
+        await upstream(`/api/jobs/${encodeURIComponent(body.job_id)}/${body.operation}`, {});
+        return reply(res, 200, { accepted: true, operation: body.operation });
+      }
       if (body.action === 'jobs') {
         const data = await upstream('/api/jobs?include_disabled=true');
         const fields = ['id', 'name', 'enabled', 'state', 'schedule', 'schedule_display', 'next_run_at', 'last_run_at', 'last_status', 'paused'];
