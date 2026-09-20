@@ -22,6 +22,19 @@ async function setup(t) {
  }
  return {root,origin,id,req,service};
 }
+test('checkpoints restore layout, reject stale writes, and keep a before-restore snapshot',async t=>{
+ const {root,id,req}=await setup(t);await req({action:'sync',state:initial()});
+ const record=JSON.parse(fs.readFileSync(path.join(root,'workspaces',id+'.json'),'utf8'));
+ await req({action:'apply',base_revision:1,operations:[{action:'sidebar',hidden:true}]},true,record.capability);
+ const history=await req({action:'history'});assert.equal(history.body.checkpoints.length,1);
+ const checkpoint_id=history.body.checkpoints[0].id;
+ assert.equal((await req({action:'restore',checkpoint_id,base_revision:1,confirm:true})).status,409);
+ assert.equal((await req({action:'restore',checkpoint_id,base_revision:2})).status,409);
+ const result=await req({action:'restore',checkpoint_id,base_revision:2,confirm:true});assert.equal(result.status,200);assert.notEqual(result.body.state.sidebarHidden,true);assert.equal(result.body.revision,3);
+ assert.equal((await req({action:'history'})).body.checkpoints.length,2);
+ assert.equal((await req({action:'history'},false,'bad')).status,403);
+ assert.equal(JSON.parse(fs.readFileSync(path.join(root,'workspaces',id+'.json'),'utf8')).revision,3);
+});
 test('workspace operations validate geometry and support targeted changes without mutating input',()=>{
  const s=initial(),id=s.monitors[0].id;
  const next=applyOperation(s,{action:'update_window',window_id:id,name:'Host Workshop',frame:{x:10,y:20,width:700,height:450,z:5}});

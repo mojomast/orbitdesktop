@@ -1,3 +1,4 @@
+import { showHistory } from './workspace-history';
 import { showCatalog } from './hermes-catalog';
 import { showShelf, showLive } from './hermes-surfaces';
 import { showHermesJobs } from './hermes-jobs';
@@ -82,6 +83,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     dialog.className = 'hermes-tools-dialog'; dialog.setAttribute('aria-label', 'Hermes tools');
     const close = button('Close', 'Close Hermes tools', () => dialog.close());
     dialog.append(el('h2', '', 'Hermes tools'), close);
+    dialog.append(button('Workspace checkpoints', 'Open workspace checkpoints', () => { dialog.close(); showHistory(getToken); }));
     dialog.append(button('Skills and tools', 'Browse actual Hermes capabilities', () => { dialog.close(); showCatalog(api); }));
     dialog.append(button('Apps and outputs', 'Open published apps and outputs', () => { dialog.close(); void showShelf(getToken); }));
     const live = button('Live activity', 'Open live Hermes activity', () => { if (state.run) { dialog.close(); void showLive(getToken, state.session, state.run); } });

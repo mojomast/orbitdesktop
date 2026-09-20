@@ -1,3 +1,4 @@
+import { checkpointStore } from './checkpoints.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
@@ -12,6 +13,7 @@ const slugPattern = /^[a-z0-9][a-z0-9-]{0,60}$/;
 export function createWorkspaceService({ token, port, devOrigins, reply, root = runtimeRoot }) {
   fs.mkdirSync(path.join(root, 'workspaces'), { recursive: true, mode: 0o700 });
   fs.mkdirSync(path.join(root, 'apps'), { recursive: true, mode: 0o700 });
+  const checkpoints = checkpointStore(root);
   const filename = id => { if (!idPattern.test(id || '')) throw Error('Invalid workspace id'); return path.join(root, 'workspaces', `${id}.json`); };
   const read = id => JSON.parse(fs.readFileSync(filename(id), 'utf8'));
   const persist = record => { const file = filename(record.id); fs.writeFileSync(file + '.tmp', JSON.stringify(record), { mode: 0o600 }); fs.renameSync(file + '.tmp', file); };
@@ -47,6 +49,16 @@ export function createWorkspaceService({ token, port, devOrigins, reply, root = 
         return reply(res, 200, safe(record));
       }
       if (control && !tokenMatches((req.headers.authorization || '').replace(/^Bearer /, ''), record.capability)) return reply(res, 403, { error: 'Workspace capability required' });
+      if (body.action === 'history') return reply(res, 200, { checkpoints: checkpoints.list(record.id), revision: record.revision });
+      if (body.action === 'checkpoint') return reply(res, 200, { checkpoint: checkpoints.save(record, body.label).id });
+      if (body.action === 'restore') {
+        if (body.confirm !== true || body.base_revision !== record.revision) return reply(res, 409, { error: 'Confirm restore against the current revision.' });
+        const snapshot = checkpoints.get(record.id, body.checkpoint_id);
+        const next = validate(snapshot.state);
+        checkpoints.save(record, 'Before restore');
+        record.state = next; record.revision++; persist(record);
+        return reply(res, 200, safe(record));
+      }
       if (control) {
         if (body.action === 'read') return reply(res, 200, safe(record));
         if (body.action !== 'apply') return reply(res, 400, { error: 'Unknown control action' });
@@ -55,6 +67,7 @@ export function createWorkspaceService({ token, port, devOrigins, reply, root = 
         if (!Array.isArray(operations) || !operations.length || operations.length > 32) throw Error('Expected 1–32 operations');
         let next = record.state;
         for (const op of operations) next = applyOperation(next, op);
+        checkpoints.save(record, 'Before agent layout change');
         record.state = next; record.revision++; record.api = `http://127.0.0.1:${port}`; persist(record);
         return reply(res, 200, safe(record));
       }
