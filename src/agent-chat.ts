@@ -1,10 +1,17 @@
+import './hermes-tools.css';
 import { el, button } from './dom';
 import { workspaceId, ensureWorkspaceSynced } from './workspace-sync';
 
-type Message = { role: 'user' | 'assistant'; text: string };
-type ChatState = { session: string; messages: Message[]; run?: string };
+import { archiveChat, validChat, transcript, type Message, type ChatState } from './chat-storage';
 export function createAgentChat(body: HTMLElement, paneId: string, getToken: () => string) {
   const storageKey = `orbit-hermes-chat:${paneId}`;
+  const archiveKey = `${storageKey}:archive`, draftKey = `${storageKey}:draft`;
+  let history: ChatState[] = [];
+  try { const raw = JSON.parse(sessionStorage.getItem(archiveKey) || '[]'); if (Array.isArray(raw)) history = raw.filter(validChat).filter(s => !s.run).slice(0, 10); } catch {}
+  function remember() {
+    history = archiveChat(history, state);
+    try { sessionStorage.setItem(archiveKey, JSON.stringify(history)); } catch { progress.textContent = 'Browser storage is full; export the conversation before closing.'; }
+  }
   const fresh = (): ChatState => ({ session: `orbit-${crypto.randomUUID()}`, messages: [] });
   let state = fresh();
   try {
@@ -25,7 +32,8 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   status.setAttribute('role', 'status');
   const newChat = button('New chat', 'Start a separate Hermes conversation', () => {
     if (busy || state.run) return;
-    state = fresh(); save(); render(); status.textContent = 'READY';
+    remember(); state = fresh(); save(); render(); status.textContent = 'READY';
+    input.value = ''; try { sessionStorage.removeItem(draftKey); } catch {}
   }, 'small-button');
   badge.append(el('span', 'agent-avatar', '✳'), el('div', '', 'Hermes'), status, newChat);
   const messages = el('div', 'chat-messages');
@@ -49,12 +57,52 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   const input = el('textarea');
   input.placeholder = 'Ask Hermes…'; input.rows = 2; input.maxLength = 8000;
   input.setAttribute('aria-label', 'Message to Hermes');
+  try { input.value = (sessionStorage.getItem(draftKey) || '').slice(0, 8000); } catch {}
+  input.addEventListener('input', () => { try { sessionStorage.setItem(draftKey, input.value); } catch {} });
+  const tools = button('⋯', 'Hermes tools and conversations', () => openTools(), 'small-button');
+  let toolsDialog: HTMLDialogElement | undefined;
+  function openTools() {
+    toolsDialog?.remove();
+    const dialog = document.createElement('dialog'); toolsDialog = dialog;
+    dialog.className = 'hermes-tools-dialog'; dialog.setAttribute('aria-label', 'Hermes tools');
+    const close = button('Close', 'Close Hermes tools', () => dialog.close());
+    dialog.append(el('h2', '', 'Hermes tools'), close);
+    dialog.append(el('p', '', 'History and drafts stay in this browser tab. Exports may contain private conversation content.'));
+    dialog.append(button('Export conversation', 'Download this Hermes conversation', () => {
+      const blob = new Blob([transcript(state)], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob); const a = document.createElement('a');
+      a.href = url; a.download = `${state.session}.txt`; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }));
+    dialog.append(el('h3', '', 'Workspace requests'));
+    for (const [label, prompt] of [
+      ['Inspect workspace', 'Inspect this workspace using the workspace controller. Summarize its current windows, panes, layout, and available controls. Do not change anything yet.'],
+      ['Organize windows', 'Inspect this workspace and organize the existing windows for readability. Preserve all pane IDs, conversations, and running shells. Use live workspace controls and verify the browser acknowledgement.'],
+      ['Build an app', 'Build and publish an app inside this workspace. First ask me what the app should do, then use the workspace publishing workflow to open it here.'],
+      ['Change appearance', 'Help me change the workspace appearance. First ask what look I want. Use the no-reload appearance workflow in docs/WORKSPACE_CONTROL.md, preserve unrelated customizations, and do not restart services.'],
+    ]) dialog.append(button(label, label, () => { input.value = prompt; input.dispatchEvent(new Event('input')); dialog.close(); input.focus(); }));
+    dialog.append(el('p', '', 'Shortcuts prepare a draft; nothing is sent until you press Send.'));
+    dialog.append(el('h3', '', 'Recent conversations'));
+    const archived = history.filter(s => s.session !== state.session);
+    if (!archived.length) dialog.append(el('p', '', 'Completed conversations appear here after New chat.'));
+    for (const saved of archived) {
+      const title = saved.messages.find(m => m.role === 'user')?.text.slice(0, 80) || saved.session;
+      const restore = button(title, `Restore conversation: ${title}`, () => {
+        if (busy || state.run) return;
+        remember(); state = { session: saved.session, messages: [...saved.messages] }; save(); render();
+        progress.textContent = ''; status.textContent = 'RESTORED'; dialog.close();
+      });
+      restore.disabled = busy || !!state.run; dialog.append(restore);
+    }
+    dialog.addEventListener('close', () => { dialog.remove(); input.focus(); });
+    document.body.append(dialog); dialog.showModal();
+  }
   const send = button('↑', 'Send message to Hermes', () => { void submit(); });
   function update() {
     const active = busy || !!state.run;
     send.disabled = active; newChat.disabled = active;
     stop.hidden = !state.run; resume.hidden = !state.run;
-    input.disabled = active;
+    // Allow composing the next message while Hermes works; Send remains disabled.
+    input.disabled = false;
   }
   function render() {
     messages.replaceChildren();
@@ -128,11 +176,11 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
       state.run = data.run_id;
       state.messages.push({ role: 'user', text });
       state.messages = state.messages.slice(-100); save();
-      if (!disposed) { input.value = ''; render(); status.textContent = 'WORKING'; schedule(); }
+      if (!disposed) { if (input.value.trim() === text) { input.value = ''; try { sessionStorage.removeItem(draftKey); } catch {} } render(); status.textContent = 'WORKING'; schedule(); }
     } catch (error) { showError(error); }
     finally { busy = false; if (!disposed) update(); }
   }
-  form.append(input, send);
+  form.append(input, tools, send);
   form.onsubmit = e => { e.preventDefault(); void submit(); };
   input.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); void submit(); } };
   body.append(badge, notice, messages, progress, approvals, controls, form);
@@ -143,5 +191,5 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     progress.textContent = 'A saved run may still be active. Connect host to check its status. Closing the pane does not stop Hermes.';
     if (getToken()) void poll();
   }
-  return () => { disposed = true; clearTimeout(timer); controller.abort(); window.removeEventListener('orbit-host-connected', onUnlock); };
+  return () => { disposed = true; toolsDialog?.remove(); clearTimeout(timer); controller.abort(); window.removeEventListener('orbit-host-connected', onUnlock); };
 }

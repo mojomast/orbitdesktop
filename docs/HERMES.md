@@ -1,5 +1,18 @@
 # Hermes agent chat
 
+## Tools menu, history, and drafts
+
+The `⋯` button beside the composer opens Hermes tools without adding another header row.
+
+- **Recent conversations:** New chat retains the previous completed conversation. Up to ten are kept per pane in this browser tab. Restore switches back to its original Hermes session, preserving server-side follow-up context. Switching is blocked during an active run.
+- **Draft recovery:** Unsent text survives reloads in the same tab. You can compose the next message while a run is active; Send remains disabled until that run ends. Drafts are not automatically queued or submitted.
+- **Export conversation:** Downloads a plain-text copy of the currently retained transcript (up to 100 messages), not the entire server history. Exports can contain sensitive content; choose where to store them accordingly.
+- **Workspace shortcuts:** Inspect workspace, Organize windows, Build an app, and Change appearance prepare an editable prompt. They never execute without Send. The appearance/build prompts ask Hermes to clarify the desired result first.
+
+History and drafts use sessionStorage, not a global Hermes session browser or cross-device archive. Closing the browser tab can discard them; export important conversations. Existing active-run restoration, Stop, and explicit approval controls remain available. No upstream API credentials enter the browser.
+
+Verification: `tests/browser-hermes-tools-live.py` exercises draft reload, a shortcut, real Hermes response, New chat/archive/restore, a follow-up recalling the original conversation's code, and transcript download. It completed without browser JavaScript errors. Unit tests cover bounded/deduplicated archives, exclusion of active runs, malformed storage, and plain-text export.
+
 Current deployment: the native mojo user service on loopback 4327 replaces the container deployment below. It provides real host shells, movable windows, a hideable sidebar, and agent-driven workspace control/app previews. See [WORKSPACE_CONTROL.md](WORKSPACE_CONTROL.md) for the current operational guide.
 
 Orbit's agent pane connects to the owner's existing Hermes profile via a server-side bridge. It does not inherit another dashboard thread or impersonate an already-running turn. Each pane gets an unpredictable `orbit-<UUID>` conversation ID. Requests go to Hermes Runs; polling provides status and final replies, Stop, and explicit allow-once/deny approvals. Text replies are rendered as text, not HTML.
