@@ -6,10 +6,12 @@ Configurable Three.js monitors, nested splits, local PTY server, embedded browse
 
 ## 0.2 — everyday local workspace
 
+Delivered since the foundation: movable/resizable 2D windows with persistent geometry and stacking, a persistent sidebar toggle, and Windows/Spatial/Focus switching. The private deployment now runs native host-account terminals through an enabled user service, with Tailscale HTTPS/WSS access. Live Playwright checks cover window controls, persistence, host-shell access, and agent-built app previews; see [verification](WORKSPACE_VERIFICATION.md).
+
 - Add explicit session IDs and an independent session manager. Decide whether disconnect should detach or terminate; make that user-visible.
 - Add tmux integration on Unix and an equivalent lifecycle plan for Windows. Test restart/reconnect without duplicated input or output.
-- Add a full 2D monitor overview, keyboard monitor navigation, screen-reader status announcements, and adjustable source resolution per monitor.
-- Add monitor dragging/snapping and optional layout collision warnings. Preserve manual overlap as a deliberate option.
+- Extend the delivered 2D window view with keyboard window navigation, screen-reader status announcements, and adjustable source resolution per monitor.
+- Add snapping and optional layout collision warnings to the delivered window dragging/resizing. Preserve manual overlap as a deliberate option.
 - Move action/state coordination from `main.ts` into workspace and pane controllers as the interface grows.
 - Add actual browser regression automation in CI, Linux/macOS/Windows PTY jobs, and a hardware-backed WebGL visual test.
 - Acceptance: geometry changes preserve active shell identity; reconnect contract is explicit; layout migrations are reversible; no unbounded per-session memory growth.
@@ -28,8 +30,10 @@ Browsers cannot open a general TCP SSH socket directly. Implement SSH from the l
 
 ## 0.4 — agent adapters
 
-- Implement an adapter for the user's chosen agent server (for example Hermes) only after checking its actual supported APIs.
-- Add streaming chat, cancel, run IDs, reconnect cursors, visible tool proposals, and explicit approvals.
+Delivered: authenticated Hermes Runs integration, separate pane conversations, server-loaded follow-up history, reload restoration, run status, cooperative Stop, and allow-once/deny approvals. Workspace-scoped capabilities provide layout inspection/control, revision conflicts, browser acknowledgement, and static app publishing into sandboxed previews. See [workspace control](WORKSPACE_CONTROL.md). Streaming tokens, independent chat/shell access grants, and additional adapters remain future work.
+
+- Extend the working Hermes adapter with additional providers only after checking their supported APIs.
+- Add streaming chat and reconnect cursors to the existing run IDs, cancellation, status, and approval controls.
 - Separate chat access from shell execution access. Bind each run to a host/workspace and scoped permissions.
 - Store provider secrets on the backend; protect transcript storage and avoid secret logging.
 - Acceptance: chat can be interrupted; tool actions have real status and bounded authority; reconnect does not repeat tool execution.

@@ -34,10 +34,26 @@ The shell runs on the machine running `npm start`, as that OS user. This is a re
 - Hermes chat connects to a configured Hermes API server, with separate conversations per pane, follow-up context, run status, stop controls, and allow-once/deny tool approvals. It receives live workspace context and can change layouts, build apps, and open isolated previews using the scoped workspace controller. Production terminals run as the owner on the real host; Hermes tools still use their configured execution environment.
 - Three.js CSS3D remains interactive without WebGL; the decorative WebGL room is optional.
 
+## Build your workspace with Hermes
+
+Connect with the Orbit session token and open an **agent** pane. With the Hermes backend configured, try:
+
+> Build a timer app, open it beside this chat, and hide the settings panel.
+
+Hermes receives the current workspace layout and can rename, move, resize, add, split, or close windows/panes, change views, and toggle the sidebar. It can build a static app and publish it into a sandboxed browser pane. Workspace changes use revision checks and browser acknowledgements; an offline browser cannot confirm a change until it reconnects.
+
+The agent sees layout metadata, not terminal buffers or embedded-page contents. Its build tools run in the configured Hermes environment, which may differ from the terminal host. Backend services require additional integration; the built-in publisher serves static frontend builds. Closing a window can terminate its shells, so ask for targeted changes when preserving work matters.
+
+See [Workspace control and app publishing](docs/WORKSPACE_CONTROL.md), [live verification results](docs/WORKSPACE_VERIFICATION.md), and the [counter example](examples/comet-counter-test/index.html). Published app bundles must not contain secrets: app files are readable by anyone able to reach the deployment, even without the Orbit token.
+
 ## Controls
 
 | Action            | Control                                              |
 | ----------------- | ---------------------------------------------------- |
+| Move a window     | Drag its title bar in Windows view                   |
+| Resize a window   | Drag its bottom-right corner in Windows view         |
+| Change view       | Top-bar Windows / Spatial toggle                     |
+| Hide/show sidebar | Top-bar side-panel toggle                            |
 | Select a monitor  | Click its surface or its bottom display tab          |
 | Move camera       | Drag empty space, or Alt + drag                      |
 | Zoom camera       | Scroll over empty space, Alt + scroll, or bottom −/+ |
