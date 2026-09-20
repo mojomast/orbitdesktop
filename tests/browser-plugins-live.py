@@ -12,9 +12,17 @@ with sync_playwright() as p:
  manager();g.get_by_role('textbox',name='Plugin manifest JSON').fill(json.dumps(manifest));g.get_by_role('button',name='Install plugin manifest').click();expect(g.get_by_role('button',name='Enable plugin notes',exact=True)).to_be_visible();g.get_by_role('button',name='Enable plugin notes',exact=True).click();expect(g.get_by_role('button',name='Disable plugin notes',exact=True)).to_be_visible();g.get_by_role('button',name='Close workspace plugins').click()
  frame=g.frame_locator('iframe[src*="/apps/notes-"]');expect(frame.locator('h1')).to_have_text('Workspace notes',timeout=15000)
  def control(operation):subprocess.run(['python3',str(R/'scripts/workspace_control.py'),'--workspace',wid,'apply',json.dumps(operation)],check=True,capture_output=True)
- control({'action':'plugin_configure','plugin_id':'notes','config':{'title':'Live configured','message':'Controller verified'}})
+ control({'action':'plugin_patch_config','plugin_id':'notes','patch':{'title':'Live configured'}})
+ expect(frame.locator('h1')).to_have_text('Live configured',timeout=15000)
+ control({'action':'plugin_patch_config','plugin_id':'notes','patch':{'message':'Controller verified'}})
+ control({'action':'plugin_window','plugin_id':'notes','settings':{'name':'Customized notes','fontSize':12}})
  expect(frame.locator('h1')).to_have_text('Live configured',timeout=15000);expect(frame.locator('#message')).to_have_text('Controller verified')
- manager();g.get_by_role('button',name='Disable plugin notes',exact=True).click();expect(g.get_by_role('button',name='Enable plugin notes',exact=True)).to_be_visible();g.get_by_role('button',name='Close workspace plugins').click();expect(g.locator('iframe[src*="/apps/notes-"]')).to_have_count(0,timeout=15000)
+ manager()
+ g.once('dialog',lambda d:d.accept(json.dumps({'name':'Customized notes','fontSize':12})))
+ with g.expect_response(lambda r:r.url.endswith('/api/workspace') and r.request.post_data_json.get('action')=='plugins_apply') as changed:g.get_by_role('button',name='Customize plugin window notes',exact=True).click()
+ assert changed.value.status==200
+ g.wait_for_timeout(1500)
+ g.get_by_role('button',name='Disable plugin notes',exact=True).click();expect(g.get_by_role('button',name='Enable plugin notes',exact=True)).to_be_visible();g.get_by_role('button',name='Close workspace plugins').click();expect(g.locator('iframe[src*="/apps/notes-"]')).to_have_count(0,timeout=15000)
  g.evaluate('''async ({token,id})=>{const api=async body=>{const r=await fetch('/api/workspace',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({workspace_id:id,...body})});if(!r.ok)throw Error(await r.text());return r.json()};const h=await api({action:'history'});await api({action:'restore',checkpoint_id:h.checkpoints[0].id,base_revision:h.revision,confirm:true})}''',{'token':env['ORBIT_TOKEN'],'id':wid})
  expect(frame.locator('h1')).to_have_text('Live configured',timeout=15000);assert g.evaluate('window.pluginTestMarker')=='same-document'
  assert not errors,errors

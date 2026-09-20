@@ -20,12 +20,22 @@ export function pluginOperation(state: Workspace, op: Record<string,any>) {
  state.plugins ||= [];
  const existing=state.plugins.find(p=>p.manifest.id===op.plugin_id);
  const detach=(p:PluginInstance)=> { const win=state.monitors.find(m=>m.id===p.window.id);if(win)p.window=structuredClone(win);state.monitors=state.monitors.filter(m=>m.id!==p.window.id);p.enabled=false; };
- const attach=(p:PluginInstance)=> {if(state.monitors.some(m=>m.id===p.window.id))return;const win=structuredClone(p.window);win.name=p.manifest.title;win.layout={type:'pane',pane:{...leaves(p.window.layout)[0],kind:'browser',url:pluginUrl(p)}};state.monitors.push(win);p.window=structuredClone(win);p.enabled=true;state.selected=win.id;};
+ const attach=(p:PluginInstance)=> {if(state.monitors.some(m=>m.id===p.window.id))return;const win=structuredClone(p.window);for(const pane of leaves(win.layout)){if(pane.kind==='browser' && (pane.url==='orbit://welcome' || pane.url.startsWith('/apps/'))) {pane.url=pluginUrl(p);break;}}state.monitors.push(win);p.window=structuredClone(win);p.enabled=true;state.selected=win.id;};
  switch(op.action){
- case 'plugin_install': {const manifest=structuredClone(validateManifest(op.manifest));if(state.plugins.some(p=>p.manifest.id===manifest.id))throw Error('Plugin already installed; use plugin_update');const config=op.config||{};validateConfig(config);state.plugins.push({manifest,config,enabled:false,window:monitor(state.monitors.length+1,'browser')});break;}
+ case 'plugin_install': {const manifest=structuredClone(validateManifest(op.manifest));if(state.plugins.some(p=>p.manifest.id===manifest.id))throw Error('Plugin already installed; use plugin_update');const config=op.config||{};validateConfig(config);const window=monitor(state.monitors.length+1,'browser');window.name=manifest.title;state.plugins.push({manifest,config,enabled:false,window});break;}
  case 'plugin_enable': if(!existing)throw Error('Unknown plugin');attach(existing);break;
  case 'plugin_disable': if(!existing)throw Error('Unknown plugin');detach(existing);break;
  case 'plugin_remove': if(!existing)throw Error('Unknown plugin');detach(existing);state.plugins=state.plugins.filter(p=>p!==existing);break;
+ case 'plugin_patch_config': {
+  if(!existing)throw Error('Unknown plugin');validateConfig(op.patch);
+  const config={...existing.config,...op.patch};validateConfig(config);
+  const active=existing.enabled;detach(existing);existing.config=config;if(active)attach(existing);break;
+ }
+ case 'plugin_window': {
+  if(!existing)throw Error('Unknown plugin');
+  const settings=op.settings;if(!settings || typeof settings!=='object' || Array.isArray(settings) || Object.keys(settings).some(k=>!['name','frame','fontSize','diagonal','aspect','height','distance','pitch','yaw','offset'].includes(k)))throw Error('Invalid plugin window settings');
+  const active=existing.enabled;detach(existing);Object.assign(existing.window,structuredClone(settings));if(active)attach(existing);break;
+ }
  case 'plugin_configure': if(!existing)throw Error('Unknown plugin');validateConfig(op.config);{const active=existing.enabled;detach(existing);existing.config=structuredClone(op.config);if(active)attach(existing);}break;
  case 'plugin_update': if(!existing)throw Error('Unknown plugin');{const manifest=structuredClone(validateManifest(op.manifest));if(manifest.id!==existing.manifest.id)throw Error('Plugin ID cannot change');const active=existing.enabled;detach(existing);existing.manifest=manifest;if(active)attach(existing);}break;
  case 'plugin_disable_all': for(const p of state.plugins)detach(p);break;

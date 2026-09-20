@@ -2,6 +2,14 @@
 
 This is a working sandboxed-app lifecycle and trusted built-in extension registry, not a complete conversion of Orbit into plugins.
 
+## Partial configuration and window customization
+
+`plugin_patch_config` with `plugin_id` and `patch` merges individual primitive-valued settings while preserving omitted fields. Example: `{"action":"plugin_patch_config","plugin_id":"notes","patch":{"message":"Updated"}}`. Use `plugin_configure` only when replacing the whole config is intended.
+
+`plugin_window` with `plugin_id` and `settings` customizes name, fontSize, frame, diagonal, aspect, height, distance, pitch, yaw and offset. It works while disabled and applies saved settings when enabled. IDs/layout cannot be overwritten through this operation. The manager exposes **Window settings** as a JSON editor. All changes use the existing revision/checkpoint boundary.
+
+Configuration and enable cycles now preserve window names and split trees instead of rebuilding a single browser pane. This preserves added terminal pane IDs; the plugin iframe itself may still reload. First matching app/browser pane is treated as the plugin surface; arbitrary multiple-app routing is not supported.
+
 ## User controls
 
 Hermes tools → Workspace plugins, or Ctrl+Alt+P while the parent workspace has focus. The shortcut works without a chat pane. Install a manifest (disabled first), enable/disable, edit JSON configuration, remove, or disable all. Core terminals/chat are not optional plugins. Every plugin mutation through the manager or agent controller creates a workspace checkpoint. Restore via Workspace checkpoints. Closing a plugin window also makes its displayed status disabled; enable opens it again.

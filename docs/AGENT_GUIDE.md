@@ -29,6 +29,10 @@ Installation is disabled. Test the published entry, then `{"action":"plugin_enab
 
 For an update, publish changed files, use `plugin_update` with `plugin_id` and the new manifest, inspect, and restore a checkpoint on regression. Do not overwrite the previous content-addressed bundle. Disable/remove operations retain files. `plugin_disable_all` is a recovery action affecting all plugin windows and should reflect the user's intent, not routine housekeeping.
 
+## Partial plugin edits
+
+Prefer `plugin_patch_config` with `plugin_id` and `patch` for individual config settings; it retains omitted keys. Use `plugin_window` with `plugin_id` and `settings` for saved name/fontSize/frame/spatial geometry, including disabled plugins. Both automatically checkpoint. Config updates preserve existing split panes and terminal IDs. Read `docs/PLUGINS.md` for examples.
+
 ## Appearance and layout
 
 `set_appearance` replaces the entire object: preserve existing fields when adjusting one. Supported: six-digit hex `background` and `textColor`, local `wallpaper` path (empty string means none), numeric `cornerRadius` 0–40. `{}` removes overrides. Text color is inherited monitor text, not terminal or iframe internal styling.
