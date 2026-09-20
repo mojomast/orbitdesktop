@@ -115,6 +115,7 @@ export function createPane(p: Pane, font: number, a: PaneActions): PaneView {
         fit.fit();
         send({
           type: "auth",
+          pane_id: p.id,
           token: sessionToken,
           cols: term.cols,
           rows: term.rows,
@@ -151,7 +152,7 @@ export function createPane(p: Pane, font: number, a: PaneActions): PaneView {
         connect.disabled = false;
         connect.textContent = "Reconnect";
         term.writeln(
-          "\r\n\x1b[90mConnection closed. Reconnect starts a new shell.\x1b[0m",
+          "\r\n\x1b[90mConnection closed. Reconnect resumes this pane’s persistent shell.\x1b[0m",
         );
       };
     }

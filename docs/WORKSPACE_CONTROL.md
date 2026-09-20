@@ -1,5 +1,11 @@
 # Comet/Orbit workspace control
 
+## Persistent terminals and more appearance controls
+
+Current backend: orbitdesktop-persistent.service on 4332. Terminal panes send their stable pane ID and attach to `/usr/bin/tmux -L orbit-persistent` session `pane-<id>`. Reload/unlock/reconnect resumes the shell; closing the pane detaches rather than kills it. Use `exit` to end the shell, or owner tmux administration to remove orphaned sessions. This requires tmux and does not survive host reboot. Existing non-tmux shells are not migrated. Scrollback is tmux-managed, not a full serialized xterm buffer. Old servers remain alive for legacy sessions. The real browser reload test passed.
+
+`set_appearance` additionally accepts `textColor` (six-digit hex; inherited monitor text, not terminal/app internal themes) and `cornerRadius` (0–40 pixels). These are checkpointed live settings. Keep existing background/wallpaper fields in the object when changing another field: the operation replaces the object. Plugin installation and unrestricted generated code are still not part of this API.
+
 ## Checkpointed appearance
 
 Prefer controller `apply` with `{"action":"set_appearance","appearance":{"background":"#123456","wallpaper":"/neon-horizon-v1.svg"}}` over editing CSS. Background must be six-digit hex. Wallpaper must be a local SVG/PNG/JPEG/WebP asset path; empty string removes the wallpaper. `appearance:{}` returns to stylesheet defaults. This replaces the appearance object, not a partial merge. Every controller apply automatically checkpoints previous state; appearance is now included in restore. Image bytes are NOT versioned yet: do not overwrite an existing asset if you need exact visual rollback. Use new asset names.

@@ -1,0 +1,13 @@
+[Unit]
+Description=Orbit persistent host terminals
+After=network.target
+[Service]
+WorkingDirectory=/home/mojo/.hermes-instances/fresh/workspace/orbitdesktop
+EnvironmentFile=/home/mojo/.hermes-instances/fresh/workspace/orbitdesktop/.env.deploy
+Environment=HOME=/home/mojo
+Environment=SHELL=/bin/bash
+ExecStart=/usr/bin/env PORT=4332 /usr/bin/node --experimental-strip-types server/index.mjs
+Restart=on-failure
+UMask=0077
+[Install]
+WantedBy=default.target

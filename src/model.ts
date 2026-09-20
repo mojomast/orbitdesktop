@@ -28,7 +28,7 @@ export interface Monitor {
   layout: Layout;
 }
 export interface Workspace {
-  appearance?: { background?: string; wallpaper?: string };
+  appearance?: { background?: string; wallpaper?: string; textColor?: string; cornerRadius?: number };
   view?: "windows" | "spatial";
   sidebarHidden?: boolean;
   version: 1;
@@ -170,7 +170,9 @@ export function validate(value: unknown): Workspace {
   if (s.sidebarHidden !== undefined && typeof s.sidebarHidden !== "boolean") throw Error("Invalid sidebar state");
   if (s.appearance !== undefined) {
     const a = s.appearance;
-    if (!a || typeof a !== 'object' || Array.isArray(a) || Object.keys(a).some(k => !['background', 'wallpaper'].includes(k))) throw Error('Invalid appearance');
+    if (!a || typeof a !== 'object' || Array.isArray(a) || Object.keys(a).some(k => !['background', 'wallpaper', 'textColor', 'cornerRadius'].includes(k))) throw Error('Invalid appearance');
+    if (a.textColor !== undefined && !/^#[0-9a-fA-F]{6}$/.test(a.textColor)) throw Error('Invalid text color');
+    if (a.cornerRadius !== undefined && !finite(a.cornerRadius, 0, 40)) throw Error('Invalid corner radius');
     if (a.background !== undefined && !/^#[0-9a-fA-F]{6}$/.test(a.background)) throw Error('Use a six-digit hex background');
     if (a.wallpaper !== undefined && (typeof a.wallpaper !== 'string' || a.wallpaper.length > 300 || (a.wallpaper !== '' && (!/^\/[a-zA-Z0-9/_-]+\.(svg|png|jpg|jpeg|webp)$/.test(a.wallpaper) || a.wallpaper.startsWith('//'))))) throw Error('Use a local wallpaper asset path');
   }
