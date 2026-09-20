@@ -1,5 +1,9 @@
 # Comet/Orbit workspace control
 
+## Existing split and partial appearance edits
+
+`update_split` takes `window_id`, a `path` array of `first`/`second` steps (empty for root), and optional `ratio` (0.15–0.85), `axis` (`row` or `column`) and boolean `swap`. It changes the existing split without recreating pane IDs. Read state first and recalculate nested paths after swapping. `patch_appearance` with a `patch` object merges validated appearance fields, retaining omitted settings. Both use normal controller apply/revision/checkpoint handling. Exact examples are in the injected `docs/AGENT_GUIDE.md`. Live browser test: `tests/browser-layout-customization-live.py`.
+
 ## Modular workspace plugins
 
 Use the plugin lifecycle for new widgets/apps rather than modifying Orbit source. Read `docs/PLUGINS.md` for the manifest, content-addressed publisher, configuration contract and lifecycle operations. The controller now supports `plugin_install`, `plugin_enable`, `plugin_configure`, `plugin_update`, `plugin_disable`, `plugin_remove` and `plugin_disable_all`, with automatic checkpoints. Manager: Hermes tools → Workspace plugins, or Ctrl+Alt+P. Built-in integration dialogs use the trusted `workspace-extensions.ts` registry. Current backend is `orbitdesktop-plugins.service` on 4333; older port notes below describe previous deployments.

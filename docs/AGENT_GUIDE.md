@@ -33,6 +33,12 @@ For an update, publish changed files, use `plugin_update` with `plugin_id` and t
 
 Prefer `plugin_patch_config` with `plugin_id` and `patch` for individual config settings; it retains omitted keys. Use `plugin_window` with `plugin_id` and `settings` for saved name/fontSize/frame/spatial geometry, including disabled plugins. Both automatically checkpoint. Config updates preserve existing split panes and terminal IDs. Read `docs/PLUGINS.md` for examples.
 
+## Precise layout edits
+
+Use `patch_appearance` with `patch` to change individual appearance fields without erasing wallpaper or other settings: `{"action":"patch_appearance","patch":{"cornerRadius":18}}`. Existing validation and checkpoints apply.
+
+Use `update_split` to resize, rotate or swap an existing split without replacing panes: `{"action":"update_split","window_id":"ID_FROM_READ","path":[],"ratio":0.7,"axis":"column","swap":true}`. `path:[]` targets the window's root split; `["first"]` or `["second","first"]` walks the split tree from the last read. Paths must end at a split, not a pane. `ratio` is the first branch's fraction (0.15–0.85); `axis` is `row` (side by side) or `column` (stacked). Omit unchanged fields. Read again after a swap before targeting nested paths. Pane IDs and content stay intact; iframe reparenting can still reload embedded content. Do not promise uninterrupted iframe state.
+
 ## Appearance and layout
 
 `set_appearance` replaces the entire object: preserve existing fields when adjusting one. Supported: six-digit hex `background` and `textColor`, local `wallpaper` path (empty string means none), numeric `cornerRadius` 0–40. `{}` removes overrides. Text color is inherited monitor text, not terminal or iframe internal styling.

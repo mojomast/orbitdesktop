@@ -7,6 +7,22 @@ export function applyOperation(input: Workspace, op: Record<string, any>): Works
   const target = () => { const m = state.monitors.find(m => m.id === op.window_id); if (!m) throw Error('Unknown window_id'); return m; };
   switch (op.action) {
     case 'set_workspace': return validate(structuredClone(op.state));
+    case 'patch_appearance': {
+      if (!op.patch || typeof op.patch !== 'object' || Array.isArray(op.patch)) throw Error('Expected appearance patch object');
+      state.appearance = { ...state.appearance, ...op.patch }; break;
+    }
+    case 'update_split': {
+      const m = target();
+      if (!Array.isArray(op.path) || op.path.length > 8 || op.path.some((p:unknown) => p !== 'first' && p !== 'second')) throw Error('Split path must contain first/second');
+      let node = m.layout;
+      for (const branch of op.path) { if (node.type !== 'split') throw Error('Split path crosses a pane'); node = branch === 'first' ? node.first : node.second; }
+      if (node.type !== 'split') throw Error('Target is not a split');
+      if (op.ratio !== undefined) node.ratio = op.ratio;
+      if (op.axis !== undefined) node.axis = op.axis;
+      if (op.swap !== undefined && typeof op.swap !== 'boolean') throw Error('swap must be boolean');
+      if (op.swap) [node.first, node.second] = [node.second, node.first];
+      break;
+    }
     case 'set_appearance': state.appearance = op.appearance; break;
     case 'set_view': state.view = op.view; break;
     case 'sidebar': state.sidebarHidden = op.hidden; break;
