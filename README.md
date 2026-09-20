@@ -71,7 +71,9 @@ Layouts persist. Chat messages and active run IDs survive reloads within the sam
 
 ## Browser limits
 
-Spatial dragging adjusts horizontal offset and height; corner resizing changes the monitor diagonal while preserving its aspect ratio (20–55 inches). Use the inspector for depth, pitch, yaw, and aspect ratio. Alt-drag remains camera movement. Changes render during the gesture and persist afterward.
+Spatial dragging adjusts horizontal offset and height; corner resizing changes the monitor diagonal while preserving its aspect ratio. The former 55-inch cap is removed; enter a larger value in the Diagonal number field or keep dragging. Camera framing stays stable while enlarging, so oversized windows can extend beyond the viewport. The minimum is 20; finite numeric safety limits still apply. Use the inspector for depth, pitch, yaw, and aspect ratio. Text size supports 6–32 px through A−/A+ and the slider. Alt-drag remains camera movement. Changes render during the gesture and persist afterward.
+
+Built stylesheet changes (including wallpaper CSS) are hot-swapped in existing pages, normally within 1.5 seconds after `npm run build`. This preserves terminals, chat, and document state; failed stylesheet loads retain the previous styling. JavaScript changes still require loading the new application version. The one-time installation of this watcher also requires a new tab or reload. When changing wallpaper image content at the same URL, use a versioned URL in the CSS to ensure a new stylesheet hash and image request.
 
 While connected, Hermes layout changes and edits to published app builds appear automatically on the next workspace poll (normally within 1.2 seconds plus request/load time). Only the changed app iframe reloads; the workspace, chat, and shell panes remain mounted. App-local unsaved state may reset. Framework source edits must first be built and published; this is not hot replacement of Orbit's own production JavaScript. Existing tabs need one reload or a new tab to load this upgrade.
 

@@ -1,0 +1,17 @@
+[Unit]
+Description=Comet Orbit Desktop - current mojo host workspace
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/mojo/.hermes-instances/fresh/workspace/orbitdesktop
+EnvironmentFile=/home/mojo/.hermes-instances/fresh/workspace/orbitdesktop/.env.deploy
+Environment=HOME=/home/mojo
+Environment=SHELL=/bin/bash
+ExecStart=/usr/bin/env PORT=4329 /usr/bin/node --experimental-strip-types server/index.mjs
+Restart=on-failure
+RestartSec=3
+UMask=0077
+
+[Install]
+WantedBy=default.target

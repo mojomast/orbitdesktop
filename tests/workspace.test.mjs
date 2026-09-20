@@ -32,6 +32,13 @@ test('workspace operations validate geometry and support targeted changes withou
  const split=applyOperation(s,{action:'split_pane',window_id:id,pane_id:leaves(s.monitors[0].layout)[0].id,kind:'browser'});
  assert.equal(leaves(split.monitors[0].layout).length,2);
 });
+test('large spatial windows and small text survive validation while unsafe numbers fail',()=>{
+ const s=initial(),window_id=s.monitors[0].id;
+ const next=applyOperation(s,{action:'update_window',window_id,diagonal:1200,fontSize:6});
+ assert.equal(next.monitors[0].diagonal,1200); assert.equal(next.monitors[0].fontSize,6);
+ for(const diagonal of [NaN,Infinity,-1]) assert.throws(()=>applyOperation(s,{action:'update_window',window_id,diagonal}));
+ assert.throws(()=>applyOperation(s,{action:'update_window',window_id,fontSize:5}));
+});
 test('workspace browser sync requires authentication and exact origin',async t=>{
  const {req}=await setup(t);
  assert.equal((await req({action:'sync',state:initial()},false,'wrong')).status,403);

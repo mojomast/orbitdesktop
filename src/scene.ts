@@ -106,7 +106,7 @@ export class DesktopScene {
       target.addEventListener('pointermove', e => {
         if (!start) return;
         const dx = e.clientX - start.x, dy = e.clientY - start.y;
-        if (resizing) m.diagonal = Math.max(20, Math.min(55, start.diagonal * (1 + (dx + dy) / start.width)));
+        if (resizing) m.diagonal = Math.max(20, Math.min(Number.MAX_SAFE_INTEGER, start.diagonal * (1 + (dx + dy) / start.width)));
         else { m.offset = Math.max(-3, Math.min(3, start.offset + dx * start.scale)); m.height = Math.max(-2, Math.min(3, start.height - dy * start.scale)); }
         changed();
       });
@@ -160,7 +160,8 @@ export class DesktopScene {
         (o.edges.material as THREE.Material).dispose();
         this.objects.delete(key);
       }
-    const widths = monitors.map((m) => dimensions(m).w);
+    // Stable layout/camera framing: enlarging a window must not zoom everything out.
+    const widths = monitors.map((m) => dimensions({ ...m, diagonal: 32 }).w);
     const total =
       widths.reduce((a, b) => a + b, 0) + (monitors.length - 1) * 0.24;
     let x = -total / 2;
@@ -186,8 +187,8 @@ export class DesktopScene {
         this.cssScene.add(css);
         this.scene.add(mesh, edges);
       }
-      const cx = x + w / 2;
-      x += w + 0.24;
+      const cx = x + widths[i] / 2;
+      x += widths[i] + 0.24;
       const yaw = THREE.MathUtils.degToRad(
         (i - (monitors.length - 1) / 2) * -arc + m.yaw,
       );
@@ -215,7 +216,7 @@ export class DesktopScene {
       (total /
         (2 * Math.tan(THREE.MathUtils.degToRad(22.5)) * this.camera.aspect)) *
         1.13,
-      (Math.max(...monitors.map((m) => dimensions(m).h)) /
+      (Math.max(...monitors.map((m) => dimensions({ ...m, diagonal: 32 }).h)) /
         (2 * Math.tan(THREE.MathUtils.degToRad(22.5)))) *
         1.4,
     );

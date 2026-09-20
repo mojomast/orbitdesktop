@@ -31,6 +31,8 @@ The model schema is `src/model.ts`. Bounds: 1–8 windows; 1–8 panes each. `fr
 
 ## Build an app and display it
 
+For workspace wallpaper/style changes, edit the workspace stylesheet and run `npm run build`. Connected pages hot-swap the resulting stylesheet without reloading the document. Preserve existing user styling. Give changed image assets a new/versioned CSS URL. Do not restart the service for a CSS-only change. Spatial diagonals no longer have the old 55-inch maximum; text sizes support 6–32 px.
+
 Create a static app/build directory containing `index.html` and its assets. You can use HTML/CSS/JS or a compiled framework. For Vite, build with `--base=./` so assets resolve beneath the app route. Do not start a public development server merely to preview a static app.
 
 ```sh
@@ -49,6 +51,6 @@ The controller is restricted to its workspace and cannot execute shell commands 
 
 ## Host shell / deployment
 
-The current routed service is `orbitdesktop-live.service` in the mojo user systemd manager, listening on loopback 4328. Tailscale HTTPS 4325 routes there. The older `orbitdesktop-host.service` on 4327 remains running to preserve pre-cutover shells. Terminal PTYs run as `mojo` in `/home/mojo` with `/bin/bash`; no Docker shell, passwordless sudo setup, or new SSH key is involved. Hermes remains in its configured execution environment, so do not assume its tool sandbox equals the interactive host shell.
+The current routed service is `orbitdesktop-current.service` on loopback 4329 (unit source: `deploy/orbitdesktop-current.service`). Older services on 4327 and 4328 remain running to preserve pre-cutover shells. Tailscale HTTPS 4325 routes to 4329. Terminal PTYs run as `mojo` in `/home/mojo` with `/bin/bash`; no Docker shell, passwordless sudo setup, or new SSH key is involved. Hermes remains in its configured execution environment, so do not assume its tool sandbox equals the interactive host shell.
 
 Service unit source: `deploy/orbitdesktop-host.service`. Runtime workspace records and capability files live in `.runtime/workspaces` (owner-only); built app files live in `.runtime/apps`. Both are Git-ignored. The service is enabled for reboot recovery. Build/test before restarting; restarting terminates this service's live shells. Existing older containers are retained while their old connections drain.

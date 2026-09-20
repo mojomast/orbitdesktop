@@ -17,6 +17,8 @@ import { createPane, setToken, sessionToken, type PaneView } from "./panes";
 import { placeWindow, wireWindow } from "./windows";
 import { connectWorkspace } from "./workspace-sync";
 import { DesktopScene } from "./scene";
+import { watchStyles } from './live-style';
+watchStyles();
 let state = load();
 state.view ||= 'windows';
 let applyingRemote = false;
@@ -398,7 +400,7 @@ function renderMonitor(m: Monitor) {
   }
 }
 function font(m: Monitor, delta: number) {
-  m.fontSize = Math.max(12, Math.min(32, m.fontSize + delta));
+  m.fontSize = Math.max(6, Math.min(32, m.fontSize + delta));
   leaves(m.layout).forEach((p) => views.get(p.id)?.setFont(m.fontSize));
   renderInspector();
   save();
@@ -417,13 +419,14 @@ function range(
     output = el("output", "", `${value}${unit}`);
   line.append(el("span", "", label), output);
   const input = el("input");
-  input.type = "range";
+  input.type = label === 'Diagonal' ? 'number' : 'range';
   input.min = String(min);
-  input.max = String(max);
+  if (label !== 'Diagonal') input.max = String(max);
   input.step = String(step);
   input.value = String(value);
   input.setAttribute("aria-label", label);
   input.oninput = () => {
+    if (!input.validity.valid || !input.value || !Number.isFinite(Number(input.value))) return;
     output.value = `${input.value}${unit}`;
     on(Number(input.value));
     save();
@@ -514,11 +517,11 @@ function renderInspector() {
   ratioLabel.append(ratios);
   display.append(
     ratioLabel,
-    range("Diagonal", m.diagonal, 20, 55, 1, "″", (v) => {
+    range("Diagonal", m.diagonal, 20, Infinity, 1, "″", (v) => {
       m.diagonal = v;
       updateScene();
     }),
-    range("Text size", m.fontSize, 12, 32, 1, " px", (v) => {
+    range("Text size", m.fontSize, 6, 32, 1, " px", (v) => {
       m.fontSize = v;
       leaves(m.layout).forEach((p) => views.get(p.id)?.setFont(v));
     }),

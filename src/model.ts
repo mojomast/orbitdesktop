@@ -150,13 +150,13 @@ export function validate(value: unknown): Workspace {
       !["16:9", "16:10", "21:9", "32:9", "4:3", "9:16", "1:1"].includes(
         m.aspect,
       ) ||
-      !finite(m.diagonal, 20, 55) ||
+      !finite(m.diagonal, 20, Number.MAX_SAFE_INTEGER) ||
       !finite(m.height, -2, 3) ||
       !finite(m.distance, -2, 4) ||
       !finite(m.pitch, -35, 35) ||
       !finite(m.yaw, -45, 45) ||
       !finite(m.offset, -3, 3) ||
-      !finite(m.fontSize, 12, 32)
+      !finite(m.fontSize, 6, 32)
     )
       throw Error("Invalid monitor settings");
     count = 0;
