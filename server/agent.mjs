@@ -35,6 +35,14 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
       let body;
       try { body = JSON.parse(raw); } catch { return reply(res, 400, { error: 'Invalid JSON' }); }
       if (!body || typeof body !== 'object' || !sessionPattern.test(body.session_id || '')) return reply(res, 400, { error: 'Invalid Orbit conversation.' });
+      if (body.action === 'catalog') {
+        if (!['skills', 'toolsets'].includes(body.kind)) return reply(res, 400, { error: 'Invalid catalog.' });
+        const caps = await upstream('/v1/capabilities');
+        if (!caps.endpoints?.[body.kind]) return reply(res, 409, { error: 'This gateway does not advertise this catalog.' });
+        const data = await upstream(`/v1/${body.kind}`);
+        const fields = body.kind === 'skills' ? ['name', 'description', 'category'] : ['name', 'label', 'description', 'enabled', 'configured', 'tools'];
+        return reply(res, 200, { items: (Array.isArray(data.data) ? data.data : []).slice(0, 500).map(item => Object.fromEntries(fields.filter(k => item[k] !== undefined).map(k => [k, k === 'tools' ? (Array.isArray(item[k]) ? item[k].slice(0, 200).map(x => String(x).slice(0, 100)) : []) : typeof item[k] === 'boolean' ? item[k] : String(item[k]).slice(0, 2000)]))) });
+      }
       if (body.action === 'capabilities') {
         const data = await upstream('/v1/capabilities');
         return reply(res, 200, { features: { run_events_sse: data.features?.run_events_sse === true } });

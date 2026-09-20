@@ -77,6 +77,13 @@ test('job controls require confirmation and allow only scoped pause/resume',asyn
  assert.equal((await request({action:'job_control',operation:'pause',job_id:'test-job',confirm:true},{Authorization:'Bearer wrong'})).status,401);
  assert.equal(calls.length,n);
 });
+test('catalog is authenticated, bounded and strips private fields',async t=>{
+ const {request,calls}=await setup(t,url=>json(url.endsWith('/capabilities')?{endpoints:{skills:{},toolsets:{}}}:{data:[{name:'safe',description:'description',path:'/private',enabled:true,configured:false,tools:['terminal']}]}));
+ assert.equal((await request({action:'catalog',kind:'skills'},{Authorization:'Bearer wrong'})).status,401);assert.equal(calls.length,0);
+ assert.equal((await request({action:'catalog',kind:'../secrets'})).status,400);
+ assert.deepEqual((await request({action:'catalog',kind:'skills'})).body.items,[{name:'safe',description:'description'}]);
+ const result=await request({action:'catalog',kind:'toolsets'});assert.equal(result.body.items[0].configured,false);assert.equal(result.body.items[0].path,undefined);
+});
 test('live streaming is capability-gated and session-scoped',async t=>{
  const {request,calls}=await setup(t,url=>json(url.endsWith('/capabilities')?{features:{run_events_sse:false},secret:'hidden'}:{session_id:session}));
  assert.deepEqual((await request({action:'capabilities'})).body,{features:{run_events_sse:false}});

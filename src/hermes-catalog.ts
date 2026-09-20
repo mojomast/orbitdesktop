@@ -1,0 +1,11 @@
+import { el, button } from './dom';
+export function showCatalog(api:(body:Record<string,unknown>)=>Promise<any>) {
+ const d=el('dialog','hermes-tools-dialog');d.setAttribute('aria-label','Hermes skills and tools');
+ const search=el('input');search.placeholder='Search names, descriptions, and tools';search.setAttribute('aria-label','Search Hermes catalog');
+ const status=el('p');const list=el('div','hermes-catalog-list');let items:Record<string,any>[]=[];let sequence=0;let kind='skills';
+ function draw(){list.replaceChildren();for(const item of items.filter(i=>JSON.stringify(i).toLowerCase().includes(search.value.toLowerCase()))){const card=el('details');card.append(el('summary','',String(item.label||item.name)),el('p','',String(item.description||'')));if(kind==='toolsets')card.append(el('p','',`Enabled: ${item.enabled ?? 'unknown'} · Configured: ${item.configured ?? 'unknown'}`),el('pre','',(item.tools||[]).join('\n')));else card.append(el('p','',`Category: ${item.category||'Uncategorized'}`));list.append(card);}if(!list.childElementCount)list.textContent='No matching entries.';}
+ async function load(next:string){kind=next;const ticket=++sequence;items=[];list.replaceChildren();status.textContent=`Loading ${next} from Hermes…`;try{const data=await api({action:'catalog',kind:next});if(ticket!==sequence||!d.open)return;items=data.items;status.textContent=`${items.length} ${next} returned by the gateway (maximum 500).`;draw();}catch(e){if(ticket===sequence)status.textContent=e instanceof Error?e.message:'Catalog unavailable';}}
+ search.addEventListener('input',draw);
+ d.append(el('h2','','Hermes skills and tools'),button('Close','Close Hermes catalog',()=>d.close()),el('p','','Read-only gateway discovery, not a model-generated list. Toolset enabled/configured flags are reported by Hermes; they do not guarantee a tool call will succeed.'),button('Skills','Browse Hermes skills',()=>{void load('skills');}),button('Toolsets','Browse Hermes toolsets',()=>{void load('toolsets');}),button('Refresh','Refresh Hermes catalog',()=>{void load(kind);}),search,status,list);
+ d.addEventListener('close',()=>{sequence++;d.remove();});document.body.append(d);d.showModal();void load(kind);
+}

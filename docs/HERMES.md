@@ -1,5 +1,11 @@
 # Hermes agent chat
 
+## Skills and toolsets
+
+The tools menu's **Skills and tools** browser reads `/v1/skills` and `/v1/toolsets` only when advertised by the gateway capabilities endpoint. Search names/descriptions and tool names, expand entries, switch catalog types, or refresh. Toolsets display upstream enabled/configured flags and concrete tool names; these flags are metadata, not a guarantee that execution succeeds. The view is read-only and neither installs nor enables anything. API keys and filesystem paths are not forwarded. Lists are bounded to 500 entries and text fields to 2000 characters. No inference is used.
+
+Live acceptance (`tests/browser-hermes-catalog-live.py`) retrieved 83 skills and 28 toolsets from the actual gateway, checked filtering and state display, and completed without browser JavaScript errors.
+
 ## Live activity and published outputs
 
 The tools menu offers **Live activity** during an active run when the gateway advertises `run_events_sse`. It proxies the native event stream with server-side authentication and checks the run's Orbit session before subscribing. Expand event rows to inspect their payloads (up to 150 rows, 12K characters per displayed payload). This is an initial event inspector, not a polished token-by-token transcript. Closing the viewer disconnects its stream, not the agent. Normal chat status polling continues; on stream failure use Check status and saved Tool activity. Reopening is possible but replay is not guaranteed. Avoid multiple viewers for the same run: upstream stream fan-out semantics vary by Hermes version. Event payloads can contain sensitive tool data.
