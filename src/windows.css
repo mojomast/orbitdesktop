@@ -8,6 +8,8 @@
 .desktop-window .monitor-meta { display: none; }
 .desktop-window .monitor-bar button { font-size: 14px; padding: 4px; }
 .window-resize { display: none; }
+.monitor-anchor .monitor-bar { cursor: grab; touch-action: none; user-select: none; }
+.monitor-anchor .monitor > .window-resize,
 .desktop-window > .window-resize { display: block; position: absolute; bottom: 0; right: 0; width: 24px; height: 24px; text-align: right; padding: 3px; color: var(--lime); cursor: nwse-resize; touch-action: none; z-index: 4; background: #15211ed0; border-radius: 5px 0 0 0; }
 .window-dragging iframe { pointer-events: none !important; }
 .window-dragging { cursor: grabbing; user-select: none; }

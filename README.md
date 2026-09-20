@@ -50,8 +50,8 @@ See [Workspace control and app publishing](docs/WORKSPACE_CONTROL.md), [live ver
 
 | Action            | Control                                              |
 | ----------------- | ---------------------------------------------------- |
-| Move a window     | Drag its title bar in Windows view                   |
-| Resize a window   | Drag its bottom-right corner in Windows view         |
+| Move a window     | Drag its title bar in Windows or Spatial view        |
+| Resize a window   | Drag its bottom-right corner in either view          |
 | Change view       | Top-bar Windows / Spatial toggle                     |
 | Hide/show sidebar | Top-bar side-panel toggle                            |
 | Select a monitor  | Click its surface or its bottom display tab          |
@@ -70,6 +70,10 @@ More monitors make the overview smaller. Focus mode is the primary reading/typin
 Layouts persist. Chat messages and active run IDs survive reloads within the same browser tab using sessionStorage; the Orbit token remains memory-only and must be entered again. Hermes retains server-side session history. Shell processes and terminal buffers do not survive a page reload. Closing a chat pane does not stop an active Hermes run: use Stop first. Adjusting geometry or using focus mode preserves connected terminals. Closing a pane, switching its type, changing presets, or importing a replacement layout closes affected shells after confirmation. Reconnecting starts a new shell. Deliberately detached background programs are not a job-management feature; use tmux if that is needed.
 
 ## Browser limits
+
+Spatial dragging adjusts horizontal offset and height; corner resizing changes the monitor diagonal while preserving its aspect ratio (20–55 inches). Use the inspector for depth, pitch, yaw, and aspect ratio. Alt-drag remains camera movement. Changes render during the gesture and persist afterward.
+
+While connected, Hermes layout changes and edits to published app builds appear automatically on the next workspace poll (normally within 1.2 seconds plus request/load time). Only the changed app iframe reloads; the workspace, chat, and shell panes remain mounted. App-local unsaved state may reset. Framework source edits must first be built and published; this is not hot replacement of Orbit's own production JavaScript. Existing tabs need one reload or a new tab to load this upgrade.
 
 A pane embeds a website in a sandboxed iframe; it is not a complete Chromium browser. Sites can refuse embedding through CSP `frame-ancestors` or `X-Frame-Options`, and some sign-in flows will not work in an iframe. Use **↗** for those sites. Orbit does not strip these protections or proxy arbitrary sites. Iframe success cannot reliably be detected cross-origin, so the UI does not claim that a remote page loaded successfully.
 

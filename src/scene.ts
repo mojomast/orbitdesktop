@@ -90,6 +90,30 @@ export class DesktopScene {
     tick();
     this.resize();
   }
+  wireSpatial(bar: HTMLElement, handle: HTMLElement, m: Monitor, enabled: () => boolean, changed: () => void, finished: () => void) {
+    for (const [target, resizing] of [[bar, false], [handle, true]] as const) {
+      let start: { x: number; y: number; offset: number; height: number; diagonal: number; scale: number; width: number } | null = null;
+      target.addEventListener('pointerdown', e => {
+        if (!enabled() || e.altKey || e.button !== 0 || (!resizing && (e.target as HTMLElement).closest('button,input,select'))) return;
+        const o = this.objects.get(m.id); if (!o) return;
+        const depth = o.css.position.distanceTo(this.camera.position);
+        start = { x: e.clientX, y: e.clientY, offset: m.offset, height: m.height, diagonal: m.diagonal,
+          scale: 2 * depth * Math.tan(THREE.MathUtils.degToRad(22.5)) / this.host.clientHeight,
+          width: Math.max(40, o.css.element.getBoundingClientRect().width) };
+        target.setPointerCapture(e.pointerId); e.preventDefault(); e.stopPropagation();
+        document.body.classList.add('window-dragging');
+      });
+      target.addEventListener('pointermove', e => {
+        if (!start) return;
+        const dx = e.clientX - start.x, dy = e.clientY - start.y;
+        if (resizing) m.diagonal = Math.max(20, Math.min(55, start.diagonal * (1 + (dx + dy) / start.width)));
+        else { m.offset = Math.max(-3, Math.min(3, start.offset + dx * start.scale)); m.height = Math.max(-2, Math.min(3, start.height - dy * start.scale)); }
+        changed();
+      });
+      const finish = () => { if (!start) return; start = null; document.body.classList.remove('window-dragging'); finished(); };
+      target.addEventListener('pointerup', finish); target.addEventListener('pointercancel', finish); target.addEventListener('lostpointercapture', finish);
+    }
+  }
   resize() {
     const w = this.host.clientWidth,
       h = this.host.clientHeight;

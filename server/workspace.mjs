@@ -15,7 +15,21 @@ export function createWorkspaceService({ token, port, devOrigins, reply, root = 
   const filename = id => { if (!idPattern.test(id || '')) throw Error('Invalid workspace id'); return path.join(root, 'workspaces', `${id}.json`); };
   const read = id => JSON.parse(fs.readFileSync(filename(id), 'utf8'));
   const persist = record => { const file = filename(record.id); fs.writeFileSync(file + '.tmp', JSON.stringify(record), { mode: 0o600 }); fs.renameSync(file + '.tmp', file); };
-  const safe = r => ({ workspace_id: r.id, revision: r.revision, state: r.state, observed_revision: r.observed_revision || 0, browser_seen: r.browser_seen || null });
+  const appVersions = () => {
+    const versions = {};
+    for (const entry of fs.readdirSync(path.join(root, 'apps'), { withFileTypes: true })) {
+      if (!entry.isDirectory() || !slugPattern.test(entry.name)) continue;
+      let stamp = 0;
+      const walk = dir => { for (const item of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (item.isSymbolicLink() || item.name.startsWith('.')) continue;
+        const file = path.join(dir, item.name); const stat = fs.statSync(file); stamp = Math.max(stamp, stat.mtimeMs);
+        if (item.isDirectory()) walk(file);
+      } };
+      try { const dir = path.join(root, 'apps', entry.name); stamp = fs.statSync(dir).mtimeMs; walk(dir); versions[entry.name] = stamp; } catch {}
+    }
+    return versions;
+  };
+  const safe = r => ({ app_versions: appVersions(), workspace_id: r.id, revision: r.revision, state: r.state, observed_revision: r.observed_revision || 0, browser_seen: r.browser_seen || null });
   async function handle(req, res, control = false) {
     try {
       let raw = '', size = 0;

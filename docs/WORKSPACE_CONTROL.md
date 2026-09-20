@@ -37,7 +37,7 @@ Create a static app/build directory containing `index.html` and its assets. You 
 python3 scripts/workspace_control.py --workspace UUID publish /absolute/path/to/app/dist my-app --title 'My App'
 ```
 
-This copies the build into `.runtime/apps/my-app`, then opens a browser window at `/apps/my-app/` in the active workspace. Existing app windows are selected rather than duplicated; use the pane's reload control after republishing changed assets. `--no-open` publishes without changing the layout. Apps must contain no symlinks and stay under 5000 entries/50MB. A previous build is retained as `my-app.previous` for recovery.
+This copies the build into `.runtime/apps/my-app`, then opens a browser window at `/apps/my-app/` in the active workspace. Existing app windows are selected rather than duplicated. Connected browsers detect changed published assets during workspace polling and automatically reload only matching app iframes; no workspace refresh is needed. App-local unsaved state may reset. Source edits require rebuilding/republishing when applicable. `--no-open` publishes without changing the layout. Apps must contain no symlinks and stay under 5000 entries/50MB. A previous build is retained as `my-app.previous` for recovery.
 
 The preview is a sandboxed iframe with no same-origin privilege. It cannot access parent DOM, Orbit tokens, localStorage, or workspace-control capabilities. HTML responses also carry CSP sandbox restrictions, even if opened in a new tab. Static assets permit CORS so ES modules work in the opaque sandbox. Apps may make ordinary HTTPS requests to services that allow CORS; there is no arbitrary localhost proxy. Apps needing a backend/authenticated API require a separately designed, scoped integration. Do not weaken the sandbox to make an app work.
 
@@ -49,6 +49,6 @@ The controller is restricted to its workspace and cannot execute shell commands 
 
 ## Host shell / deployment
 
-The production service is `orbitdesktop-host.service` in the mojo user systemd manager, listening on loopback 4327. Tailscale HTTPS 4325 routes there. Terminal PTYs run as `mojo` in `/home/mojo` with `/bin/bash`; no Docker shell, passwordless sudo setup, or new SSH key is involved. Hermes remains in its configured execution environment, so do not assume its tool sandbox equals the interactive host shell.
+The current routed service is `orbitdesktop-live.service` in the mojo user systemd manager, listening on loopback 4328. Tailscale HTTPS 4325 routes there. The older `orbitdesktop-host.service` on 4327 remains running to preserve pre-cutover shells. Terminal PTYs run as `mojo` in `/home/mojo` with `/bin/bash`; no Docker shell, passwordless sudo setup, or new SSH key is involved. Hermes remains in its configured execution environment, so do not assume its tool sandbox equals the interactive host shell.
 
 Service unit source: `deploy/orbitdesktop-host.service`. Runtime workspace records and capability files live in `.runtime/workspaces` (owner-only); built app files live in `.runtime/apps`. Both are Git-ignored. The service is enabled for reboot recovery. Build/test before restarting; restarting terminates this service's live shells. Existing older containers are retained while their old connections drain.

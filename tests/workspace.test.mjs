@@ -51,6 +51,15 @@ test('capabilities are private, workspace-scoped, and revision conflicts reject 
  const ack=await req({action:'read',observed_revision:2});assert.equal(ack.body.observed_revision,2);
  assert.equal((await req({action:'read',workspace_id:randomUUID()},true,record.capability)).status,404);
 });
+test('workspace polling reports changed app assets without a layout revision',async t=>{
+ const {root,req}=await setup(t);
+ const app=path.join(root,'apps','live-test');fs.mkdirSync(app);const file=path.join(app,'index.html');fs.writeFileSync(file,'before');
+ const first=await req({action:'sync',state:initial()});
+ fs.writeFileSync(file,'after');fs.utimesSync(file,new Date(),new Date(Date.now()+2000));
+ const second=await req({action:'read'});
+ assert.equal(second.body.revision,first.body.revision);
+ assert.notEqual(second.body.app_versions['live-test'],first.body.app_versions['live-test']);
+});
 test('operation batches are atomic when a later operation is invalid',async t=>{
  const {root,id,req}=await setup(t);await req({action:'sync',state:initial()});
  const cap=JSON.parse(fs.readFileSync(path.join(root,'workspaces',id+'.json'))).capability;

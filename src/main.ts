@@ -388,6 +388,7 @@ function renderMonitor(m: Monitor) {
   content.append(renderLayout(m.layout, m));
   const resizeHandle = el('div', 'window-resize', '◢');
   outer.replaceChildren(bar, content, resizeHandle);
+  scene.wireSpatial(bar, resizeHandle, m, () => state.view === 'spatial' && !focused, () => { updateScene(); save(); }, () => { renderInspector(); save(); });
   wireWindow(outer, bar, resizeHandle, m, desktopHost, () => state.view === 'windows' && !focused, () => { renderInspector(); views.forEach(v => v.resize()); save(); });
   updateScene();
   if (focused === m.id) {
