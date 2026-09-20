@@ -35,6 +35,11 @@ test('checkpoints restore layout, reject stale writes, and keep a before-restore
  assert.equal((await req({action:'history'},false,'bad')).status,403);
  assert.equal(JSON.parse(fs.readFileSync(path.join(root,'workspaces',id+'.json'),'utf8')).revision,3);
 });
+test('appearance operations are checkpointable and reject CSS or remote URL injection',()=>{
+ const state=initial();const next=applyOperation(state,{action:'set_appearance',appearance:{background:'#123456',wallpaper:'/neon-horizon-v1.svg'}});
+ assert.deepEqual(next.appearance,{background:'#123456',wallpaper:'/neon-horizon-v1.svg'});assert.equal(state.appearance,undefined);
+ for(const appearance of [{background:'red;display:none'},{wallpaper:'https://evil.test/x.png'},{wallpaper:'//evil/x.png'},{css:'x'}])assert.throws(()=>applyOperation(state,{action:'set_appearance',appearance}));
+});
 test('workspace operations validate geometry and support targeted changes without mutating input',()=>{
  const s=initial(),id=s.monitors[0].id;
  const next=applyOperation(s,{action:'update_window',window_id:id,name:'Host Workshop',frame:{x:10,y:20,width:700,height:450,z:5}});

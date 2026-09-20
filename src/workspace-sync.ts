@@ -1,3 +1,4 @@
+import { applyAppearance } from './workspace-appearance';
 import type { Workspace } from './model';
 let id = '';
 try { id = localStorage.getItem('orbit.workspace.id') || ''; } catch {}
@@ -32,7 +33,7 @@ export function connectWorkspace(getState: () => Workspace, apply: (state: Works
       revision = data.revision; ready = true;
       if (remote) {
         if (changes !== sent) { try { localStorage.setItem('orbit.workspace.conflict-backup', JSON.stringify(getState())); } catch {} }
-        apply(data.state); sent = changes;
+        apply(data.state); applyAppearance(data.state); sent = changes;
         status(response.status === 409 ? 'Workspace updated elsewhere; local backup saved' : 'Workspace connected');
       } else if (action === 'sync') sent = snapshot;
     }

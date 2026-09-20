@@ -1,5 +1,11 @@
 # Comet/Orbit workspace control
 
+## Checkpointed appearance
+
+Prefer controller `apply` with `{"action":"set_appearance","appearance":{"background":"#123456","wallpaper":"/neon-horizon-v1.svg"}}` over editing CSS. Background must be six-digit hex. Wallpaper must be a local SVG/PNG/JPEG/WebP asset path; empty string removes the wallpaper. `appearance:{}` returns to stylesheet defaults. This replaces the appearance object, not a partial merge. Every controller apply automatically checkpoints previous state; appearance is now included in restore. Image bytes are NOT versioned yet: do not overwrite an existing asset if you need exact visual rollback. Use new asset names.
+
+Changes synchronize without document reload in the new frontend. Existing CSS stays intact beneath these overrides. Current routed service is orbitdesktop-appearance on 4331; 4330 was preserved with its active terminal session. The appearance/checkpoint browser test verified live background change, rollback to original wallpaper and reload persistence.
+
 ## Default rule: perform and deliver changes, do not ask the owner to reload
 
 Use the scoped controller below for layout, geometry, fonts, pane content, and sidebar changes. Use `scripts/workspace_appearance.py` for wallpaper and visual styling. Use `publish` for app previews. These paths update already-open pages without replacing the workspace document or restarting shells. Do not implement ordinary appearance/layout requests by changing application JavaScript.

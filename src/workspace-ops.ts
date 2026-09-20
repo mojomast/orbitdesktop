@@ -5,6 +5,7 @@ export function applyOperation(input: Workspace, op: Record<string, any>): Works
   const target = () => { const m = state.monitors.find(m => m.id === op.window_id); if (!m) throw Error('Unknown window_id'); return m; };
   switch (op.action) {
     case 'set_workspace': return validate(structuredClone(op.state));
+    case 'set_appearance': state.appearance = op.appearance; break;
     case 'set_view': state.view = op.view; break;
     case 'sidebar': state.sidebarHidden = op.hidden; break;
     case 'select': state.selected = target().id; break;
