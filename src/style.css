@@ -137,12 +137,7 @@ p {
   flex: 1;
   min-width: 0;
   overflow: hidden;
-  background: radial-gradient(
-    ellipse at 50% 45%,
-    #20312d 0%,
-    #111c20 48%,
-    #0b1218 90%
-  );
+  background: #0b2457 url('/clown-wallpaper.svg') center / cover no-repeat;
 }
 .workspace-heading {
   position: absolute;

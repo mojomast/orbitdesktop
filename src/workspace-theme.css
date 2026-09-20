@@ -1,3 +1,6 @@
-/* Owner-managed workspace appearance. Apply through scripts/workspace_appearance.py.
-   Use absolute /asset URLs (version them when replacing image contents).
-   This stylesheet is loaded after the default workspace styles. */
+/* Owner-managed appearance: neon alien horizon wallpaper. */
+.windows-mode [data-monitor-id="67143ce5-4b26-40e6-9077-b082cb498584"] { left:auto!important; top:auto!important; right:24px!important; bottom:12px!important; width:320px!important; height:440px!important; z-index:0!important; border:0!important; background:transparent!important; box-shadow:none!important; }
+[data-monitor-id="67143ce5-4b26-40e6-9077-b082cb498584"] :is(.monitor-bar,.pane-head,.browser-nav,.window-resize) { display:none!important; }
+[data-monitor-id="67143ce5-4b26-40e6-9077-b082cb498584"] :is(.monitor-content,.pane,.pane-body,iframe) { background:transparent!important; border:0!important; padding:0!important; border-radius:0!important; }
+
+.workspace { background: #080c20 url("/neon-horizon-v1.svg") center / cover no-repeat !important; }
