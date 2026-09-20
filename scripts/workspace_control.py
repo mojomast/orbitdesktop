@@ -19,7 +19,11 @@ def main():
     p.add_argument('--workspace', required=True)
     sub = p.add_subparsers(dest='command', required=True)
     sub.add_parser('read')
-    apply = sub.add_parser('apply'); apply.add_argument('operations', help='JSON operation or array; use @file.json to read a file')
+    apply = sub.add_parser('apply'); apply.add_argument('operations', help='JSON operation or array; use @file.json to read a file'); apply.add_argument('--base-revision',type=int)
+    preview = sub.add_parser('preview'); preview.add_argument('operations'); preview.add_argument('--base-revision',type=int)
+    sub.add_parser('history')
+    checkpoint = sub.add_parser('checkpoint'); checkpoint.add_argument('--label',default='Agent checkpoint')
+    restore = sub.add_parser('restore'); restore.add_argument('checkpoint_id'); restore.add_argument('--confirm',action='store_true'); restore.add_argument('--base-revision',type=int,required=True)
     pub = sub.add_parser('publish'); pub.add_argument('source'); pub.add_argument('slug'); pub.add_argument('--title'); pub.add_argument('--no-open', action='store_true')
     args = p.parse_args()
     if not re.fullmatch(r'[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}', args.workspace): p.error('Invalid workspace ID')
@@ -34,7 +38,12 @@ def main():
             raise RuntimeError(f"Workspace request failed ({error.code}): {details.get('error', 'unknown error')}") from None
     current = request('read')
     if args.command == 'read': print(json.dumps(current, indent=2)); return
-    if args.command == 'publish':
+    if args.command == 'history': print(json.dumps(request('history'),indent=2)); return
+    if args.command == 'checkpoint': print(json.dumps(request('checkpoint',label=args.label),indent=2)); return
+    if args.command == 'restore':
+        if not args.confirm: p.error('Restore requires --confirm and the revision you reviewed')
+        result=request('restore',checkpoint_id=args.checkpoint_id,confirm=True,base_revision=args.base_revision)
+    elif args.command == 'publish':
         if not re.fullmatch(r'[a-z0-9][a-z0-9-]{0,60}', args.slug): p.error('App slug must use lowercase letters, digits, and hyphens')
         source = Path(args.source).resolve()
         if not (source / 'index.html').is_file(): p.error('Publish a build directory containing index.html')
@@ -68,7 +77,10 @@ def main():
         raw = Path(args.operations[1:]).read_text() if args.operations.startswith('@') else args.operations
         operations = json.loads(raw)
         if isinstance(operations, dict): operations = [operations]
-    result = request('apply', base_revision=current['revision'], operations=operations)
+    if args.command != 'restore':
+        base=getattr(args,'base_revision',None)
+        result = request('preview' if args.command=='preview' else 'apply', base_revision=current['revision'] if base is None else base, operations=operations)
+    if args.command=='preview': print(json.dumps(result,indent=2)); return
     revision = result['revision']
     for _ in range(40):
         result = request('read')

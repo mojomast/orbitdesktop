@@ -1,13 +1,17 @@
+import fs from 'node:fs';
+import { automation } from './automation.mjs';
 import { tokenMatches, allowedRequest } from './security.mjs';
+import { createBuildQueue } from './build-queue.mjs';
+import { fileURLToPath } from 'node:url';
 
 const sessionPattern = /^orbit-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const runPattern = /^run_[a-zA-Z0-9_-]{8,100}$/;
 const instructions = 'You are Hermes, accessed through the owner’s Comet/Orbit Desktop agent chat. This is a separate conversation using your configured profile, tools and memory, not a continuation of another dashboard thread. Orbit terminal panes run as the owner on the host. Your agent tools still run in the configured Hermes environment. Use plain text in replies. Do not claim to see screen pixels, iframe contents, or terminal buffers unless supplied. Follow normal tool approval policies.';
 
 export function createAgentHandler({ token, port, devOrigins, reply, workspaceContext, apiUrl = process.env.HERMES_API_URL, apiKey = process.env.HERMES_API_KEY, fetchImpl = fetch }) {
-  async function upstream(path, body) {
+  async function upstream(path, body, method) {
     const r = await fetchImpl(`${apiUrl.replace(/\/$/, '')}${path}`, {
-      method: body === undefined ? 'GET' : 'POST',
+      method: method || (body === undefined ? 'GET' : 'POST'),
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       signal: AbortSignal.timeout(20000),
@@ -20,6 +24,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
     }
     return r.json();
   }
+  let buildQueue;
   return async function agent(req, res) {
     if (req.method !== 'POST' || !allowedRequest(req, port, devOrigins)) return reply(res, 403, { error: 'Origin rejected' });
     const auth = req.headers.authorization || '';
@@ -35,6 +40,13 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
       let body;
       try { body = JSON.parse(raw); } catch { return reply(res, 400, { error: 'Invalid JSON' }); }
       if (!body || typeof body !== 'object' || !sessionPattern.test(body.session_id || '')) return reply(res, 400, { error: 'Invalid Orbit conversation.' });
+      if (body.action === 'build_queue') {
+        buildQueue ||= createBuildQueue({ directory: fileURLToPath(new URL('../.runtime/build-queue/', import.meta.url)), upstream, context: workspaceContext });
+        try {
+          if (body.operation === 'approvals') return reply(res, 200, { approvals: await buildQueue.approvals(body) });
+          return reply(res, 200, await buildQueue.action(body));
+        } catch (error) { return reply(res, 409, { error: error.message }); }
+      }
       if (body.action === 'catalog') {
         if (!['skills', 'toolsets'].includes(body.kind)) return reply(res, 400, { error: 'Invalid catalog.' });
         const caps = await upstream('/v1/capabilities');
@@ -60,6 +72,17 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
         try { for await (const chunk of stream.body) { if (!res.write(chunk)) await new Promise(resolve => { res.once('drain', resolve); res.once('close', resolve); }); if (res.destroyed) break; } } finally { abort.abort(); res.end(); }
         return;
       }
+      if(body.action==='connection_password') {
+        const paths = {chromium:'../.runtime/shared-browser/password.txt', xpra:'../.runtime/xpra/password'};
+        if (!Object.hasOwn(paths, body.service)) return reply(res,400,{error:'Unknown connection.'});
+        res.setHeader('Cache-Control','no-store');
+        return reply(res,200,{password:fs.readFileSync(new URL(paths[body.service],import.meta.url),'utf8').trim()});
+      }
+      if(body.action==='shared_browser_connection') {
+        const password=fs.readFileSync(new URL('../.runtime/shared-browser/password.txt',import.meta.url),'utf8').trim();
+        return reply(res,200,{url:'https://kimi.tailec998.ts.net:4344/vnc.html?autoconnect=true&resize=scale',password});
+      }
+      if(body.action==='automation') return reply(res,200,await automation(body,upstream));
       if (body.action === 'job_control') {
         if (!['pause', 'resume'].includes(body.operation) || typeof body.job_id !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(body.job_id) || body.confirm !== true) return reply(res, 400, { error: 'Confirm a valid pause or resume operation.' });
         await upstream(`/api/jobs/${encodeURIComponent(body.job_id)}/${body.operation}`, {});

@@ -84,12 +84,13 @@ export function createWorkspaceService({ token, port, devOrigins, reply, root = 
       }
       if (control) {
         if (body.action === 'read') return reply(res, 200, safe(record));
-        if (body.action !== 'apply') return reply(res, 400, { error: 'Unknown control action' });
+        if (!['apply','preview'].includes(body.action)) return reply(res, 400, { error: 'Unknown control action' });
         if (body.base_revision !== record.revision) return reply(res, 409, { error: 'Workspace changed; read and retry', ...safe(record) });
         const operations = body.operations;
         if (!Array.isArray(operations) || !operations.length || operations.length > 32) throw Error('Expected 1–32 operations');
         let next = record.state;
         for (const op of operations) next = applyOperation(next, op);
+        if (body.action === 'preview') return reply(res,200,{workspace_id:record.id,base_revision:record.revision,preview:true,state:next,changed_fields:Object.keys(next).filter(key=>JSON.stringify(next[key])!==JSON.stringify(record.state[key])),warning:'Validation only; no files, browser rendering or external effects were tested. Reapply operations against this base revision to commit.'});
         checkpoints.save(record, 'Before agent layout change');
         record.state = next; record.revision++; record.api = `http://127.0.0.1:${port}`; persist(record);
         return reply(res, 200, safe(record));

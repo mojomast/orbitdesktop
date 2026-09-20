@@ -1,6 +1,95 @@
+/* Workshop: opaque plum backdrop; host-only change preserves session notes. */
+[data-monitor-id="d910d4c6-e3e6-4cd1-942f-8ba9d27bba94"],
+[data-monitor-id="d910d4c6-e3e6-4cd1-942f-8ba9d27bba94"] :is(.monitor-bar,.monitor-content,.pane,.pane-body,.browser-surface,iframe) { background:#241b38!important; background-image:none!important; }
+[data-monitor-id="d910d4c6-e3e6-4cd1-942f-8ba9d27bba94"] iframe { color-scheme:dark!important; }
+/* Live tools: transparent host layers, matching the embedded dark color scheme. */
+[data-monitor-id="a5418259-f332-4d2f-be76-313a87b66023"] { background:transparent!important; background-image:none!important; box-shadow:none!important; border:0!important; backdrop-filter:none!important; }
+[data-monitor-id="a5418259-f332-4d2f-be76-313a87b66023"] :is(.monitor-content,.pane,.pane-body,.browser-surface,iframe) { background:transparent!important; background-image:none!important; box-shadow:none!important; border:0!important; }
+[data-monitor-id="a5418259-f332-4d2f-be76-313a87b66023"] iframe { color-scheme:dark!important; }
+[data-monitor-id="a5418259-f332-4d2f-be76-313a87b66023"] .monitor-bar { background:transparent!important; border:0!important; }
 /* Owner-managed appearance: neon alien horizon wallpaper. */
 .windows-mode [data-monitor-id="67143ce5-4b26-40e6-9077-b082cb498584"] { left:auto!important; top:auto!important; right:24px!important; bottom:12px!important; width:320px!important; height:440px!important; z-index:0!important; border:0!important; background:transparent!important; box-shadow:none!important; }
 [data-monitor-id="67143ce5-4b26-40e6-9077-b082cb498584"] :is(.monitor-bar,.pane-head,.browser-nav,.window-resize) { display:none!important; }
 [data-monitor-id="67143ce5-4b26-40e6-9077-b082cb498584"] :is(.monitor-content,.pane,.pane-body,iframe) { background:transparent!important; border:0!important; padding:0!important; border-radius:0!important; }
 
+/* A compact control stays reachable while the guy's entire hit area collapses. */
+[data-monitor-id="67143ce5-4b26-40e6-9077-b082cb498584"] .monitor-bar:has(.guy-toggle) { display:flex!important; background:transparent; border:0; justify-content:flex-end; }
+[data-monitor-id="67143ce5-4b26-40e6-9077-b082cb498584"] .monitor-bar > :not(.guy-toggle) { display:none!important; }
+[data-monitor-id="67143ce5-4b26-40e6-9077-b082cb498584"] .guy-toggle { background:#162b48; color:#c8fff3; border:1px solid #51c7bb; border-radius:12px; min-width:32px; min-height:26px; cursor:pointer; }
+.workspace [data-monitor-id="67143ce5-4b26-40e6-9077-b082cb498584"].guy-minimized { width:112px!important; height:34px!important; min-width:0!important; min-height:0!important; overflow:hidden!important; background:transparent!important; border:0!important; box-shadow:none!important; }
+[data-monitor-id="67143ce5-4b26-40e6-9077-b082cb498584"].guy-minimized > :not(.monitor-bar) { display:none!important; }
+
 .workspace { background: #080c20 url("/neon-horizon-v1.svg") center / cover no-repeat !important; }
+
+/* The spatial anchor must not retain a full-window hit target. */
+[data-anchor-id="67143ce5-4b26-40e6-9077-b082cb498584"]:has(.guy-minimized) { pointer-events:none!important; }
+[data-monitor-id="67143ce5-4b26-40e6-9077-b082cb498584"].guy-minimized { pointer-events:none!important; }
+[data-monitor-id="67143ce5-4b26-40e6-9077-b082cb498584"].guy-minimized .monitor-bar { height:34px!important; min-height:0!important; padding:0!important; }
+[data-monitor-id="67143ce5-4b26-40e6-9077-b082cb498584"].guy-minimized .guy-toggle { pointer-events:auto!important; }
+
+/* Token telemetry: fixed HUD, above desktop windows, with no window chrome. */
+.windows-mode [data-monitor-id="480f30c9-9d43-4be3-950e-63832e4f50de"] {
+ position:fixed!important; left:auto!important; top:auto!important; right:20px!important; bottom:20px!important;
+ width:320px!important; height:350px!important; min-width:0!important; min-height:0!important;
+ max-width:calc(100vw - 40px)!important; max-height:calc(100vh - 100px)!important;
+ z-index:2147483000!important; transform:none!important; border:0!important; outline:0!important;
+ border-radius:0!important; overflow:hidden!important; background:transparent!important; box-shadow:none!important; backdrop-filter:none!important;
+}
+.windows-mode [data-monitor-id="480f30c9-9d43-4be3-950e-63832e4f50de"] :is(.monitor-bar,.pane-head,.browser-nav,.window-resize,.embed-warning) { display:none!important; }
+.windows-mode [data-monitor-id="480f30c9-9d43-4be3-950e-63832e4f50de"] :is(.monitor-content,.pane,.pane-body,iframe) { background:transparent!important; border:0!important; padding:0!important; border-radius:0!important; }
+
+/* Transparent iframe content also needs a transparent browser host. */
+.windows-mode [data-monitor-id="480f30c9-9d43-4be3-950e-63832e4f50de"] .browser-surface { background:transparent!important; background-image:none!important; box-shadow:none!important; border:0!important; }
+
+/* Match the embedded light document to prevent an opaque UA canvas. */
+[data-monitor-id="480f30c9-9d43-4be3-950e-63832e4f50de"] iframe { color-scheme:normal!important; }
+
+/* NEBULA interface / owner-requested visual redesign. CSS-only, no pane lifecycle changes. */
+:root { --line:#514064; --muted:#b5a7c7; --lime:#d6afff; }
+body { color:#f1eafa; }
+.topbar { background:linear-gradient(110deg,#181126f5,#221837f5 60%,#112b36f5); border-bottom:1px solid #ba8cff48; box-shadow:0 4px 28px #09041066; }
+.brand strong { letter-spacing:-1px; color:#f8eaff; }
+.brand-mark { color:#77e5e1; filter:drop-shadow(0 0 9px #63d9e777); }
+.brand-tag,.saved { color:#c2afd5; }
+#app button,dialog button { border-radius:10px; transition:background .16s,border-color .16s,box-shadow .16s; }
+#app button:hover,dialog button:hover { background-color:#a779d32b; border-color:#c49afc80; box-shadow:0 0 16px #a677ee1c; }
+#app :is(button,input,textarea,select):focus-visible,dialog :focus-visible { outline:2px solid #7be6e0; outline-offset:3px; }
+#app :is(input:not([type=range]):not([type=checkbox]):not([type=radio]),textarea,select),dialog :is(input,textarea,select) { background:#100e20; color:#f5edff; border-color:#68517f; border-radius:10px; }
+#app input[type=range] { accent-color:#d4a5ff; }
+#app :is(.host-button,.start-button),.chat-form button { background:linear-gradient(125deg,#d7b2ff,#bcb3ff 60%,#8de0e5)!important; color:#20112f!important; border:1px solid #eee0ff88; font-weight:700; box-shadow:0 3px 15px #b78aef24; }
+.sidebar { background:linear-gradient(160deg,#191326f5,#0f1424f5); border-color:#70518b66; }
+.sidebar :is(h2,h3),.eyebrow { color:#dac3f3; letter-spacing:.08em; }
+#app .monitor { border-color:#a578cb70; box-shadow:0 18px 55px #05030b70,0 0 0 1px #ebceff0c,inset 0 1px #f3dfff22; background:#151021; }
+#app .monitor.selected { border-color:#dab0ffb0; box-shadow:0 20px 65px #06030c88,0 0 24px #ac77e421,inset 0 1px #f3dfff30; }
+#app .monitor-bar { background:linear-gradient(100deg,#30213f,#191728); border-bottom:1px solid #b995da30; color:#efe1ff; letter-spacing:.045em; }
+#app .pane-head { background:#21192e; border-color:#a67bc333; color:#cfbbdf; }
+#app .browser-nav { background:#171324; border-color:#8f6bb333; }
+#app .pane-body:has(.chat-messages) { background:radial-gradient(ellipse at 100% 0,#58327624,transparent 55%),#100e1b; color:#eee8f8; }
+.chat-messages { scrollbar-color:#785a9a #130f20; padding:24px; gap:20px; }
+.chat-message { border:1px solid #a785c422; border-radius:16px; padding:16px 20px; background:linear-gradient(130deg,#231b30ba,#171421bb); line-height:1.7; }
+.chat-message small { color:#aeece8; font-size:10px; letter-spacing:.16em; font-weight:700; }
+.chat-message.user { background:linear-gradient(125deg,#48305c,#302743); border-color:#d5a3ff55; border-radius:16px 16px 4px 16px; max-width:90%; color:#fff0ff; }
+.chat-message.user small { color:#e5bfff; }
+.chat-message pre { background:#0b0a14; padding:14px; border:1px solid #8a65af44; border-radius:10px; overflow:auto; }
+.chat-message a { color:#8fe4eb; text-underline-offset:3px; }
+.chat-form { margin:0 12px 12px; padding:10px; border:1px solid #b88ae85c; border-radius:17px; background:linear-gradient(120deg,#30223e,#171725); box-shadow:0 8px 24px #0003; }
+.chat-form textarea { border:0!important; background:transparent!important; line-height:1.5; }
+.chat-form button { border-radius:12px; min-width:44px; min-height:44px; }
+.agent-status { color:#88dfd2; }
+.agent-progress { color:#d6c0ed; background:#30233b66; }
+.agent-approvals { background:#3b2c1d; border:1px solid #e3b86780; color:#ffe7ba; }
+#app .scene-navigation { background:linear-gradient(110deg,#21162eed,#121d2ded); border:1px solid #b58bd45c; border-radius:18px; box-shadow:0 10px 35px #08031188,inset 0 1px #f4dfff12; backdrop-filter:blur(20px); }
+#app .display-tabs button { color:#c9b8db; border:1px solid transparent; border-radius:11px; }
+#app .display-tabs button.selected { color:#f8eaff; background:linear-gradient(110deg,#a16bd336,#739cc922); border-color:#d3a2fa55; box-shadow:inset 0 -2px #bd9ce8; }
+#app .start-panel,dialog.hermes-tools-dialog,dialog { background:linear-gradient(145deg,#23192ffb,#121827fc); color:#f0e7fb; border:1px solid #a47dc570; border-radius:20px; box-shadow:0 24px 90px #04020b99; }
+dialog::backdrop { background:#090512a6; backdrop-filter:blur(6px); }
+.start-heading strong { color:#eedaff; letter-spacing:-.04em; }
+.start-heading span,.start-item span { color:#bfb0d0; }
+#app .start-item:hover { background:#b981ef24; }
+#app .muted { color:#b8a9c6; }
+#app ::-webkit-scrollbar { width:7px; height:7px; }
+#app ::-webkit-scrollbar-thumb { background:#74578c; border-radius:8px; }
+#app ::-webkit-scrollbar-track { background:#120f1b; }
+::selection { background:#a87bcd66; color:#fff; }
+@media(prefers-reduced-motion:reduce) { #app button,dialog button { transition:none; } }
+@media(max-width:600px) { .chat-messages { padding:12px; gap:12px; } .chat-message { padding:12px; } .chat-form { margin:0 6px 6px; } }

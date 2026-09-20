@@ -1,0 +1,40 @@
+/* Workspace-first viewport geometry; independent of owner wallpaper/theme. */
+#app { height:100dvh; min-height:0; overflow:hidden; }
+#app .topbar { height:44px; min-height:44px; padding:0 12px; gap:12px; }
+#app .brand strong { font-size:21px; }
+#app .brand-mark { font-size:25px; }
+#app .brand-tag { display:none; }
+#app .footer { display:none; }
+#app .shell { display:flex; min-height:0; position:relative; }
+#app .workspace { height:auto; min-height:0; }
+#app .workspace-heading { top:4px; left:8px; right:8px; }
+#app .workspace-heading > :first-child { display:none; }
+#app .mode-switch { margin-left:auto; padding:1px; }
+#app .mode-switch button { padding:5px 8px; }
+#app .desktop-host { inset:40px 0 40px; }
+#app .stage { inset:40px 0 40px; }
+#app .scene-guide { display:none; }
+#app .scene-navigation { bottom:2px; padding:2px; z-index:9; }
+#app .focus-host { inset:40px 0 0; gap:2px; }
+#app .focus-back { padding:3px 8px; }
+.viewport-toggle { position:fixed; left:8px; top:48px; z-index:30; background:#16201fee; border:1px solid #536453; padding:5px 9px; font-size:12px; }
+#app.full-viewport .topbar, #app.full-viewport .inspector,
+#app.full-viewport .workspace-heading, #app.full-viewport .scene-navigation { display:none !important; }
+#app.full-viewport .desktop-host, #app.full-viewport .stage,
+#app.full-viewport .focus-host { inset:0; }
+#app.full-viewport .viewport-toggle { top:auto; bottom:4px; opacity:.65; }
+#app.full-viewport .viewport-toggle:hover, #app.full-viewport .viewport-toggle:focus-visible { opacity:1; }
+/* Agent-controlled chrome tokens. Full viewport always takes precedence. */
+#app .topbar { height:var(--orbit-header,44px); min-height:var(--orbit-header,44px); }
+#app .inspector { width:var(--orbit-sidebar,290px); min-width:var(--orbit-sidebar,290px); }
+#app:not(.full-viewport) .viewport-toggle { top:calc(var(--orbit-header,44px) + 4px); }
+#app:not(.full-viewport) .desktop-host, #app:not(.full-viewport) .stage { left:var(--orbit-gap,0px);right:var(--orbit-gap,0px); }
+#app.navigation-top:not(.full-viewport) .scene-navigation { top:40px;bottom:auto; }
+#app.navigation-top:not(.full-viewport) .desktop-host, #app.navigation-top:not(.full-viewport) .stage { top:80px;bottom:0; }
+@media(max-width:700px) {
+ #app .inspector { position:absolute; right:0; top:0; bottom:0; width:min(290px,90vw); min-width:0; display:block; overflow:auto; z-index:12; }
+ #app .topbar { gap:4px; padding:0 6px; }
+ #app .brand { gap:3px; }
+ #app .brand strong { font-size:17px; }
+ #app .host-button { padding:6px; }
+}

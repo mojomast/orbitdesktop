@@ -1,4 +1,5 @@
 import { workspaceExtensions } from './workspace-extensions';
+import { watchToolFeed } from './tool-feed';
 import './hermes-tools.css';
 import { el, button } from './dom';
 import { workspaceId, ensureWorkspaceSynced } from './workspace-sync';
@@ -21,6 +22,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
       state = { session: saved.session, messages: saved.messages.filter((m: Message) => ['user', 'assistant'].includes(m.role) && typeof m.text === 'string').slice(-100), run: typeof saved.run === 'string' ? saved.run : undefined };
     }
   } catch { /* Storage is optional. */ }
+  const stopToolFeed = watchToolFeed(paneId, () => state, getToken);
   let disposed = false, busy = false, polling = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const controller = new AbortController();
@@ -231,5 +233,5 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     progress.textContent = 'A saved run may still be active. Connect host to check its status. Closing the pane does not stop Hermes.';
     if (getToken()) void poll();
   }
-  return () => { disposed = true; toolsDialog?.remove(); clearTimeout(timer); controller.abort(); window.removeEventListener('orbit-host-connected', onUnlock); };
+  return () => { stopToolFeed(); disposed = true; toolsDialog?.remove(); clearTimeout(timer); controller.abort(); window.removeEventListener('orbit-host-connected', onUnlock); };
 }

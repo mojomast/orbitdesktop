@@ -3,6 +3,8 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { el, button, select } from "./dom";
 import { createAgentChat } from "./agent-chat";
+import { mountSharedBrowser } from './shared-browser';
+import { bindToolFeed } from "./tool-feed";
 import type { Pane, PaneKind } from "./model";
 export interface PaneView {
   element: HTMLElement;
@@ -177,6 +179,9 @@ export function createPane(p: Pane, font: number, a: PaneActions): PaneView {
       ws?.close();
       term.dispose();
     };
+  } else if (p.kind === 'browser' && p.url === 'orbit://shared-browser') {
+    head.style.display='none';
+    cleanup=mountSharedBrowser(body,()=>sessionToken,p.id);
   } else if (p.kind === "browser") {
     body.classList.add("browser-body");
     const nav = el("form", "browser-nav");
@@ -196,10 +201,15 @@ export function createPane(p: Pane, font: number, a: PaneActions): PaneView {
       frame.style.top = "0";
       frame.style.transformOrigin = "top left";
       frame.style.width = `${100 / zoom}%`;
-      frame.style.height = `calc((100% - 38px) / ${zoom})`;
+      frame.style.height = `${100 / zoom}%`;
       frame.style.transform = `scale(${zoom})`;
     };
     function navigate(raw: string) {
+      cleanup();
+      cleanup = () => {};
+      head.style.display = "";
+      nav.style.display = "";
+      root.classList.remove("app-pane");
       let url = raw.trim();
       if (url === "orbit://welcome") {
         current = url;
@@ -259,6 +269,11 @@ export function createPane(p: Pane, font: number, a: PaneActions): PaneView {
         const localApp = u.origin === location.origin && /^\/apps\/[a-z0-9][a-z0-9-]{0,60}\//.test(u.pathname);
         if (u.origin === location.origin && !localApp)
           throw Error("The Orbit host cannot be embedded.");
+        if (localApp) {
+          head.style.display = "none";
+          nav.style.display = "none";
+          root.classList.add("app-pane");
+        }
         current = u.href;
         address.value = current;
         a.url(p.id, localApp ? u.pathname + u.search + u.hash : current);
@@ -271,12 +286,7 @@ export function createPane(p: Pane, font: number, a: PaneActions): PaneView {
         );
         frame.src = current;
         surface.replaceChildren(frame);
-        const note = el(
-          "div",
-          "embed-note",
-          "Some sites block embedding. Use ↗ to open them in a new tab.",
-        );
-        surface.append(note);
+        if (localApp) cleanup = bindToolFeed(frame);
         zoomFrame();
       } catch (e) {
         surface.replaceChildren(

@@ -1,0 +1,12 @@
+.workspace .monitor.window-minimized { display:none!important; pointer-events:none!important; }
+[data-anchor-id]:has(.window-minimized) { visibility:hidden!important; pointer-events:none!important; }
+.minimized-tray { position:fixed; left:50%; bottom:64px; transform:translateX(-50%); z-index:2147483100; display:flex; gap:6px; max-width:calc(100vw - 32px); overflow:auto; padding:7px; border:1px solid #8397bd66; border-radius:14px; background:#151c30ed; box-shadow:0 8px 32px #0008; backdrop-filter:blur(16px); }
+.minimized-tray[hidden] { display:none; }
+.minimized-tray button { flex-shrink:0; max-width:230px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; padding:8px 12px; border-radius:8px; color:#e8edf5; }
+.window-minimize { min-width:28px; }
+/* Keep a minimize control on the otherwise chromeless companion and telemetry HUD. */
+.workspace [data-monitor-id="67143ce5-4b26-40e6-9077-b082cb498584"] > .monitor-bar,
+.workspace [data-monitor-id="480f30c9-9d43-4be3-950e-63832e4f50de"] > .monitor-bar { display:flex!important; justify-content:flex-end; background:transparent!important; border:0!important; }
+.workspace [data-monitor-id="67143ce5-4b26-40e6-9077-b082cb498584"] > .monitor-bar > :not(.window-minimize),
+.workspace [data-monitor-id="480f30c9-9d43-4be3-950e-63832e4f50de"] > .monitor-bar > :not(.window-minimize) { display:none!important; }
+.workspace .monitor > .monitor-bar > .window-minimize { display:inline-flex!important; align-items:center; justify-content:center; background:#202c46; color:#dcffef; border:1px solid #8397bd80; cursor:pointer; }

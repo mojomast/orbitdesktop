@@ -1,0 +1,29 @@
+# Per-app Xpra desktop launchers
+
+Seven trusted built-in Orbit shortcuts in src/xpra-apps.ts and main.ts: Chromium (4350), Apache OpenOffice Writer (4351), Calc (4352), Impress (4353), Thunar Files (4354), Mousepad Text Editor (4355), xterm Linux Terminal (4356). Apache OpenOffice 4.1.16 installed from downloads.apache.org and checked against its HTTPS-published SHA256. Not LibreOffice. Image orbit-xpra-apps:1 derives from the existing pilot image. Build: DOCKER_BUILDKIT=0 docker build -t orbit-xpra-apps:1 deploy/xpra-apps. Add services: python3 scripts/xpra_apps.py. Deployment deliberately skips existing containers; it does not upgrade/recreate running apps.
+
+Each fixed app has its own Xpra server, X display and non-root container. After authentication, start-on-connect invokes an allowlisted launcher with a process-lifetime file lock to avoid duplicate launches. No user-supplied commands. They have separate persistent home volumes and one shared orbit-xpra-documents volume at ~/Documents. This does NOT contain files from the existing VNC desktop. The terminal is in its app container, not the host shell. Chromium uses a separate profile, not Shared Chromium/CDP.
+
+Each icon creates/selects a normal movable, resizable Orbit browser window and survives closing the window because it is a built-in shortcut, not just an icon for existing windows. The dedicated Xpra client maximizes the primary application into its frame and hides its duplicate title bar. Native dialogs/menus remain in that app's viewer. This is app-per-session composition, NOT arbitrary X11 child-window to Orbit-window mapping. Additional documents from the same app can still live inside that app's frame. Closing an Orbit pane disconnects the viewer without terminating the app. Quit through the application's menu ends the app; reconnect/reload the viewer to launch again. Reconnecting requires Xpra authentication again. The existing Connection passwords shortcut copies the same Xpra credential used by these services; no credential is stored in URL/layout/static source.
+
+All seven services bind only host loopback; Tailscale Serve exposes private HTTPS on matching ports. Each independently requires the Xpra password. No public Funnel. Exact Orbit frame-ancestor restriction is inherited from the pilot. Container: user 1000, cap-drop ALL, no-new-privileges, 2GiB limit, 2 CPUs, 512 PIDs, no host home/X socket/Docker socket. Clipboard, file transfer, audio, webcam, printing, arbitrary remote launch and Xpra shell debugging are disabled. Network egress remains enabled.
+
+IMPORTANT: Chromium's namespace/setuid sandbox fails under this host/container policy. Chromium therefore uses --no-sandbox inside the restricted container; its internal browser sandbox is NOT a security boundary. Do not regard this as a high-security browsing environment or store sensitive browser credentials here. The container and shared Documents volume remain accessible to compromised applications in it. Other apps' private home volumes are not mounted.
+
+Production frontend built without restarting the Orbit server or existing sessions. Owner must refresh once for new built-in icons. Visual/behavioral browser tests use independent test workspaces, not the owner's live window focus. Container restart policy is unless-stopped; a host reboot loses running application state, not named-volume files. Workspace checkpoints cover pane metadata only; they cannot roll back images, container services, documents, or browser profiles. To remove services safely, coordinate unsaved work first, stop orbit-xpra-APP and turn off corresponding tailscale serve port; retain named volumes.
+
+Tests:
+- npm run check (build plus 67 tests).
+- tests/xpra-apps.browser.py: all seven real native app canvases over TLS; no JS errors; primary resize from 1100x800 to 900x650. Impress's first-launch presentation wizard is completed using a real keyboard shortcut.
+- tests/xpra-icons.browser.py: icons launch and deduplicate windows; embedded terminal keyboard writes a real file; Files container reads same shared document; Orbit movement/resizing/minimize/restore; no JS errors.
+- tests/xpra-apps-lifecycle.browser.py: incorrect password rejection, reconnect without duplicate app process, persistence on viewer close.
+
+## Reproducing this deployment
+
+These are deployment templates, not a one-command portable installer. Install Docker and configure private Tailscale Serve first. Build the pilot base image and provision its password with `scripts/xpra_pilot.py start`, as documented in XPRA.md; then build the apps image and run `scripts/xpra_apps.py`. Review scripts before running: they create containers, named volumes and private HTTPS listeners. Existing containers are intentionally not upgraded.
+
+Before building for another machine, replace the example tailnet hostname in `src/xpra-apps.ts` and the exact Orbit origin in `deploy/xpra/10_content_security_policy.txt`. Shared Chromium has its own endpoint configuration in `src/shared-browser.ts` / `server/agent.mjs`. Build the frontend again after changing trusted launcher URLs. Do not copy the original installation's credentials. The optional browser regression tests currently target the example deployment and require equivalent endpoint edits.
+
+## Copy-only credentials
+
+`src/connection-passwords.ts` implements the desktop dialog and copy buttons; `server/agent.mjs` handles the allowlisted `connection_password` action behind the existing host authentication/origin checks. Values come from ignored `.runtime/shared-browser/password.txt` and `.runtime/xpra/password`; responses use Cache-Control: no-store. Credentials are never persisted in layout URLs or rendered as text. Clipboard history may retain copied passwords. `tests/connection-passwords.browser.py` checks real clipboard equality, absence from DOM, and rejected unauthenticated/invalid-service requests without logging credential values.

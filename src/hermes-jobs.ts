@@ -1,3 +1,4 @@
+import { editAutomation } from './automation-editor';
 import { el, button } from './dom';
 export function showHermesJobs(api: (body: Record<string, unknown>) => Promise<any>) {
  const dialog = el('dialog', 'hermes-tools-dialog'); dialog.setAttribute('aria-label', 'Hermes scheduled tasks');
@@ -23,6 +24,8 @@ export function showHermesJobs(api: (body: Record<string, unknown>) => Promise<a
     const cancel = button('Cancel', 'Cancel schedule change', () => confirm.close());
     confirm.append(note,cancel,commit);confirm.addEventListener('close',()=>confirm.remove());document.body.append(confirm);confirm.showModal();
    }));
+   card.append(button('Edit',`Edit task ${job.name||job.id}`,()=>{void editAutomation(api,refresh,job.id);}),button('Duplicate',`Duplicate task ${job.name||job.id}`,()=>{void editAutomation(api,refresh,job.id,true);}));
+   for(const operation of ['run','delete'])card.append(button(operation==='run'?'Run now':'Delete',`${operation} task ${job.name||job.id}`,async()=>{if(!window.confirm(operation==='run'?`Run ${job.name||job.id} now? May incur costs and external effects.`:`Permanently delete ${job.name||job.id}? Workspace checkpoints cannot restore this task.`))return;try{await api({action:'automation',operation,job_id:job.id,confirm:true});await refresh();}catch(e){status.textContent=`Action not confirmed: ${String(e)}. Check state before retrying.`;}}));
    list.append(card);
   }
   if (!list.childElementCount) list.append(el('p', '', jobs.length ? 'No matching tasks.' : 'Hermes returned no scheduled tasks.'));
@@ -34,6 +37,7 @@ export function showHermesJobs(api: (body: Record<string, unknown>) => Promise<a
   finally{loading=false;if(dialog.open)timer=setTimeout(()=>{void refresh();},15000);}
  }
  search.addEventListener('input',draw);
- dialog.append(el('h2','','Hermes scheduled tasks'),button('Close','Close scheduled tasks',()=>dialog.close()),el('p','','Live tasks for this Hermes profile. Pause/resume changes require confirmation. Tasks execute on the gateway independently of Orbit. Times are shown as returned by Hermes. Up to 200 tasks; prompts and delivery details are not exposed.'),search,button('Refresh','Refresh scheduled tasks',()=>{void refresh();}),status,list);
+ dialog.append(el('h2','','Hermes scheduled tasks'),button('Close','Close scheduled tasks',()=>dialog.close()),el('p','','Live tasks for this Hermes profile. Pause/resume changes require confirmation. Tasks execute on the gateway independently of Orbit. Times are shown as returned by Hermes. Up to 200 tasks; prompts and delivery details are loaded only when you open Edit or Duplicate.'),search,button('Refresh','Refresh scheduled tasks',()=>{void refresh();}),status,list);
+ dialog.prepend(button('New automation','New automation',()=>{void editAutomation(api,refresh);}));
  dialog.addEventListener('close',()=>{clearTimeout(timer);dialog.remove();});document.body.append(dialog);dialog.showModal();void refresh();
 }

@@ -1,172 +1,156 @@
 # Orbit Desktop
 
-### A workspace you can build with your agent—not just talk to.
+A private desktop you can build with your AI agent.
 
-Orbit brings **Hermes, persistent host terminals, sandboxed app plugins, and a live customizable desktop** into one private workspace. Ask Hermes to build a tool, place it beside your work, change its configuration, or restore an earlier layout. Use familiar windows or a Three.js spatial view without changing the underlying workspace.
+Orbit brings Hermes conversations, persistent host terminals, web tools, and real Linux applications into one browser workspace. Launch a document editor, research in Chromium, work in a shell, and ask Hermes to build the next tool you need—without leaving your desktop.
 
-**Local-first · Single-owner · Agent-operated · Checkpointed customization**
+**Local-first · Single-owner · Agent-operated · Yours to shape.**
 
-![Orbit workspace with terminal, browser, Hermes chat and a configurable notes plugin](docs/images/workspace.png)
+![Orbit desktop with Linux application launchers](docs/images/desktop-launchers.png)
 
-> **Project status:** actively developed, working software. Sandboxed app plugins and a trusted integration registry are implemented. Orbit is **not yet a fully modular operating system**, a multi-user cloud desktop, or a general-purpose browser engine. See [what is implemented](#what-you-can-do-today) and the [roadmap](docs/ROADMAP.md).
+[Quick start](#quick-start) · [Linux apps](docs/XPRA_APPS.md) · [Agent guide](docs/AGENT_GUIDE.md) · [Security](docs/SECURITY.md)
 
-[Quick start](#quick-start) · [Use cases](#make-it-yours) · [Plugin guide](docs/PLUGINS.md) · [Hermes operator guide](docs/AGENT_GUIDE.md) · [Security](docs/SECURITY.md)
+## More than a chat window
 
-## Make it yours
+Most AI interfaces end at an answer. Orbit gives the agent a workspace in which to act: create a small application, place it beside your work, configure its behavior, and help you use it. You remain in control of the files, services, credentials, and deployment.
 
-| Workflow | Ask Hermes | What Orbit provides |
-| --- | --- | --- |
-| Focus station | “Build a configurable focus timer beside my terminal.” | Publish a static widget, install it as a plugin, configure it and open a movable pane. |
-| Project cockpit | “Arrange my shell, documentation and this chat for development.” | Targeted layout operations, pane splits, Windows/Spatial/Focus views and saved geometry. |
-| Personal workspace | “Use a dark background, round the windows and hide the sidebar.” | Validated live appearance settings and checkpointed workspace changes. |
-| Iterative tools | “Update this widget, but keep a way back if it breaks.” | Content-addressed bundles, plugin updates and restoration of prior entry/configuration references. |
-| Long-running work | Reload the page while a shell command is running. | Unlock host access and reconnect the same pane to its tmux-backed shell. |
-| Agent operations | Inspect what Hermes is doing without sending another prompt. | Real tool activity, supported live events, mid-run guidance, approvals and scheduled-task controls. |
+Use familiar movable windows or switch to a spatial view. Keep an editor next to your terminal and your conversation. Desktop shortcuts bring applications back without requiring you to reconstruct the workspace.
 
-These are workflows, not preloaded canned prompts. Hermes needs an appropriately configured API server and tool access; generated apps still need real testing.
+Orbit is actively developed software, not a finished operating system or a multi-user cloud desktop. Some integrations require separate setup. The boundaries below are part of the product, not fine print.
 
-## What you can do today
+## What you can do
 
-**Compose a live desktop.** Move and resize windows in flat or spatial view, split panes, change text size, hide the sidebar and focus a single display. Layout updates synchronize through revision-checked workspace operations. Structured background, wallpaper, inherited text color and corner radius changes require no frontend rebuild.
+### Launch real Linux applications
 
-**Build tools as plugins.** Install, enable, configure, update, disable and remove sandboxed static apps. A plugin has a versioned manifest, a published entry point and primitive-valued configuration. New bundles receive content-addressed URLs so old bundles can remain available for rollback. Open **Hermes tools → Workspace plugins**, or **Ctrl+Alt+P** with the workspace focused.
+The optional Xpra integration provides desktop shortcuts for Chromium, Apache OpenOffice Writer, Calc and Impress, a file manager, a text editor, and a Linux terminal. Each application opens in a movable, resizable Orbit window.
 
-![Workspace plugin manager showing an installed notes module](docs/images/plugins.png)
+These are native Linux programs running in containers, displayed through Xpra's HTML5 client—not applications compiled to WebAssembly and not VNC streams. Each launcher has its own Xpra session. Application menus and dialogs remain inside that application's viewer; Orbit does not yet map every X11 child window to a separate desktop window.
 
-**Recover deliberately.** Agent controller mutations and plugin-manager changes save a checkpoint. Restore layout, structured appearance, plugin registration, configuration and entry references. A restore saves another checkpoint first. Checkpoints do not undo external actions or snapshot arbitrary files, terminal processes or conversations.
+The apps have separate persistent home directories and a shared Documents volume. Closing the Orbit viewer does not quit the Linux application. Reopening reconnects; quitting inside the app ends the application. A host reboot loses running application state, while named-volume files persist.
 
-![Workspace checkpoint history with restore entries](docs/images/checkpoints.png)
+![Apache OpenOffice Writer running through the real Xpra HTML5 viewer](docs/images/xpra-writer.png)
 
-**Keep shells through reloads.** Terminal panes connect to real host-account shells through xterm.js, node-pty and tmux. Reloading disconnects the client, not the persistent shell. Re-enter the host token and reconnect. `exit` ends the shell; closing its pane detaches it. Host reboot persistence and automatic migration of legacy shells are not provided.
+Setup and limitations: [per-app launchers](docs/XPRA_APPS.md) and [Xpra deployment](docs/XPRA.md).
 
-**Use Hermes directly.** Separate conversations per pane, server-backed follow-up context, stop/approval controls, draft recovery, transcript export, active-run guidance, tool inspection, gateway-gated live events, skill/toolset discovery and scheduled-task listing with confirmed pause/resume. Available features depend on your Hermes gateway. [Integration details →](docs/HERMES.md)
+### Work with Hermes where the work happens
+
+Use separate conversations in separate panes. Inspect tool activity, guide an active run, respond to approvals, and use supported scheduling controls. Available features depend on the configured Hermes gateway.
+
+Ask for concrete changes: “Build a timer beside my editor,” “Arrange my research workspace,” or “Change this widget without losing its old version.” Hermes receives the active workspace context and an operator guide for scoped, revision-checked changes.
+
+### Keep your shells alive through reloads
+
+Host terminals use tmux-backed sessions identified by stable pane IDs. Reload Orbit, unlock host access, and reconnect to the same shell. Closing a pane detaches its shell; typing exit ends it. Running processes do not survive host reboot automatically.
+
+The Xpra Linux Terminal is different: it runs inside its application container, not as a host shell.
+
+### Build small tools as sandboxed plugins
+
+Publish static HTML, CSS, and JavaScript as versioned app plugins. Install disabled, test, enable, configure, update, and roll back entry references through workspace checkpoints. Content-addressed bundles keep older versions available when their files are retained.
+
+Plugins run in sandboxed iframes. They do not receive host credentials or a privileged host bridge. Do not include secrets, private documents, or personal reports in publicly served bundles or URL-fragment configuration.
+
+### Shape the desktop around your work
+
+Desktop icons open existing windows, restore minimized applications, and launch configured integrations. The Desktop control reveals shortcuts without closing running applications. The old eight-window cap has been removed; resource constraints and other validation limits still apply.
+
+Move, resize, split, reorder, and arrange windows. Adjust supported colors, wallpaper, corners, spacing, and chrome. Full viewport hides surrounding controls; it is not browser fullscreen. Core frontend changes still require loading the updated frontend once.
+
+### Recover workspace changes deliberately
+
+Revision-checked controller mutations and supported plugin changes create checkpoints. Restore layout, appearance, plugin registrations, configuration, and entry references.
+
+Checkpoints are not filesystem backups. They do not restore documents, shell processes, conversations, container state, emails, or other external effects.
+
+## Everyday workflows
+
+Writing and research: open Writer and Chromium beside Hermes. Develop an outline, check sources, and save the document to the Linux apps' shared Documents folder.
+
+Software development: combine persistent host terminals, project documentation, agent conversations, and a custom status widget. Rearrange panes without recreating terminal IDs.
+
+Personal tools: ask Hermes to build a focused timer, notes panel, calculator, or project dashboard. Test the published app before enabling it and keep an older bundle for recovery.
+
+Linux applications from a browser: use the Xpra launchers for documents, spreadsheets, presentations, and files. Reconnect to applications after closing their viewer without starting a whole remote desktop session.
+
+Shared visual work: use the separately configured Shared Chromium or shared Linux desktop when a common browser or complete desktop is useful. These are distinct sessions from the per-app Xpra launchers, with different storage and control paths.
+
+## Built together: game assets and voice production
+
+Orbit has been used to build a COCS asset-observatory plugin and an OmniVoice experiment bench alongside a real game project. The workflow combines repository inspection, a purpose-built asset viewer, voice generation with multiple seeds, auditioning, and reviewable changes to game assets. These are separately configured project integrations—not services automatically installed by the base quick start. The announcer asset PR is [mojomast/cocs#1](https://github.com/mojomast/cocs/pull/1); its existence is not a claim that every generated sound is wired into gameplay.
 
 ## Quick start
 
-### Requirements
+The verified target is Linux with an ordinary user account, Node.js 22.12 or newer, npm, Python 3, and tmux at /usr/bin/tmux. Native node-pty builds may also require make and a C++ compiler.
 
-The verified target is **Linux**, an ordinary user account, **Node.js 22.12+**, npm, Python 3, and **tmux installed at `/usr/bin/tmux`**. Node 24 has been used for live testing. Other operating systems need terminal-adapter work and are not currently verified for persistent shells.
+Clone https://github.com/mojomast/orbitdesktop.git, enter the repository, then run:
 
-`node-pty` is native. If a prebuilt binary is unavailable, install Python 3, make and a C++ compiler. On Debian/Ubuntu, the relevant packages include `python3`, `make`, `g++` and `tmux`.
+    npm ci
+    npm run build
+    npm start
 
-```sh
-git clone https://github.com/mojomast/orbitdesktop.git
-cd orbitdesktop
-npm ci
-npm run build
-npm start
-```
+Open http://127.0.0.1:4318. Choose Connect host, enter the server's host-access token, and connect a shell. Without a configured ORBIT_TOKEN, the server generates a token on startup.
 
-Open **http://127.0.0.1:4318**. Use **Connect host**, enter the token printed by the server, then choose **Connect shell** in a terminal pane. The server stays running. Without a configured `ORBIT_TOKEN`, a new token is generated at startup.
+Host access grants a real shell as the server's operating-system user. Do not run Orbit as root or expose it directly to the public Internet.
 
-> This grants a real shell as the server's OS user. Do not run Orbit as root or expose it to the public Internet.
+Start the Hermes API server separately and configure its base URL and API key on the Orbit server. See docs/HERMES.md. The agent's tools need access to the repository and runtime for local workspace control.
 
-### Connect Hermes
+The base setup does not automatically provision Xpra, OpenOffice, Shared Chromium, or the shared Linux desktop. Follow their deployment guides separately. The current Xpra app deployment requires Docker and uses private Tailscale HTTPS endpoints; adapt installation-specific paths and settings rather than copying credentials or private hostnames.
 
-Start your Hermes API server separately. Configure its base URL and API key on the **Orbit server**, not in browser code. See [the exact environment settings and setup](docs/HERMES.md). The gateway's tools must be able to reach the Orbit repository/runtime for the local workspace controller to work.
+## Launching and reconnecting to Linux apps
 
-Orbit injects its [operator guide](docs/AGENT_GUIDE.md), the active workspace ID, controller location and bounded workspace metadata into workspace-aware chat. The guide covers plugin-first development, checkpoints, safe configuration updates, terminal preservation and verification. A repository-level [AGENTS.md](AGENTS.md) also guides coding agents working on Orbit itself.
+After Xpra services are configured and the current frontend is loaded, reveal the desktop and select an application shortcut. Authenticate when the Xpra viewer asks.
 
-### Private remote access
+On deployments with the Connection passwords integration, unlock Orbit host access and use Copy Xpra password. Passwords should not be placed in workspace URLs, screenshots, app bundles, or documentation. Clipboard managers may retain copied credentials.
 
-Use a private authenticated network such as Tailscale Serve, with Orbit's exact public origin configured. Keep the backend on loopback. Do not use Funnel or an unauthenticated public proxy. Deployment examples are under [`deploy/`](deploy/); their absolute paths are examples from one installation and must be adapted.
+![Copy-only connection password controls; no passwords displayed](docs/images/connection-passwords.png)
 
-## Optional Jev quick actions
+Save shared work in Documents. The Xpra Documents volume is separate from the existing VNC desktop's files. Closing a viewer is not the same as quitting the application, and a workspace checkpoint does not back up your document.
 
-Open **Hermes tools → Jev quick actions** to supply a TypeSafe key and explicitly authorize a limited workspace summary. This experimental typed-decision path previews view/sidebar changes and installed-plugin enable/disable before a checkpointed apply. Keys are not saved. Complex requests stay with Hermes. Live provider quality and speedup have not yet been measured; contract/browser tests use a synthetic provider decision. [Research, privacy and limits →](docs/JEV.md)
+## Security and honest boundaries
 
-## Your first plugin
+Orbit is a powerful single-owner workspace, not an isolation boundary between mutually untrusted users. Keep the server on loopback and use private authenticated remote access. Do not expose Docker, X11, VNC, or browser-debugging sockets publicly.
 
-Publish the included notes example:
+The current per-app Xpra setup disables clipboard synchronization, file transfer, audio, webcam, printing, and arbitrary client-requested command launching. Each app runs as a non-root user in a restricted container. Network egress remains enabled, and shared documents are accessible to the apps that mount that volume.
 
-```sh
-python3 scripts/plugin_publish.py examples/plugins/notes \
-  --id notes --version 1.0.0 --title 'Workspace notes'
-```
+The Xpra Chromium launcher currently requires --no-sandbox under the deployed container policy. Its internal Chromium sandbox is therefore not a security boundary. Do not treat it as a high-security browser or store sensitive browsing credentials there. Its profile is separate from Shared Chromium.
 
-Copy the emitted manifest into **Workspace plugins → Plugin manifest JSON → Install disabled**, then enable it. Use **Configure** to set, for example:
+Shared Chromium and the full shared Linux desktop remain separate integrations; adding Xpra does not silently migrate or replace them. Remote-app rendering is not browser-local execution. Container restart policies are not guarantees that unsaved application state survives a reboot.
 
-```json
-{"title":"My project","message":"Keep the next useful action visible."}
-```
+## Architecture
 
-The example's scratch text is temporary; its configuration is checkpointed. Hermes can perform the same lifecycle using `scripts/workspace_control.py` and the active workspace ID. Updates do not require editing Orbit's source. [Manifest, API, publisher and rollback reference →](docs/PLUGINS.md)
+The browser frontend uses TypeScript, Vite, and Three.js/CSS3D. The Node.js server provides authenticated host access, workspace state, and integration routes. Hermes supplies the agent runtime through its API bridge.
 
-Plugins run in sandboxed iframes, not in the parent application's JavaScript context. They receive no host credentials or privileged bridge. Network access is currently allowed. Published files are reachable by anyone who can reach the deployment: **never put secrets in a bundle or plugin configuration**.
+Workspace operations manage revisioned layout and checkpoints. Sandboxed plugins supply static tools. Host terminals connect through node-pty and tmux. Optional Xpra services deliver containerized Linux applications through separate authenticated browser viewers.
 
-## Live updates and persistence: the precise contract
-
-| Change or data | Behavior |
-| --- | --- |
-| Layout / structured appearance / plugin lifecycle | Saved server-side; connected pages synchronize, normally on the next 1.2-second poll. |
-| Browser closed | Changes remain saved; visual acknowledgement waits for reconnection. |
-| Plugin configuration or entry update | The affected iframe may reload; its unsaved in-memory state may be lost. |
-| Terminal reload | Same stable pane ID resumes its tmux shell after unlock/reconnect; not a serialized xterm scrollback snapshot. |
-| Chat reload | Tab-local draft/run/conversation state plus Hermes server history; not a cross-device conversation library. |
-| Checkpoint restore | Workspace metadata and plugin entry/config references, not shell side effects, emails, image bytes or app databases. |
-| Built stylesheet changes | Existing pages can swap updated styles without replacing the document. |
-| Orbit core JavaScript changes | Load the new frontend once in a new tab or reload. This is not arbitrary core hot replacement. |
-
-Do not overwrite or delete old published bundle folders if checkpoints reference them. Content-addressed publication avoids overwrites through that publisher; it is not filesystem-enforced immutability or a disaster backup.
-
-## Controls
-
-| Action | Control |
-| --- | --- |
-| Move / resize | Window title bar / bottom-right corner in Windows or Spatial view |
-| Focus / return | Display focus control / Back or Escape |
-| Change view | Windows / Spatial toggle |
-| Change text size | A−/A+ or inspector; 6–32 px |
-| Split panes | Pane toolbar; drag or keyboard-adjust the divider |
-| Hide settings | Side-panel toggle |
-| Camera | Drag empty space or Alt-drag; scroll/Alt-scroll to zoom |
-| Manage plugins | Hermes tools menu or Ctrl+Alt+P |
-| Save / restore | Hermes tools → Workspace checkpoints |
-
-Spatial diagonal sizing is relative, not calibrated physical inches; the former 55-inch ceiling is gone. Existing window/pane count and numeric validation limits still apply. Embedded sites may refuse framing or login; open them externally rather than bypassing their security headers.
-
-## Architecture at a glance
-
-```text
-Hermes API  ← authenticated bridge →  Orbit core
-                                      ├─ revisioned workspace + checkpoints
-                                      ├─ trusted, lazy-loaded integration modules
-                                      ├─ sandboxed app-plugin windows
-                                      └─ authenticated terminal transport → tmux → host shell
-```
-
-TypeScript + Vite + Three.js/CSS3D on the client; Node.js + node-pty on the host. Trusted integration modules use a typed activation registry. User-generated apps use the separate sandboxed plugin lifecycle. Authentication, recovery, terminals and the main renderer remain core responsibilities. [Architecture and source map →](docs/ARCHITECTURE.md)
+Generated plugins are not trusted backend extensions. Host services and core changes require explicit trust, source review, testing, and deployment.
 
 ## Development and verification
 
-```sh
-npm run check                         # typecheck, build, Node tests
-python3 tests/plugin-publish.test.py   # bundle reuse, version retention, symlink rejection
-```
+Run npm run check for typechecking, the production build, and Node tests. Run python3 tests/plugin-publish.test.py for publisher checks.
 
-For frontend development, start the backend with:
+Live browser tests under tests/ exercise integrations separately and require a configured deployment. Passing a build alone does not prove an app rendered or that a live browser applied a workspace mutation. Verify real interaction, reconnect behavior, and saved results before reporting success.
 
-```sh
-ORBIT_DEV_ORIGINS=http://localhost:4173,http://127.0.0.1:4173 npm start
-```
+Preserve the owner's uncommitted changes, existing pane IDs, running sessions, and older plugin bundles. Never commit .runtime, tokens, transcripts, or private screenshots.
 
-Run `npm run dev` in another terminal and open http://localhost:4173. Use the loopback production server for ordinary use; the Vite development server binds broadly.
+The fresh screenshots above were captured from an isolated browser workspace using `scripts/capture_xpra_readme.py`. The Writer image connects to the existing native application to show the owner-approved README draft. No conversations, passwords, or host terminal buffers were staged for publication.
 
-Real Playwright checks under `tests/browser-*.py` exercise plugin lifecycle/rollback, terminal reloads, agent runtime controls and appearance changes. They require a configured live deployment and Playwright Chromium; they are not all run by `npm run check`. Screenshots above were captured from a separate demo browser workspace with synthetic content using [`scripts/capture_readme.py`](scripts/capture_readme.py), not from private user conversations.
+## Documentation map
 
-## Documentation
-
-| Guide | Purpose |
-| --- | --- |
-| [Hermes operator guide](docs/AGENT_GUIDE.md) | What the embedded agent should do—and avoid |
-| [Workspace controller](docs/WORKSPACE_CONTROL.md) | Layout, appearance, publishing and deployment notes |
-| [Plugins](docs/PLUGINS.md) | Manifest, lifecycle, configuration, security and rollback |
-| [Architecture](docs/ARCHITECTURE.md) | Modules, state, rendering and transport boundaries |
-| [Hermes integration](docs/HERMES.md) | Gateway configuration and direct runtime features |
-| [Checkpoints](docs/CHECKPOINTS.md) | Recovery coverage and exclusions |
-| [Security](docs/SECURITY.md) | Authentication and host-access risks |
-| [Roadmap](docs/ROADMAP.md) | Delivered capabilities versus unfinished work |
+Agent operations: docs/AGENT_GUIDE.md
+Workspace controller: docs/WORKSPACE_CONTROL.md
+Plugin lifecycle: docs/PLUGINS.md
+Linux app launchers: docs/XPRA_APPS.md
+Xpra pilot and deployment: docs/XPRA.md
+Shared Chromium: docs/SHARED_BROWSER.md
+Shared Linux desktop: docs/SHARED_DESKTOP.md
+Hermes configuration: docs/HERMES.md
+Architecture: docs/ARCHITECTURE.md
+Security: docs/SECURITY.md
+Checkpoints: docs/CHECKPOINTS.md
+Roadmap: docs/ROADMAP.md
 
 ## What's next
 
-The next architectural steps are permission-controlled backend integrations, independent recovery boot, staged plugin validation/promotion, and further extraction of pane/scene behavior into modules. Dependency resolution, multi-user isolation, direct SSH adapters, full browser-engine sessions and reboot-persistent shells are **not implemented**. See the [roadmap](docs/ROADMAP.md) rather than treating the design proposal as shipped functionality.
+The direction is a more coherent agent-operated desktop: better application integration, clearer persistence and recovery, stronger permission boundaries, and easier deployment. Full multi-user isolation, universal backend hot-swapping, arbitrary X11-to-Orbit window mapping, and reboot-persistent running shells are not promised as shipped features.
+
+Build the workspace you need. Keep the ability to understand it, change it, and recover it.

@@ -34,6 +34,10 @@ Plugins render through existing sandboxed browser panes in Windows or Spatial vi
 
 Read config in the plugin with `JSON.parse(decodeURIComponent(location.hash.replace(/^#orbit-config=/,'')))`, using a try/catch and defaults. Render configuration text with textContent, not innerHTML. The sample demonstrates this.
 
+## Reviewed live-tool feed exception
+
+`src/tool-feed.ts` adds a one-way, read-only integration for the exact content-addressed Hermes Live Tools entry named in that module. Other plugin entries receive nothing. The trusted parent consumes the existing authenticated, conversation-scoped SSE endpoint for open Orbit chat panes only while the widget is attached. It passes only validated tool names, lifecycle event names, timestamps, durations and error flags via postMessage to the sandboxed frame. No credentials, arguments, previews, results, conversation text, requests or host actions cross this bridge. Plugin updates to a different bundle require a reviewed entry change and frontend build; this is not a generic permission system. Disable/remove disposes the sink and stops stream subscriptions on the next tick. History is bounded to 80 in-memory events and reconnect replay is not guaranteed. Refresh Orbit once after deploying this frontend integration; plugin installation itself remains live. Workspace checkpoints revert plugin registration/layout but not these source changes.
+
 ## Trusted built-in modularization
 
 `src/workspace-extensions.ts` defines a typed activation registry for plugins, checkpoints, skills catalog, outputs and scheduled tasks. These are independently imported UI modules rather than hardwired imports inside chat. Live activity is lazy-loaded too. Activation failures are reported rather than silently swallowed. This registry is trusted application code and is NOT the sandbox plugin registry; adding a trusted built-in still requires a frontend build. Core terminal, chat, scene and layout renderer remain built in.

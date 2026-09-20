@@ -8,6 +8,8 @@ export interface WorkspaceExtension {
 }
 // Trusted, built-in modules only. User-generated plugins never execute in this realm.
 export const workspaceExtensions: readonly WorkspaceExtension[] = [
+ {id:'shared-browser',title:'Shared Chromium',label:'Open shared Chromium',activate:async c=>(await import('./shared-browser')).showSharedBrowser(c.api)},
+ {id:'build-queue',title:'Automated build queue',label:'Open automated build queue',activate:async c=>(await import('./build-queue')).showBuildQueue(c.api)},
  {id:'jev',title:'Jev quick actions',label:'Open Jev quick actions',activate:async c=>(await import('./jev-ui')).showJev(c.token)},
  {id:'plugins',title:'Workspace plugins',label:'Manage workspace plugins',activate:async c=>(await import('./plugin-manager')).showPlugins(c.token)},
  {id:'checkpoints',title:'Workspace checkpoints',label:'Open workspace checkpoints',activate:async c=>(await import('./workspace-history')).showHistory(c.token)},

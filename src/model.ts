@@ -30,7 +30,7 @@ export interface Monitor {
 }
 export interface Workspace {
   plugins?: PluginInstance[];
-  appearance?: { background?: string; wallpaper?: string; textColor?: string; cornerRadius?: number };
+  appearance?: { background?: string; wallpaper?: string; textColor?: string; cornerRadius?: number; fullViewport?: boolean; headerHeight?: number; sidebarWidth?: number; workspaceGap?: number; accentColor?: string; navigationPosition?: 'top' | 'bottom'; wallpaperFit?: 'cover' | 'contain' | 'auto' };
   view?: "windows" | "spatial";
   sidebarHidden?: boolean;
   version: 1;
@@ -140,10 +140,9 @@ export function validate(value: unknown): Workspace {
     s.version !== 1 ||
     !Array.isArray(s.monitors) ||
     s.monitors.length < 1 ||
-    s.monitors.length > 8 ||
     !finite(s.arc, 0, 30)
   )
-    throw Error("Expected an Orbit v1 workspace with 1–8 monitors");
+    throw Error("Expected an Orbit v1 workspace with at least one monitor");
   for (const m of s.monitors) {
     if (m.frame && (!finite(m.frame.x, 0, 10000) || !finite(m.frame.y, 0, 10000) || !finite(m.frame.width, 280, 4000) || !finite(m.frame.height, 180, 4000) || !finite(m.frame.z, 0, 100000))) throw Error("Invalid window frame");
     unique(m.id);
@@ -172,7 +171,14 @@ export function validate(value: unknown): Workspace {
   if (s.sidebarHidden !== undefined && typeof s.sidebarHidden !== "boolean") throw Error("Invalid sidebar state");
   if (s.appearance !== undefined) {
     const a = s.appearance;
-    if (!a || typeof a !== 'object' || Array.isArray(a) || Object.keys(a).some(k => !['background', 'wallpaper', 'textColor', 'cornerRadius'].includes(k))) throw Error('Invalid appearance');
+    if (!a || typeof a !== 'object' || Array.isArray(a) || Object.keys(a).some(k => !['background', 'wallpaper', 'textColor', 'cornerRadius', 'fullViewport', 'headerHeight', 'sidebarWidth', 'workspaceGap', 'accentColor', 'navigationPosition', 'wallpaperFit'].includes(k))) throw Error('Invalid appearance');
+    if (a.headerHeight !== undefined && !finite(a.headerHeight,32,80)) throw Error('Invalid header height');
+    if (a.sidebarWidth !== undefined && !finite(a.sidebarWidth,200,480)) throw Error('Invalid sidebar width');
+    if (a.workspaceGap !== undefined && !finite(a.workspaceGap,0,32)) throw Error('Invalid workspace gap');
+    if (a.accentColor !== undefined && (typeof a.accentColor !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(a.accentColor))) throw Error('Invalid accent color');
+    if (a.navigationPosition !== undefined && !['top','bottom'].includes(a.navigationPosition)) throw Error('Invalid navigation position');
+    if (a.wallpaperFit !== undefined && !['cover','contain','auto'].includes(a.wallpaperFit)) throw Error('Invalid wallpaper fit');
+    if (a.fullViewport !== undefined && typeof a.fullViewport !== 'boolean') throw Error('Invalid full viewport setting');
     if (a.textColor !== undefined && !/^#[0-9a-fA-F]{6}$/.test(a.textColor)) throw Error('Invalid text color');
     if (a.cornerRadius !== undefined && !finite(a.cornerRadius, 0, 40)) throw Error('Invalid corner radius');
     if (a.background !== undefined && !/^#[0-9a-fA-F]{6}$/.test(a.background)) throw Error('Use a six-digit hex background');

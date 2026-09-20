@@ -2,6 +2,14 @@ import "./style.css";
 import "./windows.css";
 import "./compact-windows.css";
 import "./workspace-theme.css";
+import { applyAppearance } from './workspace-appearance';
+import { installViewport } from './viewport';
+import { installStart } from './taskbar';
+import { xpraApps } from './xpra-apps';
+import { installDesktopIcons } from './desktop-icons';
+import { showConnectionPasswords } from './connection-passwords';
+import { workspaceId, ensureWorkspaceSynced } from './workspace-sync';
+import { installMinimize } from './minimize';
 import { el, button, select } from "./dom";
 import {
   load,
@@ -27,6 +35,7 @@ let applyingRemote = false;
 let workspaceBridge: ReturnType<typeof connectWorkspace> | undefined;
 const views = new Map<string, PaneView>();
 const monitors = new Map<string, HTMLElement>();
+const minimizer = installMinimize();
 let focused: string | null = null;
 let saveTimer: ReturnType<typeof setTimeout>;
 const app = document.querySelector<HTMLDivElement>("#app")!;
@@ -45,7 +54,10 @@ const hostStatus = button(
 );
 const saved = el("span", "saved", "Saved locally");
 const sidebarToggle = button('Hide panel', 'Toggle side panel', () => { state.sidebarHidden = !state.sidebarHidden; applySidebar(); save(); });
-top.append(brand, saved, sidebarToggle, hostStatus);
+top.append(brand, saved, button('Themes', 'Choose workspace theme', async () => {
+ const {showThemes}=await import('./theme-picker');
+ showThemes(()=>sessionToken, patch => {state.appearance={...state.appearance,...patch};applyAppearance(state);save();});
+}), sidebarToggle, hostStatus);
 const shell = el("main", "shell"),
   work = el("section", "workspace"),
   stage = el("div", "stage");
@@ -76,16 +88,46 @@ const guide = el(
 );
 const navigation = el("div", "scene-navigation");
 const navDisplays = el("div", "display-tabs");
-navigation.append(
-  navDisplays,
-  el("div", "nav-divider"),
+const cameraControls = el('div', 'taskbar-camera');
+cameraControls.append(
   button("−", "Zoom out", () => scene.zoom(0.12)),
   button("⌖", "Reset camera", () => scene.reset()),
   button("+", "Zoom in", () => scene.zoom(-0.12)),
 );
+navigation.append(navDisplays, cameraControls);
+navigation.append(button('▦ Desktop', 'Show desktop shortcuts', () => {
+  if(focused)unfocus();setView('windows');
+  state.monitors.forEach(m=>{const element=monitors.get(m.id);if(element)minimizer.hide(m.id,element);});renderTabs();
+}));
+installStart(navigation, () => [
+  ...state.monitors.map(m => ({ title: m.name, detail: 'Open window', run: () => { if (focused) focus(m.id); else choose(m.id); } })),
+  { title: 'New agent chat', detail: 'Talk to Hermes', run: () => addMonitor('agent') },
+  { title: 'New terminal', detail: 'Open a host terminal pane', run: () => addMonitor('terminal') },
+  { title: 'New browser', detail: 'Open an app or website', run: () => addMonitor('browser') },
+  { title: 'Windows view', detail: 'Movable desktop windows', run: () => setView('windows') },
+  { title: 'Spatial view', detail: 'Explore your 3D workspace', run: () => setView('spatial') },
+  { title: 'Toggle side panel', detail: 'Workspace layout and settings', run: () => { state.sidebarHidden = !state.sidebarHidden; applySidebar(); save(); } },
+]);
 const focusHost = el("div", "focus-host");
 const desktopHost = el('div', 'desktop-host');
 desktopHost.setAttribute('aria-label', 'Movable workspace windows');
+const desktopIcons = installDesktopIcons(desktopHost, () => [
+  ...xpraApps.map(a=>({id:`xpra-${a.id}`,title:a.title,icon:a.icon,run:()=>{
+    if(focused)unfocus();
+    const existing=state.monitors.find(m=>leaves(m.layout).some(p=>p.kind==='browser'&&p.url===a.url));
+    if(existing){choose(existing.id);return;}
+    const m=monitor(state.monitors.length+1,'browser');m.name=a.title;
+    leaves(m.layout)[0].url=a.url;
+    state.monitors.push(m);state.selected=m.id;state.view='windows';
+    work.classList.add('windows-mode');renderAll();choose(m.id);
+  }})),
+  {id:'connection-passwords',title:'Connection passwords',icon:'🔑',run:()=>showConnectionPasswords(()=>sessionToken)},
+  ...state.monitors.filter(m=>!leaves(m.layout).some(p=>xpraApps.some(a=>a.url===p.url))).map(m => ({id:m.id, title:m.name, icon:leaves(m.layout).some(p=>p.kind==='terminal')?'⌘':leaves(m.layout).some(p=>p.kind==='agent')?'✦':'▣', run:()=>{if(focused)unfocus();choose(m.id);}})),
+  ...(state.plugins || []).filter(p=>!p.enabled).map(p=>({id:p.manifest.id,title:p.manifest.title,icon:'◈',run:()=>{void launchDesktopPlugin(p.manifest.id);}})),
+  {id:'new-terminal',title:'New terminal',icon:'>_',run:()=>addMonitor('terminal')},
+  {id:'new-agent',title:'New Hermes chat',icon:'✦',run:()=>addMonitor('agent')},
+  {id:'new-browser',title:'New browser',icon:'◎',run:()=>addMonitor('browser')},
+]);
 const focusBack = button(
   "←  Back to spatial view",
   "Exit focus view",
@@ -103,6 +145,8 @@ footer.append(
   el("span", "footer-status", "3D + DOM · v0.1 foundation"),
 );
 app.append(top, shell, footer);
+applyAppearance(state);
+installViewport(app, state.appearance?.fullViewport, value => { state.appearance = {...state.appearance, fullViewport:value}; save(); });
 const scene = new DesktopScene(stage);
 if (stage.classList.contains("no-webgl"))
   footer.querySelector(".footer-status")!.textContent =
@@ -134,6 +178,7 @@ function current(): Monitor {
   return state.monitors.find((m) => m.id === state.selected)!;
 }
 function choose(id: string) {
+  minimizer.restore(id, monitors.get(id));
   state.selected = id;
   const chosen = state.monitors.find(m => m.id === id);
   if (chosen?.frame && state.view === 'windows') chosen.frame.z = Math.min(99999, Math.max(...state.monitors.map(m => m.frame?.z || 0)) + 1);
@@ -162,6 +207,8 @@ function updateScene() {
   views.forEach((v) => v.resize());
 }
 function renderTabs() {
+  desktopIcons();
+  minimizer.render(state.monitors, id => { if (focused) unfocus(); choose(id); monitors.get(id)?.querySelector<HTMLButtonElement>('.window-minimize')?.focus(); });
   navDisplays.replaceChildren();
   state.monitors.forEach((m, i) => {
     const b = button(
@@ -386,8 +433,14 @@ function renderMonitor(m: Monitor) {
     button("A+", `Increase text size on ${m.name}`, () => font(m, 1)),
     button("⚙", `Settings for ${m.name}`, () => choose(m.id)),
     button("⛶", `Focus ${m.name}`, () => focus(m.id)),
+    button('−', `Minimize ${m.name}`, () => {
+      if (focused === m.id) unfocus();
+      minimizer.hide(m.id, outer!);
+      updateScene(); renderTabs(); minimizer.focusRestore();
+    }, 'window-minimize'),
     button('×', `Close ${m.name}`, () => { choose(m.id); deleteMonitor(); }),
   );
+  minimizer.attach(m.id, outer);
   const content = el("div", "monitor-content");
   content.append(renderLayout(m.layout, m));
   const resizeHandle = el('div', 'window-resize', '◢');
@@ -561,12 +614,37 @@ function renderInspector() {
   actions.append(note);
   inspector.append(actions);
 }
-function addMonitor() {
-  if (state.monitors.length >= 8) {
-    notify("Maximum 8 displays");
-    return;
+window.addEventListener('orbit-open-shared-browser', () => {
+  let m=state.monitors.find(m=>leaves(m.layout).some(p=>p.kind==='browser'&&p.url==='orbit://shared-browser'));
+  if(!m){
+
+    m=monitor(state.monitors.length+1,'browser');m.name='Shared Chromium';
+    leaves(m.layout)[0].url='orbit://shared-browser';
+    m.frame={x:60,y:50,width:1000,height:700,z:state.monitors.length+1};
+    state.monitors.push(m);
   }
-  const m = monitor(state.monitors.length + 1);
+  if(focused)unfocus();
+  state.selected=m.id;renderAll();choose(m.id);save();
+});
+let desktopLaunchBusy = false;
+async function launchDesktopPlugin(id:string) {
+  if (!sessionToken) { connectHost(); return; }
+  if (desktopLaunchBusy) return;
+  desktopLaunchBusy = true;
+  try {
+    await ensureWorkspaceSynced();
+    const api = async (body:Record<string,unknown>) => {
+      const response = await fetch('/api/workspace', {method:'POST',headers:{Authorization:`Bearer ${sessionToken}`,'Content-Type':'application/json'},body:JSON.stringify({workspace_id:workspaceId,...body})});
+      const data = await response.json(); if(!response.ok)throw Error(data.error || 'App launch failed'); return data;
+    };
+    const current = await api({action:'read'});
+    await api({action:'plugins_apply',base_revision:current.revision,operations:[{action:'plugin_enable',plugin_id:id}]});
+    notify('App enabled; workspace is synchronizing.');
+  } catch(e) { notify(String(e)); } finally { desktopLaunchBusy = false; }
+}
+function addMonitor(kind: PaneKind = 'terminal') {
+
+  const m = monitor(state.monitors.length + 1, kind);
   state.monitors.push(m);
   state.selected = m.id;
   renderMonitor(m);

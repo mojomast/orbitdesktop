@@ -200,6 +200,10 @@ export class DesktopScene {
       o.css.element.style.width = "600px";
       o.css.element.style.height = `${(600 * h) / w}px`;
       elements.get(m.id)!.classList.toggle("selected", m.id === selected);
+      // Collapsing the HTML alone leaves a full-size WebGL window behind.
+      const minimized = elements.get(m.id)!.classList.contains('window-minimized');
+      o.mesh.visible = !minimized;
+      o.edges.visible = !minimized;
       o.mesh.position.copy(pos);
       o.mesh.position.z -= 0.075;
       o.mesh.rotation.copy(o.css.rotation);
