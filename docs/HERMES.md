@@ -1,5 +1,7 @@
 # Hermes agent chat
 
+Current deployment: the native mojo user service on loopback 4327 replaces the container deployment below. It provides real host shells, movable windows, a hideable sidebar, and agent-driven workspace control/app previews. See [WORKSPACE_CONTROL.md](WORKSPACE_CONTROL.md) for the current operational guide.
+
 Orbit's agent pane connects to the owner's existing Hermes profile via a server-side bridge. It does not inherit another dashboard thread or impersonate an already-running turn. Each pane gets an unpredictable `orbit-<UUID>` conversation ID. Requests go to Hermes Runs; polling provides status and final replies, Stop, and explicit allow-once/deny approvals. Text replies are rendered as text, not HTML.
 
 ## Configuration
@@ -14,7 +16,7 @@ Set these server environment variables (never Vite/client variables):
 
 The existing Connect host token unlocks both shells and agent chat. Never send the Hermes API key to the browser. `.env.deploy` is chmod 0600, Git-ignored, and excluded from Docker build contexts. `HERMES_API_KEY` and `ORBIT_TOKEN` are removed from the spawned terminal's explicit environment. This is not isolation from a malicious same-UID process or Docker administrator; Orbit remains a trusted single-owner service.
 
-## Current private deployment
+## Prior container deployment (superseded)
 
 Access: https://kimi.tailec998.ts.net:4325/
 

@@ -1,0 +1,22 @@
+.desktop-host { display: none; position: absolute; inset: 100px 10px 76px; overflow: auto; }
+.windows-mode .desktop-host { display: block; }
+.windows-mode .stage, .windows-mode .scene-guide { display: none; }
+.windows-mode.is-focused .desktop-host { display: none; }
+.desktop-window { position: absolute; min-width: 280px; min-height: 180px; max-width: none; max-height: none; box-shadow: 0 18px 60px #0009; }
+.desktop-window .monitor-bar { cursor: grab; touch-action: none; user-select: none; font-size: 14px; min-height: 40px; height: 40px; }
+.desktop-window .monitor-bar strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40%; }
+.desktop-window .monitor-meta { display: none; }
+.desktop-window .monitor-bar button { font-size: 14px; padding: 4px; }
+.window-resize { display: none; }
+.desktop-window > .window-resize { display: block; position: absolute; bottom: 0; right: 0; width: 24px; height: 24px; text-align: right; padding: 3px; color: var(--lime); cursor: nwse-resize; touch-action: none; z-index: 4; background: #15211ed0; border-radius: 5px 0 0 0; }
+.window-dragging iframe { pointer-events: none !important; }
+.window-dragging { cursor: grabbing; user-select: none; }
+.sidebar-hidden .inspector { display: none !important; }
+.desktop-window .welcome h1 { font-size: 30px; }
+.desktop-window .agent-meta { padding: 9px 12px; gap: 7px; }
+.desktop-window .chat-messages { padding: 12px; }
+.desktop-window .agent-notice { font-size: 11px; padding: 5px 12px; }
+.desktop-window .browser-nav { padding: 5px; }
+.flat-monitor > .window-resize { display: none; }
+.windows-mode .scene-navigation { max-width: calc(100% - 24px); overflow-x: auto; }
+@media (max-width: 850px) { .topbar { padding: 0 12px; gap: 9px; } .brand-tag { display: none; } .workspace-heading { left: 14px; right: 14px; } .workspace-heading h1 { font-size: 17px; } .mode-switch button { font-size: 11px; padding: 7px; } }

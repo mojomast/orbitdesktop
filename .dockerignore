@@ -1,4 +1,7 @@
 .git
+.runtime
+*-verification.json
+*-verified.png
 .env*
 node_modules
 *.log

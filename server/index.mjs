@@ -1,4 +1,5 @@
 import http from "node:http";
+import os from 'node:os';
 import { readFile, stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -7,6 +8,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import { tokenMatches, geometry, allowedRequest, publicHost } from "./security.mjs";
 import { LocalHostProvider } from "./local-host.mjs";
 import { createAgentHandler } from "./agent.mjs";
+import { createWorkspaceService } from "./workspace.mjs";
 const port = Number(process.env.PORT || 4318);
 if (!Number.isInteger(port) || port < 1024 || port > 65535)
   throw Error("PORT must be between 1024 and 65535");
@@ -36,7 +38,8 @@ function reply(res, status, data) {
   });
   res.end(JSON.stringify(data));
 }
-const agentHandler = createAgentHandler({ token, port, devOrigins, reply });
+const workspaceService = createWorkspaceService({ token, port, devOrigins, reply });
+const agentHandler = createAgentHandler({ token, port, devOrigins, reply, workspaceContext: workspaceService.context });
 const server = http.createServer(async (req, res) => {
   const allowedHosts = new Set([
     `127.0.0.1:${port}`,
@@ -47,6 +50,9 @@ const server = http.createServer(async (req, res) => {
   if (!allowedHosts.has(req.headers.host))
     return reply(res, 403, { error: "Host rejected" });
   const url = new URL(req.url, "http://localhost");
+  if (url.pathname === "/api/workspace") return workspaceService.handle(req, res);
+  if (url.pathname === "/api/workspace/control") return workspaceService.handle(req, res, true);
+  if (url.pathname.startsWith("/apps/")) return workspaceService.serveApp(req, res, url.pathname);
   if (url.pathname === "/api/agent") return agentHandler(req, res);
   if (url.pathname === "/api/health")
     return reply(res, 200, {
@@ -189,7 +195,7 @@ wss.on("connection", (ws) => {
         authed = true;
         pending--;
         sessions.add(shell);
-        send({ type: "ready", protocol: 1 });
+        send({ type: "ready", protocol: 1, user: os.userInfo().username, host: os.hostname(), cwd: process.env.ORBIT_CWD || os.homedir() });
         shell.onData((data) => {
           outstanding += data.length;
           send({ type: "data", data });

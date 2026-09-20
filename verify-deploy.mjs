@@ -15,6 +15,6 @@ await new Promise((resolve,reject)=>{
  const timeout=setTimeout(()=>{ws.terminate();reject(Error('PTY timeout'));},15000);
  let output='';
  ws.on('open',()=>ws.send(JSON.stringify({type:'auth',token:env.ORBIT_TOKEN,cols:80,rows:24})));
- ws.on('message',raw=>{const m=JSON.parse(raw);if(m.type==='ready')ws.send(JSON.stringify({type:'input',data:"printf 'ORBIT_%s_OK\\n' VERIFIED; whoami; pwd\r"}));if(m.type==='data'){output+=m.data;ws.send(JSON.stringify({type:'ack',length:m.data.length}));if(output.includes('ORBIT_VERIFIED_OK')&&output.includes('/home/node')){console.log('Live WSS shell command: passed');clearTimeout(timeout);ws.close();resolve();}}});
+ ws.on('message',raw=>{const m=JSON.parse(raw);if(m.type==='ready'){assert.equal(m.user,'mojo'); assert.equal(m.cwd,'/home/mojo'); console.log(`Host shell identity: ${m.user}@${m.host} cwd=${m.cwd}`); ws.send(JSON.stringify({type:'input',data:"printf 'ORBIT_%s_OK\\n' VERIFIED; id -un; pwd; test ! -f /.dockerenv && printf 'REAL_HOST_OK\\n'\r"}));}if(m.type==='data'){output+=m.data;ws.send(JSON.stringify({type:'ack',length:m.data.length}));if(output.includes('ORBIT_VERIFIED_OK')&&output.includes('/home/mojo')&&output.includes('\r\nREAL_HOST_OK\r\n')){console.log('Live WSS shell command: passed');clearTimeout(timeout);ws.close();resolve();}}});
  ws.on('error',reject);
 });

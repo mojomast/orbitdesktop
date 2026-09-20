@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Comet Counter</title>
+<style>
+:root { color-scheme: dark; font-family: system-ui, sans-serif; }
+body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #101529; color: #f4f6ff; }
+main { text-align: center; padding: 2rem; }
+h1 { font-size: 2.5rem; }
+#count { display: block; font-size: 5rem; margin: 1.5rem; color: #ffdc85; }
+button { font: inherit; font-weight: 650; border: 0; border-radius: .75rem; padding: .9rem 1.5rem; background: #ffdc85; color: #101529; cursor: pointer; }
+button:hover { background: #ffe9b3; }
+button:focus-visible { outline: 3px solid white; outline-offset: 5px; }
+</style>
+</head>
+<body>
+<main>
+<h1>Comet Counter</h1>
+<p>A little constellation starts with one star.</p>
+<output id="count" aria-live="polite">0</output>
+<button type="button" id="add-star">Add star</button>
+</main>
+<script>
+const count = document.getElementById('count');
+document.getElementById('add-star').addEventListener('click', () => {
+  count.textContent = String(Number(count.textContent) + 1);
+});
+</script>
+</body>
+</html>

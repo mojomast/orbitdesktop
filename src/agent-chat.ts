@@ -1,4 +1,5 @@
 import { el, button } from './dom';
+import { workspaceId, ensureWorkspaceSynced } from './workspace-sync';
 
 type Message = { role: 'user' | 'assistant'; text: string };
 type ChatState = { session: string; messages: Message[]; run?: string };
@@ -30,7 +31,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   const messages = el('div', 'chat-messages');
   messages.setAttribute('role', 'log');
   messages.setAttribute('aria-label', 'Hermes conversation');
-  const notice = el('div', 'agent-notice', 'Connected to your Hermes profile. Tools act in the Hermes host environment, not the Orbit terminal container. Chat history stays in this browser tab; Hermes also retains its session history.');
+  const notice = el('div', 'agent-notice', 'Hermes can inspect and change this workspace, build apps, and open their previews here. Host terminals run as your account. Workspace context includes layout and app URLs, not private terminal buffers or iframe contents.');
   const progress = el('div', 'agent-progress');
   progress.setAttribute('role', 'status');
   const approvals = el('div', 'agent-approvals');
@@ -70,7 +71,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     if (!getToken()) throw Error('Use “Connect host” in the top bar first.');
     const response = await fetch('/api/agent', {
       method: 'POST', headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...payload, session_id: state.session }),
+      body: JSON.stringify({ ...payload, session_id: state.session, workspace_id: workspaceId }),
       signal: AbortSignal.any([controller.signal, AbortSignal.timeout(30000)]),
     });
     const data = await response.json();
@@ -122,6 +123,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     if (!getToken()) { showError(new Error('Use “Connect host” in the top bar first.')); return; }
     busy = true; update(); status.textContent = 'CONNECTING'; progress.textContent = 'Sending to Hermes…';
     try {
+      await ensureWorkspaceSynced();
       const data = await api({ action: 'start', input: text });
       state.run = data.run_id;
       state.messages.push({ role: 'user', text });

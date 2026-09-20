@@ -2,6 +2,10 @@
 
 This release grants the holder of its session token a real shell as the server user. It intentionally serves only on IPv4 loopback. It is a single-user development foundation, not an Internet-facing terminal service.
 
+The current native deployment runs as mojo on the host. The Orbit token therefore grants real host-account access, not a disposable container. Workspace control also uses owner-only per-workspace capability files; these are not sent to browsers or previews. Agent tools retain their existing Hermes permissions.
+
+Published static apps under `/apps/<slug>/` are readable within the tailnet without the Orbit token, just like the main static UI. Do not publish secrets in app bundles. HTML previews have CSP sandbox restrictions and omit `allow-same-origin`; they cannot access the parent workspace, its token, or its localStorage. Static asset CORS is allowed only on the app-file routes; authenticated control endpoints do not enable CORS. Preview isolation is not a substitute for reviewing code that Hermes executes on the host to build an app.
+
 Implemented controls:
 
 - Fresh 256-bit random startup token by default, held only in browser memory after entry.

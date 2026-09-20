@@ -20,7 +20,8 @@ The shell runs on the machine running `npm start`, as that OS user. This is a re
 
 ## What works
 
-- 1–8 independently configured monitors; up to 8 panes per monitor.
+- 1–8 independently configured windows/monitors; up to 8 panes per window. Windows view supports title-bar dragging, corner resizing, stacking, and persistent geometry. Spatial and focus views remain available.
+- Hide/show the settings sidebar from the top bar; its state persists.
 - 16:9, 16:10, 21:9, 32:9, 4:3, portrait 9:16, and square screens.
 - 20–55 inch relative diagonal sizes, height, depth, pitch, yaw, horizontal offset, and layout wrap angle. Position values use scene units (`u`), not calibrated physical meters.
 - Nested side-by-side and stacked pane splits; pointer or keyboard divider resizing.
@@ -30,7 +31,7 @@ The shell runs on the machine running `npm start`, as that OS user. This is a re
 - Local layout persistence, validated JSON import/export, and single/dual/triple presets.
 - Real host shells with authentication, origin/Host checks, output backpressure, heartbeat, session limits, and disconnect cleanup.
 - Browser URL navigation, home, reload, and open in a new tab. The built-in workspace guide works without network access.
-- Hermes chat connects to a configured Hermes API server, with separate conversations per pane, follow-up context, run status, stop controls, and allow-once/deny tool approvals. Hermes tools execute in the Hermes environment, not automatically in Orbit's terminal container.
+- Hermes chat connects to a configured Hermes API server, with separate conversations per pane, follow-up context, run status, stop controls, and allow-once/deny tool approvals. It receives live workspace context and can change layouts, build apps, and open isolated previews using the scoped workspace controller. Production terminals run as the owner on the real host; Hermes tools still use their configured execution environment.
 - Three.js CSS3D remains interactive without WebGL; the decorative WebGL room is optional.
 
 ## Controls
@@ -89,5 +90,6 @@ Environment:
 ## Foundation and next steps
 
 Read [Architecture](docs/ARCHITECTURE.md), [Research decisions](docs/RESEARCH.md), [Roadmap](docs/ROADMAP.md), [Security boundary](docs/SECURITY.md), and [Verification](docs/VERIFICATION.md).
+For the current host deployment and agent-driven app-building workflow, read [Workspace control](docs/WORKSPACE_CONTROL.md). Use a fresh tab for the upgraded UI without disconnecting an older shell.
 
 This release remains single-user and binds to loopback. The private deployment uses Tailscale Serve with an exact HTTPS origin allowlist; do not publish it with Funnel or a public reverse proxy. See [Hermes integration and deployment](docs/HERMES.md). Direct SSH host adapters, multi-user isolation, and a full browser engine remain roadmap work.

@@ -14,6 +14,7 @@ export type Layout =
       second: Layout;
     };
 export interface Monitor {
+  frame?: { x: number; y: number; width: number; height: number; z: number };
   id: string;
   name: string;
   diagonal: number;
@@ -27,6 +28,8 @@ export interface Monitor {
   layout: Layout;
 }
 export interface Workspace {
+  view?: "windows" | "spatial";
+  sidebarHidden?: boolean;
   version: 1;
   monitors: Monitor[];
   selected: string;
@@ -139,6 +142,7 @@ export function validate(value: unknown): Workspace {
   )
     throw Error("Expected an Orbit v1 workspace with 1–8 monitors");
   for (const m of s.monitors) {
+    if (m.frame && (!finite(m.frame.x, 0, 10000) || !finite(m.frame.y, 0, 10000) || !finite(m.frame.width, 280, 4000) || !finite(m.frame.height, 180, 4000) || !finite(m.frame.z, 0, 100000))) throw Error("Invalid window frame");
     unique(m.id);
     if (
       typeof m.name !== "string" ||
@@ -161,6 +165,8 @@ export function validate(value: unknown): Workspace {
   }
   if (!s.monitors.some((m) => m.id === s.selected))
     s.selected = s.monitors[0].id;
+  if (s.view !== undefined && !["windows", "spatial"].includes(s.view)) throw Error("Invalid workspace view");
+  if (s.sidebarHidden !== undefined && typeof s.sidebarHidden !== "boolean") throw Error("Invalid sidebar state");
   return s;
 }
 export function load() {

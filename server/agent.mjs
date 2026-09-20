@@ -2,9 +2,9 @@ import { tokenMatches, allowedRequest } from './security.mjs';
 
 const sessionPattern = /^orbit-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const runPattern = /^run_[a-zA-Z0-9_-]{8,100}$/;
-const instructions = 'You are Hermes, accessed through the owner’s Orbit Desktop agent chat. This is a separate conversation using your configured profile, tools and memory, not a continuation of another dashboard thread. Orbit terminal panes run in a separate Docker container; your agent tools run in the Hermes environment, not inside that terminal container. Use plain text in replies. Do not claim to see the user’s screen or terminal contents unless supplied. Follow normal tool approval policies.';
+const instructions = 'You are Hermes, accessed through the owner’s Comet/Orbit Desktop agent chat. This is a separate conversation using your configured profile, tools and memory, not a continuation of another dashboard thread. Orbit terminal panes run as the owner on the host. Your agent tools still run in the configured Hermes environment. Use plain text in replies. Do not claim to see screen pixels, iframe contents, or terminal buffers unless supplied. Follow normal tool approval policies.';
 
-export function createAgentHandler({ token, port, devOrigins, reply, apiUrl = process.env.HERMES_API_URL, apiKey = process.env.HERMES_API_KEY, fetchImpl = fetch }) {
+export function createAgentHandler({ token, port, devOrigins, reply, workspaceContext, apiUrl = process.env.HERMES_API_URL, apiKey = process.env.HERMES_API_KEY, fetchImpl = fetch }) {
   async function upstream(path, body) {
     const r = await fetchImpl(`${apiUrl.replace(/\/$/, '')}${path}`, {
       method: body === undefined ? 'GET' : 'POST',
@@ -53,7 +53,12 @@ export function createAgentHandler({ token, port, devOrigins, reply, apiUrl = pr
           }
           while (conversation_history.length && conversation_history[0].role !== 'user') conversation_history.shift();
         } catch (error) { if (error.status !== 404) throw error; }
-        const data = await upstream('/v1/runs', { input: body.input.trim(), session_id: body.session_id, instructions, conversation_history });
+        let context = '';
+        if (body.workspace_id && workspaceContext) {
+          try { context = workspaceContext(body.workspace_id); }
+          catch { return reply(res, 409, { error: 'Workspace has not synced yet. Wait for workspace connection and retry.' }); }
+        }
+        const data = await upstream('/v1/runs', { input: body.input.trim(), session_id: body.session_id, instructions: instructions + context, conversation_history });
         return reply(res, 202, { run_id: data.run_id, status: data.status });
       }
       if (!['status', 'stop', 'approval'].includes(body.action) || !runPattern.test(body.run_id || '')) return reply(res, 400, { error: 'Invalid agent action.' });

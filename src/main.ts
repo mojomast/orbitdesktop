@@ -1,4 +1,5 @@
 import "./style.css";
+import "./windows.css";
 import { el, button, select } from "./dom";
 import {
   load,
@@ -12,9 +13,14 @@ import {
   type Layout,
   type PaneKind,
 } from "./model";
-import { createPane, setToken, type PaneView } from "./panes";
+import { createPane, setToken, sessionToken, type PaneView } from "./panes";
+import { placeWindow, wireWindow } from "./windows";
+import { connectWorkspace } from "./workspace-sync";
 import { DesktopScene } from "./scene";
 let state = load();
+state.view ||= 'windows';
+let applyingRemote = false;
+let workspaceBridge: ReturnType<typeof connectWorkspace> | undefined;
 const views = new Map<string, PaneView>();
 const monitors = new Map<string, HTMLElement>();
 let focused: string | null = null;
@@ -34,7 +40,8 @@ const hostStatus = button(
   "host-button",
 );
 const saved = el("span", "saved", "Saved locally");
-top.append(brand, saved, hostStatus);
+const sidebarToggle = button('Hide panel', 'Toggle side panel', () => { state.sidebarHidden = !state.sidebarHidden; applySidebar(); save(); });
+top.append(brand, saved, sidebarToggle, hostStatus);
 const shell = el("main", "shell"),
   work = el("section", "workspace"),
   stage = el("div", "stage");
@@ -49,13 +56,14 @@ const mode = el("div", "mode-switch");
 const sceneButton = button(
     "◈  Spatial",
     "Switch to spatial view",
-    () => unfocus(),
+    () => setView('spatial'),
     "active",
   ),
   flatButton = button("▣  Focus", "Focus selected display", () =>
     focus(state.selected),
   );
-mode.append(sceneButton, flatButton);
+const windowsButton = button('▤ Windows', 'Switch to movable windows', () => setView('windows'));
+mode.append(windowsButton, sceneButton, flatButton);
 sub.append(title, mode);
 const guide = el(
   "div",
@@ -72,6 +80,8 @@ navigation.append(
   button("+", "Zoom in", () => scene.zoom(-0.12)),
 );
 const focusHost = el("div", "focus-host");
+const desktopHost = el('div', 'desktop-host');
+desktopHost.setAttribute('aria-label', 'Movable workspace windows');
 const focusBack = button(
   "←  Back to spatial view",
   "Exit focus view",
@@ -79,8 +89,9 @@ const focusBack = button(
   "focus-back",
 );
 focusHost.append(focusBack);
-work.append(sub, stage, guide, navigation, focusHost);
+work.append(sub, stage, desktopHost, guide, navigation, focusHost);
 const inspector = el("aside", "inspector");
+work.classList.toggle('windows-mode', state.view === 'windows');
 shell.append(work, inspector);
 const footer = el("footer", "footer");
 footer.append(
@@ -103,6 +114,7 @@ function notify(s: string) {
   toastTimer = setTimeout(() => toast.classList.remove("show"), 3500);
 }
 function save() {
+  if (!applyingRemote) workspaceBridge?.changed();
   clearTimeout(saveTimer);
   saved.textContent = "Saving…";
   saveTimer = setTimeout(() => {
@@ -119,6 +131,8 @@ function current(): Monitor {
 }
 function choose(id: string) {
   state.selected = id;
+  const chosen = state.monitors.find(m => m.id === id);
+  if (chosen?.frame && state.view === 'windows') chosen.frame.z = Math.min(99999, Math.max(...state.monitors.map(m => m.frame?.z || 0)) + 1);
   renderInspector();
   updateScene();
   renderTabs();
@@ -130,7 +144,17 @@ function updateScene() {
     const meta = monitors.get(m.id)?.querySelector(".monitor-meta");
     if (meta) meta.textContent = `${m.diagonal}″ / ${m.aspect}`;
   }
-  scene.update(state.monitors, monitors, state.selected, state.arc);
+  if (state.view === 'windows') {
+    state.monitors.forEach((m, i) => {
+      const element = monitors.get(m.id)!;
+      element.classList.toggle('selected', m.id === state.selected);
+      if (focused !== m.id) {
+        if (element.parentElement !== desktopHost) desktopHost.append(element);
+        element.classList.add('desktop-window');
+        placeWindow(element, m, desktopHost, i);
+      }
+    });
+  } else scene.update(state.monitors, monitors, state.selected, state.arc);
   views.forEach((v) => v.resize());
 }
 function renderTabs() {
@@ -153,6 +177,8 @@ function focus(id: string) {
   choose(id);
   focused = id;
   const element = monitors.get(id)!;
+  element.classList.remove('desktop-window');
+  for (const key of ['left', 'top', 'width', 'height', 'z-index']) element.style.removeProperty(key);
   focusHost.append(element);
   focusHost.classList.add("visible");
   work.classList.add("is-focused");
@@ -167,8 +193,8 @@ function unfocus() {
   const element = monitors.get(focused);
   element?.classList.remove("flat-monitor");
   if (element) {
-    const anchor = stage.querySelector(`[data-anchor-id="${focused}"]`);
-    anchor?.append(element);
+    if (state.view === 'windows') desktopHost.append(element);
+    else { const anchor = stage.querySelector(`[data-anchor-id="${focused}"]`); anchor?.append(element); }
   }
   focused = null;
   focusHost.classList.remove("visible");
@@ -176,6 +202,27 @@ function unfocus() {
   sceneButton.classList.add("active");
   flatButton.classList.remove("active");
   updateScene();
+}
+function applySidebar() {
+  shell.classList.toggle('sidebar-hidden', !!state.sidebarHidden);
+  sidebarToggle.textContent = state.sidebarHidden ? 'Show panel' : 'Hide panel';
+  sidebarToggle.setAttribute('aria-expanded', String(!state.sidebarHidden));
+  requestAnimationFrame(() => { scene.resize(); updateScene(); });
+}
+function setView(view: 'windows' | 'spatial') {
+  unfocus(); state.view = view;
+  work.classList.toggle('windows-mode', view === 'windows');
+  windowsButton.classList.toggle('active', view === 'windows');
+  sceneButton.classList.toggle('active', view === 'spatial');
+  if (view === 'spatial') {
+    monitors.forEach((element, id) => {
+      element.classList.remove('desktop-window');
+      for (const key of ['left', 'top', 'width', 'height', 'z-index']) element.style.removeProperty(key);
+      stage.querySelector(`[data-anchor-id="${id}"]`)?.append(element);
+    });
+    scene.update(state.monitors, monitors, state.selected, state.arc);
+  }
+  updateScene(); save();
 }
 function confirmChange(text: string, action: () => void) {
   const d = el("dialog", "dialog");
@@ -322,7 +369,7 @@ function renderMonitor(m: Monitor) {
     outer.dataset.monitorId = m.id;
     outer.addEventListener("pointerdown", () => {
       if (state.selected !== m.id) choose(m.id);
-    });
+    }, true);
     monitors.set(m.id, outer);
   }
   const bar = el("div", "monitor-bar");
@@ -335,10 +382,13 @@ function renderMonitor(m: Monitor) {
     button("A+", `Increase text size on ${m.name}`, () => font(m, 1)),
     button("⚙", `Settings for ${m.name}`, () => choose(m.id)),
     button("⛶", `Focus ${m.name}`, () => focus(m.id)),
+    button('×', `Close ${m.name}`, () => { choose(m.id); deleteMonitor(); }),
   );
   const content = el("div", "monitor-content");
   content.append(renderLayout(m.layout, m));
-  outer.replaceChildren(bar, content);
+  const resizeHandle = el('div', 'window-resize', '◢');
+  outer.replaceChildren(bar, content, resizeHandle);
+  wireWindow(outer, bar, resizeHandle, m, desktopHost, () => state.view === 'windows' && !focused, () => { renderInspector(); views.forEach(v => v.resize()); save(); });
   updateScene();
   if (focused === m.id) {
     focusHost.append(outer);
@@ -537,10 +587,12 @@ function deleteMonitor() {
   });
 }
 function renderAll() {
+  desktopHost.querySelectorAll<HTMLElement>('[data-monitor-id]').forEach(element => { if (!state.monitors.some(m => m.id === element.dataset.monitorId)) element.remove(); });
   state.monitors.forEach(renderMonitor);
   renderInspector();
   renderTabs();
   updateScene();
+  applySidebar();
   save();
 }
 function exportLayout() {
@@ -652,7 +704,26 @@ window.addEventListener("beforeunload", () => {
   views.forEach((v) => v.dispose());
   scene.dispose();
 });
+workspaceBridge = connectWorkspace(() => state, next => {
+  applyingRemote = true;
+  try {
+    const valid = validate(next);
+    const previousFocus = focused;
+    if (focused) unfocus();
+    const nextPanes = new Map(valid.monitors.flatMap(m => leaves(m.layout).map(p => [p.id, { p, monitorId: m.id }] as const)));
+    for (const m of state.monitors) for (const p of leaves(m.layout)) {
+      const match = nextPanes.get(p.id);
+      if (!match || match.monitorId !== m.id || match.p.kind !== p.kind || match.p.url !== p.url) { views.get(p.id)?.dispose(); views.delete(p.id); }
+    }
+    for (const [id, element] of monitors) if (!valid.monitors.some(m => m.id === id)) { element.remove(); monitors.delete(id); }
+    valid.monitors = valid.monitors.map(m => { const old = state.monitors.find(x => x.id === m.id); return old ? Object.assign(old, m) : m; });
+    state = valid; state.view ||= 'windows';
+    renderAll(); setView(state.view); choose(state.selected);
+    if (previousFocus && state.monitors.some(m => m.id === previousFocus) && state.selected === previousFocus) focus(previousFocus);
+  } finally { applyingRemote = false; }
+}, () => sessionToken, message => { saved.textContent = message; });
 renderAll();
+setView(state.view || 'windows');
 // Optional, page-scoped WebMCP: no terminal input or credentials are exposed.
 const modelContext = (
   document as Document & {

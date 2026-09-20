@@ -8,3 +8,6 @@ browser-hermes-verified.png
 browser-verification.json
 live-agent-verification.json
 __pycache__/
+.runtime/
+workspace-verified.png
+workspace-verification.json

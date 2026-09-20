@@ -129,7 +129,8 @@ export function createPane(p: Pane, font: number, a: PaneActions): PaneView {
         }
         if (m.type === "ready") {
           term.clear();
-          status.textContent = "LIVE SHELL";
+          status.textContent = `LIVE SHELL · ${m.user || 'host'}`;
+          term.writeln(`Connected to ${m.user || 'user'}@${m.host || 'host'} — ${m.cwd || ''}\r\n`);
           status.classList.add("live");
           connect.textContent = "Connected";
         }
@@ -245,7 +246,8 @@ export function createPane(p: Pane, font: number, a: PaneActions): PaneView {
         return;
       }
       try {
-        if (!/^https?:\/\//i.test(url)) url = "https://" + url;
+        if (url.startsWith('/apps/')) url = new URL(url, location.origin).href;
+        else if (!/^https?:\/\//i.test(url)) url = "https://" + url;
         const u = new URL(url);
         if (
           !["http:", "https:"].includes(u.protocol) ||
@@ -253,17 +255,18 @@ export function createPane(p: Pane, font: number, a: PaneActions): PaneView {
           u.password
         )
           throw Error();
-        if (u.origin === location.origin)
+        const localApp = u.origin === location.origin && /^\/apps\/[a-z0-9][a-z0-9-]{0,60}\//.test(u.pathname);
+        if (u.origin === location.origin && !localApp)
           throw Error("The Orbit host cannot be embedded.");
         current = u.href;
         address.value = current;
-        a.url(p.id, current);
+        a.url(p.id, localApp ? u.pathname + u.search + u.hash : current);
         frame = el("iframe");
         frame.title = "Embedded browser";
         frame.referrerPolicy = "no-referrer";
         frame.setAttribute(
           "sandbox",
-          "allow-scripts allow-forms allow-same-origin allow-popups",
+          localApp ? "allow-scripts allow-forms allow-modals allow-downloads" : "allow-scripts allow-forms allow-same-origin allow-popups",
         );
         frame.src = current;
         surface.replaceChildren(frame);
