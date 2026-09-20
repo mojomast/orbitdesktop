@@ -1,5 +1,5 @@
 name: orbit-desktop
-version: "0.1.0"
+version: "0.1.1"
 description: Control an explicitly configured Orbit Desktop workspace through its scoped local API.
 author: mojomast
 homepage: https://github.com/mojomast/orbitdesktop

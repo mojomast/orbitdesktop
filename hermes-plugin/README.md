@@ -4,7 +4,7 @@ A native Hermes Python plugin for controlling an existing [Orbit Desktop](https:
 
 ## Install
 
-The catalog submission is pending human review. Until it is accepted, use the explicit repository subdirectory and the **full commit SHA** recorded by the `hermes-plugin-v0.1.0` release:
+The catalog submission is pending human review. Until it is accepted, use the explicit repository subdirectory and the **full commit SHA** recorded by the `hermes-plugin-v0.1.1` release:
 
 ```sh
 hermes plugins install mojomast/orbitdesktop/hermes-plugin --ref FULL_40_CHARACTER_RELEASE_SHA --no-enable

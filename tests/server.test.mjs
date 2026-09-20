@@ -10,7 +10,7 @@ const port = 14318,
   token = "orbit-test-only-token-01234567890123456789";
 let child;
 before(async () => {
-  child = spawn(process.execPath, ["server/index.mjs"], {
+  child = spawn(process.execPath, ["--experimental-strip-types", "server/index.mjs"], {
     env: { ...process.env, PORT: String(port), ORBIT_TOKEN: token },
     stdio: ["ignore", "pipe", "pipe"],
   });
