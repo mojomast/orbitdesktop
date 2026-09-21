@@ -8,6 +8,7 @@ export interface WorkspaceExtension {
 }
 // Trusted, built-in modules only. User-generated plugins never execute in this realm.
 export const workspaceExtensions: readonly WorkspaceExtension[] = [
+ {id:'devplan-studio',title:'Devplan Studio',label:'Interview, specification, devplan and circular handoff',activate:async ()=>{window.dispatchEvent(new Event('orbit-open-devplan-studio'));}},
  {id:'shared-browser',title:'Shared Chromium',label:'Open shared Chromium',activate:async c=>(await import('./shared-browser')).showSharedBrowser(c.api)},
  {id:'build-queue',title:'Automated build queue',label:'Open automated build queue',activate:async c=>(await import('./build-queue')).showBuildQueue(c.api)},
  {id:'jev',title:'Jev quick actions',label:'Open Jev quick actions',activate:async c=>(await import('./jev-ui')).showJev(c.token)},

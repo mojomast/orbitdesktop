@@ -6,7 +6,7 @@ import subprocess
 import tarfile
 
 ROOT = Path(__file__).resolve().parents[1]
-PREFIXES = ('src/', 'server/', 'scripts/', 'deploy/', 'docs/', 'public/')
+PREFIXES = ('src/', 'server/', 'scripts/', 'deploy/', 'docs/', 'public/', 'extensions/devplan-interview/')
 FILES = {'package.json', 'package-lock.json', 'index.html', 'tsconfig.json', 'vite.config.js', 'LICENSE', 'README.md', 'AGENTS.md'}
 
 def build():

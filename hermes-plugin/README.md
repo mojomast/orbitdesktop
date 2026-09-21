@@ -93,3 +93,7 @@ hermes plugins doctor hermes-plugin --ci
 ```
 
 Tests cover real HTTP requests, default mutation denial, revision enforcement, redirect refusal, loopback restrictions, error redaction, explicit profile/workspace scoping, plus an end-to-end test against the real Orbit workspace service exercising preview/apply/conflict/checkpoint/restore. No owner's running workspace is mutated by these tests.
+
+## Devplan Studio (0.2.2)
+
+Bundled guided interview → specification → phased devplan → circular development handoff. Open Hermes tools → Devplan Studio. Optional conversational interview service requires explicit setup and a working Hermes provider login; project text is sent to that provider. See [Devplan setup and boundaries](../docs/DEVPLAN_STUDIO.md). Export drafts before closing.
