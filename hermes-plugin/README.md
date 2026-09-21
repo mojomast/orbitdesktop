@@ -1,10 +1,32 @@
 # Orbit Desktop — Hermes plugin
 
-A native Hermes Python plugin for controlling an existing [Orbit Desktop](https://github.com/mojomast/orbitdesktop) browser workspace. This is not an Electron renderer plugin, a desktop replacement installed inside Hermes Desktop, or Orbit's separate sandboxed HTML app-plugin format.
+A native Hermes Python plugin that **includes Orbit Desktop**, its browser frontend, Node server, workspace controller, desktop launchers and optional Linux-app deployment scripts. No separate clone is required. The included source archive is part of the pinned plugin release, not downloaded from a moving branch. Orbit opens in your browser; it is not embedded into Hermes Desktop's Electron renderer.
+
+## Start the included Orbit
+
+Linux prerequisites: Python 3.11+, Node.js 22.12+, npm, tmux, make and a C++ compiler. Install the plugin as below, then enable it:
+
+```sh
+hermes plugins enable orbit-desktop
+# Default profile; for another profile use its plugin installation directory.
+PLUGIN="$HOME/.hermes/plugins/orbit-desktop"
+python3 "$PLUGIN/orbit.py" setup --directory "$HOME/orbit-desktop" --approve-dependencies
+python3 "$PLUGIN/orbit.py" start --directory "$HOME/orbit-desktop"
+```
+
+If you use a custom Hermes home, replace `PLUGIN` with the installed path shown by `hermes plugins list`. Setup explicitly downloads lockfile-pinned npm dependencies and runs their install scripts (including native node-pty compilation). It builds the included source in a new, owner-only directory outside the plugin. It refuses to overwrite an existing directory. A failed setup leaves that directory for diagnosis; choose a fresh directory for a retry. Nothing is installed or launched merely by enabling the plugin.
+
+Open **http://127.0.0.1:4318**. Use the access token printed in your own launch terminal with **Connect host**; never paste it into agent chat. Keep the launch terminal running. Use `--port 4319` if that port is occupied. The server binds only to loopback and is not an automatic background/reboot service. Ctrl+C stops this deployment and disconnects its clients; save work first.
+
+You can now use Orbit's desktop. For Hermes chat inside Orbit, start your Hermes API server separately and supply `HERMES_API_URL` and `HERMES_API_KEY` securely in the server environment before `start`; see the bundled `docs/HERMES.md`. The plugin does not discover or copy API keys. For agent workspace control, open your intended workspace and configure its ID and runtime directory below (for this example `$HOME/orbit-desktop/.runtime`, expanded to an absolute path).
+
+Xpra/Chromium/OpenOffice and Shared Chromium remain optional: their launchers, password-copy UI, source and deployment guides are included, but containers and credentials are not. Read `docs/XPRA_APPS.md` and `docs/SHARED_BROWSER.md` in your extracted deployment before explicitly provisioning them. Existing deployment-specific paths/endpoints need adaptation. No Docker, Tailscale or Linux apps are silently installed.
+
+Updates never replace a running deployment. Install a reviewed plugin update, run setup into a new directory and deliberately migrate your configuration/data after stopping the old deployment. Keep the old directory for rollback. Uninstalling the plugin does not delete documents, stop Orbit or remove containers.
 
 ## Install
 
-The catalog submission is pending human review. Until it is accepted, use the explicit repository subdirectory and the **full commit SHA** recorded by the `hermes-plugin-v0.1.1` release:
+The catalog submission is pending human review. Until it is accepted, use the explicit repository subdirectory and the **full commit SHA** recorded by the `hermes-plugin-v0.2.0` release:
 
 ```sh
 hermes plugins install mojomast/orbitdesktop/hermes-plugin --ref FULL_40_CHARACTER_RELEASE_SHA --no-enable
@@ -14,7 +36,7 @@ After catalog acceptance, the equivalent reviewed installation is `hermes plugin
 
 ## Prerequisites and configuration
 
-Run Orbit separately using its [quick start](https://github.com/mojomast/orbitdesktop#quick-start). The plugin is Python-standard-library-only; it neither installs Node/Docker/Xpra nor starts, stops or updates services. Orbit's verified deployment target is Linux. Its optional Xpra launchers, document applications and copy-only password controls remain available through the Orbit UI after their separate deployment.
+Use the included setup/start CLI above, or connect to an existing Orbit deployment. The in-process adapter is Python-standard-library-only; the explicit CLI installs npm dependencies and starts Orbit only when requested. It does not install Node, Docker or Xpra. Orbit's verified deployment target is Linux.
 
 Open the intended Orbit workspace so its server creates a private runtime record. Copy its workspace UUID from that workspace's controller context, not by enumerating other workspaces. Add these non-secret settings to the active Hermes profile's `config.yaml`:
 
