@@ -30,9 +30,19 @@ test('agent requires token and exact origin; rejected calls never reach Hermes',
 });
 test('agent validates session namespace, action, message length and body bounds',async t=>{
  const {request,calls}=await setup(t,()=>json({}));
- for(const body of [{action:'start',input:'hi',session_id:'dashboard-other'}, {action:'start',input:''}, {action:'start',input:'x'.repeat(8001)}, {action:'shell'}, {action:'status',run_id:'../secret'}]) assert.equal((await request(body)).status,400);
- assert.equal((await request({action:'start',input:'x'.repeat(40000)})).status,413);
+ for(const body of [{action:'start',input:'hi',session_id:'dashboard-other'}, {action:'start',input:''}, {action:'start',input:'x'.repeat(100001)}, {action:'shell'}, {action:'status',run_id:'../secret'}]) assert.equal((await request(body)).status,400);
+ assert.equal((await request({action:'start',input:'x'.repeat(1048576)})).status,413);
  assert.equal(calls.length,0);
+});
+test('large messages and guidance reach Hermes intact, including Unicode and JSON escapes', async t=>{
+ const {request,calls}=await setup(t,url=>json(url.endsWith('/steer')?{accepted:true}:{session_id:session,run_id:runId,status:'running'}));
+ for (const input of ['x'.repeat(100000), '界😀\n'.repeat(25000), '\u0001'.repeat(100000)]) {
+  assert.equal((await request({action:'start',input})).status,202);
+  assert.equal(JSON.parse(calls.at(-1).options.body).input,input.trim());
+  assert.equal((await request({action:'steer',run_id:runId,input})).body.accepted,true);
+  assert.equal(JSON.parse(calls.at(-1).options.body).input,input.trim());
+ }
+ assert.equal((await request({action:'steer',run_id:runId,input:'x'.repeat(100001)})).status,400);
 });
 test('start forwards only constrained fields and keeps API credentials server-side',async t=>{
  const {request,calls}=await setup(t,()=>json({run_id:runId,status:'started'},202));
