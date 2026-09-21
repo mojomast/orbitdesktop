@@ -1,5 +1,5 @@
 name: orbit-desktop
-version: "0.2.0"
+version: "0.2.1"
 description: Bundled Orbit Desktop with explicit local setup and scoped workspace control.
 author: mojomast
 homepage: https://github.com/mojomast/orbitdesktop

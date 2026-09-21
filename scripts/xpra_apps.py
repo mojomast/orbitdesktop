@@ -1,5 +1,6 @@
 """Add isolated, fixed-app Xpra services. Never replaces running containers."""
 import json
+import argparse
 from pathlib import Path
 import socket
 import subprocess
@@ -9,6 +10,9 @@ ROOT=Path(__file__).resolve().parents[1]
 APPS=['chromium','writer','calc','impress','files','editor','terminal']
 def run(*a, **kw): return subprocess.run(a,check=True,**kw)
 if __name__=='__main__':
+ parser=argparse.ArgumentParser(description=__doc__)
+ parser.add_argument('--tailscale',action='store_true',help='Explicitly publish each app using Tailscale Serve HTTPS')
+ args=parser.parse_args()
  for i,app in enumerate(APPS):
   port=4350+i
   name='orbit-xpra-'+app
@@ -28,5 +32,6 @@ if __name__=='__main__':
    except Exception:
     if attempt==59: raise
     time.sleep(.5)
-  run('tailscale','serve','--bg',f'--https={port}',f'http://127.0.0.1:{port}')
-  print(name,'HTTP ready; private TLS proxy configured')
+  if args.tailscale:
+   run('tailscale','serve','--bg',f'--https={port}',f'http://127.0.0.1:{port}')
+  print(name,'HTTP ready on loopback'+('; private TLS proxy configured' if args.tailscale else ''))

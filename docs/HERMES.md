@@ -71,7 +71,7 @@ The existing Connect host token unlocks both shells and agent chat. Never send t
 
 ## Prior container deployment (superseded)
 
-Access: https://kimi.tailec998.ts.net:4325/
+Historical access used a private Tailscale hostname on HTTPS port 4325 (hostname omitted). For current portable endpoint setup, see [Linux app endpoints](LINUX_APP_ENDPOINTS.md).
 
 Tailscale Serve proxies HTTPS port 4325 to loopback HTTP port 4326. Container `orbitdesktop-hermes` uses image `orbitdesktop:hermes-chat`, host networking, non-root user `node`, dropped capabilities, no-new-privileges, and restart-unless-stopped. Named volume `orbitdesktop-home` persists `/home/node`.
 
