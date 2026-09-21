@@ -1,0 +1,23 @@
+name: orbit-desktop
+version: "0.2.0"
+description: Bundled Orbit Desktop with explicit local setup and scoped workspace control.
+author: mojomast
+homepage: https://github.com/mojomast/orbitdesktop
+provides_tools:
+  - orbit_workspace
+provides_hooks: []
+provides_middleware: []
+requires_env: []
+config_schema:
+  runtime_dir:
+    type: str
+    default: ""
+    description: Absolute path to the running Orbit deployment's private .runtime directory.
+  workspace_id:
+    type: str
+    default: ""
+    description: Explicit workspace UUID to authorize for this Hermes profile.
+  allow_mutations:
+    type: bool
+    default: false
+    description: Allow revision-checked edits and checkpoints; restore also requires per-call confirmation.

@@ -1,0 +1,22 @@
+name: Orbit plugin tests
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.14.0'
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: sudo apt-get update && sudo apt-get install -y tmux
+      - run: npm ci
+      - run: npm run check
+      - run: python3 -m unittest discover -s tests -p test_hermes_plugin.py -v
