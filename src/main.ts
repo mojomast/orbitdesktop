@@ -614,6 +614,19 @@ function renderInspector() {
   actions.append(note);
   inspector.append(actions);
 }
+window.addEventListener('orbit-open-devplan-studio', () => {
+  const url='/devplan-studio/index.html';
+  let m=state.monitors.find(m=>leaves(m.layout).some(p=>p.kind==='browser'&&p.url===url));
+  if(m){if(focused)unfocus();choose(m.id);save();return;}
+  if(!m){
+    m=monitor(state.monitors.length+1,'browser');m.name='Devplan Studio';
+    leaves(m.layout)[0].url=url;
+    m.frame={x:80,y:60,width:1100,height:800,z:state.monitors.length+1};
+    state.monitors.push(m);
+  }
+  if(focused)unfocus();
+  state.selected=m.id;renderAll();choose(m.id);save();
+});
 window.addEventListener('orbit-open-shared-browser', () => {
   let m=state.monitors.find(m=>leaves(m.layout).some(p=>p.kind==='browser'&&p.url==='orbit://shared-browser'));
   if(!m){
