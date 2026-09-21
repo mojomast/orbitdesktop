@@ -38,7 +38,37 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     remember(); state = fresh(); save(); render(); status.textContent = 'READY';
     input.value = ''; try { sessionStorage.removeItem(draftKey); } catch {}
   }, 'small-button');
-  badge.append(el('span', 'agent-avatar', '✳'), el('div', '', 'Hermes'), status, newChat);
+  const notificationKey = 'orbit-agent-reply-notifications';
+  const notificationsEnabled = () => { try { return localStorage.getItem(notificationKey) !== 'off'; } catch { return true; } };
+  const notificationButton = button('Notifications', 'Enable desktop reply notifications', async () => {
+    if (!('Notification' in window)) { progress.textContent = 'Desktop notifications are not supported by this browser.'; return; }
+    if (Notification.permission === 'granted' && notificationsEnabled()) {
+      try { localStorage.setItem(notificationKey, 'off'); } catch {}
+    } else {
+      try {
+        const permission = await Notification.requestPermission();
+        if (permission === 'granted') { localStorage.setItem(notificationKey, 'on'); progress.textContent = 'Desktop reply notifications enabled. Keep Orbit open to receive them.'; }
+        else progress.textContent = 'Notifications are blocked or not allowed. Allow notifications for Orbit in your browser site settings.';
+      } catch { progress.textContent = 'Could not enable notifications. Check browser site permissions.'; }
+    }
+    updateNotifications();
+  }, 'small-button');
+  function updateNotifications() {
+    const enabled = 'Notification' in window && Notification.permission === 'granted' && notificationsEnabled();
+    notificationButton.textContent = enabled ? 'Notifications on' : 'Enable notifications';
+    notificationButton.setAttribute('aria-pressed', String(enabled));
+  }
+  function notifyReply(run: string, completed: boolean) {
+    if (!('Notification' in window) || Notification.permission !== 'granted' || !notificationsEnabled()) return;
+    try {
+      const notification = new Notification(completed ? 'Hermes replied' : 'Hermes run ended', {
+        body: 'Open Orbit to read your agent chat.', tag: `orbit-agent-${run}`,
+      });
+      notification.onclick = () => { window.focus(); body.scrollIntoView({ block: 'nearest' }); input.focus(); notification.close(); };
+    } catch { /* OS/browser policy must not interrupt saving replies. */ }
+  }
+  updateNotifications();
+  badge.append(el('span', 'agent-avatar', '✳'), el('div', '', 'Hermes'), status, newChat, notificationButton);
   const messages = el('div', 'chat-messages');
   messages.setAttribute('role', 'log');
   messages.setAttribute('aria-label', 'Hermes conversation');
@@ -70,9 +100,9 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   controls.append(stop, resume, steer);
   const form = el('form', 'chat-form');
   const input = el('textarea');
-  input.placeholder = 'Ask Hermes…'; input.rows = 2; input.maxLength = 8000;
+  input.placeholder = 'Ask Hermes… (up to 100,000 characters)'; input.rows = 2; input.maxLength = 100000;
   input.setAttribute('aria-label', 'Message to Hermes');
-  try { input.value = (sessionStorage.getItem(draftKey) || '').slice(0, 8000); } catch {}
+  try { input.value = (sessionStorage.getItem(draftKey) || '').slice(0, 100000); } catch {}
   input.addEventListener('input', () => { try { sessionStorage.setItem(draftKey, input.value); } catch {} });
   const tools = button('⋯', 'Hermes tools and conversations', () => openTools(), 'small-button');
   let toolsDialog: HTMLDialogElement | undefined;
@@ -189,8 +219,10 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
       if (['completed', 'failed', 'cancelled', 'interrupted'].includes(data.status)) {
         state.messages.push({ role: 'assistant', text: data.output || (data.status === 'completed' ? 'Hermes finished without a text reply.' : data.error || `Run ${data.status}.`) });
         state.messages = state.messages.slice(-100);
+        const finishedRun = state.run;
         state.run = undefined; save(); render(); progress.textContent = '';
-        input.focus(); return;
+        notifyReply(finishedRun, data.status === 'completed');
+        return;
       }
       progress.textContent = data.status === 'waiting_for_approval' ? 'Hermes needs your permission before continuing.' : 'Hermes is working. You can stop the run. Replies appear when the turn completes.';
       if (data.status === 'waiting_for_approval') {

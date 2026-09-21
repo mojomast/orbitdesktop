@@ -31,12 +31,13 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
     if (!auth.startsWith('Bearer ') || !tokenMatches(auth.slice(7), token)) return reply(res, 401, { error: 'Use Connect host with the Orbit session token first.' });
     if (!apiUrl || !apiKey) return reply(res, 503, { error: 'Hermes is not configured on this Orbit server.' });
     try {
-      let raw = '', bytes = 0;
+      const chunks = []; let bytes = 0;
       for await (const part of req) {
         bytes += part.length;
-        if (bytes > 32768) return reply(res, 413, { error: 'Message is too large.' });
-        raw += part;
+        if (bytes > 1048576) return reply(res, 413, { error: 'Message request exceeds 1 MiB.' });
+        chunks.push(part);
       }
+      const raw = Buffer.concat(chunks).toString('utf8');
       let body;
       try { body = JSON.parse(raw); } catch { return reply(res, 400, { error: 'Invalid JSON' }); }
       if (!body || typeof body !== 'object' || !sessionPattern.test(body.session_id || '')) return reply(res, 400, { error: 'Invalid Orbit conversation.' });
@@ -114,7 +115,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
         return reply(res, 200, { activity, note: 'Persisted tool history for this conversation; active tools may appear only after Hermes saves them. Results are truncated.' });
       }
       if (body.action === 'start') {
-        if (typeof body.input !== 'string' || !body.input.trim() || body.input.length > 8000) return reply(res, 400, { error: 'Enter a message of 1–8000 characters.' });
+        if (typeof body.input !== 'string' || !body.input.trim() || body.input.length > 100000) return reply(res, 400, { error: 'Enter a message of 1–100,000 characters.' });
         // Older Hermes Runs implementations persist sessions but do not reload
         // their transcripts automatically. Supply bounded conversational history
         // from the authenticated session API (never from untrusted client roles).
@@ -145,7 +146,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
       // Never let Orbit operate on another dashboard's sessions/runs.
       if (run.session_id !== body.session_id) return reply(res, 404, { error: 'Run not found in this Orbit conversation.' });
       if (body.action === 'steer') {
-        if (typeof body.input !== 'string' || !body.input.trim() || body.input.length > 8000) return reply(res, 400, { error: 'Guidance must contain 1–8000 characters.' });
+        if (typeof body.input !== 'string' || !body.input.trim() || body.input.length > 100000) return reply(res, 400, { error: 'Guidance must contain 1–100,000 characters.' });
         const data = await upstream(`${path}/steer`, { input: body.input.trim() });
         return reply(res, 200, { accepted: data.accepted === true });
       }

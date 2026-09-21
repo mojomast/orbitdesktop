@@ -94,6 +94,12 @@ hermes plugins doctor hermes-plugin --ci
 
 Tests cover real HTTP requests, default mutation denial, revision enforcement, redirect refusal, loopback restrictions, error redaction, explicit profile/workspace scoping, plus an end-to-end test against the real Orbit workspace service exercising preview/apply/conflict/checkpoint/restore. No owner's running workspace is mutated by these tests.
 
+## Agent chat improvements (0.2.3)
+
+Agent chat offers browser desktop notifications when a run finishes. Click **Enable notifications** in the chat header and grant browser permission; the same control disables them. Alerts contain generic text, not conversation contents. Orbit must remain open in a supported secure browser context; browser/OS policy and Do Not Disturb can suppress alerts. This is not background push delivery.
+
+Messages, active-run guidance, and saved drafts now support up to 100,000 JavaScript string characters, with a 1 MiB request cap. Large inputs still count toward the provider context limit. UTF-8 request chunks are decoded together to preserve Unicode.
+
 ## Devplan Studio (0.2.2)
 
 Bundled guided interview → specification → phased devplan → circular development handoff. Open Hermes tools → Devplan Studio. Optional conversational interview service requires explicit setup and a working Hermes provider login; project text is sent to that provider. See [Devplan setup and boundaries](../docs/DEVPLAN_STUDIO.md). Export drafts before closing.
