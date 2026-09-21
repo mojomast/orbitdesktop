@@ -1,4 +1,5 @@
 import {el,button} from './dom';
+import {linuxAppUrl} from './linux-app-url';
 import {copyPasswordButton} from './connection-passwords';
 export async function showSharedBrowser(_api:(body:Record<string,unknown>)=>Promise<any>){
  window.dispatchEvent(new Event('orbit-open-shared-browser'));
@@ -12,7 +13,7 @@ export function mountSharedBrowser(host:HTMLElement,token:()=>string,paneId:stri
  host.replaceChildren(note,copyPasswordButton('chromium',token),connect,frame);
  async function load(){
   if(!token()||disposed)return;connect.disabled=true;
-  try{const r=await fetch('/api/agent',{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${token()}`},body:JSON.stringify({action:'shared_browser_connection',session_id:`orbit-${paneId}`}),signal:abort.signal});const data=await r.json();if(!r.ok)throw Error(data.error||'Connection failed');if(disposed)return;note.textContent='Shared with Hermes · Closing this window leaves Chromium running';frame.src=data.url;connect.hidden=true;}
+  try{const r=await fetch('/api/agent',{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${token()}`},body:JSON.stringify({action:'shared_browser_connection',session_id:`orbit-${paneId}`}),signal:abort.signal});const data=await r.json();if(!r.ok)throw Error(data.error||'Connection failed');if(disposed)return;note.textContent='Shared with Hermes · Closing this window leaves Chromium running';frame.src=linuxAppUrl(window.location.origin,4344,'/vnc.html?autoconnect=true&resize=scale');connect.hidden=true;}
   catch(e){if(!disposed)note.textContent=String(e);}finally{connect.disabled=false;}
  }
  const onConnect=()=>{if(!frame.getAttribute('src'))void load();};window.addEventListener('orbit-host-connected',onConnect);void load();

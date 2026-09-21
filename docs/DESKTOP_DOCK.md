@@ -1,6 +1,6 @@
 # Desktop Dock: privileged shared-desktop bridge
 
-Owner authorized this integration explicitly. Source: `projects/desktop-dock/`. Deployed through trusted extension runner as `desktop-dock`, active release `d1d88b0607cab02e03af4e2d7485cb9774793f71fe7d3cac68a19246ba634541`, loopback 4357. Tailnet-only HTTPS `https://kimi.tailec998.ts.net:4347/` proxies that listener. No core server, desktop or Chromium restart. This is an authenticated external browser application, NOT a sandboxed static plugin granted host permissions. No global sandbox or CSP relaxation.
+Owner authorized this integration explicitly. Source: `projects/desktop-dock/`. Deployed through trusted extension runner as `desktop-dock`, active release `d1d88b0607cab02e03af4e2d7485cb9774793f71fe7d3cac68a19246ba634541`, loopback 4357. Tailnet-only HTTPS `https://orbit.example.invalid:4347/` proxies that listener. No core server, desktop or Chromium restart. This is an authenticated external browser application, NOT a sandboxed static plugin granted host permissions. No global sandbox or CSP relaxation.
 
 Owner workspace eed047a8-e519-495e-a7ca-1c8c150a6ef4: new browser pane 4e065054-2e23-4ec3-a611-4b2c5c6961dd in existing shared Linux window 925e8d26-fdbd-4722-a9dd-c2a2f44a965e. Planet Remote and desktop pane IDs preserved. Browser acknowledged revision 556. Rendering and interaction were tested in a separate real Orbit test workspace; owner session still requires manual pairing.
 

@@ -1,6 +1,6 @@
 # Workspace upgrade verification
 
-Executed against the private deployment at `https://kimi.tailec998.ts.net:4325/` using the mojo native user service.
+Executed against the private deployment at `https://orbit.example.invalid:4325/` using the mojo native user service.
 
 ## Automated suite
 

@@ -20,13 +20,13 @@ Open **http://127.0.0.1:4318**. Use the access token printed in your own launch 
 
 You can now use Orbit's desktop. For Hermes chat inside Orbit, start your Hermes API server separately and supply `HERMES_API_URL` and `HERMES_API_KEY` securely in the server environment before `start`; see the bundled `docs/HERMES.md`. The plugin does not discover or copy API keys. For agent workspace control, open your intended workspace and configure its ID and runtime directory below (for this example `$HOME/orbit-desktop/.runtime`, expanded to an absolute path).
 
-Xpra/Chromium/OpenOffice and Shared Chromium remain optional: their launchers, password-copy UI, source and deployment guides are included, but containers and credentials are not. Read `docs/XPRA_APPS.md` and `docs/SHARED_BROWSER.md` in your extracted deployment before explicitly provisioning them. Existing deployment-specific paths/endpoints need adaptation. No Docker, Tailscale or Linux apps are silently installed.
+Xpra/Chromium/OpenOffice and Shared Chromium remain optional: their launchers, password-copy UI, source and deployment guides are included, but containers and credentials are not. Read `docs/LINUX_APP_ENDPOINTS.md`, `docs/XPRA_APPS.md` and `docs/SHARED_BROWSER.md` in your extracted deployment before explicitly provisioning them. Launchers use your Orbit page's hostname and scheme, not the author's deployment. No Docker, Tailscale or Linux apps are silently installed.
 
 Updates never replace a running deployment. Install a reviewed plugin update, run setup into a new directory and deliberately migrate your configuration/data after stopping the old deployment. Keep the old directory for rollback. Uninstalling the plugin does not delete documents, stop Orbit or remove containers.
 
 ## Install
 
-The catalog submission is pending human review. Until it is accepted, use the explicit repository subdirectory and the **full commit SHA** recorded by the `hermes-plugin-v0.2.0` release:
+The catalog submission is pending human review. Until it is accepted, use the explicit repository subdirectory and the **full commit SHA** recorded by the `hermes-plugin-v0.2.1` release:
 
 ```sh
 hermes plugins install mojomast/orbitdesktop/hermes-plugin --ref FULL_40_CHARACTER_RELEASE_SHA --no-enable

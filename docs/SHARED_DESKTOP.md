@@ -9,7 +9,7 @@ Dedicated container `orbit-shared-desktop`, image `orbit-shared-desktop:local`, 
 
 Owner window: Our shared desktop · Linux, workspace eed047a8-e519-495e-a7ca-1c8c150a6ef4, window 925e8d26-fdbd-4722-a9dd-c2a2f44a965e. Added with checkpoint/revision protection; browser acknowledged revision 526.
 
-Viewer: https://kimi.tailec998.ts.net:4346/vnc.html?autoconnect=1&resize=scale&reconnect=1&reconnect_delay=2000
+Viewer: https://orbit.example.invalid:4346/vnc.html?autoconnect=1&resize=scale&reconnect=1&reconnect_delay=2000
 
 Loopback 127.0.0.1:4346 maps to 6080; Tailscale Serve HTTPS 4346 is tailnet-only (not Funnel). Raw X and VNC are not exposed to host/network. Password is deliberately the existing Shared Chromium viewer credential, mounted read-only from .runtime/shared-browser/vnc-password. User retrieves plaintext only through authenticated Shared Chromium UI. No credential in URL, source, workspace config or public bundle. Both viewers share this credential, not session data. Traditional VNC authentication has an 8-character limit; private HTTPS/Tailscale is essential. Tailnet users possessing the VNC password can access this desktop, independently of Orbit login. Container egress is not filtered; this is not a hostile-code sandbox.
 

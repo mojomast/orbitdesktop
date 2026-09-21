@@ -80,7 +80,8 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
       }
       if(body.action==='shared_browser_connection') {
         const password=fs.readFileSync(new URL('../.runtime/shared-browser/password.txt',import.meta.url),'utf8').trim();
-        return reply(res,200,{url:'https://kimi.tailec998.ts.net:4344/vnc.html?autoconnect=true&resize=scale',password});
+        res.setHeader('Cache-Control','no-store');
+        return reply(res,200,{url:'/vnc.html?autoconnect=true&resize=scale',port:4344,password});
       }
       if(body.action==='automation') return reply(res,200,await automation(body,upstream));
       if (body.action === 'job_control') {
