@@ -1,0 +1,13 @@
+{
+  "id": "notes",
+  "title": "Workspace notes",
+  "version": "1.0.0",
+  "description": "A small configurable notes app. An example of a static, sandboxed Orbit desktop plugin.",
+  "category": "Productivity",
+  "maintainer": "mojomast",
+  "license": "NOASSERTION",
+  "repo": "https://github.com/mojomast/orbitdesktop",
+  "sha": "438044e2c1b55f13fade30e63efe23d941fea4ab",
+  "path": "examples/plugins/notes",
+  "capabilities": {"network": false, "storage": false}
+}
