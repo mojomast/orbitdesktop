@@ -29,6 +29,24 @@ def archive(files):
 
 
 class CatalogTests(unittest.TestCase):
+    def test_backend_schema(self):
+        backend = {'path': 'backend', 'runtime': 'python3', 'permissions': ['Read aggregate host metrics']}
+        self.assertEqual(catalog.validate(dict(ENTRY, backend=backend))['backend'], backend)
+        for patch in [{'path': '../private'}, {'path': '/tmp'}, {'runtime': 'sh'}, {'permissions': []}, {'permissions': [False]}, {'install': 'curl | sh'}]:
+            with self.subTest(patch=patch), self.assertRaises(ValueError):
+                catalog.validate(dict(ENTRY, backend=dict(backend, **patch)))
+
+    def test_backend_bundle_validation_never_executes(self):
+        entry = dict(ENTRY, backend={'path':'backend','runtime':'python3','permissions':['host']})
+        manifest = {'apiVersion':1,'id':entry['id'],'version':entry['version'],'runtime':'python3','entry':'main.py'}
+        files = [('root/backend/extension.json', json.dumps(manifest).encode(), tarfile.REGTYPE), ('root/backend/main.py', b'raise RuntimeError("MUST NOT EXECUTE")', tarfile.REGTYPE)]
+        with tempfile.TemporaryDirectory() as temp, patch.object(catalog, 'fetch', return_value=archive(files)):
+            self.assertEqual(catalog.source(entry, Path(temp), backend=True), 2)
+        manifest['id'] = 'wrong'
+        files[0] = ('root/backend/extension.json', json.dumps(manifest).encode(), tarfile.REGTYPE)
+        with tempfile.TemporaryDirectory() as temp, patch.object(catalog, 'fetch', return_value=archive(files)), self.assertRaises(ValueError):
+            catalog.source(entry, Path(temp), backend=True)
+
     def test_example(self):
         self.assertEqual(catalog.validate(copy.deepcopy(ENTRY), 'notes.json')['id'], 'notes')
 

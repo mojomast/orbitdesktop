@@ -3,4 +3,9 @@
 /plugin-catalog/ @mojomast
 /scripts/orbit_catalog.py @mojomast
 /scripts/plugin_publish.py @mojomast
+/scripts/catalog_backend.py @mojomast
+/scripts/extensions.py @mojomast
+/packages/ @mojomast
+/src/plugins.ts @mojomast
+/src/plugin-manager.ts @mojomast
 /.github/ @mojomast

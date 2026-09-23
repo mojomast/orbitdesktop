@@ -2,7 +2,7 @@ import { el, button } from './dom';
 import { workspaceId, ensureWorkspaceSynced } from './workspace-sync';
 import { validateManifest, type PluginInstance, type PluginManifest } from './plugins';
 import './plugin-manager.css';
-type CatalogEntry = {manifest: PluginManifest; category: string; description: string; provenance?: {repo: string; sha: string; maintainer: string; license: string; capabilities: {network: boolean; storage: boolean}}};
+type CatalogEntry = {manifest: PluginManifest; category: string; description: string; provenance?: {repo: string; sha: string; maintainer: string; license: string; capabilities: {network: boolean; storage: boolean}; backend?: {path: string; runtime: string; permissions: string[]}}};
 export function showPlugins(token:()=>string){
  const dialog=el('dialog','hermes-tools-dialog orbit-plugin-manager');dialog.setAttribute('aria-label','Workspace plugins');
  const status=el('p','plugin-status'),list=el('div','plugin-grid'),summary=el('p','plugin-summary');status.setAttribute('role','status');
@@ -22,7 +22,7 @@ export function showPlugins(token:()=>string){
   for(const p of installed)if(!entries.has(p.manifest.id))entries.set(p.manifest.id,{manifest:p.manifest,category:'Workspace tools',description:'Installed in this workspace; not listed in the bundled catalog.'});
   summary.textContent=`${entries.size} plugins · ${installed.length} installed · ${activeIds.size} enabled`;
   const query=search.value.trim().toLowerCase();let count=0;
-  for(const entry of [...entries.values()].sort((a,b)=>a.manifest.title.localeCompare(b.manifest.title))){
+  for(const entry of [...entries.values()].sort((a,b)=>Number(!!b.provenance)-Number(!!a.provenance)||a.manifest.title.localeCompare(b.manifest.title))){
    const p=installed.find(p=>p.manifest.id===entry.manifest.id),active=activeIds.has(entry.manifest.id),m=p?.manifest||entry.manifest;
    if(source.value==='GitHub community'&&!entry.provenance||source.value==='Local catalog'&&entry.provenance)continue;
    if(category.value!=='All categories'&&category.value!==entry.category)continue;
@@ -39,6 +39,14 @@ export function showPlugins(token:()=>string){
      el('p','plugin-capabilities',`Declared capabilities: network ${provenance.capabilities?.network?'yes':'no'} · storage ${provenance.capabilities?.storage?'yes':'no'}. Declarations are not enforced permissions.`));
    }
    const actions=el('div','plugin-actions');
+   if(entry.provenance?.backend){
+    const setup=el('details','plugin-backend-setup');setup.append(el('summary','','Trusted backend · separate setup required'));
+    setup.append(el('p','','This package executes Python with your host account privileges. Declared access is not a sandbox: '+entry.provenance.backend.permissions.join('; ')),el('p','','1. Review pinned source. 2. Stage without execution. 3. Configure private authentication. 4. Explicitly activate and verify health. 5. Connect the endpoint below.'));
+    setup.append(el('pre','',`python3 scripts/catalog_backend.py ${m.id}`));
+    const guide=el('a','plugin-source-link','Backend setup & recovery ↗');guide.href='https://github.com/mojomast/orbitdesktop/blob/feat/reviewed-plugin-catalog/docs/CATALOG_BACKENDS.md';guide.target='_blank';guide.rel='noopener noreferrer';setup.append(guide,el('p','','Disable/remove disconnects the UI only. Stop the service separately; checkpoints cannot undo host effects. No automatic backend updates.'));
+    row.append(el('p','plugin-capabilities',p?.backendEndpoint?'Endpoint configured · health not checked':'Host integration · backend not connected'),setup);
+    if(p)actions.append(action('Connect backend',`Connect backend ${m.id}`,()=>{const endpoint=window.prompt('Private owner-authenticated HTTPS origin. No passwords/tokens. Leave blank to return to the sandboxed setup UI.',p.backendEndpoint||'');if(endpoint===null)return;if(window.confirm('Trust this external service UI? It runs outside the static app sandbox, but receives no Orbit credentials or host bridge. This only connects a previously deployed service; it does not install or activate host code.'))void change([{action:'plugin_backend',plugin_id:m.id,endpoint:endpoint.trim()||null,confirm_host_access:true}]);}));
+   }
    if(!p){actions.append(action('Install',`Install plugin ${m.id}`,()=>void change([{action:'plugin_install',manifest:m}])));}
    else{
     if(entry.provenance&&(p.manifest.entry!==entry.manifest.entry||p.manifest.version!==entry.manifest.version))actions.append(action(`Use catalog v${entry.manifest.version}`,`Update plugin ${m.id}`,()=>{if(window.confirm('Replace this app with the catalog pin? Review the package details first. This may reload an enabled app; unsaved app state can be lost. A checkpoint retains the old manifest.'))void change([{action:'plugin_update',plugin_id:m.id,manifest:entry.manifest}]);}));
@@ -53,7 +61,7 @@ export function showPlugins(token:()=>string){
  }
  async function load(){try{await ensureWorkspaceSynced();const data=await api({action:'read'});revision=data.revision;installed=data.state.plugins||[];monitors=data.state.monitors;activeIds=new Set(installed.filter(p=>monitors.some(m=>m.id===p.window.id)).map(p=>p.manifest.id));render();}catch(e){status.textContent=String(e);}}
  async function loadCatalog(){
-  const feeds=await Promise.allSettled(['/orbit-plugin-catalog.json','/orbit-community-catalog.json'].map(async url=>{const r=await fetch(url,{cache:'no-cache'});if(r.status===404)return [];if(!r.ok)throw Error('Catalog unavailable');const data=await r.json();if(data.version!==1||!Array.isArray(data.entries))throw Error('Unsupported catalog');return data.entries.map((c:any)=>{if(c.provenance&&(!/^https:\/\/github\.com\/[\w-]+\/[\w.-]+$/.test(c.provenance.repo)||typeof c.provenance.sha!=='string'||!/^[a-f0-9]{40}$/.test(c.provenance.sha)||typeof c.provenance.maintainer!=='string'||typeof c.provenance.license!=='string'))throw Error('Invalid catalog provenance');return {manifest:validateManifest(c.manifest),category:String(c.category||'Workspace tools'),description:String(c.description||''),...(c.provenance?{provenance:c.provenance}:{})};});}));
+  const feeds=await Promise.allSettled(['/orbit-plugin-catalog.json','/orbit-community-catalog.json'].map(async url=>{const r=await fetch(url,{cache:'no-cache'});if(r.status===404)return [];if(!r.ok)throw Error('Catalog unavailable');const data=await r.json();if(data.version!==1||!Array.isArray(data.entries))throw Error('Unsupported catalog');return data.entries.map((c:any)=>{if(c.provenance?.backend&&(!Array.isArray(c.provenance.backend.permissions)||!c.provenance.backend.permissions.length||c.provenance.backend.permissions.length>10||!c.provenance.backend.permissions.every((v:unknown)=>typeof v==='string'&&v.length<=200)||c.provenance.backend.runtime!=='python3'))throw Error('Invalid backend declaration');if(c.provenance&&(!/^https:\/\/github\.com\/[\w-]+\/[\w.-]+$/.test(c.provenance.repo)||typeof c.provenance.sha!=='string'||!/^[a-f0-9]{40}$/.test(c.provenance.sha)||typeof c.provenance.maintainer!=='string'||typeof c.provenance.license!=='string'))throw Error('Invalid catalog provenance');return {manifest:validateManifest(c.manifest),category:String(c.category||'Workspace tools'),description:String(c.description||''),...(c.provenance?{provenance:c.provenance}:{})};});}));
   catalog=feeds.flatMap(feed=>feed.status==='fulfilled'?feed.value:[]);
   const selectedCategory=category.value;
   category.replaceChildren(el('option','','All categories'),...[...new Set(catalog.map(entry=>entry.category))].sort().map(name=>el('option','',name)));

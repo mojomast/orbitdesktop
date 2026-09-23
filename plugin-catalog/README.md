@@ -1,6 +1,6 @@
 # Orbit community plugin catalog
 
-A GitHub-backed, maintainer-reviewed catalog of sandboxed desktop apps. Inspired by the [Hermes catalog admission model](https://github.com/NousResearch/hermes-agent/tree/main/plugin-catalog): one entry per app, reviewed PRs, exact commit pins, reviewed updates and a removal list. These are Orbit static apps, not Hermes runtime plugins or trusted host extensions.
+A GitHub-backed, maintainer-reviewed catalog of desktop apps. Inspired by the [Hermes catalog admission model](https://github.com/NousResearch/hermes-agent/tree/main/plugin-catalog): one entry per app, reviewed PRs, exact commit pins, reviewed updates and a removal list. Static UIs are sandboxed by default. Optional trusted Python backends require a separate review, staging and explicit host-code activation; these are not Hermes runtime plugins. See [trusted backend setup](../docs/CATALOG_BACKENDS.md).
 
 ## Submit an app
 
@@ -48,4 +48,4 @@ python3 scripts/orbit_catalog.py sync --catalog plugin-catalog
 npm run check
 ```
 
-The public catalog starts empty: no app is admitted merely by creating this infrastructure. `examples/catalog/notes.json` is a working first-party test fixture, not an approved listing; its license is `NOASSERTION` because the pinned repository has no license file. Confirm redistribution terms before submitting it. COCS, OmniVoice, private infrastructure and deployment-specific local tools are not seeded into this public catalog.
+Orbit Live Telemetry is the first proposed listing, pinned to a portable host-metrics package; it is admitted only when this PR merges. Its license is `NOASSERTION` because this repository has no project license file; redistribution terms remain unspecified and should be settled before promoting it as an openly licensed package. The Notes example remains a test fixture, not an approved listing. COCS, OmniVoice, private infrastructure and deployment-specific local tools are not seeded into this public catalog.

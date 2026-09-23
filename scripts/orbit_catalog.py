@@ -43,7 +43,13 @@ def repo_valid(value):
 
 def validate(entry, filename=None):
     fields = {'id', 'title', 'version', 'description', 'category', 'maintainer', 'license', 'repo', 'sha', 'path', 'capabilities'}
-    require(isinstance(entry, dict) and set(entry) == fields, 'Entry must contain exactly: ' + ', '.join(sorted(fields)))
+    require(isinstance(entry, dict) and set(entry) in (fields, fields | {'backend'}), 'Entry must contain required fields and optional backend')
+    if 'backend' in entry:
+        backend = entry['backend']
+        require(isinstance(backend, dict) and set(backend) == {'path', 'runtime', 'permissions'}, 'Invalid backend declaration')
+        require(backend['runtime'] == 'python3', 'Only python3 backends supported')
+        require(isinstance(backend['path'], str) and 0 < len(backend['path']) <= 200 and all(re.fullmatch(r'[A-Za-z0-9_-][A-Za-z0-9_.-]*', p) for p in backend['path'].split('/')), 'Unsafe backend path')
+        require(isinstance(backend['permissions'], list) and 0 < len(backend['permissions']) <= 10 and all(text(p, 200) for p in backend['permissions']), 'Declare backend host access')
     require(isinstance(entry['id'], str) and re.fullmatch(r'[a-z][a-z0-9-]{0,25}', entry['id']), 'Invalid id')
     require(filename is None or filename == entry['id'] + '.json', 'Filename must match id')
     require(isinstance(entry['version'], str) and re.fullmatch(r'\d+\.\d+\.\d+', entry['version']), 'Version must be x.y.z')
@@ -104,7 +110,7 @@ def reviewed_catalog(destination):
     return commit
 
 
-def unpack(entry, archive, destination):
+def unpack(entry, archive, destination, required='index.html'):
     """Copy only regular bundle files; no extractall, links, builds or install hooks."""
     total = 0
     names = set()
@@ -137,13 +143,19 @@ def unpack(entry, archive, destination):
             target = destination / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(tar.extractfile(member).read())
-    require('index.html' in names, 'Bundle needs index.html at the declared path')
+    require(required in names, 'Bundle needs ' + required + ' at the declared path')
     return len(names)
 
 
-def source(entry, destination):
+def source(entry, destination, backend=False):
     slug = entry['repo'].removeprefix('https://github.com/')
     archive = fetch(f'https://codeload.github.com/{slug}/tar.gz/{entry["sha"]}', 50_000_000)
+    if backend:
+        count = unpack(dict(entry, path=entry['backend']['path']), archive, destination, 'extension.json')
+        manifest = read_json((destination / 'extension.json').read_text())
+        require(manifest == {'apiVersion': 1, 'id': entry['id'], 'version': entry['version'], 'runtime': 'python3', 'entry': 'main.py'}, 'Backend manifest must match catalog')
+        require((destination / 'main.py').is_file(), 'Missing backend main.py')
+        return count
     return unpack(entry, archive, destination)
 
 
@@ -192,6 +204,10 @@ def main():
                     with tempfile.TemporaryDirectory() as bundle:
                         count = source(entry, Path(bundle))
                         print(f'Validated {entry["id"]}@{entry["sha"]}: {count} static files')
+                    if 'backend' in entry:
+                        with tempfile.TemporaryDirectory() as backend:
+                            count = source(entry, Path(backend), backend=True)
+                            print(f'Validated {entry["id"]}: {count} backend files, NOT executed')
             print(f'PASS: {len(entries)} catalog entries')
 
 
