@@ -15,7 +15,14 @@ export function installStart(navigation: HTMLElement, actions: () => StartAction
   search.type = 'search'; search.placeholder = 'Search windows and actions…';
   search.setAttribute('aria-label', 'Search Start');
   const results = el('div', 'start-results');
-  const start = button('◉  Start', 'Open Start', () => toggle(), 'start-button');
+  const quick = el('div', 'start-quick');
+  quick.setAttribute('aria-label', 'Quick launch');
+  for (const [title, label] of [['New agent chat', '✦ Chat'], ['New terminal', '⌘ Terminal'], ['New browser', '◎ Browser']]) {
+    quick.append(button(label, `Quick launch ${title}`, () => { close(); actions().find(action => action.title === title)?.run(); }));
+  }
+  const start = button('', 'Open Start', () => toggle(), 'start-button');
+  const logo = el('span', 'start-logo', '◉'); logo.setAttribute('aria-hidden', 'true');
+  start.append(logo, el('span', 'start-label', 'Start'));
   start.setAttribute('aria-expanded', 'false');
   start.setAttribute('aria-controls', panel.id);
   function close(restore = false) {
@@ -39,7 +46,7 @@ export function installStart(navigation: HTMLElement, actions: () => StartAction
   }
   search.addEventListener('input', render);
   panel.addEventListener('keydown', e => {
-    const items = [search, ...Array.from(results.querySelectorAll<HTMLButtonElement>('button'))];
+    const items = [search, ...Array.from(quick.querySelectorAll<HTMLButtonElement>('button')), ...Array.from(results.querySelectorAll<HTMLButtonElement>('button'))];
     const index = items.indexOf(document.activeElement as HTMLInputElement);
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault(); items[(index + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length].focus();
@@ -49,6 +56,6 @@ export function installStart(navigation: HTMLElement, actions: () => StartAction
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && !panel.hidden) { e.preventDefault(); close(true); } });
   document.addEventListener('pointerdown', e => { if (!launcher.contains(e.target as Node)) close(); });
   launcher.addEventListener('focusout', () => { setTimeout(() => { if (!launcher.contains(document.activeElement)) close(); }, 0); });
-  panel.append(heading, search, results);
+  panel.append(heading, search, quick, results);
   launcher.append(start, panel); navigation.prepend(launcher);
 }

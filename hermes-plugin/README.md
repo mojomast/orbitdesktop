@@ -26,7 +26,7 @@ Updates never replace a running deployment. Install a reviewed plugin update, ru
 
 ## Install
 
-The catalog submission is pending human review. Until it is accepted, use the explicit repository subdirectory and the **full commit SHA** recorded by the `hermes-plugin-v0.2.1` release:
+The catalog submission is pending human review. Until it is accepted, use the explicit repository subdirectory and the **full commit SHA** recorded by the `hermes-plugin-v0.2.6` release:
 
 ```sh
 hermes plugins install mojomast/orbitdesktop/hermes-plugin --ref FULL_40_CHARACTER_RELEASE_SHA --no-enable
@@ -103,3 +103,7 @@ Messages, active-run guidance, and saved drafts now support up to 100,000 JavaSc
 ## Devplan Studio (0.2.2)
 
 Bundled guided interview → specification → phased devplan → circular development handoff. Open Hermes tools → Devplan Studio. Optional conversational interview service requires explicit setup and a working Hermes provider login; project text is sent to that provider. See [Devplan setup and boundaries](../docs/DEVPLAN_STUDIO.md). Export drafts before closing.
+
+## Interface themes in 0.2.6
+
+The bundled desktop includes Windows XP, Classic 95, Paper Studio and Cyberpunk chrome, per-element customization, XP scrollbars and red Close controls, and the independently scrolling Start menu. See the bundled `docs/THEMES.md`. Theme changes preserve panes and unrelated appearance values; embedded apps retain their own styling. Updating this plugin does not replace a running deployment.

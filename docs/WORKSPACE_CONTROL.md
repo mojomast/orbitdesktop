@@ -88,3 +88,7 @@ The controller is restricted to its workspace and cannot execute shell commands 
 The current routed service is `orbitdesktop-current.service` on loopback 4329 (unit source: `deploy/orbitdesktop-current.service`). Older services on 4327 and 4328 remain running to preserve pre-cutover shells. Tailscale HTTPS 4325 routes to 4329. Terminal PTYs run as `mojo` in `/home/mojo` with `/bin/bash`; no Docker shell, passwordless sudo setup, or new SSH key is involved. Hermes remains in its configured execution environment, so do not assume its tool sandbox equals the interactive host shell.
 
 Service unit source: `deploy/orbitdesktop-host.service`. Runtime workspace records and capability files live in `.runtime/workspaces` (owner-only); built app files live in `.runtime/apps`. Both are Git-ignored. The service is enabled for reboot recovery. Build/test before restarting; restarting terminates this service's live shells. Existing older containers are retained while their old connections drain.
+
+## Interface theme customization
+
+`patch_appearance` accepts the validated interface theme tokens described in [THEMES.md](THEMES.md), for example `{"action":"patch_appearance","patch":{"theme":"xp","titlebarHeight":36,"controlRadius":3}}`. Read state first and apply with current `base_revision`. `reset_appearance` accepts individual theme-token keys. Preserve unrelated appearance settings and confirm browser acknowledgement; neither operation changes iframe internals.

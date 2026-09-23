@@ -7,7 +7,7 @@ export function applyOperation(input: Workspace, op: Record<string, any>): Works
   const target = () => { const m = state.monitors.find(m => m.id === op.window_id); if (!m) throw Error('Unknown window_id'); return m; };
   switch (op.action) {
     case 'reset_appearance': {
-      if (!Array.isArray(op.keys) || op.keys.some((k:unknown)=>typeof k!=='string' || !['background','wallpaper','textColor','cornerRadius','fullViewport','headerHeight','sidebarWidth','workspaceGap','accentColor','navigationPosition','wallpaperFit'].includes(k as string))) throw Error('Invalid appearance reset keys');
+      if (!Array.isArray(op.keys) || op.keys.some((k:unknown)=>typeof k!=='string' || !['theme','surfaceColor','panelColor','borderColor','mutedColor','titlebarColor','titlebarTextColor','buttonColor','buttonTextColor','controlRadius','titlebarHeight','uiFont','background','wallpaper','textColor','cornerRadius','fullViewport','headerHeight','sidebarWidth','workspaceGap','accentColor','navigationPosition','wallpaperFit'].includes(k as string))) throw Error('Invalid appearance reset keys');
       for(const key of op.keys) if(state.appearance) delete (state.appearance as any)[key];break;
     }
     case 'set_arc': state.arc=op.arc;break;
