@@ -62,6 +62,36 @@ Revision-checked controller mutations and supported plugin changes create checkp
 
 Checkpoints are not filesystem backups. They do not restore documents, shell processes, conversations, container state, emails, or other external effects.
 
+## Getting started with your workspace
+
+On first load, Orbit offers a seven-step tour. Reopen it through **Start → Getting started**; Skip or Escape dismisses it. Completion is remembered in this browser. The tour does not submit prompts, install apps, or change your layout. See [Onboarding](docs/ONBOARDING.md).
+
+The unified bottom taskbar holds Start, running and minimized windows, save status, and your named layouts. Start offers Chat, Terminal, Browser, and searchable actions. The upper-left view switcher selects Windows or Spatial; wallpaper and transparency controls sit separately above the taskbar. Full viewport hides workspace chrome; Controls or Ctrl+Alt+F brings it back.
+
+### Navigate and arrange a 3D workspace
+
+Spatial uses live browser-rendered surfaces in a navigable 3D scene. Drag a title bar to move a window, Shift-drag to change depth, Ctrl/Command-drag to rotate, and use the bottom-right handle to resize. Navigate enables WASD/arrow-key movement and Q/E vertical travel; Escape returns to app interaction. Background dragging orbits, Shift-drag pans, and scrolling zooms. Fit all recovers your view; Approach frames a selected window.
+
+Arrange / edit provides grid, single-row, and curved-wall tiling, spacing, precise geometry, and surface resolutions up to 3840 pixels wide. Desktop and 3D text sizes are independent per window: increasing 3D text size does not change desktop scaling. Higher surface resolution fits more content, rather than automatically making text larger. Remote video/application streams retain their own resolution limits. See [Spatial scene controls](docs/SPATIAL_SCENE.md).
+
+### Keep a coding desk and a research wall
+
+Open the bottom-right layout switcher, enter a name, and choose **New from current**. Rearrange windows and choose Windows or Spatial; the active layout updates automatically. Mix named 2D desktops and 3D scenes, each remembering positions, sizes, text scales, minimized windows, and camera. Rename or delete layouts from the same menu.
+
+These are layouts of shared apps, not separate sessions or simultaneous 2D/3D compositing. The named collection is browser-local: it is not synchronized across devices, included in normal workspace export, or backed up by server checkpoints. Clearing browser storage removes it. See [Layouts and taskbar](docs/LAYOUT_SWITCHER.md).
+
+### Ask Hermes for a result, not just instructions
+
+Open Start → Chat. Describe what to change, what to preserve, and how to verify it. For example:
+
+> Put my terminal on the left and chat on the right. Preserve existing pane IDs and running sessions, save a checkpoint, and verify the browser applied the change.
+
+> Make the selected window's 3D text larger without changing its desktop size.
+
+> Build a self-contained focus timer with start, pause, reset, and adjustable durations. Publish it as a sandboxed plugin, test its controls, and add it without replacing my other windows.
+
+Supported layout and configuration changes use scoped workspace controls. New core features may require reviewed source changes, a build, and a frontend reload; new backend operations require the backend to load their implementation. An agent's layout snapshot is not access to screen pixels, terminal buffers, or every embedded app. Never paste secrets into chat or app configuration. Preview/checkpoints protect supported workspace state, not shell, filesystem, or external effects.
+
 ## Everyday workflows
 
 Writing and research: open Writer and Chromium beside Hermes. Develop an outline, check sources, and save the document to the Linux apps' shared Documents folder.
@@ -135,6 +165,12 @@ Preserve the owner's uncommitted changes, existing pane IDs, running sessions, a
 The fresh screenshots above were captured from an isolated browser workspace using `scripts/capture_xpra_readme.py`. The Writer image connects to the existing native application to show the owner-approved README draft. No conversations, passwords, or host terminal buffers were staged for publication.
 
 ## Documentation map
+
+First-run tour and example requests: [docs/ONBOARDING.md](docs/ONBOARDING.md)
+
+3D navigation, tiling and independent scaling: [docs/SPATIAL_SCENE.md](docs/SPATIAL_SCENE.md)
+
+Unified taskbar and named 2D/3D layouts: [docs/LAYOUT_SWITCHER.md](docs/LAYOUT_SWITCHER.md)
 
 Agent operations: docs/AGENT_GUIDE.md
 Workspace controller: docs/WORKSPACE_CONTROL.md
