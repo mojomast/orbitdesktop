@@ -1,0 +1,11 @@
+# Maintainer review is the catalog admission gate. Enable required code-owner
+# approval and the catalog status check in GitHub branch protection.
+/plugin-catalog/ @mojomast
+/scripts/orbit_catalog.py @mojomast
+/scripts/plugin_publish.py @mojomast
+/scripts/catalog_backend.py @mojomast
+/scripts/extensions.py @mojomast
+/packages/ @mojomast
+/src/plugins.ts @mojomast
+/src/plugin-manager.ts @mojomast
+/.github/ @mojomast

@@ -1,0 +1,21 @@
+name: Orbit catalog admission
+on:
+  # Always report the gate on PRs so requiring it cannot strand unrelated PRs.
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  catalog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - name: Test validator and safe bundle handling
+        run: python3 tests/orbit-catalog.test.py
+      - name: Validate entries and exact pinned sources (no plugin execution)
+        run: python3 scripts/orbit_catalog.py validate --sources
