@@ -8,7 +8,11 @@ export function showPlugins(token:()=>string){
  const status=el('p','plugin-status'),list=el('div','plugin-grid'),summary=el('p','plugin-summary');status.setAttribute('role','status');
  const search=el('input');search.type='search';search.placeholder='Search desktop plugins…';search.setAttribute('aria-label','Search desktop plugins');
  const filter=el('select');filter.setAttribute('aria-label','Plugin status filter');
- for(const name of ['All plugins','Installed','Enabled','Disabled','Not installed']){const option=el('option','',name);option.value=name;filter.append(option);}
+ const source=el('select');source.setAttribute('aria-label','Catalog source');
+ for(const name of ['All sources','GitHub community','Local catalog']){const option=el('option','',name);source.append(option);}
+ const category=el('select');category.setAttribute('aria-label','Plugin category');
+ const allCategories=el('option','','All categories');category.append(allCategories);
+ for(const name of ['All plugins','Installed','Enabled','Disabled','Not installed','Updates']){const option=el('option','',name);option.value=name;filter.append(option);}
  let revision=0,busy=false,installed:PluginInstance[]=[],activeIds=new Set<string>(),catalog:CatalogEntry[]=[],monitors:any[]=[];
  async function api(body:Record<string,unknown>){const r=await fetch('/api/workspace',{method:'POST',headers:{Authorization:`Bearer ${token()}`,'Content-Type':'application/json'},body:JSON.stringify({workspace_id:workspaceId,...body})});const data=await r.json();if(!r.ok)throw Error(data.error||'Plugin request failed');return data;}
  async function change(operations:Record<string,unknown>[]){if(busy)return;busy=true;render();try{await api({action:'plugins_apply',base_revision:revision,operations});status.textContent='Saved with a checkpoint. Connected workspace will update automatically.';await load();}catch(e){status.textContent=`${String(e)}. Refresh before retrying; no automatic overwrite.`;}finally{busy=false;render();}}
@@ -20,12 +24,20 @@ export function showPlugins(token:()=>string){
   const query=search.value.trim().toLowerCase();let count=0;
   for(const entry of [...entries.values()].sort((a,b)=>a.manifest.title.localeCompare(b.manifest.title))){
    const p=installed.find(p=>p.manifest.id===entry.manifest.id),active=activeIds.has(entry.manifest.id),m=p?.manifest||entry.manifest;
+   if(source.value==='GitHub community'&&!entry.provenance||source.value==='Local catalog'&&entry.provenance)continue;
+   if(category.value!=='All categories'&&category.value!==entry.category)continue;
+   if(filter.value==='Updates'&&(!p||!entry.provenance||(p.manifest.entry===entry.manifest.entry&&p.manifest.version===entry.manifest.version)))continue;
    if(query&&!`${m.title} ${m.id} ${entry.category} ${entry.description}`.toLowerCase().includes(query))continue;
    if(filter.value==='Installed'&&!p||filter.value==='Enabled'&&!active||filter.value==='Disabled'&&(!p||active)||filter.value==='Not installed'&&p)continue;
    count++;const row=el('section','plugin-card');row.dataset.pluginId=m.id;
    row.append(el('span','plugin-badge',p?(active?'Enabled':'Disabled'):'Not installed'),el('h3','',m.title),el('p','plugin-meta',`${entry.category} · v${m.version}`),el('p','',entry.description));
    const details=el('details');details.append(el('summary','','Package details'),el('pre','',JSON.stringify({manifest:m,...(entry.provenance?{catalogSource:entry.provenance}:{})},null,2)));row.append(details);
-   if(entry.provenance)row.append(el('p','plugin-meta',`GitHub catalog · ${entry.provenance.maintainer} · ${entry.provenance.sha.slice(0,12)} · ${entry.provenance.license}`));
+   if(entry.provenance){
+    const provenance=entry.provenance;
+    const link=el('a','plugin-source-link','View pinned source ↗');link.href=`${provenance.repo}/tree/${provenance.sha}`;link.target='_blank';link.rel='noopener noreferrer';
+    row.append(el('p','plugin-meta',`GitHub catalog · ${provenance.maintainer} · ${provenance.sha.slice(0,12)} · ${provenance.license}`),link,
+     el('p','plugin-capabilities',`Declared capabilities: network ${provenance.capabilities?.network?'yes':'no'} · storage ${provenance.capabilities?.storage?'yes':'no'}. Declarations are not enforced permissions.`));
+   }
    const actions=el('div','plugin-actions');
    if(!p){actions.append(action('Install',`Install plugin ${m.id}`,()=>void change([{action:'plugin_install',manifest:m}])));}
    else{
@@ -42,13 +54,20 @@ export function showPlugins(token:()=>string){
  async function load(){try{await ensureWorkspaceSynced();const data=await api({action:'read'});revision=data.revision;installed=data.state.plugins||[];monitors=data.state.monitors;activeIds=new Set(installed.filter(p=>monitors.some(m=>m.id===p.window.id)).map(p=>p.manifest.id));render();}catch(e){status.textContent=String(e);}}
  async function loadCatalog(){
   const feeds=await Promise.allSettled(['/orbit-plugin-catalog.json','/orbit-community-catalog.json'].map(async url=>{const r=await fetch(url,{cache:'no-cache'});if(r.status===404)return [];if(!r.ok)throw Error('Catalog unavailable');const data=await r.json();if(data.version!==1||!Array.isArray(data.entries))throw Error('Unsupported catalog');return data.entries.map((c:any)=>{if(c.provenance&&(!/^https:\/\/github\.com\/[\w-]+\/[\w.-]+$/.test(c.provenance.repo)||typeof c.provenance.sha!=='string'||!/^[a-f0-9]{40}$/.test(c.provenance.sha)||typeof c.provenance.maintainer!=='string'||typeof c.provenance.license!=='string'))throw Error('Invalid catalog provenance');return {manifest:validateManifest(c.manifest),category:String(c.category||'Workspace tools'),description:String(c.description||''),...(c.provenance?{provenance:c.provenance}:{})};});}));
+  catalog=feeds.flatMap(feed=>feed.status==='fulfilled'?feed.value:[]);
+  const selectedCategory=category.value;
+  category.replaceChildren(el('option','','All categories'),...[...new Set(catalog.map(entry=>entry.category))].sort().map(name=>el('option','',name)));
+  category.value=Array.from(category.options).some(option=>option.value===selectedCategory)?selectedCategory:'All categories';
   catalog=feeds.flatMap(feed=>feed.status==='fulfilled'?feed.value:[]);render();
   if(feeds.some(feed=>feed.status==='rejected'))status.textContent='One catalog could not load. Available entries and installed plugins remain manageable.';
  }
- search.addEventListener('input',render);filter.addEventListener('change',render);
- const toolbar=el('div','plugin-toolbar');toolbar.append(search,filter,button('Refresh','Refresh workspace plugins',()=>{void load();void loadCatalog();}));
+ search.addEventListener('input',render);filter.addEventListener('change',render);source.addEventListener('change',render);category.addEventListener('change',render);
+ const toolbar=el('div','plugin-toolbar');toolbar.append(search,source,category,filter,button('Refresh','Refresh workspace plugins',()=>{void load();void loadCatalog();}));
  const input=el('textarea');input.setAttribute('aria-label','Plugin manifest JSON');input.placeholder='Paste a local API-v1 plugin manifest';
  const advanced=el('details','plugin-advanced');advanced.append(el('summary','','Advanced · install manifest / recovery'),input,button('Install disabled','Install plugin manifest',()=>{try{void change([{action:'plugin_install',manifest:validateManifest(JSON.parse(input.value))}]);}catch(e){status.textContent=String(e);}}),button('Disable all plugins','Disable all workspace plugins',()=>{if(window.confirm('Disable all plugin windows? Core chat and terminals remain.'))void change([{action:'plugin_disable_all'}]);}));
- dialog.append(button('Close','Close workspace plugins',()=>dialog.close()),el('h2','','Orbit Desktop · Plugin Manager'),el('p','','Browse synced GitHub and local catalogs. New community entries arrive after an operator catalog sync. Installs start disabled. Changes are checkpointed; plugins receive no host credentials but may access the network.'),summary,toolbar,status,list,advanced);
+ const hero=el('header','plugin-hero');
+ const contribute=el('a','plugin-contribute','Publish your app ↗');contribute.href='https://github.com/mojomast/orbitdesktop/blob/feat/reviewed-plugin-catalog/plugin-catalog/README.md';contribute.target='_blank';contribute.rel='noopener noreferrer';
+ hero.append(el('span','plugin-eyebrow','ORBIT / APP CATALOG'),el('h2','','Make space for what’s next.'),el('p','','Discover tools that make your workspace yours. Built by people and agents. Shared through GitHub.'),contribute);
+ dialog.append(button('Close','Close workspace plugins',()=>dialog.close()),hero,el('p','plugin-trust','Commit-pinned community apps · Disabled-first installs · Checkpointed changes'),el('p','plugin-meta','Refresh reads this deployment’s synced catalogs—not GitHub directly. Newly approved entries require an operator catalog sync. Sandboxed apps receive no host credentials; network access is still allowed.'),summary,toolbar,status,list,advanced);
  dialog.addEventListener('close',()=>dialog.remove());document.body.append(dialog);dialog.showModal();void load();void loadCatalog();
 }
