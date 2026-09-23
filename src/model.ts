@@ -1,3 +1,4 @@
+import { themeKeys, validateTheme } from './theme-tokens.ts';
 import { validatePlugins, type PluginInstance } from './plugins.ts';
 export type PaneKind = "terminal" | "browser" | "agent";
 export interface Pane {
@@ -30,7 +31,7 @@ export interface Monitor {
 }
 export interface Workspace {
   plugins?: PluginInstance[];
-  appearance?: { background?: string; wallpaper?: string; textColor?: string; cornerRadius?: number; fullViewport?: boolean; headerHeight?: number; sidebarWidth?: number; workspaceGap?: number; accentColor?: string; navigationPosition?: 'top' | 'bottom'; wallpaperFit?: 'cover' | 'contain' | 'auto' };
+  appearance?: import('./theme-tokens').ThemeTokens & { background?: string; wallpaper?: string; textColor?: string; cornerRadius?: number; fullViewport?: boolean; headerHeight?: number; sidebarWidth?: number; workspaceGap?: number; accentColor?: string; navigationPosition?: 'top' | 'bottom'; wallpaperFit?: 'cover' | 'contain' | 'auto' };
   view?: "windows" | "spatial";
   sidebarHidden?: boolean;
   version: 1;
@@ -171,7 +172,8 @@ export function validate(value: unknown): Workspace {
   if (s.sidebarHidden !== undefined && typeof s.sidebarHidden !== "boolean") throw Error("Invalid sidebar state");
   if (s.appearance !== undefined) {
     const a = s.appearance;
-    if (!a || typeof a !== 'object' || Array.isArray(a) || Object.keys(a).some(k => !['background', 'wallpaper', 'textColor', 'cornerRadius', 'fullViewport', 'headerHeight', 'sidebarWidth', 'workspaceGap', 'accentColor', 'navigationPosition', 'wallpaperFit'].includes(k))) throw Error('Invalid appearance');
+    if (!a || typeof a !== 'object' || Array.isArray(a) || Object.keys(a).some(k => ![...themeKeys, 'background', 'wallpaper', 'textColor', 'cornerRadius', 'fullViewport', 'headerHeight', 'sidebarWidth', 'workspaceGap', 'accentColor', 'navigationPosition', 'wallpaperFit'].includes(k))) throw Error('Invalid appearance');
+    validateTheme(a);
     if (a.headerHeight !== undefined && !finite(a.headerHeight,32,80)) throw Error('Invalid header height');
     if (a.sidebarWidth !== undefined && !finite(a.sidebarWidth,200,480)) throw Error('Invalid sidebar width');
     if (a.workspaceGap !== undefined && !finite(a.workspaceGap,0,32)) throw Error('Invalid workspace gap');

@@ -56,7 +56,7 @@ const saved = el("span", "saved", "Saved locally");
 const sidebarToggle = button('Hide panel', 'Toggle side panel', () => { state.sidebarHidden = !state.sidebarHidden; applySidebar(); save(); });
 top.append(brand, saved, button('Themes', 'Choose workspace theme', async () => {
  const {showThemes}=await import('./theme-picker');
- showThemes(()=>sessionToken, patch => {state.appearance={...state.appearance,...patch};applyAppearance(state);save();});
+ showThemes(()=>sessionToken, patch => {state.appearance={...state.appearance,...patch};applyAppearance(state);save();},()=>state.appearance??{});
 }), sidebarToggle, hostStatus);
 const shell = el("main", "shell"),
   work = el("section", "workspace"),
@@ -438,7 +438,7 @@ function renderMonitor(m: Monitor) {
       minimizer.hide(m.id, outer!);
       updateScene(); renderTabs(); minimizer.focusRestore();
     }, 'window-minimize'),
-    button('×', `Close ${m.name}`, () => { choose(m.id); deleteMonitor(); }),
+    button('×', `Close ${m.name}`, () => { choose(m.id); deleteMonitor(); }, 'window-close'),
   );
   minimizer.attach(m.id, outer);
   const content = el("div", "monitor-content");

@@ -1,0 +1,68 @@
+/* Luna detailing, scoped to the host document. Embedded applications retain their themes. */
+html[data-orbit-theme=xp] { scrollbar-color:#9db9ec #f1efe2; scrollbar-width:auto; }
+/* Chromium's standard scrollbar-color overrides pseudo-element styling. */
+@supports selector(::-webkit-scrollbar) {
+ html[data-orbit-theme=xp],html[data-orbit-theme=xp] * {scrollbar-color:auto;scrollbar-width:auto;}
+ html[data-orbit-theme=xp] :is(#app,dialog) ::-webkit-scrollbar {width:17px;height:17px;}
+ html[data-orbit-theme=xp] :is(#app,dialog) ::-webkit-scrollbar-track {background:repeating-linear-gradient(135deg,#f1efe2 0 2px,#faf9f4 2px 4px);border:1px solid #dddcca;}
+ html[data-orbit-theme=xp] :is(#app,dialog) ::-webkit-scrollbar-thumb {min-height:24px;min-width:24px;border:1px solid #7b9ed4;border-radius:2px;background:linear-gradient(90deg,#e0eaff,#b7cdf5 45%,#9ebbea);box-shadow:inset 1px 1px #fff,inset -1px -1px #bed2f6;}
+ html[data-orbit-theme=xp] :is(#app,dialog) ::-webkit-scrollbar-thumb:horizontal {background:linear-gradient(#e0eaff,#b7cdf5 45%,#9ebbea);}
+ html[data-orbit-theme=xp] :is(#app,dialog) ::-webkit-scrollbar-thumb:hover {background:#b8d2ff;}
+ html[data-orbit-theme=xp] :is(#app,dialog) ::-webkit-scrollbar-thumb:active {background:#89abe1;}
+ html[data-orbit-theme=xp] :is(#app,dialog) ::-webkit-scrollbar-corner {background:#ece9d8;}
+ html[data-orbit-theme=xp] :is(#app,dialog) ::-webkit-scrollbar-button:single-button {display:block;width:17px;height:17px;border:1px solid #7b9ed4;border-radius:2px;background-color:#c5d7f7;background-repeat:no-repeat;background-position:center;box-shadow:inset 1px 1px #fff;}
+ html[data-orbit-theme=xp] :is(#app,dialog) ::-webkit-scrollbar-button:single-button:vertical:decrement {background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='9' height='9'%3E%3Cpath fill='%234467a2' d='M0 6L4.5 2 9 6Z'/%3E%3C/svg%3E");}
+ html[data-orbit-theme=xp] :is(#app,dialog) ::-webkit-scrollbar-button:single-button:vertical:increment {background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='9' height='9'%3E%3Cpath fill='%234467a2' d='M0 3L4.5 7 9 3Z'/%3E%3C/svg%3E");}
+ html[data-orbit-theme=xp] :is(#app,dialog) ::-webkit-scrollbar-button:single-button:horizontal:decrement {background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='9' height='9'%3E%3Cpath fill='%234467a2' d='M6 0L2 4.5 6 9Z'/%3E%3C/svg%3E");}
+ html[data-orbit-theme=xp] :is(#app,dialog) ::-webkit-scrollbar-button:single-button:horizontal:increment {background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='9' height='9'%3E%3Cpath fill='%234467a2' d='M3 0L7 4.5 3 9Z'/%3E%3C/svg%3E");}
+ html[data-orbit-theme=xp] :is(#app,dialog) ::-webkit-scrollbar-button:hover {background-color:#e0ebff;}
+}
+html[data-orbit-theme=xp] #app#app .monitor {border-radius:8px 8px 0 0;}
+html[data-orbit-theme=xp] #app#app .monitor-bar {padding:3px 4px;gap:3px;box-shadow:inset 0 1px #b3d0ff;}
+html[data-orbit-theme=xp] #app#app .monitor-bar > strong {font-weight:700;}
+html[data-orbit-theme=xp] #app#app .monitor-bar button {
+ min-width:24px;height:24px;padding:0 5px;border:1px solid white;border-radius:3px;
+ background:linear-gradient(135deg,#94baff,#3679ec 48%,#1450bd)!important;color:white!important;
+ box-shadow:inset 1px 1px #c2d9ff,inset -1px -1px #1643a0; text-shadow:1px 1px #163f91;font-weight:700;
+}
+html[data-orbit-theme=xp] #app#app .monitor-bar .window-close {background:linear-gradient(135deg,#f6b7a1,#dc593b 48%,#b52b12)!important;box-shadow:inset 1px 1px #ffe0d4,inset -1px -1px #92200c;font-size:21px;}
+html[data-orbit-theme=xp] #app#app .monitor-bar button:hover {filter:brightness(1.18);}
+html[data-orbit-theme=xp] #app#app .monitor-bar button:active {filter:brightness(.85);box-shadow:inset 1px 1px 3px #163f91;}
+html[data-orbit-theme=xp] #app#app:not(.full-viewport) .scene-navigation {
+ left:0;right:0;bottom:0;height:42px;padding:3px 6px 3px 0;gap:6px;border:0;border-top:1px solid #6499ff;border-radius:0;
+ background:linear-gradient(#4289f4 0%,#1b63df 12%,#245edb 80%,#1943ac)!important;box-shadow:inset 0 2px #80acff;
+}
+html[data-orbit-theme=xp] #app#app .scene-navigation .start-button {
+ height:38px;min-width:100px;padding:3px 16px 3px 10px;border:0;border-right:1px solid #195721;border-radius:0 13px 13px 0;
+ background:linear-gradient(#94d381,#4b9c3e 15%,#32892a 75%,#236620)!important;
+ box-shadow:inset 0 2px 3px #c5e8b7,inset 0 -2px 3px #20581c,2px 0 4px #123e8b;
+ font:bold italic 20px Tahoma,sans-serif;text-shadow:1px 2px #23551c;
+}
+html[data-orbit-theme=xp] #app#app .start-logo {border:0;border-radius:2px;font-size:0;width:22px;height:22px;transform:skewY(-8deg);background:conic-gradient(#78b84c 0 25%,#f5cc45 0 50%,#4593e0 0 75%,#e96a44 0);box-shadow:inset 0 0 0 1px #ffffff80;}
+html[data-orbit-theme=xp] #app#app .scene-navigation :is(.display-tabs button,.layout-toggle) {background:linear-gradient(#5594f7,#397aeb 35%,#2865d7)!important;color:white!important;border:1px solid #174cb0;border-radius:3px;box-shadow:inset 1px 1px #80b1ff;font-size:12px;}
+html[data-orbit-theme=xp] #app#app .scene-navigation .display-tabs button.selected {background:linear-gradient(#164cb1,#2057bb)!important;color:white!important;outline:none;box-shadow:inset 1px 2px 4px #103783;}
+html[data-orbit-theme=xp] #app#app .taskbar-status {align-self:stretch;display:flex;align-items:center;background:linear-gradient(#20a4ef,#138cdd);border-left:1px solid #0d56b5;padding:0 10px;box-shadow:inset 1px 0 #68c3f5;}
+html[data-orbit-theme=xp] #app#app .taskbar-status .saved {color:white!important;}
+html[data-orbit-theme=xp] #app#app .start-panel {padding:0;overflow:hidden;border:2px solid #1255be;border-radius:7px 7px 0 0;background:#fff!important;box-shadow:3px 5px 12px #001d5966;}
+html[data-orbit-theme=xp] #app#app .start-heading {margin:0;padding:18px 16px;background:linear-gradient(#428fed,#0961d4);border-bottom:2px solid #efa34a;box-shadow:inset 0 2px #89b8ff;}
+html[data-orbit-theme=xp] #app#app .start-heading :is(strong,span) {color:white!important;text-shadow:1px 1px #174387;letter-spacing:0;}
+html[data-orbit-theme=xp] #app#app .start-search {display:block;width:calc(100% - 24px);margin:12px;background:white!important;border:1px solid #7f9db9;}
+html[data-orbit-theme=xp] #app#app .start-quick {margin:0;padding:10px 12px;background:#d3e5fa;border-top:1px solid #a8c7ee;border-bottom:1px solid #a8c7ee;}
+html[data-orbit-theme=xp] #app#app .start-quick button {border-radius:3px;background:linear-gradient(#fff,#e7eef9)!important;border:1px solid #91add4;}
+/* Keep the header/search fixed and scroll the list instead of clipping its actions. */
+html[data-orbit-theme=xp] #app#app .start-panel:not([hidden]) {display:flex;flex-direction:column;}
+html[data-orbit-theme=xp] #app#app .start-panel > :not(.start-results) {flex-shrink:0;}
+html[data-orbit-theme=xp] #app#app .start-results {min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:6px;background:linear-gradient(90deg,#fff 0 66%,#d3e5fa 66%);}
+html[data-orbit-theme=xp] #app#app .start-results > * {flex-shrink:0;}
+html[data-orbit-theme=xp] #app#app .monitor-bar button.window-close {background:linear-gradient(135deg,#f6b7a1,#dc593b 48%,#b52b12)!important;background-color:#dc593b!important;color:#fff!important;border-color:#fff;}
+html[data-orbit-theme=xp] #app#app .monitor-bar button.window-close:hover {background:linear-gradient(135deg,#ffcebc,#ed6948 48%,#cb351b)!important;}
+html[data-orbit-theme=xp] #app#app .start-item {border:0;border-radius:0;background:transparent!important;box-shadow:none;padding:10px 12px;}
+html[data-orbit-theme=xp] #app#app .start-item:is(:hover,:focus-visible) {background:#2f71cd!important;color:white!important;filter:none;}
+html[data-orbit-theme=xp] #app#app .start-item:is(:hover,:focus-visible) span {color:white!important;}
+@media(max-width:600px) {
+ html[data-orbit-theme=xp] #app#app .scene-navigation .start-button {min-width:48px;padding:3px 10px;}
+ html[data-orbit-theme=xp] #app#app .taskbar-status {display:none;}
+}
+@media(forced-colors:active) {
+ html[data-orbit-theme=xp] #app#app :is(.monitor-bar button,.start-button,.display-tabs button,.start-item) {forced-color-adjust:auto;box-shadow:none;border:1px solid ButtonText;}
+}
