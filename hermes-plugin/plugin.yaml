@@ -1,6 +1,6 @@
 name: orbit-desktop
-version: "0.2.3"
-description: Bundled Orbit Desktop with explicit local setup and scoped workspace control.
+version: "0.2.4"
+description: Agent-shaped browser desktop with customizable workspaces, sandboxed apps and scoped control.
 author: mojomast
 homepage: https://github.com/mojomast/orbitdesktop
 provides_tools:
