@@ -26,7 +26,7 @@ Updates never replace a running deployment. Install a reviewed plugin update, ru
 
 ## Install
 
-The catalog submission is pending human review. Until it is accepted, use the explicit repository subdirectory and the **full commit SHA** recorded by the `hermes-plugin-v0.2.6` release:
+The catalog lists an earlier reviewed release. Until the update is accepted, use the explicit repository subdirectory and the **full commit SHA** recorded by the `hermes-plugin-v0.2.7` release:
 
 ```sh
 hermes plugins install mojomast/orbitdesktop/hermes-plugin --ref FULL_40_CHARACTER_RELEASE_SHA --no-enable

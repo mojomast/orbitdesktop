@@ -1,5 +1,6 @@
 import { el, button } from './dom';
 import './taskbar.css';
+import {themeIcon,iconRole} from './theme-icons';
 
 export interface StartAction { title: string; detail: string; run: () => void }
 export function installStart(navigation: HTMLElement, actions: () => StartAction[]) {
@@ -18,10 +19,11 @@ export function installStart(navigation: HTMLElement, actions: () => StartAction
   const quick = el('div', 'start-quick');
   quick.setAttribute('aria-label', 'Quick launch');
   for (const [title, label] of [['New agent chat', '✦ Chat'], ['New terminal', '⌘ Terminal'], ['New browser', '◎ Browser']]) {
-    quick.append(button(label, `Quick launch ${title}`, () => { close(); actions().find(action => action.title === title)?.run(); }));
+    const launch=button(label.replace(/^[^ ]+ /,''), `Quick launch ${title}`, () => { close(); actions().find(action => action.title === title)?.run(); });
+    launch.prepend(themeIcon(iconRole(title)));quick.append(launch);
   }
   const start = button('', 'Open Start', () => toggle(), 'start-button');
-  const logo = el('span', 'start-logo', '◉'); logo.setAttribute('aria-hidden', 'true');
+  const logo = themeIcon('app','start-logo');
   start.append(logo, el('span', 'start-label', 'Start'));
   start.setAttribute('aria-expanded', 'false');
   start.setAttribute('aria-controls', panel.id);

@@ -1,0 +1,62 @@
+/* Personality is presentation only: never transform monitor geometry or terminal surfaces. */
+[data-orbit-style=aurora],.theme-preview[data-style=aurora] {--theme-surfaceColor:#102c40;--theme-panelColor:#193f55;--theme-borderColor:#79b9cb;--theme-buttonColor:#215269;--theme-buttonTextColor:#e5faff;--theme-mutedColor:#abd4e2;--theme-titlebarColor:#214d63;--theme-titlebarTextColor:#e5faff;--theme-controlRadius:18px;--theme-title:linear-gradient(120deg,#44869c99,#18364ecc);--theme-shadow:0 12px 40px #00142680,inset 0 1px #ffffff66;}
+[data-orbit-style=phosphor],.theme-preview[data-style=phosphor] {--theme-surfaceColor:#06130c;--theme-panelColor:#0b2013;--theme-borderColor:#438857;--theme-buttonColor:#102c19;--theme-buttonTextColor:#b7ffd0;--theme-mutedColor:#8fbb9b;--theme-titlebarTextColor:#b7ffd0;--theme-controlRadius:0px;--theme-font:ui-monospace,monospace;--theme-title:repeating-linear-gradient(0deg,#0b2013 0 2px,#12331c 2px 4px);--theme-shadow:0 0 16px #60ff8822;}
+[data-orbit-style=blueprint],.theme-preview[data-style=blueprint] {--theme-surfaceColor:#12345a;--theme-panelColor:#163e67;--theme-borderColor:#91bedc;--theme-buttonColor:#214c76;--theme-buttonTextColor:#e6f3ff;--theme-mutedColor:#b0cde6;--theme-titlebarTextColor:#e6f3ff;--theme-controlRadius:0px;--theme-font:ui-monospace,monospace;--theme-title:linear-gradient(#234c73,#234c73);--theme-shadow:5px 5px 0 #0a2445;}
+[data-orbit-style=pop],.theme-preview[data-style=pop] {--theme-surfaceColor:#fff8dc;--theme-panelColor:#f9cfe2;--theme-borderColor:#201b35;--theme-buttonColor:#fff8dc;--theme-buttonTextColor:#201b35;--theme-mutedColor:#5b3650;--theme-titlebarTextColor:#201b35;--theme-controlRadius:12px;--theme-font:system-ui,sans-serif;--theme-title:linear-gradient(100deg,#ff92c1 70%,#c6b0ff 70%);--theme-shadow:8px 8px 0 #201b35;}
+[data-orbit-style=ocean],.theme-preview[data-style=ocean] {--theme-surfaceColor:#092535;--theme-panelColor:#10394e;--theme-buttonColor:#16465e;--theme-borderColor:#56899c;--theme-buttonTextColor:#e0f4ff;--theme-title:linear-gradient(120deg,#195c77,#092535);--theme-controlRadius:22px;}
+[data-orbit-style=forest],.theme-preview[data-style=forest] {--theme-surfaceColor:#12271f;--theme-panelColor:#203b2e;--theme-buttonColor:#2b4c3a;--theme-borderColor:#769881;--theme-buttonTextColor:#e6f3e9;--theme-mutedColor:#afcdb8;--theme-title:linear-gradient(90deg,#315440,#20382b);--theme-controlRadius:16px;--theme-font:Georgia,serif;}
+[data-orbit-style=plum],.theme-preview[data-style=plum] {--theme-surfaceColor:#291b32;--theme-panelColor:#40294e;--theme-buttonColor:#523362;--theme-buttonTextColor:#f4e9fc;--theme-borderColor:#ba8ad0;--theme-mutedColor:#d7bce5;--theme-title:linear-gradient(110deg,#633779,#302039);--theme-controlRadius:18px;}
+[data-orbit-style=ember],.theme-preview[data-style=ember] {--theme-surfaceColor:#302019;--theme-panelColor:#422b21;--theme-buttonColor:#573b2c;--theme-buttonTextColor:#fff0df;--theme-borderColor:#b8875b;--theme-mutedColor:#ddbc98;--theme-title:linear-gradient(90deg,#6a4229,#302019);--theme-controlRadius:3px;--theme-font:ui-monospace,monospace;}
+/* Pure CSS wallpaper layer: explicit wallpaper/none still wins via inline important. */
+html[data-orbit-style=aurora] .workspace {background-image:radial-gradient(ellipse at 20% 15%,#4fd7c488,transparent 55%),radial-gradient(ellipse at 85% 75%,#9174e999,transparent 60%)!important;}
+html[data-orbit-style=phosphor] .workspace {background-image:repeating-linear-gradient(0deg,transparent 0 3px,#72ff9610 3px 4px)!important;}
+html[data-orbit-style=blueprint] .workspace {background-image:linear-gradient(#abdfff22 1px,transparent 1px),linear-gradient(90deg,#abdfff22 1px,transparent 1px),linear-gradient(#abdfff11 1px,transparent 1px),linear-gradient(90deg,#abdfff11 1px,transparent 1px)!important;background-size:100px 100px,100px 100px,20px 20px,20px 20px!important;}
+html[data-orbit-style=pop] .workspace {background-image:radial-gradient(#201b352b 1.5px,transparent 1.5px)!important;background-size:18px 18px!important;}
+html[data-orbit-style=paper] .workspace {background-image:repeating-linear-gradient(0deg,transparent 0 27px,#63544316 27px 28px)!important;}
+html[data-orbit-style=cyberpunk] .workspace {background-image:repeating-linear-gradient(135deg,transparent 0 70px,#40e6ee0c 70px 72px)!important;}
+html[data-orbit-style] #app .taskbar-status {color:var(--theme-mutedColor);}
+/* Frosted dock, without moving hit targets or window coordinates. */
+html:is([data-orbit-style=aurora],[data-orbit-style=ocean],[data-orbit-style=plum]) #app:not(.full-viewport) .scene-navigation {left:24px;right:24px;bottom:8px;border-radius:24px;background:color-mix(in srgb,var(--theme-panelColor) 82%,transparent)!important;backdrop-filter:blur(18px) saturate(1.4);}
+html[data-orbit-style=aurora] #app :is(.monitor-bar,.start-panel) {backdrop-filter:blur(16px);}
+html:is([data-orbit-style=aurora],[data-orbit-style=plum]) #app .scene-navigation button {transition:translate .18s ease,box-shadow .18s ease;}
+html:is([data-orbit-style=aurora],[data-orbit-style=plum]) #app .scene-navigation button:hover {translate:0 -3px;box-shadow:0 5px 12px #0005;}
+html[data-orbit-style=aurora] .chat-message {padding:16px;border:1px solid #79b9cb55;border-radius:18px 18px 18px 3px!important;}
+html[data-orbit-style=aurora] .chat-message.user {border-radius:18px 18px 3px 18px!important;}
+/* Console: square strip, inset command prompt and flat log. No flicker animation. */
+html:is([data-orbit-style=phosphor],[data-orbit-style=blueprint],[data-orbit-style=ember]) #app:not(.full-viewport) .scene-navigation {left:0;right:0;bottom:0;border-radius:0;border-width:2px 0 0;}
+html[data-orbit-style=phosphor] #app .monitor-bar {text-transform:uppercase;letter-spacing:.08em;}
+html[data-orbit-style=phosphor] .chat-message {border:0!important;border-bottom:1px dashed #438857!important;border-radius:0!important;font-family:ui-monospace,monospace;box-shadow:none;}
+html[data-orbit-style=phosphor] .chat-message small::before {content:'> ';color:#78ffa2;}
+html[data-orbit-style=phosphor] #app .chat-form textarea {box-shadow:inset 4px 0 #78ffa2;background:#06130c!important;}
+html[data-orbit-style=phosphor] #app#app button:hover {background:#b7ffd0!important;color:#06130c!important;filter:none;}
+/* Drafting bench: ruled transcript and dimension borders, not rotated windows. */
+html[data-orbit-style=blueprint] #app .monitor {border-style:double;border-width:4px;}
+html[data-orbit-style=blueprint] #app .monitor-bar {border-bottom:1px dashed #a9dcff;text-transform:uppercase;letter-spacing:.06em;}
+html[data-orbit-style=blueprint] .chat-messages {background:repeating-linear-gradient(0deg,#12345a 0 27px,#264b6b 27px 28px);}
+html[data-orbit-style=blueprint] .chat-message {background:transparent!important;border:1px dashed #91bedc;border-radius:0!important;line-height:1.75;}
+html[data-orbit-style=blueprint] #app button:hover {outline:1px dashed #a9dcff;outline-offset:2px;filter:none;}
+/* Pop: actual press-depth interaction, halftone paper and chunky speech panels. */
+html[data-orbit-style=pop] #app .monitor {border-width:3px;}
+html[data-orbit-style=pop] #app .monitor-bar {font-weight:900;text-transform:uppercase;border-bottom:3px solid #201b35;}
+html[data-orbit-style=pop] #app button {border:2px solid #201b35;box-shadow:3px 3px 0 #201b35;transition:translate .1s,box-shadow .1s;}
+html[data-orbit-style=pop] #app button:active {translate:3px 3px;box-shadow:none;}
+html[data-orbit-style=pop] #app:not(.full-viewport) .scene-navigation {border:3px solid #201b35;background:#f9cfe2!important;box-shadow:4px 4px 0 #201b35;}
+html[data-orbit-style=pop] .chat-message {border:2px solid #201b35;border-radius:16px 16px 16px 0!important;box-shadow:4px 4px 0 #201b35;margin-bottom:16px;}
+/* Existing themes get editorial, instrument-panel and organic treatments. */
+html[data-orbit-style=paper] #app .monitor-bar {font-variant:small-caps;border-bottom:3px double #635443;}
+html[data-orbit-style=paper] .chat-message {border-bottom:1px solid #b5a58e;border-radius:0!important;line-height:1.8;}
+html[data-orbit-style=paper] #app:not(.full-viewport) .scene-navigation {border:2px solid #635443;box-shadow:4px 4px #635443;}
+html[data-orbit-style=cyberpunk] #app .monitor-bar {background:repeating-linear-gradient(120deg,#40e6ee18 0 2px,transparent 2px 12px),var(--theme-title)!important;border-bottom:2px solid #ff58cf;letter-spacing:.08em;text-transform:uppercase;}
+html[data-orbit-style=cyberpunk] #app .start-button {clip-path:polygon(10px 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%,0 10px);}
+html[data-orbit-style=cyberpunk] #app button:hover {box-shadow:3px 0 #ff58cf,-3px 0 #40e6ee;}
+html[data-orbit-style=midnight] #app .monitor:not(.selected) .monitor-bar {background:#192331!important;}
+html[data-orbit-style=midnight] #app .monitor.selected {box-shadow:0 0 0 1px #b5f26866,0 20px 60px #0008;}
+html[data-orbit-style=ocean] #app .monitor-bar {border-bottom:3px double #63d8ef;}
+html[data-orbit-style=forest] #app .monitor-bar {border-radius:18px 18px 0 0;}
+html[data-orbit-style=forest] .chat-message {border-radius:4px 22px 4px 22px!important;line-height:1.75;}
+html[data-orbit-style=plum] .chat-message {border-radius:20px!important;border:1px solid #ba8ad066;}
+html[data-orbit-style=ember] #app .monitor-bar {border-bottom:3px double #b8875b;letter-spacing:.08em;text-transform:uppercase;}
+html[data-orbit-style=ember] .chat-message {border-radius:0!important;border-left:2px solid #b8875b;font-family:ui-monospace,monospace;}
+@media(max-width:600px) {html:is([data-orbit-style=aurora],[data-orbit-style=ocean],[data-orbit-style=plum]) #app:not(.full-viewport) .scene-navigation {left:4px;right:4px;}}
+@media(prefers-reduced-motion:reduce) {html[data-orbit-style] #app button {transition:none!important;translate:none!important;}}
+@media(forced-colors:active) {html[data-orbit-style] #app :is(.monitor,.scene-navigation,button) {box-shadow:none!important;clip-path:none!important;border:1px solid CanvasText!important;}}

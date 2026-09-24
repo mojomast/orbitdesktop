@@ -37,6 +37,11 @@ const views = new Map<string, PaneView>();
 const monitors = new Map<string, HTMLElement>();
 const minimizer = installMinimize();
 let focused: string | null = null;
+window.addEventListener('orbit-focus-agent', event => {
+  const paneId=(event as CustomEvent<string>).detail;
+  const monitor=state.monitors.find(m=>leaves(m.layout).some(p=>p.id===paneId));
+  if(monitor) {if(focused) unfocus(); choose(monitor.id);}
+});
 let saveTimer: ReturnType<typeof setTimeout>;
 const app = document.querySelector<HTMLDivElement>("#app")!;
 const top = el("header", "topbar");

@@ -1,0 +1,72 @@
+/* Thirteen taskbar personalities. Never reparent panes; all controls retain semantics.
+   Kept inside the existing reserved 64px strip; menus are never clipped. */
+html[data-orbit-style] #app#app .scene-navigation .display-tabs {padding:3px;scroll-snap-type:x proximity;}
+html[data-orbit-style] #app#app .display-tabs button {scroll-snap-align:start;transition:background .18s,box-shadow .18s,translate .18s,border-radius .18s;}
+html[data-orbit-style] #app#app .scene-navigation button:focus-visible {outline:2px solid var(--theme-accentColor);outline-offset:1px;}
+/* Midnight: compact segmented command rail; illuminated underlines track focus. */
+html[data-orbit-style=midnight] #app#app:not(.full-viewport) .scene-navigation {left:12px;right:12px;border-radius:8px;border-top:2px solid #b5f268;box-shadow:0 5px 25px #0009;}
+html[data-orbit-style=midnight] #app#app .display-tabs {gap:0;}
+html[data-orbit-style=midnight] #app#app .display-tabs button {border:0;border-right:1px solid #536077;border-radius:0;}
+html[data-orbit-style=midnight] #app#app .display-tabs button:is(:hover,:focus-visible) {box-shadow:inset 0 -4px #b5f268;}
+/* XP: full-width Luna ribbon, chunky green launcher, blue running tasks. */
+html[data-orbit-style=xp] #app#app:not(.full-viewport) .scene-navigation {left:0;right:0;bottom:0;border-radius:0;border:0;border-top:3px solid #7fb4ff;background:linear-gradient(#2985f2,#0757d5 30%,#145bc7 90%,#003c9d)!important;}
+html[data-orbit-style=xp] #app#app .scene-navigation .display-tabs button {background:linear-gradient(#4a97f7,#266fdb)!important;color:white!important;border:1px solid #134fb4;box-shadow:inset 1px 1px #82b9ff;border-radius:4px;min-width:130px;}
+html[data-orbit-style=xp] #app#app .scene-navigation .display-tabs button:is(.selected,:active) {background:#134ba6!important;box-shadow:inset 2px 2px 4px #00387c;}
+html[data-orbit-style=xp] #app#app .scene-navigation .display-tabs button:hover {filter:brightness(1.25);}
+html[data-orbit-style=xp] #app#app .start-panel {border:3px solid #1769d9;border-radius:9px 9px 0 0;}
+html[data-orbit-style=xp] #app#app .start-results {display:grid;grid-template-columns:1fr 1fr;}
+/* 95: desk-wide raised metal strip with sunken selected tasks and click depth. */
+html[data-orbit-style=classic] #app#app:not(.full-viewport) .scene-navigation {left:0;right:0;bottom:0;border-radius:0;background:#c0c0c0!important;border:2px outset #fff;box-shadow:none;gap:4px;}
+html[data-orbit-style=classic] #app#app .scene-navigation .display-tabs button {border:2px outset white;border-radius:0;min-width:140px;box-shadow:1px 1px #000;}
+html[data-orbit-style=classic] #app#app .scene-navigation .display-tabs button:is(.selected,:active) {border-style:inset;background:repeating-conic-gradient(#fff 0 25%,#ddd 0 50%) 0/2px 2px!important;color:#000!important;outline:0;font-weight:bold;box-shadow:none;}
+html[data-orbit-style=classic] #app#app .scene-navigation button:active {translate:1px 1px;}
+/* Paper: index-card shelf; cards rise to reveal an ink rule. */
+html[data-orbit-style=paper] #app#app:not(.full-viewport) .scene-navigation {left:14px;right:14px;bottom:3px;border-radius:0;background:#d4c6ad!important;border:0;border-top:4px double #635443;box-shadow:0 -3px 10px #35251022;}
+html[data-orbit-style=paper] #app#app .display-tabs button {border-radius:9px 9px 0 0;border-bottom:4px solid #93432d;box-shadow:2px 0 #b5a58e;}
+html[data-orbit-style=paper] #app#app .display-tabs button:is(:hover,:focus-visible) {translate:0 -3px;background:#fff!important;color:#29251f!important;}
+/* Cyberpunk: split HUD, hazard edges and offset neon focus. */
+html[data-orbit-style=cyberpunk] #app#app:not(.full-viewport) .scene-navigation {left:10px;right:10px;border-radius:0;border:1px solid #40e6ee;border-left:8px solid #ff58cf;background:repeating-linear-gradient(135deg,#40e6ee15 0 2px,transparent 2px 12px),#090b16!important;box-shadow:4px -3px #ff58cf44;}
+html[data-orbit-style=cyberpunk] #app#app .display-tabs button {clip-path:polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px);border-bottom:3px solid #40e6ee;text-transform:uppercase;}
+html[data-orbit-style=cyberpunk] #app#app .display-tabs button:is(:hover,:focus-visible) {translate:2px 0;text-shadow:-2px 0 #ff58cf,2px 0 #40e6ee;}
+/* Aurora: capsule dock with individually floating glass chips. */
+html[data-orbit-style=aurora] #app#app:not(.full-viewport) .scene-navigation {left:3%;right:3%;border-radius:28px;border:1px solid #bcfff680;background:#193f5599!important;backdrop-filter:blur(24px) saturate(1.7);box-shadow:inset 0 1px #ffffff88,0 8px 25px #00142699;}
+html[data-orbit-style=aurora] #app#app .display-tabs button {border-radius:24px!important;background:#215269aa!important;box-shadow:inset 0 1px #ffffff66;}
+html:is([data-orbit-style=aurora],[data-orbit-style=ocean]) #app#app .display-tabs button.selected {color:var(--theme-buttonTextColor)!important;box-shadow:inset 0 -3px var(--theme-accentColor);}
+html[data-orbit-style=pop] #app#app .display-tabs button.selected {outline:3px solid #201b35;outline-offset:-5px;text-decoration:underline;text-underline-offset:4px;}
+/* Phosphor: numbered terminal buffer strip; instant reverse-video selection. */
+html[data-orbit-style=phosphor] #app#app:not(.full-viewport) .scene-navigation {background:#06130c!important;border-top:1px dashed #78ffa2;box-shadow:0 -4px 0 #102c19;font-family:monospace;}
+html[data-orbit-style=phosphor] #app#app .display-tabs {counter-reset:buffer;gap:0;}
+html[data-orbit-style=phosphor] #app#app .display-tabs button {counter-increment:buffer;border:0;border-right:1px dashed #438857;border-radius:0;box-shadow:none;transition:none;}
+html[data-orbit-style=phosphor] #app#app .display-tabs button::before {content:'[' counter(buffer) '] ';}
+html[data-orbit-style=phosphor] #app#app .start-logo {border:0;border-radius:0;}
+/* Blueprint: measured ruler rail; crosshair outlines and dimension ticks. */
+html[data-orbit-style=blueprint] #app#app:not(.full-viewport) .scene-navigation {background:repeating-linear-gradient(90deg,#a9dcff66 0 1px,transparent 1px 20px) top/100% 6px no-repeat,#12345a!important;border-top:3px double #a9dcff;padding-top:9px;box-shadow:none;}
+html[data-orbit-style=blueprint] #app#app .display-tabs button {border:1px dashed #91bedc;border-radius:0;cursor:crosshair;font-variant-numeric:tabular-nums;}
+html[data-orbit-style=blueprint] #app#app .display-tabs button:is(:hover,:focus-visible) {outline:3px double #a9dcff;outline-offset:-4px;box-shadow:inset 5px 0 #a9dcff;}
+/* Pop: comic control deck; individual keys press into their hard shadows. */
+html[data-orbit-style=pop] #app#app:not(.full-viewport) .scene-navigation {left:8px;right:12px;bottom:7px;border-radius:18px 5px 18px 5px;border:3px solid #201b35;background:radial-gradient(#201b3522 1px,transparent 1px) 0/8px 8px,#ff92c1!important;}
+html[data-orbit-style=pop] #app#app .display-tabs button:nth-child(3n+1) {background:#c6b0ff!important;}
+html[data-orbit-style=pop] #app#app .display-tabs button:nth-child(3n+2) {background:#f6d84b!important;}
+html[data-orbit-style=pop] #app#app .display-tabs button {border:2px solid #201b35;color:#201b35!important;font-weight:800;}
+/* Ocean: wave scallops and porthole buttons that fill on hover. */
+html[data-orbit-style=ocean] #app#app:not(.full-viewport) .scene-navigation {left:18px;right:18px;border-radius:30px 30px 12px 12px;border:3px double #63d8ef;background:linear-gradient(#145b79cc,#092535ee)!important;box-shadow:0 -4px 0 #63d8ef22;}
+html[data-orbit-style=ocean] #app#app .display-tabs button {border-radius:30px;border:2px solid #56899c;background:linear-gradient(to top,#63d8ef 50%,#10394e 50%) 0 0/100% 200%!important;transition:background-position .3s,color .3s;}
+html[data-orbit-style=ocean] #app#app .display-tabs button:is(:hover,:focus-visible) {background-position:0 100%!important;color:#092535!important;}
+/* Forest: asymmetrical leaf tabs unfold on focus without changing hit geometry. */
+html[data-orbit-style=forest] #app#app:not(.full-viewport) .scene-navigation {left:16px;right:16px;border-radius:6px 28px 6px 28px;border:2px solid #769881;background:repeating-linear-gradient(165deg,#97dfaa0c 0 3px,transparent 3px 18px),#203b2e!important;box-shadow:0 4px 0 #081d14;}
+html[data-orbit-style=forest] #app#app .display-tabs button {border-radius:3px 22px 3px 22px;border-bottom:3px solid #769881;}
+html[data-orbit-style=forest] #app#app .display-tabs button:is(:hover,:focus-visible) {border-radius:22px 3px 22px 3px;box-shadow:inset 0 -4px #97dfaa;}
+/* Plum: velvet theater rail, gold ticket stubs and expanding focus halos. */
+html[data-orbit-style=plum] #app#app:not(.full-viewport) .scene-navigation {left:30px;right:30px;border-radius:12px;border:3px double #dbacf4;background:linear-gradient(90deg,#291b32,#633779,#291b32)!important;box-shadow:0 -4px 20px #dbacf422;}
+html[data-orbit-style=plum] #app#app .display-tabs button {border-radius:5px;border-left:2px dotted #dbacf4;border-right:2px dotted #dbacf4;}
+html[data-orbit-style=plum] #app#app .display-tabs button:is(:hover,:focus-visible) {translate:0 -2px;box-shadow:0 0 0 3px #dbacf466,0 0 14px #dbacf488;}
+/* Ember: brass instrument rack with inset keys and heat illumination. */
+html[data-orbit-style=ember] #app#app:not(.full-viewport) .scene-navigation {background:repeating-linear-gradient(0deg,#ffbd800a 0 1px,transparent 1px 4px),#302019!important;border:3px ridge #b8875b;box-shadow:inset 0 2px 8px #000;}
+html[data-orbit-style=ember] #app#app .display-tabs button {border:2px inset #b8875b;border-radius:3px;box-shadow:inset 0 2px 5px #0008;letter-spacing:.04em;}
+html[data-orbit-style=ember] #app#app .display-tabs button:is(:hover,:focus-visible) {color:#ffe2aa!important;text-shadow:0 0 7px #ff9b40;box-shadow:inset 0 -3px #ffbd80,0 0 8px #ff9b4055;}
+@media(max-width:600px) {
+ html[data-orbit-style] #app#app:not(.full-viewport) .scene-navigation {left:3px;right:3px;gap:3px;padding-left:3px;padding-right:3px;}
+ html[data-orbit-style] #app#app .scene-navigation .display-tabs button {min-width:0;max-width:145px;}
+}
+@media(prefers-reduced-motion:reduce) {html[data-orbit-style] #app#app .scene-navigation button {transition:none!important;translate:none!important;}}
+@media(forced-colors:active) {html[data-orbit-style] #app#app .scene-navigation button {clip-path:none!important;text-shadow:none!important;border:1px solid ButtonText!important;}}

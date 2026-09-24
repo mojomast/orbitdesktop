@@ -1,0 +1,6 @@
+Fixedsys Excelsior (FSEX302.ttf)
+Original author: Darien Valentine. Derivative: Kirill Pertsev.
+Source: https://github.com/kika/fixedsys
+Release: v3.09.10
+The creators released this font to the public domain; where that is not permitted, it is released under the Creative Commons Zero Dedication (CC0).
+Locally served; no external font service. Programming ligatures disabled in the Classic 95 chat skin.

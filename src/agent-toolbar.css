@@ -1,0 +1,19 @@
+/* A single in-flow toolbar; no fixed-width overlay over chat controls. */
+#app .pane .pane-head.agent-pane-head {
+  display:flex; flex-wrap:wrap; align-items:center; gap:4px;
+  height:auto; min-height:28px; width:100%; box-sizing:border-box;
+  padding:3px 4px; overflow:visible; flex-shrink:0;
+}
+#app .agent-pane-head > select {flex:0 0 auto; max-width:100%;}
+#app .agent-pane-head > .pane-spacer {display:none;}
+#app .agent-pane-head > .agent-toolbar-meta {
+  display:contents; position:static; width:auto; height:auto;
+  padding:0; border:0; background:transparent;
+}
+#app .agent-toolbar-meta > .agent-avatar {display:none;}
+#app .agent-toolbar-meta input[aria-label="Conversation title"] {
+  flex:0 1 90px; width:90px; min-width:50px; max-width:100%; box-sizing:border-box;
+}
+#app .agent-toolbar-meta input[type=color] {flex:0 0 24px; width:24px; min-width:24px; height:24px; padding:1px;}
+#app .agent-pane-head button {flex:0 0 auto; white-space:nowrap; max-width:100%; font-size:11px; padding:3px 5px;}
+#app .agent-toolbar-meta .agent-status {display:inline; flex:0 0 auto; font-size:10px;}
