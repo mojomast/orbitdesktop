@@ -321,7 +321,7 @@ export function createPane(p: Pane, font: number, a: PaneActions): PaneView {
       zoomFrame();
     };
   } else {
-    cleanup = createAgentChat(body, p.id, () => sessionToken);
+    cleanup = createAgentChat(body, p.id, () => sessionToken, head);
   }
   return { element: root, resize, setFont, dispose: cleanup };
 }

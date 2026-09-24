@@ -1,5 +1,6 @@
 import { el, button } from './dom';
 import './desktop-icons.css';
+import {themeIcon,iconRole} from './theme-icons';
 interface Shortcut { id:string; title:string; icon:string; run:()=>void }
 export function installDesktopIcons(host:HTMLElement, actions:()=>Shortcut[]) {
  const layer=el('nav','desktop-icons'); layer.setAttribute('aria-label','Desktop app shortcuts'); host.prepend(layer);
@@ -12,7 +13,7 @@ export function installDesktopIcons(host:HTMLElement, actions:()=>Shortcut[]) {
   for(const item of items){
    const b=button('',`Open ${item.title}`,()=>actions().find(a=>a.id===item.id)?.run(),'desktop-shortcut');
    b.dataset.shortcut=item.id;b.title=item.title;
-   const glyph=el('span','desktop-shortcut-icon',item.icon);glyph.setAttribute('aria-hidden','true');
+   const glyph=themeIcon(iconRole(item.title,item.icon),'desktop-shortcut-icon');
    b.append(glyph,el('span','desktop-shortcut-label',item.title));layer.append(b);
    if(focused===item.id)b.focus();
   }
