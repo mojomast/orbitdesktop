@@ -12,6 +12,11 @@ Conversations, persistent host terminals, web apps, and optional Linux applicati
 
 [Quick start](#quick-start) · [Linux apps](docs/XPRA_APPS.md) · [Agent guide](docs/AGENT_GUIDE.md) · [Security](docs/SECURITY.md)
 
+**Testing branch:** see the [evolution testing guide](docs/TESTING_BRANCH.md) for
+the cumulative changes, verified results, isolated test commands and remaining
+gates. Optional docking is off by default; this branch is not a live-runtime
+upgrade instruction.
+
 ## More than a chat window
 
 Most AI interfaces end at an answer. Orbit gives the agent a workspace in which to act: create a small application, place it beside your work, configure its behavior, and help you use it. You remain in control of the files, services, credentials, and deployment.

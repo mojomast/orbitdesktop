@@ -18,5 +18,7 @@ jobs:
           python-version: '3.11'
       - run: sudo apt-get update && sudo apt-get install -y tmux
       - run: npm ci
+      - name: Prepare isolated test scratch directory
+        run: mkdir -p /tmp/opencode
       - run: npm run check
       - run: python3 -m unittest discover -s tests -p test_hermes_plugin.py -v

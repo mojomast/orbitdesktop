@@ -1,5 +1,15 @@
 # Evolution handoff — September 25, 2026
 
+## Testing branch publication
+
+The owner requested documentation, a commit and a push to a testing branch.
+`testing/orbit-docking-managed-terminals` starts from implementation `23a1afe` and
+contains all preceding evolution work. See [testing guide](TESTING_BRANCH.md) for
+scope, isolated reproduction, results and rollout restrictions. Documentation and
+the portable source archive are updated together. The CI workflow now prepares
+the scratch directory required by the isolated fixtures. This authorizes branch
+publication only—not a main merge, live restart or migration.
+
 ## Latest increment: optional renderer and managed terminal lifecycle
 
 The user requested Flash subagents for the next independent implementation slices.
