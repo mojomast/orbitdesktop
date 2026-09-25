@@ -8,7 +8,12 @@ import urllib.parse
 import urllib.request
 
 UUID = re.compile(r"[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}")
-MAX_BYTES = 2_000_000
+# BEGIN GENERATED WORKSPACE LIMITS
+maxOperations = 32
+maxRequestBytes = 150000
+maxResponseBytes = 2000000
+maxLabelCharacters = 120
+# END GENERATED WORKSPACE LIMITS
 ACTIONS = ("read", "preview", "apply", "history", "checkpoint", "restore")
 SCHEMA = {
     "name": "orbit_workspace",
@@ -25,8 +30,8 @@ SCHEMA = {
         "properties": {
             "action": {"type": "string", "enum": list(ACTIONS)},
             "base_revision": {"type": "integer", "minimum": 0},
-            "operations": {"type": "array", "items": {"type": "object"}, "minItems": 1},
-            "label": {"type": "string", "maxLength": 120},
+            "operations": {"type": "array", "items": {"type": "object"}, "minItems": 1, "maxItems": maxOperations},
+            "label": {"type": "string", "maxLength": maxLabelCharacters},
             "checkpoint_id": {"type": "string"},
             "confirm": {"type": "boolean"},
         },
@@ -75,11 +80,11 @@ def invoke(ctx, params):
             raise ValueError("Read the workspace first and supply its base_revision")
     if action in ("apply", "preview"):
         ops = params.get("operations")
-        if not isinstance(ops, list) or not ops or len(ops) > 100 or not all(isinstance(op, dict) for op in ops):
-            raise ValueError("Provide 1–100 operation objects; Orbit validates each operation")
+        if not isinstance(ops, list) or not 1 <= len(ops) <= maxOperations or not all(isinstance(op, dict) for op in ops):
+            raise ValueError("Provide 1–32 operation objects; Orbit validates each operation")
     if action == "restore" and (params.get("confirm") is not True or not isinstance(params.get("checkpoint_id"), str) or not params["checkpoint_id"]):
         raise ValueError("Restore requires checkpoint_id and explicit confirm=true")
-    if action == "checkpoint" and (not isinstance(params.get("label", ""), str) or len(params.get("label", "")) > 120):
+    if action == "checkpoint" and (not isinstance(params.get("label", ""), str) or len(params.get("label", "")) > maxLabelCharacters):
         raise ValueError("Checkpoint label must be a string of at most 120 characters")
     workspace = ctx.get_config("workspace_id", "")
     runtime = ctx.get_config("runtime_dir", "")
@@ -93,7 +98,7 @@ def invoke(ctx, params):
     if not isinstance(capability, str) or not capability or "\n" in capability or "\r" in capability:
         raise ValueError("Invalid Orbit capability record")
     body = json.dumps({**params, "workspace_id": workspace}).encode()
-    if len(body) > MAX_BYTES:
+    if len(body) > maxRequestBytes:
         raise ValueError("Workspace request is too large")
     request = urllib.request.Request(target, data=body, headers={
         "Authorization": "Bearer " + capability, "Content-Type": "application/json",
@@ -102,14 +107,14 @@ def invoke(ctx, params):
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
     try:
         with opener.open(request, timeout=20) as response:
-            raw = response.read(MAX_BYTES + 1)
+            raw = response.read(maxResponseBytes + 1)
     except urllib.error.HTTPError as error:
         # Server error bodies may contain sensitive material; do not echo them.
         return {"ok": False, "status": error.code, "error": (
             "Revision conflict: read and reconsider the requested change" if error.code == 409
             else "Orbit rejected the request; check authorization and operation schema"
         )}
-    if len(raw) > MAX_BYTES:
+    if len(raw) > maxResponseBytes:
         raise ValueError("Workspace response exceeds the size limit")
     if capability.encode() in raw:
         raise ValueError("Refusing a response containing the workspace capability")

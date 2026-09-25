@@ -50,6 +50,18 @@ const server = http.createServer(async (req, res) => {
   if (!allowedHosts.has(req.headers.host))
     return reply(res, 403, { error: "Host rejected" });
   const url = new URL(req.url, "http://localhost");
+  if (url.pathname === '/api/workspace/recovery') return workspaceService.handle(req, res, false, true);
+  // Serve independently of dist/index and the normal renderer's dependency graph.
+  const recoveryAssets = {'/recovery':['recovery.html','text/html; charset=utf-8'],'/recovery.js':['recovery.js','text/javascript; charset=utf-8'],'/recovery.css':['recovery.css','text/css; charset=utf-8']};
+  if(Object.hasOwn(recoveryAssets,url.pathname)) {
+    if(!['GET','HEAD'].includes(req.method))return reply(res,405,{error:'Method not allowed'});
+    try {
+      const [file,type]=recoveryAssets[url.pathname];
+      const data=await readFile(new URL(`../public/${file}`,import.meta.url));
+      res.writeHead(200,{...securityHeaders,'Content-Type':type,'Content-Security-Policy':"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"});
+      return res.end(req.method==='HEAD'?undefined:data);
+    } catch {return reply(res,503,{error:'Recovery files unavailable'});}
+  }
   if (url.pathname === "/api/workspace") return workspaceService.handle(req, res);
   if (url.pathname === "/api/workspace/control") return workspaceService.handle(req, res, true);
   if (url.pathname.startsWith("/apps/")) return workspaceService.serveApp(req, res, url.pathname);

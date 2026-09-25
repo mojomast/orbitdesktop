@@ -22,7 +22,7 @@ Authenticated `/api/workspace` and capability-scoped `/api/workspace/control` ac
 - `checkpoint`: optional `label`; returns checkpoint ID.
 - `restore`: `checkpoint_id`, `base_revision`, `confirm:true`.
 
-The controller CLI currently exposes read/apply/publish; do not invent CLI restore/history commands. The UI handles the restore confirmation flow.
+The controller CLI exposes `history`, `checkpoint --label TEXT`, and `restore CHECKPOINT_ID --base-revision N --confirm`, as well as read/apply/preview/publish. Restore requires explicit user intent. The independent `/recovery` page also offers authenticated history and revision-checked restore without loading the normal renderer. See [Recovery](RECOVERY.md) for its narrower guarantees and limitations.
 
 ## Verification
 

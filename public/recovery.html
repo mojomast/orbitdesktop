@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Orbit recovery console</title>
+  <link rel="stylesheet" href="recovery.css">
+  <script defer src="recovery.js"></script>
+</head>
+<body>
+  <main class="console">
+    <header>
+      <p class="eyebrow">Orbit Desktop</p>
+      <h1>Recovery console</h1>
+      <p>Inspect saved layout state and take deliberate recovery actions.</p>
+    </header>
+
+    <section aria-labelledby="connection-heading">
+      <h2 id="connection-heading">Connection</h2>
+      <div class="fields">
+        <div class="field">
+          <label for="owner-token">Owner token</label>
+          <input id="owner-token" type="password" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="field">
+          <label for="workspace-id">Workspace ID</label>
+          <input id="workspace-id" type="text" autocomplete="off" spellcheck="false">
+        </div>
+      </div>
+      <div class="actions">
+        <button id="connect" type="button">Connect</button>
+        <button id="read-again" type="button" class="secondary">Read again</button>
+      </div>
+      <div id="status" role="status" aria-live="polite"></div>
+      <div id="error" role="alert" aria-live="assertive"></div>
+    </section>
+
+    <section aria-labelledby="metadata-heading">
+      <h2 id="metadata-heading">Workspace metadata</h2>
+      <dl id="metadata">
+        <div><dt>Workspace ID</dt><dd data-testid="meta-workspace-id">—</dd></div>
+        <div><dt>Revision</dt><dd data-testid="meta-revision">—</dd></div>
+        <div><dt>Observed revision</dt><dd data-testid="meta-observed-revision">—</dd></div>
+        <div><dt>Browser last seen</dt><dd data-testid="meta-browser-seen">—</dd></div>
+      </dl>
+      <p class="note">A successful acknowledgement is not rendered proof that the workspace rendered correctly.</p>
+    </section>
+
+    <section aria-labelledby="checkpoints-heading">
+      <h2 id="checkpoints-heading">Checkpoints</h2>
+      <p>Checkpoints capture workspace layout and plugin registration state only. They exclude external effects, files, shells, conversations and image bytes.</p>
+      <p>Restore is never automatic.</p>
+      <ul id="checkpoint-list"><li>No checkpoints available.</li></ul>
+      <div class="decision">
+        <label for="restore-confirm"><input id="restore-confirm" type="checkbox"> I understand this restores saved workspace layout state</label>
+        <button id="restore" type="button" disabled>Restore checkpoint</button>
+      </div>
+    </section>
+
+    <section aria-labelledby="apps-heading">
+      <h2 id="apps-heading">Registered apps</h2>
+      <ul id="plugin-list"><li>No registered apps.</li></ul>
+      <p>Disabling apps is a layout-only recovery action. It removes registered plugin windows. It does not stop backends or already-disconnected frames.</p>
+      <div class="decision">
+        <label for="disable-confirm"><input id="disable-confirm" type="checkbox"> I understand this is layout-only and does not stop backends</label>
+        <button id="disable-apps" type="button" disabled>Disable all apps</button>
+      </div>
+    </section>
+
+    <footer>
+      <p>On a conflict, Read again instead of retrying.</p>
+      <p>No safe mode is claimed.</p>
+    </footer>
+  </main>
+</body>
+</html>

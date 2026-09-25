@@ -61,7 +61,7 @@ Supported operations:
 - `close_pane`: `window_id`, `pane_id` (keep at least one pane).
 - `set_workspace`: `state` containing a complete validated version-1 workspace. Prefer targeted operations to avoid disrupting shells and chats.
 
-The model schema is `src/model.ts`. Bounds: 1–8 windows; 1–8 panes each. `frame` is `{x,y,width,height,z}` in desktop pixels, with width 280–4000 and height 180–4000 (interactive handles use minimum 320x220). Desktop title bars remain reachable after viewport/sidebar changes. The current snapshot contains geometry, window names, pane kinds/URLs, selected window, view, and sidebar state. It does not expose terminal contents, iframe DOM, chat tokens, or pixels.
+The semantic model validator is `src/model.ts`; the authoritative request JSON Schema is generated from `contracts/workspace-v1.mjs`. See [generated operation reference](WORKSPACE_OPERATIONS.generated.md). Batches contain 1–32 operations; the entire UTF-8 request is limited to 150,000 bytes, responses to 2,000,000 bytes. Unknown fields and coerced types are rejected at the server, including nested operations and snapshots. Simplified Hermes schemas do not replace that validation. Bounds: at least one window (no model-level eight-window maximum); 1–8 panes per window. `frame` is `{x,y,width,height,z}` in desktop pixels, with width 280–4000 and height 180–4000 (interactive handles use minimum 320x220). Desktop title bars remain reachable after viewport/sidebar changes. The current snapshot contains geometry, window names, pane kinds/URLs, selected window, view, and sidebar state. It does not expose terminal contents, iframe DOM, chat tokens, or pixels.
 
 ## Build an app and display it
 

@@ -14,8 +14,9 @@ class BundleTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             target = Path(temp) / 'orbit'
             launcher.unpack(target)
-            for name in ['server/index.mjs', 'src/main.ts', 'package-lock.json', 'scripts/workspace_control.py', 'docs/XPRA_APPS.md', 'src/connection-passwords.ts']:
+            for name in ['server/index.mjs', 'src/main.ts', 'package-lock.json', 'scripts/workspace_control.py', 'docs/XPRA_APPS.md', 'src/connection-passwords.ts', 'contracts/workspace-v1.mjs', 'contracts/workspace-v1.json', 'server/workspace-contract.mjs', 'server/workspace-store.mjs', 'public/recovery.html', 'public/recovery.js', 'scripts/generate-workspace-contract.mjs']:
                 self.assertTrue((target / name).is_file(), name)
+            self.assertFalse((target / 'server/mobile-proxy.mjs').exists())
             self.assertEqual(target.stat().st_mode & 0o777, 0o700)
             with self.assertRaises(ValueError):
                 launcher.unpack(target)

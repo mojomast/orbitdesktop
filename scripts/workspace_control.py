@@ -13,6 +13,12 @@ import urllib.error
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNTIME = Path(os.environ.get('ORBIT_RUNTIME_DIR', ROOT / '.runtime'))
+# BEGIN GENERATED WORKSPACE LIMITS
+maxOperations = 32
+maxRequestBytes = 150000
+maxResponseBytes = 2000000
+maxLabelCharacters = 120
+# END GENERATED WORKSPACE LIMITS
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
@@ -27,15 +33,25 @@ def main():
     pub = sub.add_parser('publish'); pub.add_argument('source'); pub.add_argument('slug'); pub.add_argument('--title'); pub.add_argument('--no-open', action='store_true')
     args = p.parse_args()
     if not re.fullmatch(r'[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}', args.workspace): p.error('Invalid workspace ID')
+    if args.command in ('apply', 'preview'):
+        raw = Path(args.operations[1:]).read_text() if args.operations.startswith('@') else args.operations
+        operations = json.loads(raw)
+        if isinstance(operations, dict): operations = [operations]
+        if not isinstance(operations, list) or not 1 <= len(operations) <= maxOperations or not all(isinstance(op, dict) for op in operations):
+            p.error('Provide 1–32 operation objects')
     config = json.loads((RUNTIME / 'workspaces' / (args.workspace + '.json')).read_text())
     def request(action, **fields):
         body = json.dumps({'workspace_id': args.workspace, 'action': action, **fields}).encode()
+        if len(body) > maxRequestBytes: raise ValueError('Workspace request is too large')
         req = urllib.request.Request(config['api'] + '/api/workspace/control', data=body, headers={'Authorization': 'Bearer ' + config['capability'], 'Content-Type': 'application/json'})
         try:
-            with urllib.request.urlopen(req, timeout=20) as r: return json.load(r)
+            with urllib.request.urlopen(req, timeout=20) as r:
+                raw = r.read(maxResponseBytes + 1)
+                if len(raw) > maxResponseBytes: raise ValueError('Workspace response exceeds the size limit')
+                if config['capability'].encode() in raw: raise ValueError('Refusing a response containing the workspace capability')
+                return json.loads(raw)
         except urllib.error.HTTPError as error:
-            details = json.loads(error.read())
-            raise RuntimeError(f"Workspace request failed ({error.code}): {details.get('error', 'unknown error')}") from None
+            raise RuntimeError(f"Workspace request failed ({error.code}); read again and check authorization/schema") from None
     current = request('read')
     if args.command == 'read': print(json.dumps(current, indent=2)); return
     if args.command == 'history': print(json.dumps(request('history'),indent=2)); return
@@ -73,10 +89,6 @@ def main():
             if contains(m['layout']):
                 operations = [{'action': 'select', 'window_id': m['id']}, {'action': 'set_view', 'view': 'windows'}]
                 break
-    else:
-        raw = Path(args.operations[1:]).read_text() if args.operations.startswith('@') else args.operations
-        operations = json.loads(raw)
-        if isinstance(operations, dict): operations = [operations]
     if args.command != 'restore':
         base=getattr(args,'base_revision',None)
         result = request('preview' if args.command=='preview' else 'apply', base_revision=current['revision'] if base is None else base, operations=operations)

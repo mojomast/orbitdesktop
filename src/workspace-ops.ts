@@ -1,8 +1,10 @@
 import { pluginOperation } from './plugins.ts';
 import { tileSpatial } from './spatial-layout.ts';
 import { validate, monitor, leaves, replace, remove, pane, type Workspace, type PaneKind, type Monitor } from './model.ts';
+import type { WorkspaceOperation } from './workspace-contract.generated.ts';
 
-export function applyOperation(input: Workspace, op: Record<string, any>): Workspace {
+export function applyOperation(input: Workspace, operation: WorkspaceOperation): Workspace {
+  const op: Record<string, any> = operation;
   let state = structuredClone(input);
   if (typeof op.action === 'string' && op.action.startsWith('plugin_')) { pluginOperation(state, op); return validate(state); }
   const target = () => { const m = state.monitors.find(m => m.id === op.window_id); if (!m) throw Error('Unknown window_id'); return m; };

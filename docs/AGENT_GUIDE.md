@@ -94,11 +94,11 @@ Layout operations: `add_window`, `update_window`, `close_window`, `split_pane`, 
 
 New terminal panes attach to tmux by stable pane ID. Reload → unlock host → reconnect resumes the shell. Do not delete/recreate terminal IDs to rearrange a workspace. Closing a pane detaches its persistent shell; `exit` ends it. Legacy non-tmux shells cannot be migrated automatically. Host reboot does not preserve shell processes. Layout metadata is not terminal output.
 
-Checkpoint history and confirmed restore are available in Workspace checkpoints. API actions `history`, `checkpoint`, `restore` are supported by the authenticated workspace service (control route `/api/workspace/control`); the CLI currently exposes read/apply/publish, not standalone history/restore commands. Restore requires current `base_revision`, `checkpoint_id` and `confirm:true`. Use the UI rather than inventing CLI commands. Checkpoints restore plugin registrations/config/entry references and structured layout/appearance, not emails, shell effects, conversations, image bytes or arbitrary files.
+Checkpoint history and confirmed restore are available in Workspace checkpoints, the CLI (`history`, `checkpoint --label TEXT`, `restore ID --base-revision N --confirm`), and the independent `/recovery` page. Restore requires current `base_revision`, `checkpoint_id` and `confirm:true`. Checkpoints restore plugin registrations/config/entry references and structured layout/appearance, not emails, shell effects, conversations, image bytes or arbitrary files. Recovery disable is a layout operation, not persistent quarantine or termination of backend processes. See `docs/RECOVERY.md`.
 
 ## Boundaries and completion
 
-No fully modular renderer, backend plugin permissions, dependency resolver or independent safe-mode boot exists yet. Trusted built-ins use `workspace-extensions.ts`; those changes need a build and new frontend load. Ordinary workspace/plugin operations do not. Generated code stays in sandboxed app panes, never injected into the parent page.
+No fully modular renderer, backend plugin permissions, dependency resolver or persistent server-enforced safe mode exists yet. The independent recovery page works without the normal renderer, but does not revoke running applications. Trusted built-ins use `workspace-extensions.ts`; those changes need a build and new frontend load. Ordinary workspace/plugin operations do not. Generated code stays in sandboxed app panes, never injected into the parent page.
 
 Completion reports should name the operation, test evidence, checkpoint/rollback limitations and whether browser display was verified. Never replace real tests with plausible sample output. Keep current user appearance and other uncommitted work intact.
 

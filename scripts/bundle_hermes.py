@@ -6,7 +6,7 @@ import subprocess
 import tarfile
 
 ROOT = Path(__file__).resolve().parents[1]
-PREFIXES = ('src/', 'server/', 'scripts/', 'deploy/', 'docs/', 'public/')
+PREFIXES = ('src/', 'server/', 'scripts/', 'deploy/', 'docs/', 'public/', 'contracts/')
 FILES = {'package.json', 'package-lock.json', 'index.html', 'tsconfig.json', 'vite.config.js', 'LICENSE', 'README.md', 'AGENTS.md'}
 
 def build():
@@ -16,7 +16,9 @@ def build():
         for name in sorted(paths):
             if name not in FILES and not name.startswith(PREFIXES):
                 continue
-            if name.startswith('docs/images/') or name == 'scripts/bundle_hermes.py':
+            # The optional, owner-specific mobile proxy has hard-coded private
+            # deployment bindings and is not imported by the portable server.
+            if name.startswith('docs/images/') or name in ('scripts/bundle_hermes.py', 'server/mobile-proxy.mjs'):
                 continue
             path = ROOT / name
             if path.is_symlink() or not path.is_file():

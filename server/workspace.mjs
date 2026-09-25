@@ -7,17 +7,22 @@ import { fileURLToPath } from 'node:url';
 import { validate } from '../src/model.ts';
 import { applyOperation } from '../src/workspace-ops.ts';
 import { tokenMatches, allowedRequest } from './security.mjs';
+import { validateWorkspaceRequest, workspaceLimits } from './workspace-contract.mjs';
+import { JsonWorkspaceStore } from './workspace-store.mjs';
 
 export const runtimeRoot = path.resolve(process.env.ORBIT_RUNTIME_DIR || fileURLToPath(new URL('../.runtime/', import.meta.url)));
-const idPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const slugPattern = /^[a-z0-9][a-z0-9-]{0,60}$/;
-export function createWorkspaceService({ token, port, devOrigins, reply, root = runtimeRoot }) {
-  fs.mkdirSync(path.join(root, 'workspaces'), { recursive: true, mode: 0o700 });
+export function createWorkspaceService({ token, port, devOrigins, reply: sendReply, root = runtimeRoot, store = new JsonWorkspaceStore(root) }) {
+  const reply = (res,status,data) => {
+    const categories = {400:'INVALID_OPERATION',403:'PERMISSION_REQUIRED',404:'RESOURCE_GONE',409:'REVISION_CONFLICT',413:'REQUEST_TOO_LARGE'};
+    const body = status>=400 ? {category:categories[status]||'INVALID_OPERATION',...data} : data;
+    if(Buffer.byteLength(JSON.stringify(body))>workspaceLimits.maxResponseBytes)return sendReply(res,413,{category:'REQUEST_TOO_LARGE',error:'Workspace response exceeds the byte budget'});
+    return sendReply(res,status,body);
+  };
   fs.mkdirSync(path.join(root, 'apps'), { recursive: true, mode: 0o700 });
   const checkpoints = checkpointStore(root);
-  const filename = id => { if (!idPattern.test(id || '')) throw Error('Invalid workspace id'); return path.join(root, 'workspaces', `${id}.json`); };
-  const read = id => JSON.parse(fs.readFileSync(filename(id), 'utf8'));
-  const persist = record => { const file = filename(record.id); fs.writeFileSync(file + '.tmp', JSON.stringify(record), { mode: 0o600 }); fs.renameSync(file + '.tmp', file); };
+  const read = id => store.read(id);
+  const persist = record => store.write(record);
   const appVersions = () => {
     const versions = {};
     for (const entry of fs.readdirSync(path.join(root, 'apps'), { withFileTypes: true })) {
@@ -32,16 +37,22 @@ export function createWorkspaceService({ token, port, devOrigins, reply, root = 
     }
     return versions;
   };
-  const safe = r => ({ app_versions: appVersions(), workspace_id: r.id, revision: r.revision, state: r.state, observed_revision: r.observed_revision || 0, browser_seen: r.browser_seen || null });
-  async function handle(req, res, control = false) {
+  const safe = (r,includeAssets=true) => ({ ...(includeAssets?{app_versions:appVersions()}:{}), workspace_id: r.id, revision: r.revision, state: r.state, observed_revision: r.observed_revision || 0, browser_seen: r.browser_seen || null });
+  async function handle(req, res, control = false, recovery = false) {
     try {
       let raw = '', size = 0;
       // Browser requests use the Orbit token and Origin checks. Agent control
       // requires a separate per-workspace capability, never sent to the page.
       if (!control && (req.method !== 'POST' || !allowedRequest(req, port, devOrigins) || !tokenMatches((req.headers.authorization || '').replace(/^Bearer /, ''), token))) return reply(res, 403, { error: 'Workspace authentication required' });
       if (req.method !== 'POST') return reply(res, 405, { error: 'POST required' });
-      for await (const chunk of req) { size += chunk.length; if (size > 150000) return reply(res, 413, { error: 'Workspace request too large' }); raw += chunk; }
-      const body = JSON.parse(raw); filename(body.workspace_id);
+      const chunks = [];
+      for await (const chunk of req) { size += Buffer.byteLength(chunk); if (size > workspaceLimits.maxRequestBytes) return reply(res, 413, { error: 'Workspace request too large', category: 'REQUEST_TOO_LARGE' }); chunks.push(Buffer.from(chunk)); }
+      raw = Buffer.concat(chunks).toString('utf8');
+      const body = JSON.parse(raw);
+      validateWorkspaceRequest(body);
+      // Independent recovery intentionally exposes only read/history, validated
+      // restore, and disable-all. It is not a persistent safe-mode authority.
+      if(recovery && (!['read','history','restore','plugins_apply'].includes(body.action) || (body.action==='plugins_apply' && (body.operations.length!==1 || body.operations[0].action!=='plugin_disable_all'))))return reply(res,403,{error:'Action unavailable in recovery'});
       let record;
       try { record = read(body.workspace_id); } catch (e) {
         if (e.code !== 'ENOENT') throw e;
@@ -50,6 +61,8 @@ export function createWorkspaceService({ token, port, devOrigins, reply, root = 
         return reply(res, 200, safe(record));
       }
       if (control && !tokenMatches((req.headers.authorization || '').replace(/^Bearer /, ''), record.capability)) return reply(res, 403, { error: 'Workspace capability required' });
+      if(!['read','history','shelf'].includes(body.action) && record.state?.version!==1)return reply(res,409,{category:'UPGRADE_REQUIRED',error:'Client cannot write this workspace version'});
+      if(recovery && body.action==='read')return reply(res,200,safe(record,false));
       if (!control && body.action === 'jev_suggest') {
         const result = await jevSuggest(record.state, body.request, body.api_key, body.consent);
         return reply(res, 200, { ...result, base_revision: record.revision });
@@ -71,23 +84,22 @@ export function createWorkspaceService({ token, port, devOrigins, reply, root = 
         const next = validate(snapshot.state);
         checkpoints.save(record, 'Before restore');
         record.state = next; record.revision++; persist(record);
-        return reply(res, 200, safe(record));
+        return reply(res, 200, safe(record,!recovery));
       }
       if (!control && body.action === 'plugins_apply') {
         if (body.base_revision !== record.revision) return reply(res, 409, { error: 'Workspace changed; refresh and retry' });
-        if (!Array.isArray(body.operations) || !body.operations.length || body.operations.length > 32 || body.operations.some(op => !op || typeof op.action !== 'string' || !op.action.startsWith('plugin_'))) throw Error('Expected plugin operations');
+        if (body.operations.some(op => !op.action.startsWith('plugin_'))) throw Error('Expected plugin operations');
         let next = record.state;
         for (const op of body.operations) next = applyOperation(next, op);
         checkpoints.save(record, 'Before plugin change');
         record.state = next; record.revision++; persist(record);
-        return reply(res, 200, safe(record));
+        return reply(res, 200, safe(record,!recovery));
       }
       if (control) {
         if (body.action === 'read') return reply(res, 200, safe(record));
         if (!['apply','preview'].includes(body.action)) return reply(res, 400, { error: 'Unknown control action' });
         if (body.base_revision !== record.revision) return reply(res, 409, { error: 'Workspace changed; read and retry', ...safe(record) });
         const operations = body.operations;
-        if (!Array.isArray(operations) || !operations.length || operations.length > 32) throw Error('Expected 1–32 operations');
         let next = record.state;
         for (const op of operations) next = applyOperation(next, op);
         if (body.action === 'preview') return reply(res,200,{workspace_id:record.id,base_revision:record.revision,preview:true,state:next,changed_fields:Object.keys(next).filter(key=>JSON.stringify(next[key])!==JSON.stringify(record.state[key])),warning:'Validation only; no files, browser rendering or external effects were tested. Reapply operations against this base revision to commit.'});
@@ -119,7 +131,7 @@ export function createWorkspaceService({ token, port, devOrigins, reply, root = 
         if (JSON.stringify(next) !== JSON.stringify(record.state)) { record.state = next; record.revision++; }
       } else if (body.action !== 'read') throw Error('Unknown workspace action');
       persist(record); return reply(res, 200, safe(record));
-    } catch (e) { return reply(res, 400, { error: e.code ? 'Workspace unavailable' : e.message || 'Invalid workspace request' }); }
+    } catch (e) { return reply(res, 400, { error: e.code ? 'Workspace unavailable' : 'Invalid workspace request', category: e.category || 'INVALID_OPERATION' }); }
   }
   function context(id) {
     const r = read(id);
