@@ -1,6 +1,67 @@
 # Evolution handoff — September 25, 2026
 
-## Latest increment: bundle index and scoped event delivery
+## Latest increment: connected surface-runtime reconciliation
+
+Layout and plugin schemas remain v1; SQLite remains schema 3. This increment does
+not migrate a runtime, install a docking library, or change permissions. No live
+service was restarted and nothing was pushed or deployed.
+
+- Stable pane-ID views now move between connected layout slots, with connected
+  parking before old containers are removed. Native `Element.moveBefore` preserves
+  connected iframe documents; the explicit fallback cannot promise that behavior.
+- CSS3D anchors connect before accepting retained views and are pruned in Windows
+  mode too. Pane callbacks find their current monitor rather than a captured one.
+  Runtime replacement is keyed on kind and browser URL, not irrelevant terminal URLs.
+- Explicit imports/presets still replace views. Import now reconciles view classes,
+  existing same-ID spatial anchors, camera and appearance. Confirmation text no
+  longer incorrectly claims a detached persistent tmux shell has been terminated.
+- `ORBIT_TMUX_SOCKET` and `ORBIT_TMUX_CONFIG` allow isolated server/PTY tests; history
+  capture uses the provider's same socket. Production defaults are unchanged.
+- [Docking evaluation](DOCKING_EVALUATION.md) records exact npm metadata, licensing
+  boundaries and required adapter experiments. No candidate has passed an Orbit
+  bake-off; `Element.moveBefore` is not a cross-browser compatibility guarantee.
+
+Verification: `npm run check` builds and passes **181/181 Node
+tests**. `tests/runtime-import.browser.py` passes same-ID spatial import, imported
+Windows visibility and removed-anchor cleanup. Existing Chromium recovery fixture
+**13/13**, real-server recovery/hold, and built-UI scoped events/indexed bundle
+restore tests pass. Eight Python suites pass **55/55 tests** after regenerating the
+source archive; archive parity and portable-endpoint checks were repeated after
+final documentation. `npm audit` reports zero vulnerabilities.
+
+Lead reviewed and extended the continuity fixture, then independently reran it:
+**93 browser-only / 94 PTY transitions passed** in Chromium 145.0.7632.6. Two iframe
+documents retain nonce, unsaved draft and DOM identity through view/focus/minimize,
+split/reorder/swap, appearance, source-window deletion/reparent and checkpoint
+restoration. PTY mode retains its pane DOM, single WebSocket, and fresh shell
+variable/PID output, including irrelevant terminal URL edits. URL-change and close
+negative controls pass. No pre-fix baseline or live conversation-binding test exists.
+
+Continuity evidence and reproduction commands belong in
+[runtime continuity](RUNTIME_CONTINUITY.md). Browser reload, explicit import/preset,
+URL/kind changes and disposal are not promises of unsaved draft recovery. Cross-document
+popouts, Firefox/WebKit, persistent app data and live Hermes/native integrations
+remain separate gates. Actual adapter comparison, accessible docking commands and
+stable runtime/placement interfaces precede a docking-library or v2 schema choice.
+
+Delegation ledger:
+- `ses_f25fb1277ffetZpCIjeECrf6qI`: renderer implementation — complete.
+- `ses_f25f7a074ffeTgi18I6RthW4K1`: independent lifetime review — complete;
+  import visibility, semantic URL replacement and stale-anchor findings fixed by lead.
+- `ses_f25fac7c9ffeezFQY7k73051l7`: isolated continuity fixture — complete;
+  lead added appearance, irrelevant terminal URL and source-window deletion cases.
+- `ses_f25eac593ffebm8Rf7dpG81E4I`: independent resource authority proposal — complete;
+  design only, no privileged API implementation or live integration activation.
+
+All children and their descendants are complete. The parallel work produced
+[resource authority proposal](RESOURCE_AUTHORITY_PROPOSAL.md), grounded in the actual
+terminal/browser/native/controller routes. Its first proposed slice is an exact-resource,
+bounded terminal observation to trusted owner UI, not plugin/model forwarding.
+Provider incarnation proof, stale-backup grant quarantine and future egress/subject
+authentication require explicit decisions before implementation. These protections
+are proposed, not delivered by the renderer changes.
+
+## Historical increment: bundle index and scoped event delivery
 
 This supersedes schema/event/bundle status in the older sections below. **SQLite is
 now schema 3; serialized workspace layout and plugin manifests remain v1.** No live

@@ -9,9 +9,11 @@ increment adds owner-only persistent registered-plugin activation policy outside
 undo. Layout remains v1; normalized surface/placement migration is still outstanding.
 Indexed bundles, dry-run retention planning and bounded authenticated metadata event
 polling are now implemented. Destructive bundle cleanup and SSE/push delivery are not.
-Next: measured surface-runtime/renderer continuity, followed by broader resource/grant
-authority. Registered-plugin hold is not full safe boot or revocation and does not
-complete Phase B's gate.
+Connected DOM reconciliation and isolated import regressions are now implemented;
+see [runtime continuity](RUNTIME_CONTINUITY.md) for the browser evidence and capability
+limits. Next: measured docking-adapter comparison and accessible placement commands,
+followed by broader resource/grant authority. Registered-plugin hold is not full
+safe boot or revocation and does not complete Phase B's gate.
 
 1. Finish isolated baseline and fix adapter batch parity. Establish strict versioned
    JSON Schemas, error taxonomy, byte budgets and generated/parity-tested adapters.
@@ -26,7 +28,9 @@ complete Phase B's gate.
    Extract runtime ownership only with actual iframe/PTY/draft continuity tests;
    then accessible tabs/docking/recipes and project roles.
 5. Separate grants from reversible state. Implement read-only exact-resource terminal
-   and controlled-browser observations before input leases and managed jobs.
+   and controlled-browser observations before input leases and managed jobs. The
+   [resource authority proposal](RESOURCE_AUTHORITY_PROPOSAL.md) audits current routes
+   and scopes the first owner-only observation gate; no grants are implemented yet.
 6. Enforce private-data/egress boundaries before broker capabilities. Deliver Project
    Inspector, revocation, scoped storage and audit evidence as one vertical slice.
 7. Persistent exact drafts and exact-tested-hash promotion, then evidence-backed

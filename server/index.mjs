@@ -242,7 +242,7 @@ wss.on("connection", (ws) => {
     if (m.type === 'history') {
       if (historyBusy) return;
       historyBusy = true;
-      import('./local-host.mjs').then(({ captureHistory }) => captureHistory(historyPane))
+      import('./local-host.mjs').then(({ captureHistory }) => captureHistory(historyPane, provider.tmuxSocket))
         .then(text => send({ type: 'history', text }))
         .catch(() => send({ type: 'history', error: 'Retained history unavailable (legacy shell, missing session, or capture limit exceeded).' }))
         .finally(() => { historyBusy = false; });

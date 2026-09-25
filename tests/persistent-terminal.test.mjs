@@ -5,7 +5,27 @@ import { execFileSync } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { LocalHostProvider } from '../server/local-host.mjs';
+import { LocalHostProvider, captureHistory } from '../server/local-host.mjs';
+
+test('startup tmux configuration is explicit, validated and shared with history capture', async t => {
+  const previousSocket = process.env.ORBIT_TMUX_SOCKET;
+  const previousConfig = process.env.ORBIT_TMUX_CONFIG;
+  t.after(() => {
+    if (previousSocket === undefined) delete process.env.ORBIT_TMUX_SOCKET;
+    else process.env.ORBIT_TMUX_SOCKET = previousSocket;
+    if (previousConfig === undefined) delete process.env.ORBIT_TMUX_CONFIG;
+    else process.env.ORBIT_TMUX_CONFIG = previousConfig;
+  });
+  process.env.ORBIT_TMUX_SOCKET = 'orbit-fixture-' + randomUUID();
+  process.env.ORBIT_TMUX_CONFIG = '/dev/null';
+  const provider = new LocalHostProvider();
+  assert.equal(provider.tmuxSocket, process.env.ORBIT_TMUX_SOCKET);
+  assert.equal(provider.tmuxConfig, '/dev/null');
+  for (const value of ['../owner', '/tmp/socket', '-bad', '', 'a'.repeat(81)]) {
+    assert.throws(() => new LocalHostProvider({ tmuxSocket: value }), /Invalid tmux socket/);
+    await assert.rejects(captureHistory(randomUUID(), value), /Invalid tmux socket/);
+  }
+});
 
 test('persistent host shell retains variable and PID across PTY client disconnect', async () => {
   const pane_id = randomUUID();
@@ -43,6 +63,7 @@ test('persistent host shell retains variable and PID across PTY client disconnec
     const pidMatch = before.match(/STATE_retained_(\d+)/);
     assert.ok(pidMatch, `Initial shell PID missing: ${before}`);
     const firstPid = pidMatch[1];
+    assert.match(await captureHistory(pane_id, tmuxSocket), new RegExp(`STATE_retained_${firstPid}`));
     first.kill();
     first = undefined;
     second = attach();

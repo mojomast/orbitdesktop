@@ -31,6 +31,7 @@ import {
   type PaneKind,
 } from "./model";
 import { createPane, setToken, sessionToken, type PaneView } from "./panes";
+import { moveConnected } from './connected-dom';
 import { placeWindow, wireWindow } from "./windows";
 import { connectWorkspace } from "./workspace-sync";
 import { DesktopScene } from "./scene";
@@ -42,6 +43,7 @@ state.view ||= 'windows';
 let applyingRemote = false;
 let workspaceBridge: ReturnType<typeof connectWorkspace> | undefined;
 const views = new Map<string, PaneView>();
+const paneSignatures = new Map<string, string>();
 const monitors = new Map<string, HTMLElement>();
 const minimizer = installMinimize();
 let focused: string | null = null;
@@ -128,6 +130,11 @@ installStart(navigation, () => [
   { title: 'Toggle side panel', detail: 'Workspace layout and settings', run: () => { state.sidebarHidden = !state.sidebarHidden; applySidebar(); save(); } },
 ]);
 const focusHost = el("div", "focus-host");
+// Connected parking keeps surviving panes alive while their previous layout
+// containers are removed (including source-first cross-window edits).
+const paneParking = el('div', 'pane-parking');
+paneParking.setAttribute('aria-hidden', 'true');
+Object.assign(paneParking.style, { position: 'absolute', left: '-100000px', top: '0', width: '1px', height: '1px', overflow: 'hidden', pointerEvents: 'none' });
 const desktopHost = el('div', 'desktop-host');
 desktopHost.setAttribute('aria-label', 'Movable workspace windows');
 const desktopIcons = installDesktopIcons(desktopHost, () => [
@@ -155,7 +162,7 @@ const focusBack = button(
   "focus-back",
 );
 focusHost.append(focusBack);
-work.append(sub, stage, desktopHost, guide, navigation, focusHost);
+work.append(sub, stage, desktopHost, guide, navigation, focusHost, paneParking);
 const inspector = el("aside", "inspector");
 work.classList.toggle('windows-mode', state.view === 'windows');
 shell.append(work, inspector);
@@ -328,6 +335,7 @@ function choose(id: string) {
 }
 function updateScene() {
   if (state.monitors.some((m) => !monitors.has(m.id))) return;
+  scene.retainWindows(state.monitors);
   for (const m of state.monitors) {
     const meta = monitors.get(m.id)?.querySelector(".monitor-meta");
     if (meta) meta.textContent = `${m.diagonal}″ / ${m.aspect}`;
@@ -337,7 +345,7 @@ function updateScene() {
       const element = monitors.get(m.id)!;
       element.classList.toggle('selected', m.id === state.selected);
       if (focused !== m.id) {
-        if (element.parentElement !== desktopHost) desktopHost.append(element);
+        if (element.parentElement !== desktopHost) moveConnected(element, desktopHost);
         element.classList.add('desktop-window');
         placeWindow(element, m, desktopHost, i);
       }
@@ -370,7 +378,7 @@ function focus(id: string) {
   const element = monitors.get(id)!;
   element.classList.remove('desktop-window');
   for (const key of ['left', 'top', 'width', 'height', 'z-index']) element.style.removeProperty(key);
-  focusHost.append(element);
+  moveConnected(element, focusHost);
   focusHost.classList.add("visible");
   work.classList.add("is-focused");
   sceneButton.classList.remove("active");
@@ -384,8 +392,8 @@ function unfocus() {
   const element = monitors.get(focused);
   element?.classList.remove("flat-monitor");
   if (element) {
-    if (state.view === 'windows') desktopHost.append(element);
-    else { const anchor = stage.querySelector(`[data-anchor-id="${focused}"]`); anchor?.append(element); }
+    if (state.view === 'windows') moveConnected(element, desktopHost);
+    else { const anchor = stage.querySelector<HTMLElement>(`[data-anchor-id="${focused}"]`); if (anchor) moveConnected(element, anchor); }
   }
   focused = null;
   focusHost.classList.remove("visible");
@@ -410,7 +418,8 @@ function setView(view: 'windows' | 'spatial') {
     monitors.forEach((element, id) => {
       element.classList.remove('desktop-window');
       for (const key of ['left', 'top', 'width', 'height', 'z-index']) element.style.removeProperty(key);
-      stage.querySelector(`[data-anchor-id="${id}"]`)?.append(element);
+      const anchor = stage.querySelector<HTMLElement>(`[data-anchor-id="${id}"]`);
+      if (anchor) moveConnected(element, anchor);
     });
     scene.update(state.monitors, monitors, state.selected, state.arc);
   }
@@ -461,8 +470,7 @@ function moveTerminal(id: string, popout: boolean) {
     if (remaining) source.layout = remaining;
     else {
       state.monitors = state.monitors.filter(m => m !== source);
-      monitors.get(source.id)?.remove();
-      monitors.delete(source.id);
+      // renderAll relocates the retained pane before removing its old monitor.
     }
     state.selected = destination.id;
     // Reuse the PaneView, xterm instance and WebSocket: no shell reconnect.
@@ -489,19 +497,30 @@ function moveTerminal(id: string, popout: boolean) {
   d.onclose = () => d.remove();
   app.append(d); d.showModal();
 }
-function renderLayout(layout: Layout, m: Monitor): HTMLElement {
-  if (layout.type === "pane") {
-    let v = views.get(layout.pane.id);
-    if (!v) {
-      v = createPane(layout.pane, textSize(m), {
+function paneSignature(p: { kind: PaneKind; url?: string }) {
+  return `${p.kind}\u0000${p.kind === 'browser' ? p.url ?? '' : ''}`;
+}
+function livePaneMonitor(id: string): Monitor | undefined {
+  return state.monitors.find(m => leaves(m.layout).some(p => p.id === id));
+}
+function paneView(p: ReturnType<typeof leaves>[number], m: Monitor): PaneView {
+  const signature = paneSignature(p);
+  let v = views.get(p.id);
+  if (v && paneSignatures.get(p.id) !== signature) {
+    v.dispose(); views.delete(p.id); paneSignatures.delete(p.id); v = undefined;
+  }
+  if (!v) {
+      v = createPane(p, textSize(m), {
         move: moveTerminal,
         kind: (id, kind) => {
-          m = state.monitors.find(x => leaves(x.layout).some(p => p.id === id))!;
           confirmChange(
-            "Switching this pane closes its current session.",
+            "Switching this pane replaces its current view and unsaved content. Persistent terminal shells may continue detached.",
             () => {
+              const m = livePaneMonitor(id);
+              if (!m) return;
               views.get(id)?.dispose();
               views.delete(id);
+              paneSignatures.delete(id);
               m.layout = replace(m.layout, id, (p) => ({
                 type: "pane",
                 pane: { ...p, kind },
@@ -512,7 +531,8 @@ function renderLayout(layout: Layout, m: Monitor): HTMLElement {
           );
         },
         split: (id, axis) => {
-          m = state.monitors.find(x => leaves(x.layout).some(p => p.id === id))!;
+          const m = livePaneMonitor(id);
+          if (!m) return;
           if (leaves(m.layout).length >= 8) {
             notify("Maximum 8 panes per display");
             return;
@@ -528,41 +548,60 @@ function renderLayout(layout: Layout, m: Monitor): HTMLElement {
           save();
         },
         close: (id) => {
-          m = state.monitors.find(x => leaves(x.layout).some(p => p.id === id))!;
+          const m = livePaneMonitor(id);
+          if (!m) return;
           if (leaves(m.layout).length === 1) {
             notify("Keep at least one pane on each display");
             return;
           }
           confirmChange(
-            "Closing this pane ends its shell or clears its chat.",
+            "Closing this pane discards its unsaved view content and disconnects it. Persistent terminal shells may continue detached.",
             () => {
+              const m = livePaneMonitor(id);
+              if (!m) return;
+              if (leaves(m.layout).length <= 1) {
+                notify('Pane placement changed; keep at least one pane on each display.');
+                return;
+              }
               m.layout = remove(m.layout, id)!;
               views.get(id)?.dispose();
               views.delete(id);
+              paneSignatures.delete(id);
               renderMonitor(m);
               save();
             },
           );
         },
         url: (id, url) => {
+          const m = livePaneMonitor(id);
+          if (!m) return;
           const p = leaves(m.layout).find((p) => p.id === id);
           if (p) {
             p.url = url;
+            paneSignatures.set(id, paneSignature(p));
             save();
           }
         },
       });
-      views.set(layout.pane.id, v);
-    }
-    return v.element;
+      views.set(p.id, v);
+      paneSignatures.set(p.id, paneSignature(p));
+  }
+  return v;
+}
+function renderLayout(layout: Layout): HTMLElement {
+  if (layout.type === "pane") {
+    const slot = el('div', 'pane-slot');
+    slot.dataset.paneSlot = layout.pane.id;
+    Object.assign(slot.style, { display: 'flex', flex: '1', minWidth: '0', minHeight: '0' });
+    return slot;
   }
   const split = el("div", `split ${layout.axis}`);
   const first = el("div", "split-child"),
     second = el("div", "split-child");
   first.style.flex = `${layout.ratio} 1 0`;
   second.style.flex = `${1 - layout.ratio} 1 0`;
-  first.append(renderLayout(layout.first, m));
-  second.append(renderLayout(layout.second, m));
+  first.append(renderLayout(layout.first));
+  second.append(renderLayout(layout.second));
   const divider = el("div", "split-divider");
   divider.tabIndex = 0;
   divider.role = "separator";
@@ -619,6 +658,8 @@ function renderMonitor(m: Monitor) {
       if (state.selected !== m.id) choose(m.id);
     }, true);
     monitors.set(m.id, outer);
+    // A fresh host is attached before any iframe or terminal view is created.
+    desktopHost.append(outer);
   }
   const bar = el("div", "monitor-bar");
   outer.style.opacity = String(m.opacity ?? 1);
@@ -663,14 +704,27 @@ function renderMonitor(m: Monitor) {
   );
   minimizer.attach(m.id, outer);
   const content = el("div", "monitor-content");
-  content.append(renderLayout(m.layout, m));
+  content.append(renderLayout(m.layout));
   const resizeHandle = el('div', 'window-resize', '◢');
-  outer.replaceChildren(bar, content, resizeHandle);
+  const oldChildren = Array.from(outer.children);
+  outer.append(bar, content, resizeHandle);
+  for (const p of leaves(m.layout)) {
+    const slot = Array.from(content.querySelectorAll<HTMLElement>('[data-pane-slot]')).find(x => x.dataset.paneSlot === p.id)!;
+    const v = paneView(p, m);
+    if (v.element.parentElement !== slot) moveConnected(v.element, slot);
+    v.setFont(textSize(m));
+  }
+  for (const [id, v] of views) {
+    if (outer.contains(v.element) && !leaves(m.layout).some(p => p.id === id) && livePaneMonitor(id)) {
+      moveConnected(v.element, paneParking);
+    }
+  }
+  oldChildren.forEach(child => child.remove());
   scene.wireSpatial(bar, resizeHandle, m, () => state.view === 'spatial' && !focused, () => { updateScene(); save(); }, () => { renderInspector(); save(); });
   wireWindow(outer, bar, resizeHandle, m, desktopHost, () => state.view === 'windows' && !focused, () => { renderInspector(); views.forEach(v => v.resize()); save(); });
   updateScene();
   if (focused === m.id) {
-    focusHost.append(outer);
+    if (outer.parentElement !== focusHost) moveConnected(outer, focusHost);
     outer.classList.add("flat-monitor");
     outer.style.transform = "none";
   }
@@ -820,11 +874,13 @@ function renderInspector() {
     (v) => {
       if (v === "custom") return;
       confirmChange(
-        "Applying a preset replaces the workspace and closes existing shells.",
+        "Applying a preset replaces workspace views and discards unsaved view content. Persistent terminal shells may continue detached.",
         () => {
           unfocus();
-          views.forEach((v) => v.dispose());
-          views.clear();
+           views.forEach((v) => v.dispose());
+           views.clear();
+           paneSignatures.clear();
+          monitors.forEach(element=>element.remove());
           monitors.clear();
           const n = v === "single" ? 1 : v === "dual" ? 2 : 3;
           state.monitors = Array.from({ length: n }, (_, i) =>
@@ -971,6 +1027,7 @@ function deleteMonitor() {
     leaves(m.layout).forEach((p) => {
       views.get(p.id)?.dispose();
       views.delete(p.id);
+      paneSignatures.delete(p.id);
     });
     monitors.delete(m.id);
     state.monitors = state.monitors.filter((x) => x.id !== m.id);
@@ -979,8 +1036,17 @@ function deleteMonitor() {
   });
 }
 function renderAll() {
-  desktopHost.querySelectorAll<HTMLElement>('[data-monitor-id]').forEach(element => { if (!state.monitors.some(m => m.id === element.dataset.monitorId)) element.remove(); });
+  for (const [id, v] of views) if (!livePaneMonitor(id)) {
+    v.dispose(); views.delete(id); paneSignatures.delete(id);
+  }
+  // A removed CSS3DObject removes its anchor immediately; park surviving views
+  // before any renderMonitor/updateScene call can prune that old anchor.
+  for (const [id, element] of monitors) if (!state.monitors.some(m => m.id === id)) {
+    for (const [paneId, v] of views) if (element.contains(v.element) && livePaneMonitor(paneId)) moveConnected(v.element, paneParking);
+  }
   state.monitors.forEach(renderMonitor);
+  for (const [id, element] of monitors) if (!state.monitors.some(m => m.id === id)) { element.remove(); monitors.delete(id); }
+  desktopHost.querySelectorAll<HTMLElement>('[data-monitor-id]').forEach(element => { if (!state.monitors.some(m => m.id === element.dataset.monitorId)) element.remove(); });
   renderInspector();
   renderTabs();
   updateScene();
@@ -1011,14 +1077,21 @@ importInput.onchange = async () => {
     if (f.size > 100000) throw Error("Layout file is too large");
     const next = validate(JSON.parse(await f.text()));
     confirmChange(
-      "Importing replaces this layout and closes current shells.",
+      "Importing replaces layout and pane views, discarding unsaved view content. Persistent terminal shells may continue detached.",
       () => {
         unfocus();
         views.forEach((v) => v.dispose());
         views.clear();
+        paneSignatures.clear();
+        monitors.forEach(element=>element.remove());
         monitors.clear();
         state = next;
+        state.view ||= 'windows';
+        scene.configureCamera(state.spatialCamera,pose=>{state.spatialCamera=pose;save();});
+        applyAppearance(state);
         renderAll();
+        setView(state.view);
+        choose(state.selected);
       },
     );
   } catch (e) {
@@ -1118,9 +1191,8 @@ workspaceBridge = connectWorkspace(() => state, next => {
     const nextPanes = new Map(valid.monitors.flatMap(m => leaves(m.layout).map(p => [p.id, { p, monitorId: m.id }] as const)));
     for (const m of state.monitors) for (const p of leaves(m.layout)) {
       const match = nextPanes.get(p.id);
-      if (!match || match.monitorId !== m.id || match.p.kind !== p.kind || match.p.url !== p.url) { views.get(p.id)?.dispose(); views.delete(p.id); }
+      if (!match || paneSignature(match.p) !== paneSignature(p)) { views.get(p.id)?.dispose(); views.delete(p.id); paneSignatures.delete(p.id); }
     }
-    for (const [id, element] of monitors) if (!valid.monitors.some(m => m.id === id)) { element.remove(); monitors.delete(id); }
     valid.monitors = valid.monitors.map(m => { const old = state.monitors.find(x => x.id === m.id); if (old && !m.spatial) delete old.spatial; if (old && m.spatialFontSize === undefined) delete old.spatialFontSize; return old ? Object.assign(old, m) : m; });
     state = valid; state.view ||= 'windows';
     scene.configureCamera(state.spatialCamera, pose => { state.spatialCamera = pose; save(); });

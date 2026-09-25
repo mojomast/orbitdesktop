@@ -3,7 +3,14 @@ import os from "node:os";
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 const exec = promisify(execFile);
-export async function captureHistory(pane_id, tmuxSocket = 'orbit-persistent') {
+function validateSocket(value) {
+  if (typeof value !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,79}$/.test(value)) {
+    throw Error('Invalid tmux socket name');
+  }
+  return value;
+}
+export async function captureHistory(pane_id, tmuxSocket = process.env.ORBIT_TMUX_SOCKET || 'orbit-persistent') {
+  validateSocket(tmuxSocket);
   if (typeof pane_id !== 'string' || !/^[a-f0-9-]{36}$/.test(pane_id)) throw new Error('Persistent history unavailable');
   const target = 'pane-' + pane_id + ':0.0';
   const capture = async (extra) => (await exec('/usr/bin/tmux', ['-L', tmuxSocket, 'capture-pane', '-p', '-J', '-t', target, ...extra], { timeout: 5000, maxBuffer: 8 * 1024 * 1024 })).stdout;
@@ -13,8 +20,8 @@ export async function captureHistory(pane_id, tmuxSocket = 'orbit-persistent') {
 }
 /** HostProvider boundary: replace this adapter, not the WebSocket protocol, for SSH. */
 export class LocalHostProvider {
-  constructor({ tmuxSocket = 'orbit-persistent', cwd = process.env.ORBIT_CWD || os.homedir(), home, env = process.env, tmuxConfig } = {}) {
-    this.tmuxSocket = tmuxSocket;
+  constructor({ tmuxSocket = process.env.ORBIT_TMUX_SOCKET || 'orbit-persistent', cwd = process.env.ORBIT_CWD || os.homedir(), home, env = process.env, tmuxConfig = process.env.ORBIT_TMUX_CONFIG } = {}) {
+    this.tmuxSocket = validateSocket(tmuxSocket);
     this.cwd = cwd;
     this.home = home;
     this.env = { ...env };

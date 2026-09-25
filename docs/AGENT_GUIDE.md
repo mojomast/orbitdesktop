@@ -12,6 +12,12 @@ Existing typed controls cover view/sidebar, window geometry/text/name, panes and
 
 ## Bulk composition operations
 
+Runtime continuity is capability-dependent: the connected renderer retains same-ID,
+same-kind/same-browser-URL views with native `Element.moveBefore`. Fallback browsers
+may reload embedded content. See [measured continuity coverage](RUNTIME_CONTINUITY.md);
+do not promise universal draft preservation, recovery of disposed documents, or
+continuity through explicit import/preset replacement.
+
 These use normal scoped `apply` with current base_revision and automatic pre-change checkpoints. Read state first; never fabricate IDs or viewport dimensions.
 
 - `arrange_windows`: width/height are the measured available desktop-host pixels, columns is a positive integer, gap defaults to 8 (0–100). Optional window_ids selects a subset; otherwise all windows. Tiles into a grid and switches to Windows view. Rejects cells smaller than 280×180. Does not auto-retile on resize; measure again. Existing pane IDs survive.

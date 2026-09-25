@@ -1,5 +1,23 @@
 # Architecture
 
+## Connected surface rendering
+
+Pane views are keyed by stable pane IDs, with kind and browser URL determining
+runtime replacement. Layout reconciliation creates connected slots and parks
+surviving views in a connected host before removing old containers; native
+`Element.moveBefore` preserves iframe document state during same-document moves.
+CSS3D anchors are connected before accepting existing views and are pruned even
+in Windows mode. The non-native fallback warns and **does not guarantee iframe
+continuity**. Explicit imports/presets intentionally replace views; checkpoints
+cannot resurrect a disposed document. See [runtime continuity](RUNTIME_CONTINUITY.md)
+for measured coverage and [docking evaluation](DOCKING_EVALUATION.md) for candidate
+research, not a selected replacement framework.
+
+Test servers can set `ORBIT_TMUX_SOCKET` to a validated private socket name and
+`ORBIT_TMUX_CONFIG=/dev/null` to avoid loading personal tmux configuration. History
+capture uses the same socket as the provider. Defaults remain `orbit-persistent`
+and normal tmux configuration; these settings do not isolate an entire host.
+
 Orbit is a single-owner agent-customizable workspace. It separates trusted core/integration code from sandboxed generated app plugins; it is not fully modular yet.
 
 ## State and control
