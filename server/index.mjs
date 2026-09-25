@@ -9,6 +9,7 @@ import { tokenMatches, geometry, allowedRequest, publicHost } from "./security.m
 import { LocalHostProvider } from "./local-host.mjs";
 import { createAgentHandler } from "./agent.mjs";
 import { createWorkspaceService, runtimeRoot } from "./workspace.mjs";
+import { createWorkspaceEvents } from './workspace-events.mjs';
 const port = Number(process.env.PORT || 4318);
 if (!Number.isInteger(port) || port < 1024 || port > 65535)
   throw Error("PORT must be between 1024 and 65535");
@@ -39,6 +40,7 @@ function reply(res, status, data) {
   res.end(JSON.stringify(data));
 }
 const workspaceService = createWorkspaceService({ token, port, devOrigins, reply });
+const workspaceEvents = createWorkspaceEvents({store:workspaceService.store,token,port,devOrigins,reply});
 const agentHandler = createAgentHandler({ token, port, devOrigins, reply, workspaceContext: workspaceService.context, workspaceRead:workspaceService.read, runtimeDirectory:runtimeRoot });
 const server = http.createServer(async (req, res) => {
   const allowedHosts = new Set([
@@ -50,6 +52,8 @@ const server = http.createServer(async (req, res) => {
   if (!allowedHosts.has(req.headers.host))
     return reply(res, 403, { error: "Host rejected" });
   const url = new URL(req.url, "http://localhost");
+  if(url.pathname==='/api/workspace/events')return workspaceEvents(req,res);
+  if(url.pathname==='/api/workspace/control/events')return workspaceEvents(req,res,true);
   if (url.pathname === '/api/workspace/recovery') return workspaceService.handle(req, res, false, true);
   // Serve independently of dist/index and the normal renderer's dependency graph.
   const recoveryAssets = {'/recovery':['recovery.html','text/html; charset=utf-8'],'/recovery.js':['recovery.js','text/javascript; charset=utf-8'],'/recovery.css':['recovery.css','text/css; charset=utf-8']};

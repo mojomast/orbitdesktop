@@ -7,7 +7,9 @@ tests, SQLite transactional revisions/checkpoints/receipts/outbox, explicit reta
 original JSON import, private discovery and independent recovery UI. The recovery-hold
 increment adds owner-only persistent registered-plugin activation policy outside layout
 undo. Layout remains v1; normalized surface/placement migration is still outstanding.
-Next: indexed bundles and bounded event delivery, followed by broader resource/grant
+Indexed bundles, dry-run retention planning and bounded authenticated metadata event
+polling are now implemented. Destructive bundle cleanup and SSE/push delivery are not.
+Next: measured surface-runtime/renderer continuity, followed by broader resource/grant
 authority. Registered-plugin hold is not full safe boot or revocation and does not
 complete Phase B's gate.
 

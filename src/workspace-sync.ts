@@ -1,6 +1,7 @@
 import { applyAppearance } from './workspace-appearance';
 import type { Workspace } from './model';
 import { workspaceFetch } from './workspace-client';
+import { connectWorkspaceEvents } from './workspace-events';
 let id = '';
 try { id = localStorage.getItem('orbit.workspace.id') || ''; } catch {}
 if (!/^[a-f0-9-]{36}$/.test(id)) { id = crypto.randomUUID(); try { localStorage.setItem('orbit.workspace.id', id); } catch {} }
@@ -86,7 +87,21 @@ export function connectWorkspace(getState: () => Workspace, apply: (state: Works
       if (!document.querySelector('dialog[aria-label="Workspace plugins"]')) void import('./plugin-manager').then(m => m.showPlugins(getToken)).catch(e => status(String(e)));
     }
   });
-  const timer = setInterval(() => { if (getToken() && !pending) void sync().catch(e => status(e.message)); }, 1200);
-  window.addEventListener('pagehide', () => clearInterval(timer), { once: true });
+  const startPolling=()=>setInterval(() => { if (getToken() && !pending) void sync().catch(e => status(e.message)); }, 1200);
+  let timer = startPolling(), suspended=false;
+  // Events are advisory invalidation, not replacement state or acknowledgement.
+  // Coalesce a page into one read, and keep ordinary polling as compatibility fallback.
+  let eventRefresh: ReturnType<typeof setTimeout> | undefined;
+  const refreshFromEvents=()=>{
+    if(eventRefresh!==undefined)return;
+    eventRefresh=setTimeout(()=>{eventRefresh=undefined;if(getToken()&&!pending)void sync().catch(e=>status(e.message));},0);
+  };
+  const startEvents=()=>connectWorkspaceEvents({workspaceId,getToken,onChange:event=>{if(event.payload.revision>revision)refreshFromEvents();},onReset:refreshFromEvents});
+  let events=startEvents();
+  window.addEventListener('pagehide', () => {suspended=true;clearInterval(timer);if(eventRefresh!==undefined)clearTimeout(eventRefresh);eventRefresh=undefined;events.close();});
+  window.addEventListener('pageshow', () => {
+    if(!suspended)return;
+    suspended=false;ready=false;timer=startPolling();events=startEvents();refreshFromEvents();
+  });
   return { changed: () => { changes++; }, sync };
 }

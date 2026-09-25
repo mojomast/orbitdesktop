@@ -82,3 +82,16 @@ are tested. A separate adversarial review identified sync false-success and miss
 backup messages after uncertain responses; those were corrected and covered by
 isolated client regressions. Full safe boot, cached/offline frame revocation and
 backend termination remain outside this increment; no live deployment was changed.
+
+## Bundle registry and event-delivery increment
+
+Schema 3 indexes published bundle/file metadata and workspace-scoped outbox queries.
+Filesystem scans moved out of normal read polling; hashed asset serving verifies the
+exact returned bytes. Publication and pinned-checkpoint restoration were exercised
+through the real built UI in a disposable runtime. Retention includes current state,
+all revisions and checkpoints, but cleanup remains dry-run: no atomic filesystem/DB
+deletion protocol is claimed. Finite authenticated event pages now reach the normal
+browser sync path, with bounded replay and fallback polling. Review found callback
+replay and page lifecycle risks; fixes and focused regressions were added. The test
+suite passes 174 Node tests. Full renderer continuity, real power loss and other
+browser engines remain unverified. No owner deployment or runtime was modified.

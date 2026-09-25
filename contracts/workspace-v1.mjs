@@ -137,3 +137,4 @@ export const contract = {
   operations,commands,
   schema:{$schema:'http://json-schema.org/draft-07/schema#',$id:'urn:orbit:workspace-command:1',$defs:defs,oneOf:Object.values(commands).map(command=>command.input)},
 };
+contract.errors.BUNDLE_UNAVAILABLE='Published bundle is missing, changed or unindexed; verify files and refresh the bundle index';

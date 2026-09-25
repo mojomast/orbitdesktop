@@ -24,6 +24,14 @@ Hermes tools → Workspace plugins, or Ctrl+Alt+P while the parent workspace has
 6. Publish changed files, then `plugin_update` with `plugin_id` and the new manifest. It retains plugin/window identity. Roll back with a workspace checkpoint, which restores the old entry URL and config.
 7. `plugin_disable`, `plugin_remove`, or `plugin_disable_all` detach plugin windows. Removal does not delete published assets. There is no garbage collector yet.
 
+The publisher now registers bundles in an initialized schema-3 SQLite runtime via a
+local Node refresh command. Standalone publishing without a database remains supported.
+Workspace reads use indexed versions; manual file edits require explicit refresh and
+content-addressed files that no longer match indexed digests are not served. Retention
+planning includes current state, every retained revision and every checkpoint. Cleanup
+is **dry-run only**; no referenced bundle is automatically deleted. See
+[Bundle registry](BUNDLE_REGISTRY.md) for upgrade requirements and exact limitations.
+
 All operations can be batched in the controller's existing atomic validated apply. Browser management uses authenticated `plugins_apply` with `base_revision` and `operations`; it only accepts plugin operations. Authentication and origin checks remain in the core.
 
 ## Manifest contract

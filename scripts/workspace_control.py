@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import subprocess
 import tempfile
 import time
 import uuid
@@ -106,6 +107,7 @@ def main():
         result=request('restore',checkpoint_id=args.checkpoint_id,confirm=True,base_revision=args.base_revision,**operation_metadata(args, 'restore'))
     elif args.command == 'publish':
         if not re.fullmatch(r'[a-z0-9][a-z0-9-]{0,60}', args.slug): p.error('App slug must use lowercase letters, digits, and hyphens')
+        if re.fullmatch(r'.+-[a-f0-9]{24}', args.slug): p.error('Content-addressed slugs are reserved for plugin_publish.py; never overwrite an immutable bundle')
         source = Path(args.source).resolve()
         if not (source / 'index.html').is_file(): p.error('Publish a build directory containing index.html')
         apps = RUNTIME / 'apps'; apps.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -123,6 +125,9 @@ def main():
             stage.rename(dest)
         finally:
             if stage.exists(): shutil.rmtree(stage)
+        if (RUNTIME / 'workspace.sqlite').exists():
+            completed = subprocess.run(['node', '--experimental-strip-types', str(ROOT / 'scripts/workspace_bundles.mjs'), 'refresh', '--root', str(RUNTIME.resolve())], capture_output=True, timeout=120)
+            if completed.returncode != 0: raise RuntimeError('Files published, but bundle indexing failed; review the runtime schema and explicitly refresh before opening the app')
         url = '/apps/' + args.slug + '/'
         if args.no_open: print(json.dumps({'published': True, 'url': url, 'opened': False})); return
         operations = [{'action': 'add_window', 'name': args.title or args.slug, 'kind': 'browser', 'url': url}, {'action': 'set_view', 'view': 'windows'}]

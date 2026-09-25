@@ -8,6 +8,15 @@ Orbit is a single-owner agent-customizable workspace. It separates trusted core/
 
 `src/workspace-sync.ts` polls and tracks browser acknowledgement. An acknowledged revision does not prove a widget rendered correctly. Local layout persistence and imports remain supported. Offline changes can be saved server-side; display acknowledgement waits for the browser.
 
+Schema 3 adds an indexed bundle registry and workspace-scoped metadata event queries.
+Normal reads use indexed asset versions; startup/admin publication refresh performs
+filesystem scanning. Hash-addressed asset responses verify indexed bytes before serving.
+Retention plans include all saved revisions/checkpoints and are dry-run only.
+`server/workspace-events.mjs` provides authenticated bounded POST event pages, not SSE;
+`src/workspace-events.ts` keeps an in-memory reconnect cursor and triggers coalesced
+state reads. Ordinary polling remains the fallback. Neither events nor acknowledgement
+prove rendering, and no credentials or terminal/conversation content belong in events.
+
 The owner-only recovery console can persist a registered-plugin activation hold
 outside checkpoint state. Policy generation and candidate-state checks share the
 command transaction. Entering hold disables plugins; release never auto-enables them.

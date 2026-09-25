@@ -9,14 +9,16 @@ import {randomUUID} from 'node:crypto';
 // transport, appearance DOM writes and scheduling are replaced; no owner profile.
 function fixture(responses,{storageFailure=false}={}) {
   const requests=[],statuses=[],storage=new Map(),applied=[];
+  const listeners=new Map(),lifecycle={started:0,closed:0,intervals:0};
   let state={plugins:[],monitors:[]};
   const exports={};
   const context=vm.createContext({exports,crypto:{randomUUID},
     localStorage:{getItem:key=>storage.get(key),setItem:(key,value)=>{if(storageFailure)throw Error('quota');storage.set(key,value);}},
     document:{querySelectorAll:()=>[],querySelector:()=>null},
-    window:{addEventListener:()=>{}},setInterval:()=>1,clearInterval:()=>{},
+    window:{addEventListener:(name,callback)=>listeners.set(name,callback)},setInterval:()=>++lifecycle.intervals,clearInterval:()=>{},setTimeout:()=>1,clearTimeout:()=>{},
     require:name=>{
       if(name==='./workspace-appearance')return {applyAppearance:()=>{}};
+      if(name==='./workspace-events')return {connectWorkspaceEvents:()=>{lifecycle.started++;return {close:()=>{lifecycle.closed++;},poll:async()=>{}};}};
       if(name==='./workspace-client')return {workspaceFetch:async(_token,body)=>{
         requests.push(body);const next=responses.shift();assert.ok(next,'Unexpected extra request');
         if(next.transportError)throw Error('timeout');
@@ -28,7 +30,7 @@ function fixture(responses,{storageFailure=false}={}) {
   const source=fs.readFileSync(new URL('../src/workspace-sync.ts',import.meta.url),'utf8');
   vm.runInContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,context);
   const connection=exports.connectWorkspace(()=>state,next=>{state=next;applied.push(next);},()=> 'fixture-token',message=>statuses.push(message));
-  return {connection,flush:exports.ensureWorkspaceSynced,requests,statuses,storage,applied,edit:next=>{state=next;connection.changed();}};
+  return {connection,flush:exports.ensureWorkspaceSynced,requests,statuses,storage,applied,lifecycle,dispatch:name=>listeners.get(name)?.(),edit:next=>{state=next;connection.changed();}};
 }
 for(const category of ['RECOVERY_HOLD','RECOVERY_POLICY_CHANGED'])test(`${category} forces a read, backs up local state, never retries the mutation`,async()=>{
   const saved={plugins:[],monitors:[]},local={plugins:[{enabled:true}],monitors:[]};
@@ -63,4 +65,11 @@ test('failed local backup is disclosed rather than claiming saved recovery data'
   await f.connection.sync();f.edit({...state,arc:12});await assert.rejects(f.connection.sync());await f.connection.sync();
   assert.equal(f.storage.has('orbit.workspace.conflict-backup'),false);
   assert.match(f.statuses.at(-1),/backup unavailable/);
+});
+
+test('pagehide suspends both polling paths and pageshow restarts them once',()=>{
+  const f=fixture([]);assert.deepEqual(f.lifecycle,{started:1,closed:0,intervals:1});
+  f.dispatch('pagehide');assert.deepEqual(f.lifecycle,{started:1,closed:1,intervals:1});
+  f.dispatch('pageshow');f.dispatch('pageshow');assert.deepEqual(f.lifecycle,{started:2,closed:1,intervals:2});
+  f.dispatch('pagehide');assert.equal(f.lifecycle.closed,2);
 });

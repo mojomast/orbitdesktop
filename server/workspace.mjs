@@ -9,6 +9,7 @@ import { tokenMatches, allowedRequest } from './security.mjs';
 import { validateWorkspaceRequest, workspaceLimits } from './workspace-contract.mjs';
 import { SqliteWorkspaceStore } from './sqlite-workspace-store.mjs';
 import { commandIdentity } from './command-identity.mjs';
+import { isContentAddressedBundle } from './bundle-registry.mjs';
 
 export const runtimeRoot = path.resolve(process.env.ORBIT_RUNTIME_DIR || fileURLToPath(new URL('../.runtime/', import.meta.url)));
 const slugPattern = /^[a-z0-9][a-z0-9-]{0,60}$/;
@@ -20,24 +21,10 @@ export function createWorkspaceService({ token, port, devOrigins, reply: sendRep
     return sendReply(res,status,body);
   };
   fs.mkdirSync(path.join(root, 'apps'), { recursive: true, mode: 0o700 });
+  store.bundles.refresh();
   const read = id => store.read(id);
   store.reconcileConnections(`http://127.0.0.1:${port}`);
-  const appVersions = () => {
-    const versions = {};
-    let entries;
-    try {entries=fs.readdirSync(path.join(root, 'apps'), { withFileTypes: true });}catch {return versions;}
-    for (const entry of entries) {
-      if (!entry.isDirectory() || !slugPattern.test(entry.name)) continue;
-      let stamp = 0;
-      const walk = dir => { for (const item of fs.readdirSync(dir, { withFileTypes: true })) {
-        if (item.isSymbolicLink() || item.name.startsWith('.')) continue;
-        const file = path.join(dir, item.name); const stat = fs.statSync(file); stamp = Math.max(stamp, stat.mtimeMs);
-        if (item.isDirectory()) walk(file);
-      } };
-      try { const dir = path.join(root, 'apps', entry.name); stamp = fs.statSync(dir).mtimeMs; walk(dir); versions[entry.name] = stamp; } catch {}
-    }
-    return versions;
-  };
+  const appVersions = () => store.bundles.versions();
   const snapshot = (r,versions) => ({ ...(versions?{app_versions:versions}:{}), workspace_id: r.id, revision: r.revision, state: r.state, recovery_policy: r.recovery_policy || {held:false,generation:0}, observed_revision: r.observed_revision || 0, browser_seen: r.browser_seen || null });
   const safe = (r,includeAssets=true) => snapshot(r,includeAssets?appVersions():null);
   async function handle(req, res, control = false, recovery = false) {
@@ -127,10 +114,10 @@ export function createWorkspaceService({ token, port, devOrigins, reply: sendRep
       return reply(res,200,safe(record));
     } catch (e) {
       const category=e.category||(e.code==='SQLITE_BUSY'?'RESOURCE_BUSY':e.code?.startsWith('SQLITE_')?'STORE_UNAVAILABLE':'INVALID_OPERATION');
-      const status={REVISION_CONFLICT:409,IDEMPOTENCY_CONFLICT:409,RECOVERY_HOLD:409,RECOVERY_POLICY_CHANGED:409,UPGRADE_REQUIRED:409,PERMISSION_REQUIRED:403,RESOURCE_GONE:404,RESOURCE_BUSY:503,STORE_UNAVAILABLE:503,REQUEST_TOO_LARGE:413}[category]||400;
+      const status={REVISION_CONFLICT:409,IDEMPOTENCY_CONFLICT:409,RECOVERY_HOLD:409,RECOVERY_POLICY_CHANGED:409,BUNDLE_UNAVAILABLE:409,UPGRADE_REQUIRED:409,PERMISSION_REQUIRED:403,RESOURCE_GONE:404,RESOURCE_BUSY:503,STORE_UNAVAILABLE:503,REQUEST_TOO_LARGE:413}[category]||400;
       let current={};
       if(category==='REVISION_CONFLICT')try {current=safe(read(body.workspace_id),!recovery);} catch {}
-      return reply(res,status,{error:category==='REVISION_CONFLICT'?'Workspace changed; read and reconsider':'Workspace request could not be completed',category,...current});
+      return reply(res,status,{error:category==='REVISION_CONFLICT'?'Workspace changed; read and reconsider':category==='BUNDLE_UNAVAILABLE'?'Published bundle is unavailable or changed; verify files and refresh the bundle index':'Workspace request could not be completed',category,...current});
     }
   }
   function context(id) {
@@ -152,8 +139,10 @@ export function createWorkspaceService({ token, port, devOrigins, reply: sendRep
       if (!target.startsWith(base + path.sep) || !fs.statSync(target).isFile()) throw Error();
       const types = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.woff': 'font/woff', '.wasm': 'application/wasm', '.txt': 'text/plain', '.csv': 'text/csv' };
       const type = types[path.extname(target).toLowerCase()]; if (!type) throw Error();
+      const relative=pieces.slice(2).join('/')+((pathname.endsWith('/')||pieces.length===2)?(pieces.length>2?'/index.html':'index.html'):'');
+      const bytes=isContentAddressedBundle(slug)?store.bundles.resolveFile(slug,relative).bytes:fs.readFileSync(target);
       res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer', 'Access-Control-Allow-Origin': '*', ...(type === 'text/html' ? { 'Content-Security-Policy': "sandbox allow-scripts allow-forms allow-modals allow-downloads; default-src 'self' https: data: blob:; script-src 'self' https: 'unsafe-inline' 'unsafe-eval'; style-src 'self' https: 'unsafe-inline'; connect-src 'self' https:; frame-ancestors 'self'" } : {}) });
-      res.end(req.method === 'HEAD' ? undefined : fs.readFileSync(target));
+      res.end(req.method === 'HEAD' ? undefined : bytes);
     } catch { res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('App file not found'); }
   }
   return { handle, context, serveApp, read, store, close:()=>store.close() };

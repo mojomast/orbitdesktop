@@ -1,0 +1,30 @@
+# Indexed static plugin bundles
+
+The bundle registry is an index in the authoritative workspace SQLite database, not a package manager, signature verifier, or replacement for workspace checkpoints. Its root is the configured runtime directory; the publisher writes under `ROOT/apps`. The application layout format and plugin API-v1 manifest are unchanged. A hash-addressed entry is `/apps/<plugin-id>-<24-lowercase-hex>/index.html`.
+
+## Publication and refresh
+
+`python3 scripts/plugin_publish.py BUILD --id NAME --version 1.0.0 --title TITLE --runtime ROOT` computes SHA-256 over the sorted bundle files. Each file contributes an unsigned 64-bit big-endian pathname byte length, UTF-8 POSIX pathname bytes, unsigned 64-bit big-endian content length, and the exact content bytes; the slug contains the first 24 hexadecimal digest characters. The publisher rejects hidden files and symlinks and caps bundles at 500 files / 20,000,000 bytes. Reusing a slug requires the **exact** existing file tree, not just matching expected files. Keep older slugs for rollback.
+
+After successful publication against an initialized SQLite runtime, the publisher invokes the local Node admin refresh. Standalone publication without `workspace.sqlite` continues to work; it does not create a database. If refresh fails, treat publication as incomplete for an indexed workspace and run the refresh explicitly after diagnosis. The local operator commands are:
+
+```sh
+node --experimental-strip-types scripts/workspace_bundles.mjs refresh --root /absolute/runtime
+node --experimental-strip-types scripts/workspace_bundles.mjs plan --root /absolute/runtime
+```
+
+The CLI requires an existing **schema-3** runtime and refuses to upgrade an old database as a side effect of publication. It uses `SqliteWorkspaceStore` and its SQLite handle rather than maintaining a second writable authority. It prints registry metadata/cleanup plans, not credentials; plans include private workspace/checkpoint IDs and should not be published casually. Do not point it at an owner's live runtime as a test, and coordinate schema upgrades with all other writers. Refresh runs at server startup or through this admin command; normal workspace reads use SQLite and no longer recursively rescan app files. A successful index record describes what was checked at refresh time, **not** ongoing filesystem immutability. The generic controller publisher refreshes legacy bundle metadata after writing, but refuses content-addressed slugs so it cannot overwrite a pinned plugin bundle.
+
+## Integration contract
+
+`server/bundle-registry.mjs` exports `bundleSchemaSql` (execute in the store's transactional schema upgrade) and `createBundleRegistry({db, root})`. The returned registry supports `refresh()`, `versions()`, `list()`, `validateState(state, {previousState}?)`, `references(state)`, `cleanupPlan()`, `resolveFile(slug, relative='index.html')`, and `verifyFile(slug, relative, bytes)`. `resolveFile` returns `{bytes, digest, relative, slug}`: serve those exact checked bytes, rather than opening the path again. Alternatively, verify the exact bytes to be sent with `verifyFile`. Wire startup/admin refresh explicitly and use indexed `versions()` for legacy numeric `app_versions`. Registry errors on unavailable hash-addressed activation/new references use category `BUNDLE_UNAVAILABLE`; callers should preserve that category in API errors. Existing non-hashed legacy app paths remain compatible but are unverified and should be surfaced as diagnostics rather than described as immutable.
+
+The store calls validation at the command boundary with `{previousState, onlyChanged:true}`. This checks newly introduced references and newly activated paths without letting unchanged broken references trap unrelated edits or recovery. The standalone default checks all active references; `{previousState}` additionally checks new inactive registrations. Manual checkpoint saves and recovery-policy transitions are not prevented by broken bundles. A restore that newly activates an indexed-unavailable hashed entry fails; disabling it remains possible. Availability during commit is an indexed snapshot, not a fresh disk scan. Actual content-addressed HTTP serving checks exact bytes, rejecting changed, missing, unexpected or symlinked files even when the index has not yet been refreshed. Legacy serving remains compatible and is not given an immutable-content guarantee.
+
+Relative app references are normalized for validation/retention. Absolute HTTP(S) app URLs conservatively retain matching local slugs, but are not validated as local bundles because they may name another host. This can over-retain files, intentionally. The registry cannot prove browser rendering succeeded; inspect the iframe and browser acknowledgement separately.
+
+## Retention and cleanup
+
+Current workspace records, **all retained revisions**, and **all checkpoints** retain their referenced bundles. Deleting a revision or checkpoint changes the retention set. `cleanupPlan()` is a dry-run inventory, not permission to delete files; `prune(slugs, {confirm:true})` remains dry-run-only and reports `deleted:[]`. No automatic filesystem pruning or server prune route is provided in this slice: safe deletion would require a final reference check under an SQLite IMMEDIATE writer lock plus a same-filesystem rename into private trash before unlink, while coordinating with active file serving and publishers. Never manually delete a bundle merely because the current layout does not use it. A missing referenced bundle must remain visible in registry metadata for repair, not be silently forgotten.
+
+The hash is a content identifier, not a trusted publisher identity. An operator with filesystem write access can mutate assets after indexing; serving must compare bytes with indexed per-file digests and fail closed for a mismatch, unexpected file or symlink. Legacy nonhashed folders are not verified immutable. Neither SQLite backup nor layout checkpoints include bundle bytes: preserve the entire app-bundle directory separately and test restore behavior before cleanup.

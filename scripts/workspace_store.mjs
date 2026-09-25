@@ -21,8 +21,8 @@ try {
     try {
       source=new Database(options.source,{readonly:true,fileMustExist:true});
       const version=source.pragma('user_version',{simple:true});
-      if(version>2)throw Object.assign(Error('UPGRADE_REQUIRED'),{category:'UPGRADE_REQUIRED'});
-      if(options.source!==options.source.trim()||source.pragma('quick_check',{simple:true})!=='ok'||![1,2].includes(version)||source.prepare("SELECT value FROM store_metadata WHERE key='bootstrap_complete'").get()?.value!=='1')throw Error('BACKUP_INVALID');
+      if(version>3)throw Object.assign(Error('UPGRADE_REQUIRED'),{category:'UPGRADE_REQUIRED'});
+      if(options.source!==options.source.trim()||source.pragma('quick_check',{simple:true})!=='ok'||![1,2,3].includes(version)||source.prepare("SELECT value FROM store_metadata WHERE key='bootstrap_complete'").get()?.value!=='1')throw Error('BACKUP_INVALID');
       const destination=path.join(stage,'workspace.sqlite');fs.closeSync(fs.openSync(destination,'wx',0o600));
       await source.backup(destination);source.close();source=undefined;
       const store=new SqliteWorkspaceStore(stage);

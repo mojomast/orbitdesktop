@@ -91,4 +91,9 @@ class CommandAdapters(unittest.TestCase):
         for url in ("https://example.com", "http://localhost", "http://u:p@127.0.0.1", "http://127.0.0.1/path", "file:///tmp/test"):
             with self.subTest(url=url), self.assertRaises(ValueError): control.endpoint(url)
 
+    def test_generic_publisher_cannot_overwrite_content_addressed_slug(self):
+        with mock.patch.object(control, "open_workspace", return_value=Response({"revision": 5})), self.assertRaises(SystemExit):
+            self.cli("publish", str(self.root / "unused-source"), "widget-" + "a" * 24, "--no-open")
+        self.assertFalse((self.root / "apps").exists())
+
 if __name__ == "__main__": unittest.main()

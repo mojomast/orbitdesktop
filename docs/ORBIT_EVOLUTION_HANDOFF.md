@@ -1,6 +1,72 @@
 # Evolution handoff — September 25, 2026
 
-## Latest increment: persistent registered-plugin recovery hold
+## Latest increment: bundle index and scoped event delivery
+
+This supersedes schema/event/bundle status in the older sections below. **SQLite is
+now schema 3; serialized workspace layout and plugin manifests remain v1.** No live
+runtime was migrated, no service restarted, and nothing was pushed or deployed.
+
+Implemented in parallel:
+- A SQLite bundle/file index with publisher-compatible hashes, explicit startup/admin
+  refresh and indexed `app_versions`. Normal workspace reads no longer recursively
+  scan application directories. The publisher validates exact reuse and registers
+  bundles via the local Node CLI; the generic publisher cannot overwrite hash slugs.
+- Indexed new/activated relative bundle-reference validation at the store boundary.
+  Existing broken refs cannot trap disable/recovery edits. HTTP serving of hash-addressed
+  bundles checks exact file bytes against stored digests, including stale-index cases.
+  Legacy nonhashed apps remain compatible but unverified. Database backup includes
+  metadata, not app bytes; retain those directories separately.
+- Retention inventory includes current records, all retained revisions/checkpoints,
+  disabled plugin manifests and saved split panes. Absolute app URLs conservatively
+  retain matching local slugs without claiming remote verification. **Cleanup is
+  dry-run only**, even with confirmation: no destructive GC is shipped.
+- Owner/capability-authenticated finite POST event pages, filtered by workspace before
+  limit. Last-1000-event retrieval horizon, explicit expired/future-cursor reset,
+  strict metadata allowlists and byte/page budgets. This is polling, **not SSE/push**.
+  The outbox itself remains unpruned.
+- Browser in-memory cursors, bounded catch-up, abortable requests, coalesced sync hints,
+  existing state-polling fallback, and pagehide/pageshow suspension/resumption.
+  Callback errors request snapshot reset instead of replaying one event forever.
+
+Migration: schema 1/2 upgrades transactionally on core/admin store open. Bundle
+refresh/publication refuses older schema rather than silently upgrading a running
+old deployment. Stop old writers and arrange terminal preservation before cutover.
+Schema 3 backups and restores preserve recovery policy/receipts and bundle metadata.
+
+Verification: build and **174/174 Node tests passed**, no skips, including schema-3
+SIGKILL rollback, publisher-to-live-index integration, modified-byte serving refusal,
+checkpoint-pinned version restore, retention, scoped cursors and client lifecycle.
+Eight Python adapter/publisher/archive suites passed **55/55 tests**, including
+regenerated source parity. Chromium fixture recovery **13/13 passed**; real broken-renderer
+recovery/hold passed. The normal built UI test passed actual scoped event delivery,
+publish/render of two indexed plugin versions and checkpoint restoration of the
+original version. This does **not** prove iframe document continuity. Two browser
+harness issues were corrected during testing: response bodies are captured after
+request completion, and fixture localStorage seeding runs only in the top frame.
+`npm audit`: zero vulnerabilities.
+
+Logs: `/tmp/opencode/orbit-bundles-events-check.log` and
+`/tmp/opencode/orbit-bundles-events-python.log`. Reproduction uses existing handoff
+commands plus `node --experimental-strip-types scripts/workspace_bundles.mjs
+refresh|plan --root /absolute/runtime` for deliberate owner administration only.
+
+All child work and descendants complete:
+- Bundle registry/publisher/retention: `ses_f260e58f6ffe1NV0ze0anVZyrg`.
+- Event endpoint/client: `ses_f260e0930ffeePlenkwNsLqdU3`.
+- Read-only event reliability audit: `ses_f26096facffenSElTFbFmr7h0X`.
+Lead integrated schema/store/routes, exact-byte serving, normal UI event lifecycle,
+publisher compatibility, cross-module tests, browser verification and documentation.
+
+Next gate: renderer/surface-runtime continuity research and a measured isolated
+50-transition iframe/PTY/draft test before selecting docking architecture. Broader
+resource grants, safe boot, revocation and broker authority remain unimplemented.
+Do not conflate metadata events, content hashes or a registered-plugin hold with
+permission isolation. Destructive bundle GC needs its own publication/serving/writer
+coordination design; every retained revision currently keeps its references alive.
+
+## Historical recovery-hold increment
+
+### Persistent registered-plugin recovery hold
 
 This section supersedes the recovery-policy and schema status in the historical
 transactional-store increment below. Layout remains v1; **SQLite schema is now 2**.

@@ -38,8 +38,8 @@ with tempfile.TemporaryDirectory(prefix="orbit-store-browser-") as temporary:
     server = subprocess.Popen([shutil.which("node"), "--experimental-strip-types", "server/index.mjs"], cwd=root,
                               env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    def api(action):
-        request = urllib.request.Request(origin + "/api/workspace", data=json.dumps({"workspace_id": workspace, "action": action}).encode(),
+    def api(action, **fields):
+        request = urllib.request.Request(origin + "/api/workspace", data=json.dumps({"workspace_id": workspace, "action": action, **fields}).encode(),
                                          headers={"Origin": origin, "Authorization": "Bearer " + token, "Content-Type": "application/json"})
         with urllib.request.urlopen(request, timeout=5) as response:
             return json.load(response)
@@ -55,12 +55,17 @@ with tempfile.TemporaryDirectory(prefix="orbit-store-browser-") as temporary:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True, args=["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"])
             context = browser.new_context(viewport={"width": 1440, "height": 1000})
-            context.add_init_script("localStorage.setItem('orbit.workspace.id', " + json.dumps(workspace) + "); localStorage.setItem('orbit.workspace.v1', JSON.stringify(" + json.dumps(state) + ")); ")
+            context.add_init_script("if(window === window.top) { localStorage.setItem('orbit.workspace.id', " + json.dumps(workspace) + "); localStorage.setItem('orbit.workspace.v1', JSON.stringify(" + json.dumps(state) + ")); }")
             page = context.new_page()
-            errors, calls, sockets = [], [], []
+            errors, calls, sockets, event_pages = [], [], [], []
             page.on("pageerror", lambda error: errors.append(str(error)))
             page.on("websocket", lambda socket: sockets.append(socket.url))
             page.on("request", lambda request: calls.append(request.post_data_json) if request.url == origin + "/api/workspace" and request.method == "POST" else None)
+            def capture_event_page(request):
+                if request.url == origin + "/api/workspace/events":
+                    response = request.response()
+                    event_pages.append((response.status, response.json()))
+            page.on("requestfinished", capture_event_page)
             page.goto(origin + "/", wait_until="networkidle")
             page.keyboard.press("Escape")
             page.get_by_role("button", name="Connect local host", exact=True).click()
@@ -87,12 +92,34 @@ with tempfile.TemporaryDirectory(prefix="orbit-store-browser-") as temporary:
             assert all(call.get("operation_id") and call.get("intent") for call in syncs)
             assert [call["base_revision"] for call in syncs] == [0, 1]
             assert all("base_revision" not in call for call in calls if call["action"] == "read")
+            for _ in range(50):
+                if any(status == 200 and any(event["payload"]["revision"] == 2 for event in body["events"]) for status, body in event_pages): break
+                page.wait_for_timeout(100)
+            else: raise AssertionError("Built UI did not receive revision 2 through scoped event polling")
+            assert all(status == 200 and body["workspace_id"] == workspace for status, body in event_pages)
+            assert all("state" not in event["payload"] and "capability" not in event["payload"] for _, body in event_pages for event in body["events"])
+            # Publish into this disposable runtime through the real Python/Node
+            # index path, then render both pinned versions and restore the first.
+            def publish(text, version):
+                source = root / ("fixture-" + version)
+                source.mkdir()
+                (source / "index.html").write_text("<!doctype html><h1>" + text + "</h1>")
+                return json.loads(subprocess.check_output([shutil.which("python3"), str(ROOT / "scripts/plugin_publish.py"), str(source), "--id", "browser-fixture", "--version", version, "--title", "Indexed browser fixture", "--runtime", str(root / "runtime")], env={"PATH": os.environ["PATH"]}))
+            old = publish("Original indexed bundle", "1.0.0")
+            new = publish("Updated indexed bundle", "2.0.0")
+            installed = api("plugins_apply", base_revision=after["revision"], operations=[{"action": "plugin_install", "manifest": old}, {"action": "plugin_enable", "plugin_id": old["id"]}])
+            expect(page.frame_locator('iframe[src*="' + old["entry"] + '"]').get_by_role("heading", name="Original indexed bundle")).to_be_visible(timeout=15000)
+            checkpoint = api("checkpoint", label="Browser fixture original bundle")["checkpoint"]
+            updated = api("plugins_apply", base_revision=installed["revision"], operations=[{"action": "plugin_update", "plugin_id": old["id"], "manifest": new}])
+            expect(page.frame_locator('iframe[src*="' + new["entry"] + '"]').get_by_role("heading", name="Updated indexed bundle")).to_be_visible(timeout=15000)
+            api("restore", base_revision=updated["revision"], checkpoint_id=checkpoint, confirm=True)
+            expect(page.frame_locator('iframe[src*="' + old["entry"] + '"]').get_by_role("heading", name="Original indexed bundle")).to_be_visible(timeout=15000)
             assert (root / "runtime/workspace.sqlite").is_file()
             discovery = json.loads((root / "runtime/workspace-access" / (workspace + ".json")).read_text())
             assert "state" not in discovery and discovery["storage"] == "sqlite-v1"
             assert not sockets, "Browser-only fixture must not attach a PTY"
             assert not errors, errors
-            print(f"PASS normal UI: authenticated initial sync + sidebar edit, two keyed commands, pre-change checkpoint, SQLite authority; Chromium {browser.version}")
+            print(f"PASS normal UI: keyed sync, SQLite checkpoint, scoped events, indexed bundle publish/update/render and original-version restore; Chromium {browser.version}")
             context.close(); browser.close()
     finally:
         server.terminate()

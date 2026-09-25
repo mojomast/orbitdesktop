@@ -18,7 +18,8 @@
     "PERMISSION_REQUIRED": "Workspace authentication required",
     "RESOURCE_GONE": "Workspace or resource unavailable",
     "UPGRADE_REQUIRED": "Client cannot write this workspace version",
-    "REQUEST_TOO_LARGE": "Workspace request exceeds the byte budget"
+    "REQUEST_TOO_LARGE": "Workspace request exceeds the byte budget",
+    "BUNDLE_UNAVAILABLE": "Published bundle is missing, changed or unindexed; verify files and refresh the bundle index"
   },
   "operations": {
     "set_spatial_camera": {

@@ -5,6 +5,7 @@ import {randomUUID, createHash} from 'node:crypto';
 import {validate} from '../src/model.ts';
 import {applyOperation} from '../src/workspace-ops.ts';
 import {canonicalJson} from './command-identity.mjs';
+import {bundleSchemaSql,createBundleRegistry} from './bundle-registry.mjs';
 
 const uuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
 const checkId = id => { if(typeof id!=='string'||!uuid.test(id))throw failure('INVALID_OPERATION'); return id; };
@@ -31,7 +32,7 @@ export class SqliteWorkspaceStore {
     this.db=new Database(this.filename,{timeout:busyTimeoutMs});
     try {
       const version=this.db.pragma('user_version',{simple:true});
-      if(version>2)throw failure('UPGRADE_REQUIRED');
+      if(version>3)throw failure('UPGRADE_REQUIRED');
       if(exists&&version===0&&!legacyPresent&&!importLegacy)throw failure('STORE_UNINITIALIZED');
       fs.chmodSync(this.filename,0o600);
       this.db.pragma('foreign_keys = ON');
@@ -39,7 +40,7 @@ export class SqliteWorkspaceStore {
       this.db.pragma('synchronous = FULL');
       this.db.pragma(`busy_timeout = ${busyTimeoutMs}`);
       const ready=version>=1&&this.db.prepare("SELECT value FROM store_metadata WHERE key='bootstrap_complete'").get()?.value==='1';
-      if(version===2&&!ready)throw failure('INVALID_STORE');
+      if(version>=2&&!ready)throw failure('INVALID_STORE');
       if(!ready) {
         if(legacyPresent&&!importLegacy)throw failure('MIGRATION_REQUIRED');
         const legacy=legacyPresent?this.loadLegacy():{records:[],checkpoints:[],originals:[]};
@@ -67,7 +68,7 @@ export class SqliteWorkspaceStore {
       // restartable. Upgrade under the writer lock; old binaries refuse v2.
       this.db.transaction(()=>{
         const current=this.db.pragma('user_version',{simple:true});
-        if(current>2)throw failure('UPGRADE_REQUIRED');
+        if(current>3)throw failure('UPGRADE_REQUIRED');
         if(current===1) {
           this.db.exec(`
             ALTER TABLE receipts ADD COLUMN policy_generation INTEGER NOT NULL DEFAULT 0 CHECK(policy_generation>=0);
@@ -77,6 +78,16 @@ export class SqliteWorkspaceStore {
           this.db.pragma('user_version = 2');
         }
       }).immediate();
+      this.db.transaction(()=>{
+        const current=this.db.pragma('user_version',{simple:true});
+        if(current>3)throw failure('UPGRADE_REQUIRED');
+        if(current===2) {
+          this.db.exec(bundleSchemaSql);
+          this.db.exec("CREATE INDEX IF NOT EXISTS events_workspace_sequence ON events(json_extract(event_json,'$.workspace_id'),sequence)");
+          this.db.pragma('user_version = 3');
+        }
+      }).immediate();
+      this.bundles=createBundleRegistry({db:this.db,root:this.root});
       // Rebuildable discovery only. Frozen original workspace JSON is never updated.
       this.reconcileConnections();
     } catch(error) {this.db.close(); throw error;}
@@ -188,6 +199,9 @@ export class SqliteWorkspaceStore {
         // Gate the final validated state for every mutation, including whole-state
         // sync/restore. Policy is authoritative metadata, never checkpoint state.
         if(record.recovery_policy.held && record.state.plugins?.some(plugin=>plugin.enabled||record.state.monitors.some(monitor=>monitor.id===plugin.window.id)))throw failure('RECOVERY_HOLD');
+        // Check indexed new/activated references without scanning the filesystem
+        // under the writer lock. Existing broken refs must not trap recovery edits.
+        if(!change.checkpointOnly && transition===undefined)this.bundles.validateState(record.state,{previousState:previous?.state,onlyChanged:true});
         if(change.api)record.api=change.api;
         this.putRecord(record);
         if(!previous||record.revision!==previous.revision)this.putRevision(record,now);
@@ -246,6 +260,25 @@ export class SqliteWorkspaceStore {
   eventsAfter(cursor,limit=100) {
     if(!safeInteger(cursor)||!safeInteger(limit,1)||limit>1000)throw failure('INVALID_OPERATION');
     return this.db.prepare('SELECT sequence,event_json FROM events WHERE sequence>? ORDER BY sequence LIMIT ?').all(cursor,limit).map(({sequence,event_json})=>({...JSON.parse(event_json),sequence}));
+  }
+  eventPage(id,cursor=0,limit=100) {
+    checkId(id);
+    if(!safeInteger(cursor)||!safeInteger(limit,1)||limit>100)throw failure('INVALID_OPERATION');
+    return this.db.transaction(()=>{
+      this.read(id);
+      // Scope before ordering/limiting. Never advance a cursor using another
+      // workspace's event, including when this workspace has no new events.
+      const latest=this.db.prepare("SELECT sequence FROM events WHERE json_extract(event_json,'$.workspace_id')=? ORDER BY sequence DESC LIMIT 1").get(id)?.sequence||0;
+      const expiredThrough=this.db.prepare("SELECT sequence FROM events WHERE json_extract(event_json,'$.workspace_id')=? ORDER BY sequence DESC LIMIT 1 OFFSET 1000").get(id)?.sequence||0;
+      if(cursor>latest || cursor<expiredThrough)return {workspace_id:id,events:[],cursor:latest,has_more:false,reset_required:true};
+      const rows=this.db.prepare("SELECT sequence,event_json FROM events WHERE json_extract(event_json,'$.workspace_id')=? AND sequence>? ORDER BY sequence LIMIT ?").all(id,cursor,limit+1);
+      const events=rows.slice(0,limit).map(({sequence,event_json})=>{
+        const event=JSON.parse(event_json),payload=event.payload||{};
+        // Explicit allowlist, not a spread of a future event's private payload.
+        return {sequence,type:event.type,timestamp:event.timestamp,causation_id:event.causation_id,correlation_id:event.correlation_id,payload:{action:payload.action,revision:payload.revision,changed:payload.changed,...(payload.recovery_policy?{recovery_policy:{held:payload.recovery_policy.held,generation:payload.recovery_policy.generation}}:{})}};
+      });
+      return {workspace_id:id,events,cursor:events.at(-1)?.sequence??cursor,has_more:rows.length>limit,reset_required:false};
+    }).deferred();
   }
   async backup(destination) {
     destination=path.resolve(destination);
