@@ -174,6 +174,7 @@ wss.on("connection", (ws) => {
     ws.ping();
   }, 15000);
   ws.on("pong", () => (lastSeen = Date.now()));
+  let historyPane = null, historyBusy = false;
   ws.on("message", (raw) => {
     let m;
     try {
@@ -201,7 +202,8 @@ wss.on("connection", (ws) => {
         authed = true;
         pending--;
         sessions.add(shell);
-        send({ type: "ready", protocol: 1, user: os.userInfo().username, host: os.hostname(), cwd: process.env.ORBIT_CWD || os.homedir() });
+        historyPane = m.pane_id;
+        send({ type: "ready", history: true, protocol: 1, user: os.userInfo().username, host: os.hostname(), cwd: process.env.ORBIT_CWD || os.homedir() });
         shell.onData((data) => {
           outstanding += data.length;
           send({ type: "data", data });
@@ -224,6 +226,15 @@ wss.on("connection", (ws) => {
         });
         ws.close(1011, "Spawn failed");
       }
+      return;
+    }
+    if (m.type === 'history') {
+      if (historyBusy) return;
+      historyBusy = true;
+      import('./local-host.mjs').then(({ captureHistory }) => captureHistory(historyPane))
+        .then(text => send({ type: 'history', text }))
+        .catch(() => send({ type: 'history', error: 'Retained history unavailable (legacy shell, missing session, or capture limit exceeded).' }))
+        .finally(() => { historyBusy = false; });
       return;
     }
     if (

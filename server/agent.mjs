@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { createSharedChats } from './shared-chats.mjs';
 import { automation } from './automation.mjs';
 import { tokenMatches, allowedRequest } from './security.mjs';
 import { createBuildQueue } from './build-queue.mjs';
@@ -25,6 +26,12 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
     return r.json();
   }
   let buildQueue;
+  const shared = createSharedChats(fileURLToPath(new URL('../.runtime/shared-chats/', import.meta.url)));
+  function validatePane(body) {
+    const record = JSON.parse(fs.readFileSync(new URL(`../.runtime/workspaces/${body.workspace_id}.json`, import.meta.url), 'utf8'));
+    const contains = layout => layout.type === 'pane' ? layout.pane.id === body.pane_id && layout.pane.kind === 'agent' : contains(layout.first) || contains(layout.second);
+    if (!record.state.monitors.some(m => contains(m.layout))) throw Error('Chat pane is not open in this workspace');
+  }
   return async function agent(req, res) {
     if (req.method !== 'POST' || !allowedRequest(req, port, devOrigins)) return reply(res, 403, { error: 'Origin rejected' });
     const auth = req.headers.authorization || '';
@@ -41,6 +48,22 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
       let body;
       try { body = JSON.parse(raw); } catch { return reply(res, 400, { error: 'Invalid JSON' }); }
       if (!body || typeof body !== 'object' || !sessionPattern.test(body.session_id || '')) return reply(res, 400, { error: 'Invalid Orbit conversation.' });
+      if (body.pane_id) {
+        if (!/^[a-f0-9-]{36}$/.test(body.workspace_id || '') || !/^[a-f0-9-]{36}$/.test(body.pane_id)) return reply(res,400,{error:'Invalid shared pane'});
+        validatePane(body);
+        if (body.action === 'shared_chat') {
+          if(body.replace === true) {
+            const current = shared.read(body.workspace_id,body.pane_id);
+            if(current?.run || current?.session !== body.session_id || !sessionPattern.test(body.initial?.session || '')) return reply(res,409,{error:'Conversation changed or is still running.'});
+            shared.write(body.workspace_id,body.pane_id,{session:body.initial.session,messages:(body.initial.messages || []).filter(m=>['user','assistant'].includes(m.role)&&typeof m.text==='string').slice(-100)});
+          }
+          const state = shared.bind(body.workspace_id,body.pane_id,body.initial);
+          return reply(res,200,{state});
+        }
+        const linked = shared.read(body.workspace_id,body.pane_id);
+        if (body.action === 'start' && !linked) return reply(res,409,{error:'This chat has not linked yet. Open it on the desktop and reload once.'});
+        if (linked && linked.session !== body.session_id) return reply(res,409,{error:'This pane is linked to another conversation. Wait for synchronization.'});
+      }
       if (body.action === 'build_queue') {
         buildQueue ||= createBuildQueue({ directory: fileURLToPath(new URL('../.runtime/build-queue/', import.meta.url)), upstream, context: workspaceContext });
         try {
@@ -116,6 +139,14 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
       }
       if (body.action === 'start') {
         if (typeof body.input !== 'string' || !body.input.trim() || body.input.length > 100000) return reply(res, 400, { error: 'Enter a message of 1–100,000 characters.' });
+        const lock = body.session_id;
+        if(shared.locks.has(lock)) return reply(res,409,{error:'A message is already starting in this conversation.'});
+        if(body.pane_id) {
+          const current = shared.read(body.workspace_id,body.pane_id);
+          if(current?.run) return reply(res,409,{error:'This conversation is already running on another device.'});
+        }
+        shared.locks.add(lock);
+        try {
         // Older Hermes Runs implementations persist sessions but do not reload
         // their transcripts automatically. Supply bounded conversational history
         // from the authenticated session API (never from untrusted client roles).
@@ -138,7 +169,12 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
           catch { return reply(res, 409, { error: 'Workspace has not synced yet. Wait for workspace connection and retry.' }); }
         }
         const data = await upstream('/v1/runs', { input: body.input.trim(), session_id: body.session_id, instructions: instructions + context, conversation_history });
+        if(body.pane_id) {
+          const current = shared.read(body.workspace_id,body.pane_id) || {session:body.session_id,messages:[]};
+          shared.write(body.workspace_id,body.pane_id,{...current,run:data.run_id,messages:[...current.messages,{role:'user',text:body.input.trim()}].slice(-100)});
+        }
         return reply(res, 202, { run_id: data.run_id, status: data.status });
+        } finally {shared.locks.delete(lock);}
       }
       if (!['status', 'stop', 'approval', 'steer'].includes(body.action) || !runPattern.test(body.run_id || '')) return reply(res, 400, { error: 'Invalid agent action.' });
       const path = `/v1/runs/${body.run_id}`;
@@ -163,6 +199,10 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
       if (run.status === 'waiting_for_approval') {
         const pending = await upstream(`/v1/approvals/pending?session_id=${encodeURIComponent(body.run_id)}`);
         approvals = (pending.approvals || []).map(a => ({ command: String(a.command || a.description || a.tool_name || 'Tool execution requires approval').slice(0, 4000), reason: String(a.reason || '').slice(0, 1000) }));
+      }
+      if(body.pane_id && ['completed','failed','cancelled','interrupted'].includes(run.status)) {
+        const current = shared.read(body.workspace_id,body.pane_id);
+        if(current?.run === body.run_id) shared.write(body.workspace_id,body.pane_id,{...current,run:undefined,messages:[...current.messages,{role:'assistant',text:run.output || `Run ${run.status}.`}].slice(-100)});
       }
       return reply(res, 200, { run_id: run.run_id, status: run.status, output: typeof run.output === 'string' ? run.output : '', error: run.error ? 'Hermes reported a run failure. Try again or check the Hermes dashboard.' : undefined, last_event: run.last_event, approvals });
     } catch (error) {
