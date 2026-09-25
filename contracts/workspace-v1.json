@@ -1087,10 +1087,15 @@
       "output": {
         "$ref": "#/$defs/snapshot"
       },
-      "sideEffect": "read",
+      "sideEffect": "route-dependent-client-observation",
       "permission": "authenticated-workspace",
       "revision": "none",
-      "idempotency": "read-only"
+      "idempotency": "read-only-on-control-and-recovery; browser-overwrites-observation",
+      "routeEffects": {
+        "browser": "client-observation-write",
+        "control": "read",
+        "recovery": "read"
+      }
     },
     "history": {
       "input": {
@@ -1513,10 +1518,10 @@
         "type": "object",
         "description": "Legacy optional Jev result; provider output validation remains in server/jev.mjs"
       },
-      "sideEffect": "read",
-      "permission": "authenticated-workspace",
+      "sideEffect": "external-model-request",
+      "permission": "authenticated-owner-with-external-data-consent",
       "revision": "none",
-      "idempotency": "read-only"
+      "idempotency": "external-provider-request-not-retry-safe"
     },
     "jev_apply": {
       "input": {

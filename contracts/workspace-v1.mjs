@@ -89,8 +89,15 @@ command('preview',batch,Object.keys(batch),'read','current-base-revision');
 command('plugins_apply',batch,Object.keys(batch),'plugin-registration','current-base-revision');
 command('sync',{state:ref('workspace'),base_revision:integer(0),observed_revision:integer(0)},['state'],'layout','required-after-initial-connect');
 command('shelf');
-command('jev_suggest',{request:text(12000),api_key:text(4096),consent:bool},['request','api_key','consent']);
+command('jev_suggest',{request:text(12000),api_key:text(4096),consent:bool},['request','api_key','consent'],'external-model-request');
 command('jev_apply',{action_id:text(100),base_revision:integer(0),confirm:bool},['action_id','base_revision'],'layout','current-base-revision');
+// Ordinary browser polling persists last-seen/observed metadata, unlike control
+// and recovery reads. Do not describe all routes as side-effect-free reads.
+commands.read.sideEffect = 'route-dependent-client-observation';
+commands.read.routeEffects = {browser:'client-observation-write',control:'read',recovery:'read'};
+commands.read.idempotency = 'read-only-on-control-and-recovery; browser-overwrites-observation';
+commands.jev_suggest.permission = 'authenticated-owner-with-external-data-consent';
+commands.jev_suggest.idempotency = 'external-provider-request-not-retry-safe';
 defs.snapshot = object({workspace_id:uuid,revision:integer(1),state:ref('workspace'),observed_revision:integer(0),browser_seen:{anyOf:[{type:'number'},{type:'null'}]},app_versions:{type:'object',additionalProperties:{type:'number'}}},['workspace_id','revision','state','observed_revision','browser_seen']);
 defs.checkpointMetadata = object({id:uuid,created:{type:'number'},label:text(160),revision:integer(1)});
 const outputs = {
