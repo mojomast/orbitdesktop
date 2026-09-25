@@ -1,0 +1,13 @@
+{
+  "id": "workspace-workshop",
+  "title": "Workspace Workshop",
+  "version": "1.0.0",
+  "description": "A manual task board for tracking workspace build tasks: add, prioritize and complete queue items, attach evidence notes, and export or import the board as JSON. Static and sandboxed, with no network, credentials, host bridge or automatic live task tracking.",
+  "category": "Productivity",
+  "maintainer": "mojomast",
+  "license": "NOASSERTION",
+  "repo": "https://github.com/mojomast/orbitdesktop",
+  "sha": "348e1072f9a8f99965a8f87ae39e050f1308d7bf",
+  "path": "apps/workspace-workshop",
+  "capabilities": {"network": false, "storage": false}
+}

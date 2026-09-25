@@ -1,0 +1,24 @@
+{
+  "id": "devplan-interview",
+  "title": "Devplan Interview",
+  "version": "1.1.0",
+  "description": "A guided planning workspace: adaptive interview, specification, complexity sizing, phased development plan and a circular-development handoff packet. Ships as a static sandboxed UI plus an optional owner-authenticated, tool-free Python interview service. Exports interview, specification and checkpoints as JSON or ZIP.",
+  "category": "Developer tools",
+  "maintainer": "mojomast",
+  "license": "NOASSERTION",
+  "repo": "https://github.com/mojomast/orbitdesktop",
+  "sha": "348e1072f9a8f99965a8f87ae39e050f1308d7bf",
+  "path": "extensions/devplan-interview",
+  "capabilities": {"network": true, "storage": true},
+  "backend": {
+    "path": "extensions/devplan-interview",
+    "runtime": "python3",
+    "permissions": [
+      "Read a deployment config from .runtime/devplan-interview/config.json: Hermes home, Hermes source and python paths, and Orbit origins",
+      "Validate the Orbit host token against the local Orbit auth endpoint at the configured loopback URL",
+      "Invoke the Hermes runtime once per interview turn to request a model response, with tools disabled",
+      "Listen on a loopback HTTP port; a distinct owner-authenticated private HTTPS proxy origin is expected in front",
+      "Runs with owner filesystem privileges; declarations are not enforced permissions and there is no reboot supervision"
+    ]
+  }
+}
