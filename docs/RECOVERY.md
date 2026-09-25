@@ -20,16 +20,17 @@ On conflict read again and reconsider; no automatic retry/overwrite occurs.
   registered plugin windows from layout; later explicit enable or restore can restore
   them. Already-open disconnected frames, direct app tabs and trusted external backend
   processes are not stopped. Arbitrary browser windows are not registered plugins.
-- The page requires a functioning Node server and readable workspace/checkpoint JSON.
+- The page requires a functioning Node server and readable SQLite workspace store.
   It is not an offline database repair tool. Corrupt records fail closed.
 - Restores retain the checkpoint's session identities; they do not recreate process
   state, undo shell effects, restore documents/conversations, or roll back application
   data. Normal rendering still has unproven iframe continuity.
 - Layout restore may re-enable a previously disabled plugin under the legacy model.
   There are no broker grants yet. Future revoked grants must remain outside layout.
-- Separate JSON renames are not one transaction across revision and checkpoint.
-  Do not run multiple writable server processes over this store. No SQLite migration
-  has happened; see the evolution plan for that remaining gate.
+- Revision, checkpoint, command receipt and metadata event now share a SQLite
+  transaction. Existing JSON runtimes require explicit offline migration before
+  server startup; this page cannot perform that migration. Never run old JSON
+  writers against a migrated runtime. See [Workspace store](WORKSPACE_STORE.md).
 - If every window is a registered plugin, disable-all may fail the existing minimum
   one-window invariant. No replacement shell is silently started to bypass that rule.
 

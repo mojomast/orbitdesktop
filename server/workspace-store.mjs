@@ -15,6 +15,7 @@ export class JsonWorkspaceStore {
   }
   read(id) { return JSON.parse(fs.readFileSync(this.filename(id),'utf8')); }
   write(record) {
+    if(fs.existsSync(path.join(this.directory,'..','workspace.sqlite')))throw Object.assign(Error('SQLite is authoritative; legacy JSON writes are disabled'),{category:'UPGRADE_REQUIRED'});
     const file=this.filename(record.id),temporary=`${file}.${randomUUID()}.tmp`;
     try {
       fs.writeFileSync(temporary,JSON.stringify(record),{mode:0o600,flag:'wx'});

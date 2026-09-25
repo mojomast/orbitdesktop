@@ -17,7 +17,7 @@ test('real HTTP contract rejects extra fields, byte overflow and type coercion w
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
   const port=server.address().port,origin=`http://127.0.0.1:${port}`;
   service=createWorkspaceService({root,port,token,devOrigins:[],reply:(res,status,body)=>{res.writeHead(status,{'Content-Type':'application/json'});res.end(JSON.stringify(body));}});
-  t.after(async()=>{await new Promise(resolve=>server.close(resolve));fs.rmSync(root,{recursive:true,force:true});});
+   t.after(async()=>{await new Promise(resolve=>server.close(resolve));service.close();fs.rmSync(root,{recursive:true,force:true});});
   async function send(body,options={}) {
     const bytes=options.bytes||Buffer.from(JSON.stringify({workspace_id,...body}));
     return await new Promise((resolve,reject)=>{
@@ -30,8 +30,8 @@ test('real HTTP contract rejects extra fields, byte overflow and type coercion w
     });
   }
   const seeded=await send({action:'sync',state:initial()});assert.equal(seeded.status,200);
-  const recordPath=path.join(root,'workspaces',`${workspace_id}.json`),original=fs.readFileSync(recordPath,'utf8');
-  const capability=JSON.parse(original).capability,control={control:true,capability};
+   const original=service.store.read(workspace_id);
+   const capability=original.capability,control={control:true,capability};
   for(const body of [
     {action:'read',actor:'administrator'},
     {action:'apply',base_revision:'1',operations:[{action:'sidebar',hidden:true}]},
@@ -41,11 +41,11 @@ test('real HTTP contract rejects extra fields, byte overflow and type coercion w
   ]) {
     const result=await send(body,control);assert.equal(result.status,400);assert.equal(result.body.category,'INVALID_OPERATION');
     assert.ok(!JSON.stringify(result.body).includes('fixture-secret'));
-    assert.equal(fs.readFileSync(recordPath,'utf8'),original);
+     assert.deepEqual(service.store.read(workspace_id),original);
   }
   const tooLarge=Buffer.from(' '.repeat(contract.limits.maxRequestBytes+1));
   assert.equal((await send({}, {...control,bytes:tooLarge})).body.category,'REQUEST_TOO_LARGE');
-  const state=JSON.parse(original).state,window_id=state.monitors[0].id;
+   const state=original.state,window_id=state.monitors[0].id;
   const body={workspace_id,action:'apply',base_revision:1,operations:[{action:'update_window',window_id,name:'界😀 fixture'}]};
   const bytes=Buffer.from(JSON.stringify(body)),split=bytes.indexOf(Buffer.from('界'))+1;
   const result=await send(body,{...control,bytes,split});

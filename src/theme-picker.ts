@@ -4,6 +4,7 @@ import {themePersonality} from './theme-personality';
 import {themeColors,validateTheme} from './theme-tokens';
 import type {Workspace} from './model';
 import {workspaceId,ensureWorkspaceSynced} from './workspace-sync';
+import {workspaceFetch} from './workspace-client';
 type Appearance=NonNullable<Workspace['appearance']>;
 export function showThemes(token:()=>string,apply:(patch:Appearance)=>void,current:()=>Appearance=()=>({})){
  const dialog=el('dialog','hermes-tools-dialog theme-picker');dialog.setAttribute('aria-label','Workspace themes');
@@ -14,7 +15,7 @@ export function showThemes(token:()=>string,apply:(patch:Appearance)=>void,curre
    validateTheme(patch);
    if(!token())throw Error('Connect host before applying a theme so a recovery checkpoint can be saved.');
    await ensureWorkspaceSynced();
-   const response=await fetch('/api/workspace',{method:'POST',headers:{Authorization:`Bearer ${token()}`,'Content-Type':'application/json'},body:JSON.stringify({workspace_id:workspaceId,action:'checkpoint',label:'Before theme: '+label})});
+    const response=await workspaceFetch(token(),{workspace_id:workspaceId,action:'checkpoint',label:'Before theme: '+label,intent:'Save checkpoint before applying '+label+' theme'});
    if(!response.ok)throw Error('Checkpoint failed; theme was not applied.');
    apply(patch);status.textContent=label+' applied locally; workspace synchronization will save the change. Previous appearance is in Workspace checkpoints.';
   }catch(e){status.textContent=String(e);}finally{busy=false;}

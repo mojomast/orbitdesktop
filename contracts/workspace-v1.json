@@ -9,6 +9,10 @@
   "errors": {
     "INVALID_OPERATION": "Request does not match the workspace contract",
     "REVISION_CONFLICT": "Workspace changed; read and reconsider",
+    "IDEMPOTENCY_CONFLICT": "Operation key was already used with a different request",
+    "RESOURCE_BUSY": "Workspace store is busy; retry only with the same operation key and payload",
+    "STORE_UNAVAILABLE": "Workspace store unavailable",
+    "MIGRATION_REQUIRED": "Explicit legacy store migration required",
     "PERMISSION_REQUIRED": "Workspace authentication required",
     "RESOURCE_GONE": "Workspace or resource unavailable",
     "UPGRADE_REQUIRED": "Client cannot write this workspace version",
@@ -35,7 +39,7 @@
       "sideEffect": "layout",
       "permission": "workspace-write",
       "revision": "current-base-revision",
-      "idempotency": "not-retry-safe-without-durable-receipt"
+      "idempotency": "receipt belongs to containing command batch"
     },
     "arrange_spatial": {
       "input": {
@@ -79,7 +83,7 @@
       "sideEffect": "layout",
       "permission": "workspace-write",
       "revision": "current-base-revision",
-      "idempotency": "not-retry-safe-without-durable-receipt"
+      "idempotency": "receipt belongs to containing command batch"
     },
     "reset_appearance": {
       "input": {
@@ -128,7 +132,7 @@
       "sideEffect": "layout",
       "permission": "workspace-write",
       "revision": "current-base-revision",
-      "idempotency": "not-retry-safe-without-durable-receipt"
+      "idempotency": "receipt belongs to containing command batch"
     },
     "set_arc": {
       "input": {
@@ -152,7 +156,7 @@
       "sideEffect": "layout",
       "permission": "workspace-write",
       "revision": "current-base-revision",
-      "idempotency": "not-retry-safe-without-durable-receipt"
+      "idempotency": "receipt belongs to containing command batch"
     },
     "reorder_windows": {
       "input": {
@@ -180,7 +184,7 @@
       "sideEffect": "layout",
       "permission": "workspace-write",
       "revision": "current-base-revision",
-      "idempotency": "not-retry-safe-without-durable-receipt"
+      "idempotency": "receipt belongs to containing command batch"
     },
     "swap_panes": {
       "input": {
@@ -218,7 +222,7 @@
       "sideEffect": "layout",
       "permission": "workspace-write",
       "revision": "current-base-revision",
-      "idempotency": "not-retry-safe-without-durable-receipt"
+      "idempotency": "receipt belongs to containing command batch"
     },
     "layout_panes": {
       "input": {
@@ -245,7 +249,7 @@
       "sideEffect": "layout",
       "permission": "workspace-write",
       "revision": "current-base-revision",
-      "idempotency": "not-retry-safe-without-durable-receipt"
+      "idempotency": "receipt belongs to containing command batch"
     },
     "arrange_windows": {
       "input": {
@@ -294,7 +298,7 @@
       "sideEffect": "layout",
       "permission": "workspace-write",
       "revision": "current-base-revision",
-      "idempotency": "not-retry-safe-without-durable-receipt"
+      "idempotency": "receipt belongs to containing command batch"
     },
     "set_workspace": {
       "input": {
@@ -316,7 +320,7 @@
       "sideEffect": "layout",
       "permission": "workspace-write",
       "revision": "current-base-revision",
-      "idempotency": "not-retry-safe-without-durable-receipt"
+      "idempotency": "receipt belongs to containing command batch"
     },
     "patch_appearance": {
       "input": {
@@ -338,7 +342,7 @@
       "sideEffect": "layout",
       "permission": "workspace-write",
       "revision": "current-base-revision",
-      "idempotency": "not-retry-safe-without-durable-receipt"
+      "idempotency": "receipt belongs to containing command batch"
     },
     "set_appearance": {
       "input": {
@@ -360,7 +364,7 @@
       "sideEffect": "layout",
       "permission": "workspace-write",
       "revision": "current-base-revision",
-      "idempotency": "not-retry-safe-without-durable-receipt"
+      "idempotency": "receipt belongs to containing command batch"
     },
     "update_split": {
       "input": {
@@ -408,7 +412,7 @@
       "sideEffect": "layout",
       "permission": "workspace-write",
       "revision": "current-base-revision",
-      "idempotency": "not-retry-safe-without-durable-receipt"
+      "idempotency": "receipt belongs to containing command batch"
     },
     "set_view": {
       "input": {
@@ -433,7 +437,7 @@
       "sideEffect": "layout",
       "permission": "workspace-write",
       "revision": "current-base-revision",
-      "idempotency": "not-retry-safe-without-durable-receipt"
+      "idempotency": "receipt belongs to containing command batch"
     },
     "sidebar": {
       "input": {
@@ -455,7 +459,7 @@
       "sideEffect": "layout",
       "permission": "workspace-write",
       "revision": "current-base-revision",
-      "idempotency": "not-retry-safe-without-durable-receipt"
+      "idempotency": "receipt belongs to containing command batch"
     },
     "select": {
       "input": {
@@ -478,7 +482,7 @@
       "sideEffect": "layout",
       "permission": "workspace-write",
       "revision": "current-base-revision",
-      "idempotency": "not-retry-safe-without-durable-receipt"
+      "idempotency": "receipt belongs to containing command batch"
     },
     "add_window": {
       "input": {
@@ -514,7 +518,7 @@
       "sideEffect": "layout",
       "permission": "workspace-write",
       "revision": "current-base-revision",
-      "idempotency": "not-retry-safe-without-durable-receipt"
+      "idempotency": "receipt belongs to containing command batch"
     },
     "update_window": {
       "input": {
@@ -603,7 +607,7 @@
       "sideEffect": "layout",
       "permission": "workspace-write",
       "revision": "current-base-revision",
-      "idempotency": "not-retry-safe-without-durable-receipt"
+      "idempotency": "receipt belongs to containing command batch"
     },
     "close_window": {
       "input": {
@@ -626,7 +630,7 @@
       "sideEffect": "layout",
       "permission": "workspace-write",
       "revision": "current-base-revision",
-      "idempotency": "not-retry-safe-without-durable-receipt"
+      "idempotency": "receipt belongs to containing command batch"
     },
     "set_pane": {
       "input": {
@@ -665,7 +669,7 @@
       "sideEffect": "layout",
       "permission": "workspace-write",
       "revision": "current-base-revision",
-      "idempotency": "not-retry-safe-without-durable-receipt"
+      "idempotency": "receipt belongs to containing command batch"
     },
     "split_pane": {
       "input": {
@@ -711,7 +715,7 @@
       "sideEffect": "layout",
       "permission": "workspace-write",
       "revision": "current-base-revision",
-      "idempotency": "not-retry-safe-without-durable-receipt"
+      "idempotency": "receipt belongs to containing command batch"
     },
     "close_pane": {
       "input": {
@@ -739,7 +743,7 @@
       "sideEffect": "layout",
       "permission": "workspace-write",
       "revision": "current-base-revision",
-      "idempotency": "not-retry-safe-without-durable-receipt"
+      "idempotency": "receipt belongs to containing command batch"
     },
     "plugin_install": {
       "input": {
@@ -764,7 +768,7 @@
       "sideEffect": "plugin-registration",
       "permission": "workspace-write",
       "revision": "current-base-revision",
-      "idempotency": "not-retry-safe-without-durable-receipt"
+      "idempotency": "receipt belongs to containing command batch"
     },
     "plugin_backend": {
       "input": {
@@ -802,7 +806,7 @@
       "sideEffect": "trusted-backend",
       "permission": "owner-host-code-confirmation",
       "revision": "current-base-revision",
-      "idempotency": "not-retry-safe-without-durable-receipt"
+      "idempotency": "receipt belongs to containing command batch"
     },
     "plugin_enable": {
       "input": {
@@ -824,7 +828,7 @@
       "sideEffect": "plugin-registration",
       "permission": "workspace-write",
       "revision": "current-base-revision",
-      "idempotency": "not-retry-safe-without-durable-receipt"
+      "idempotency": "receipt belongs to containing command batch"
     },
     "plugin_disable": {
       "input": {
@@ -846,7 +850,7 @@
       "sideEffect": "plugin-registration",
       "permission": "workspace-write",
       "revision": "current-base-revision",
-      "idempotency": "not-retry-safe-without-durable-receipt"
+      "idempotency": "receipt belongs to containing command batch"
     },
     "plugin_remove": {
       "input": {
@@ -868,7 +872,7 @@
       "sideEffect": "plugin-registration",
       "permission": "workspace-write",
       "revision": "current-base-revision",
-      "idempotency": "not-retry-safe-without-durable-receipt"
+      "idempotency": "receipt belongs to containing command batch"
     },
     "plugin_patch_config": {
       "input": {
@@ -894,7 +898,7 @@
       "sideEffect": "plugin-registration",
       "permission": "workspace-write",
       "revision": "current-base-revision",
-      "idempotency": "not-retry-safe-without-durable-receipt"
+      "idempotency": "receipt belongs to containing command batch"
     },
     "plugin_window": {
       "input": {
@@ -987,7 +991,7 @@
       "sideEffect": "plugin-registration",
       "permission": "workspace-write",
       "revision": "current-base-revision",
-      "idempotency": "not-retry-safe-without-durable-receipt"
+      "idempotency": "receipt belongs to containing command batch"
     },
     "plugin_configure": {
       "input": {
@@ -1013,7 +1017,7 @@
       "sideEffect": "plugin-registration",
       "permission": "workspace-write",
       "revision": "current-base-revision",
-      "idempotency": "not-retry-safe-without-durable-receipt"
+      "idempotency": "receipt belongs to containing command batch"
     },
     "plugin_update": {
       "input": {
@@ -1039,7 +1043,7 @@
       "sideEffect": "plugin-registration",
       "permission": "workspace-write",
       "revision": "current-base-revision",
-      "idempotency": "not-retry-safe-without-durable-receipt"
+      "idempotency": "receipt belongs to containing command batch"
     },
     "plugin_disable_all": {
       "input": {
@@ -1057,7 +1061,7 @@
       "sideEffect": "plugin-registration",
       "permission": "workspace-write",
       "revision": "current-base-revision",
-      "idempotency": "not-retry-safe-without-durable-receipt"
+      "idempotency": "receipt belongs to containing command batch"
     }
   },
   "commands": {
@@ -1155,13 +1159,36 @@
           "label": {
             "type": "string",
             "maxLength": 120
+          },
+          "operation_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_.:-]{1,128}$"
+          },
+          "intent": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "base_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
           }
         },
         "required": [
           "workspace_id",
           "action"
         ],
-        "additionalProperties": false
+        "additionalProperties": false,
+        "dependencies": {
+          "operation_id": [
+            "intent",
+            "base_revision"
+          ],
+          "intent": [
+            "operation_id"
+          ]
+        }
       },
       "output": {
         "type": "object",
@@ -1169,17 +1196,21 @@
           "checkpoint": {
             "type": "string",
             "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "command_receipt": {
+            "$ref": "#/$defs/commandReceipt"
           }
         },
         "required": [
-          "checkpoint"
+          "checkpoint",
+          "command_receipt"
         ],
         "additionalProperties": false
       },
       "sideEffect": "checkpoint",
       "permission": "authenticated-workspace",
       "revision": "none",
-      "idempotency": "legacy-no-durable-receipt"
+      "idempotency": "durable receipt by authenticated actor/workspace/operation_id; legacy missing keys are not retry-safe"
     },
     "restore": {
       "input": {
@@ -1203,6 +1234,15 @@
           },
           "confirm": {
             "type": "boolean"
+          },
+          "operation_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_.:-]{1,128}$"
+          },
+          "intent": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
           }
         },
         "required": [
@@ -1211,15 +1251,24 @@
           "base_revision",
           "checkpoint_id"
         ],
-        "additionalProperties": false
+        "additionalProperties": false,
+        "dependencies": {
+          "operation_id": [
+            "intent",
+            "base_revision"
+          ],
+          "intent": [
+            "operation_id"
+          ]
+        }
       },
       "output": {
-        "$ref": "#/$defs/snapshot"
+        "$ref": "#/$defs/committedSnapshot"
       },
       "sideEffect": "layout",
       "permission": "authenticated-workspace",
       "revision": "current-base-revision",
-      "idempotency": "legacy-no-durable-receipt"
+      "idempotency": "durable receipt by authenticated actor/workspace/operation_id; legacy missing keys are not retry-safe"
     },
     "apply": {
       "input": {
@@ -1244,6 +1293,15 @@
             },
             "minItems": 1,
             "maxItems": 32
+          },
+          "operation_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_.:-]{1,128}$"
+          },
+          "intent": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
           }
         },
         "required": [
@@ -1252,15 +1310,24 @@
           "base_revision",
           "operations"
         ],
-        "additionalProperties": false
+        "additionalProperties": false,
+        "dependencies": {
+          "operation_id": [
+            "intent",
+            "base_revision"
+          ],
+          "intent": [
+            "operation_id"
+          ]
+        }
       },
       "output": {
-        "$ref": "#/$defs/snapshot"
+        "$ref": "#/$defs/committedSnapshot"
       },
       "sideEffect": "layout",
       "permission": "authenticated-workspace",
       "revision": "current-base-revision",
-      "idempotency": "legacy-no-durable-receipt"
+      "idempotency": "durable receipt by authenticated actor/workspace/operation_id; legacy missing keys are not retry-safe"
     },
     "preview": {
       "input": {
@@ -1363,6 +1430,15 @@
             },
             "minItems": 1,
             "maxItems": 32
+          },
+          "operation_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_.:-]{1,128}$"
+          },
+          "intent": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
           }
         },
         "required": [
@@ -1371,15 +1447,24 @@
           "base_revision",
           "operations"
         ],
-        "additionalProperties": false
+        "additionalProperties": false,
+        "dependencies": {
+          "operation_id": [
+            "intent",
+            "base_revision"
+          ],
+          "intent": [
+            "operation_id"
+          ]
+        }
       },
       "output": {
-        "$ref": "#/$defs/snapshot"
+        "$ref": "#/$defs/committedSnapshot"
       },
       "sideEffect": "plugin-registration",
       "permission": "authenticated-workspace",
       "revision": "current-base-revision",
-      "idempotency": "legacy-no-durable-receipt"
+      "idempotency": "durable receipt by authenticated actor/workspace/operation_id; legacy missing keys are not retry-safe"
     },
     "sync": {
       "input": {
@@ -1404,6 +1489,15 @@
             "type": "integer",
             "minimum": 0,
             "maximum": 9007199254740991
+          },
+          "operation_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_.:-]{1,128}$"
+          },
+          "intent": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
           }
         },
         "required": [
@@ -1411,15 +1505,24 @@
           "action",
           "state"
         ],
-        "additionalProperties": false
+        "additionalProperties": false,
+        "dependencies": {
+          "operation_id": [
+            "intent",
+            "base_revision"
+          ],
+          "intent": [
+            "operation_id"
+          ]
+        }
       },
       "output": {
-        "$ref": "#/$defs/snapshot"
+        "$ref": "#/$defs/committedSnapshot"
       },
       "sideEffect": "layout",
       "permission": "authenticated-workspace",
       "revision": "required-after-initial-connect",
-      "idempotency": "legacy-no-durable-receipt"
+      "idempotency": "durable receipt by authenticated actor/workspace/operation_id; legacy missing keys are not retry-safe"
     },
     "shelf": {
       "input": {
@@ -1545,6 +1648,15 @@
           },
           "confirm": {
             "type": "boolean"
+          },
+          "operation_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_.:-]{1,128}$"
+          },
+          "intent": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
           }
         },
         "required": [
@@ -1553,15 +1665,24 @@
           "action_id",
           "base_revision"
         ],
-        "additionalProperties": false
+        "additionalProperties": false,
+        "dependencies": {
+          "operation_id": [
+            "intent",
+            "base_revision"
+          ],
+          "intent": [
+            "operation_id"
+          ]
+        }
       },
       "output": {
-        "$ref": "#/$defs/snapshot"
+        "$ref": "#/$defs/committedSnapshot"
       },
       "sideEffect": "layout",
       "permission": "authenticated-workspace",
       "revision": "current-base-revision",
-      "idempotency": "legacy-no-durable-receipt"
+      "idempotency": "durable receipt by authenticated actor/workspace/operation_id; legacy missing keys are not retry-safe"
     }
   },
   "schema": {
@@ -3077,6 +3198,9 @@
             "additionalProperties": {
               "type": "number"
             }
+          },
+          "command_receipt": {
+            "$ref": "#/$defs/commandReceipt"
           }
         },
         "required": [
@@ -3113,6 +3237,73 @@
           "created",
           "label",
           "revision"
+        ],
+        "additionalProperties": false
+      },
+      "commandReceipt": {
+        "type": "object",
+        "properties": {
+          "operation_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_.:-]{1,128}$"
+          },
+          "legacy": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "operation_id",
+          "legacy"
+        ],
+        "additionalProperties": false
+      },
+      "committedSnapshot": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "state": {
+            "$ref": "#/$defs/workspace"
+          },
+          "observed_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "browser_seen": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "app_versions": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number"
+            }
+          },
+          "command_receipt": {
+            "$ref": "#/$defs/commandReceipt"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "revision",
+          "state",
+          "observed_revision",
+          "browser_seen",
+          "command_receipt"
         ],
         "additionalProperties": false
       }
@@ -3170,13 +3361,36 @@
           "label": {
             "type": "string",
             "maxLength": 120
+          },
+          "operation_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_.:-]{1,128}$"
+          },
+          "intent": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "base_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
           }
         },
         "required": [
           "workspace_id",
           "action"
         ],
-        "additionalProperties": false
+        "additionalProperties": false,
+        "dependencies": {
+          "operation_id": [
+            "intent",
+            "base_revision"
+          ],
+          "intent": [
+            "operation_id"
+          ]
+        }
       },
       {
         "type": "object",
@@ -3199,6 +3413,15 @@
           },
           "confirm": {
             "type": "boolean"
+          },
+          "operation_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_.:-]{1,128}$"
+          },
+          "intent": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
           }
         },
         "required": [
@@ -3207,7 +3430,16 @@
           "base_revision",
           "checkpoint_id"
         ],
-        "additionalProperties": false
+        "additionalProperties": false,
+        "dependencies": {
+          "operation_id": [
+            "intent",
+            "base_revision"
+          ],
+          "intent": [
+            "operation_id"
+          ]
+        }
       },
       {
         "type": "object",
@@ -3231,6 +3463,15 @@
             },
             "minItems": 1,
             "maxItems": 32
+          },
+          "operation_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_.:-]{1,128}$"
+          },
+          "intent": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
           }
         },
         "required": [
@@ -3239,7 +3480,16 @@
           "base_revision",
           "operations"
         ],
-        "additionalProperties": false
+        "additionalProperties": false,
+        "dependencies": {
+          "operation_id": [
+            "intent",
+            "base_revision"
+          ],
+          "intent": [
+            "operation_id"
+          ]
+        }
       },
       {
         "type": "object",
@@ -3295,6 +3545,15 @@
             },
             "minItems": 1,
             "maxItems": 32
+          },
+          "operation_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_.:-]{1,128}$"
+          },
+          "intent": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
           }
         },
         "required": [
@@ -3303,7 +3562,16 @@
           "base_revision",
           "operations"
         ],
-        "additionalProperties": false
+        "additionalProperties": false,
+        "dependencies": {
+          "operation_id": [
+            "intent",
+            "base_revision"
+          ],
+          "intent": [
+            "operation_id"
+          ]
+        }
       },
       {
         "type": "object",
@@ -3327,6 +3595,15 @@
             "type": "integer",
             "minimum": 0,
             "maximum": 9007199254740991
+          },
+          "operation_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_.:-]{1,128}$"
+          },
+          "intent": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
           }
         },
         "required": [
@@ -3334,7 +3611,16 @@
           "action",
           "state"
         ],
-        "additionalProperties": false
+        "additionalProperties": false,
+        "dependencies": {
+          "operation_id": [
+            "intent",
+            "base_revision"
+          ],
+          "intent": [
+            "operation_id"
+          ]
+        }
       },
       {
         "type": "object",
@@ -3405,6 +3691,15 @@
           },
           "confirm": {
             "type": "boolean"
+          },
+          "operation_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_.:-]{1,128}$"
+          },
+          "intent": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
           }
         },
         "required": [
@@ -3413,7 +3708,16 @@
           "action_id",
           "base_revision"
         ],
-        "additionalProperties": false
+        "additionalProperties": false,
+        "dependencies": {
+          "operation_id": [
+            "intent",
+            "base_revision"
+          ],
+          "intent": [
+            "operation_id"
+          ]
+        }
       }
     ]
   }

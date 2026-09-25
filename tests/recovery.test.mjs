@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
 import {randomUUID} from 'node:crypto';
+import Database from 'better-sqlite3';
 import {initial} from '../src/model.ts';
 import {createWorkspaceService} from '../server/workspace.mjs';
 import {JsonWorkspaceStore} from '../server/workspace-store.mjs';
@@ -16,23 +17,23 @@ async function fixture(t) {
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
   const port=server.address().port,origin=`http://127.0.0.1:${port}`;
   service=createWorkspaceService({token,port,root,devOrigins:[],reply:(res,status,body)=>{res.writeHead(status,{'Content-Type':'application/json'});res.end(JSON.stringify(body));}});
-  t.after(async()=>{await new Promise(resolve=>server.close(resolve));fs.rmSync(root,{recursive:true,force:true});});
+   t.after(async()=>{await new Promise(resolve=>server.close(resolve));service.close();fs.rmSync(root,{recursive:true,force:true});});
   async function call(action,fields={},route='/recovery',key=token,site=origin) {
     const res=await fetch(origin+route,{method:'POST',headers:{Origin:site,Authorization:`Bearer ${key}`},body:JSON.stringify({workspace_id:id,action,...fields})});
     return {status:res.status,body:await res.json()};
   }
   assert.equal((await call('sync',{state:initial()},'/workspace')).status,200);
-  return {root,id,token,call};
+   return {root,id,token,call,service};
 }
 test('recovery read/history are authenticated and do not scan damaged bundles or acknowledge display',async t=>{
-  const {root,id,call}=await fixture(t);
-  const filename=path.join(root,'workspaces',`${id}.json`),before=fs.readFileSync(filename,'utf8');
+   const {root,id,call,service}=await fixture(t);
+   const before=service.store.read(id);
   fs.rmSync(path.join(root,'apps'),{recursive:true}); // simulate broken optional asset store
   assert.equal((await call('read',{},'/recovery','bad')).status,403);
   assert.equal((await call('read',{},'/recovery',undefined,'https://foreign.invalid')).status,403);
   const result=await call('read',{observed_revision:999});
   assert.equal(result.status,200);assert.equal(result.body.app_versions,undefined);assert.equal(result.body.capability,undefined);
-  assert.equal(fs.readFileSync(filename,'utf8'),before);
+   assert.deepEqual(service.store.read(id),before);
   assert.equal((await call('history')).status,200);
 });
 test('recovery rejects unrelated commands and restores as a new revision with checkpoint',async t=>{
@@ -47,7 +48,9 @@ test('recovery rejects unrelated commands and restores as a new revision with ch
   assert.equal((await call('restore',{...args,confirm:false})).status,409);
   const result=await call('restore',args);
   assert.equal(result.status,200);assert.equal(result.body.revision,3);assert.deepEqual(result.body.state,old.state);
-  assert.equal((await call('history')).body.checkpoints.length,2);
+   const history=(await call('history')).body.checkpoints;
+   assert.equal(history.length,3); // explicit checkpoint, pre-sync checkpoint, pre-restore checkpoint
+   assert.ok(history.some(entry=>entry.label==='Before browser workspace change'&&entry.revision===1));
 });
 test('recovery disable removes registered app views only and preserves identity bindings and bundles',async t=>{
   const {root,call}=await fixture(t);
@@ -64,11 +67,18 @@ test('recovery disable removes registered app views only and preserves identity 
   assert.ok(fs.existsSync(path.join(root,'apps','bad-app','index.html')));
 });
 test('future-version records cannot be downgraded by a stale sync or restore',async t=>{
-  const {root,id,call}=await fixture(t),store=new JsonWorkspaceStore(root),record=store.read(id);
-  record.state.version=2;store.write(record);
-  const result=await call('sync',{state:initial(),base_revision:1},'/workspace');
-  assert.equal(result.status,409);assert.equal(result.body.category,'UPGRADE_REQUIRED');
-  assert.equal(store.read(id).state.version,2);
+   const {root,id,call,service}=await fixture(t),record=service.store.read(id);
+   const checkpoint=await call('checkpoint',{label:'version one'},'/workspace');
+   assert.equal(checkpoint.status,200);
+   record.state.version=2;
+   const db=new Database(path.join(root,'workspace.sqlite'));
+   try {db.prepare('UPDATE workspaces SET record_json=? WHERE id=?').run(JSON.stringify(record),id);}
+   finally {db.close();}
+   const result=await call('sync',{state:initial(),base_revision:1},'/workspace');
+   assert.equal(result.status,409);assert.equal(result.body.category,'UPGRADE_REQUIRED');
+   const restore=await call('restore',{checkpoint_id:checkpoint.body.checkpoint,base_revision:1,confirm:true});
+   assert.equal(restore.status,409);assert.equal(restore.body.category,'UPGRADE_REQUIRED');
+   assert.equal(service.store.read(id).state.version,2);
 });
 test('JSON store preserves record metadata and isolates temporary filenames, without transactional claims',t=>{
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'orbit-store-test-'));

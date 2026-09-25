@@ -108,7 +108,7 @@ class WorkspaceContractTest(unittest.TestCase):
             actions.append(body["action"])
             return Response(json.dumps({"revision": 1, "observed_revision": 1}).encode())
 
-        with mock.patch.object(control.urllib.request, "urlopen", side_effect=urlopen):
+        with mock.patch.object(control, "open_workspace", side_effect=urlopen):
             with self.assertRaisesRegex(ValueError, "request is too large"):
                 self.run_cli("apply", json.dumps(operations))
         self.assertEqual(actions, ["read"])
@@ -124,7 +124,7 @@ class WorkspaceContractTest(unittest.TestCase):
 
     def test_cli_bounds_response_read_and_rejects_oversize(self):
         response = Response(b"x" * (control.maxResponseBytes + 1))
-        with mock.patch.object(control.urllib.request, "urlopen", return_value=response):
+        with mock.patch.object(control, "open_workspace", return_value=response):
             with self.assertRaisesRegex(ValueError, "response exceeds"):
                 self.run_cli("read")
         self.assertEqual(response.read_sizes, [control.maxResponseBytes + 1])
@@ -144,7 +144,7 @@ class WorkspaceContractTest(unittest.TestCase):
 
     def test_cli_does_not_echo_capability_from_success_response(self):
         response = Response(json.dumps({"echo": CAPABILITY}).encode())
-        with mock.patch.object(control.urllib.request, "urlopen", return_value=response):
+        with mock.patch.object(control, "open_workspace", return_value=response):
             output = io.StringIO()
             with mock.patch.object(control, "RUNTIME", Path(self.temp.name)), \
                  mock.patch.object(sys, "argv", ["workspace_control.py", "--workspace", WORKSPACE, "read"]), \

@@ -8,7 +8,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import { tokenMatches, geometry, allowedRequest, publicHost } from "./security.mjs";
 import { LocalHostProvider } from "./local-host.mjs";
 import { createAgentHandler } from "./agent.mjs";
-import { createWorkspaceService } from "./workspace.mjs";
+import { createWorkspaceService, runtimeRoot } from "./workspace.mjs";
 const port = Number(process.env.PORT || 4318);
 if (!Number.isInteger(port) || port < 1024 || port > 65535)
   throw Error("PORT must be between 1024 and 65535");
@@ -39,7 +39,7 @@ function reply(res, status, data) {
   res.end(JSON.stringify(data));
 }
 const workspaceService = createWorkspaceService({ token, port, devOrigins, reply });
-const agentHandler = createAgentHandler({ token, port, devOrigins, reply, workspaceContext: workspaceService.context });
+const agentHandler = createAgentHandler({ token, port, devOrigins, reply, workspaceContext: workspaceService.context, workspaceRead:workspaceService.read, runtimeDirectory:runtimeRoot });
 const server = http.createServer(async (req, res) => {
   const allowedHosts = new Set([
     `127.0.0.1:${port}`,
@@ -277,6 +277,6 @@ server.listen(port, "127.0.0.1", () => {
 for (const signal of ["SIGTERM", "SIGINT"])
   process.on(signal, () => {
     for (const ws of wss.clients) ws.terminate();
-    server.close(() => process.exit(0));
+    server.close(() => {workspaceService.close();process.exit(0);});
     setTimeout(() => process.exit(0), 2000).unref();
   });

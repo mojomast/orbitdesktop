@@ -3,6 +3,7 @@ import ipaddress
 import json
 from pathlib import Path
 import re
+import uuid
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -15,6 +16,8 @@ maxResponseBytes = 2000000
 maxLabelCharacters = 120
 # END GENERATED WORKSPACE LIMITS
 ACTIONS = ("read", "preview", "apply", "history", "checkpoint", "restore")
+MUTATIONS = ("apply", "checkpoint", "restore")
+OPERATION_ID = re.compile(r"[a-zA-Z0-9_.:-]{1,128}")
 SCHEMA = {
     "name": "orbit_workspace",
     "description": (
@@ -34,6 +37,8 @@ SCHEMA = {
             "label": {"type": "string", "maxLength": maxLabelCharacters},
             "checkpoint_id": {"type": "string"},
             "confirm": {"type": "boolean"},
+            "operation_id": {"type": "string", "pattern": "^[a-zA-Z0-9_.:-]{1,128}$"},
+            "intent": {"type": "string", "minLength": 1, "maxLength": 160},
         },
         "required": ["action"],
         "additionalProperties": False,
@@ -69,15 +74,19 @@ def invoke(ctx, params):
     elif action == "restore":
         allowed |= {"base_revision", "checkpoint_id", "confirm"}
     elif action == "checkpoint":
-        allowed.add("label")
+        allowed |= {"label", "base_revision"}
+    if action in MUTATIONS:
+        allowed |= {"operation_id", "intent"}
     if set(params) - allowed:
         raise ValueError("Unexpected fields for workspace action")
-    if action in ("apply", "checkpoint", "restore") and ctx.get_config("allow_mutations", False) is not True:
+    if action in MUTATIONS and ctx.get_config("allow_mutations", False) is not True:
         raise ValueError("Workspace mutations are disabled in this profile's plugin settings")
-    if action in ("apply", "preview", "restore"):
+    if action in ("apply", "preview", "restore") or (action == "checkpoint" and "base_revision" in params):
         revision = params.get("base_revision")
         if type(revision) is not int or revision < 0:
             raise ValueError("Read the workspace first and supply its base_revision")
+    if action in MUTATIONS and action != "checkpoint" and type(params.get("base_revision")) is not int:
+        raise ValueError("Read the workspace first and supply its base_revision")
     if action in ("apply", "preview"):
         ops = params.get("operations")
         if not isinstance(ops, list) or not 1 <= len(ops) <= maxOperations or not all(isinstance(op, dict) for op in ops):
@@ -86,18 +95,45 @@ def invoke(ctx, params):
         raise ValueError("Restore requires checkpoint_id and explicit confirm=true")
     if action == "checkpoint" and (not isinstance(params.get("label", ""), str) or len(params.get("label", "")) > maxLabelCharacters):
         raise ValueError("Checkpoint label must be a string of at most 120 characters")
+    if "operation_id" in params and (not isinstance(params["operation_id"], str) or not OPERATION_ID.fullmatch(params["operation_id"])):
+        raise ValueError("Invalid operation_id")
+    if "intent" in params and (not isinstance(params["intent"], str) or not 1 <= len(params["intent"]) <= 160):
+        raise ValueError("Invalid intent")
+    if "operation_id" in params and ("intent" not in params or "base_revision" not in params):
+        raise ValueError("operation_id requires intent and base_revision")
     workspace = ctx.get_config("workspace_id", "")
     runtime = ctx.get_config("runtime_dir", "")
     if not isinstance(workspace, str) or not UUID.fullmatch(workspace):
         raise ValueError("Configure this profile's explicit workspace_id; workspaces are never auto-discovered")
     if not isinstance(runtime, str) or not Path(runtime).is_absolute():
         raise ValueError("Configure this profile's absolute runtime_dir")
-    config = json.loads((Path(runtime) / "workspaces" / (workspace + ".json")).read_text())
+    projection = Path(runtime) / "workspace-access" / (workspace + ".json")
+    if not projection.exists() and (Path(runtime) / "workspace.sqlite").exists():
+        raise ValueError("Invalid Orbit connection projection; restart/reconcile the server")
+    record = projection if projection.exists() else Path(runtime) / "workspaces" / (workspace + ".json")
+    config = json.loads(record.read_text())
     target = endpoint(config["api"])
     capability = config["capability"]
     if not isinstance(capability, str) or not capability or "\n" in capability or "\r" in capability:
         raise ValueError("Invalid Orbit capability record")
-    body = json.dumps({**params, "workspace_id": workspace}).encode()
+    request_params = dict(params)
+    if action in MUTATIONS:
+        request_params.setdefault("operation_id", str(uuid.uuid4()))
+        request_params.setdefault("intent", action)
+        if action == "checkpoint" and "base_revision" not in request_params:
+            read_body = json.dumps({"action": "read", "workspace_id": workspace}).encode()
+            read_request = urllib.request.Request(target, data=read_body, headers={
+                "Authorization": "Bearer " + capability, "Content-Type": "application/json",
+            })
+            try:
+                with urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect()).open(read_request, timeout=20) as response:
+                    read_raw = response.read(maxResponseBytes + 1)
+            except urllib.error.HTTPError as error:
+                return {"ok": False, "status": error.code, "error": "Orbit rejected the request; check authorization and operation schema"}
+            if len(read_raw) > maxResponseBytes or capability.encode() in read_raw:
+                raise ValueError("Invalid Orbit read response")
+            request_params["base_revision"] = json.loads(read_raw)["revision"]
+    body = json.dumps({**request_params, "workspace_id": workspace}).encode()
     if len(body) > maxRequestBytes:
         raise ValueError("Workspace request is too large")
     request = urllib.request.Request(target, data=body, headers={
@@ -114,6 +150,10 @@ def invoke(ctx, params):
             "Revision conflict: read and reconsider the requested change" if error.code == 409
             else "Orbit rejected the request; check authorization and operation schema"
         )}
+    except (urllib.error.URLError, TimeoutError, OSError):
+        if action in MUTATIONS:
+            return {"ok": False, "outcome": "unknown", "operation_id": request_params["operation_id"], "base_revision": request_params["base_revision"], "error": "Mutation outcome unknown. Reuse the exact key and payload or read before reconsidering; never blindly create a new mutation."}
+        return {"ok": False, "error": "Orbit unavailable"}
     if len(raw) > maxResponseBytes:
         raise ValueError("Workspace response exceeds the size limit")
     if capability.encode() in raw:

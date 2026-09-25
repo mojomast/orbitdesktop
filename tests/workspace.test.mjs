@@ -15,7 +15,7 @@ async function setup(t) {
  const server=http.createServer((req,res)=>req.url.startsWith('/apps/')?service.serveApp(req,res,req.url):service.handle(req,res,req.url==='/control'));
  await new Promise(r=>server.listen(0,'127.0.0.1',r)); const port=server.address().port,origin=`http://127.0.0.1:${port}`;
  service=createWorkspaceService({token,port,devOrigins:[],root,reply:(res,status,body)=>{res.writeHead(status,{'Content-Type':'application/json'});res.end(JSON.stringify(body));}});
- t.after(async()=>{await new Promise(r=>server.close(r));fs.rmSync(root,{recursive:true,force:true});});
+ t.after(async()=>{await new Promise(r=>server.close(r));service.close();fs.rmSync(root,{recursive:true,force:true});});
  const id=randomUUID();
  async function req(body,control=false,key=token,originHeader=origin) {
   const r=await fetch(origin+(control?'/control':'/workspace'),{method:'POST',headers:{Origin:originHeader,Authorization:`Bearer ${key}`,'Content-Type':'application/json'},body:JSON.stringify({workspace_id:id,...body})});return {status:r.status,body:await r.json()};
@@ -23,8 +23,8 @@ async function setup(t) {
  return {root,origin,id,req,service};
 }
 test('checkpoints restore layout, reject stale writes, and keep a before-restore snapshot',async t=>{
- const {root,id,req}=await setup(t);await req({action:'sync',state:initial()});
- const record=JSON.parse(fs.readFileSync(path.join(root,'workspaces',id+'.json'),'utf8'));
+  const {id,req,service}=await setup(t);await req({action:'sync',state:initial()});
+  const record=service.store.read(id);
  await req({action:'apply',base_revision:1,operations:[{action:'sidebar',hidden:true}]},true,record.capability);
  const history=await req({action:'history'});assert.equal(history.body.checkpoints.length,1);
  const checkpoint_id=history.body.checkpoints[0].id;
@@ -33,12 +33,12 @@ test('checkpoints restore layout, reject stale writes, and keep a before-restore
  const result=await req({action:'restore',checkpoint_id,base_revision:2,confirm:true});assert.equal(result.status,200);assert.notEqual(result.body.state.sidebarHidden,true);assert.equal(result.body.revision,3);
  assert.equal((await req({action:'history'})).body.checkpoints.length,2);
  assert.equal((await req({action:'history'},false,'bad')).status,403);
- assert.equal(JSON.parse(fs.readFileSync(path.join(root,'workspaces',id+'.json'),'utf8')).revision,3);
+  assert.equal(service.store.read(id).revision,3);
 });
 test('agent context includes live operator guide and never workspace capability',async t=>{
- const {req,service,id,root}=await setup(t);await req({action:'sync',state:initial()});
+  const {req,service,id}=await setup(t);await req({action:'sync',state:initial()});
  const context=service.context(id);for(const word of ['plugin_install','plugin_update','browser_applied','tmux','base_revision']) assert.ok(context.includes(word),word);
- const record=JSON.parse(fs.readFileSync(path.join(root,'workspaces',id+'.json'),'utf8'));assert.ok(!context.includes(record.capability));assert.ok(context.includes(id));
+  const record=service.store.read(id);assert.ok(!context.includes(record.capability));assert.ok(context.includes(id));
 });
 test('Jev quick actions require confirmation, reject stale revisions and create checkpoints',async t=>{
  const {req}=await setup(t);await req({action:'sync',state:initial()});
@@ -87,10 +87,13 @@ test('workspace browser sync requires authentication and exact origin',async t=>
  assert.equal((await req({action:'sync',state:initial()})).status,200);
 });
 test('capabilities are private, workspace-scoped, and revision conflicts reject stale writes',async t=>{
- const {root,id,req}=await setup(t);
+  const {root,id,req,service}=await setup(t);
  const first=await req({action:'sync',state:initial()});assert.equal(first.body.revision,1);assert.equal(first.body.capability,undefined);
- const record=JSON.parse(fs.readFileSync(path.join(root,'workspaces',id+'.json'),'utf8'));
- assert.equal(fs.statSync(path.join(root,'workspaces',id+'.json')).mode & 0o777,0o600);
+  const record=service.store.read(id),projection=path.join(root,'workspace-access',`${id}.json`);
+  assert.equal(fs.statSync(path.join(root,'workspace.sqlite')).mode & 0o777,0o600);
+  assert.equal(fs.statSync(path.join(root,'workspace-access')).mode & 0o777,0o700);
+  assert.equal(fs.statSync(projection).mode & 0o777,0o600);
+  assert.equal(JSON.parse(fs.readFileSync(projection,'utf8')).capability,record.capability);
  assert.equal((await req({action:'read'},true)).status,403);
  const changed=await req({action:'apply',base_revision:1,operations:[{action:'sidebar',hidden:true}]},true,record.capability);
  assert.equal(changed.body.revision,2);assert.equal(changed.body.state.sidebarHidden,true);
@@ -109,8 +112,8 @@ test('workspace polling reports changed app assets without a layout revision',as
  assert.notEqual(second.body.app_versions['live-test'],first.body.app_versions['live-test']);
 });
 test('operation batches are atomic when a later operation is invalid',async t=>{
- const {root,id,req}=await setup(t);await req({action:'sync',state:initial()});
- const cap=JSON.parse(fs.readFileSync(path.join(root,'workspaces',id+'.json'))).capability;
+  const {id,req,service}=await setup(t);await req({action:'sync',state:initial()});
+  const cap=service.store.read(id).capability;
  assert.equal((await req({action:'apply',base_revision:1,operations:[{action:'sidebar',hidden:true},{action:'set_view',view:'INVALID'}]},true,cap)).status,400);
  const state=await req({action:'read'});assert.equal(state.body.revision,1);assert.notEqual(state.body.state.sidebarHidden,true);
 });

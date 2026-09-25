@@ -107,11 +107,29 @@ const outputs = {
   preview:object({workspace_id:uuid,base_revision:integer(1),preview:{const:true},state:ref('workspace'),changed_fields:array(text(100)),warning:text()}),
   shelf:object({items:array(object({title:text(),url:text(),kind:enumeration('app/report','output')}),{maxItems:300})}),
 };
+defs.commandReceipt=object({operation_id:{type:'string',pattern:'^[a-zA-Z0-9_.:-]{1,128}$'},legacy:bool});
+defs.snapshot.properties.command_receipt=ref('commandReceipt');
+outputs.checkpoint.properties.command_receipt=ref('commandReceipt');
+outputs.checkpoint.required.push('command_receipt');
+defs.committedSnapshot=structuredClone(defs.snapshot);
+defs.committedSnapshot.required.push('command_receipt');
+for(const action of ['sync','apply','plugins_apply','restore','jev_apply'])outputs[action]=ref('committedSnapshot');
+for(const name of ['sync','apply','plugins_apply','restore','checkpoint','jev_apply']) {
+  const command=commands[name];
+  Object.assign(command.input.properties,{
+    operation_id:{type:'string',pattern:'^[a-zA-Z0-9_.:-]{1,128}$'},
+    intent:{type:'string',minLength:1,maxLength:160},
+    base_revision:integer(0),
+  });
+  command.input.dependencies={operation_id:['intent','base_revision'],intent:['operation_id']};
+  command.idempotency='durable receipt by authenticated actor/workspace/operation_id; legacy missing keys are not retry-safe';
+}
+for(const operation of Object.values(operations))operation.idempotency='receipt belongs to containing command batch';
 for(const [name,command] of Object.entries(commands)) {
   command.output = outputs[name] || {type:'object',description:'Legacy optional Jev result; provider output validation remains in server/jev.mjs'};
 }
 export const contract = {
-  version:1,limits,errors:{INVALID_OPERATION:'Request does not match the workspace contract',REVISION_CONFLICT:'Workspace changed; read and reconsider',PERMISSION_REQUIRED:'Workspace authentication required',RESOURCE_GONE:'Workspace or resource unavailable',UPGRADE_REQUIRED:'Client cannot write this workspace version',REQUEST_TOO_LARGE:'Workspace request exceeds the byte budget'},
+  version:1,limits,errors:{INVALID_OPERATION:'Request does not match the workspace contract',REVISION_CONFLICT:'Workspace changed; read and reconsider',IDEMPOTENCY_CONFLICT:'Operation key was already used with a different request',RESOURCE_BUSY:'Workspace store is busy; retry only with the same operation key and payload',STORE_UNAVAILABLE:'Workspace store unavailable',MIGRATION_REQUIRED:'Explicit legacy store migration required',PERMISSION_REQUIRED:'Workspace authentication required',RESOURCE_GONE:'Workspace or resource unavailable',UPGRADE_REQUIRED:'Client cannot write this workspace version',REQUEST_TOO_LARGE:'Workspace request exceeds the byte budget'},
   operations,commands,
   schema:{$schema:'http://json-schema.org/draft-07/schema#',$id:'urn:orbit:workspace-command:1',$defs:defs,oneOf:Object.values(commands).map(command=>command.input)},
 };

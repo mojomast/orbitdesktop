@@ -22,7 +22,7 @@ test('Hermes plugin uses real Orbit API: preview, apply, conflict, checkpoint, r
   service = createWorkspaceService({ token, port, root, devOrigins: [], reply: (res, status, body) => {
     res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(body));
   }});
-  t.after(async () => { await new Promise(resolve => server.close(resolve)); fs.rmSync(root, { recursive: true, force: true }); });
+   t.after(async () => { await new Promise(resolve => server.close(resolve)); service.close(); fs.rmSync(root, { recursive: true, force: true }); });
   const workspace = randomUUID();
   const seeded = await fetch(origin + '/api/workspace', { method: 'POST', headers: {
     Origin: origin, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json',

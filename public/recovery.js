@@ -123,13 +123,19 @@
   async function request(body) {
     // The password input is the only persistent location of the owner token.
     const token = tokenInput.value;
+    const mutation = ['sync', 'apply', 'plugins_apply', 'restore', 'checkpoint', 'jev_apply'].includes(body.action);
+    const command = mutation ? {
+      ...body,
+      operation_id: crypto.randomUUID(),
+      intent: body.intent || (body.action === 'restore' ? 'Restore selected workspace checkpoint' : body.action === 'plugins_apply' ? 'Disable all workspace plugins' : `Workspace ${body.action}`)
+    } : body;
     let response;
     let data;
     try {
       response = await fetch('/api/workspace/recovery', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify(body)
+        body: JSON.stringify(command)
       });
       data = await response.json();
     } catch {

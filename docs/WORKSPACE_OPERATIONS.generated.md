@@ -9,7 +9,7 @@ Authoritative validation: strict JSON Schema plus existing semantic/resource che
 - maxResponseBytes: 2000000
 - maxLabelCharacters: 120
 
-Legacy mutations are revision checked but do **not** yet have durable idempotency receipts. Preview is structural and generated IDs remain provisional. This registry does not complete the transactional migration.
+Mutations with `operation_id`, `intent` and `base_revision` commit durable receipts in SQLite. Identical actor/workspace/key/payload retries return the original result; changed payloads with the same key fail. Legacy missing-key requests receive server-generated IDs and are not retry-safe. Preview remains structural with provisional generated IDs. The layout model remains v1.
 
 | Operation | Required fields (besides action) | Optional fields | Effect |
 |---|---|---|---|

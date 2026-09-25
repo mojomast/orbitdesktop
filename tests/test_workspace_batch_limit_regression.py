@@ -93,7 +93,7 @@ class WorkspaceBatchLimitRegression(unittest.TestCase):
                 argv = ["workspace_control.py", "--workspace", WORKSPACE, "apply", json.dumps(batch)]
                 with mock.patch.object(control, "RUNTIME", Path(temp)), \
                      mock.patch.object(sys, "argv", argv), \
-                     mock.patch.object(control.urllib.request, "urlopen", side_effect=fake_urlopen):
+                     mock.patch.object(control, "open_workspace", side_effect=fake_urlopen):
                     control.main()
 
             run_cli(ops)

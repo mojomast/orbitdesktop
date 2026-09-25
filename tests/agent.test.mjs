@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { createAgentHandler } from '../server/agent.mjs';
 const token = 'orbit-test-token-'.repeat(4);
 const session = 'orbit-12345678-1234-4234-9234-123456789abc';
@@ -8,11 +11,12 @@ const runId = 'run_123456789abcdef';
 
 async function setup(t, mock, configured = true) {
   const calls = [];
+  const runtimeDirectory=fs.mkdtempSync(path.join(os.tmpdir(),'orbit-agent-test-'));
   let port;
   const reply = (res, status, data) => { res.writeHead(status, {'Content-Type':'application/json'}); res.end(JSON.stringify(data)); };
-  const server = http.createServer((req,res) => createAgentHandler({token,port,devOrigins:[],reply,apiUrl:configured?'http://hermes.test':undefined,apiKey:configured?'private-upstream-key':undefined,fetchImpl:async (url, options) => { calls.push({url,options}); return mock(url,options); }})(req,res));
+  const server = http.createServer((req,res) => createAgentHandler({token,port,devOrigins:[],reply,runtimeDirectory,apiUrl:configured?'http://hermes.test':null,apiKey:configured?'private-upstream-key':null,fetchImpl:async (url, options) => { calls.push({url,options}); return mock(url,options); }})(req,res));
   await new Promise(r=>server.listen(0,'127.0.0.1',r)); port=server.address().port;
-  t.after(()=>new Promise(r=>server.close(r)));
+  t.after(async()=>{await new Promise(r=>server.close(r));fs.rmSync(runtimeDirectory,{recursive:true,force:true});});
   const origin=`http://127.0.0.1:${port}`;
   async function request(body, headers = {}) {
     const r=await fetch(origin+'/api/agent',{method:'POST',headers:{Origin:origin,Authorization:`Bearer ${token}`,'Content-Type':'application/json',...headers},body:JSON.stringify({session_id:session,...body})});

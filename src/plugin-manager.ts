@@ -1,5 +1,6 @@
 import { el, button } from './dom';
 import { workspaceId, ensureWorkspaceSynced } from './workspace-sync';
+import { workspaceFetch } from './workspace-client';
 import { validateManifest, type PluginInstance, type PluginManifest } from './plugins';
 import './plugin-manager.css';
 type CatalogEntry = {manifest: PluginManifest; category: string; description: string; provenance?: {repo: string; sha: string; maintainer: string; license: string; capabilities: {network: boolean; storage: boolean}; backend?: {path: string; runtime: string; permissions: string[]}}};
@@ -14,8 +15,8 @@ export function showPlugins(token:()=>string){
  const allCategories=el('option','','All categories');category.append(allCategories);
  for(const name of ['All plugins','Installed','Enabled','Disabled','Not installed','Updates']){const option=el('option','',name);option.value=name;filter.append(option);}
  let revision=0,busy=false,installed:PluginInstance[]=[],activeIds=new Set<string>(),catalog:CatalogEntry[]=[],monitors:any[]=[];
- async function api(body:Record<string,unknown>){const r=await fetch('/api/workspace',{method:'POST',headers:{Authorization:`Bearer ${token()}`,'Content-Type':'application/json'},body:JSON.stringify({workspace_id:workspaceId,...body})});const data=await r.json();if(!r.ok)throw Error(data.error||'Plugin request failed');return data;}
- async function change(operations:Record<string,unknown>[]){if(busy)return;busy=true;render();try{await api({action:'plugins_apply',base_revision:revision,operations});status.textContent='Saved with a checkpoint. Connected workspace will update automatically.';await load();}catch(e){status.textContent=`${String(e)}. Refresh before retrying; no automatic overwrite.`;}finally{busy=false;render();}}
+  async function api(body:Record<string,unknown>){const r=await workspaceFetch(token(),{workspace_id:workspaceId,...body});const data=await r.json();if(!r.ok)throw Error(data.error||'Plugin request failed');return data;}
+  async function change(operations:Record<string,unknown>[]){if(busy)return;busy=true;render();try{await api({action:'plugins_apply',base_revision:revision,operations,intent:`Manage plugins: ${operations.map(o=>o.action).join(', ')}`});status.textContent='Saved with a checkpoint. Connected workspace will update automatically.';await load();}catch(e){status.textContent=`${String(e)}. Refresh before retrying; no automatic overwrite.`;}finally{busy=false;render();}}
  function action(label:string,name:string,fn:()=>void){const b=button(label,name,fn);b.disabled=busy;return b;}
  function render(){
   list.replaceChildren();const entries=new Map(catalog.map(c=>[c.manifest.id,c]));

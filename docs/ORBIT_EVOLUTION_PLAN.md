@@ -2,10 +2,12 @@
 
 This is the working backlog, not a claim that phases are complete.
 
-Current increment: strict legacy request/operation schemas, generated parity artifacts,
-isolated green native tests, a JSON store boundary and independent layout recovery UI.
-Phase A remains partial until actor/receipt/idempotency and migration semantics exist.
-The early recovery UI does not satisfy Phase B's persistent safe-mode/revocation gate.
+Current increment: strict legacy contracts, generated parity artifacts, isolated native
+tests, SQLite transactional revisions/checkpoints/receipts/outbox, explicit retained-
+original JSON import, private discovery and independent layout recovery UI. Layout
+remains v1; normalized surface/placement migration is still outstanding. Next: persistent
+server-enforced recovery authority, indexed bundles and bounded event delivery. The
+current recovery UI does not satisfy Phase B's safe-mode/revocation gate.
 
 1. Finish isolated baseline and fix adapter batch parity. Establish strict versioned
    JSON Schemas, error taxonomy, byte budgets and generated/parity-tested adapters.

@@ -1,0 +1,30 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import http from 'node:http';
+import {randomUUID} from 'node:crypto';
+import {initial} from '../src/model.ts';
+import {SqliteWorkspaceStore} from '../server/sqlite-workspace-store.mjs';
+import {commandIdentity} from '../server/command-identity.mjs';
+import {createAgentHandler} from '../server/agent.mjs';
+
+test('agent pane validation uses current SQLite state and the configured private runtime',async t=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'orbit-agent-store-')),store=new SqliteWorkspaceStore(root),id=randomUUID(),token=randomUUID();
+  const state=initial(),pane=state.monitors.find(m=>m.layout.type==='pane'&&m.layout.pane.kind==='agent').layout.pane.id;
+  store.commit(commandIdentity({workspace_id:id,action:'sync',base_revision:0,operation_id:'seed',intent:'Fixture'},'owner'),{create:()=>({id,revision:1,state,capability:'fixture-capability',api:'http://127.0.0.1:4318'})});
+  let handler;
+  const server=http.createServer((req,res)=>handler(req,res));
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  const port=server.address().port,origin=`http://127.0.0.1:${port}`;
+  handler=createAgentHandler({token,port,devOrigins:[],runtimeDirectory:root,workspaceRead:id=>store.read(id),apiUrl:'http://unused.invalid',apiKey:'fixture-key',fetchImpl:()=>{throw Error('No model request authorized in this test');},reply:(res,status,data)=>{res.writeHead(status,{'Content-Type':'application/json'});res.end(JSON.stringify(data));}});
+  t.after(async()=>{await new Promise(resolve=>server.close(resolve));store.close();fs.rmSync(root,{recursive:true,force:true});});
+  const session=`orbit-${randomUUID()}`;
+  const request=()=>fetch(origin,{method:'POST',headers:{Origin:origin,Authorization:`Bearer ${token}`},body:JSON.stringify({action:'shared_chat',workspace_id:id,pane_id:pane,session_id:session,initial:{session,messages:[]}})});
+  assert.equal((await request()).status,200);
+  assert.ok(fs.existsSync(path.join(root,'shared-chats',`${id}.${pane}.json`)));
+  assert.equal(fs.existsSync(path.join(root,'workspaces',`${id}.json`)),false);
+  store.commit(commandIdentity({workspace_id:id,action:'apply',base_revision:1,operation_id:'remove-agent-view',intent:'Detach fixture agent view'},'owner'),{apply:record=>({...record.state,monitors:record.state.monitors.filter(m=>m.layout.type!=='pane'||m.layout.pane.id!==pane)})});
+  assert.equal((await request()).status,404);
+});

@@ -60,3 +60,14 @@ test now proves retained variable/PID (not general layout continuity). Recovery 
 exercised in Chromium against the real server with an actually throwing renderer/app.
 CLI/docs contradictions and portable archive admission are repaired in this increment.
 Transactional storage, v2 migration and persistent safe mode remain unimplemented.
+
+## Transactional store increment (later on September 25)
+
+SQLite persistence and durable keyed receipts are now implemented and verified in
+isolated fixtures; this supersedes the storage status in the preceding historical
+paragraph. Explicit import retains originals and keeps layout v1. Cross-process CAS,
+bounded contention, SIGKILL during import, committed-receipt restart recovery, and
+SQLite-aware backup/restore/export have fresh tests. Normal built UI synchronization
+and independent recovery both passed against the real SQLite-backed server.
+No owner runtime has been migrated. Normalized v2 models and persistent safe mode
+are still outstanding. See the current handoff and WORKSPACE_STORE.md for scope.

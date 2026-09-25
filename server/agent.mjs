@@ -4,12 +4,13 @@ import { automation } from './automation.mjs';
 import { tokenMatches, allowedRequest } from './security.mjs';
 import { createBuildQueue } from './build-queue.mjs';
 import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 
 const sessionPattern = /^orbit-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const runPattern = /^run_[a-zA-Z0-9_-]{8,100}$/;
 const instructions = 'You are Hermes, accessed through the owner’s Comet/Orbit Desktop agent chat. This is a separate conversation using your configured profile, tools and memory, not a continuation of another dashboard thread. Orbit terminal panes run as the owner on the host. Your agent tools still run in the configured Hermes environment. Use plain text in replies. Do not claim to see screen pixels, iframe contents, or terminal buffers unless supplied. Follow normal tool approval policies.';
 
-export function createAgentHandler({ token, port, devOrigins, reply, workspaceContext, apiUrl = process.env.HERMES_API_URL, apiKey = process.env.HERMES_API_KEY, fetchImpl = fetch }) {
+export function createAgentHandler({ token, port, devOrigins, reply, workspaceContext, workspaceRead, runtimeDirectory = process.env.ORBIT_RUNTIME_DIR || fileURLToPath(new URL('../.runtime/', import.meta.url)), apiUrl = process.env.HERMES_API_URL, apiKey = process.env.HERMES_API_KEY, fetchImpl = fetch }) {
   async function upstream(path, body, method) {
     const r = await fetchImpl(`${apiUrl.replace(/\/$/, '')}${path}`, {
       method: method || (body === undefined ? 'GET' : 'POST'),
@@ -26,11 +27,13 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
     return r.json();
   }
   let buildQueue;
-  const shared = createSharedChats(fileURLToPath(new URL('../.runtime/shared-chats/', import.meta.url)));
+  const shared = createSharedChats(path.join(runtimeDirectory,'shared-chats'));
   function validatePane(body) {
-    const record = JSON.parse(fs.readFileSync(new URL(`../.runtime/workspaces/${body.workspace_id}.json`, import.meta.url), 'utf8'));
+    if(!workspaceRead)throw Object.assign(Error('Authoritative workspace access unavailable'),{status:503});
+    let record;
+    try {record=workspaceRead(body.workspace_id);}catch(error) {throw Object.assign(Error('Workspace unavailable'),{status:error.code==='ENOENT'?404:503});}
     const contains = layout => layout.type === 'pane' ? layout.pane.id === body.pane_id && layout.pane.kind === 'agent' : contains(layout.first) || contains(layout.second);
-    if (!record.state.monitors.some(m => contains(m.layout))) throw Error('Chat pane is not open in this workspace');
+    if (!record.state.monitors.some(m => contains(m.layout))) throw Object.assign(Error('Chat pane is not open in this workspace'),{status:404});
   }
   return async function agent(req, res) {
     if (req.method !== 'POST' || !allowedRequest(req, port, devOrigins)) return reply(res, 403, { error: 'Origin rejected' });
@@ -65,7 +68,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
         if (linked && linked.session !== body.session_id) return reply(res,409,{error:'This pane is linked to another conversation. Wait for synchronization.'});
       }
       if (body.action === 'build_queue') {
-        buildQueue ||= createBuildQueue({ directory: fileURLToPath(new URL('../.runtime/build-queue/', import.meta.url)), upstream, context: workspaceContext });
+        buildQueue ||= createBuildQueue({ directory: path.join(runtimeDirectory,'build-queue'), upstream, context: workspaceContext });
         try {
           if (body.operation === 'approvals') return reply(res, 200, { approvals: await buildQueue.approvals(body) });
           return reply(res, 200, await buildQueue.action(body));
@@ -97,13 +100,13 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
         return;
       }
       if(body.action==='connection_password') {
-        const paths = {chromium:'../.runtime/shared-browser/password.txt', xpra:'../.runtime/xpra/password'};
+        const paths = {chromium:'shared-browser/password.txt', xpra:'xpra/password'};
         if (!Object.hasOwn(paths, body.service)) return reply(res,400,{error:'Unknown connection.'});
         res.setHeader('Cache-Control','no-store');
-        return reply(res,200,{password:fs.readFileSync(new URL(paths[body.service],import.meta.url),'utf8').trim()});
+        return reply(res,200,{password:fs.readFileSync(path.join(runtimeDirectory,paths[body.service]),'utf8').trim()});
       }
       if(body.action==='shared_browser_connection') {
-        const password=fs.readFileSync(new URL('../.runtime/shared-browser/password.txt',import.meta.url),'utf8').trim();
+        const password=fs.readFileSync(path.join(runtimeDirectory,'shared-browser/password.txt'),'utf8').trim();
         res.setHeader('Cache-Control','no-store');
         return reply(res,200,{url:'/vnc.html?autoconnect=true&resize=scale',port:4344,password});
       }

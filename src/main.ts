@@ -15,6 +15,7 @@ import { xpraApps } from './xpra-apps';
 import { installDesktopIcons } from './desktop-icons';
 import { showConnectionPasswords } from './connection-passwords';
 import { workspaceId, ensureWorkspaceSynced } from './workspace-sync';
+import { workspaceFetch } from './workspace-client';
 import { installMinimize } from './minimize';
 import { el, button, select } from "./dom";
 import {
@@ -941,11 +942,11 @@ async function launchDesktopPlugin(id:string) {
   try {
     await ensureWorkspaceSynced();
     const api = async (body:Record<string,unknown>) => {
-      const response = await fetch('/api/workspace', {method:'POST',headers:{Authorization:`Bearer ${sessionToken}`,'Content-Type':'application/json'},body:JSON.stringify({workspace_id:workspaceId,...body})});
+       const response = await workspaceFetch(sessionToken,{workspace_id:workspaceId,...body});
       const data = await response.json(); if(!response.ok)throw Error(data.error || 'App launch failed'); return data;
     };
     const current = await api({action:'read'});
-    await api({action:'plugins_apply',base_revision:current.revision,operations:[{action:'plugin_enable',plugin_id:id}]});
+     await api({action:'plugins_apply',base_revision:current.revision,operations:[{action:'plugin_enable',plugin_id:id}],intent:`Enable desktop plugin ${id}`});
     notify('App enabled; workspace is synchronizing.');
   } catch(e) { notify(String(e)); } finally { desktopLaunchBusy = false; }
 }
