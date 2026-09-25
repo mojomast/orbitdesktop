@@ -2,16 +2,42 @@ import test, { before, after } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import http from "node:http";
+import net from "node:net";
+import os from "node:os";
+import path from "node:path";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { WebSocket } from "ws";
 import { setTimeout as delay } from "node:timers/promises";
 import { tokenMatches, geometry, allowedRequest } from "../server/security.mjs";
-const port = 14318,
-  base = `http://127.0.0.1:${port}`,
-  token = "orbit-test-only-token-01234567890123456789";
+let port, base, token = `orbit-test-only-${process.pid}-${Date.now()}`;
+let isolatedRoot;
 let child;
 before(async () => {
+  isolatedRoot = await mkdtemp(path.join(os.tmpdir(), "orbit-server-test-"));
+  const home = path.join(isolatedRoot, "home");
+  const cwd = path.join(isolatedRoot, "cwd");
+  const runtime = path.join(isolatedRoot, "runtime");
+  await Promise.all([home, cwd, runtime].map((dir) => mkdir(dir)));
+  port = await new Promise((resolve, reject) => {
+    const probe = net.createServer();
+    probe.once("error", reject);
+    probe.listen(0, "127.0.0.1", () => {
+      const assigned = probe.address().port;
+      probe.close((error) => error ? reject(error) : resolve(assigned));
+    });
+  });
+  base = `http://127.0.0.1:${port}`;
+  const env = {
+    PATH: process.env.PATH,
+    HOME: home,
+    TMPDIR: os.tmpdir(),
+    PORT: String(port),
+    ORBIT_TOKEN: token,
+    ORBIT_RUNTIME_DIR: runtime,
+    ORBIT_CWD: cwd,
+  };
   child = spawn(process.execPath, ["--experimental-strip-types", "server/index.mjs"], {
-    env: { ...process.env, PORT: String(port), ORBIT_TOKEN: token },
+    env,
     stdio: ["ignore", "pipe", "pipe"],
   });
   let errors = "";
@@ -26,8 +52,13 @@ before(async () => {
   throw Error("Server startup timeout");
 });
 after(async () => {
-  child?.kill("SIGTERM");
-  await delay(100);
+  if (child && child.exitCode === null) {
+    const exited = new Promise((resolve) => child.once("exit", resolve));
+    child.kill("SIGTERM");
+    await Promise.race([exited, delay(3000)]);
+    if(child.exitCode===null && child.signalCode===null) { child.kill('SIGKILL'); await exited; }
+  }
+  await rm(isolatedRoot, { recursive: true, force: true });
 });
 function connection(origin = base) {
   return new Promise((resolve, reject) => {
