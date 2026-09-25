@@ -1,4 +1,5 @@
 import { pluginOperation } from './plugins.ts';
+import { tileSpatial } from './spatial-layout.ts';
 import { validate, monitor, leaves, replace, remove, pane, type Workspace, type PaneKind, type Monitor } from './model.ts';
 
 export function applyOperation(input: Workspace, op: Record<string, any>): Workspace {
@@ -6,6 +7,13 @@ export function applyOperation(input: Workspace, op: Record<string, any>): Works
   if (typeof op.action === 'string' && op.action.startsWith('plugin_')) { pluginOperation(state, op); return validate(state); }
   const target = () => { const m = state.monitors.find(m => m.id === op.window_id); if (!m) throw Error('Unknown window_id'); return m; };
   switch (op.action) {
+    case 'set_spatial_camera': state.spatialCamera = op.camera; break;
+    case 'arrange_spatial': {
+      const ids = op.window_ids ?? state.monitors.map(m => m.id);
+      if (!Array.isArray(ids) || !ids.length || new Set(ids).size !== ids.length) throw Error('Provide distinct window IDs');
+      const windows = ids.map((id:string) => { const m = state.monitors.find(m => m.id === id); if (!m) throw Error('Unknown window ID'); return m; });
+      tileSpatial(windows, op.mode ?? 'grid', op.columns, op.gap); state.view = 'spatial'; break;
+    }
     case 'reset_appearance': {
       if (!Array.isArray(op.keys) || op.keys.some((k:unknown)=>typeof k!=='string' || !['theme','surfaceColor','panelColor','borderColor','mutedColor','titlebarColor','titlebarTextColor','buttonColor','buttonTextColor','controlRadius','titlebarHeight','uiFont','background','wallpaper','textColor','cornerRadius','fullViewport','headerHeight','sidebarWidth','workspaceGap','accentColor','navigationPosition','wallpaperFit'].includes(k as string))) throw Error('Invalid appearance reset keys');
       for(const key of op.keys) if(state.appearance) delete (state.appearance as any)[key];break;
@@ -66,7 +74,7 @@ export function applyOperation(input: Workspace, op: Record<string, any>): Works
     }
     case 'update_window': {
       const m = target();
-      const keys = ['name', 'diagonal', 'aspect', 'height', 'distance', 'pitch', 'yaw', 'offset', 'fontSize', 'frame'] as const;
+      const keys = ['name', 'diagonal', 'aspect', 'height', 'distance', 'pitch', 'yaw', 'offset', 'fontSize', 'spatialFontSize', 'opacity', 'frame', 'spatial'] as const;
       for (const key of keys) if (op[key] !== undefined) (m as any)[key] = op[key];
       break;
     }

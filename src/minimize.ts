@@ -12,6 +12,7 @@ export function installMinimize() {
   const read = (id: string) => { try { return localStorage.getItem(key(id)) === 'true'; } catch { return false; } };
   const write = (id: string, value: boolean) => { try { localStorage.setItem(key(id), String(value)); } catch { /* Session-only fallback. */ } };
   return {
+    ids() { return [...hidden]; },
     attach(id: string, element: HTMLElement) {
       if (read(id)) hidden.add(id);
       element.classList.toggle('window-minimized', hidden.has(id));
@@ -29,6 +30,6 @@ export function installMinimize() {
       }
       tray.hidden = !tray.childElementCount;
     },
-    focusRestore() { tray.querySelector<HTMLButtonElement>('button')?.focus(); },
+    focusRestore() { document.querySelector<HTMLButtonElement>('.display-tabs button.minimized')?.focus(); },
   };
 }

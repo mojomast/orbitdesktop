@@ -229,6 +229,10 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     dialog.addEventListener('close', () => { dialog.remove(); input.focus(); });
     document.body.append(dialog); dialog.showModal();
   }
+  // The orbit menu can open this pane's tools and conversations directly.
+  window.addEventListener('orbit-open-hermes-tools', event => {
+    if ((event as CustomEvent<{ paneId?: string }>).detail?.paneId === paneId) openTools();
+  });
   const send = button('↑', 'Send message to Hermes', () => { void submit(); });
   function update() {
     const active = busy || !!state.run;

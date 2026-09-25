@@ -46,7 +46,7 @@ export function pluginOperation(state: Workspace, op: Record<string,any>) {
  }
  case 'plugin_window': {
   if(!existing)throw Error('Unknown plugin');
-  const settings=op.settings;if(!settings || typeof settings!=='object' || Array.isArray(settings) || Object.keys(settings).some(k=>!['name','frame','fontSize','diagonal','aspect','height','distance','pitch','yaw','offset'].includes(k)))throw Error('Invalid plugin window settings');
+  const settings=op.settings;if(!settings || typeof settings!=='object' || Array.isArray(settings) || Object.keys(settings).some(k=>!['name','frame','fontSize','spatialFontSize','opacity','diagonal','aspect','height','distance','pitch','yaw','offset'].includes(k)))throw Error('Invalid plugin window settings');
   const active=existing.enabled;detach(existing);Object.assign(existing.window,structuredClone(settings));if(active)attach(existing);break;
  }
  case 'plugin_configure': if(!existing)throw Error('Unknown plugin');validateConfig(op.config);{const active=existing.enabled;detach(existing);existing.config=structuredClone(op.config);if(active)attach(existing);}break;

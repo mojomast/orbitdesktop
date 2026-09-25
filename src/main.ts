@@ -4,7 +4,13 @@ import "./compact-windows.css";
 import "./workspace-theme.css";
 import { applyAppearance } from './workspace-appearance';
 import { installViewport } from './viewport';
+import { installOrbitMenu, type OrbitMenuItem, type OrbitMenuSection } from './orbit-menu';
+import { workspaceExtensions } from './workspace-extensions';
 import { installStart } from './taskbar';
+import { showOnboarding, offerOnboarding } from './onboarding';
+window.addEventListener('load', () => offerOnboarding(), { once: true });
+import { installLayoutSwitcher } from './layout-switcher';
+import './unified-taskbar.css';
 import { xpraApps } from './xpra-apps';
 import { installDesktopIcons } from './desktop-icons';
 import { showConnectionPasswords } from './connection-passwords';
@@ -27,6 +33,7 @@ import { createPane, setToken, sessionToken, type PaneView } from "./panes";
 import { placeWindow, wireWindow } from "./windows";
 import { connectWorkspace } from "./workspace-sync";
 import { DesktopScene } from "./scene";
+import { installSpatialControls } from './spatial-controls';
 import { watchStyles } from './live-style';
 watchStyles();
 let state = load();
@@ -43,14 +50,19 @@ window.addEventListener('orbit-focus-agent', event => {
   if(monitor) {if(focused) unfocus(); choose(monitor.id);}
 });
 let saveTimer: ReturnType<typeof setTimeout>;
+let layoutSwitcher: ReturnType<typeof installLayoutSwitcher> | undefined;
 const app = document.querySelector<HTMLDivElement>("#app")!;
 const top = el("header", "topbar");
 const brand = el("div", "brand");
-brand.append(
+const logoButton = button("", "Open orbit menu", () => orbitMenu.toggle(), "orbit-logo");
+logoButton.append(
   el("span", "brand-mark", "◉"),
   el("strong", "", "orbit"),
   el("span", "brand-tag", "SPATIAL DESKTOP"),
 );
+logoButton.setAttribute("aria-haspopup", "true");
+logoButton.setAttribute("aria-controls", "orbit-menu");
+brand.append(logoButton);
 const hostStatus = button(
   "↗  Connect host",
   "Connect local host",
@@ -59,10 +71,12 @@ const hostStatus = button(
 );
 const saved = el("span", "saved", "Saved locally");
 const sidebarToggle = button('Hide panel', 'Toggle side panel', () => { state.sidebarHidden = !state.sidebarHidden; applySidebar(); save(); });
-top.append(brand, saved, button('Themes', 'Choose workspace theme', async () => {
+const themesButton = button('Themes', 'Choose workspace theme', async () => {
  const {showThemes}=await import('./theme-picker');
  showThemes(()=>sessionToken, patch => {state.appearance={...state.appearance,...patch};applyAppearance(state);save();},()=>state.appearance??{});
-}), sidebarToggle, hostStatus);
+});
+const orbitToolbar = el('div', 'orbit-toolbar');
+top.append(brand, orbitToolbar, saved, hostStatus);
 const shell = el("main", "shell"),
   work = el("section", "workspace"),
   stage = el("div", "stage");
@@ -73,23 +87,21 @@ title.append(
   el("span", "eyebrow", "WORKSPACE / 01"),
   el("h1", "", "Your command center"),
 );
-const mode = el("div", "mode-switch");
 const sceneButton = button(
-    "◈  Spatial",
+    "Spatial",
     "Switch to spatial view",
     () => setView('spatial'),
     "active",
   ),
-  flatButton = button("▣  Focus", "Focus selected display", () =>
+  flatButton = button("Focus", "Focus selected display", () =>
     focus(state.selected),
   );
-const windowsButton = button('▤ Windows', 'Switch to movable windows', () => setView('windows'));
-mode.append(windowsButton, sceneButton, flatButton);
-sub.append(title, mode);
+const windowsButton = button('Windows', 'Switch to movable windows', () => setView('windows'));
+sub.append(title);
 const guide = el(
   "div",
   "scene-guide",
-  "Drag empty space to orbit · Scroll to zoom · Alt + drag anywhere",
+  "Drag background to orbit · Shift drag to pan · Scroll to zoom · Navigate for WASD + Q/E",
 );
 const navigation = el("div", "scene-navigation");
 const navDisplays = el("div", "display-tabs");
@@ -105,6 +117,7 @@ navigation.append(button('▦ Desktop', 'Show desktop shortcuts', () => {
   state.monitors.forEach(m=>{const element=monitors.get(m.id);if(element)minimizer.hide(m.id,element);});renderTabs();
 }));
 installStart(navigation, () => [
+  { title: 'Getting started', detail: 'Tour Orbit: controls, layouts, ask Hermes and build apps', run: showOnboarding },
   ...state.monitors.map(m => ({ title: m.name, detail: 'Open window', run: () => { if (focused) focus(m.id); else choose(m.id); } })),
   { title: 'New agent chat', detail: 'Talk to Hermes', run: () => addMonitor('agent') },
   { title: 'New terminal', detail: 'Open a host terminal pane', run: () => addMonitor('terminal') },
@@ -126,6 +139,7 @@ const desktopIcons = installDesktopIcons(desktopHost, () => [
     state.monitors.push(m);state.selected=m.id;state.view='windows';
     work.classList.add('windows-mode');renderAll();choose(m.id);
   }})),
+  {id:'plugin-manager',title:'Plugin Manager',icon:'🧩',pinned:true,run:()=>{void import('./plugin-manager').then(m=>m.showPlugins(()=>sessionToken));}},
   {id:'connection-passwords',title:'Connection passwords',icon:'🔑',run:()=>showConnectionPasswords(()=>sessionToken)},
   ...state.monitors.filter(m=>!leaves(m.layout).some(p=>xpraApps.some(a=>a.url===p.url))).map(m => ({id:m.id, title:m.name, icon:leaves(m.layout).some(p=>p.kind==='terminal')?'⌘':leaves(m.layout).some(p=>p.kind==='agent')?'✦':'▣', run:()=>{if(focused)unfocus();choose(m.id);}})),
   ...(state.plugins || []).filter(p=>!p.enabled).map(p=>({id:p.manifest.id,title:p.manifest.title,icon:'◈',run:()=>{void launchDesktopPlugin(p.manifest.id);}})),
@@ -150,9 +164,127 @@ footer.append(
   el("span", "footer-status", "3D + DOM · v0.1 foundation"),
 );
 app.append(top, shell, footer);
+const taskbarStatus = el('div', 'taskbar-status');
+taskbarStatus.append(saved);
+navigation.append(taskbarStatus);
+footer.remove();
+const globalTransparency = button('Transparency', 'Global transparency options', () => showGlobalTransparency(), 'global-transparency-button');
+globalTransparency.dataset.icon = '◐';
+const wallpaperMemoryKey = `orbit.wallpaper.previous.${localStorage.getItem('orbit.workspace.id') || 'local'}`;
+let previousWallpaper: string | undefined;
+try { previousWallpaper = JSON.parse(localStorage.getItem(wallpaperMemoryKey) || '{}').wallpaper; } catch {}
+const wallpaperToggle = button('Wallpaper: on', 'Toggle background wallpaper', () => {
+  const appearance = {...state.appearance};
+  if (appearance.wallpaper === '') {
+    if (previousWallpaper && /^\/[a-zA-Z0-9/_-]+\.(svg|png|jpg|jpeg|webp)$/.test(previousWallpaper) && !previousWallpaper.startsWith('//')) appearance.wallpaper = previousWallpaper;
+    else delete appearance.wallpaper;
+  } else {
+    previousWallpaper = appearance.wallpaper;
+    try { localStorage.setItem(wallpaperMemoryKey, JSON.stringify({wallpaper: previousWallpaper})); } catch {}
+    appearance.wallpaper = '';
+  }
+  state.appearance = appearance;
+  applyAppearance(state); save();
+}, 'wallpaper-toggle-button');
+window.addEventListener('orbit-wallpaper-state', event => {
+  const disabled = (event as CustomEvent<boolean>).detail;
+  wallpaperToggle.textContent = disabled ? 'Wallpaper: off' : 'Wallpaper: on';
+  wallpaperToggle.setAttribute('aria-pressed', String(!disabled));
+});
+function showGlobalTransparency() {
+  const before = new Map(state.monitors.map(m => [m.id, m.opacity ?? 1]));
+  const dialog = document.createElement('dialog');
+  dialog.className = 'hermes-tools-dialog';
+  dialog.setAttribute('aria-label', 'Global transparency');
+  const values = [...before.values()];
+  const mixed = new Set(values).size > 1;
+  const status = el('p', '', mixed ? 'Windows currently have different opacity settings.' : `Current opacity: ${Math.round((values[0] ?? 1) * 100)}%`);
+  status.role = 'status';
+  const apply = (value?: number) => {
+    for (const m of state.monitors) {
+      const opacity = value === undefined ? before.get(m.id) : value / 100;
+      if (opacity === undefined) continue;
+      m.opacity = opacity;
+      const outer = monitors.get(m.id);
+      if (outer) {
+        outer.style.opacity = String(opacity);
+        outer.querySelector('[aria-label^="Toggle transparency"]')?.setAttribute('aria-pressed', String(opacity < 1));
+      }
+    }
+    renderInspector(); save();
+    status.textContent = value === undefined ? 'Restored the individual settings from when this dialog opened.' : `All current windows: ${value}% opacity`;
+  };
+  const slider = range('All windows opacity', Math.round((values[0] ?? 1) * 100), 20, 100, 1, '%', apply);
+  dialog.append(el('h2', '', 'Global transparency'),
+    el('p', '', 'Adjust all current windows together, including minimized windows. Text and app content fade too. New windows keep their default opacity; individual controls remain available.'),
+    status, slider,
+    button('Fully opaque', 'Make all windows fully opaque', () => {
+      const input = slider.querySelector('input')!;
+      input.value = '100'; input.dispatchEvent(new Event('input'));
+    }),
+    button('Undo changes', 'Restore previous individual opacity settings', () => { apply(); dialog.close(); }),
+    button('Done', 'Close global transparency', () => dialog.close()));
+  dialog.addEventListener('close', () => dialog.remove());
+  document.body.append(dialog); dialog.showModal();
+}
 applyAppearance(state);
-installViewport(app, state.appearance?.fullViewport, value => { state.appearance = {...state.appearance, fullViewport:value}; save(); });
+const viewportToggle = installViewport(app, state.appearance?.fullViewport, value => { state.appearance = {...state.appearance, fullViewport:value}; save(); }).button;
+// Hermes runtime tools surfaced from the orbit menu instead of the chat pane only.
+const menuSession = `orbit-${workspaceId}`;
+function menuAgentApi(payload: Record<string, unknown>): Promise<any> {
+  if (!sessionToken) return Promise.reject(Error('Connect host first: use the host button in the top bar.'));
+  return fetch('/api/agent', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${sessionToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...payload, session_id: menuSession, workspace_id: workspaceId }),
+  }).then(async response => {
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw Error(data.error || 'Hermes request failed');
+    return data;
+  });
+}
+const hermesIcons: Record<string, string> = { 'shared-browser': '🖥', 'build-queue': '🛠', jev: '⚡', plugins: '🧩', checkpoints: '⛁', catalog: '✦', outputs: '🗂', jobs: '⏱' };
+const hermesMenuItems: OrbitMenuItem[] = workspaceExtensions.map(extension => ({
+  id: `hermes-${extension.id}`,
+  label: extension.title,
+  icon: hermesIcons[extension.id] || '✦',
+  button: button(extension.title, extension.title, () => {
+    void extension.activate({ token: () => sessionToken, api: menuAgentApi })
+      .catch(error => notify(`${extension.title} could not open: ${String(error)}`));
+  }),
+}));
+function openHermesTools() {
+  const target = state.monitors.find(m => m.id === (focused ?? state.selected));
+  const agent = target ? leaves(target.layout).find(p => p.kind === 'agent') : undefined;
+  if (!target || !agent) { notify('Open a Hermes chat window to see its tools and conversations.'); addMonitor('agent'); return; }
+  if (focused !== target.id) focus(target.id);
+  window.dispatchEvent(new CustomEvent('orbit-open-hermes-tools', { detail: { paneId: agent.id } }));
+}
+function orbitMenuSections(): OrbitMenuSection[] {
+  return [
+    { id: 'view', title: 'Workspace view', detail: 'Choose how your windows are arranged.', items: [
+      { id: 'windows', label: 'Windows', icon: '▤', button: windowsButton },
+      { id: 'spatial', label: 'Spatial', icon: '◈', button: sceneButton },
+      { id: 'focus', label: 'Focus', icon: '▣', button: flatButton },
+    ] },
+    { id: 'appearance', title: 'Panels & appearance', detail: 'Panel, themes, full viewport, wallpaper and transparency.', items: [
+      { id: 'themes', label: 'Themes', icon: '✦', button: themesButton },
+      { id: 'panel', label: 'Panel', icon: '▥', button: sidebarToggle },
+      { id: 'viewport', label: 'Full viewport', icon: '⛶', button: viewportToggle },
+      { id: 'wallpaper', label: 'Wallpaper', icon: '▧', button: wallpaperToggle },
+      { id: 'transparency', label: 'Transparency', icon: '◐', button: globalTransparency },
+    ] },
+    { id: 'hermes', title: 'Hermes', detail: 'Hermes runtime tools and conversations, reachable without opening a chat pane.', items: [
+      { id: 'hermes-chat', label: 'New Hermes chat', icon: '✧', button: button('New Hermes chat', 'New Hermes chat', () => addMonitor('agent')) },
+      { id: 'hermes-tools', label: 'Tools & conversations', icon: '⋯', button: button('Tools & conversations', 'Tools & conversations', () => openHermesTools()) },
+      ...hermesMenuItems,
+    ] },
+  ];
+}
+const orbitMenu = installOrbitMenu({ toolbar: orbitToolbar, drawerHost: app, logo: logoButton, sections: orbitMenuSections });
 const scene = new DesktopScene(stage);
+scene.configureCamera(state.spatialCamera, pose => { state.spatialCamera = pose; save(); });
+installSpatialControls(stage, scene, () => state, () => { updateScene(); renderInspector(); save(); });
 if (stage.classList.contains("no-webgl"))
   footer.querySelector(".footer-status")!.textContent =
     "CSS3D mode · WebGL unavailable";
@@ -173,6 +305,7 @@ function save() {
   saveTimer = setTimeout(() => {
     try {
       localStorage.setItem("orbit.workspace.v1", JSON.stringify(state));
+      layoutSwitcher?.remember();
       saved.textContent = "Saved locally";
     } catch {
       saved.textContent = "Storage unavailable";
@@ -217,14 +350,15 @@ function renderTabs() {
   navDisplays.replaceChildren();
   state.monitors.forEach((m, i) => {
     const b = button(
-      `${String(i + 1).padStart(2, "0")}  ${m.name}`,
-      `Select ${m.name}`,
+      `${minimizer.ids().includes(m.id) ? '↗' : String(i + 1).padStart(2, "0")}  ${m.name}`,
+      `${minimizer.ids().includes(m.id) ? 'Restore' : 'Select'} ${m.name}`,
       () => {
         if (focused) focus(m.id);
         else choose(m.id);
       },
       m.id === state.selected ? "selected" : "",
     );
+    b.classList.toggle('minimized', minimizer.ids().includes(m.id));
     navDisplays.append(b);
   });
 }
@@ -266,6 +400,7 @@ function applySidebar() {
   requestAnimationFrame(() => { scene.resize(); updateScene(); });
 }
 function setView(view: 'windows' | 'spatial') {
+  scene.setNavigation(false);
   unfocus(); state.view = view;
   work.classList.toggle('windows-mode', view === 'windows');
   windowsButton.classList.toggle('active', view === 'windows');
@@ -278,6 +413,8 @@ function setView(view: 'windows' | 'spatial') {
     });
     scene.update(state.monitors, monitors, state.selected, state.arc);
   }
+  state.monitors.forEach(m => leaves(m.layout).forEach(p => views.get(p.id)?.setFont(textSize(m))));
+  renderInspector();
   updateScene(); save();
 }
 function confirmChange(text: string, action: () => void) {
@@ -301,12 +438,64 @@ function confirmChange(text: string, action: () => void) {
   app.append(d);
   d.showModal();
 }
+function moveTerminal(id: string, popout: boolean) {
+  const source = state.monitors.find(m => leaves(m.layout).some(p => p.id === id));
+  if (!source) return;
+  const eligible = (m: Monitor) => !state.plugins?.some(p => p.window?.id === m.id);
+  if (!eligible(source)) { notify('Move terminals from ordinary windows, not managed app windows.'); return; }
+  const commit = (target?: Monitor, axis: 'row' | 'column' = 'row') => {
+    const p = leaves(source.layout).find(p => p.id === id);
+    if (!p || !state.monitors.includes(source)) return;
+    if (target && (!state.monitors.includes(target) || leaves(target.layout).length >= 8)) { notify('Destination unavailable or full'); return; }
+    if (!target && leaves(source.layout).length === 1) { choose(source.id); notify('This terminal already has its own window'); return; }
+    unfocus();
+    const destination = target ?? monitor(state.monitors.length + 1, 'terminal');
+    if (!target) {
+      destination.name = `${source.name} · Terminal`;
+      destination.fontSize = source.fontSize;
+      destination.layout = { type: 'pane', pane: p };
+      state.monitors.push(destination);
+    } else destination.layout = { type: 'split', axis, ratio: 0.5, first: destination.layout, second: { type: 'pane', pane: p } };
+    const remaining = remove(source.layout, id);
+    if (remaining) source.layout = remaining;
+    else {
+      state.monitors = state.monitors.filter(m => m !== source);
+      monitors.get(source.id)?.remove();
+      monitors.delete(source.id);
+    }
+    state.selected = destination.id;
+    // Reuse the PaneView, xterm instance and WebSocket: no shell reconnect.
+    renderAll();
+    choose(destination.id);
+  };
+  if (popout) { commit(); return; }
+  const targets = state.monitors.filter(m => m !== source && eligible(m) && leaves(m.layout).length < 8);
+  if (!targets.length) { notify('No other window with room for a terminal'); return; }
+  const d = el('dialog', 'dialog');
+  d.setAttribute('aria-label', 'Attach terminal');
+  const target = select(targets.map(m => [m.id, m.name]), targets[0].id, () => {});
+  target.setAttribute('aria-label', 'Destination window');
+  const placement = select([['row', 'Beside existing panes'], ['column', 'Below existing panes']], 'row', () => {});
+  placement.setAttribute('aria-label', 'Terminal placement');
+  d.append(el('h2', '', 'Attach terminal'), target, placement,
+    button('Cancel', 'Cancel attach', () => d.close()),
+    button('Attach', 'Attach terminal to selected window', () => {
+      const destination = state.monitors.find(m => m.id === target.value);
+      if (!destination) { d.close(); return; }
+      commit(destination, placement.value as 'row' | 'column'); d.close();
+    }));
+  d.addEventListener('keydown', e => e.stopPropagation());
+  d.onclose = () => d.remove();
+  app.append(d); d.showModal();
+}
 function renderLayout(layout: Layout, m: Monitor): HTMLElement {
   if (layout.type === "pane") {
     let v = views.get(layout.pane.id);
     if (!v) {
-      v = createPane(layout.pane, m.fontSize, {
+      v = createPane(layout.pane, textSize(m), {
+        move: moveTerminal,
         kind: (id, kind) => {
+          m = state.monitors.find(x => leaves(x.layout).some(p => p.id === id))!;
           confirmChange(
             "Switching this pane closes its current session.",
             () => {
@@ -322,6 +511,7 @@ function renderLayout(layout: Layout, m: Monitor): HTMLElement {
           );
         },
         split: (id, axis) => {
+          m = state.monitors.find(x => leaves(x.layout).some(p => p.id === id))!;
           if (leaves(m.layout).length >= 8) {
             notify("Maximum 8 panes per display");
             return;
@@ -337,6 +527,7 @@ function renderLayout(layout: Layout, m: Monitor): HTMLElement {
           save();
         },
         close: (id) => {
+          m = state.monitors.find(x => leaves(x.layout).some(p => p.id === id))!;
           if (leaves(m.layout).length === 1) {
             notify("Keep at least one pane on each display");
             return;
@@ -429,6 +620,29 @@ function renderMonitor(m: Monitor) {
     monitors.set(m.id, outer);
   }
   const bar = el("div", "monitor-bar");
+  outer.style.opacity = String(m.opacity ?? 1);
+  const transparency = button('◐', `Toggle transparency for ${m.name}`, () => {
+    const dialog = document.createElement('dialog');
+    dialog.className = 'hermes-tools-dialog';
+    dialog.setAttribute('aria-label', 'Window transparency');
+    const applyOpacity = (value: number) => {
+      const live = state.monitors.find(window => window.id === m.id);
+      if (!live) return;
+      live.opacity = value / 100;
+      outer!.style.opacity = String(live.opacity);
+      transparency.setAttribute('aria-pressed', String(live.opacity < 1));
+      transparency.title = `Window opacity: ${value}%`;
+      renderInspector(); save();
+    };
+    dialog.append(el('h2', '', `Transparency · ${m.name}`),
+      el('p', '', 'Lower opacity reveals the desktop behind this window. Text and app content fade too.'),
+      range('Window opacity', Math.round((state.monitors.find(window => window.id === m.id)?.opacity ?? 1) * 100), 20, 100, 1, '%', applyOpacity),
+      button('Fully opaque', 'Make window fully opaque', () => { applyOpacity(100); dialog.close(); }),
+      button('Done', 'Close transparency settings', () => dialog.close()));
+    dialog.addEventListener('close', () => dialog.remove());
+    document.body.append(dialog); dialog.showModal();
+  });
+  transparency.setAttribute('aria-pressed', String((m.opacity ?? 1) < 1));
   bar.append(
     el("span", "monitor-indicator"),
     el("strong", "", m.name),
@@ -436,12 +650,13 @@ function renderMonitor(m: Monitor) {
     el("span", "pane-spacer"),
     button("A−", `Decrease text size on ${m.name}`, () => font(m, -1)),
     button("A+", `Increase text size on ${m.name}`, () => font(m, 1)),
-    button("⚙", `Settings for ${m.name}`, () => choose(m.id)),
+    transparency,
+    button("⚙", `Settings for ${m.name}`, () => openWindowOptions(m.id)),
     button("⛶", `Focus ${m.name}`, () => focus(m.id)),
     button('−', `Minimize ${m.name}`, () => {
       if (focused === m.id) unfocus();
       minimizer.hide(m.id, outer!);
-      updateScene(); renderTabs(); minimizer.focusRestore();
+      updateScene(); renderTabs(); layoutSwitcher?.remember(); minimizer.focusRestore();
     }, 'window-minimize'),
     button('×', `Close ${m.name}`, () => { choose(m.id); deleteMonitor(); }, 'window-close'),
   );
@@ -459,10 +674,79 @@ function renderMonitor(m: Monitor) {
     outer.style.transform = "none";
   }
 }
-function font(m: Monitor, delta: number) {
-  m.fontSize = Math.max(6, Math.min(32, m.fontSize + delta));
-  leaves(m.layout).forEach((p) => views.get(p.id)?.setFont(m.fontSize));
-  renderInspector();
+function openWindowOptions(id: string) {
+  choose(id);
+  const dialog = document.createElement('dialog');
+  dialog.className = 'hermes-tools-dialog';
+  dialog.setAttribute('aria-label', 'Window options');
+  const live = () => state.monitors.find(window => window.id === id);
+  const m = live();
+  if (!m) return;
+  const heading = el('h2', '', `Window options · ${m.name}`);
+  const name = el('input', 'name-input');
+  name.value = m.name;
+  name.maxLength = 60;
+  name.setAttribute('aria-label', 'Window name');
+  const status = el('p', '', 'Opacity and text size save immediately. Window names are separate from conversation names.');
+  status.setAttribute('role', 'status');
+  const rename = () => {
+    const window = live();
+    if (!window) return dialog.close();
+    const value = name.value.trim();
+    if (!value) { status.textContent = 'Enter a window name.'; name.focus(); return; }
+    const oldName = window.name;
+    window.name = value;
+    const bar = monitors.get(id)?.querySelector('.monitor-bar');
+    const title = bar?.querySelector('strong');
+    if (title) title.textContent = value;
+    bar?.querySelectorAll('button').forEach(button => {
+      const label = button.getAttribute('aria-label');
+      if (label) button.setAttribute('aria-label', label.replace(oldName, value));
+    });
+    heading.textContent = `Window options · ${value}`;
+    renderInspector(); renderTabs(); save();
+    status.textContent = 'Window name saved.';
+  };
+  name.onkeydown = event => { if (event.key === 'Enter') { event.preventDefault(); rename(); } };
+  const opacity = range('Window opacity', Math.round((m.opacity ?? 1) * 100), 20, 100, 1, '%', value => {
+    const window = live();
+    if (!window) return dialog.close();
+    window.opacity = value / 100;
+    const outer = monitors.get(id);
+    if (outer) {
+      outer.style.opacity = String(window.opacity);
+      outer.querySelector('[aria-label^="Toggle transparency"]')?.setAttribute('aria-pressed', String(value < 100));
+    }
+    renderInspector(); save();
+  });
+  dialog.append(heading, name, button('Save name', 'Save window name', rename), opacity,
+    el('p', '', 'Lower opacity fades the entire window, including its text and apps.'),
+    button('Fully opaque', 'Reset window opacity', () => {
+      const input = opacity.querySelector('input')!;
+      input.value = '100'; input.dispatchEvent(new Event('input'));
+    }),
+    range(textSizeLabel(), textSize(m), 6, state.view === 'spatial' ? 96 : 32, 1, ' px', value => {
+      const window = live();
+      if (window) font(window, value - textSize(window));
+    }), status, button('Done', 'Close window options', () => dialog.close()));
+  const trigger = document.activeElement as HTMLElement | null;
+  dialog.addEventListener('close', () => { dialog.remove(); trigger?.focus(); });
+  document.body.append(dialog);
+  dialog.showModal();
+}
+function textSize(m: Monitor) {
+  return state.view === 'spatial' ? (m.spatialFontSize ?? m.fontSize) : m.fontSize;
+}
+function textSizeLabel() { return state.view === 'spatial' ? '3D text size' : 'Desktop text size'; }
+function font(m: Monitor, delta: number, refreshInspector = true) {
+  const value = Math.max(6, Math.min(state.view === 'spatial' ? 96 : 32, textSize(m) + delta));
+  // Freeze the legacy size before either view is edited, so desktop changes
+  // cannot silently change an as-yet unedited spatial setting.
+  m.spatialFontSize ??= m.fontSize;
+  if (state.view === 'spatial') m.spatialFontSize = value;
+  else m.fontSize = value;
+  leaves(m.layout).forEach((p) => views.get(p.id)?.setFont(value));
+  if (refreshInspector) renderInspector();
   save();
 }
 function range(
@@ -581,12 +865,23 @@ function renderInspector() {
       m.diagonal = v;
       updateScene();
     }),
-    range("Text size", m.fontSize, 6, 32, 1, " px", (v) => {
-      m.fontSize = v;
-      leaves(m.layout).forEach((p) => views.get(p.id)?.setFont(v));
+    range(textSizeLabel(), textSize(m), 6, state.view === 'spatial' ? 96 : 32, 1, " px", (v) => {
+      font(m, v - textSize(m), false);
     }),
   );
   inspector.append(display);
+  const transparencySettings = el('div', 'settings-section');
+  transparencySettings.append(el('h3', '', 'TRANSPARENCY'),
+    range('Window opacity', Math.round((m.opacity ?? 1) * 100), 20, 100, 1, '%', (v) => {
+      m.opacity = v / 100;
+      const outer = monitors.get(m.id);
+      if (outer) {
+        outer.style.opacity = String(m.opacity);
+        outer.querySelector('[aria-label^="Toggle transparency"]')?.setAttribute('aria-pressed', String(m.opacity < 1));
+      }
+    }),
+    el('p', '', '100% is opaque. Lower values fade the entire window, including text and apps.'));
+  inspector.append(transparencySettings);
   const position = el("div", "settings-section");
   position.append(el("h3", "", "POSITION"));
   for (const [label, key, min, max, step, unit] of [
@@ -604,6 +899,13 @@ function renderInspector() {
     );
   }
   inspector.append(position);
+  if (m.spatial) {
+    ratios.disabled = true;
+    display.querySelector<HTMLInputElement>('[aria-label="Diagonal"]')!.disabled = true;
+    position.replaceChildren(el('h3', '', 'FREE 3D PLACEMENT'), el('p', '', 'This window uses independent 3D dimensions and coordinates. Use Arrange / edit in Spatial view to change size, position, rotation and resolution.'),
+      button('Edit 3D placement', 'Edit selected 3D placement', () => { if (state.view !== 'spatial') setView('spatial'); stage.querySelector<HTMLButtonElement>('[aria-label="3D layout and window settings"]')?.click(); }));
+  }
+  if (state.monitors.every(window => window.spatial)) preset.querySelector<HTMLInputElement>('[aria-label="Wrap angle"]')!.disabled = true;
   const actions = el("div", "settings-section settings-actions");
   actions.append(
     button("↧  Export layout", "Export workspace layout", exportLayout),
@@ -810,6 +1112,19 @@ workspaceBridge = connectWorkspace(() => state, next => {
   applyingRemote = true;
   try {
     const valid = validate(next);
+    // Camera/geometry synchronization must not detach live iframes or terminals.
+    const geometryOnly = valid.view === state.view && valid.monitors.length === state.monitors.length && valid.monitors.every((m, i) => {
+      const old = state.monitors[i];
+      return old.id === m.id && old.name === m.name && old.opacity === m.opacity && JSON.stringify(old.layout) === JSON.stringify(m.layout);
+    });
+    if (geometryOnly) {
+      valid.monitors = valid.monitors.map((m, i) => { const old = state.monitors[i]; if (!m.spatial) delete old.spatial; if (m.spatialFontSize === undefined) delete old.spatialFontSize; return Object.assign(old, m, {layout: old.layout}); });
+      state = valid;
+      state.monitors.forEach(m => leaves(m.layout).forEach(p => views.get(p.id)?.setFont(textSize(m))));
+      scene.configureCamera(state.spatialCamera, pose => { state.spatialCamera = pose; save(); });
+      renderInspector(); renderTabs(); updateScene(); applySidebar(); save();
+      return;
+    }
     const previousFocus = focused;
     if (focused) unfocus();
     const nextPanes = new Map(valid.monitors.flatMap(m => leaves(m.layout).map(p => [p.id, { p, monitorId: m.id }] as const)));
@@ -818,14 +1133,31 @@ workspaceBridge = connectWorkspace(() => state, next => {
       if (!match || match.monitorId !== m.id || match.p.kind !== p.kind || match.p.url !== p.url) { views.get(p.id)?.dispose(); views.delete(p.id); }
     }
     for (const [id, element] of monitors) if (!valid.monitors.some(m => m.id === id)) { element.remove(); monitors.delete(id); }
-    valid.monitors = valid.monitors.map(m => { const old = state.monitors.find(x => x.id === m.id); return old ? Object.assign(old, m) : m; });
+    valid.monitors = valid.monitors.map(m => { const old = state.monitors.find(x => x.id === m.id); if (old && !m.spatial) delete old.spatial; if (old && m.spatialFontSize === undefined) delete old.spatialFontSize; return old ? Object.assign(old, m) : m; });
     state = valid; state.view ||= 'windows';
+    scene.configureCamera(state.spatialCamera, pose => { state.spatialCamera = pose; save(); });
     renderAll(); setView(state.view); choose(state.selected);
     if (previousFocus && state.monitors.some(m => m.id === previousFocus) && state.selected === previousFocus) focus(previousFocus);
   } finally { applyingRemote = false; }
 }, () => sessionToken, message => { saved.textContent = message; });
 renderAll();
 setView(state.view || 'windows');
+layoutSwitcher = installLayoutSwitcher(navigation, `orbit.layouts.${workspaceId}`, () => state,
+  () => minimizer.ids(), (next, hidden) => {
+    if (focused) unfocus();
+    next.monitors = next.monitors.map(m => {
+      const old = state.monitors.find(w => w.id === m.id)!;
+      for (const key of ['frame', 'spatial', 'spatialFontSize'] as const) if (m[key] === undefined) delete old[key];
+      return Object.assign(old, m);
+    });
+    state = next;
+    scene.configureCamera(state.spatialCamera, pose => { state.spatialCamera = pose; save(); });
+    for (const m of state.monitors) {
+      const element = monitors.get(m.id)!;
+      if (hidden.includes(m.id)) minimizer.hide(m.id, element); else minimizer.restore(m.id, element);
+    }
+    setView(state.view || 'windows'); renderTabs();
+  }, notify);
 // Optional, page-scoped WebMCP: no terminal input or credentials are exposed.
 const modelContext = (
   document as Document & {

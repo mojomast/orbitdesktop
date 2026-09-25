@@ -16,6 +16,7 @@ export interface PaneActions {
   kind: (id: string, kind: PaneKind) => void;
   split: (id: string, axis: "row" | "column") => void;
   close: (id: string) => void;
+  move?: (id: string, popout: boolean) => void;
   url: (id: string, url: string) => void;
 }
 export let sessionToken = "";
@@ -44,6 +45,10 @@ export function createPane(p: Pane, font: number, a: PaneActions): PaneView {
     button("⬒", "Split pane top and bottom", () => a.split(p.id, "column")),
     button("×", "Close pane", () => a.close(p.id)),
   );
+  if (p.kind === 'terminal' && a.move) head.append(
+    button('↗', 'Pop terminal out into its own window', () => a.move!(p.id, true)),
+    button('Attach…', 'Attach terminal to another window', () => a.move!(p.id, false)),
+  );
   const body = el("div", "pane-body");
   root.append(head, body);
   let cleanup = () => {},
@@ -71,7 +76,9 @@ export function createPane(p: Pane, font: number, a: PaneActions): PaneView {
       fontSize: font,
       fontFamily: '"SFMono-Regular",Consolas,"Liberation Mono",monospace',
       cursorBlink: true,
-      scrollback: 3000,
+      scrollback: 30000,
+      macOptionClickForcesSelection: true,
+      rightClickSelectsWord: true,
       theme: {
         background: "#10191e",
         foreground: "#d5e2df",
@@ -85,6 +92,123 @@ export function createPane(p: Pane, font: number, a: PaneActions): PaneView {
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(host);
+    const copy = button('Copy selection', 'Copy selected terminal text (Ctrl+Shift+C; Ctrl+C with selection)', () => { void copySelection(); }, 'small-button');
+    copy.disabled = true;
+    const copyStatus = el('span', 'terminal-copy-status');
+    copyStatus.setAttribute('role', 'status');
+    let selecting = false, historySupported = false;
+    let historyView: HTMLTextAreaElement | null = null;
+    let historyHint: HTMLElement | null = null;
+    let historyDialog: HTMLDialogElement | null = null;
+    const selectionMode = button('Selection mode', 'Toggle persistent selection; drag and scroll without holding Shift', () => {
+      selecting = !selecting;
+      selectionMode.setAttribute('aria-pressed', String(selecting));
+      copyStatus.textContent = selecting ? 'Selection mode on — drag to select; Escape exits' : 'Selection mode off';
+      term.focus();
+    }, 'small-button');
+    selectionMode.setAttribute('aria-pressed', 'false');
+    // Use xterm's own force-selection gesture, without accessing private services.
+    for (const type of ['mousedown', 'mousemove', 'mouseup', 'wheel']) {
+      host.addEventListener(type, event => {
+        if (!selecting) return;
+        if (event instanceof WheelEvent) {
+          event.preventDefault(); event.stopImmediatePropagation();
+          term.scrollLines(Math.sign(event.deltaY) * Math.max(1, Math.ceil(Math.abs(event.deltaY) / (event.deltaMode === 0 ? 20 : 1))));
+          return;
+        }
+        Object.defineProperty(event, 'shiftKey', { value: true });
+        if (/Mac/.test(navigator.platform)) Object.defineProperty(event, 'altKey', { value: true });
+      }, true);
+    }
+    const selectText = button('History / text', 'Open native terminal text selection (no Shift needed)', () => {
+      const dialog = document.createElement('dialog');
+      dialog.setAttribute('aria-label', 'Terminal text selection');
+      dialog.style.cssText = 'width:min(900px,90vw);padding:16px;background:#10191e;color:#d5e2df;border:1px solid #86cccb';
+      const hint = el('p', '', 'Read-only snapshot. Drag to select, then Ctrl+C / ⌘C or right-click Copy. Escape closes. Shell continues running.');
+      const text = document.createElement('textarea');
+      text.readOnly = true;
+      text.setAttribute('aria-label', 'Terminal scrollback text');
+      text.style.cssText = 'display:block;box-sizing:border-box;width:100%;height:60vh;white-space:pre;overflow:auto;user-select:text;font:14px monospace;background:#10191e;color:#d5e2df';
+      let snapshot = '';
+      for (const buffer of [term.buffer.normal, ...(term.buffer.active === term.buffer.normal ? [] : [term.buffer.active])]) {
+      if (snapshot) snapshot += '\n\n--- Current application screen ---\n';
+      for (let i = 0; i < buffer.length; i++) {
+        const line = buffer.getLine(i);
+        if (!line) continue;
+        if (i && !line.isWrapped) snapshot += '\n';
+        snapshot += line.translateToString(true);
+      }
+      }
+      text.value = snapshot.replace(/\n+$/, '');
+      historyView = text; historyHint = hint; historyDialog = dialog;
+      hint.textContent = 'Browser-retained history and current screen. Native Ctrl+C / ⌘C or right-click Copy. Escape closes.';
+      const loadHistory = button('Load tmux history', 'Load retained shell history beyond the browser viewport', () => {
+        if (!historySupported || ws?.readyState !== WebSocket.OPEN) {
+          hint.textContent = 'Showing browser history only. Connect to a history-capable backend (backend reload may be required).';
+          return;
+        }
+        hint.textContent = 'Loading retained tmux history…';
+        send({ type: 'history' });
+      }, 'small-button');
+      const close = button('Close', 'Close terminal text selection', () => dialog.close(), 'small-button');
+      dialog.append(hint, text, loadHistory, close);
+      // Do not let desktop navigation shortcuts consume native copy/select-all.
+      dialog.addEventListener('keydown', e => e.stopPropagation());
+      dialog.addEventListener('close', () => { historyView = null; historyHint = null; historyDialog = null; dialog.remove(); if (!disposed) term.focus(); }, { once: true });
+      document.body.append(dialog);
+      dialog.showModal();
+      text.focus();
+      text.scrollTop = text.scrollHeight;
+    }, 'small-button');
+    const paste = button('Paste', 'Paste system clipboard into terminal', async () => {
+      if (ws?.readyState !== WebSocket.OPEN) { copyStatus.textContent = 'Connect shell first'; return; }
+      try {
+        const text = await navigator.clipboard.readText();
+        if (disposed || ws?.readyState !== WebSocket.OPEN) return;
+        if (/[\r\n]/.test(text) && !window.confirm('Paste multiple lines into the terminal? This may execute commands.')) return;
+        term.paste(text);
+        term.focus();
+        copyStatus.textContent = 'Pasted';
+      } catch { copyStatus.textContent = 'Clipboard blocked — use Ctrl+Shift+V or ⌘V'; }
+    }, 'small-button');
+    bar.append(selectionMode, selectText, copy, paste, copyStatus);
+    // Keep xterm's selection when clicking the toolbar.
+    copy.addEventListener('mousedown', e => e.preventDefault());
+    term.onSelectionChange(() => { copy.disabled = !term.hasSelection(); copyStatus.textContent = ''; });
+    async function copySelection() {
+      const text = term.getSelection();
+      if (!text) { copyStatus.textContent = 'Select text first'; return; }
+      try {
+        await navigator.clipboard.writeText(text);
+        copyStatus.textContent = 'Copied';
+      } catch {
+        // Fallback for HTTP or browsers that deny the async clipboard API.
+        const input = document.createElement('textarea');
+        input.value = text;
+        input.style.cssText = 'position:fixed;left:-10000px;top:0';
+        document.body.append(input);
+        input.select();
+        try { copyStatus.textContent = document.execCommand('copy') ? 'Copied' : 'Copy blocked — allow clipboard access'; }
+        catch { copyStatus.textContent = 'Copy blocked — allow clipboard access'; }
+        finally { input.remove(); term.focus(); }
+      }
+    }
+    term.attachCustomKeyEventHandler(e => {
+      if (selecting && e.key === 'Escape') {
+        if (e.type === 'keydown') selectionMode.click();
+        e.preventDefault(); return false;
+      }
+      const shortcut = e.key.toLowerCase() === 'c' && !e.altKey && (e.ctrlKey || e.metaKey);
+      // Let the browser dispatch its native copy event; xterm owns clipboardData.
+      if (shortcut && term.hasSelection() && !e.shiftKey) return false;
+      if (shortcut && (term.hasSelection() || e.shiftKey)) {
+        e.preventDefault();
+        if (e.type === 'keydown') void copySelection();
+        return false;
+      }
+      return true; // Ctrl+C without a selection still interrupts the shell.
+    });
+    host.title = 'Enable Selection mode to drag without Shift. Ctrl+C / ⌘C or right-click Copy; History / text includes off-screen retained output.';
     term.writeln("\x1b[38;2;194;237;144mORBIT / LOCAL TERMINAL\x1b[0m\r\n");
     term.writeln("A real shell on the machine running Orbit.\r\n");
     term.writeln(
@@ -130,7 +254,14 @@ export function createPane(p: Pane, font: number, a: PaneActions): PaneView {
         } catch {
           return;
         }
+        if (m.type === 'history' && historyView && historyHint) {
+          if (typeof m.text === 'string') {
+            historyView.value = m.text;
+            historyHint.textContent = 'Retained tmux history and screen (not unlimited; discarded output cannot be recovered). Native copy available.';
+          } else historyHint.textContent = m.error || 'History unavailable';
+        }
         if (m.type === "ready") {
+          historySupported = m.history === true;
           term.clear();
           status.textContent = `LIVE SHELL · ${m.user || 'host'}`;
           term.writeln(`Connected to ${m.user || 'user'}@${m.host || 'host'} — ${m.cwd || ''}\r\n`);
@@ -175,6 +306,8 @@ export function createPane(p: Pane, font: number, a: PaneActions): PaneView {
     };
     cleanup = () => {
       disposed = true;
+      historyDialog?.close();
+      historyDialog?.remove();
       ro.disconnect();
       ws?.close();
       term.dispose();

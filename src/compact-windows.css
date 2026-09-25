@@ -24,6 +24,10 @@
 .monitor .browser-nav input { min-width: 20px; width: 0; flex: 1; padding: 2px; font-size: 10px; }
 .monitor .browser-nav button, .monitor .terminal-bar button { padding: 2px 3px; font-size: 10px; white-space: nowrap; }
 .monitor .terminal-bar .connection-state { font-size: 9px; letter-spacing: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Terminal clipboard actions must stay reachable, not clipped into half a title row. */
+.monitor .pane:has(.terminal-bar) .pane-head { width: 100%; }
+.monitor .terminal-bar { position: static; width: auto; height: auto; flex-wrap: wrap; overflow: visible; flex-shrink: 0; justify-content: flex-start; }
+.monitor .terminal-bar button { flex-shrink: 0; }
 @container (max-width: 300px) {
  .monitor .pane:has(.chat-body) .pane-head { padding-right: 65px; }
  .monitor .agent-meta { width: 60px; }
