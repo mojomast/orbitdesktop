@@ -1,0 +1,31 @@
+/* One opaque taskbar for running and minimized windows, status and layouts. */
+body .minimized-tray { display:none !important; }
+#app:not(.full-viewport) .scene-navigation { position:fixed; top:auto; bottom:6px; left:8px; right:8px; height:50px; box-sizing:border-box; padding:6px; display:flex; align-items:center; gap:8px; z-index:100010; background:#141d2b!important; backdrop-filter:none; border:1px solid #65748b; border-radius:14px; }
+#app:not(.full-viewport) .desktop-host, #app:not(.full-viewport) .stage { top:40px; bottom:64px; }
+#app:not(.full-viewport) .focus-host { bottom:64px; }
+#app .display-tabs { flex:1 1 0; min-width:24px; }
+#app .display-tabs button.minimized { opacity:.7; border-bottom:2px dashed #a3b3ce; }
+.taskbar-status { font-size:11px; color:#aebcd2; white-space:nowrap; max-width:135px; overflow:hidden; text-overflow:ellipsis; }
+#app .taskbar-status .saved { margin:0; }
+.layout-switcher { position:relative; flex:0 0 auto; margin-left:auto; }
+#app .layout-toggle { max-width:220px; text-overflow:ellipsis; overflow:hidden; white-space:nowrap; background:#28364c; border:1px solid #65748b; padding:9px 12px; border-radius:9px; color:#edf4ff; }
+.layout-panel { position:absolute; bottom:calc(100% + 14px); right:0; width:min(360px,calc(100vw - 28px)); box-sizing:border-box; max-height:calc(100dvh - 100px); overflow:auto; padding:18px; background:#141d2b; border:1px solid #65748b; border-radius:16px; color:#edf4ff; box-shadow:0 16px 60px #0009; }
+.layout-panel[hidden] { display:none; }
+.layout-panel p { font-size:12px; color:#b6c5dc; line-height:1.5; white-space:normal; }
+.layout-list { display:flex; flex-direction:column; gap:6px; margin:12px 0; }
+#app .layout-list button { text-align:left; white-space:normal; overflow-wrap:anywhere; }
+#app .layout-list [aria-pressed=true] { background:#34445d; box-shadow:inset 3px 0 #b5f268; }
+#app .start-button { display:flex; align-items:center; gap:8px; height:36px; padding:6px 14px; letter-spacing:.02em; }
+.start-logo { display:grid; place-items:center; width:23px; height:23px; border:1px solid currentColor; border-radius:50%; font-size:19px; }
+#app .start-button[aria-expanded=true] { outline:2px solid #edf4ff; outline-offset:1px; }
+.start-quick { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin-bottom:12px; }
+#app .start-quick button { background:#28364c; padding:12px 5px; border-radius:10px; font-size:12px; }
+#app .start-panel { background:#141d2b; }
+@media(max-width:1000px) { .taskbar-status, #app .taskbar-camera { display:none; } }
+@media(max-width:600px) {
+ #app:not(.full-viewport) .scene-navigation { gap:4px; left:4px; right:4px; }
+ #app .layout-toggle { max-width:125px; padding:8px; font-size:11px; }
+ #app .scene-navigation > button { display:none; }
+ #app .start-button { padding:6px 8px; }
+ #app .start-button .start-label { display:none; }
+}
