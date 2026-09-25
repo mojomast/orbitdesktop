@@ -27,6 +27,17 @@ identity primitive, not a grant service or tmux adapter. See
 [docking spike](ORBIT_DOCKING_SPIKE.md) and [registry](TERMINAL_RESOURCE_REGISTRY.md)
 for measured coverage and the provider-lifecycle blocker.
 
+`?renderer=docking` now explicitly opts the normal frontend into experimental
+Dockview placement (`src/docking-renderer.ts`, exact `dockview-core@8.3.1`). The
+default renderer remains unchanged. Existing PaneViews, workspace sync and recovery
+remain authoritative; transient tabs/floats are not new v1 state. Library/styles
+load dynamically only on opt-in. See [optional docking](OPTIONAL_DOCKING.md).
+
+`server/managed-terminal-provider.mjs` is a separate **unwired** Linux prototype
+for explicitly created sessions on fresh private tmux namespaces. It never adopts
+legacy terminals or exposes observations/grants. Its ownership/cleanup and kernel-
+identity limitations are documented in [managed terminals](MANAGED_TERMINALS.md).
+
 ## State and control
 
 `src/model.ts` validates layout, structured appearance and plugin instances. `src/workspace-ops.ts` applies targeted operations to a clone; `src/plugins.ts` implements plugin lifecycle. The service in `server/workspace.mjs` authenticates browser requests with Orbit token/origin checks, and agent requests with a workspace-scoped capability. Strict request schemas precede semantic checks. `SqliteWorkspaceStore` atomically commits state/revision, applicable checkpoints, keyed command receipts and metadata outbox rows in `.runtime/workspace.sqlite`. Existing JSON runtimes require an explicit offline migration; originals remain archived, never a writable fallback. Private `workspace-access` files are credential/API discovery projections only. The serialized layout remains v1; there is no normalized surface migration yet. See [Workspace store](WORKSPACE_STORE.md).

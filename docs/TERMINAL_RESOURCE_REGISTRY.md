@@ -66,6 +66,19 @@ contract in unit tests is not evidence that an unmanaged existing tmux session
 has these properties. Until that independent provider lifecycle integration is
 proven, existing unmanaged tmux terminals remain **unavailable for grants**.
 
+A first internal, opt-in implementation now exists:
+`server/managed-terminal-provider.mjs` implements this provider lifecycle for tmux
+sessions it creates itself on a private random socket in a dedicated fresh namespace. It
+issues random server/shell tokens, checks continuity side-effect-free, and fails closed on
+respawn, same-name recreation, server restart, tamper, missing metadata and uncertainty.
+It is **unwired**, manages only its own sessions, cannot adopt or retrofit a legacy or
+unmanaged terminal, and opens no grant or read path. See
+[managed terminals](MANAGED_TERMINALS.md). Nothing here makes an existing tmux terminal
+available for grants; the integration prerequisites below remain unsatisfied.
+Its random metadata plus double kernel-identity observation is not a pidfd-class
+ABA-proof reference; the narrower guarantee must be reviewed before any authority
+is layered on top. No grant gate is declared complete by these lifecycle tests.
+
 This is a single-owner local system, not isolation from a malicious same-UID host
 process, compromised trusted code, or an owner shell. Random binding tokens are
 not subject authentication or permission grants. Do not log or expose them through
@@ -84,3 +97,6 @@ out of layout, receipts, events, plugin/model channels and logs. See
 [ADR 008](adr/008-resource-authority-boundaries.md). None of those requirements
 are satisfied by possession of a registry binding or pane ID; no grant API,
 observation/storage schema migration, or private-output path is provided here.
+
+The managed provider above addresses only the first slice — side-effect-free provider
+identity and lifecycle for terminals it created — and nothing else on this list.

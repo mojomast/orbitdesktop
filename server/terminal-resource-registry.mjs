@@ -30,8 +30,10 @@ import { performance } from 'node:perf_hooks';
  * a replacement or silently overwritten by another registrar. The adapter must
  * bound any subprocess output and honor cancellation where possible.
  *
- * There is deliberately NO real tmux integration: LocalHostProvider and ordinary
- * tmux PID/timestamp metadata cannot satisfy this contract. Validation can check
+ * There is deliberately NO automatic tmux integration here: LocalHostProvider and
+ * ordinary tmux PID/timestamp metadata cannot satisfy this contract. The separate
+ * managed-terminal-provider prototype has narrower, documented Linux guarantees
+ * and is not enabled by this registry. Validation can check
  * token shape, not entropy or honesty of trusted adapter code. This module does
  * not sandbox a blocking adapter or provide cross-process registrar coordination.
  * Module-local reservations reject independent registrars for the same canonical

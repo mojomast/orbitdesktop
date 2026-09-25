@@ -15,8 +15,10 @@ limits. Isolated pinned docking adapters now pass iframe continuity and pointer-
 probes, but selection awaits Orbit model/PTY/spatial integration and accessibility
 evidence; see [comparison](DOCKING_EVALUATION.md). The isolated
 [Orbit integration spike](ORBIT_DOCKING_SPIKE.md) now passes 84 real-pane/PTY/spatial
-transitions. Next: an off-by-default production adapter interface with actual sync,
-complex-layout and accessibility gates, followed by broader resource/grant
+transitions. An [off-by-default normal-frontend adapter](OPTIONAL_DOCKING.md) now
+passes real sync/ack/checkpoint, split/plugin lifecycle and basic keyboard/pointer
+gates. Next: broader graph/focus/browser/accessibility coverage and a persistence
+decision before default adoption, followed by broader resource/grant
 authority. Registered-plugin hold is not full
 safe boot or revocation and does not complete Phase B's gate.
 
@@ -39,7 +41,9 @@ safe boot or revocation and does not complete Phase B's gate.
    observation gate. Isolated tmux identity probes pass, but trusted resource
    provider lifecycle registration, policy approval and implementation remain. An
    [unwired process-local registry](TERMINAL_RESOURCE_REGISTRY.md) now tests identity
-   fencing, but no real tmux adapter or grants exist yet.
+   fencing. An [unwired managed tmux provider](MANAGED_TERMINALS.md) tests newly
+   created private sessions and fail-closed replacement/respawn handling, with
+   documented kernel-identity limits; no legacy adoption or grants exist yet.
 6. Enforce private-data/egress boundaries before broker capabilities. Deliver Project
    Inspector, revocation, scoped storage and audit evidence as one vertical slice.
 7. Persistent exact drafts and exact-tested-hash promotion, then evidence-backed

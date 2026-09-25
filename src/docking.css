@@ -1,0 +1,44 @@
+/* dockview-core publishes no CSS. Minimal layout skin, scoped to the opt-in root. */
+.docking-root { position:absolute; inset:0; z-index:5; overflow:hidden; }
+.docking-root .docking-toolbar { position:absolute; inset:0 0 auto; min-height:42px; z-index:1100; display:flex; flex-wrap:wrap; align-items:center; gap:4px; padding:4px 8px; background:#17232e; color:#e7f1ff; font:12px system-ui; }
+.docking-root .docking-toolbar button, .docking-root .docking-toolbar select { font:inherit; padding:4px; background:#2e4555; color:white; border:1px solid #60788c; border-radius:4px; cursor:pointer; }
+.docking-root .docking-toolbar :is(button,select):focus-visible { outline:3px solid #c2ed90; outline-offset:2px; }
+.docking-root .docking-toolbar output { flex:1 1 100%; min-height:1em; }
+.docking-root .docking-grid { position:absolute; inset:var(--docking-toolbar-height, 66px) 0 0; pointer-events:none; z-index:2; }
+.docking-root .docking-grid .dv-tabs-and-actions-container, .docking-root .docking-grid .dv-tab, .docking-root .docking-grid .dv-sash, .docking-root .docking-grid .dv-floating-titlebar { pointer-events:auto; }
+.docking-root .docking-surfaces { position:absolute; inset:0; pointer-events:none; z-index:1; }
+.docking-root .docking-surfaces>.monitor { position:absolute; pointer-events:auto; }
+.docking-root .docking-placeholder { width:100%; height:100%; }
+.docking-root .dv-default-tab-action { display:none; }
+.docking-unsupported[data-docking-unsupported] { position:absolute; inset:12px 12px auto; z-index:10; padding:12px; border:2px solid #e7aa6e; background:#3c2525; color:white; font:14px system-ui; }
+
+.docking-root .dv-dockview, .docking-root .dv-shell, .docking-root .dv-root-wrapper,
+.docking-root .dv-grid-view, .docking-root .dv-branch-node { position:relative; width:100%; height:100%; }
+.docking-root .dv-split-view-container { position:relative; width:100%; height:100%; overflow:hidden; }
+.docking-root .dv-view-container { position:absolute; inset:0; }
+.docking-root .dv-view-container>.dv-view { position:absolute; overflow:hidden; }
+.docking-root .dv-split-view-container.dv-horizontal>.dv-view-container>.dv-view { height:100%; }
+.docking-root .dv-split-view-container.dv-vertical>.dv-view-container>.dv-view { width:100%; }
+.docking-root .dv-sash-container { position:absolute; inset:0; pointer-events:none; }
+.docking-root .dv-groupview { display:flex; flex-direction:column; height:100%; overflow:hidden; background:transparent; }
+.docking-root .dv-groupview>.dv-content-container { flex:1; min-height:0; }
+.docking-root .dv-tabs-and-actions-container { display:flex; flex-shrink:0; height:30px; background:#ddd; }
+.docking-root .dv-tabs-and-actions-container .dv-void-container { flex:1; min-width:0; }
+.docking-root .dv-scrollable { position:relative; overflow:hidden; }
+.docking-root .dv-tabs-container { display:flex; height:100%; overflow:hidden; }
+.docking-root .dv-tab { flex-shrink:0; display:flex; align-items:center; padding:0 8px; cursor:pointer; user-select:none; color:#142028; }
+.docking-root .dv-tab.dv-active-tab { background:#fff; }
+.docking-root .dv-default-tab { display:flex; align-items:center; gap:6px; white-space:nowrap; }
+.docking-root .dv-sash { position:absolute; z-index:99; background:#999; touch-action:none; }
+.docking-root .dv-split-view-container.dv-horizontal>.dv-sash-container>.dv-sash { width:5px; height:100%; cursor:ew-resize; }
+.docking-root .dv-split-view-container.dv-vertical>.dv-sash-container>.dv-sash { height:5px; width:100%; cursor:ns-resize; }
+.docking-root .dv-floating-overlay-host { position:absolute; pointer-events:none; }
+.docking-root .dv-floating-overlay-host>.dv-resize-container { pointer-events:none; }
+.docking-root .dv-resize-container [class^="dv-resize-handle-"] { pointer-events:auto; }
+.docking-root .dv-resize-container { position:absolute; z-index:998; background:transparent; border:1px solid #777; box-shadow:0 4px 16px #0004; }
+.docking-root .dv-resize-container-with-titlebar { display:flex; flex-direction:column; }
+.docking-root .dv-resize-container-with-titlebar>.dv-grid-view { flex:1; min-height:0; }
+.docking-root .dv-floating-titlebar { height:22px; flex-shrink:0; background:#bbb; cursor:grab; }
+.docking-root .dv-render-overlay { position:absolute; z-index:1; width:100%; height:100%; contain:layout paint; }
+.docking-root .dv-render-overlay.dv-render-overlay-float { z-index:999; }
+.docking-root .dv-watermark-container { position:absolute; inset:0; pointer-events:none; }

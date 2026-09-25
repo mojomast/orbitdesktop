@@ -32,6 +32,7 @@ import {
 } from "./model";
 import { createPane, setToken, sessionToken, type PaneView } from "./panes";
 import { moveConnected } from './connected-dom';
+import { dockingRequested, installDockingRenderer, type DockingController } from './docking-renderer';
 import { placeWindow, wireWindow } from "./windows";
 import { connectWorkspace } from "./workspace-sync";
 import { DesktopScene } from "./scene";
@@ -46,6 +47,10 @@ const views = new Map<string, PaneView>();
 const paneSignatures = new Map<string, string>();
 const monitors = new Map<string, HTMLElement>();
 const minimizer = installMinimize();
+// Optional, off-by-default Dockview placement overlay. Stays null unless the local
+// browser URL opts in with ?renderer=docking and the moveBefore capability exists.
+// The v1 workspace stays authoritative; Dockview tab/float state is transient.
+let docking: DockingController | null = null;
 let focused: string | null = null;
 window.addEventListener('orbit-focus-agent', event => {
   const paneId=(event as CustomEvent<string>).detail;
@@ -341,16 +346,31 @@ function updateScene() {
     if (meta) meta.textContent = `${m.diagonal}″ / ${m.aspect}`;
   }
   if (state.view === 'windows') {
+    // Docking placement is an opt-in overlay: it reuses the same live monitor
+    // elements and PaneViews and only changes where they are positioned. A
+    // layout-only change must not dispose or reload any pane runtime.
+    if (docking) docking.retainWindows(state.monitors, state.selected);
     state.monitors.forEach((m, i) => {
       const element = monitors.get(m.id)!;
       element.classList.toggle('selected', m.id === state.selected);
       if (focused !== m.id) {
-        if (element.parentElement !== desktopHost) moveConnected(element, desktopHost);
-        element.classList.add('desktop-window');
-        placeWindow(element, m, desktopHost, i);
+        if (docking) {
+          if (element.parentElement !== docking.surfaces) moveConnected(element, docking.surfaces);
+          element.classList.add('desktop-window');
+        } else {
+          if (element.parentElement !== desktopHost) moveConnected(element, desktopHost);
+          element.classList.add('desktop-window');
+          placeWindow(element, m, desktopHost, i);
+        }
       }
     });
-  } else scene.update(state.monitors, monitors, state.selected, state.arc);
+    if (docking) docking.placeWindows(monitors, state.monitors, state.selected, focused);
+  } else {
+    // An inactive docking tab may have hidden its application-owned surface.
+    // Spatial placement shows every non-minimized monitor, not just active tabs.
+    if (docking) monitors.forEach(element => element.style.removeProperty('visibility'));
+    scene.update(state.monitors, monitors, state.selected, state.arc);
+  }
   views.forEach((v) => v.resize());
 }
 function renderTabs() {
@@ -721,7 +741,7 @@ function renderMonitor(m: Monitor) {
   }
   oldChildren.forEach(child => child.remove());
   scene.wireSpatial(bar, resizeHandle, m, () => state.view === 'spatial' && !focused, () => { updateScene(); save(); }, () => { renderInspector(); save(); });
-  wireWindow(outer, bar, resizeHandle, m, desktopHost, () => state.view === 'windows' && !focused, () => { renderInspector(); views.forEach(v => v.resize()); save(); });
+  wireWindow(outer, bar, resizeHandle, m, desktopHost, () => state.view === 'windows' && !focused && !docking, () => { renderInspector(); views.forEach(v => v.resize()); save(); });
   updateScene();
   if (focused === m.id) {
     if (outer.parentElement !== focusHost) moveConnected(outer, focusHost);
@@ -1166,6 +1186,7 @@ window.addEventListener("beforeunload", () => {
   try {
     localStorage.setItem("orbit.workspace.v1", JSON.stringify(state));
   } catch {}
+  docking?.dispose();
   views.forEach((v) => v.dispose());
   scene.dispose();
 });
@@ -1202,6 +1223,24 @@ workspaceBridge = connectWorkspace(() => state, next => {
 }, () => sessionToken, message => { saved.textContent = message; });
 renderAll();
 setView(state.view || 'windows');
+// Opt-in docking placement only when the local URL explicitly asks for it. The
+// library/styles are dynamically imported (Dockview stays out of the main bundle) and
+// refuses explicitly, leaving this default renderer in place, when the browser
+// cannot preserve connected pane documents.
+if (dockingRequested(location.search)) {
+  installDockingRenderer({
+    host: desktopHost,
+    getState: () => state,
+    onSelect: choose,
+    onError: message => notify(`Docking renderer: ${message}`),
+  })
+    .then(controller => {
+      if (!controller) return;
+      docking = controller;
+      renderAll();
+    })
+    .catch(error => notify(`Docking renderer failed: ${String(error)}`));
+}
 layoutSwitcher = installLayoutSwitcher(navigation, `orbit.layouts.${workspaceId}`, () => state,
   () => minimizer.ids(), (next, hidden) => {
     if (focused) unfocus();

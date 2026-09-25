@@ -1,6 +1,73 @@
 # Evolution handoff — September 25, 2026
 
-## Latest increment: Orbit docking integration and terminal registration
+## Latest increment: optional renderer and managed terminal lifecycle
+
+The user requested Flash subagents for the next independent implementation slices.
+Both coordinators used `deepseek/deepseek-flash`. Both workstreams and all their
+workers are now complete. Nothing was deployed, no owner runtime/service was
+changed, and no grants or private-output route were introduced.
+
+- `ses_f25abe52dffeZXM9MBfjScyez2`: optional docking renderer and real workspace
+  integration; owns frontend entry/adapter, exact pinned dependency and new tests.
+  Current renderer must remain default; tab/float placement remains browser-local.
+- `ses_f25ab82f4ffeGIB0P8qoZI0Ak5`: internal managed terminal lifecycle provider and
+  adversarial tests; owns only new provider/test files and boundary docs. No existing
+  terminal/provider startup, routes, grant endpoints or database schemas may change.
+
+Descendants completed: docking adapter `ses_f25a9ca95ffe6rbm3kHLj53Tqv`, docking
+browser gate `ses_f25a9ca95ffdEYFc5CLwL0j1Ys`, provider implementation
+`ses_f25a7eab2ffe19EByTIrfhh71m`, provider tests `ses_f25a7eab1ffeCcjdzR1CKXxvUp`.
+Several Flash coordinator replies were premature progress reports; those were not
+accepted as completion. The lead explicitly resumed execution, then reviewed and
+reran the delivered implementations after all descendants finished.
+
+**Optional frontend:** `?renderer=docking` enables normal-main.ts placement using
+exact `dockview-core@8.3.1`, dynamically loading the library/styles. It reuses
+PaneViews, normal server sync, checkpoints and registered-plugin policy. Native
+toolbar controls provide select/tab/dock/float/return with keyboard focus return.
+The existing renderer remains default, and tab/float geometry remains transient.
+See [optional docking](OPTIONAL_DOCKING.md).
+
+Lead browser review found a critical false-green: opaque Dockview backgrounds hid
+intact panes. Transparent chrome backgrounds plus an actual screenshot-pixel probe
+now verify paint. A second fix clears inactive-tab visibility on entering Spatial.
+Windows focus/unfocus and hidden-tab-to-Spatial regressions were added. Acknowledgement
+now checks the server's `observed_revision`, not only localStorage state.
+
+**Managed provider:** an unwired Linux-only lifecycle prototype creates sessions in
+explicit fresh/private namespaces and links identity-only lookups to the registry.
+Respawn, same-name replacement, server restart, missing/tampered metadata and
+timeouts invalidate bindings. Lead review removed unsafe empty-marker cleanup,
+added private/fresh/non-symlink directory guards and same-command tmux ownership
+checks before destruction. Real server replacement at cleanup and an unmarked
+startup-race winner must survive. A stopped fixture server gives a deterministic
+timeout test, replacing the earlier skipped 1 ms test. See
+[managed terminals](MANAGED_TERMINALS.md). This is not pidfd-class ABA proof, cannot
+adopt existing terminals, and does not complete the grant/observation gate.
+
+Fresh verification:
+- `npm run check`: build and **209/209 Node tests**, no skips.
+- Optional renderer: **85 numbered checks / 73 layout transitions**, plus paint,
+  Windows focus and inactive-tab Spatial regressions; **one PTY WebSocket**, fresh
+  full marker/variable/PID output, real sync/ack/checkpoint, plugin lifecycle and
+  hold rejection, missing-moveBefore refusal, keyboard focus and 45 px pointer drag.
+- Default renderer: **94/94 PTY transitions** and import regressions passed.
+- Managed lifecycle alone: **17/17** tests passed; inspection cancellation/deadline,
+  real respawn/restart, registry link and cleanup races use private fixtures only.
+- Eight Python suites: **55/55** passed, including publisher and regenerated source
+  archive parity. Recovery browser fixture **13/13**, real-server recovery/hold,
+  and normal UI indexed publication/events/original-bundle restore also passed.
+- `npm audit`: zero vulnerabilities. No test skips remain in the Node suite.
+
+Logs: `/tmp/opencode/orbit-optional-managed-check.log`,
+`/tmp/opencode/orbit-docking-final.log`, `/tmp/opencode/orbit-managed-lead.log`.
+Python log: `/tmp/opencode/orbit-optional-managed-python.log`.
+Synthetic visual-review screenshots remain outside Git under `/tmp/opencode`.
+No Firefox/WebKit, full accessibility, live Hermes binding, persisted docking tabs
+or permission grant/revocation API is claimed. Layout/manifest v1 and SQLite schema
+3 remain unchanged. Deployment remains a separately authorized operation.
+
+## Completed increment: Orbit docking integration and terminal registration
 
 Two bounded, independent workstreams are complete. Neither authorizes production
 docking adoption, new private-data delivery, grant enablement or a live migration.
