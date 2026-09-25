@@ -100,10 +100,6 @@ Agent chat offers browser desktop notifications when a run finishes. Click **Ena
 
 Messages, active-run guidance, and saved drafts now support up to 100,000 JavaScript string characters, with a 1 MiB request cap. Large inputs still count toward the provider context limit. UTF-8 request chunks are decoded together to preserve Unicode.
 
-## Devplan Studio (0.2.2)
-
-Bundled guided interview → specification → phased devplan → circular development handoff. Open Hermes tools → Devplan Studio. Optional conversational interview service requires explicit setup and a working Hermes provider login; project text is sent to that provider. See [Devplan setup and boundaries](../docs/DEVPLAN_STUDIO.md). Export drafts before closing.
-
 ## Interface themes in 0.2.6
 
 The bundled desktop includes Windows XP, Classic 95, Paper Studio and Cyberpunk chrome, per-element customization, XP scrollbars and red Close controls, and the independently scrolling Start menu. See the bundled `docs/THEMES.md`. Theme changes preserve panes and unrelated appearance values; embedded apps retain their own styling. Updating this plugin does not replace a running deployment.

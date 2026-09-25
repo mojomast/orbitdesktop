@@ -104,11 +104,6 @@ const server = http.createServer(async (req, res) => {
       ".woff2": "font/woff2",
     };
     const headers = {...securityHeaders};
-    if (['/devplan-studio/index.html', '/devplan-studio/app.js', '/devplan-studio/engine.js', '/devplan-studio/style.css'].includes(decoded)) {
-      delete headers['X-Frame-Options'];
-      headers['Access-Control-Allow-Origin'] = '*';
-      headers['Content-Security-Policy'] = "sandbox allow-scripts allow-forms allow-modals allow-downloads; default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'self'";
-    }
     res.writeHead(200, {
       ...headers,
       "Content-Type": types[ext] || "application/octet-stream",

@@ -14,7 +14,7 @@ class BundleTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             target = Path(temp) / 'orbit'
             launcher.unpack(target)
-            for name in ['public/devplan-studio/index.html', 'extensions/devplan-interview/worker.py', 'scripts/setup_devplan_interview.py', 'server/index.mjs', 'src/main.ts', 'package-lock.json', 'scripts/workspace_control.py', 'docs/XPRA_APPS.md', 'src/connection-passwords.ts']:
+            for name in ['server/index.mjs', 'src/main.ts', 'package-lock.json', 'scripts/workspace_control.py', 'docs/XPRA_APPS.md', 'src/connection-passwords.ts']:
                 self.assertTrue((target / name).is_file(), name)
             self.assertEqual(target.stat().st_mode & 0o777, 0o700)
             with self.assertRaises(ValueError):

@@ -6,7 +6,7 @@ export function shortcutFolder(item: Shortcut): string {
  const name = `${item.id} ${item.title}`.toLowerCase();
  if (/cocs|supra|image|screenshot|omnivoice|planet/.test(name)) return 'Creative';
  if (/writer|calc|impress|office/.test(name)) return 'Office';
- if (/terminal|devplan|dev lab|performance|mimo/.test(name) || item.icon==='⌘') return 'Development';
+ if (/terminal|dev lab|performance|mimo/.test(name) || item.icon==='⌘') return 'Development';
  if (/hermes|companion|observatory|workshop/.test(name) || item.icon==='✦') return 'Hermes';
  return 'System & apps';
 }

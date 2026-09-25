@@ -198,10 +198,6 @@ The direction is a more coherent agent-operated desktop: better application inte
 
 Build the workspace you need. Keep the ability to understand it, change it, and recover it.
 
-## Devplan Studio
-
-Orbit includes a planning workspace: guided interview, specification, phased devplan and circular-development starting prompt, with project and ZIP exports. Optional model-driven follow-up interviews propose changes for human approval. See [setup, privacy and limitations](docs/DEVPLAN_STUDIO.md).
-
 ## Interface themes
 
 Make Orbit look radically different with Windows XP (Luna-inspired), Classic 95, Paper Studio or Cyberpunk, alongside the existing color presets. Open **Themes** for previews and per-element customization: title bars, window controls, Start menu, taskbar, dialogs, controls and chat surfaces. XP includes blue beveled scrollbars, a green Start button and red Close controls.

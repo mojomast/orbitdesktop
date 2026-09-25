@@ -390,7 +390,7 @@ export function createPane(p: Pane, font: number, a: PaneActions): PaneView {
         return;
       }
       try {
-        if (url.startsWith('/apps/') || url === '/devplan-studio/index.html') url = new URL(url, location.origin).href;
+        if (url.startsWith('/apps/')) url = new URL(url, location.origin).href;
         else if (!/^https?:\/\//i.test(url)) url = "https://" + url;
         const u = new URL(url);
         if (
@@ -399,7 +399,7 @@ export function createPane(p: Pane, font: number, a: PaneActions): PaneView {
           u.password
         )
           throw Error();
-        const localApp = u.origin === location.origin && (/^\/apps\/[a-z0-9][a-z0-9-]{0,60}\//.test(u.pathname) || u.pathname === '/devplan-studio/index.html');
+        const localApp = u.origin === location.origin && /^\/apps\/[a-z0-9][a-z0-9-]{0,60}\//.test(u.pathname);
         if (u.origin === location.origin && !localApp)
           throw Error("The Orbit host cannot be embedded.");
         if (localApp) {
