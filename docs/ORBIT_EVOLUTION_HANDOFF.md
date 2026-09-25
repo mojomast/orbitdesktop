@@ -1,6 +1,53 @@
 # Evolution handoff — September 25, 2026
 
-## Latest increment: isolated docking experiments and authority decisions
+## Latest increment: Orbit docking integration and terminal registration
+
+Two bounded, independent workstreams are complete. Neither authorizes production
+docking adoption, new private-data delivery, grant enablement or a live migration.
+
+- `ses_f25ca6774ffeUkYzRVd3qrqucK`: opt-in standalone Dockview/Orbit integration
+  under `experiments/orbit-docking/`, using actual pane/model/spatial modules and
+  a disposable real-PTY browser fixture. Production entrypoints/dependencies remain
+  outside its edit scope. Complete; descendants done.
+- `ses_f25ca0d4bffe1zGH0JE6JxLKF0`: internal terminal registration/lookup prerequisite
+  in new, currently unwired modules with isolated tests. No grants, output capture,
+  server route, schema migration or existing provider startup changes are authorized.
+  Complete; descendants done.
+
+The lead reviewed both implementations, removed a permissive terminal-output
+fallback, and reran the integrated gate twice with complete fresh marker/variable/PID
+evidence. **84/84 mapped transitions** pass, including seven actual isolated-server
+checkpoint restores. Two iframe documents/drafts and a real PaneView PTY retain
+identity and a single WebSocket. Pointer resize changes 299→344 px; keyboard command
+focus and seven negative controls pass. Disposable credentials are injected into
+the top frame, not URLs or storage. See [spike](ORBIT_DOCKING_SPIKE.md).
+
+This is not the production renderer: Dockview tab/float placement remains transient,
+not new v1 state. Production acknowledgement, complex graphs, plugins/Hermes binding,
+other engines and full accessibility/performance remain gates. The experiment builds
+under `/tmp/opencode`, with a roughly 1.2 MB minified main chunk (about 305 KB gzip)
+and a Vite large-chunk warning; no production performance claim follows.
+
+The [terminal registry](TERMINAL_RESOURCE_REGISTRY.md) is an unwired process-local
+prerequisite with deterministic adversarial tests, not a working tmux lifecycle
+adapter. It fences stale lookups/registrations and requires trusted provider-issued
+server/shell tokens. Ordinary tmux metadata cannot prove those tokens, especially
+across `respawn-pane`; **real unmanaged tmux registration remains blocked**. No
+output is captured, grant issued, route exposed or database migrated.
+
+Lead `npm run check`: build and **188/188 Node tests passed**. Experiment TypeScript
+check and strict integrated browser gate passed. Logs:
+`/tmp/opencode/orbit-integration-registry-check.log` and
+`/tmp/opencode/orbit-integrated-docking-lead.log`. All development descendants and
+the separate read-only Codex usage research descendants are complete.
+The existing production-renderer 94-transition PTY gate and import regressions
+also passed again; `npm audit` reports zero vulnerabilities. Portable archive
+regeneration includes the new internal registry and documentation, not experimental
+adapters or test fixtures.
+All eight Python suites passed **55/55 tests**, including publisher and archive
+parity. Log: `/tmp/opencode/orbit-integration-registry-python.log`.
+
+## Completed increment: isolated docking experiments and authority decisions
 
 No production renderer/dependency change, resource API, schema migration or grant
 is part of this increment. The live workspace remains untouched.

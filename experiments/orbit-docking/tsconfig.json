@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "dockview-core": ["/tmp/opencode/orbit-docking-deps/node_modules/dockview-core/dist/cjs/index.d.ts"]
+    }
+  },
+  "include": ["./main.ts"]
+}

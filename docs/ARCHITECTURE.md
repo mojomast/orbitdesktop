@@ -20,6 +20,13 @@ and normal tmux configuration; these settings do not isolate an entire host.
 
 Orbit is a single-owner agent-customizable workspace. It separates trusted core/integration code from sandboxed generated app plugins; it is not fully modular yet.
 
+`experiments/orbit-docking/` is an isolated opt-in integration fixture importing real
+pane/model/spatial modules; it does not replace the production entrypoint or extend
+v1 persistence. `server/terminal-resource-registry.mjs` is an unwired process-local
+identity primitive, not a grant service or tmux adapter. See
+[docking spike](ORBIT_DOCKING_SPIKE.md) and [registry](TERMINAL_RESOURCE_REGISTRY.md)
+for measured coverage and the provider-lifecycle blocker.
+
 ## State and control
 
 `src/model.ts` validates layout, structured appearance and plugin instances. `src/workspace-ops.ts` applies targeted operations to a clone; `src/plugins.ts` implements plugin lifecycle. The service in `server/workspace.mjs` authenticates browser requests with Orbit token/origin checks, and agent requests with a workspace-scoped capability. Strict request schemas precede semantic checks. `SqliteWorkspaceStore` atomically commits state/revision, applicable checkpoints, keyed command receipts and metadata outbox rows in `.runtime/workspace.sqlite`. Existing JSON runtimes require an explicit offline migration; originals remain archived, never a writable fallback. Private `workspace-access` files are credential/API discovery projections only. The serialized layout remains v1; there is no normalized surface migration yet. See [Workspace store](WORKSPACE_STORE.md).

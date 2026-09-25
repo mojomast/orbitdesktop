@@ -13,8 +13,10 @@ Connected DOM reconciliation and isolated import regressions are now implemented
 see [runtime continuity](RUNTIME_CONTINUITY.md) for the browser evidence and capability
 limits. Isolated pinned docking adapters now pass iframe continuity and pointer-resize
 probes, but selection awaits Orbit model/PTY/spatial integration and accessibility
-evidence; see [comparison](DOCKING_EVALUATION.md). Next: an opt-in adapter/runtime
-integration spike and accessible placement commands, followed by broader resource/grant
+evidence; see [comparison](DOCKING_EVALUATION.md). The isolated
+[Orbit integration spike](ORBIT_DOCKING_SPIKE.md) now passes 84 real-pane/PTY/spatial
+transitions. Next: an off-by-default production adapter interface with actual sync,
+complex-layout and accessibility gates, followed by broader resource/grant
 authority. Registered-plugin hold is not full
 safe boot or revocation and does not complete Phase B's gate.
 
@@ -35,7 +37,9 @@ safe boot or revocation and does not complete Phase B's gate.
    [resource authority proposal](RESOURCE_AUTHORITY_PROPOSAL.md) audits current routes
    and [ADR 008](adr/008-resource-authority-boundaries.md) scopes the first owner-only
    observation gate. Isolated tmux identity probes pass, but trusted resource
-   registration, policy approval and implementation remain; no grants exist yet.
+   provider lifecycle registration, policy approval and implementation remain. An
+   [unwired process-local registry](TERMINAL_RESOURCE_REGISTRY.md) now tests identity
+   fencing, but no real tmux adapter or grants exist yet.
 6. Enforce private-data/egress boundaries before broker capabilities. Deliver Project
    Inspector, revocation, scoped storage and audit evidence as one vertical slice.
 7. Persistent exact drafts and exact-tested-hash promotion, then evidence-backed

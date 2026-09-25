@@ -157,6 +157,12 @@ Sources:
 
 ## Remaining comparison gates before selection
 
+Follow-up: the separate [Orbit integration spike](ORBIT_DOCKING_SPIKE.md) now
+imports real PaneViews/model/scene with Dockview and passes 84 isolated PTY/spatial
+transitions. That is stronger but still experimental evidence; it does not modify
+the standalone comparison above or establish production acknowledgement, general
+v1 graph support, persistent tabs, Hermes ownership or complete accessibility.
+
 The current renderer fix uses native `Element.moveBefore` where available. MDN marks
 it **Limited availability** (not Baseline) at the time of this review and documents
 same-document/connectedness constraints. `append`/`insertBefore` cannot be advertised
