@@ -7,6 +7,8 @@ import './theme-personalities.css';
 import './theme-taskbars.css';
 import './theme-icon-surrounds.css';
 import './theme-nous.css';
+import './theme-menus.css';
+import './theme-coverage.css';
 import {themePersonality} from './theme-personality';
 export function applyChrome(a:Workspace['appearance']) {
  const root=document.documentElement;
