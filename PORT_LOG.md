@@ -72,12 +72,36 @@ genuine conflicts in `src/`, and the whole port reduced to a small number of rea
 - The first-run onboarding tour is a modal `<dialog>` that intercepts the logo click on a
   fresh profile; the check dismisses it first. This matches the `tests/orbit_menu.py` fix.
 
+- **Slice 4 — server layer (DONE, 1549427).** Three-way merge (base 438044e, ours=main,
+  theirs=0.2.7) of `server/`:
+  - `agent.mjs` — merged. Kept ours (shared-chats link/validate, `validatePane`, per-pane
+    run locks, raised 1 MiB body + 100 000 char message limits) **and** theirs
+    (`Cache-Control:no-store`, relative `/vnc.html` + `port:4344` for the shared-browser
+    connection). One conflict, at the `start` lock hunk (ours added a block, theirs empty) →
+    resolved to ours. The two size-limit hunks were byte-identical and auto-merged.
+  - `index.mjs` — clean merge; disjoint regions. Ours adds pane history capture
+    (`captureHistory`); theirs adds the devplan-studio frame headers.
+  - `local-host.mjs` — ours-only (`captureHistory` via the `orbit-persistent` tmux socket).
+  - Added `shared-chats.mjs`, `mobile-proxy.mjs`, `mobile-security.mjs` (ours-only;
+    `mobile-proxy.mjs` is a standalone TLS host service, not imported by `index.mjs`).
+
 ## Remaining slices
 
-4. Server: `agent.mjs` (shared-chats link/validate path), add `shared-chats.mjs`,
-   `mobile-proxy.mjs`, `mobile-security.mjs`. Note upstream has `automation.mjs` which we lack.
 5. Owner-brand themes: on-host only, never committed (matches main's posture).
 6. Content corpus: `extensions/`, `apps/`, `docs/`, `tests/`.
+
+## Verification log (slice 4)
+
+- `node --check` clean on all six server files; `tsc --noEmit` strict green; `vite build`
+  green; `npm test` 77/78 (the 1 failure is the pre-existing unconfigured-bridge test).
+- **Live server run** (isolated loopback :4391, dummy `HERMES_API_URL`, fixed token):
+  `/api/health` → 200; bad Bearer → 401; malformed `pane_id` → 400 "Invalid shared pane";
+  a `shared_chat` bind against a seeded workspace → **200 with `state`**, correctly dropping
+  a `system`-role message and persisting `{"message":[...]}` to
+  `.runtime/shared-chats/<workspace>.<pane>.json` at mode 0600 in a 0700 directory.
+- Note (pre-existing, unchanged from main): a `validatePane` failure surfaces through the
+  outer catch as a generic 502 rather than a specific error. Not a merge regression; left
+  as-is. `.runtime/` is gitignored, so the test artifacts are not committed.
 
 ## Reversibility
 
