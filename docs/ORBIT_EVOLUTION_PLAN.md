@@ -11,8 +11,11 @@ Indexed bundles, dry-run retention planning and bounded authenticated metadata e
 polling are now implemented. Destructive bundle cleanup and SSE/push delivery are not.
 Connected DOM reconciliation and isolated import regressions are now implemented;
 see [runtime continuity](RUNTIME_CONTINUITY.md) for the browser evidence and capability
-limits. Next: measured docking-adapter comparison and accessible placement commands,
-followed by broader resource/grant authority. Registered-plugin hold is not full
+limits. Isolated pinned docking adapters now pass iframe continuity and pointer-resize
+probes, but selection awaits Orbit model/PTY/spatial integration and accessibility
+evidence; see [comparison](DOCKING_EVALUATION.md). Next: an opt-in adapter/runtime
+integration spike and accessible placement commands, followed by broader resource/grant
+authority. Registered-plugin hold is not full
 safe boot or revocation and does not complete Phase B's gate.
 
 1. Finish isolated baseline and fix adapter batch parity. Establish strict versioned
@@ -30,7 +33,9 @@ safe boot or revocation and does not complete Phase B's gate.
 5. Separate grants from reversible state. Implement read-only exact-resource terminal
    and controlled-browser observations before input leases and managed jobs. The
    [resource authority proposal](RESOURCE_AUTHORITY_PROPOSAL.md) audits current routes
-   and scopes the first owner-only observation gate; no grants are implemented yet.
+   and [ADR 008](adr/008-resource-authority-boundaries.md) scopes the first owner-only
+   observation gate. Isolated tmux identity probes pass, but trusted resource
+   registration, policy approval and implementation remain; no grants exist yet.
 6. Enforce private-data/egress boundaries before broker capabilities. Deliver Project
    Inspector, revocation, scoped storage and audit evidence as one vertical slice.
 7. Persistent exact drafts and exact-tested-hash promotion, then evidence-backed

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><title>Disposable docking adapter continuity fixture</title>
+  <link rel="stylesheet" href="/vendor/golden-layout/dist/css/goldenlayout-base.css">
+  <link rel="stylesheet" href="/vendor/golden-layout/dist/css/themes/goldenlayout-light-theme.css">
+  <link rel="stylesheet" href="./dockview.css">
+  <style>
+    html, body { margin: 0; width: 100%; height: 100%; font: 14px sans-serif; }
+    #toolbar { height: 40px; padding: 4px; box-sizing: border-box; background: #ddd; }
+    #host { position: relative; width: 100vw; height: calc(100vh - 40px); overflow: hidden; }
+    .experiment-surface { width: 100%; height: 100%; background: white; }
+    .experiment-surface iframe { width: 100%; height: 100%; border: 0; }
+    #parking { position: fixed; left: -2000px; top: 0; width: 600px; height: 400px; }
+  </style>
+</head>
+<body><div id="toolbar">Isolated docking continuity experiment (no Orbit runtime)</div><div id="host"></div><div id="parking"></div>
+<script type="module">
+  const candidate = new URL(location.href).searchParams.get('candidate');
+  if (!['dockview', 'golden'].includes(candidate)) throw Error(`Unknown candidate: ${candidate}`);
+  const {createAdapter} = await import(`./${candidate}.js`);
+  const surfaces = new Map();
+  function getSurface(id) {
+    if (!surfaces.has(id)) {
+      const root = document.createElement('div');
+      root.className = 'experiment-surface';
+      root.dataset.surfaceId = id;
+      const frame = document.createElement('iframe');
+      frame.setAttribute('sandbox', 'allow-scripts');
+      frame.src = `/fixture?surface=${encodeURIComponent(id)}`;
+      root.append(frame);
+      document.getElementById('parking').append(root);
+      surfaces.set(id, root);
+    }
+    return surfaces.get(id);
+  }
+  try {
+    const t0 = performance.now();
+    for (const id of ['a', 'b', 'c']) getSurface(id);
+    const adapter = await createAdapter(document.getElementById('host'), getSurface);
+    window.experiment = {adapter, surfaces, getSurface, coldMs: performance.now() - t0};
+  } catch (error) {
+    window.experimentError = error?.stack || String(error);
+    console.error(error);
+  }
+</script></body></html>

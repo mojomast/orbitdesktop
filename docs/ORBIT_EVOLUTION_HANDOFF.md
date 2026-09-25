@@ -1,6 +1,60 @@
 # Evolution handoff — September 25, 2026
 
-## Latest increment: connected surface-runtime reconciliation
+## Latest increment: isolated docking experiments and authority decisions
+
+No production renderer/dependency change, resource API, schema migration or grant
+is part of this increment. The live workspace remains untouched.
+
+Resource authority review and real tmux probes are complete. See
+[ADR 008](adr/008-resource-authority-boundaries.md) and the updated
+[proposal](RESOURCE_AUTHORITY_PROPOSAL.md). The recommended first gate is an
+owner-consented, bounded snapshot from one registered terminal resource to trusted
+owner UI only. Private plugin/model delivery stays closed. Trusted registration and
+provider lifetime epochs are prerequisites: tmux identifiers/PIDs/timestamps are
+useful diagnostics but cannot prove an ABA-free incarnation. The design recommends
+zero-active-grant quarantine and a fresh authority epoch on restore or broker
+startup, not seamless grant persistence. Owner policy and implementation remain open.
+
+The lead reran `tests/resource-identity.test.mjs`: side-effect-free absent lookup,
+actual attach/detach, same-name recreation and private-server restart passed.
+`npm run check` passes build and **182/182 Node tests**. The probe does not implement
+the future binding protocol or prove revocation races; those remain acceptance gates.
+All eight Python suites pass **55/55 tests**, including publisher and regenerated
+source-archive parity; `npm audit` reports zero vulnerabilities. Logs:
+`/tmp/opencode/orbit-docking-authority-check.log`,
+`/tmp/opencode/orbit-docking-authority-python.log`, and
+`/tmp/opencode/orbit-docking-lead-final.json`. Experimental adapters/tests are
+repository-only research fixtures, not part of the portable runtime source bundle.
+
+Docking experiments now run actual pinned `dockview-core@8.3.1` and
+`golden-layout@2.6.0` from disposable external installations. The lead repeated
+all four Chromium cases from a fresh installation: **84 Dockview / 96 Golden
+transitions**, each with native `moveBefore` enabled and disabled, retained two
+iframe documents/drafts/DOM identities. URL replacement and close negative
+controls passed. Both pointer-resize probes passed after a Golden virtual-adapter
+fix: capture the splitter pointer so sibling iframe documents cannot interrupt
+the drag. Waiting for animation frames alone had not fixed the original failure.
+The harness now requires actual pointer width change, not just a hit-testable handle.
+
+**No production selection:** these are library API/fixture operations, not Orbit's
+model, PTY, spatial mode, checkpoints or Hermes integration. Golden keyboard
+accessibility remains a gap; Dockview core does not include advertised Enterprise
+keyboard docking features. Neither Firefox/WebKit nor popouts were measured.
+See [docking evaluation](DOCKING_EVALUATION.md) for methods, timings and limits.
+The existing Orbit **94-transition PTY** and import regression fixtures also passed
+again. No private payload or production dependency was introduced.
+
+Delegation ledger:
+- `ses_f25e02710ffeykGEi48SKVMm6H`: authority decision/probe — complete, descendants done.
+- `ses_f25e0767affeValQFTg1LVyz4I`: isolated docking adapters — complete, descendants done.
+
+All descendants are complete. Next implementation gates: a candidate adapter behind
+an opt-in isolated Orbit layout/runtime interface with real PTY/spatial/accessibility
+tests, and approved authority policy plus trusted provider incarnation registration.
+The docking fixture and authority design are not authorization to enable either in
+the owner's runtime.
+
+## Completed increment: connected surface-runtime reconciliation
 
 Layout and plugin schemas remain v1; SQLite remains schema 3. This increment does
 not migrate a runtime, install a docking library, or change permissions. No live

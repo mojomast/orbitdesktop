@@ -1,0 +1,32 @@
+/* Minimal experiment-only dockview-core layout skin. dockview-core@8.3.1 does
+   not publish CSS; the full upstream stylesheet ships in dockview@8.3.1. */
+#host .dv-dockview, #host .dv-shell, #host .dv-root-wrapper,
+#host .dv-grid-view, #host .dv-branch-node { position: relative; width: 100%; height: 100%; }
+#host .dv-split-view-container { position: relative; width: 100%; height: 100%; overflow: hidden; }
+#host .dv-view-container { position: absolute; inset: 0; }
+#host .dv-view-container > .dv-view { position: absolute; overflow: hidden; }
+#host .dv-split-view-container.dv-horizontal > .dv-view-container > .dv-view { height: 100%; }
+#host .dv-split-view-container.dv-vertical > .dv-view-container > .dv-view { width: 100%; }
+#host .dv-sash-container { position: absolute; inset: 0; pointer-events: none; }
+#host .dv-groupview { display: flex; flex-direction: column; height: 100%; overflow: hidden; background: #fff; }
+#host .dv-groupview > .dv-content-container { flex: 1; min-height: 0; }
+#host .dv-tabs-and-actions-container { display: flex; flex-shrink: 0; height: 30px; background: #ddd; }
+#host .dv-tabs-and-actions-container .dv-void-container { flex: 1; min-width: 0; }
+#host .dv-scrollable { position: relative; overflow: hidden; }
+#host .dv-tabs-container { display: flex; height: 100%; overflow: hidden; }
+#host .dv-tab { flex-shrink: 0; display: flex; align-items: center; padding: 0 8px; cursor: pointer; user-select: none; }
+#host .dv-tab.dv-active-tab { background: #fff; }
+#host .dv-default-tab { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+#host .dv-default-tab-action { cursor: pointer; }
+#host .dv-sash { position: absolute; z-index: 99; background: #999; pointer-events: auto; touch-action: none; }
+#host .dv-split-view-container.dv-horizontal > .dv-sash-container > .dv-sash { width: 5px; height: 100%; cursor: ew-resize; }
+#host .dv-split-view-container.dv-vertical > .dv-sash-container > .dv-sash { height: 5px; width: 100%; cursor: ns-resize; }
+#host .dv-floating-overlay-host { position: absolute; pointer-events: none; }
+#host .dv-floating-overlay-host > .dv-resize-container { pointer-events: auto; }
+#host .dv-resize-container { position: absolute; z-index: 998; background: #fff; border: 1px solid #777; box-shadow: 0 4px 16px #0004; }
+#host .dv-resize-container-with-titlebar { display: flex; flex-direction: column; }
+#host .dv-resize-container-with-titlebar > .dv-grid-view { flex: 1; min-height: 0; }
+#host .dv-floating-titlebar { height: 22px; flex-shrink: 0; background: #bbb; cursor: grab; }
+#host .dv-render-overlay { position: absolute; z-index: 1; width: 100%; height: 100%; contain: layout paint; }
+#host .dv-render-overlay.dv-render-overlay-float { z-index: 999; }
+#host .dv-watermark-container { position: absolute; inset: 0; pointer-events: none; }
