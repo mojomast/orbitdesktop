@@ -62,6 +62,14 @@ Move, resize, split, reorder, and arrange windows. Adjust supported colors, wall
 
 Revision-checked controller mutations and supported plugin changes create checkpoints. Restore layout, appearance, plugin registrations, configuration, and entry references.
 
+The independent [`/recovery` console](docs/RECOVERY.md) also offers an owner-only,
+persistent registered-plugin activation hold. Layout restore cannot release it;
+release does not automatically re-enable apps. It does not stop running backends,
+disconnected frames, cached offline pages or public app URLs. See
+[workspace store operations](docs/WORKSPACE_STORE.md) before upgrading an existing
+runtime: SQLite schema upgrades and legacy JSON migration require planned writer
+coordination, not a live mixed-version restart.
+
 Checkpoints are not filesystem backups. They do not restore documents, shell processes, conversations, container state, emails, or other external effects.
 
 ## Hermes plugin integration

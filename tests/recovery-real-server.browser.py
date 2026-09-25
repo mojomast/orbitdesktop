@@ -5,6 +5,7 @@ Does not test live terminal continuity, persistent safe mode or broker revocatio
 """
 import json
 import os
+import re
 from pathlib import Path
 import secrets
 import shutil
@@ -57,6 +58,15 @@ with tempfile.TemporaryDirectory(prefix="orbit-recovery-real-") as temporary:
                                          headers={"Origin": origin, "Authorization": "Bearer " + token, "Content-Type": "application/json"})
         with urllib.request.urlopen(request, timeout=5) as response:
             return json.load(response)
+
+    def recovery(action, **fields):
+        request = urllib.request.Request(origin + "/api/workspace/recovery", data=json.dumps({"workspace_id": workspace, "action": action, **fields}).encode(),
+                                         headers={"Origin": origin, "Authorization": "Bearer " + token, "Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(request, timeout=5) as response:
+                return response.status, json.load(response)
+        except urllib.error.HTTPError as error:
+            return error.code, json.load(error)
 
     try:
         for _ in range(100):
@@ -114,6 +124,54 @@ with tempfile.TemporaryDirectory(prefix="orbit-recovery-real-") as temporary:
             expect(page.get_by_role("status")).to_contain_text("accepted at revision 4")
             assert api("read")["state"] == original
             assert bad_bundle.exists(), "Layout recovery must not delete bundles/external effects"
+            # Save an enabled-plugin checkpoint; entering hold must disable it.
+            revision = api("read")["revision"]
+            enabled = api("plugins_apply", base_revision=revision, operations=[
+                {"action": "plugin_install", "manifest": {"apiVersion": 1, "id": "bad-app", "version": "1.0.0", "title": "Bad fixture", "entry": "/apps/bad-app/index.html"}},
+                {"action": "plugin_enable", "plugin_id": "bad-app"}])
+            enabled_checkpoint = api("checkpoint", label="Enabled fixture app")["checkpoint"]
+            page.get_by_role("button", name="Read again", exact=True).click()
+            expect(page.get_by_role("status")).to_contain_text(f"Connected at revision {enabled['revision']}")
+            enter = page.get_by_role("button", name=re.compile(r"(enter|activate|enable|start|set).*hold|hold.*(apps|plugins)", re.I)).first
+            expect(enter).to_be_disabled()
+            page.get_by_role("checkbox", name=re.compile("hold", re.I)).first.check()
+            enter.click()
+            expect(page.get_by_role("status")).to_contain_text(f"Enter hold accepted at revision {enabled['revision'] + 1}")
+            held = recovery("read")
+            assert held[0] == 200 and held[1]["recovery_policy"]["held"] is True, held
+            generation = held[1]["recovery_policy"]["generation"]
+            assert isinstance(generation, int) and generation >= 1
+            assert held[1]["state"]["plugins"][0]["enabled"] is False
+            page.reload()
+            page.get_by_label("Owner token", exact=True).fill(token)
+            page.get_by_label("Workspace ID", exact=True).fill(workspace)
+            page.get_by_role("button", name="Connect", exact=True).click()
+            expect(page.get_by_role("status")).to_contain_text(f"Connected at revision {held[1]['revision']}")
+            assert recovery("read")[1]["recovery_policy"] == held[1]["recovery_policy"], "hold lost on reconnect"
+            page.locator(f'input[name="checkpoint"][value="{enabled_checkpoint}"]').check()
+            page.get_by_label("I understand this restores saved workspace layout state").check()
+            restore = page.get_by_role("button", name="Restore checkpoint", exact=True)
+            if restore.is_enabled():
+                with page.expect_response(lambda response: response.url.endswith("/api/workspace/recovery") and response.request.post_data_json.get("action") == "restore") as attempted:
+                    restore.click()
+                assert attempted.value.status == 409, "browser restore of enabled checkpoint was accepted under hold"
+                expect(page.get_by_role("alert")).to_contain_text("Read again")
+            else:
+                expect(restore).to_be_disabled()
+            conflict = recovery("restore", checkpoint_id=enabled_checkpoint, base_revision=held[1]["revision"], confirm=True,
+                                operation_id=str(uuid.uuid4()), intent="Fixture attempt to restore enabled plugin")
+            assert conflict[0] == 409 and conflict[1]["category"] == "RECOVERY_HOLD", conflict
+            assert recovery("read")[1]["state"]["plugins"][0]["enabled"] is False
+            page.get_by_role("button", name="Read again", exact=True).click()
+            expect(page.get_by_role("status")).to_contain_text(f"Connected at revision {held[1]['revision']}")
+            release = page.get_by_role("button", name=re.compile(r"(release|exit|lift|remove).*hold", re.I)).first
+            expect(release).to_be_disabled()
+            page.locator("#hold-confirm").check()
+            release.click()
+            expect(page.get_by_role("status")).to_contain_text(f"Release hold accepted at revision {held[1]['revision'] + 1}")
+            released = recovery("read")
+            assert released[0] == 200 and released[1]["recovery_policy"] == {"held": False, "generation": generation + 1}, released
+            assert released[1]["state"]["plugins"][0]["enabled"] is False, "release auto-enabled registered plugin"
             assert not errors, errors
             assert not any("/apps/" in url or "/assets/" in url or "/api/terminal" in url or "/api/agent" in url for url in requests), requests
             assert page.locator("iframe").count() == 0
@@ -121,7 +179,7 @@ with tempfile.TemporaryDirectory(prefix="orbit-recovery-real-") as temporary:
             page.set_viewport_size({"width": 390, "height": 844})
             page.emulate_media(forced_colors="active", reduced_motion="reduce")
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), "Narrow recovery UI overflows"
-            print(f"PASS real Node recovery: broken renderer + executed bad app; disable/restore revision 4; keyboard/narrow/forced-colors; Chromium {browser.version}")
+            print(f"PASS real Node recovery: broken renderer + bad app; hold persists across reload, blocks enabled checkpoint restore, release keeps app disabled; keyboard/narrow/forced-colors; Chromium {browser.version}")
             context.close()
             browser.close()
     finally:

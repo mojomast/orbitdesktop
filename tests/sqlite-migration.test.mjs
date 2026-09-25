@@ -146,7 +146,7 @@ test('reopening with import enabled never reimports modified originals', { skip 
   }));
   const reopened = new SqliteWorkspaceStore(root, { importLegacy: true });
   t.after(() => reopened.close());
-  assert.deepEqual(reopened.read(LEGACY_ID), fixture.record);
+  assert.deepEqual(reopened.read(LEGACY_ID), {...fixture.record,recovery_policy:{held:false,generation:0}});
   assert.equal(reopened.read(LEGACY_ID).revision, 7);
   assert.deepEqual(reopened.checkpointList(LEGACY_ID), [
     (({ state, ...metadata }) => metadata)(fixture.checkpoint),
@@ -174,7 +174,7 @@ test('legacy import is atomic when another workspace JSON is corrupt', { skip },
   fs.unlinkSync(corruptFile);
   const recovered = new SqliteWorkspaceStore(root, { importLegacy: true });
   t.after(() => recovered.close());
-  assert.deepEqual(recovered.read(LEGACY_ID), fixture.record);
+  assert.deepEqual(recovered.read(LEGACY_ID), {...fixture.record,recovery_policy:{held:false,generation:0}});
   assert.equal(recovered.read(LEGACY_ID).revision, 7);
   assert.deepEqual(recovered.checkpointList(LEGACY_ID), [
     (({ state, ...metadata }) => metadata)(fixture.checkpoint),

@@ -45,6 +45,8 @@ li + li { margin-top: .55rem; }
 li label { cursor: pointer; }
 .decision { border-top: 1px solid #40536c; padding-top: 1rem; display: grid; justify-items: start; gap: 1rem; }
 .decision label { cursor: pointer; }
+.policy-metadata { margin-bottom: 1rem; }
+.policy-actions { margin-top: 0; }
 footer { padding: .5rem; }
 
 @media (max-width: 540px) {

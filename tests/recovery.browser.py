@@ -82,6 +82,9 @@ class RecoveryFixture:
         self.observed_revision = OBSERVED_REVISION
         self.browser_seen = BROWSER_SEEN
         self.config = {}
+        # None represents an older server that does not advertise policy support.
+        self.recovery_policy = None
+        self.notes_enabled = True
         self.requests = []
         self.lock = threading.Lock()
 
@@ -123,7 +126,7 @@ class RecoveryFixture:
                         "title": "Workspace notes",
                         "entry": "/apps/secret-plugin/index.html",
                     },
-                    "enabled": True,
+                    "enabled": self.notes_enabled,
                     "config": {},
                     "window": {},
                 },
@@ -142,28 +145,34 @@ class RecoveryFixture:
         }
 
     def read_snapshot(self):
-        # Deliberately exact: no app_versions, revision pinned to READ_REVISION.
-        return {
+        # Legacy snapshots keep their original pinned revision for the ten existing cases.
+        snapshot = {
             "workspace_id": self.workspace_id,
-            "revision": READ_REVISION,
+            "revision": self.revision if self.recovery_policy is not None else READ_REVISION,
             "observed_revision": self.observed_revision,
             "browser_seen": self.browser_seen,
             "capability": CAPABILITY,
             "state": self.state(),
         }
+        if self.recovery_policy is not None:
+            snapshot["recovery_policy"] = self.recovery_policy.copy()
+        return snapshot
 
     def safe_snapshot(self):
-        return {
+        snapshot = {
             "workspace_id": self.workspace_id,
             "revision": self.revision,
             "observed_revision": self.observed_revision,
             "browser_seen": self.browser_seen,
             "state": self.state(),
         }
+        if self.recovery_policy is not None:
+            snapshot["recovery_policy"] = self.recovery_policy.copy()
+        return snapshot
 
     def history(self):
         return {
-            "revision": READ_REVISION,
+            "revision": self.revision,
             "checkpoints": [
                 {
                     "id": CHECKPOINT_1,
@@ -207,12 +216,29 @@ class RecoveryFixture:
         if action == "history":
             return 200, self.history()
         if action == "restore":
+            if self.recovery_policy is not None and self.recovery_policy["held"]:
+                return 409, {"category": "RECOVERY_HOLD", "error": "Registered plugins are held"}
             if self.config.get("restore_status") == 409 or body.get(
                 "base_revision"
             ) != self.revision:
                 return 409, {"error": "Confirm restore against the current revision."}
             if body.get("confirm") is not True:
                 return 400, {"error": "confirmation required"}
+            self.revision += 1
+            return 200, self.safe_snapshot()
+        if action == "recovery_policy":
+            if self.recovery_policy is None:
+                return 400, {"error": "Recovery policy unavailable"}
+            if (body.get("base_revision") != self.revision or
+                    body.get("generation", self.recovery_policy["generation"]) != self.recovery_policy["generation"]):
+                return 409, {"category": "RECOVERY_POLICY_CHANGED", "error": "Policy changed"}
+            if (body.get("confirm") is not True or not isinstance(body.get("held"), bool)
+                    or not isinstance(body.get("operation_id"), str) or not body["operation_id"]
+                    or not isinstance(body.get("intent"), str) or not body["intent"]):
+                return 400, {"error": "Invalid recovery policy request"}
+            self.recovery_policy = {"held": body["held"], "generation": self.recovery_policy["generation"] + 1}
+            if body["held"]:
+                self.notes_enabled = False
             self.revision += 1
             return 200, self.safe_snapshot()
         if action == "plugins_apply":
@@ -640,6 +666,106 @@ def case_10_limitations_copy(page, errors, fixture):
     return "all required limitation copy present; safe-mode claim scoped correctly"
 
 
+def policy_button(page, entering):
+    words = re.compile(r"(enter|activate|enable|start|set).*(hold)|hold.*(apps|plugins)" if entering else r"(release|exit|lift|remove).*(hold)", re.I)
+    return page.get_by_role("button", name=words).first
+
+
+def case_11_policy_absent(page, errors, fixture):
+    connect(page)
+    assert fixture.recovery_policy is None
+    assert policy_button(page, True).count() == 0 or not policy_button(page, True).is_enabled(), "hold control available without policy metadata"
+    assert policy_button(page, False).count() == 0 or not policy_button(page, False).is_enabled(), "release control available without policy metadata"
+    return "legacy snapshot leaves recovery policy controls unavailable"
+
+
+def case_12_hold_restore_release(page, errors, fixture):
+    fixture.revision = READ_REVISION
+    fixture.recovery_policy = {"held": False, "generation": 0}
+    try:
+        connect(page)
+        enter = policy_button(page, True)
+        expect(enter).to_be_visible()
+        expect(enter).to_be_disabled()
+        hold_confirm = page.get_by_role("checkbox", name=re.compile("hold", re.I)).first
+        hold_confirm.check()
+        expect(enter).to_be_enabled()
+        start = len(fixture.requests)
+        enter.click()
+        wait_for_request(fixture, start, "recovery_policy")
+        mutation = requests_after(fixture, start, "recovery_policy")
+        assert len(mutation) == 1, mutation
+        body = mutation[0]["body"]
+        assert body["workspace_id"] == WORKSPACE_ID
+        assert body["base_revision"] == READ_REVISION
+        assert body["confirm"] is True and body["held"] is True
+        assert body["operation_id"] and body["intent"]
+        assert fixture.recovery_policy == {"held": True, "generation": 1}
+
+        choose_checkpoint(page, CHECKPOINT_1, "Before redesign")
+        checkbox(page, "restore-confirm", "restore").check()
+        start = len(fixture.requests)
+        restore = button(page, "Restore checkpoint")
+        if restore.is_enabled():
+            restore.click()
+            wait_for_request(fixture, start, "restore")
+            assert requests_after(fixture, start, "restore")[0]["status"] == 409
+            assert len(requests_after(fixture, start, "restore")) == 1, "hold conflict auto-retried"
+            assert not requests_after(fixture, start, "read"), "hold conflict auto-read"
+            expect(error_box(page)).to_contain_text("Read again")
+        else:
+            assert not requests_after(fixture, start, "restore"), "blocked restore was submitted"
+
+        page.reload()
+        page.get_by_label("Owner token").fill(TOKEN)
+        page.get_by_label("Workspace ID").fill(WORKSPACE_ID)
+        button(page, "Connect").click()
+        expect(page.get_by_test_id("meta-workspace-id")).to_contain_text(WORKSPACE_ID)
+        assert fixture.recovery_policy["held"] is True, "hold lost across reconnect"
+        release = policy_button(page, False)
+        expect(release).to_be_visible()
+        expect(release).to_be_disabled()
+        page.locator("#hold-confirm").check()
+        expect(release).to_be_enabled()
+        start = len(fixture.requests)
+        release.click()
+        wait_for_request(fixture, start, "recovery_policy")
+        released = requests_after(fixture, start, "recovery_policy")
+        assert len(released) == 1 and released[0]["body"]["held"] is False
+        assert released[0]["body"]["base_revision"] == fixture.revision - 1
+        assert fixture.recovery_policy == {"held": False, "generation": 2}
+        assert not any(plugin["enabled"] for plugin in fixture.state()["plugins"]), "release enabled a disabled plugin"
+        return "confirmed hold persists across reload, blocks enabled checkpoint restore, release does not enable plugins"
+    finally:
+        fixture.recovery_policy = None
+        fixture.revision = READ_REVISION
+        fixture.notes_enabled = True
+
+
+def case_13_policy_conflict_requires_reread(page, errors, fixture):
+    fixture.revision = READ_REVISION
+    fixture.recovery_policy = {"held": False, "generation": 0}
+    try:
+        connect(page)
+        page.locator("#hold-confirm").check()
+        fixture.config["force_error"] = (409, {"category": "RECOVERY_POLICY_CHANGED", "error": "Policy changed"})
+        start = len(fixture.requests)
+        policy_button(page, True).click()
+        wait_for_request(fixture, start, "recovery_policy")
+        expect(error_box(page)).to_contain_text("Read again")
+        assert len(requests_after(fixture, start, "recovery_policy")) == 1, "policy conflict auto-retried"
+        assert not requests_after(fixture, start, "read"), "policy conflict auto-read"
+        expect(policy_button(page, True)).to_be_disabled()
+        button(page, "Read again").click()
+        expect(page.get_by_role("status")).to_contain_text("Connected at revision")
+        assert fixture.recovery_policy == {"held": False, "generation": 0}
+        return "RECOVERY_POLICY_CHANGED requires explicit reread without automatic retry"
+    finally:
+        fixture.config.pop("force_error", None)
+        fixture.recovery_policy = None
+        fixture.revision = READ_REVISION
+
+
 CASES = [
     (1, case_1_loads_independently),
     (2, case_2_token_not_persisted),
@@ -651,6 +777,9 @@ CASES = [
     (8, case_8_disable_apps),
     (9, case_9_errors_text_only),
     (10, case_10_limitations_copy),
+    (11, case_11_policy_absent),
+    (12, case_12_hold_restore_release),
+    (13, case_13_policy_conflict_requires_reread),
 ]
 
 

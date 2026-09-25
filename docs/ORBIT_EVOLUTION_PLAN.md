@@ -4,10 +4,12 @@ This is the working backlog, not a claim that phases are complete.
 
 Current increment: strict legacy contracts, generated parity artifacts, isolated native
 tests, SQLite transactional revisions/checkpoints/receipts/outbox, explicit retained-
-original JSON import, private discovery and independent layout recovery UI. Layout
-remains v1; normalized surface/placement migration is still outstanding. Next: persistent
-server-enforced recovery authority, indexed bundles and bounded event delivery. The
-current recovery UI does not satisfy Phase B's safe-mode/revocation gate.
+original JSON import, private discovery and independent recovery UI. The recovery-hold
+increment adds owner-only persistent registered-plugin activation policy outside layout
+undo. Layout remains v1; normalized surface/placement migration is still outstanding.
+Next: indexed bundles and bounded event delivery, followed by broader resource/grant
+authority. Registered-plugin hold is not full safe boot or revocation and does not
+complete Phase B's gate.
 
 1. Finish isolated baseline and fix adapter batch parity. Establish strict versioned
    JSON Schemas, error taxonomy, byte budgets and generated/parity-tested adapters.

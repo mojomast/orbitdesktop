@@ -12,21 +12,38 @@ export function connectWorkspace(getState: () => Workspace, apply: (state: Works
   let revision = 0, ready = false, changes = 0, sent = 0, uncertain = false;
   let pending: Promise<void> | null = null;
   let appVersions: Record<string, number> = {};
+  let backupSaved = false;
+  function holdLocalChanges() {
+    uncertain = true;
+    backupSaved = false;
+    try {localStorage.setItem('orbit.workspace.conflict-backup',JSON.stringify(getState()));backupSaved=true;}catch {}
+  }
   async function request(action: string) {
     const snapshot = changes;
     let response: Response;
     try {
       response = await workspaceFetch(getToken(), { action, workspace_id: workspaceId, observed_revision: revision, ...(action === 'sync' ? { base_revision: revision, state: getState(), intent: 'Synchronize browser workspace changes' } : {}) });
     } catch (error) {
-      if (action === 'sync') {uncertain = true;try {localStorage.setItem('orbit.workspace.conflict-backup',JSON.stringify(getState()));}catch {}}
+      if (action === 'sync') holdLocalChanges();
       throw error;
     }
     let data: any;
     try { data = await response.json(); }
-    catch (error) { if (action === 'sync') uncertain = true; throw error; }
+    catch (error) { if (action === 'sync') holdLocalChanges(); throw error; }
     if (response.status === 404 && action === 'read') return request('sync');
+    if (response.status === 409 && (!data.state || !Number.isSafeInteger(data.revision))) {
+      // Policy errors do not contain a replacement layout. Never treat them as
+      // successful saves or repeatedly submit the rejected local snapshot.
+      if(action === 'sync') {
+        holdLocalChanges();
+      }
+      ready = false; // next poll reads authoritative state, never retries mutation
+      throw Error(data.category === 'RECOVERY_HOLD' || data.category === 'RECOVERY_POLICY_CHANGED'
+        ? `Recovery policy blocked this change. ${backupSaved?'Local backup saved':'Local backup unavailable'}; reading saved state next.`
+        : data.error || 'Workspace conflict; reading saved state before further changes.');
+    }
     if (!response.ok && response.status !== 409) {
-      if (action === 'sync' && response.status >= 500) uncertain = true;
+      if (action === 'sync' && response.status >= 500) holdLocalChanges();
       throw Error(data.error || 'Workspace sync failed');
     }
     if (data.app_versions) {
@@ -44,11 +61,12 @@ export function connectWorkspace(getState: () => Workspace, apply: (state: Works
       const remote = !ready || response.status === 409 || (action === 'read' && data.revision > revision);
       revision = data.revision; ready = true;
       if (remote) {
-        if (changes !== sent) { try { localStorage.setItem('orbit.workspace.conflict-backup', JSON.stringify(getState())); } catch {} }
+        let backupNote='';
+        if (changes !== sent) {holdLocalChanges();backupNote=backupSaved?'; local backup saved':'; local backup unavailable';}
         apply(data.state); applyAppearance(data.state); sent = changes; uncertain = false;
-        status(response.status === 409 ? 'Workspace updated elsewhere; local backup saved' : 'Workspace connected');
+        status((data.recovery_policy?.held ? 'Workspace connected · registered-plugin recovery hold active' : response.status === 409 ? 'Workspace updated elsewhere' : 'Workspace connected')+backupNote);
       } else if (action === 'sync') sent = snapshot;
-      else if(uncertain)status('Previous save outcome unresolved; local changes are held and backed up. Inspect saved state before reconnecting.');
+      else if(uncertain)status(`Previous save outcome unresolved; local changes are held. ${backupSaved?'Local backup saved.':'Local backup unavailable; keep this page open.'} Inspect saved state before reconnecting.`);
     }
   }
   async function sync() {
@@ -57,7 +75,10 @@ export function connectWorkspace(getState: () => Workspace, apply: (state: Works
     pending = request(!ready || changes === sent || uncertain ? 'read' : 'sync');
     try { await pending; } finally { pending = null; }
   }
-  flush = async () => { await sync(); if (changes !== sent) await sync(); };
+  flush = async () => {
+    await sync(); if (changes !== sent) await sync();
+    if(uncertain || changes !== sent)throw Error('Workspace save is unresolved; dependent actions are blocked. Inspect saved state before reconnecting.');
+  };
   window.addEventListener('orbit-host-connected', () => { void sync().catch(e => status(e.message)); });
   window.addEventListener('keydown', event => {
     if (event.ctrlKey && event.altKey && event.code === 'KeyP') {

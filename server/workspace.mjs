@@ -38,7 +38,7 @@ export function createWorkspaceService({ token, port, devOrigins, reply: sendRep
     }
     return versions;
   };
-  const snapshot = (r,versions) => ({ ...(versions?{app_versions:versions}:{}), workspace_id: r.id, revision: r.revision, state: r.state, observed_revision: r.observed_revision || 0, browser_seen: r.browser_seen || null });
+  const snapshot = (r,versions) => ({ ...(versions?{app_versions:versions}:{}), workspace_id: r.id, revision: r.revision, state: r.state, recovery_policy: r.recovery_policy || {held:false,generation:0}, observed_revision: r.observed_revision || 0, browser_seen: r.browser_seen || null });
   const safe = (r,includeAssets=true) => snapshot(r,includeAssets?appVersions():null);
   async function handle(req, res, control = false, recovery = false) {
     let body;
@@ -53,9 +53,9 @@ export function createWorkspaceService({ token, port, devOrigins, reply: sendRep
       raw = new TextDecoder('utf-8',{fatal:true}).decode(Buffer.concat(chunks));
       body = JSON.parse(raw);
       validateWorkspaceRequest(body);
-      // Independent recovery intentionally exposes only read/history, validated
-      // restore, and disable-all. It is not a persistent safe-mode authority.
-      if(recovery && (!['read','history','restore','plugins_apply'].includes(body.action) || (body.action==='plugins_apply' && (body.operations.length!==1 || body.operations[0].action!=='plugin_disable_all'))))return reply(res,403,{error:'Action unavailable in recovery'});
+      // Recovery policy is owner-only and cannot be set through workspace control.
+      if(body.action==='recovery_policy'&&!recovery)return reply(res,403,{error:'Action unavailable on this route'});
+      if(recovery && (!['read','history','restore','plugins_apply','recovery_policy'].includes(body.action) || (body.action==='plugins_apply' && (body.operations.length!==1 || body.operations[0].action!=='plugin_disable_all'))))return reply(res,403,{error:'Action unavailable in recovery'});
       let record;
       try { record = read(body.workspace_id); } catch (e) {
         if (e.code !== 'ENOENT') throw e;
@@ -76,20 +76,21 @@ export function createWorkspaceService({ token, port, devOrigins, reply: sendRep
         for (const op of body.operations) next = applyOperation(next, op);
         return reply(res,200,{workspace_id:record.id,base_revision:record.revision,preview:true,state:next,changed_fields:Object.keys(next).filter(key=>JSON.stringify(next[key])!==JSON.stringify(record.state[key])),warning:'Validation only; no files, browser rendering or external effects were tested. Reapply operations against this base revision to commit.'});
       }
-      if(['sync','apply','plugins_apply','restore','checkpoint','jev_apply'].includes(body.action)) {
+      if(['sync','apply','plugins_apply','restore','checkpoint','jev_apply','recovery_policy'].includes(body.action)) {
         if((control && !['apply','restore','checkpoint'].includes(body.action)) || (!control && body.action==='apply'))return reply(res,403,{error:'Action unavailable on this route'});
         if(['restore','jev_apply'].includes(body.action)&&body.confirm!==true)return reply(res,409,{error:'Explicit confirmation against the current revision is required'});
         if(body.action==='plugins_apply'&&body.operations.some(op=>!op.action.startsWith('plugin_')))throw Error('Expected plugin operations');
         const identity=commandIdentity(body,control?`workspace-controller:${body.workspace_id}`:'owner');
         // Filesystem indexing is still legacy here, but never runs under a write lock.
         const versions=recovery?null:appVersions();
-        const labels={sync:'Before browser workspace change',apply:'Before agent layout change',plugins_apply:'Before plugin change',restore:'Before restore',jev_apply:'Before confirmed Jev quick action',checkpoint:body.label||'Checkpoint'};
+        const labels={sync:'Before browser workspace change',apply:'Before agent layout change',plugins_apply:'Before plugin change',restore:'Before restore',jev_apply:'Before confirmed Jev quick action',checkpoint:body.label||'Checkpoint',recovery_policy:'Before recovery policy change'};
         const committed=store.commit(identity,{
           authorize:current=>!control||tokenMatches(credential,current?.capability),
           create:body.action==='sync'?()=>({id:body.workspace_id,capability:randomBytes(32).toString('base64url'),revision:1,state:validate(structuredClone(body.state)),api:`http://127.0.0.1:${port}`,observed_revision:1,browser_seen:Date.now()}):undefined,
           apply:current=>{
             if(body.action==='sync')return validate(structuredClone(body.state));
             if(body.action==='restore')return validate(store.checkpointGet(current.id,body.checkpoint_id).state);
+            if(body.action==='recovery_policy')return body.held?applyOperation(current.state,{action:'plugin_disable_all'}):current.state;
             let operations=body.operations;
             if(body.action==='jev_apply') {
               const candidates=jevCandidates(current.state);
@@ -100,6 +101,7 @@ export function createWorkspaceService({ token, port, devOrigins, reply: sendRep
             for(const operation of operations)state=applyOperation(state,operation);
             return state;
           },
+          recoveryPolicy:body.action==='recovery_policy'?body.held:undefined,
           checkpointOnly:body.action==='checkpoint',skipUnchanged:body.action==='sync',checkpointLabel:labels[body.action],api:`http://127.0.0.1:${port}`,
           response:(next,checkpoint)=>({...(body.action==='checkpoint'?{checkpoint:checkpoint.id}:snapshot(next,versions)),command_receipt:{operation_id:identity.operationId,legacy:identity.legacy}}),
         });
@@ -125,7 +127,7 @@ export function createWorkspaceService({ token, port, devOrigins, reply: sendRep
       return reply(res,200,safe(record));
     } catch (e) {
       const category=e.category||(e.code==='SQLITE_BUSY'?'RESOURCE_BUSY':e.code?.startsWith('SQLITE_')?'STORE_UNAVAILABLE':'INVALID_OPERATION');
-      const status={REVISION_CONFLICT:409,IDEMPOTENCY_CONFLICT:409,UPGRADE_REQUIRED:409,PERMISSION_REQUIRED:403,RESOURCE_GONE:404,RESOURCE_BUSY:503,STORE_UNAVAILABLE:503,REQUEST_TOO_LARGE:413}[category]||400;
+      const status={REVISION_CONFLICT:409,IDEMPOTENCY_CONFLICT:409,RECOVERY_HOLD:409,RECOVERY_POLICY_CHANGED:409,UPGRADE_REQUIRED:409,PERMISSION_REQUIRED:403,RESOURCE_GONE:404,RESOURCE_BUSY:503,STORE_UNAVAILABLE:503,REQUEST_TOO_LARGE:413}[category]||400;
       let current={};
       if(category==='REVISION_CONFLICT')try {current=safe(read(body.workspace_id),!recovery);} catch {}
       return reply(res,status,{error:category==='REVISION_CONFLICT'?'Workspace changed; read and reconsider':'Workspace request could not be completed',category,...current});

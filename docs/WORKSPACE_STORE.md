@@ -1,6 +1,23 @@
 # Workspace store: compatibility, migration, and operations
 
-Orbit's workspace authority is `PATH/workspace.sqlite` (schema `user_version=1`), where `PATH` is the configured runtime directory (`ORBIT_RUNTIME_DIR`, or the repository's `.runtime` by default). `server/workspace.mjs` uses `SqliteWorkspaceStore`; this is still a single-owner workspace, not a multi-user database service. The v1 workspace state and command shapes remain defined by `contracts/workspace-v1.mjs`. Layout, plugin registration/configuration, checkpoint state and workspace capability are stored in the database; published app bundles, terminal processes, conversations, external effects and arbitrary runtime files are not workspace snapshots.
+Orbit's workspace authority is `PATH/workspace.sqlite` (schema `user_version=2` after the recovery-policy upgrade), where `PATH` is the configured runtime directory (`ORBIT_RUNTIME_DIR`, or the repository's `.runtime` by default). `server/workspace.mjs` uses `SqliteWorkspaceStore`; this is still a single-owner workspace, not a multi-user database service. The v1 workspace state and command shapes remain defined by `contracts/workspace-v1.mjs`. Layout, plugin registration/configuration, checkpoint state, independent recovery policy and workspace capability are stored in the database; published app bundles, terminal processes, conversations, external effects and arbitrary runtime files are not workspace snapshots.
+
+## Recovery-policy schema upgrade
+
+The database schema advances to version 2 for independent registered-plugin hold
+policy and receipt-generation fencing; **the serialized layout remains v1**. Existing
+SQLite v1 stores upgrade transactionally on open, with hold initially off. Back up
+first and stop all older writers before opening with the new server. Old binaries
+reject schema 2 at startup, but cannot be relied on to terminate an already-open
+database connection: no mixed-version rolling upgrade is supported. Consider live
+terminal preservation before scheduling that stop; this change does not authorize it.
+
+Hold policy is excluded from layout checkpoints. Enabling a hold disables registered
+plugins; only explicit owner recovery release clears it, and release does not enable
+them again. Receipt replay is exact only within the same policy generation. A replay
+from an older generation fails with `RECOVERY_POLICY_CHANGED`. This intentionally
+prevents serving a pre-hold active snapshot as a successful new activation. See
+[Recovery](RECOVERY.md) for the narrower boundary compared with full safe boot.
 
 ## Compatibility and cutover
 
@@ -39,7 +56,7 @@ node --experimental-strip-types scripts/workspace_store.mjs export-legacy --runt
 
 `diagnose` reports schema version, WAL mode, foreign keys, SQLite `quick_check`, counts of workspaces/checkpoints/receipts/events and whether a connection projection error was observed. It is a point-in-time diagnostic, not a rendering or external-resource check. The store requires WAL journaling and `synchronous=FULL`; keep the live database and its SQLite sidecars together rather than treating a raw copy of `workspace.sqlite` as a consistent online backup. `backup` uses SQLite's backup API, checks its standalone output and atomically publishes to an unused path without overwriting an existing destination. It does not copy app bundles or other runtime resources. Coordinate with writers when taking an operationally consistent whole-runtime backup.
 
-`restore` validates a SQLite v1 backup (`quick_check` and bootstrap marker), stages it and publishes an entirely **new**, nonexistent runtime directory; it will not overwrite a runtime. Stop servers first, and separately provide the required bundles/other runtime resources before use. Restore does not restart a server. `export-legacy` writes a new offline directory of current workspace/checkpoint JSON and an `EXPORT_WARNING.txt`; old binaries do not preserve SQLite receipts/outbox, and exporting does not remove the SQLite authority or migrate app bundles. A rollback to an old binary requires a separately prepared runtime and deliberate handling of lost receipt/event continuity; never run old and new writers against one directory. None of these procedures undo shell, conversation, network or external side effects.
+`restore` validates a SQLite schema 1 or 2 backup (`quick_check` and bootstrap marker), stages it, upgrades schema 1 if needed, and publishes an entirely **new**, nonexistent runtime directory; it will not overwrite a runtime. Schema 2 backups retain recovery hold and generation. Stop servers first, and separately provide required bundles/other runtime resources before use. Restore does not restart a server. `export-legacy` refuses if any workspace has an active recovery hold. Otherwise it writes a new offline directory of current workspace/checkpoint JSON and an `EXPORT_WARNING.txt`; old binaries do not preserve SQLite receipts/outbox or policy enforcement, and exporting does not remove SQLite authority or migrate app bundles. A rollback to an old binary requires a separately prepared runtime and deliberate handling of lost receipt/event/policy continuity; never run old and new writers against one directory. None of these procedures undo shell, conversation, network or external side effects.
 
 Review the diagnostics and current workspace via the controller after cutover; verify checkpoint listings and the intended state, and inspect the real browser separately before reporting displayed success. Relevant isolated verification is covered by `tests/sqlite-migration.test.mjs`, `tests/sqlite-workspace-store.test.mjs`, `tests/sqlite-contention.test.mjs`, `tests/sqlite-backup-safety.test.mjs`, `tests/workspace-receipts.test.mjs`, client/adapter tests and `tests/workspace-store.browser.py`. Run `npm run check` and the isolated browser/publisher checks for deployment changes; do not use a live owner's runtime as a test fixture.
 
@@ -47,5 +64,6 @@ No revision/checkpoint/receipt retention pruning is implemented yet. Monitor dis
 growth and retain successful receipt identities when designing future pruning;
 deleting them changes retry semantics. Tests exercise process crashes and contention,
 not physical power loss, disk-full behavior or every supported operating system.
-Persistent safe mode, permission revocation, indexed bundles and event delivery are
-separate remaining gates; having a durable outbox does not implement them.
+Full safe boot, permission revocation, indexed bundles and event delivery remain
+separate gates. The registered-plugin hold is narrower; a durable outbox does not
+implement event delivery or resource revocation.

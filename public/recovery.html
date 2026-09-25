@@ -46,6 +46,24 @@
       <p class="note">A successful acknowledgement is not rendered proof that the workspace rendered correctly.</p>
     </section>
 
+    <section aria-labelledby="hold-heading">
+      <h2 id="hold-heading">Registered-plugin recovery hold</h2>
+      <p>A persistent hold prevents the server from accepting workspace changes that activate registered plugins. It is separate from disabling apps, which only changes the saved layout. Releasing hold does not re-enable apps; review and enable them separately.</p>
+      <dl class="policy-metadata">
+        <div><dt>Hold status</dt><dd id="hold-status" data-testid="hold-status">Unavailable</dd></div>
+        <div><dt>Policy generation</dt><dd id="hold-generation" data-testid="hold-generation">—</dd></div>
+      </dl>
+      <p class="note" id="hold-availability">Connect to check whether this server supports the hold.</p>
+      <p class="note">The hold does not stop backends or disconnected frames, block direct access to raw /apps files, control general external browser tabs or terminals, or revoke all permissions. Cached or offline pages may render before contacting the server; this is not full safe boot.</p>
+      <div class="decision">
+        <label for="hold-confirm"><input id="hold-confirm" type="checkbox"> I confirm Enter hold or Release hold for registered plugins</label>
+        <div class="actions policy-actions">
+          <button id="enter-hold" type="button" disabled>Enter hold</button>
+          <button id="release-hold" type="button" class="secondary" disabled>Release hold</button>
+        </div>
+      </div>
+    </section>
+
     <section aria-labelledby="checkpoints-heading">
       <h2 id="checkpoints-heading">Checkpoints</h2>
       <p>Checkpoints capture workspace layout and plugin registration state only. They exclude external effects, files, shells, conversations and image bytes.</p>

@@ -63,5 +63,5 @@ test('SIGKILL during legacy import leaves no partial migration and retained orig
   assert.equal(fs.readFileSync(recordFile,'utf8'),original);assert.equal(fs.readFileSync(checkpointFile,'utf8'),checkpoint);
   assert.throws(()=>new SqliteWorkspaceStore(root),error=>error.category==='MIGRATION_REQUIRED');
   const store=new SqliteWorkspaceStore(root,{importLegacy:true});t.after(()=>store.close());
-  assert.deepEqual(store.read(id),record);assert.equal(store.checkpointList(id).length,1);assert.equal(store.eventsAfter(0).length,0);
+  assert.deepEqual(store.read(id),{...record,recovery_policy:{held:false,generation:0}});assert.equal(store.checkpointList(id).length,1);assert.equal(store.eventsAfter(0).length,0);
 });

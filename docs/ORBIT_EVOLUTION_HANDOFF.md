@@ -1,5 +1,60 @@
 # Evolution handoff — September 25, 2026
 
+## Latest increment: persistent registered-plugin recovery hold
+
+This section supersedes the recovery-policy and schema status in the historical
+transactional-store increment below. Layout remains v1; **SQLite schema is now 2**.
+
+- Owner-authenticated `/api/workspace/recovery` accepts strictly validated
+  `recovery_policy` with `held`, `confirm:true`, base revision, operation ID and intent.
+  Ordinary browser and scoped controller routes cannot change policy.
+- Hold disables registered plugins atomically and is independent record metadata,
+  never checkpoint layout. Every committed candidate state is checked under the write
+  lock, including full sync, restore and controller replacement. Release leaves apps
+  disabled. Unrelated layout edits still work.
+- Receipt generations fence old responses after policy transitions; obsolete retries
+  return `RECOVERY_POLICY_CHANGED`, not an active pre-hold snapshot. Exact replay is
+  now explicitly conditional on unchanged policy generation.
+- SQLite v1 upgrades transactionally on open; backups preserve policy; administrative
+  restore accepts schema 1/2; export to legacy refuses active holds. Stop old writers
+  before upgrade: schema checks cannot eject already-open old connections. No runtime
+  upgrade or live service stop was performed here.
+- The recovery console shows status/generation and separate confirmed Enter/Release
+  controls. Missing policy metadata leaves controls unavailable. Existing disable-all
+  remains labeled reversible layout-only behavior.
+- Normal sync backs up rejected/uncertain local state and reads rather than blindly
+  retrying. `ensureWorkspaceSynced` rejects unresolved saves so dependent actions do
+  not proceed on a false success; storage quota failure is reported honestly.
+
+Fresh verification for this increment: `npm run check` **147/147 Node tests passed**,
+including a SIGKILL during schema upgrade, hold-preserving CLI restore, rejected legacy
+export and unknown-outcome client tests. Eight adapter/publisher/archive Python suites
+passed **49/49 tests** against the regenerated portable source bundle. `npm audit`
+reported zero vulnerabilities. Browser fixture has **13/13** passing cases. The
+real-server browser fixture passed hold/reload, rejection of an enabled-plugin
+checkpoint, and release without activation. The normal built UI's initial sync and
+sidebar edit also passed against the SQLite-backed server.
+No Firefox/WebKit, physical power loss, live Hermes or complete runtime-continuity
+claims are made. Logs: `/tmp/opencode/orbit-recovery-hold-check.log` and
+`/tmp/opencode/orbit-recovery-hold-python.log`.
+
+This is **not full safe boot**: cached/offline frontends, disconnected frames, direct
+static app URLs, arbitrary browser surfaces and host backends are not stopped or
+revoked. Plugin-only layouts still have the model's minimum-window limitation on
+disable-all/hold; no shell is silently created. The next bounded slice is indexed
+immutable bundles and authenticated bounded event delivery, before broader grant/
+resource authority and normalized renderer migration. See ADR 005 and RECOVERY.md.
+
+Parallel task ledger (all complete, all descendants finished):
+- Backend and policy tests: `ses_f261fe819ffe2pbRWqK72OVmzX`.
+- Recovery UI and browser tests: `ses_f261fa223ffewLhfmOviEOXhZ5`.
+- Read-only adversarial review: `ses_f261a9f46ffe41EdhOH68S9GFL`.
+Lead integrated generated schemas, compatibility tests, client fixes, crash/CLI
+tests and documentation. Review findings about unresolved-save false success and
+missing backups on 5xx/invalid JSON were fixed with regression coverage.
+
+## Historical transactional-store increment
+
 ## Current checkout / deployment boundary
 
 Branch: `evolution/contracts-recovery-foundations`. Original checkout was cloned at

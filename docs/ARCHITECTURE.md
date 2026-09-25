@@ -8,6 +8,13 @@ Orbit is a single-owner agent-customizable workspace. It separates trusted core/
 
 `src/workspace-sync.ts` polls and tracks browser acknowledgement. An acknowledged revision does not prove a widget rendered correctly. Local layout persistence and imports remain supported. Offline changes can be saved server-side; display acknowledgement waits for the browser.
 
+The owner-only recovery console can persist a registered-plugin activation hold
+outside checkpoint state. Policy generation and candidate-state checks share the
+command transaction. Entering hold disables plugins; release never auto-enables them.
+Receipts from older policy generations fail closed rather than replaying an obsolete
+activation snapshot. This does not stop cached/offline frames or external backends,
+block public app files, or implement general safe boot. See [Recovery](RECOVERY.md).
+
 ## Two extension boundaries
 
 Trusted built-ins use `src/workspace-extensions.ts`: typed activation entries dynamically load plugin manager, checkpoints, skills catalog, outputs and jobs. Live activity is also loaded on demand. These modules run in the parent page and are reviewed application code. They are not user-installable privileged plugins.
@@ -38,7 +45,7 @@ Three.js PerspectiveCamera drives WebGL decoration plus CSS3DRenderer HTML monit
 | --- | --- |
 | State and operations | `src/model.ts`, `src/workspace-ops.ts`, `src/plugins.ts` |
 | Workspace persistence / context | `server/workspace.mjs`, `src/workspace-sync.ts` |
-| Checkpoints | `server/checkpoints.mjs`, `src/workspace-history.ts` |
+| Checkpoints / recovery policy | `server/sqlite-workspace-store.mjs`, `src/workspace-history.ts`, `public/recovery.js` |
 | Trusted extensions | `src/workspace-extensions.ts` |
 | Plugin management / publishing | `src/plugin-manager.ts`, `scripts/plugin_publish.py` |
 | Agent bridge / UI | `server/agent.mjs`, `src/agent-chat.ts` |

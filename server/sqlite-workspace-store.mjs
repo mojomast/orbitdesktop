@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {randomUUID, createHash} from 'node:crypto';
 import {validate} from '../src/model.ts';
+import {applyOperation} from '../src/workspace-ops.ts';
 import {canonicalJson} from './command-identity.mjs';
 
 const uuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
@@ -30,14 +31,15 @@ export class SqliteWorkspaceStore {
     this.db=new Database(this.filename,{timeout:busyTimeoutMs});
     try {
       const version=this.db.pragma('user_version',{simple:true});
-      if(version>1)throw failure('UPGRADE_REQUIRED');
+      if(version>2)throw failure('UPGRADE_REQUIRED');
       if(exists&&version===0&&!legacyPresent&&!importLegacy)throw failure('STORE_UNINITIALIZED');
       fs.chmodSync(this.filename,0o600);
       this.db.pragma('foreign_keys = ON');
       if(this.db.pragma('journal_mode = WAL',{simple:true})!=='wal')throw failure('UNSUPPORTED_FILESYSTEM');
       this.db.pragma('synchronous = FULL');
       this.db.pragma(`busy_timeout = ${busyTimeoutMs}`);
-      const ready=version===1&&this.db.prepare("SELECT value FROM store_metadata WHERE key='bootstrap_complete'").get()?.value==='1';
+      const ready=version>=1&&this.db.prepare("SELECT value FROM store_metadata WHERE key='bootstrap_complete'").get()?.value==='1';
+      if(version===2&&!ready)throw failure('INVALID_STORE');
       if(!ready) {
         if(legacyPresent&&!importLegacy)throw failure('MIGRATION_REQUIRED');
         const legacy=legacyPresent?this.loadLegacy():{records:[],checkpoints:[],originals:[]};
@@ -61,6 +63,20 @@ export class SqliteWorkspaceStore {
           this.db.pragma('user_version = 1');
         }).immediate();
       }
+      // Bootstrap remains v1 so legacy import is atomic and independently
+      // restartable. Upgrade under the writer lock; old binaries refuse v2.
+      this.db.transaction(()=>{
+        const current=this.db.pragma('user_version',{simple:true});
+        if(current>2)throw failure('UPGRADE_REQUIRED');
+        if(current===1) {
+          this.db.exec(`
+            ALTER TABLE receipts ADD COLUMN policy_generation INTEGER NOT NULL DEFAULT 0 CHECK(policy_generation>=0);
+            UPDATE workspaces SET record_json=json_set(record_json,'$.recovery_policy',json('{"held":false,"generation":0}'));
+            UPDATE receipts SET record_json=json_set(record_json,'$.recovery_policy',json('{"held":false,"generation":0}'));
+          `);
+          this.db.pragma('user_version = 2');
+        }
+      }).immediate();
       // Rebuildable discovery only. Frozen original workspace JSON is never updated.
       this.reconcileConnections();
     } catch(error) {this.db.close(); throw error;}
@@ -128,13 +144,20 @@ export class SqliteWorkspaceStore {
         let previous;
         try { previous=this.read(workspaceId); } catch(error) {if(error.code!=='ENOENT')throw error;}
         if(change.authorize && !change.authorize(previous))throw failure('PERMISSION_REQUIRED');
-        const receipt=this.db.prepare('SELECT request_hash,result_json,record_json FROM receipts WHERE workspace_id=? AND actor=? AND operation_id=?').get(workspaceId,actor,operationId);
+        const policy=previous?.recovery_policy||{held:false,generation:0};
+        if(typeof policy.held!=='boolean'||!safeInteger(policy.generation))throw failure('INVALID_STORE');
+        const receipt=this.db.prepare('SELECT request_hash,result_json,record_json,policy_generation FROM receipts WHERE workspace_id=? AND actor=? AND operation_id=?').get(workspaceId,actor,operationId);
         if(receipt) {
           if(receipt.request_hash!==requestHash)throw failure('IDEMPOTENCY_CONFLICT');
+          if(receipt.policy_generation!==policy.generation)throw failure('RECOVERY_POLICY_CHANGED');
           return {record:JSON.parse(receipt.record_json),result:JSON.parse(receipt.result_json),replayed:true};
         }
         const baseRevision=command.baseRevision ?? (command.legacy?previous?.revision||0:undefined);
         if(!safeInteger(baseRevision)||baseRevision!==(previous?.revision||0))throw failure('REVISION_CONFLICT');
+        // Trusted service option (boolean), not a field accepted from layout
+        // state. The normal base revision CAS covers both state and policy.
+        const transition=change.recoveryPolicy;
+        if(transition!==undefined && (!previous||typeof transition!=='boolean'||change.checkpointOnly))throw failure('INVALID_OPERATION');
         const now=Date.now();
         let record,checkpoint;
         if(!previous) {
@@ -146,18 +169,25 @@ export class SqliteWorkspaceStore {
           if(previous.state?.version!==1)throw failure('UPGRADE_REQUIRED');
           record=structuredClone(previous);
           if(!change.checkpointOnly) {
-            const state=change.apply(structuredClone(previous));
+            const state=transition!==undefined
+              ? (transition?applyOperation(structuredClone(previous.state),{action:'plugin_disable_all'}):structuredClone(previous.state))
+              : change.apply(structuredClone(previous));
             if(state?.then)throw failure('INVALID_OPERATION');
             stateCheck(state);
             const changed=canonicalJson(state)!==canonicalJson(previous.state);
             record.state=state;
-            if(changed||!change.skipUnchanged)record.revision++;
+            if(changed||!change.skipUnchanged||transition!==undefined)record.revision++;
           }
           if(change.checkpointLabel!==undefined && (change.checkpointOnly||record.revision!==previous.revision)) {
             checkpoint={id:randomUUID(),created:now,label:[...String(change.checkpointLabel||'Checkpoint')].slice(0,160).join(''),revision:previous.revision,state:previous.state};
             this.insertCheckpoint(workspaceId,checkpoint);
           }
         }
+        record.recovery_policy=transition===undefined?structuredClone(policy):{held:transition,generation:policy.generation+1};
+        if(!safeInteger(record.recovery_policy.generation))throw failure('INVALID_OPERATION');
+        // Gate the final validated state for every mutation, including whole-state
+        // sync/restore. Policy is authoritative metadata, never checkpoint state.
+        if(record.recovery_policy.held && record.state.plugins?.some(plugin=>plugin.enabled||record.state.monitors.some(monitor=>monitor.id===plugin.window.id)))throw failure('RECOVERY_HOLD');
         if(change.api)record.api=change.api;
         this.putRecord(record);
         if(!previous||record.revision!==previous.revision)this.putRevision(record,now);
@@ -165,8 +195,10 @@ export class SqliteWorkspaceStore {
         if(result?.then)throw failure('INVALID_OPERATION');
         const resultJson=JSON.stringify(result);
         if(Buffer.byteLength(resultJson)>2_000_000)throw failure('REQUEST_TOO_LARGE');
-        this.db.prepare('INSERT INTO receipts VALUES (?,?,?,?,?,?,?,?,?)').run(workspaceId,actor,operationId,requestHash,intent,baseRevision,resultJson,JSON.stringify(record),now);
-        const event={id:randomUUID(),schema_version:1,workspace_id:workspaceId,resource_id:null,type:'workspace.command',timestamp:now,causation_id:operationId,correlation_id:operationId,payload:{action,revision:record.revision,changed:!previous||previous.revision!==record.revision}};
+        // A policy transition can be replayed while its resulting generation is
+        // still current; every receipt expires when the policy next changes.
+        this.db.prepare('INSERT INTO receipts VALUES (?,?,?,?,?,?,?,?,?,?)').run(workspaceId,actor,operationId,requestHash,intent,baseRevision,resultJson,JSON.stringify(record),now,record.recovery_policy.generation);
+        const event={id:randomUUID(),schema_version:1,workspace_id:workspaceId,resource_id:null,type:'workspace.command',timestamp:now,causation_id:operationId,correlation_id:operationId,payload:{action,revision:record.revision,changed:!previous||previous.revision!==record.revision,recovery_policy:record.recovery_policy}};
         this.db.prepare('INSERT INTO events(event_json) VALUES (?)').run(JSON.stringify(event));
         return {record,result,replayed:false};
       }).immediate();
@@ -243,6 +275,7 @@ export class SqliteWorkspaceStore {
     destination=path.resolve(destination);
     if(fs.existsSync(destination))throw failure('DESTINATION_EXISTS');
     const snapshot=this.db.transaction(()=>this.db.prepare('SELECT id FROM workspaces ORDER BY id').all().map(({id})=>({record:this.read(id),checkpoints:this.checkpointList(id).map(entry=>this.checkpointGet(id,entry.id))}))).deferred();
+    if(snapshot.some(({record})=>record.recovery_policy.held))throw failure('RECOVERY_HOLD');
     const stage=fs.mkdtempSync(path.join(path.dirname(destination),'.orbit-export-'));
     try {
       fs.mkdirSync(path.join(stage,'workspaces'),{mode:0o700});

@@ -83,6 +83,7 @@ command('read',{observed_revision:integer(0)});
 command('history');
 command('checkpoint',{label:text(limits.maxLabelCharacters)},[],'checkpoint');
 command('restore',{base_revision:integer(0),checkpoint_id:uuid,confirm:bool},['base_revision','checkpoint_id'],'layout','current-base-revision');
+command('recovery_policy',{base_revision:integer(0),operation_id:{type:'string',pattern:'^[a-zA-Z0-9_.:-]{1,128}$'},intent:{type:'string',minLength:1,maxLength:160},confirm:{const:true},held:bool},['base_revision','operation_id','intent','confirm','held'],'recovery-policy','current-base-revision');
 const batch={base_revision:integer(0),operations:array(ref('operation'),{minItems:1,maxItems:limits.maxOperations})};
 command('apply',batch,Object.keys(batch),'layout','current-base-revision');
 command('preview',batch,Object.keys(batch),'read','current-base-revision');
@@ -98,10 +99,13 @@ commands.read.routeEffects = {browser:'client-observation-write',control:'read',
 commands.read.idempotency = 'read-only-on-control-and-recovery; browser-overwrites-observation';
 commands.jev_suggest.permission = 'authenticated-owner-with-external-data-consent';
 commands.jev_suggest.idempotency = 'external-provider-request-not-retry-safe';
-defs.snapshot = object({workspace_id:uuid,revision:integer(1),state:ref('workspace'),observed_revision:integer(0),browser_seen:{anyOf:[{type:'number'},{type:'null'}]},app_versions:{type:'object',additionalProperties:{type:'number'}}},['workspace_id','revision','state','observed_revision','browser_seen']);
+commands.recovery_policy.permission = 'authenticated-owner-on-recovery-route-only';
+commands.recovery_policy.idempotency = 'durable receipt scoped to recovery policy generation; obsolete generation replay rejected';
+defs.recoveryPolicy=object({held:bool,generation:integer(0)});
+defs.snapshot = object({workspace_id:uuid,revision:integer(1),state:ref('workspace'),observed_revision:integer(0),browser_seen:{anyOf:[{type:'number'},{type:'null'}]},app_versions:{type:'object',additionalProperties:{type:'number'}},recovery_policy:ref('recoveryPolicy')},['workspace_id','revision','state','observed_revision','browser_seen']);
 defs.checkpointMetadata = object({id:uuid,created:{type:'number'},label:text(160),revision:integer(1)});
 const outputs = {
-  read:ref('snapshot'),sync:ref('snapshot'),apply:ref('snapshot'),plugins_apply:ref('snapshot'),restore:ref('snapshot'),jev_apply:ref('snapshot'),
+  read:ref('snapshot'),sync:ref('snapshot'),apply:ref('snapshot'),plugins_apply:ref('snapshot'),restore:ref('snapshot'),jev_apply:ref('snapshot'),recovery_policy:ref('snapshot'),
   checkpoint:object({checkpoint:uuid}),
   history:object({revision:integer(1),checkpoints:array(ref('checkpointMetadata'))}),
   preview:object({workspace_id:uuid,base_revision:integer(1),preview:{const:true},state:ref('workspace'),changed_fields:array(text(100)),warning:text()}),
@@ -113,7 +117,7 @@ outputs.checkpoint.properties.command_receipt=ref('commandReceipt');
 outputs.checkpoint.required.push('command_receipt');
 defs.committedSnapshot=structuredClone(defs.snapshot);
 defs.committedSnapshot.required.push('command_receipt');
-for(const action of ['sync','apply','plugins_apply','restore','jev_apply'])outputs[action]=ref('committedSnapshot');
+for(const action of ['sync','apply','plugins_apply','restore','jev_apply','recovery_policy'])outputs[action]=ref('committedSnapshot');
 for(const name of ['sync','apply','plugins_apply','restore','checkpoint','jev_apply']) {
   const command=commands[name];
   Object.assign(command.input.properties,{
@@ -122,14 +126,14 @@ for(const name of ['sync','apply','plugins_apply','restore','checkpoint','jev_ap
     base_revision:integer(0),
   });
   command.input.dependencies={operation_id:['intent','base_revision'],intent:['operation_id']};
-  command.idempotency='durable receipt by authenticated actor/workspace/operation_id; legacy missing keys are not retry-safe';
+  command.idempotency='durable receipt by authenticated actor/workspace/operation_id within recovery policy generation; obsolete generation replay rejected; legacy missing keys are not retry-safe';
 }
 for(const operation of Object.values(operations))operation.idempotency='receipt belongs to containing command batch';
 for(const [name,command] of Object.entries(commands)) {
   command.output = outputs[name] || {type:'object',description:'Legacy optional Jev result; provider output validation remains in server/jev.mjs'};
 }
 export const contract = {
-  version:1,limits,errors:{INVALID_OPERATION:'Request does not match the workspace contract',REVISION_CONFLICT:'Workspace changed; read and reconsider',IDEMPOTENCY_CONFLICT:'Operation key was already used with a different request',RESOURCE_BUSY:'Workspace store is busy; retry only with the same operation key and payload',STORE_UNAVAILABLE:'Workspace store unavailable',MIGRATION_REQUIRED:'Explicit legacy store migration required',PERMISSION_REQUIRED:'Workspace authentication required',RESOURCE_GONE:'Workspace or resource unavailable',UPGRADE_REQUIRED:'Client cannot write this workspace version',REQUEST_TOO_LARGE:'Workspace request exceeds the byte budget'},
+  version:1,limits,errors:{INVALID_OPERATION:'Request does not match the workspace contract',REVISION_CONFLICT:'Workspace changed; read and reconsider',IDEMPOTENCY_CONFLICT:'Operation key was already used with a different request',RECOVERY_HOLD:'Recovery hold prevents active registered plugins',RECOVERY_POLICY_CHANGED:'Recovery policy generation changed since receipt',RESOURCE_BUSY:'Workspace store is busy; retry only with the same operation key and payload',STORE_UNAVAILABLE:'Workspace store unavailable',MIGRATION_REQUIRED:'Explicit legacy store migration required',PERMISSION_REQUIRED:'Workspace authentication required',RESOURCE_GONE:'Workspace or resource unavailable',UPGRADE_REQUIRED:'Client cannot write this workspace version',REQUEST_TOO_LARGE:'Workspace request exceeds the byte budget'},
   operations,commands,
   schema:{$schema:'http://json-schema.org/draft-07/schema#',$id:'urn:orbit:workspace-command:1',$defs:defs,oneOf:Object.values(commands).map(command=>command.input)},
 };

@@ -8,8 +8,14 @@
   const readButton = byId('read-again');
   const restoreButton = byId('restore');
   const disableButton = byId('disable-apps');
+  const enterHoldButton = byId('enter-hold');
+  const releaseHoldButton = byId('release-hold');
   const restoreConfirm = byId('restore-confirm');
   const disableConfirm = byId('disable-confirm');
+  const holdConfirm = byId('hold-confirm');
+  const holdStatus = byId('hold-status');
+  const holdGeneration = byId('hold-generation');
+  const holdAvailability = byId('hold-availability');
   const checkpointList = byId('checkpoint-list');
   const pluginList = byId('plugin-list');
   const status = byId('status');
@@ -23,6 +29,7 @@
   const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
   let revision = null;
   let pluginCount = 0;
+  let recoveryPolicy = null;
   let busy = false;
   let inputVersion = 0;
 
@@ -35,6 +42,9 @@
     readButton.disabled = busy;
     restoreButton.disabled = busy || revision === null || !selectedCheckpoint() || !restoreConfirm.checked;
     disableButton.disabled = busy || revision === null || pluginCount === 0 || !disableConfirm.checked;
+    holdConfirm.disabled = busy || revision === null || recoveryPolicy === null;
+    enterHoldButton.disabled = busy || revision === null || recoveryPolicy === null || recoveryPolicy.held || !holdConfirm.checked;
+    releaseHoldButton.disabled = busy || revision === null || recoveryPolicy === null || !recoveryPolicy.held || !holdConfirm.checked;
   }
 
   function clearList(list) {
@@ -54,6 +64,18 @@
     fields.observed_revision.textContent = String(data.observed_revision);
     fields.browser_seen.textContent = data.browser_seen === null ? '—' : String(data.browser_seen);
     revision = data.revision;
+    showRecoveryPolicy(data.recovery_policy);
+    updateButtons();
+  }
+
+  function showRecoveryPolicy(policy) {
+    recoveryPolicy = policy && typeof policy.held === 'boolean' && Number.isSafeInteger(policy.generation) && policy.generation >= 0 ? policy : null;
+    holdStatus.textContent = recoveryPolicy === null ? 'Unavailable' : recoveryPolicy.held ? 'Held' : 'Released';
+    holdGeneration.textContent = recoveryPolicy === null ? '—' : String(recoveryPolicy.generation);
+    holdAvailability.textContent = recoveryPolicy === null
+      ? 'This server did not provide a recovery policy. Hold controls are unavailable.'
+      : 'Policy changes advance the workspace revision and policy generation.';
+    holdConfirm.checked = false;
     updateButtons();
   }
 
@@ -99,6 +121,7 @@
     inputVersion++;
     revision = null;
     pluginCount = 0;
+    showRecoveryPolicy(null);
     for (const field of Object.values(fields)) field.textContent = '—';
     emptyList(checkpointList, 'No checkpoints available.');
     emptyList(pluginList, 'No registered apps.');
@@ -123,7 +146,7 @@
   async function request(body) {
     // The password input is the only persistent location of the owner token.
     const token = tokenInput.value;
-    const mutation = ['sync', 'apply', 'plugins_apply', 'restore', 'checkpoint', 'jev_apply'].includes(body.action);
+    const mutation = ['sync', 'apply', 'plugins_apply', 'restore', 'checkpoint', 'jev_apply', 'recovery_policy'].includes(body.action);
     const command = mutation ? {
       ...body,
       operation_id: crypto.randomUUID(),
@@ -156,7 +179,12 @@
     } catch (failure) {
       error.textContent = failure.message;
       status.textContent = '';
-      if (failure.message.startsWith('Conflict:')) revision = null;
+      if (failure.message.startsWith('Conflict:')) {
+        revision = null;
+        holdConfirm.checked = false;
+        restoreConfirm.checked = false;
+        disableConfirm.checked = false;
+      }
     } finally {
       busy = false;
       updateButtons();
@@ -188,6 +216,24 @@
   checkpointList.addEventListener('change', updateButtons);
   restoreConfirm.addEventListener('change', updateButtons);
   disableConfirm.addEventListener('change', updateButtons);
+  holdConfirm.addEventListener('change', updateButtons);
+
+  function changeHold(held) {
+    if (busy || revision === null || recoveryPolicy === null || recoveryPolicy.held === held || !holdConfirm.checked) return;
+    const workspaceId = credentials();
+    if (!workspaceId) return;
+    const version = inputVersion;
+    void perform(async () => {
+      const result = await request({ workspace_id: workspaceId, action: 'recovery_policy', base_revision: revision, held, confirm: true, intent: held ? 'Enter registered-plugin recovery hold' : 'Release registered-plugin recovery hold' });
+      if (version !== inputVersion) return;
+      showMetadata(result);
+      showPlugins(result.state.plugins || []);
+      status.textContent = `${held ? 'Enter hold' : 'Release hold'} accepted at revision ${result.revision}, policy generation ${result.recovery_policy.generation}. Read the workspace state before claiming rendered behavior.`;
+    });
+  }
+
+  enterHoldButton.addEventListener('click', () => changeHold(true));
+  releaseHoldButton.addEventListener('click', () => changeHold(false));
 
   restoreButton.addEventListener('click', () => {
     const selected = selectedCheckpoint();

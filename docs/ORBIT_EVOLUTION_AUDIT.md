@@ -71,3 +71,14 @@ SQLite-aware backup/restore/export have fresh tests. Normal built UI synchroniza
 and independent recovery both passed against the real SQLite-backed server.
 No owner runtime has been migrated. Normalized v2 models and persistent safe mode
 are still outstanding. See the current handoff and WORKSPACE_STORE.md for scope.
+
+## Registered-plugin recovery hold increment
+
+Owner-only persistent activation policy now lives outside layout/checkpoints, with
+transactional disable, generation-fenced receipts, and mutation-time enforcement.
+The recovery UI can enter/release hold without loading the normal renderer. SQLite
+schema 2 migration, SIGKILL rollback, held backup/restore and legacy-export refusal
+are tested. A separate adversarial review identified sync false-success and missing
+backup messages after uncertain responses; those were corrected and covered by
+isolated client regressions. Full safe boot, cached/offline frame revocation and
+backend termination remain outside this increment; no live deployment was changed.
