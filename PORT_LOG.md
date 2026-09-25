@@ -103,6 +103,43 @@ genuine conflicts in `src/`, and the whole port reduced to a small number of rea
   outer catch as a generic 502 rather than a specific error. Not a merge regression; left
   as-is. `.runtime/` is gitignored, so the test artifacts are not committed.
 
+## Slice 6 (content corpus) — done
+
+Four commits:
+
+- `a7a4c90` Remove Devplan Studio from the main project (files + every integration point;
+  `hermes-plugin/orbit-source.tar.gz` rebuilt so the bundle matches tracked source).
+- `d372bf2` Catalog: propose Devplan Interview and Workspace Workshop listings.
+- `59f9f7b` Port Hermes Live Tools widget source into the release line.
+- `708a64a` Add corpus triage: what ships where (repo root).
+
+Owner decisions applied: devplan leaves the project and becomes a catalog listing; `hermes-doom`,
+`orbit-observatory`, the COCS family and private-infrastructure tools are excluded; only
+`workspace-workshop` and `devplan-interview` are catalog candidates. Corpus screened at file level
+— private endpoints, sizes and the 8 personal screenshots in `cocs-viewer`.
+
+Revised from the earlier triage after reading the code: the `plugin-catalog` extension is
+owner-authenticated private tooling, so it stays on-host rather than being ported.
+
+See `CORPUS_TRIAGE.md` at the repository root for the per-item evidence and the admission rule. It
+is deliberately not under `docs/`, because `docs/` is packaged into the public hermes-plugin bundle
+and the document names private endpoints.
+
+Verification (slice 6):
+
+- `npm run build` green; `npm test` 77/78 — the 1 failure is the same pre-existing
+  `tests/agent.test.mjs` #17 "unconfigured bridge fails closed".
+- `python3 scripts/orbit_catalog.py validate --sources` downloads all three pins from the real
+  GitHub repository and passes: `devplan-interview@348e107` 8 static + 8 backend files,
+  `workspace-workshop@348e107` 2 static files, `orbit-live-telemetry` 2 static + 5 backend files.
+  Backends validated, never executed.
+- `python3 tests/orbit-catalog.test.py` 18 OK; `python3 tests/test_orbit_bundle.py` 2 OK.
+
+Open: the Devplan Interview conversational path still has no passing end-to-end model test
+(provider returned HTTP 401). Do not merge that listing until
+`tests/devplan-interview.browser.py` passes. Catalog pins point at `348e107` on
+`origin/agent/orbit-menu-theming`, not `main`.
+
 ## Reversibility
 
 Each slice is one commit on `reconcile/port-onto-0.2.7`. Revert a slice with
