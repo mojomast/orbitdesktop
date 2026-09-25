@@ -1,0 +1,11 @@
+import {createRequire} from 'node:module';
+import {readFile,writeFile} from 'node:fs/promises';
+import path from 'node:path';
+const app='/home/mojo/.hermes-instances/fresh/workspace/orbitdesktop/apps/cocs-viewer';
+const require=createRequire(app+'/package.json');const {build}=require('esbuild');
+const [repo,out,commit,asset]=process.argv.slice(2);
+const result=await build({stdin:{contents:await readFile(app+'/viewer.js','utf8'),resolveDir:app,sourcefile:'viewer.js'},bundle:true,write:false,format:'iife',minify:true,define:{SOURCE_COMMIT:JSON.stringify(commit)},plugins:[{name:'draft-game',setup(b){b.onResolve({filter:/^three(?:\/|$)/},a=>({path:a.path==='three'?app+'/node_modules/three/build/three.module.js':app+'/node_modules/three/examples/jsm/'+a.path.replace('three/addons/','')}));b.onResolve({filter:/^\.\/vendor\/game\//},a=>({path:path.join(repo,a.path.replace('./vendor/',''))}));b.onLoad({filter:/.*/},a=>{const p=path.resolve(a.path);if(!p.startsWith(path.resolve(repo,'game')+'/')&&!p.startsWith(app+'/node_modules/three/'))throw Error('Draft dependency outside game/ or trusted Three.js: '+p);return null;});}}],nodePaths:[app+'/node_modules'],logLevel:'silent'});
+const template=await readFile(app+'/index.html','utf8'),css=await readFile(app+'/style.css','utf8');
+const js='window.__initialAsset='+JSON.stringify(asset)+';'+result.outputFiles[0].text;
+const html=template.replace('<link rel="stylesheet" href="./style.css">','<style>'+css+'</style>').replace(/<script[^>]*src="\.\/viewer.js"[^>]*><\/script>/,()=>'<script>'+js.replace(/<\/script/gi,'<\\/script')+'</script>');
+await writeFile(out,html);console.log('Built draft viewer');

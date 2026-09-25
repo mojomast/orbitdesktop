@@ -3,13 +3,16 @@ from pathlib import Path
 import json
 import subprocess
 from playwright.sync_api import sync_playwright, expect
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from orbit_menu import menu, open_menu, close_menu
 ROOT=Path(__file__).resolve().parents[1]
 env=dict(x.split('=',1) for x in (ROOT/'.env.deploy').read_text().splitlines() if '=' in x)
 with sync_playwright() as p:
  b=p.chromium.launch(headless=True,args=['--no-sandbox']);page=b.new_page(viewport={'width':1800,'height':1100});errors=[]
  page.on('pageerror',lambda e:errors.append(str(e)))
  page.goto(env['ORBIT_PUBLIC_ORIGIN'],wait_until='networkidle')
- page.get_by_role('button',name='Switch to spatial view',exact=True).click()
+ menu(page,'Switch to spatial view')
  window=page.locator('.monitor').nth(1); bar=window.locator('.monitor-bar'); handle=window.locator('.window-resize')
  expect(handle).to_be_visible()
  before=window.bounding_box(); r=bar.bounding_box()

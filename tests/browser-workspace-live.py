@@ -3,6 +3,9 @@ import json
 import re
 from pathlib import Path
 from playwright.sync_api import sync_playwright, expect
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from orbit_menu import menu, open_menu, close_menu
 
 ROOT = Path(__file__).resolve().parents[1]
 env = dict(line.split('=', 1) for line in (ROOT / '.env.deploy').read_text().splitlines() if '=' in line)
@@ -26,7 +29,7 @@ with sync_playwright() as p:
     page.mouse.down(); page.mouse.move(handle['x'] + 112, handle['y'] + 72, steps=8); page.mouse.up()
     resized = window.bounding_box()
     assert resized['width'] - after['width'] >= 90 and resized['height'] - after['height'] >= 50
-    page.get_by_role('button', name='Toggle side panel').click()
+    menu(page, 'Toggle side panel')
     expect(page.locator('.inspector')).to_be_hidden()
     expect(page.locator('.saved')).to_have_text('Saved locally')
     page.reload(wait_until='networkidle')
@@ -34,7 +37,7 @@ with sync_playwright() as p:
     restored = page.locator(f'[data-monitor-id="{window_id}"]').bounding_box()
     assert abs(restored['width'] - resized['width']) < 2 and abs(restored['x'] - resized['x']) < 2
     print('Pointer move, resize, sidebar toggle, and reload persistence: passed', flush=True)
-    page.get_by_role('button', name='Toggle side panel').click()
+    menu(page, 'Toggle side panel')
     page.get_by_role('button', name='Connect local host', exact=True).click()
     page.get_by_role('textbox', name='Host session token').fill(env['ORBIT_TOKEN'])
     page.get_by_role('button', name='Unlock local host', exact=True).click()

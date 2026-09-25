@@ -1,0 +1,24 @@
+const $=id=>document.getElementById(id),base='https://kimi.tailec998.ts.net:10446';
+let selected=null,draft=null,loadedDigest='',sending=false;
+async function api(op,data={}){const r=await fetch(base+'/api',{method:'POST',headers:{'Content-Type':'application/json','X-Workshop-Token':window.workshopToken},body:JSON.stringify({op,...data}),credentials:'omit'});const v=await r.json();if(!r.ok)throw Error(v.error||'Request failed');return v;}
+function error(e){$('status').textContent=e.message;}
+function buttons(){const ready=draft?.status==='ready';$('generate').disabled=sending||!selected;$('refine').disabled=sending||!ready||selected!==draft.asset;$('preview').disabled=sending||!['ready','published'].includes(draft?.status);$('pr').disabled=sending||!ready||draft.validation_policy!=='cocs-contracts-v1'||loadedDigest!==draft.digest||!$('approved').checked;$('revalidate').disabled=sending||!['ready','blocked'].includes(draft?.status);$('stop').disabled=!['running','queued','waiting_for_approval'].includes(draft?.status);$('approval').hidden=draft?.status!=='waiting_for_approval';}
+function render(s){draft=s;$('status').textContent=s.status+(s.error?'\n'+s.error:'');$('output').textContent=s.output||'';$('evidence').textContent=(s.files||[]).join('\n')+'\n'+(s.evidence||'');$('diff').textContent=s.diff||'';$('prLink').replaceChildren();if(s.pr&&/^https:\/\/github\.com\/mojomast\/cocs\/pull\/\d+$/.test(s.pr)){const a=document.createElement('a');a.href=s.pr;a.target='_blank';a.rel='noopener';a.textContent='Open pull request';$('prLink').append(a);}buttons();}
+window.addEventListener('message',e=>{if(e.source!==$('view').contentWindow||e.data?.type!=='cocs-selected'||typeof e.data.asset!=='string')return;selected=e.data.asset;$('asset').textContent=String(e.data.name||selected)+' · '+selected;buttons();});
+async function history(){const items=await api('list');$('history').replaceChildren(new Option('Saved drafts…',''));for(const s of items)$('history').add(new Option(s.asset+' · '+s.status+' · '+s.id.slice(0,6),s.id));}
+async function edit(refine){if(!selected||!$('prompt').value.trim())return error(Error('Select an asset and enter a change request.'));sending=true;loadedDigest='';$('approved').checked=false;buttons();try{const s=await api('edit',{asset:selected,prompt:$('prompt').value,...(refine?{id:draft.id}:{})});render(s);await history();}catch(e){error(e);}finally{sending=false;buttons();}}
+$('generate').onclick=()=>edit(false);$('refine').onclick=()=>edit(true);
+$('history').onchange=async()=>{if(!$('history').value)return;try{loadedDigest='';$('approved').checked=false;const s=await api('get',{id:$('history').value});selected=s.asset;$('asset').textContent=s.asset;$('prompt').value=s.prompt||'';render(s);}catch(e){error(e);}};
+$('preview').onclick=async()=>{try{const d=await api('preview',{id:draft.id});$('view').srcdoc=d.html;loadedDigest=d.digest;$('mode').textContent='Draft '+draft.id.slice(0,6)+' · '+draft.asset;selected=draft.asset;buttons();}catch(e){error(e);}};
+$('library').onclick=()=>{$('view').removeAttribute('srcdoc');$('view').src=base+'/viewer/index.html';$('mode').textContent='Library';};
+$('approved').onchange=buttons;
+$('pr').onclick=()=>{if(!draft||loadedDigest!==draft.digest||!$('approved').checked)return;if(!$('title').value.trim())return error(Error('Enter a pull request title.'));$('publishSummary').textContent=$('title').value+'\nAsset: '+draft.asset+'\nFiles: '+draft.files.join(', ');$('confirm').showModal();};
+$('dismiss').onclick=()=>$('confirm').close();
+$('publish').onclick=async()=>{$('confirm').close();sending=true;buttons();$('status').textContent='Publishing approved draft…';try{render(await api('publish',{id:draft.id,digest:loadedDigest,confirm:true,title:$('title').value}));await history();}catch(e){error(e);}finally{sending=false;buttons();}};
+$('stop').onclick=async()=>{try{await api('stop',{id:draft.id});$('status').textContent='Stop requested; waiting for Hermes.';}catch(e){error(e);}};
+$('approval').onclick=async()=>{try{const d=await api('approvals',{id:draft.id});$('approvalText').textContent=JSON.stringify(d.approvals||[],null,2);$('toolApproval').showModal();}catch(e){error(e);}};
+for(const [id,choice] of [['allow','once'],['deny','deny']])$(id).onclick=async()=>{try{await api('approval',{id:draft.id,choice});$('toolApproval').close();}catch(e){error(e);}};
+$('closeApproval').onclick=()=>$('toolApproval').close();
+setInterval(async()=>{if(!draft||sending||['ready','published','blocked','publish-review'].includes(draft.status))return;try{render(await api('get',{id:draft.id}));}catch(e){error(e);}},3000);
+$('revalidate').onclick=async()=>{sending=true;loadedDigest='';$('approved').checked=false;buttons();$('status').textContent='Checking model contracts and draw budgets…';try{render(await api('revalidate',{id:draft.id}));}catch(e){error(e);}finally{sending=false;buttons();}};
+history().catch(error);buttons();

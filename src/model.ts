@@ -1,4 +1,6 @@
+import { themeKeys, validateTheme } from './theme-tokens.ts';
 import { validatePlugins, type PluginInstance } from './plugins.ts';
+import { validSpatial, validCamera, type SpatialWindow, type SpatialCamera } from './spatial-layout.ts';
 export type PaneKind = "terminal" | "browser" | "agent";
 export interface Pane {
   id: string;
@@ -15,6 +17,7 @@ export type Layout =
       second: Layout;
     };
 export interface Monitor {
+  spatial?: SpatialWindow;
   frame?: { x: number; y: number; width: number; height: number; z: number };
   id: string;
   name: string;
@@ -26,11 +29,14 @@ export interface Monitor {
   yaw: number;
   offset: number;
   fontSize: number;
+  spatialFontSize?: number;
+  opacity?: number;
   layout: Layout;
 }
 export interface Workspace {
+  spatialCamera?: SpatialCamera;
   plugins?: PluginInstance[];
-  appearance?: { background?: string; wallpaper?: string; textColor?: string; cornerRadius?: number; fullViewport?: boolean; headerHeight?: number; sidebarWidth?: number; workspaceGap?: number; accentColor?: string; navigationPosition?: 'top' | 'bottom'; wallpaperFit?: 'cover' | 'contain' | 'auto' };
+  appearance?: import('./theme-tokens').ThemeTokens & { background?: string; wallpaper?: string; textColor?: string; cornerRadius?: number; fullViewport?: boolean; headerHeight?: number; sidebarWidth?: number; workspaceGap?: number; accentColor?: string; navigationPosition?: 'top' | 'bottom'; wallpaperFit?: 'cover' | 'contain' | 'auto' };
   view?: "windows" | "spatial";
   sidebarHidden?: boolean;
   version: 1;
@@ -144,6 +150,8 @@ export function validate(value: unknown): Workspace {
   )
     throw Error("Expected an Orbit v1 workspace with at least one monitor");
   for (const m of s.monitors) {
+    if (m.spatial !== undefined && !validSpatial(m.spatial)) throw Error('Invalid spatial window');
+    if (m.opacity !== undefined && !finite(m.opacity, 0.2, 1)) throw Error("Invalid window opacity");
     if (m.frame && (!finite(m.frame.x, 0, 10000) || !finite(m.frame.y, 0, 10000) || !finite(m.frame.width, 280, 4000) || !finite(m.frame.height, 180, 4000) || !finite(m.frame.z, 0, 100000))) throw Error("Invalid window frame");
     unique(m.id);
     if (
@@ -158,7 +166,8 @@ export function validate(value: unknown): Workspace {
       !finite(m.pitch, -35, 35) ||
       !finite(m.yaw, -45, 45) ||
       !finite(m.offset, -3, 3) ||
-      !finite(m.fontSize, 6, 32)
+      !finite(m.fontSize, 6, 32) ||
+      (m.spatialFontSize !== undefined && !finite(m.spatialFontSize, 6, 96))
     )
       throw Error("Invalid monitor settings");
     count = 0;
@@ -168,10 +177,12 @@ export function validate(value: unknown): Workspace {
   if (!s.monitors.some((m) => m.id === s.selected))
     s.selected = s.monitors[0].id;
   if (s.view !== undefined && !["windows", "spatial"].includes(s.view)) throw Error("Invalid workspace view");
+  if (s.spatialCamera !== undefined && !validCamera(s.spatialCamera)) throw Error('Invalid spatial camera');
   if (s.sidebarHidden !== undefined && typeof s.sidebarHidden !== "boolean") throw Error("Invalid sidebar state");
   if (s.appearance !== undefined) {
     const a = s.appearance;
-    if (!a || typeof a !== 'object' || Array.isArray(a) || Object.keys(a).some(k => !['background', 'wallpaper', 'textColor', 'cornerRadius', 'fullViewport', 'headerHeight', 'sidebarWidth', 'workspaceGap', 'accentColor', 'navigationPosition', 'wallpaperFit'].includes(k))) throw Error('Invalid appearance');
+    if (!a || typeof a !== 'object' || Array.isArray(a) || Object.keys(a).some(k => ![...themeKeys, 'background', 'wallpaper', 'textColor', 'cornerRadius', 'fullViewport', 'headerHeight', 'sidebarWidth', 'workspaceGap', 'accentColor', 'navigationPosition', 'wallpaperFit'].includes(k))) throw Error('Invalid appearance');
+    validateTheme(a);
     if (a.headerHeight !== undefined && !finite(a.headerHeight,32,80)) throw Error('Invalid header height');
     if (a.sidebarWidth !== undefined && !finite(a.sidebarWidth,200,480)) throw Error('Invalid sidebar width');
     if (a.workspaceGap !== undefined && !finite(a.workspaceGap,0,32)) throw Error('Invalid workspace gap');

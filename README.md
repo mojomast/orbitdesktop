@@ -56,6 +56,24 @@ Desktop icons open existing windows, restore minimized applications, and launch 
 
 Move, resize, split, reorder, and arrange windows. Adjust supported colors, wallpaper, corners, spacing, and chrome. Full viewport hides surrounding controls; it is not browser fullscreen. Core frontend changes still require loading the updated frontend once.
 
+### Themes that restyle the whole interface
+
+Themes are not just wallpaper. The active preset drives the design language of the entire host interface—window chrome and title bars, the taskbar and Start, dialogs, buttons and inputs, the orbit menu drawer and its pinned toolbar, and the agent chat surface. Open the orbit menu (the ◉ logo) and choose **Themes** to preview and apply a preset; missing elements inherit the theme as it is extended. See [Interface themes](docs/THEMES.md) for the full token and coverage model.
+
+Each screenshot below shows the agent conversation window under a public preset, captured from an isolated workspace with clearly-labelled demo content (no real conversations, credentials or host terminals):
+
+| | |
+| --- | --- |
+| <img src="docs/images/themes/nous.png" width="340" alt="Nous Atelier theme with the agent chat window"><br>**Nous Atelier** | <img src="docs/images/themes/midnight.png" width="340" alt="Midnight theme with the agent chat window"><br>**Midnight** |
+| <img src="docs/images/themes/xp.png" width="340" alt="Windows XP theme with the agent chat window"><br>**Windows XP** | <img src="docs/images/themes/classic.png" width="340" alt="Classic 95 theme with the agent chat window"><br>**Classic 95** |
+| <img src="docs/images/themes/paper.png" width="340" alt="Paper Studio theme with the agent chat window"><br>**Paper Studio** | <img src="docs/images/themes/cyberpunk.png" width="340" alt="Cyberpunk theme with the agent chat window"><br>**Cyberpunk** |
+| <img src="docs/images/themes/aurora.png" width="340" alt="Aurora Glass theme with the agent chat window"><br>**Aurora Glass** | <img src="docs/images/themes/phosphor.png" width="340" alt="Phosphor theme with the agent chat window"><br>**Phosphor** |
+| <img src="docs/images/themes/blueprint.png" width="340" alt="Blueprint theme with the agent chat window"><br>**Blueprint** | <img src="docs/images/themes/pop.png" width="340" alt="Pop Art theme with the agent chat window"><br>**Pop Art** |
+| <img src="docs/images/themes/ocean.png" width="340" alt="Ocean theme with the agent chat window"><br>**Ocean** | <img src="docs/images/themes/forest.png" width="340" alt="Forest theme with the agent chat window"><br>**Forest** |
+| <img src="docs/images/themes/plum.png" width="340" alt="Plum theme with the agent chat window"><br>**Plum** | <img src="docs/images/themes/ember.png" width="340" alt="Ember theme with the agent chat window"><br>**Ember** |
+
+Regenerate the gallery from a checkout with `python3 scripts/capture_theme_gallery.py` (needs the production build and the Playwright browser environment). A further six owner-specific brand presets ship for the owner's own use and are intentionally left out of this public gallery.
+
 ### Recover workspace changes deliberately
 
 Revision-checked controller mutations and supported plugin changes create checkpoints. Restore layout, appearance, plugin registrations, configuration, and entry references.
@@ -66,7 +84,7 @@ Checkpoints are not filesystem backups. They do not restore documents, shell pro
 
 On first load, Orbit offers a seven-step tour. Reopen it through **Start → Getting started**; Skip or Escape dismisses it. Completion is remembered in this browser. The tour does not submit prompts, install apps, or change your layout. See [Onboarding](docs/ONBOARDING.md).
 
-The unified bottom taskbar holds Start, running and minimized windows, save status, and your named layouts. Start offers Chat, Terminal, Browser, and searchable actions. The upper-left view switcher selects Windows or Spatial; wallpaper and transparency controls sit separately above the taskbar. Full viewport hides workspace chrome; Controls or Ctrl+Alt+F brings it back.
+The unified bottom taskbar holds Start, running and minimized windows, save status, and your named layouts. Start offers Chat, Terminal, Browser, and searchable actions. Click the ◉ orbit logo in the top-left corner to open the **orbit menu** drawer: it holds the workspace view switcher (Windows, Spatial, Focus), Themes, the Show panel toggle, Full viewport, Wallpaper and Transparency controls, plus Hermes shortcuts and your recent conversations. A footer button in the drawer moves those same controls onto the top toolbar as compact buttons and remembers your choice. Full viewport hides the surrounding chrome but keeps a small exit control, so you can always return; Ctrl+Alt+F works too.
 
 ### Navigate and arrange a 3D workspace
 
@@ -162,7 +180,7 @@ Live browser tests under tests/ exercise integrations separately and require a c
 
 Preserve the owner's uncommitted changes, existing pane IDs, running sessions, and older plugin bundles. Never commit .runtime, tokens, transcripts, or private screenshots.
 
-The fresh screenshots above were captured from an isolated browser workspace using `scripts/capture_xpra_readme.py`. The Writer image connects to the existing native application to show the owner-approved README draft. No conversations, passwords, or host terminal buffers were staged for publication.
+The fresh screenshots above were captured from an isolated browser workspace using `scripts/capture_xpra_readme.py`, and the theme gallery with `scripts/capture_theme_gallery.py` (isolated server, synthetic workspace and clearly-labelled demo chat content). The Writer image connects to the existing native application to show the owner-approved README draft. No conversations, passwords, or host terminal buffers were staged for publication.
 
 ## Documentation map
 
@@ -174,6 +192,7 @@ Unified taskbar and named 2D/3D layouts: [docs/LAYOUT_SWITCHER.md](docs/LAYOUT_S
 
 Agent operations: docs/AGENT_GUIDE.md
 Workspace controller: docs/WORKSPACE_CONTROL.md
+Interface themes and whole-UI coverage: docs/THEMES.md
 Plugin lifecycle: docs/PLUGINS.md
 Linux app launchers: docs/XPRA_APPS.md
 Xpra pilot and deployment: docs/XPRA.md

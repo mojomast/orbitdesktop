@@ -7,9 +7,9 @@
 #app .footer { display:none; }
 #app .shell { display:flex; min-height:0; position:relative; }
 #app .workspace { height:auto; min-height:0; }
-#app .workspace-heading { top:4px; left:8px; right:8px; }
+#app .workspace-heading { top:4px; left:100px; right:auto; max-width:calc(100% - 108px); z-index:31; }
 #app .workspace-heading > :first-child { display:none; }
-#app .mode-switch { margin-left:auto; padding:1px; }
+#app .mode-switch { margin-left:0; padding:1px; background:#111b20; opacity:1; }
 #app .mode-switch button { padding:5px 8px; }
 #app .desktop-host { inset:40px 0 40px; }
 #app .stage { inset:40px 0 40px; }
@@ -17,17 +17,22 @@
 #app .scene-navigation { bottom:2px; padding:2px; z-index:9; }
 #app .focus-host { inset:40px 0 0; gap:2px; }
 #app .focus-back { padding:3px 8px; }
-.viewport-toggle { position:fixed; left:8px; top:48px; z-index:30; background:#16201fee; border:1px solid #536453; padding:5px 9px; font-size:12px; }
-#app.full-viewport .topbar, #app.full-viewport .inspector,
+/* Small, always-visible escape hatch while full viewport hides the chrome. */
+.viewport-exit { position:fixed; left:56px; bottom:8px; z-index:72; width:34px; height:34px; padding:0; display:grid; place-items:center; border-radius:50%; background:#16201ff0; color:#e8edf5; border:1px solid #718571; font-size:15px; line-height:1; opacity:.6; transition:opacity .15s; }
+.viewport-exit:hover, .viewport-exit:focus-visible { opacity:1; }
+.viewport-exit[hidden] { display:none; }
+#app.full-viewport .inspector,
 #app.full-viewport .workspace-heading, #app.full-viewport .scene-navigation { display:none !important; }
+/* Full viewport keeps only a small logo so the orbit menu stays reachable. */
+#app.full-viewport .topbar { position:fixed; left:6px; bottom:6px; top:auto; z-index:72; height:auto; min-height:0; padding:2px 5px; gap:4px; background:#16201fe8; border:1px solid #536453; border-radius:12px; }
+#app.full-viewport .topbar > :not(.brand) { display:none !important; }
+#app.full-viewport .brand .brand-tag, #app.full-viewport .brand strong { display:none; }
+#app.full-viewport .brand-mark { font-size:22px; }
 #app.full-viewport .desktop-host, #app.full-viewport .stage,
 #app.full-viewport .focus-host { inset:0; }
-#app.full-viewport .viewport-toggle { top:auto; bottom:4px; opacity:.65; }
-#app.full-viewport .viewport-toggle:hover, #app.full-viewport .viewport-toggle:focus-visible { opacity:1; }
 /* Agent-controlled chrome tokens. Full viewport always takes precedence. */
 #app .topbar { height:var(--orbit-header,44px); min-height:var(--orbit-header,44px); }
 #app .inspector { width:var(--orbit-sidebar,290px); min-width:var(--orbit-sidebar,290px); }
-#app:not(.full-viewport) .viewport-toggle { top:calc(var(--orbit-header,44px) + 4px); }
 #app:not(.full-viewport) .desktop-host, #app:not(.full-viewport) .stage { left:var(--orbit-gap,0px);right:var(--orbit-gap,0px); }
 #app.navigation-top:not(.full-viewport) .scene-navigation { top:40px;bottom:auto; }
 #app.navigation-top:not(.full-viewport) .desktop-host, #app.navigation-top:not(.full-viewport) .stage { top:80px;bottom:0; }

@@ -1,0 +1,1113 @@
+/* Orbit menu + top-toolbar design language.
+   Each workspace theme restyles the popout drawer, its pinned toolbar strip and
+   the logo button so the menu reads as part of that theme rather than a generic
+   panel. Structure, positions and semantics live in orbit-menu.css; this file
+   only changes colour, depth, radius, type and motion.
+
+   Selectors are keyed on the personality attribute because several chrome themes
+   are shared by multiple presets (midnight, paper and cyberpunk each back several
+   personalities), so the style id is the only unambiguous key. */
+
+/* ---------------------------------------------------------------- shared ---- */
+html[data-orbit-style] #app .orbit-menu,
+html[data-orbit-style] #app .orbit-toolbar-item {
+  font-family: var(--theme-font, inherit);
+}
+html[data-orbit-style] #app .orbit-menu-section h3 {
+  color: var(--theme-mutedColor, #9fb3ab);
+}
+html[data-orbit-style] #app .orbit-menu-mark {
+  color: var(--theme-accentColor, var(--lime, #b5f268));
+}
+
+/* -------------------------------------------------------------- midnight ---- */
+/* Compact graphite command rail: flat rows, lime baseline on the active row. */
+html[data-orbit-style=midnight] #app .orbit-menu {
+  --theme-menuRadius: 8px;
+  border-top: 2px solid var(--theme-accentColor, #b5f268);
+  box-shadow: 0 14px 40px #0009;
+}
+html[data-orbit-style=midnight] #app .orbit-menu-head {
+  background: #192331 !important;
+  border-bottom: 1px solid #536077 !important;
+  letter-spacing: 0.04em;
+}
+html[data-orbit-style=midnight] #app .orbit-menu-item {
+  background: transparent !important;
+  border: 0 !important;
+  border-left: 2px solid transparent !important;
+  border-radius: 0 !important;
+}
+html[data-orbit-style=midnight] #app .orbit-menu-item:hover,
+html[data-orbit-style=midnight] #app .orbit-menu-item:focus-visible {
+  background: #b5f2681f !important;
+  filter: none;
+}
+html[data-orbit-style=midnight] #app .orbit-menu-item.active {
+  background: #b5f2681a !important;
+  border-left-color: #b5f268 !important;
+  box-shadow: none;
+}
+html[data-orbit-style=midnight] #app .orbit-toolbar-item {
+  border-radius: 6px !important;
+  background: var(--theme-buttonColor, #30415a) !important;
+}
+html[data-orbit-style=midnight] #app .orbit-toolbar-item.active {
+  box-shadow: inset 0 -3px #b5f268 !important;
+}
+
+/* -------------------------------------------------------------------- xp ---- */
+/* Luna: blue gradient caption, cream body, tactile gradient buttons. */
+html[data-orbit-style=xp] #app .orbit-menu {
+  --theme-menuRadius: 7px;
+  background: #f6f4e9 !important;
+  color: #152648 !important;
+  border: 2px solid #1255be !important;
+  border-radius: 7px !important;
+  box-shadow: 3px 6px 15px #001e5a66 !important;
+  backdrop-filter: none;
+}
+html[data-orbit-style=xp] #app .orbit-menu-head {
+  background: linear-gradient(#428fed, #0961d4) !important;
+  color: #fff !important;
+  border-bottom: 2px solid #efa34a !important;
+  border-radius: 5px 5px 0 0 !important;
+  box-shadow: inset 0 2px #89b8ff;
+}
+html[data-orbit-style=xp] #app .orbit-menu-head .orbit-menu-mark {
+  color: #ffd400 !important;
+}
+html[data-orbit-style=xp] #app .orbit-menu-close {
+  background: linear-gradient(135deg, #94baff, #3679ec 48%, #1450bd) !important;
+  color: #fff !important;
+  border: 1px solid #fff !important;
+  box-shadow: inset 1px 1px #c2d9ff, inset -1px -1px #1643a0;
+}
+html[data-orbit-style=xp] #app .orbit-menu-section h3 {
+  color: #1a4b8f !important;
+  letter-spacing: 0.06em;
+}
+html[data-orbit-style=xp] #app .orbit-menu-detail {
+  color: #4e5770 !important;
+}
+html[data-orbit-style=xp] #app .orbit-menu-item {
+  background: linear-gradient(#fff, #f2f5fa 45%, #dce5f2) !important;
+  color: #243f65 !important;
+  border: 1px solid #829dbf !important;
+  border-radius: 3px !important;
+  box-shadow: inset 0 0 0 1px #fff;
+}
+html[data-orbit-style=xp] #app .orbit-menu-item:hover,
+html[data-orbit-style=xp] #app .orbit-menu-item:focus-visible {
+  background: linear-gradient(#fff, #e5f1ff) !important;
+  border-color: #497db7 !important;
+  filter: none;
+}
+html[data-orbit-style=xp] #app .orbit-menu-item.active {
+  background: linear-gradient(#164cb1, #2057bb) !important;
+  color: #fff !important;
+  border-color: #174cb0 !important;
+  box-shadow: inset 1px 2px 4px #103783;
+}
+html[data-orbit-style=xp] #app .orbit-menu-foot {
+  border-top: 1px solid #91aacb !important;
+}
+html[data-orbit-style=xp] #app .orbit-menu-pin {
+  background: linear-gradient(#94d381, #4b9c3e 15%, #32892a 75%, #236620) !important;
+  color: #fff !important;
+  border: 1px solid #195721 !important;
+  border-radius: 3px !important;
+  font-style: italic;
+  box-shadow: inset 0 1px #c5e8b7;
+}
+html[data-orbit-style=xp] #app .orbit-menu-hint {
+  color: #4e5770 !important;
+}
+html[data-orbit-style=xp] #app .orbit-toolbar-item {
+  background: linear-gradient(#5594f7, #397aeb 35%, #2865d7) !important;
+  color: #fff !important;
+  border: 1px solid #174cb0 !important;
+  border-radius: 4px !important;
+  box-shadow: inset 1px 1px #80b1ff;
+}
+html[data-orbit-style=xp] #app .orbit-toolbar-item.active {
+  background: linear-gradient(#164cb1, #2057bb) !important;
+  box-shadow: inset 1px 2px 4px #103783 !important;
+}
+html[data-orbit-style=xp] #app .orbit-logo {
+  background: linear-gradient(#69a4ff 0%, #1262e8 14%, #0054d8 75%, #003fab) !important;
+  color: #fff !important;
+  border-color: #174cb0 !important;
+  box-shadow: inset 0 1px #b3d0ff;
+}
+
+/* --------------------------------------------------------------- classic ---- */
+/* 95: gray outset panel, navy caption, sunken selected row, click depth. */
+html[data-orbit-style=classic] #app .orbit-menu {
+  --theme-menuRadius: 0px;
+  background: #c0c0c0 !important;
+  color: #000 !important;
+  border: 2px outset #fff !important;
+  border-radius: 0 !important;
+  box-shadow: 1px 1px #000 !important;
+  backdrop-filter: none;
+  font-family: 'MS Sans Serif', Tahoma, Arial, sans-serif;
+}
+html[data-orbit-style=classic] #app .orbit-menu-head {
+  background: #000080 !important;
+  color: #fff !important;
+  border-bottom: 0 !important;
+  border-radius: 0 !important;
+  font-weight: bold;
+}
+html[data-orbit-style=classic] #app .orbit-menu-head .orbit-menu-mark {
+  color: #fff !important;
+}
+html[data-orbit-style=classic] #app .orbit-menu-close {
+  background: #c0c0c0 !important;
+  color: #000 !important;
+  border: 2px outset #fff !important;
+  border-radius: 0 !important;
+  box-shadow: none;
+}
+html[data-orbit-style=classic] #app .orbit-menu-close:active {
+  border-style: inset;
+}
+html[data-orbit-style=classic] #app .orbit-menu-section h3 {
+  color: #000 !important;
+  font-weight: bold;
+}
+html[data-orbit-style=classic] #app .orbit-menu-detail,
+html[data-orbit-style=classic] #app .orbit-menu-hint {
+  color: #404040 !important;
+}
+html[data-orbit-style=classic] #app .orbit-menu-item {
+  background: #c0c0c0 !important;
+  color: #000 !important;
+  border: 2px outset #fff !important;
+  border-radius: 0 !important;
+  box-shadow: 1px 1px #000;
+}
+html[data-orbit-style=classic] #app .orbit-menu-item:hover,
+html[data-orbit-style=classic] #app .orbit-menu-item:focus-visible {
+  background: #000080 !important;
+  color: #fff !important;
+  filter: none;
+}
+html[data-orbit-style=classic] #app .orbit-menu-item.active {
+  border-style: inset !important;
+  background: repeating-conic-gradient(#fff 0 25%, #dfdfdf 0 50%) 0/2px 2px !important;
+  color: #000 !important;
+  font-weight: bold;
+  box-shadow: none;
+}
+html[data-orbit-style=classic] #app .orbit-menu-foot {
+  border-top: 1px solid #808080 !important;
+}
+html[data-orbit-style=classic] #app .orbit-menu-pin {
+  background: #c0c0c0 !important;
+  color: #000 !important;
+  border: 2px outset #fff !important;
+  border-radius: 0 !important;
+}
+html[data-orbit-style=classic] #app .orbit-menu-pin:active {
+  border-style: inset;
+}
+html[data-orbit-style=classic] #app .orbit-toolbar-item {
+  border-radius: 0 !important;
+  background: #c0c0c0 !important;
+  color: #000 !important;
+  border: 2px outset #fff !important;
+  box-shadow: 1px 1px #000;
+}
+html[data-orbit-style=classic] #app .orbit-toolbar-item.active {
+  border-style: inset !important;
+  box-shadow: none !important;
+}
+html[data-orbit-style=classic] #app .orbit-logo {
+  background: #c0c0c0 !important;
+  color: #000 !important;
+  border: 2px outset #fff !important;
+  border-radius: 0 !important;
+}
+html[data-orbit-style=classic] #app .orbit-logo .brand-mark {
+  color: #000080 !important;
+}
+
+/* ----------------------------------------------------------------- paper ---- */
+/* Editorial card: warm stock, rule-lined rows, hard offset shadow, serif. */
+html[data-orbit-style=paper] #app .orbit-menu {
+  --theme-menuRadius: 1px;
+  background: #fffaf0 !important;
+  color: #29251f !important;
+  border: 1px solid #635443 !important;
+  border-radius: 1px !important;
+  box-shadow: 6px 6px 0 #635443 !important;
+  backdrop-filter: none;
+  font-family: Georgia, serif;
+}
+html[data-orbit-style=paper] #app .orbit-menu-head {
+  background: transparent !important;
+  color: #29251f !important;
+  border-bottom: 3px double #635443 !important;
+  border-radius: 0 !important;
+  font-variant: small-caps;
+  letter-spacing: 0.08em;
+}
+html[data-orbit-style=paper] #app .orbit-menu-head .orbit-menu-mark {
+  color: #93432d !important;
+}
+html[data-orbit-style=paper] #app .orbit-menu-close {
+  background: #fffaf0 !important;
+  color: #29251f !important;
+  border: 1px solid #b6a98b !important;
+  border-radius: 1px !important;
+}
+html[data-orbit-style=paper] #app .orbit-menu-section h3 {
+  color: #8a7a63 !important;
+  font-variant: small-caps;
+  letter-spacing: 0.1em;
+}
+html[data-orbit-style=paper] #app .orbit-menu-detail,
+html[data-orbit-style=paper] #app .orbit-menu-hint {
+  color: #7a6b57 !important;
+}
+html[data-orbit-style=paper] #app .orbit-menu-item {
+  background: transparent !important;
+  color: #29251f !important;
+  border: 0 !important;
+  border-bottom: 1px solid #ddd0b6 !important;
+  border-radius: 0 !important;
+}
+html[data-orbit-style=paper] #app .orbit-menu-item:hover,
+html[data-orbit-style=paper] #app .orbit-menu-item:focus-visible {
+  background: #f2e7d3 !important;
+  filter: none;
+}
+html[data-orbit-style=paper] #app .orbit-menu-item.active {
+  background: #f2e7d3 !important;
+  box-shadow: inset 3px 0 #93432d;
+  font-style: italic;
+}
+html[data-orbit-style=paper] #app .orbit-menu-foot {
+  border-top: 3px double #635443 !important;
+}
+html[data-orbit-style=paper] #app .orbit-menu-pin {
+  background: #93432d !important;
+  color: #fff6e8 !important;
+  border: 1px solid #635443 !important;
+  border-radius: 1px !important;
+  box-shadow: 3px 3px 0 #635443;
+}
+html[data-orbit-style=paper] #app .orbit-toolbar-item {
+  border-radius: 1px !important;
+  background: #fffaf0 !important;
+  color: #29251f !important;
+  border: 1px solid #b6a98b !important;
+  box-shadow: 3px 3px 0 #b6a98b;
+}
+html[data-orbit-style=paper] #app .orbit-logo {
+  background: #fffaf0 !important;
+  color: #29251f !important;
+  border: 1px solid #635443 !important;
+  border-radius: 1px !important;
+}
+html[data-orbit-style=paper] #app .orbit-logo .brand-mark {
+  color: #93432d !important;
+}
+
+/* ------------------------------------------------------------- cyberpunk ---- */
+/* Angular panels, hazard rail, offset neon type. */
+html[data-orbit-style=cyberpunk] #app .orbit-menu {
+  --theme-menuRadius: 0px;
+  background: #090c17 !important;
+  color: #e6fbff !important;
+  border: 1px solid #40e6ee !important;
+  border-left: 8px solid #ff58cf !important;
+  border-radius: 0 !important;
+  box-shadow: 6px 6px 0 #ff58cf33 !important;
+  backdrop-filter: none;
+}
+html[data-orbit-style=cyberpunk] #app .orbit-menu-head {
+  background: linear-gradient(90deg, #241033, #0d2630) !important;
+  color: #8cffff !important;
+  border-bottom: 1px solid #40e6ee !important;
+  border-radius: 0 !important;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+html[data-orbit-style=cyberpunk] #app .orbit-menu-head .orbit-menu-mark {
+  color: #ff58cf !important;
+}
+html[data-orbit-style=cyberpunk] #app .orbit-menu-item {
+  background: transparent !important;
+  color: #e6fbff !important;
+  border: 1px solid #40e6ee55 !important;
+  border-radius: 0 !important;
+  clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+html[data-orbit-style=cyberpunk] #app .orbit-menu-item:hover,
+html[data-orbit-style=cyberpunk] #app .orbit-menu-item:focus-visible {
+  background: #40e6ee14 !important;
+  text-shadow: -1px 0 #ff58cf, 1px 0 #40e6ee;
+  filter: none;
+}
+html[data-orbit-style=cyberpunk] #app .orbit-menu-item.active {
+  border-color: #ff58cf !important;
+  box-shadow: inset 3px 0 #ff58cf;
+}
+html[data-orbit-style=cyberpunk] #app .orbit-menu-section h3 {
+  color: #40e6ee !important;
+  letter-spacing: 0.2em;
+}
+html[data-orbit-style=cyberpunk] #app .orbit-menu-detail,
+html[data-orbit-style=cyberpunk] #app .orbit-menu-hint {
+  color: #a8bfd0 !important;
+}
+html[data-orbit-style=cyberpunk] #app .orbit-menu-pin {
+  background: #ff58cf !important;
+  color: #090c17 !important;
+  border-radius: 0 !important;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+html[data-orbit-style=cyberpunk] #app .orbit-toolbar-item {
+  border-radius: 0 !important;
+  clip-path: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px);
+  background: #241033 !important;
+  color: #f9b3eb !important;
+  border: 1px solid #40e6ee !important;
+  text-transform: uppercase;
+}
+html[data-orbit-style=cyberpunk] #app .orbit-toolbar-item.active {
+  background: #40e6ee33 !important;
+  box-shadow: none !important;
+}
+html[data-orbit-style=cyberpunk] #app .orbit-logo {
+  background: #241033 !important;
+  color: #8cffff !important;
+  border: 1px solid #40e6ee !important;
+  border-radius: 0 !important;
+  text-transform: uppercase;
+}
+
+/* ---------------------------------------------------------------- aurora ---- */
+/* Frosted capsule: blurred glass, lift on hover, luminous inner border. */
+html[data-orbit-style=aurora] #app .orbit-menu {
+  --theme-menuRadius: 24px;
+  background: color-mix(in srgb, var(--theme-panelColor, #193f55) 80%, transparent) !important;
+  border: 1px solid #bcffff88 !important;
+  border-radius: 24px !important;
+  box-shadow: inset 0 1px #ffffff88, 0 10px 30px #00142699 !important;
+  backdrop-filter: blur(24px) saturate(1.6);
+}
+html[data-orbit-style=aurora] #app .orbit-menu-head {
+  background: transparent !important;
+  color: #eafcff !important;
+  border-bottom: 1px solid #ffffff26 !important;
+}
+html[data-orbit-style=aurora] #app .orbit-menu-item {
+  background: #215269aa !important;
+  color: #eafcff !important;
+  border: 1px solid #79b9cb55 !important;
+  border-radius: 18px !important;
+  box-shadow: inset 0 1px #ffffff44;
+  transition: translate 0.18s ease, box-shadow 0.18s ease;
+}
+html[data-orbit-style=aurora] #app .orbit-menu-item:hover,
+html[data-orbit-style=aurora] #app .orbit-menu-item:focus-visible {
+  translate: 0 -2px;
+  box-shadow: 0 6px 16px #0005;
+  filter: none;
+}
+html[data-orbit-style=aurora] #app .orbit-menu-item.active {
+  box-shadow: inset 0 -3px var(--theme-accentColor, #83eddd), inset 0 1px #ffffff66;
+}
+html[data-orbit-style=aurora] #app .orbit-menu-pin {
+  background: var(--theme-accentColor, #83eddd) !important;
+  color: #08202b !important;
+  border-radius: 20px !important;
+}
+html[data-orbit-style=aurora] #app .orbit-toolbar-item {
+  background: #215269aa !important;
+  border: 1px solid #79b9cb55 !important;
+  box-shadow: inset 0 1px #ffffff44;
+}
+html[data-orbit-style=aurora] #app .orbit-logo {
+  background: #215269aa !important;
+  border: 1px solid #bcffff88 !important;
+  border-radius: 20px !important;
+}
+
+/* -------------------------------------------------------------- phosphor ---- */
+/* Terminal log: dashed rules, uppercase mono, reverse-video selection. */
+html[data-orbit-style=phosphor] #app .orbit-menu {
+  --theme-menuRadius: 0px;
+  background: #04140a !important;
+  color: #b7ffd0 !important;
+  border: 1px dashed #58bb6a !important;
+  border-radius: 0 !important;
+  box-shadow: 0 0 20px #60ff8822 !important;
+  backdrop-filter: none;
+  font-family: ui-monospace, monospace;
+}
+html[data-orbit-style=phosphor] #app .orbit-menu-head {
+  background: #0b2013 !important;
+  color: #b7ffd0 !important;
+  border-bottom: 1px dashed #438857 !important;
+  border-radius: 0 !important;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+html[data-orbit-style=phosphor] #app .orbit-menu-head .orbit-menu-mark {
+  color: #78ffa2 !important;
+}
+html[data-orbit-style=phosphor] #app .orbit-menu-item {
+  background: transparent !important;
+  color: #b7ffd0 !important;
+  border: 0 !important;
+  border-bottom: 1px dashed #438857 !important;
+  border-radius: 0 !important;
+  text-transform: uppercase;
+  font-size: 12px;
+}
+html[data-orbit-style=phosphor] #app .orbit-menu-item:hover,
+html[data-orbit-style=phosphor] #app .orbit-menu-item:focus-visible {
+  background: #12331c !important;
+  filter: none;
+}
+html[data-orbit-style=phosphor] #app .orbit-menu-item.active {
+  background: #b7ffd0 !important;
+  color: #06130c !important;
+  box-shadow: none;
+}
+html[data-orbit-style=phosphor] #app .orbit-menu-section h3 {
+  color: #76a985 !important;
+}
+html[data-orbit-style=phosphor] #app .orbit-menu-pin {
+  background: #12331c !important;
+  color: #78ffa2 !important;
+  border: 1px solid #438857 !important;
+  border-radius: 0 !important;
+  text-transform: uppercase;
+}
+html[data-orbit-style=phosphor] #app .orbit-toolbar-item {
+  border-radius: 0 !important;
+  background: #0b2013 !important;
+  color: #b7ffd0 !important;
+  border: 1px dashed #438857 !important;
+  text-transform: uppercase;
+}
+html[data-orbit-style=phosphor] #app .orbit-toolbar-item.active {
+  background: #b7ffd0 !important;
+  color: #06130c !important;
+  box-shadow: none !important;
+}
+html[data-orbit-style=phosphor] #app .orbit-logo {
+  background: #0b2013 !important;
+  color: #b7ffd0 !important;
+  border: 1px dashed #438857 !important;
+  border-radius: 0 !important;
+}
+
+/* ------------------------------------------------------------- blueprint ---- */
+/* Drafting bench: dimension rules, dashed cages, crosshair cursor. */
+html[data-orbit-style=blueprint] #app .orbit-menu {
+  --theme-menuRadius: 0px;
+  background: #12345a !important;
+  color: #e6f3ff !important;
+  border: 1px dashed #91bedc !important;
+  border-radius: 0 !important;
+  box-shadow: 5px 5px 0 #0a2445 !important;
+  backdrop-filter: none;
+  font-family: ui-monospace, monospace;
+}
+html[data-orbit-style=blueprint] #app .orbit-menu-head {
+  background: transparent !important;
+  color: #e6f3ff !important;
+  border-bottom: 3px double #a9dcff !important;
+  border-radius: 0 !important;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+html[data-orbit-style=blueprint] #app .orbit-menu-head .orbit-menu-mark {
+  color: #a9dcff !important;
+}
+html[data-orbit-style=blueprint] #app .orbit-menu-item {
+  background: transparent !important;
+  color: #e6f3ff !important;
+  border: 1px dashed #91bedc !important;
+  border-radius: 0 !important;
+  cursor: crosshair;
+  font-variant-numeric: tabular-nums;
+}
+html[data-orbit-style=blueprint] #app .orbit-menu-item:hover,
+html[data-orbit-style=blueprint] #app .orbit-menu-item:focus-visible {
+  background: #163e67 !important;
+  outline: 3px double #a9dcff;
+  outline-offset: -4px;
+  box-shadow: inset 5px 0 #a9dcff;
+  filter: none;
+}
+html[data-orbit-style=blueprint] #app .orbit-menu-item.active {
+  box-shadow: inset 5px 0 #a9dcff;
+}
+html[data-orbit-style=blueprint] #app .orbit-menu-pin {
+  background: #214c76 !important;
+  color: #e6f3ff !important;
+  border: 1px dashed #a9dcff !important;
+  border-radius: 0 !important;
+}
+html[data-orbit-style=blueprint] #app .orbit-toolbar-item {
+  border-radius: 0 !important;
+  background: transparent !important;
+  color: #e6f3ff !important;
+  border: 1px dashed #91bedc !important;
+}
+html[data-orbit-style=blueprint] #app .orbit-toolbar-item.active {
+  box-shadow: inset 0 -3px #a9dcff !important;
+}
+html[data-orbit-style=blueprint] #app .orbit-logo {
+  background: #214c76 !important;
+  border: 1px dashed #a9dcff !important;
+  border-radius: 0 !important;
+}
+
+/* ------------------------------------------------------------------- pop ---- */
+/* Comic control deck: heavy ink outline, hard offset shadow, press depth. */
+html[data-orbit-style=pop] #app .orbit-menu {
+  --theme-menuRadius: 16px;
+  background: #fff8dc !important;
+  color: #201b35 !important;
+  border: 3px solid #201b35 !important;
+  border-radius: 16px !important;
+  box-shadow: 8px 8px 0 #201b35 !important;
+  backdrop-filter: none;
+}
+html[data-orbit-style=pop] #app .orbit-menu-head {
+  background: #ff92c1 !important;
+  color: #201b35 !important;
+  border-bottom: 3px solid #201b35 !important;
+  border-radius: 12px 12px 0 0 !important;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+html[data-orbit-style=pop] #app .orbit-menu-head .orbit-menu-mark {
+  color: #201b35 !important;
+}
+html[data-orbit-style=pop] #app .orbit-menu-section h3 {
+  color: #201b35 !important;
+  font-weight: 900;
+}
+html[data-orbit-style=pop] #app .orbit-menu-detail,
+html[data-orbit-style=pop] #app .orbit-menu-hint {
+  color: #5b3650 !important;
+}
+html[data-orbit-style=pop] #app .orbit-menu-item {
+  background: #fff8dc !important;
+  color: #201b35 !important;
+  border: 2px solid #201b35 !important;
+  border-radius: 12px !important;
+  box-shadow: 3px 3px 0 #201b35;
+  font-weight: 700;
+  transition: translate 0.1s, box-shadow 0.1s;
+}
+html[data-orbit-style=pop] .orbit-menu-items .orbit-menu-item-slot:nth-child(3n+1) .orbit-menu-item {
+  background: #ffb9dc !important;
+}
+html[data-orbit-style=pop] .orbit-menu-items .orbit-menu-item-slot:nth-child(3n+2) .orbit-menu-item {
+  background: #f6d84b !important;
+}
+html[data-orbit-style=pop] .orbit-menu-items .orbit-menu-item-slot:nth-child(3n) .orbit-menu-item {
+  background: #c6b0ff !important;
+}
+html[data-orbit-style=pop] #app .orbit-menu-item:hover,
+html[data-orbit-style=pop] #app .orbit-menu-item:focus-visible {
+  translate: 2px 2px;
+  box-shadow: 1px 1px 0 #201b35;
+  filter: none;
+}
+html[data-orbit-style=pop] #app .orbit-menu-item.active {
+  outline: 3px solid #201b35;
+  outline-offset: -5px;
+  box-shadow: 3px 3px 0 #201b35;
+}
+html[data-orbit-style=pop] #app .orbit-menu-pin {
+  background: #201b35 !important;
+  color: #fff8dc !important;
+  border-radius: 12px !important;
+  box-shadow: 4px 4px 0 #c6b0ff;
+}
+html[data-orbit-style=pop] #app .orbit-toolbar-item {
+  border-radius: 12px !important;
+  background: #fff8dc !important;
+  color: #201b35 !important;
+  border: 2px solid #201b35 !important;
+  box-shadow: 3px 3px 0 #201b35;
+  font-weight: 700;
+}
+html[data-orbit-style=pop] #app .orbit-toolbar .orbit-toolbar-item:nth-child(3n+1) {
+  background: #ffb9dc !important;
+}
+html[data-orbit-style=pop] #app .orbit-toolbar .orbit-toolbar-item:nth-child(3n+2) {
+  background: #f6d84b !important;
+}
+html[data-orbit-style=pop] #app .orbit-toolbar .orbit-toolbar-item:nth-child(3n) {
+  background: #c6b0ff !important;
+}
+html[data-orbit-style=pop] #app .orbit-toolbar-item:active {
+  translate: 3px 3px;
+  box-shadow: none !important;
+}
+html[data-orbit-style=pop] #app .orbit-logo {
+  background: #f6d84b !important;
+  color: #201b35 !important;
+  border: 3px solid #201b35 !important;
+  border-radius: 14px !important;
+  box-shadow: 3px 3px 0 #201b35;
+}
+
+/* ----------------------------------------------------------------- ocean ---- */
+/* Portholes: double rims and a rising tide on hover. */
+html[data-orbit-style=ocean] #app .orbit-menu {
+  --theme-menuRadius: 22px;
+  background: linear-gradient(#145b79f2, #092535fa) !important;
+  color: #e0f4ff !important;
+  border: 3px double #63d8ef !important;
+  border-radius: 22px !important;
+  box-shadow: 0 12px 40px #00142680, inset 0 1px #7fd9ee44 !important;
+  backdrop-filter: blur(10px);
+}
+html[data-orbit-style=ocean] #app .orbit-menu-head {
+  background: transparent !important;
+  color: #e0f4ff !important;
+  border-bottom: 2px solid #56899c !important;
+}
+html[data-orbit-style=ocean] #app .orbit-menu-head .orbit-menu-mark {
+  color: #63d8ef !important;
+}
+html[data-orbit-style=ocean] #app .orbit-menu-item {
+  background: linear-gradient(to top, #63d8ef 50%, #10394e 50%) 0 0/100% 200% !important;
+  color: #e0f4ff !important;
+  border: 2px solid #56899c !important;
+  border-radius: 22px !important;
+  transition: background-position 0.3s, color 0.3s;
+}
+html[data-orbit-style=ocean] #app .orbit-menu-item:hover,
+html[data-orbit-style=ocean] #app .orbit-menu-item:focus-visible {
+  background-position: 0 100% !important;
+  color: #092535 !important;
+  filter: none;
+}
+html[data-orbit-style=ocean] #app .orbit-menu-item.active {
+  background-position: 0 60% !important;
+  color: #092535 !important;
+}
+html[data-orbit-style=ocean] #app .orbit-menu-pin {
+  background: #63d8ef !important;
+  color: #092535 !important;
+  border-radius: 30px !important;
+}
+html[data-orbit-style=ocean] #app .orbit-toolbar-item {
+  background: linear-gradient(#145b79cc, #092535ee) !important;
+  border: 2px solid #56899c !important;
+}
+html[data-orbit-style=ocean] #app .orbit-logo {
+  background: linear-gradient(#145b79cc, #092535ee) !important;
+  border: 2px solid #63d8ef !important;
+  border-radius: 26px !important;
+}
+
+/* ---------------------------------------------------------------- forest ---- */
+/* Organic leaf radii that swap on focus. */
+html[data-orbit-style=forest] #app .orbit-menu {
+  --theme-menuRadius: 26px;
+  background: #16291f !important;
+  color: #e6f3e9 !important;
+  border: 2px solid #769881 !important;
+  border-radius: 6px 26px 6px 26px !important;
+  box-shadow: 0 6px 0 #081d14 !important;
+  backdrop-filter: none;
+}
+html[data-orbit-style=forest] #app .orbit-menu-head {
+  background: #203b2e !important;
+  color: #e6f3e9 !important;
+  border-bottom: 2px solid #769881 !important;
+  border-radius: 4px 24px 0 0 !important;
+}
+html[data-orbit-style=forest] #app .orbit-menu-head .orbit-menu-mark {
+  color: #97dfaa !important;
+}
+html[data-orbit-style=forest] #app .orbit-menu-item {
+  background: #203b2e !important;
+  color: #e6f3e9 !important;
+  border: 1px solid #769881 !important;
+  border-radius: 3px 20px 3px 20px !important;
+}
+html[data-orbit-style=forest] #app .orbit-menu-item:hover,
+html[data-orbit-style=forest] #app .orbit-menu-item:focus-visible {
+  border-radius: 20px 3px 20px 3px !important;
+  box-shadow: inset 0 -3px #97dfaa;
+  filter: none;
+}
+html[data-orbit-style=forest] #app .orbit-menu-item.active {
+  box-shadow: inset 0 -3px #97dfaa;
+}
+html[data-orbit-style=forest] #app .orbit-menu-pin {
+  background: #2b4c3a !important;
+  color: #e6f3e9 !important;
+  border-radius: 20px 3px 20px 3px !important;
+}
+html[data-orbit-style=forest] #app .orbit-toolbar-item {
+  border-radius: 3px 16px 3px 16px !important;
+  background: #203b2e !important;
+  border: 1px solid #769881 !important;
+}
+html[data-orbit-style=forest] #app .orbit-logo {
+  background: #203b2e !important;
+  border: 2px solid #769881 !important;
+  border-radius: 4px 20px 4px 20px !important;
+}
+
+/* ------------------------------------------------------------------ plum ---- */
+/* Velvet theater: dotted ticket edges, expanding focus halos. */
+html[data-orbit-style=plum] #app .orbit-menu {
+  --theme-menuRadius: 12px;
+  background: linear-gradient(90deg, #291b32, #3f2549, #291b32) !important;
+  color: #f4e9fc !important;
+  border: 3px double #dbacf4 !important;
+  border-radius: 12px !important;
+  box-shadow: 0 0 26px #dbacf433 !important;
+  backdrop-filter: none;
+}
+html[data-orbit-style=plum] #app .orbit-menu-head {
+  background: transparent !important;
+  color: #f4e9fc !important;
+  border-bottom: 3px double #dbacf4 !important;
+}
+html[data-orbit-style=plum] #app .orbit-menu-head .orbit-menu-mark {
+  color: #dbacf4 !important;
+}
+html[data-orbit-style=plum] #app .orbit-menu-item {
+  background: #40294e !important;
+  color: #f4e9fc !important;
+  border: 1px solid #ba8ad055 !important;
+  border-left: 2px dotted #dbacf4 !important;
+  border-right: 2px dotted #dbacf4 !important;
+  border-radius: 5px !important;
+}
+html[data-orbit-style=plum] #app .orbit-menu-item:hover,
+html[data-orbit-style=plum] #app .orbit-menu-item:focus-visible {
+  translate: 0 -2px;
+  box-shadow: 0 0 0 3px #dbacf466, 0 0 14px #dbacf488;
+  filter: none;
+}
+html[data-orbit-style=plum] #app .orbit-menu-item.active {
+  box-shadow: 0 0 0 3px #dbacf466;
+}
+html[data-orbit-style=plum] #app .orbit-menu-pin {
+  background: linear-gradient(#dbacf4, #b878dd) !important;
+  color: #2b1836 !important;
+  border-radius: 8px !important;
+}
+html[data-orbit-style=plum] #app .orbit-toolbar-item {
+  background: #40294e !important;
+  border: 1px solid #ba8ad0 !important;
+}
+html[data-orbit-style=plum] #app .orbit-logo {
+  background: linear-gradient(#40294e, #291b32) !important;
+  border: 2px solid #dbacf4 !important;
+}
+
+/* ----------------------------------------------------------------- ember ---- */
+/* Brass instrument rack: ridged frame, inset keys, heat glow. */
+html[data-orbit-style=ember] #app .orbit-menu {
+  --theme-menuRadius: 3px;
+  background: #302019 !important;
+  color: #fff0df !important;
+  border: 3px ridge #b8875b !important;
+  border-radius: 3px !important;
+  box-shadow: inset 0 2px 8px #000, 0 12px 34px #0009 !important;
+  backdrop-filter: none;
+}
+html[data-orbit-style=ember] #app .orbit-menu-head {
+  background: repeating-linear-gradient(0deg, #ffbd800a 0 1px, transparent 1px 4px), #422b21 !important;
+  color: #ffe0a0 !important;
+  border-bottom: 3px double #b8875b !important;
+  border-radius: 0 !important;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+html[data-orbit-style=ember] #app .orbit-menu-head .orbit-menu-mark {
+  color: #ffbd80 !important;
+}
+html[data-orbit-style=ember] #app .orbit-menu-item {
+  background: #422b21 !important;
+  color: #fff0df !important;
+  border: 2px inset #b8875b !important;
+  border-radius: 3px !important;
+  box-shadow: inset 0 2px 5px #0008;
+  letter-spacing: 0.04em;
+}
+html[data-orbit-style=ember] #app .orbit-menu-item:hover,
+html[data-orbit-style=ember] #app .orbit-menu-item:focus-visible {
+  color: #ffe2aa !important;
+  text-shadow: 0 0 7px #ff9b40;
+  box-shadow: inset 0 -3px #ffbd80, 0 0 8px #ff9b4055;
+  filter: none;
+}
+html[data-orbit-style=ember] #app .orbit-menu-item.active {
+  box-shadow: inset 0 -3px #ffbd80, 0 0 8px #ff9b4055;
+}
+html[data-orbit-style=ember] #app .orbit-menu-pin {
+  background: linear-gradient(#ffbd80, #c8873f) !important;
+  color: #2a1a10 !important;
+  border: 2px ridge #b8875b !important;
+  border-radius: 3px !important;
+}
+html[data-orbit-style=ember] #app .orbit-toolbar-item {
+  background: #422b21 !important;
+  border: 2px inset #b8875b !important;
+  border-radius: 3px !important;
+}
+html[data-orbit-style=ember] #app .orbit-logo {
+  background: #422b21 !important;
+  border: 2px ridge #b8875b !important;
+  border-radius: 3px !important;
+}
+
+/* ----------------------------------------------------------------- nous ---- */
+/* Celestial editorial: ruled folios, letterspaced uppercase caption. */
+html[data-orbit-style=nous] #app .orbit-menu {
+  --theme-menuRadius: 2px;
+  background: #151539 !important;
+  color: #f0eeff !important;
+  border: 3px double #9d94ee !important;
+  border-radius: 2px !important;
+  box-shadow: 8px 8px 0 #0c092b !important;
+  backdrop-filter: none;
+}
+html[data-orbit-style=nous] #app .orbit-menu-head {
+  background: linear-gradient(100deg, #211cab, #3930d4) !important;
+  color: #f0eeff !important;
+  border-bottom: 3px double #aaa4ff !important;
+  border-radius: 0 !important;
+  font-family: 'Atelier Display', system-ui, sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+html[data-orbit-style=nous] #app .orbit-menu-head .orbit-menu-mark {
+  color: #ede6ff !important;
+}
+html[data-orbit-style=nous] #app .orbit-menu-section h3 {
+  color: #bcb8db !important;
+  letter-spacing: 0.2em;
+}
+html[data-orbit-style=nous] #app .orbit-menu-item {
+  background: transparent !important;
+  color: #e9e4ff !important;
+  border: 0 !important;
+  border-left: 1px solid #7c6cb2 !important;
+  border-bottom: 1px solid #61518155 !important;
+  border-radius: 0 !important;
+  font-family: Georgia, serif;
+}
+html[data-orbit-style=nous] #app .orbit-menu-item:hover,
+html[data-orbit-style=nous] #app .orbit-menu-item:focus-visible {
+  background: #302772 !important;
+  box-shadow: inset 3px 0 #b4aaff;
+  filter: none;
+}
+html[data-orbit-style=nous] #app .orbit-menu-item.active {
+  background: #e4dfff !important;
+  color: #201b52 !important;
+  box-shadow: inset 0 -3px #7a68ff;
+}
+html[data-orbit-style=nous] #app .orbit-menu-pin {
+  background: #3023c6 !important;
+  color: #f0eeff !important;
+  border: 1px solid #aaa0ff !important;
+  border-radius: 0 !important;
+  box-shadow: inset 0 0 0 3px #211b80;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+html[data-orbit-style=nous] #app .orbit-toolbar-item {
+  border-radius: 0 !important;
+  background: #1c1b42 !important;
+  border: 1px solid #6d68b5 !important;
+}
+html[data-orbit-style=nous] #app .orbit-toolbar-item.active {
+  box-shadow: inset 0 -3px #b4aaff !important;
+}
+html[data-orbit-style=nous] #app .orbit-logo {
+  background: #3023c6 !important;
+  border: 1px solid #aaa0ff !important;
+  border-radius: 0 !important;
+}
+
+/* ------------------------------------------------------------- brands ------- */
+/* Private brand set: accent rails and price-tag hovers. */
+html[data-orbit-style=costco] #app .orbit-menu {
+  border-top: 5px solid #e32a36 !important;
+  backdrop-filter: none;
+}
+html[data-orbit-style=costco] #app .orbit-menu-item {
+  border-radius: 0 !important;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+html[data-orbit-style=costco] #app .orbit-menu-item:hover,
+html[data-orbit-style=costco] #app .orbit-menu-item:focus-visible {
+  background: #ffd400 !important;
+  color: #8a1418 !important;
+  filter: none;
+}
+html[data-orbit-style=costco] #app .orbit-menu-pin {
+  background: linear-gradient(#e84650, #c1181f) !important;
+  color: #fff !important;
+  border: 1px solid #ffd400 !important;
+}
+
+html[data-orbit-style=maxi] #app .orbit-menu {
+  border-top: 6px solid #fff200 !important;
+  backdrop-filter: none;
+}
+html[data-orbit-style=maxi] #app .orbit-menu-item {
+  border-radius: 0 !important;
+  font-weight: 700;
+  text-transform: lowercase;
+}
+html[data-orbit-style=maxi] #app .orbit-menu-item:hover,
+html[data-orbit-style=maxi] #app .orbit-menu-item:focus-visible {
+  background: #fff200 !important;
+  color: #002a6e !important;
+  filter: none;
+}
+html[data-orbit-style=maxi] #app .orbit-menu-pin {
+  background: linear-gradient(#fff95c, #ffe000) !important;
+  color: #002a6e !important;
+  border: 2px solid #002a6e !important;
+  font-weight: 900;
+}
+
+html[data-orbit-style=jimmydean] #app .orbit-menu {
+  border-top: 5px solid #ffcf3f !important;
+  border-radius: 20px 20px 4px 4px !important;
+  box-shadow: 8px 8px 0 #1c0803 !important;
+  backdrop-filter: none;
+}
+html[data-orbit-style=jimmydean] #app .orbit-menu-head {
+  background-image: radial-gradient(circle at 20% 130%, #ffcf3f55, transparent 60%);
+}
+html[data-orbit-style=jimmydean] #app .orbit-menu-item {
+  border-radius: 14px !important;
+}
+html[data-orbit-style=jimmydean] #app .orbit-menu-item:hover,
+html[data-orbit-style=jimmydean] #app .orbit-menu-item:focus-visible {
+  background: #c1121f !important;
+  color: #fff3dc !important;
+  filter: none;
+}
+html[data-orbit-style=jimmydean] #app .orbit-menu-pin {
+  background: linear-gradient(#ffd84d, #f2a007) !important;
+  color: #5c1a06 !important;
+  border-radius: 18px !important;
+  font-weight: 800;
+}
+
+html[data-orbit-style=preph] #app .orbit-menu {
+  border-top: 5px solid #ffd400 !important;
+  border-radius: 14px !important;
+  backdrop-filter: none;
+}
+html[data-orbit-style=preph] #app .orbit-menu-item {
+  border-radius: 10px !important;
+}
+html[data-orbit-style=preph] #app .orbit-menu-item:hover,
+html[data-orbit-style=preph] #app .orbit-menu-item:focus-visible {
+  background: #e3edf7 !important;
+  color: #0057a8 !important;
+  filter: none;
+}
+html[data-orbit-style=preph] #app .orbit-menu-pin {
+  background: linear-gradient(#1c7fd6, #0057a8) !important;
+  color: #fff !important;
+  border: 1px solid #ffd400 !important;
+  border-radius: 10px !important;
+}
+
+html[data-orbit-style=huggies] #app .orbit-menu {
+  border-top: 4px solid #ff6f61 !important;
+  border-radius: 26px !important;
+  backdrop-filter: none;
+}
+html[data-orbit-style=huggies] #app .orbit-menu-item {
+  border-radius: 20px !important;
+}
+html[data-orbit-style=huggies] #app .orbit-menu-item:hover,
+html[data-orbit-style=huggies] #app .orbit-menu-item:focus-visible {
+  background: #eaf6ff !important;
+  color: #da291c !important;
+  filter: none;
+}
+html[data-orbit-style=huggies] #app .orbit-menu-pin {
+  background: linear-gradient(#ff8b7f, #da291c) !important;
+  color: #fff !important;
+  border-radius: 22px !important;
+  font-weight: 700;
+}
+
+html[data-orbit-style=outback] #app .orbit-menu {
+  border: 3px double #e7cda2 !important;
+  border-radius: 0 !important;
+  box-shadow: 8px 8px 0 #0a0403 !important;
+  backdrop-filter: none;
+  font-family: Georgia, serif;
+}
+html[data-orbit-style=outback] #app .orbit-menu-head {
+  background: repeating-linear-gradient(45deg, #ffffff05 0 6px, transparent 6px 14px) !important;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+html[data-orbit-style=outback] #app .orbit-menu-item {
+  border-radius: 0 !important;
+  clip-path: polygon(0 0, 100% 0, 100% 62%, calc(100% - 10px) 100%, 0 100%);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+html[data-orbit-style=outback] #app .orbit-menu-item:hover,
+html[data-orbit-style=outback] #app .orbit-menu-item:focus-visible {
+  background: #7c1414 !important;
+  color: #f3e3c8 !important;
+  filter: none;
+}
+html[data-orbit-style=outback] #app .orbit-menu-pin {
+  background: linear-gradient(#9c2118, #5c0f0f) !important;
+  color: #f3e3c8 !important;
+  border-radius: 0 !important;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+/* -------------------------------------------------------------- a11y ------- */
+@media (prefers-reduced-motion: reduce) {
+  html[data-orbit-style=aurora] #app .orbit-menu-item,
+  html[data-orbit-style=pop] #app .orbit-menu-item,
+  html[data-orbit-style=pop] #app .orbit-toolbar-item,
+  html[data-orbit-style=ocean] #app .orbit-menu-item,
+  html[data-orbit-style=plum] #app .orbit-menu-item {
+    transition: none !important;
+    translate: none !important;
+  }
+}
+@media (forced-colors: active) {
+  html[data-orbit-style] #app :is(.orbit-menu-item, .orbit-toolbar-item) {
+    clip-path: none !important;
+    text-shadow: none !important;
+    border: 1px solid ButtonText !important;
+  }
+}

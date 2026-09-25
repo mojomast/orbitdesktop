@@ -63,6 +63,28 @@ async function auth(ws) {
   ws.send(JSON.stringify({ type: "auth", token, cols: 80, rows: 24 }));
   await ready;
 }
+test('history WebSocket is authenticated and bound to the connected persistent pane', async () => {
+  const { randomUUID } = await import('node:crypto');
+  const { execFileSync } = await import('node:child_process');
+  const pane_id = randomUUID(), ws = await connection();
+  try {
+    const ready = until(ws, m => m.type === 'ready');
+    ws.send(JSON.stringify({type:'auth', token, pane_id, cols:80, rows:24}));
+    assert.equal((await ready).history, true);
+    const output = until(ws, m => m.type === 'data' && m.data.includes('HISTORY_150'));
+    await delay(200);
+    ws.send(JSON.stringify({type:'input',data:"for i in $(seq 1 150); do printf 'WS_HISTORY_%s\\n' $i; done\r"}));
+    await output;
+    const captured = until(ws, m => m.type === 'history');
+    ws.send(JSON.stringify({type:'history', pane_id:'ignored-attacker-target'}));
+    const result = await captured;
+    assert.ok(result.text.includes('WS_HISTORY_1\n'));
+    assert.ok(result.text.includes('WS_HISTORY_150'));
+  } finally {
+    ws.close();
+    execFileSync('/usr/bin/tmux',['-L','orbit-persistent','kill-session','-t','pane-'+pane_id]);
+  }
+});
 test("strict token and terminal dimensions", () => {
   assert(tokenMatches(token, token));
   assert(!tokenMatches("x", token));

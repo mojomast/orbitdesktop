@@ -1,0 +1,13 @@
+import {createRequire} from 'node:module';
+import {readFile,cp,mkdir,writeFile} from 'node:fs/promises';
+import {fileURLToPath} from 'node:url';
+import path from 'node:path';
+const root=path.dirname(fileURLToPath(import.meta.url));
+const require=createRequire(path.join(root,'../cocs-viewer/package.json'));
+const {build}=require('esbuild');
+const out=path.resolve(root,'../../extensions/cocs-graphics-lab');
+const provenance=JSON.parse(await readFile(path.join(root,'../cocs-viewer/dist/provenance.json'),'utf8'));
+await build({entryPoints:[path.join(root,'app.js')],outfile:path.join(out,'app.js'),bundle:true,format:'esm',minify:true,define:{SOURCE_COMMIT:JSON.stringify(provenance.commit)},nodePaths:[path.resolve(root,'../cocs-viewer/node_modules')],logLevel:'info'});
+for(const name of ['index.html','style.css'])await cp(path.join(root,name),path.join(out,name));
+await cp(path.join(root,'../cocs-viewer/node_modules/three/LICENSE'),path.join(out,'THREE-LICENSE.txt'));
+console.log('Graphics Lab built from',provenance.commit);

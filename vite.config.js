@@ -10,8 +10,10 @@ export default defineConfig({
     },
   },
   build: {
+    emptyOutDir: false,
     chunkSizeWarningLimit: 850,
     rollupOptions: {
+      input: {desktop:'index.html', mobile:'mobile.html'},
       output: {
         manualChunks: {
           three: ["three"],

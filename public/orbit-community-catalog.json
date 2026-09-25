@@ -1,0 +1,44 @@
+{
+  "version": 1,
+  "source": "https://github.com/mojomast/orbitdesktop/tree/main/plugin-catalog",
+  "catalogCommit": "7798b9b2b4d799a357d93c8118b9c57db4bb31ad",
+  "entries": [
+    {
+      "manifest": {
+        "apiVersion": 1,
+        "id": "orbit-live-telemetry",
+        "version": "1.0.0",
+        "title": "Orbit Live Telemetry",
+        "entry": "/apps/orbit-live-telemetry-f33e5321c30ce688cac782e4/index.html"
+      },
+      "category": "System monitoring",
+      "description": "A live view of Linux CPU, memory and system load. Portable host edition with a separately reviewed, explicitly activated Python backend. No private endpoints or agent session data included.",
+      "provenance": {
+        "id": "orbit-live-telemetry",
+        "title": "Orbit Live Telemetry",
+        "version": "1.0.0",
+        "description": "A live view of Linux CPU, memory and system load. Portable host edition with a separately reviewed, explicitly activated Python backend. No private endpoints or agent session data included.",
+        "category": "System monitoring",
+        "maintainer": "mojomast",
+        "license": "NOASSERTION",
+        "repo": "https://github.com/mojomast/orbitdesktop",
+        "sha": "96201ebc9b42bce88ee201c3700a2092d70d86f4",
+        "path": "packages/orbit-live-telemetry/app",
+        "capabilities": {
+          "network": true,
+          "storage": false
+        },
+        "backend": {
+          "path": "packages/orbit-live-telemetry/backend",
+          "runtime": "python3",
+          "permissions": [
+            "Read aggregate Linux /proc CPU and memory metrics and system load",
+            "Read owner-local telemetry proxy configuration",
+            "Listen on a loopback HTTP port behind an owner-authenticated private HTTPS proxy",
+            "Runs with owner filesystem privileges; declarations are not enforced permissions"
+          ]
+        }
+      }
+    }
+  ]
+}

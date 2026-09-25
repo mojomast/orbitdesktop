@@ -1,0 +1,1 @@
+{"name":"@cocs/dev-sdk","version":"0.1.0","type":"module","private":true,"files":["*.mjs","*.py","*.json","README.md"],"description":"COCS source indexing, model contract probes and Lattice scenario adapter","scripts":{"test":"node --test test.mjs"},"peerDependencies":{"esbuild":"*","three":"*"}}

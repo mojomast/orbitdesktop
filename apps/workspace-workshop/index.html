@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Workspace Workshop</title>
+<style>
+:root{color-scheme:dark;font:14px system-ui;color:#edf6ff;background:transparent}*{box-sizing:border-box}body{margin:0;padding:14px;background:transparent}header{display:flex;align-items:center;justify-content:space-between}h1{font-size:19px;margin:0;color:#92ffdd}h2{font-size:14px;margin:16px 0 8px}p{line-height:1.5}small,.muted{color:#b9c5da;font-size:12px}button,input,select,textarea{font:inherit;color:inherit;background:#142338b8;border:1px solid #65829970;border-radius:8px;padding:8px}button{cursor:pointer}button:hover{border-color:#92ffdd}button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:2px solid #92ffdd}form,.row{display:flex;gap:6px;flex-wrap:wrap}input{min-width:0;flex:1}article,.card{padding:12px;margin:8px 0;border:1px solid #a5c7dd38;border-radius:12px;background:#0c172b80}article p{margin:0 0 10px;overflow-wrap:anywhere}label{display:block;margin:8px 0;font-size:12px}textarea{width:100%;min-height:90px}#queue{max-height:280px;overflow:auto}#notice{color:#a2f1cf}summary{cursor:pointer}.tag{font-size:11px;color:#a2f1cf}button.danger{color:#ffbec9}[hidden]{display:none!important}
+</style>
+<header><h1>Workspace Workshop</h1><span class="tag">MANUAL BOARD</span></header>
+<p class="muted">Plan together. Keep evidence separate from assumptions.</p>
+<section class="card"><h2>Current task · Hermes snapshot</h2><p id="current"></p><p id="detail" class="muted"></p><small>This snapshot is updated through plugin configuration, not a live conversation feed.</small></section>
+<h2>Build queue <span id="count" class="tag"></span></h2><form id="add"><input id="idea" aria-label="New task" placeholder="What should we build next?" maxlength="240" required><button>Add</button></form><div id="queue"></div>
+<details open><summary>Verification for selected task</summary><p id="selected" class="muted">Select a task to record evidence.</p><div id="checks"></div><label>Evidence / what still needs fixing<textarea id="evidence" maxlength="4000" placeholder="Paste test results or describe what looks wrong."></textarea></label><button id="fix">Needs fixing</button></details>
+<p id="notice" role="status" aria-live="polite"></p>
+<div class="row"><button id="export">Export board</button><button id="import">Import board</button><button id="handoff">Prepare message</button><input id="file" type="file" accept="application/json" hidden></div>
+<textarea id="message" aria-label="Message for Hermes" readonly hidden></textarea>
+<p class="muted">Session-only notes: export before closing, reloading, or updating this plugin. Import restores them. Checks are your recorded claims, not automatic test results. “Prepare message” creates text to paste into chat; it does not send it.</p>
+<script src="./app.js"></script></html>

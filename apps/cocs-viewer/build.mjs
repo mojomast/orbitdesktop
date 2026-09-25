@@ -1,0 +1,20 @@
+import {build} from 'esbuild';
+import {mkdir,cp,writeFile} from 'node:fs/promises';
+import {execFileSync} from 'node:child_process';
+const source=process.env.COCS_SOURCE?new URL('file://'+process.env.COCS_SOURCE.replace(/\/$/,'')+'/'):new URL('../../../cocs-source/',import.meta.url);
+await mkdir('vendor',{recursive:true});
+await cp(new URL('game',source),'vendor/game',{recursive:true,filter:p=>!p.endsWith('.test.mjs')});
+await mkdir('dist',{recursive:true});
+await cp('shell.html','dist/index.html');await cp('index.html','dist/viewer.html');await cp('style.css','dist/style.css');
+await cp('viewer.js','dist/viewer-source.js');
+await cp('node_modules/three/build/three.module.js','dist/three.module.js');
+await cp('node_modules/three/build/three.core.js','dist/three.core.js');
+await cp('node_modules/three/examples/jsm/controls/OrbitControls.js','dist/OrbitControls.js');
+await cp('node_modules/esbuild-wasm/esbuild.wasm','dist/esbuild.wasm');
+await cp('node_modules/esbuild-wasm/LICENSE.md','dist/ESBUILD-LICENSE.txt');
+const commit=execFileSync('git',['-C',source.pathname,'rev-parse','HEAD'],{encoding:'utf8'}).trim();
+await writeFile('dist/provenance.json',JSON.stringify({repository:'https://github.com/mojomast/cocs',commit,generatedAt:new Date().toISOString()},null,2));
+const bundled=await build({entryPoints:['viewer.js'],bundle:true,format:'esm',outfile:'dist/viewer.js',minify:true,metafile:true,define:{SOURCE_COMMIT:JSON.stringify(commit)},logLevel:'info'});
+for(const input of Object.keys(bundled.metafile.inputs)){if(input.startsWith('node_modules/three/examples/jsm/')){const dest=input.replace('node_modules/three/examples/jsm/','dist/addons/');await mkdir(new URL('.',new URL(dest, 'file://'+process.cwd()+'/')),{recursive:true});await cp(input,dest);}}
+await build({entryPoints:['updater.js'],bundle:true,platform:'browser',format:'esm',outfile:'dist/updater.js',minify:true,define:{SOURCE_COMMIT:JSON.stringify(commit)},logLevel:'info'});
+await cp('node_modules/three/LICENSE','dist/THREE-LICENSE.txt');

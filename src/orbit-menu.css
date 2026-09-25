@@ -1,0 +1,251 @@
+/* Orbit menu: a popout drawer anchored to the top-left logo, plus an optional
+   pinned control strip on the top toolbar.
+
+   Structure lives here; colour, radius and shadow come from the active
+   workspace theme's --theme-* tokens. When no theme is applied the hard-coded
+   fallbacks keep the original graphite look, so the drawer never renders
+   unstyled. Per-theme design language (Luna gradients, 95 bevels, drafting
+   rules, neon edges, comic offsets, glass, …) lives in theme-menus.css. */
+
+#app .orbit-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 10px;
+  background: var(--theme-menuItemColor, var(--theme-buttonColor, #111b20));
+  color: var(--theme-menuItemTextColor, var(--theme-buttonTextColor, #e6efe9));
+  border: 1px solid var(--theme-menuBorderColor, var(--theme-borderColor, transparent));
+  border-radius: var(--theme-controlRadius, 12px);
+  cursor: pointer;
+  font-family: var(--theme-font, inherit);
+}
+#app .orbit-logo:hover,
+#app .orbit-logo:focus-visible {
+  filter: brightness(1.14);
+  border-color: var(--theme-accentColor, #3d5545);
+}
+#app .orbit-logo[aria-expanded="true"] {
+  border-color: var(--theme-accentColor, #5c7d55);
+  box-shadow: inset 0 0 0 1px var(--theme-accentColor, #5c7d55);
+}
+#app .orbit-logo .brand-mark {
+  color: var(--theme-accentColor, var(--lime, #b5f268));
+}
+#app .orbit-logo .brand-tag {
+  pointer-events: none;
+}
+
+#app .orbit-menu {
+  position: fixed;
+  top: calc(var(--orbit-header, 44px) + 6px);
+  left: 8px;
+  z-index: 60;
+  width: min(340px, calc(100vw - 16px));
+  max-height: calc(100dvh - var(--orbit-header, 44px) - 22px);
+  display: flex;
+  flex-direction: column;
+  background: var(--theme-menuColor, var(--theme-panelColor, #17232a));
+  color: var(--theme-menuTextColor, var(--theme-textColor, #e6efe9));
+  border: 1px solid var(--theme-menuBorderColor, var(--theme-borderColor, #4d6b52));
+  border-radius: var(--theme-menuRadius, var(--theme-controlRadius, 16px));
+  box-shadow: var(--theme-menuShadow, var(--theme-shadow, 0 24px 70px #0009));
+  backdrop-filter: blur(9px);
+  font-family: var(--theme-font, inherit);
+}
+#app .orbit-menu[hidden] {
+  display: none;
+}
+/* In full viewport the drawer pops up above the compact logo. */
+#app.full-viewport .orbit-menu {
+  top: auto;
+  bottom: 54px;
+  left: 6px;
+  max-height: calc(100dvh - 72px);
+}
+
+#app .orbit-menu-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--theme-menuBorderColor, #2b3b3a);
+  background: var(--theme-menuHead, transparent);
+  color: var(--theme-titlebarTextColor, inherit);
+  border-radius: calc(var(--theme-menuRadius, 16px) - 1px) calc(var(--theme-menuRadius, 16px) - 1px) 0 0;
+}
+#app .orbit-menu-mark {
+  color: var(--theme-accentColor, var(--lime, #b5f268));
+  font-size: 19px;
+  line-height: 1;
+}
+#app .orbit-menu-title {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+#app .orbit-menu-close {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  background: var(--theme-menuItemColor, var(--theme-buttonColor, #1c2b31));
+  color: var(--theme-menuItemTextColor, var(--theme-buttonTextColor, #dfeae4));
+  border: 1px solid var(--theme-menuBorderColor, #2f4340);
+  border-radius: calc(var(--theme-menuRadius, 8px) - 2px);
+  font-size: 15px;
+  line-height: 1;
+  font-family: var(--theme-font, inherit);
+}
+
+#app .orbit-menu-scroll {
+  overflow: auto;
+  padding: 8px 10px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+#app .orbit-menu-section h3 {
+  margin: 4px 0 2px;
+  font-size: 10.5px;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: var(--theme-mutedColor, #9fb3ab);
+}
+#app .orbit-menu-detail {
+  margin: 0 0 6px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--theme-mutedColor, #8fa69d);
+}
+#app .orbit-menu-items {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+#app .orbit-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  text-align: left;
+  padding: 9px 11px;
+  background: var(--theme-menuItemColor, var(--theme-buttonColor, #1c2b31));
+  border: 1px solid var(--theme-menuBorderColor, #2f4340);
+  border-radius: calc(var(--theme-menuRadius, 9px) - 3px);
+  font-size: 13px;
+  color: var(--theme-menuItemTextColor, var(--theme-buttonTextColor, #dfeae4));
+}
+#app .orbit-menu-item::before {
+  content: attr(data-icon);
+  flex: none;
+  width: 18px;
+  text-align: center;
+  font-size: 15px;
+  line-height: 1;
+  opacity: 0.9;
+}
+#app .orbit-menu-item:hover,
+#app .orbit-menu-item:focus-visible {
+  filter: brightness(1.14);
+  border-color: var(--theme-accentColor, #4f6d55);
+}
+#app .orbit-menu-item.active {
+  border-color: var(--theme-accentColor, var(--lime, #b5f268));
+  box-shadow: inset 3px 0 0 var(--theme-accentColor, var(--lime, #b5f268));
+}
+#app .orbit-menu-item[aria-pressed="true"] {
+  border-color: var(--theme-accentColor, var(--lime, #b5f268));
+}
+
+#app .orbit-menu-foot {
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--theme-menuBorderColor, #2b3b3a);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+#app .orbit-menu-pin {
+  width: 100%;
+  padding: 9px 11px;
+  background: var(--theme-accentColor, #24402f);
+  border: 1px solid var(--theme-menuBorderColor, #5c7d55);
+  border-radius: calc(var(--theme-menuRadius, 10px) - 2px);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--theme-surfaceColor, #07120b);
+}
+#app .orbit-menu-pin:hover,
+#app .orbit-menu-pin:focus-visible {
+  filter: brightness(1.14);
+}
+#app .orbit-menu-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--theme-mutedColor, #93a9a0);
+}
+
+/* Pinned mode: the same buttons live on the top toolbar as compact pills. */
+#app .orbit-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+#app .orbit-toolbar::-webkit-scrollbar {
+  display: none;
+}
+#app .orbit-toolbar[hidden] {
+  display: none;
+}
+#app .orbit-toolbar-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: none;
+  padding: 6px 11px;
+  background: var(--theme-menuItemColor, var(--theme-buttonColor, #16241f));
+  border: 1px solid var(--theme-menuBorderColor, var(--theme-borderColor, #3c5a43));
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--theme-menuItemTextColor, var(--theme-buttonTextColor, #dcefe1));
+  white-space: nowrap;
+  font-family: var(--theme-font, inherit);
+}
+#app .orbit-toolbar-item::before {
+  content: attr(data-icon);
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0.9;
+}
+#app .orbit-toolbar-item:hover,
+#app .orbit-toolbar-item:focus-visible {
+  filter: brightness(1.16);
+  border-color: var(--theme-accentColor, #6f9e63);
+}
+#app .orbit-toolbar-item.active,
+#app .orbit-toolbar-item[aria-pressed="true"] {
+  border-color: var(--theme-accentColor, var(--lime, #b5f268));
+  box-shadow: inset 0 -2px 0 var(--theme-accentColor, var(--lime, #b5f268));
+}
+
+@media (max-width: 700px) {
+  #app .orbit-menu {
+    width: calc(100vw - 12px);
+    left: 6px;
+  }
+  #app .orbit-toolbar-item {
+    padding: 6px 9px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  #app .orbit-menu-item,
+  #app .orbit-toolbar-item {
+    transition: none !important;
+    translate: none !important;
+  }
+}

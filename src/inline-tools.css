@@ -1,0 +1,11 @@
+.inline-tools { flex:none; margin:10px 0; padding:10px; border:1px solid currentColor; border-radius:6px; font:12px/1.5 ui-monospace,monospace; color:inherit; background:color-mix(in srgb,currentColor 5%,transparent); overflow-wrap:anywhere; min-width:0; }
+.inline-tools[hidden] { display:none!important; }
+.inline-tools-note { opacity:.8; margin-bottom:6px; }
+.inline-tools-rows { border-left:2px solid var(--accent,#888); margin-top:8px; padding-left:8px; }
+.inline-tool { margin:6px 0; min-width:0; }
+.inline-tool > summary { cursor:pointer; padding:6px; border-bottom:1px dotted currentColor; }
+.inline-tool[data-phase="Running"] > summary::after { content:' …'; }
+.inline-tool[data-phase="Failed"] > summary { text-decoration:underline wavy; }
+.inline-tool-detail { padding:8px; }
+.inline-tools pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:280px; overflow:auto; font:inherit; user-select:text; }
+.inline-tool summary:focus-visible { outline:2px solid var(--accent,currentColor); outline-offset:2px; }

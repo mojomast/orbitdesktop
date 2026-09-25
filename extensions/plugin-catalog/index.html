@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hermes Plugin Catalog · Orbit</title>
+    <link rel="stylesheet" href="style.css" />
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <header>
+      <div class="brand">
+        <span class="mark">H</span>
+        <div>
+          HERMES <span class="muted">/ ORBIT</span><small>PLUGIN CATALOG</small>
+        </div>
+      </div>
+      <div class="head-actions">
+        <span id="connection" class="pill">Browse mode</span
+        ><button id="unlock">Unlock installs</button
+        ><button id="refresh" title="Fetch the current official catalog">
+          Refresh
+        </button>
+      </div>
+    </header>
+    <div class="shell">
+      <aside>
+        <p class="eyebrow">YOUR TOOLBOX, EXPANDED</p>
+        <h1>Find your next<br /><em>capability.</em></h1>
+        <p class="intro">
+          Tools, memory, models and more. Discover reviewed plugin releases for
+          your Hermes agent.
+        </p>
+        <nav id="categories" aria-label="Plugin categories"></nav>
+        <div class="trust">
+          <span class="dot"></span> Reviewed pins, not branch tips
+          <p>
+            Catalog review is not a security audit. Read the disclosures before
+            giving a plugin access to your tools or credentials.
+          </p>
+          <a
+            href="https://hermes-agent.nousresearch.com/docs/user-guide/features/plugin-catalog"
+            target="_blank"
+            rel="noopener noreferrer"
+            >How catalog trust works ↗</a
+          >
+        </div>
+      </aside>
+      <main>
+        <div class="toolbar">
+          <label class="search"
+            ><span>⌕</span
+            ><input
+              id="search"
+              type="search"
+              placeholder="Search plugins, authors, capabilities…"
+              aria-label="Search plugins" /></label
+          ><select id="tier" aria-label="Filter by tier">
+            <option value="">All tiers</option>
+            <option value="official">Official</option>
+            <option value="community">Community</option></select
+          ><select id="scope" aria-label="Filter installed plugins">
+            <option value="">All plugins</option>
+            <option value="installed">Installed</option>
+            <option value="available">Not installed</option>
+          </select>
+        </div>
+        <div class="results-head">
+          <div>
+            <h2 id="heading">All plugins</h2>
+            <p id="count" class="muted" aria-live="polite">
+              Fetching the official catalog…
+            </p>
+          </div>
+          <span id="stamp" class="muted"></span>
+        </div>
+        <p id="notice" role="status" hidden></p>
+        <div id="grid" class="grid"></div>
+        <section id="activity" hidden>
+          <h2>Installation activity</h2>
+          <p class="muted">
+            Real Hermes results. Installing does not enable a plugin, install
+            its runtime dependencies, or restart Hermes.
+          </p>
+          <div id="jobs"></div>
+        </section>
+        <footer>
+          <span id="profile">Profile: loading…</span
+          ><span>Official catalog · Nous Research</span>
+        </footer>
+      </main>
+    </div>
+    <dialog id="detail">
+      <div class="dialog-head">
+        <span class="eyebrow">PLUGIN DETAILS</span
+        ><button
+          class="close"
+          data-close="detail"
+          aria-label="Close plugin details"
+        >
+          ×
+        </button>
+      </div>
+      <div id="detailBody"></div>
+    </dialog>
+    <dialog id="auth">
+      <div class="dialog-head">
+        <h2>Unlock plugin management</h2>
+        <button
+          class="close"
+          data-close="auth"
+          aria-label="Close unlock dialog"
+        >
+          ×
+        </button>
+      </div>
+      <p>
+        Use your existing Orbit host token. It is verified with Orbit and never
+        saved by this app. Access expires after one hour.
+      </p>
+      <form id="authForm">
+        <label
+          >Orbit host token<input
+            id="token"
+            type="password"
+            autocomplete="off"
+            required
+            minlength="32"
+        /></label>
+        <p id="authError" role="alert"></p>
+        <button type="submit" class="primary">Unlock</button>
+      </form>
+    </dialog>
+    <dialog id="review">
+      <div class="dialog-head">
+        <h2 id="reviewTitle">Review installation</h2>
+        <button class="close" data-close="review" aria-label="Cancel operation">
+          ×
+        </button>
+      </div>
+      <div id="reviewBody"></div>
+      <label class="consent"
+        ><input id="consent" type="checkbox" />
+        <span id="consentText"
+          >I reviewed the capabilities and disclosures and approve this change
+          to my Hermes profile.</span
+        ></label
+      >
+      <p id="reviewError" role="alert"></p>
+      <button id="confirm" class="primary" disabled>Confirm</button>
+    </dialog>
+  </body>
+</html>

@@ -1,0 +1,11 @@
+# Terminal clipboard and retained history
+
+Selection mode enables xterm's force-selection gesture without holding Shift. It remains enabled after mouse release; Escape exits it. Wheel scrolling in this mode scrolls the browser terminal buffer rather than sending mouse wheel commands to applications. Alternate-screen applications may have no browser scrollback: use History / text or the application's own navigation.
+
+Ctrl+C / Command+C with a selection uses xterm's native browser copy event. Ctrl+C without a selection still interrupts the shell. Copy selection and Ctrl+Shift+C retain the async-clipboard/fallback path. Browser context-menu behavior varies by platform. Native paste handling remains xterm's; the explicit Paste button additionally confirms multiline text.
+
+History / text includes the browser's normal buffer plus its active alternate screen, not just the viewport. Browser scrollback is now 30,000 lines. Load tmux history requests a read-only capture through the already authenticated terminal WebSocket. The server binds the request to the authenticated pane ID, ignores client-supplied history targets, permits one capture in flight per connection, and applies a five-second timeout and eight-MiB capture limit. No history is persisted to app assets or logs. Existing tmux retention limits still apply; lost output cannot be recovered. Capture targets the persistent session's original window/pane (:0.0).
+
+Deployment: frontend build is served on new page load. The new WebSocket history handler requires controlled backend reload. The frontend capability-checks the ready message and does not send unsupported requests to an old server, avoiding protocol disconnects. Do not restart live services without coordinating reconnects and checking legacy non-tmux shells. Workspace checkpoints do not revert source changes or terminal state.
+
+Verification: npm run check (89 tests); tests/terminal-copy.browser.py against served frontend; tests/terminal-selection.browser.py against isolated Vite on loopback port 4499 (synthetic transport, real xterm and OS clipboard); tests/terminal-history.test.mjs uses a real disposable tmux shell, including alternate-screen capture. tests/server.test.mjs exercises history via the actual authenticated WebSocket on a disposable backend. No owner terminal used by tests.

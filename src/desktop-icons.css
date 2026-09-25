@@ -1,3 +1,10 @@
+.desktop-folder-count{font:11px system-ui;color:#b9c4d5}
+.desktop-folder-panel{position:absolute;left:120px;top:0;width:min(560px,calc(100% - 130px));max-height:calc(100% - 12px);overflow:auto;pointer-events:auto;background:#141d2bf5;border:1px solid #65748b;border-radius:16px;box-shadow:0 16px 60px #0009;padding:16px;color:#fff}
+.desktop-folder-header{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:12px;font:600 17px system-ui}
+.desktop-folder-close{color:#fff;background:#344259;border:0;border-radius:8px;font-size:24px;cursor:pointer;width:36px;height:36px}
+.desktop-folder-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(102px,1fr));gap:10px}
+.desktop-folder-grid .desktop-shortcut{width:100%}
+.desktop-folder[aria-expanded=true]{background:#25334a;border-color:#b5f268}
 .desktop-icons{position:absolute;inset:12px;display:flex;flex-flow:column wrap;align-content:flex-start;gap:10px;width:calc(100% - 24px);pointer-events:none;z-index:0}
 .desktop-shortcut{width:102px;min-height:94px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:8px;border:1px solid transparent;border-radius:12px;background:#10141ce8;color:#fff;pointer-events:auto;cursor:pointer}
 .desktop-shortcut:hover,.desktop-shortcut:focus-visible{background:#25334a;border-color:#b5f268;outline:2px solid #b5f268;outline-offset:1px}

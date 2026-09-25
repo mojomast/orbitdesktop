@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Planet Remote
+Comment=Send a planet signal to our Orbit workspace
+Exec=python3 /home/browser/.local/share/planet-remote/remote.py
+Icon=applications-science
+Terminal=false

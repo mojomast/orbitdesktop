@@ -27,15 +27,8 @@
 [data-monitor-id="67143ce5-4b26-40e6-9077-b082cb498584"].guy-minimized .monitor-bar { height:34px!important; min-height:0!important; padding:0!important; }
 [data-monitor-id="67143ce5-4b26-40e6-9077-b082cb498584"].guy-minimized .guy-toggle { pointer-events:auto!important; }
 
-/* Token telemetry: fixed HUD, above desktop windows, with no window chrome. */
-.windows-mode [data-monitor-id="480f30c9-9d43-4be3-950e-63832e4f50de"] {
- position:fixed!important; left:auto!important; top:auto!important; right:20px!important; bottom:20px!important;
- width:320px!important; height:350px!important; min-width:0!important; min-height:0!important;
- max-width:calc(100vw - 40px)!important; max-height:calc(100vh - 100px)!important;
- z-index:2147483000!important; transform:none!important; border:0!important; outline:0!important;
- border-radius:0!important; overflow:hidden!important; background:transparent!important; box-shadow:none!important; backdrop-filter:none!important;
-}
-.windows-mode [data-monitor-id="480f30c9-9d43-4be3-950e-63832e4f50de"] :is(.monitor-bar,.pane-head,.browser-nav,.window-resize,.embed-warning) { display:none!important; }
+/* Pulse uses native persisted window geometry, drag bar and resize handle. */
+.windows-mode [data-monitor-id="480f30c9-9d43-4be3-950e-63832e4f50de"] :is(.pane-head,.browser-nav,.embed-warning) { display:none!important; }
 .windows-mode [data-monitor-id="480f30c9-9d43-4be3-950e-63832e4f50de"] :is(.monitor-content,.pane,.pane-body,iframe) { background:transparent!important; border:0!important; padding:0!important; border-radius:0!important; }
 
 /* Transparent iframe content also needs a transparent browser host. */
@@ -43,6 +36,10 @@
 
 /* Match the embedded light document to prevent an opaque UA canvas. */
 [data-monitor-id="480f30c9-9d43-4be3-950e-63832e4f50de"] iframe { color-scheme:normal!important; }
+
+/* Pulse's iframe owns its optional border; host chrome must not paint behind transparent themes. */
+#app [data-monitor-id="480f30c9-9d43-4be3-950e-63832e4f50de"],
+#app [data-monitor-id="480f30c9-9d43-4be3-950e-63832e4f50de"] .monitor-bar { background:transparent!important; background-image:none!important; border:0!important; box-shadow:none!important; backdrop-filter:none!important; }
 
 /* NEBULA interface / owner-requested visual redesign. CSS-only, no pane lifecycle changes. */
 :root { --line:#514064; --muted:#b5a7c7; --lime:#d6afff; }

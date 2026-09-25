@@ -2,13 +2,16 @@
 from pathlib import Path
 import subprocess
 from playwright.sync_api import sync_playwright, expect
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from orbit_menu import menu, open_menu, close_menu
 ROOT=Path(__file__).resolve().parents[1]
 with sync_playwright() as p:
  b=p.chromium.launch(headless=True,args=['--no-sandbox']);page=b.new_page(viewport={'width':1800,'height':1100})
  errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
  page.goto('https://kimi.tailec998.ts.net:4325/',wait_until='networkidle')
  page.evaluate('window.keepAliveProof = 123')
- page.get_by_role('button',name='Switch to spatial view',exact=True).click()
+ menu(page,'Switch to spatial view')
  page.get_by_role('button',name='Settings for Display 01',exact=True).click(force=True)
  before=page.locator('.monitor').first.bounding_box()
  page.get_by_role('spinbutton',name='Diagonal',exact=True).fill('120')

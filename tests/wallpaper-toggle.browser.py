@@ -1,0 +1,45 @@
+from playwright.sync_api import sync_playwright, expect
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from orbit_menu import menu, open_menu, close_menu
+
+with sync_playwright() as p:
+    browser = p.chromium.launch(headless=True, args=['--no-sandbox'])
+    page = browser.new_page(viewport={'width': 1400, 'height': 950})
+    errors = []
+    page.on('pageerror', lambda e: errors.append(str(e)))
+    page.goto('https://kimi.tailec998.ts.net:4325/', wait_until='networkidle')
+    page.add_init_script('''if (!sessionStorage.getItem('wallpaper-seeded')) { sessionStorage.setItem('wallpaper-seeded','1'); const s=JSON.parse(localStorage.getItem('orbit.workspace.v1')); s.view='windows'; s.appearance={fullViewport:true,wallpaper:'/the-last-light-animated-v1.svg',background:'#10141c',wallpaperFit:'contain'}; s.monitors=s.monitors.slice(0,1);s.selected=s.monitors[0].id;s.monitors[0].layout={type:'pane',pane:{id:'wallpaper-test',kind:'browser',url:'orbit://welcome'}};localStorage.setItem('orbit.workspace.v1',JSON.stringify(s)); }''')
+    page.reload(wait_until='networkidle')
+    toggle=page.get_by_role('button',name='Toggle background wallpaper',exact=True)
+    transparency=page.get_by_role('button',name='Global transparency options',exact=True)
+    workspace=page.locator('.workspace')
+    open_menu(page)
+    expect(toggle).to_be_visible()
+    a,b=toggle.bounding_box(),transparency.bounding_box()
+    assert a['y']<=b['y'] and a['x']==b['x'], (a,b)
+    expect(toggle).to_have_attribute('aria-pressed','true')
+    original=workspace.evaluate('(e)=>getComputedStyle(e).backgroundImage')
+    assert 'the-last-light-animated' in original
+    toggle.click()
+    expect(workspace).to_have_css('background-image','none')
+    expect(toggle).to_have_text('Wallpaper: off')
+    page.wait_for_timeout(400)
+    page.reload(wait_until='networkidle')
+    expect(workspace).to_have_css('background-image','none')
+    expect(toggle).to_have_attribute('aria-pressed','false')
+    open_menu(page)
+    toggle.click()
+    expect(workspace).to_have_css('background-image',original)
+    expect(workspace).to_have_css('background-size','contain')
+    expect(workspace).to_have_css('background-color','rgb(16, 20, 28)')
+    page.get_by_role('button',name='Exit full viewport',exact=True).click()
+    expect(toggle).to_be_visible()
+    menu(page,'Switch to spatial view')
+    toggle.click()
+    expect(workspace).to_have_css('background-image','none')
+    toggle.click()
+    expect(workspace).to_have_css('background-image',original)
+    assert not errors, errors
+    print('PASS: adjacent buttons; immediate off/on; remembered custom wallpaper across reload; appearance preserved; full/normal viewport and spatial view; no JS errors. Isolated browser workspace.')
+    browser.close()

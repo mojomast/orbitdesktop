@@ -1,0 +1,11 @@
+import {Match,walkEdge} from './game/core.mjs';
+import {astar} from './game/bots.mjs';
+import {vehicleModel} from './game/view.mjs';
+import {cocsSnapshot} from './game/cocs.mjs';
+import * as T from 'three';
+function create(mode='cocs',seed=12345){let x=seed>>>0;return new Match('chatgpt','openclaw',()=>{x=(Math.imul(x,1664525)+1013904223)>>>0;return x/4294967296;},'lattice-slice',{mode,cocsTier:'D1',botCount:4,humanCount:1,timeLimit:300});}
+function route(m,a,b){if(!m.nav[a]||!m.nav[b])throw Error('Choose valid navigation nodes');const r=astar(m.nav[a],m.nav[b],m.nav,m.edges);return {...r,cost:Number.isFinite(r.cost)?r.cost:null,segments:r.route.slice(1).map((n,i)=>({from:r.route[i],to:n,walkable:walkEdge(m.nav[r.route[i]],m.nav[n],m.arena)})),scope:'Authored navigation graph and walkEdge checks; not full physics, vehicle clearance or map PR approval'};}
+function snapshot(m){return {time:m.time,objective:cocsSnapshot(m),actors:m.actors.map(a=>({id:a.id,team:a.team,x:a.x,y:a.y,z:a.z,health:a.health,bot:a.bot?JSON.parse(JSON.stringify(a.bot)):null}))};}
+function probeVehicle(kind){const model=vehicleModel(kind),u=model.userData;let meshes=0,triangles=0;const materials=new Set();model.traverse(o=>{if(o.isMesh){meshes++;triangles+=(o.geometry.index?.count??o.geometry.attributes.position?.count??0)/3;for(const mat of Array.isArray(o.material)?o.material:[o.material])materials.add(mat);}});const attached=o=>{while(o){if(o===model)return true;o=o.parent;}return false;};const refs={};for(const key of ['wheels','turret','guns']){const v=u[key];refs[key]=v==null?'absent':(key==='guns'?v.flatMap(g=>[g.mount,g.barrel,g.flash]):Array.isArray(v)?v:[v]).every(attached)?'attached':'DETACHED';}return {model,report:{kind,keys:Object.keys(u),vehicle:u.vehicle,declaredKind:u.kind,flashUntil:u.flashUntil,refs,meshes,triangles,materials:materials.size,scope:'Factory structure probe; fields may vary by vehicle. Not a baseline/draft compatibility approval.'}};}
+function dispose(model){const gs=new Set(),ms=new Set();model.traverse(o=>{if(o.geometry)gs.add(o.geometry);if(o.material)for(const m of Array.isArray(o.material)?o.material:[o.material])ms.add(m);});gs.forEach(g=>g.dispose());ms.forEach(m=>m.dispose());}
+window.cocsDiagnostics={create,route,snapshot,probeVehicle,dispose,T};

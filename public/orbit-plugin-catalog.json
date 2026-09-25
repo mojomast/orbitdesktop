@@ -1,0 +1,148 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "manifest": {
+        "apiVersion": 1,
+        "id": "hermes-live-tools",
+        "version": "1.1.0",
+        "title": "Hermes Live Tools",
+        "entry": "/apps/hermes-live-tools-e097e098480d740f42628431/index.html"
+      },
+      "category": "Workspace tools",
+      "description": "Locally published Orbit desktop app. Sandboxed; network access allowed."
+    },
+    {
+      "manifest": {
+        "apiVersion": 1,
+        "id": "workspace-workshop",
+        "version": "1.0.0",
+        "title": "Workspace Workshop",
+        "entry": "/apps/workspace-workshop-8485a41db0d4c74792caca76/index.html"
+      },
+      "category": "Workspace tools",
+      "description": "Locally published Orbit desktop app. Sandboxed; network access allowed."
+    },
+    {
+      "manifest": {
+        "apiVersion": 1,
+        "id": "orbit-observatory",
+        "version": "1.0.0",
+        "title": "Orbit Observatory",
+        "entry": "/apps/orbit-observatory-8aa34f2601b1358f33e1a6e5/index.html"
+      },
+      "category": "Workspace tools",
+      "description": "Locally published Orbit desktop app. Sandboxed; network access allowed."
+    },
+    {
+      "manifest": {
+        "apiVersion": 1,
+        "id": "omnivoice-bench",
+        "version": "1.0.0",
+        "title": "OmniVoice \u00b7 Experiment bench",
+        "entry": "/apps/omnivoice-bench-d35a4fc207db2eb5944d344f/index.html"
+      },
+      "category": "Workspace tools",
+      "description": "Locally published Orbit desktop app. Sandboxed; network access allowed."
+    },
+    {
+      "manifest": {
+        "apiVersion": 1,
+        "id": "planet-remote",
+        "version": "1.0.0",
+        "title": "Planet Remote",
+        "entry": "/apps/planet-remote-2b44f8321d59e51bd2941a4b/index.html"
+      },
+      "category": "Workspace tools",
+      "description": "Locally published Orbit desktop app. Sandboxed; network access allowed."
+    },
+    {
+      "manifest": {
+        "apiVersion": 1,
+        "id": "cocs-viewer",
+        "version": "2.1.0",
+        "title": "COCS \u00b7 Asset Workshop",
+        "entry": "/apps/cocs-viewer-5b61a0c577823c22dda70c05/index.html"
+      },
+      "category": "Creative tools",
+      "description": "Locally published Orbit desktop app. Sandboxed; network access allowed."
+    },
+    {
+      "manifest": {
+        "apiVersion": 1,
+        "id": "cocs-dev-lab",
+        "version": "1.0.0",
+        "title": "COCS \u00b7 Dev Lab",
+        "entry": "/apps/cocs-dev-lab-7c8d91bd4fad33e05c91a9eb/index.html"
+      },
+      "category": "Creative tools",
+      "description": "Locally published Orbit desktop app. Sandboxed; network access allowed."
+    },
+    {
+      "manifest": {
+        "apiVersion": 1,
+        "id": "cocs-graphics-lab",
+        "version": "1.0.0",
+        "title": "COCS \u00b7 Graphics Lab",
+        "entry": "/apps/cocs-graphics-lab-a74ebc8f3d38e5a93b5a2d7a/index.html"
+      },
+      "category": "Creative tools",
+      "description": "Locally published Orbit desktop app. Sandboxed; network access allowed."
+    },
+    {
+      "manifest": {
+        "apiVersion": 1,
+        "id": "cocs-lattice-lab",
+        "version": "0.1.0",
+        "title": "COCS \u00b7 Lattice Operations",
+        "entry": "/apps/cocs-lattice-lab-aabc58272cbf16d1a97562b0/index.html"
+      },
+      "category": "Creative tools",
+      "description": "Locally published Orbit desktop app. Sandboxed; network access allowed."
+    },
+    {
+      "manifest": {
+        "apiVersion": 1,
+        "id": "cocs-studio",
+        "version": "1.3.0",
+        "title": "COCS \u00b7 Studio",
+        "entry": "/apps/cocs-studio-3dffa1d817142e663e455de9/index.html"
+      },
+      "category": "Creative tools",
+      "description": "Locally published Orbit desktop app. Sandboxed; network access allowed."
+    },
+    {
+      "manifest": {
+        "apiVersion": 1,
+        "id": "devplan-studio",
+        "version": "1.0.0",
+        "title": "Devplan Studio",
+        "entry": "/apps/devplan-studio-8959576ec51336ec9be101b0/index.html"
+      },
+      "category": "Workspace tools",
+      "description": "Locally published Orbit desktop app. Sandboxed; network access allowed."
+    },
+    {
+      "manifest": {
+        "apiVersion": 1,
+        "id": "puma-screenshot",
+        "version": "1.0.0",
+        "title": "Puma \u00b7 Screenshot",
+        "entry": "/apps/puma-screenshot-7d5eb323e9841e7b81ccf11a/index.html"
+      },
+      "category": "Creative tools",
+      "description": "Locally published Orbit desktop app. Sandboxed; network access allowed."
+    },
+    {
+      "manifest": {
+        "apiVersion": 1,
+        "id": "player-model-screenshots",
+        "version": "1.0.0",
+        "title": "Player model screenshots",
+        "entry": "/apps/player-model-screenshots-f018630c40e7b6f7edc3cf9e/index.html"
+      },
+      "category": "Creative tools",
+      "description": "Locally published Orbit desktop app. Sandboxed; network access allowed."
+    }
+  ]
+}

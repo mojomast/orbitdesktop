@@ -1,0 +1,46 @@
+/* Nous Atelier: an editorial research instrument, not a recolored glass dock. */
+@font-face{font-family:Atelier Display;src:url('/fonts/BarlowCondensed-Light.ttf') format('truetype');font-weight:300;font-display:swap}
+[data-orbit-style=nous],.theme-preview[data-style=nous]{--theme-surfaceColor:#11112b;--theme-panelColor:#1c1b42;--theme-borderColor:#6d68b5;--theme-buttonColor:#292655;--theme-buttonTextColor:#f0eeff;--theme-mutedColor:#bcb8db;--theme-titlebarColor:#2520a6;--theme-titlebarTextColor:#f0eeff;--theme-controlRadius:2px;--theme-titlebarHeight:38px;--theme-font:system-ui,sans-serif;--theme-title:linear-gradient(100deg,#211cab,#3930d4);--theme-shadow:0 12px 32px #06051b80,inset 0 0 0 1px #b0aaff22}
+.theme-preview[data-style=nous]{background:#151539 url('/wallpapers/nous.svg') center/cover}
+.theme-preview[data-style=nous] .theme-preview-title{font:300 18px 'Atelier Display',sans-serif;letter-spacing:.12em;text-transform:uppercase}
+html[data-orbit-style=nous] #app#app .monitor{border-width:1px;outline:1px solid #9690ed22;outline-offset:3px}
+html[data-orbit-style=nous] #app#app .monitor-bar{border-bottom:3px double #aaa4ff;font-family:'Atelier Display',sans-serif;font-weight:300;letter-spacing:.09em;text-transform:uppercase}
+html[data-orbit-style=nous] #app#app .monitor.selected{box-shadow:0 0 0 1px #c7bfff,0 14px 36px #05042088}
+html[data-orbit-style=nous] #app#app .monitor:not(.selected) .monitor-bar{background:linear-gradient(90deg,#212042,#2b2858)!important}
+html[data-orbit-style=nous] #app#app :is(.topbar,.start-heading){border-bottom:3px double #7870cb}
+html[data-orbit-style=nous] #app#app .brand strong{font:300 26px 'Atelier Display',sans-serif;letter-spacing:.16em;text-transform:uppercase}
+/* Numbered index ribbon: active leaf is pale, hover illuminates its baseline.
+   No transforms on hit targets, window geometry, or terminal surfaces. */
+html[data-orbit-style=nous] #app:not(.full-viewport) .scene-navigation{left:0;right:0;bottom:0;border-radius:0;border-width:3px 0 0;border-style:double;background:linear-gradient(90deg,#211aa0,#12112f 60%)!important;box-shadow:0 -5px 0 #11112b,0 -6px 0 #6d68b5;gap:8px;padding:6px 12px}
+html[data-orbit-style=nous] #app#app .display-tabs{counter-reset:folio;gap:1px}
+html[data-orbit-style=nous] #app#app .display-tabs button{counter-increment:folio;position:relative;border:0;border-right:1px solid #6d68b5;border-radius:0;background:transparent!important;color:#e4dfff!important;box-shadow:inset 0 -2px transparent;transition:box-shadow .18s,background-color .18s;letter-spacing:.025em}
+html[data-orbit-style=nous] #app#app .display-tabs button::before{content:counter(folio,decimal-leading-zero);font:11px ui-monospace,monospace;color:#beb8ff;padding-right:7px}
+html[data-orbit-style=nous] #app#app .display-tabs button:is(:hover,:focus-visible){box-shadow:inset 0 -3px #b4aaff;background:#302772!important;filter:none}
+html[data-orbit-style=nous] #app#app .display-tabs button.selected{background:#e4dfff!important;color:#201b52!important;outline:0;box-shadow:inset 0 -3px #7a68ff}
+html[data-orbit-style=nous] #app#app .display-tabs button.selected::before{color:#534792}
+html[data-orbit-style=nous] #app#app .start-button{background:#3023c6!important;border:1px solid #aaa0ff;border-radius:0;font:300 21px 'Atelier Display',sans-serif;text-transform:uppercase;letter-spacing:.16em;box-shadow:inset 0 0 0 3px #211b80}
+html[data-orbit-style=nous] #app#app .start-logo{width:22px;height:28px}
+html[data-orbit-style=nous] #app#app .start-logo::before{background-image:url('/art/nous/nous-girl.svg')}
+html[data-orbit-style=nous] #app#app .start-panel{border:3px double #9d94ee;box-shadow:8px 8px 0 #0c092b}
+html[data-orbit-style=nous] #app#app .start-heading strong{font:300 28px 'Atelier Display',sans-serif;letter-spacing:.12em}
+/* Celestial instrument medallions with a rotating registration ring. */
+html[data-orbit-style=nous] .desktop-shortcut .theme-icon{position:relative;width:48px;height:48px;padding:3px;border:1px solid #aaa3ef;border-radius:50%;background:#151139;box-shadow:0 0 0 4px #2b235d88;overflow:visible}
+html[data-orbit-style=nous] .desktop-shortcut .theme-icon::after{content:'';position:absolute;inset:-7px;border:1px dashed #9990ee88;border-radius:50%;pointer-events:none;transition:transform .5s,border-color .2s}
+html[data-orbit-style=nous] .desktop-shortcut:is(:hover,:focus-visible) .theme-icon::after{transform:rotate(60deg);border-color:#ede6ff}
+html[data-orbit-style=nous] .desktop-shortcut .desktop-shortcut-label{background:#171236d9;color:#eee9ff;border:0;border-bottom:1px solid #8276b8;border-radius:0;letter-spacing:.04em;text-shadow:none}
+html[data-orbit-style=nous] .desktop-shortcut:is(:hover,:focus-visible){background:#4636ae33;outline:1px solid #988ad7;border-radius:0}
+html[data-orbit-style=nous] .desktop-shortcut [data-icon=chat]::before{background-image:url('/art/nous/nous-girl.svg')}
+/* A field journal: serif body, numbered folios, marginal rule, no bubbles. */
+html[data-orbit-style=nous] .chat-messages{counter-reset:entry;background:linear-gradient(90deg,#53458e22 1px,transparent 1px) 24px 0/100% 100%,#11112b}
+html[data-orbit-style=nous] .chat-message{counter-increment:entry;margin:10px 12px 18px 28px;padding:14px 16px!important;border:0!important;border-left:1px solid #7c6cb2!important;border-bottom:1px solid #61518155!important;border-radius:0!important;box-shadow:none!important;background:transparent!important;font-family:Georgia,serif;line-height:1.75;overflow-wrap:anywhere}
+html[data-orbit-style=nous] .chat-message small{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font:11px ui-monospace,monospace;text-transform:uppercase;letter-spacing:.12em;margin-bottom:10px}
+html[data-orbit-style=nous] .chat-message small::before{content:'§ ' counter(entry,decimal-leading-zero);color:#c0b1ff;border:1px solid #695794;padding:2px 5px;font-size:10px}
+html[data-orbit-style=nous] .chat-message.user{border-left:3px solid #b6a6ff!important;background:#29214766!important}
+html[data-orbit-style=nous] .chat-message pre{font-family:ui-monospace,monospace;line-height:1.5;border:1px solid #615181;padding:12px;max-width:100%;overflow:auto}
+html[data-orbit-style=nous] #app#app .chat-form{border-top:3px double #8c7cb5!important;background:#1c193a!important}
+html[data-orbit-style=nous] #app#app .chat-form textarea{border:0;border-bottom:1px solid #a28ecb;background:#11112b!important;box-shadow:inset 3px 0 #6e58db;font-family:Georgia,serif;line-height:1.6}
+html[data-orbit-style=nous] #app#app .agent-progress{border-left:3px solid #a692e7;font-family:ui-monospace,monospace;font-size:12px}
+html[data-orbit-style=nous] #app#app .chat-form button[type=submit]{background:#392bc5!important;border:1px solid #ab9af2;box-shadow:inset 0 0 0 3px #241b76;letter-spacing:.1em;text-transform:uppercase}
+@media(max-width:600px){html[data-orbit-style=nous] #app:not(.full-viewport) .scene-navigation{padding:4px;gap:3px}html[data-orbit-style=nous] .chat-message{margin-left:10px;margin-right:6px;padding:10px!important}html[data-orbit-style=nous] #app#app .display-tabs button::before{padding-right:3px}html[data-orbit-style=nous] #app#app .start-button{font-size:17px}}
+@media(prefers-reduced-motion:reduce){html[data-orbit-style=nous] .theme-icon::after{transition:none!important;transform:none!important}html[data-orbit-style=nous] #app#app .display-tabs button{transition:none}}
+@media(forced-colors:active){html[data-orbit-style=nous] .chat-message{border:1px solid CanvasText!important}html[data-orbit-style=nous] .theme-icon{forced-color-adjust:none}html[data-orbit-style=nous] #app#app .display-tabs button.selected{outline:2px solid Highlight}}
