@@ -22,6 +22,42 @@ are separate operator operations. No operator deployment or activation was
 performed by this increment. See `WORKBENCH_RESULT_INCREMENT.md` for current
 integration and acceptance status.
 
+### Isolated builds and pinned releases
+
+- `node scripts/isolated_build.mjs --json` returns a fresh scratch destination.
+  Its `--source` and `--dest` arguments must be explicit absolute paths when
+  supplied. A missing value is an error. Source, runtime and declared protected
+  roots are checked before writes. A non-scratch destination requires a declared
+  protected-root policy; it is not a shortcut for replacing a live `dist/`.
+- `scripts/release_package.mjs` exports `packageRelease(...)` for assembling a
+  **new** release root from the tracked source allowlist and isolated built
+  assets. The versioned manifest binds file inventory, bytes, modes, source/build
+  identity, Node/schema/Hermes compatibility and lockfile metadata. Credentials,
+  runtime data and the owner-specific mobile proxy are excluded. Package and
+  cleanup operations reject symlink/hardlink escapes; cleanup is restricted to
+  an exact, marker-bound disposable release inventory.
+- Node dependencies remain external. The declared dependency root must be the
+  root actually resolved from the physical release entrypoint; runtime package
+  versions and Node ABI must match the pinned metadata. Merely setting
+  `NODE_PATH` does not configure ESM resolution. Provision the tested directory
+  layout and dependency tree explicitly; ordinary builds do not install them.
+- `scripts/release_pin.mjs` selects or rolls back a validated release pointer in
+  the external runtime. Pointer selection is distinct from a running process.
+  A health probe must return the selected release ID and manifest integrity;
+  bare HTTP 200 is insufficient. Failed or throwing probes restore the prior
+  pointer. Schema-incompatible rollback is refused.
+- `node scripts/release_launch.mjs --runtime /absolute/private/runtime --start`
+  resolves the pointer once, validates it and launches the physical release
+  entrypoint. The server verifies that its source and assets match the pinned
+  release before opening the workspace store, and exposes the captured release
+  identity through `/api/health`. Changing the pointer does not switch an already
+  running process's source or assets.
+
+Inspect each script's versioned API/options before operating it. These tools do
+not preserve arbitrary process sessions, stop old writers, migrate an owner's
+runtime by themselves, or authorize a deployment. Perform the consistent backup
+and session-preservation steps below before a separately approved activation.
+
 ## Agent-loop candidate (schema 7; not deployed by implementation)
 
 Use the [current ledger](WORKBENCH_AGENT_LOOP_LEDGER.md) for exact source and
