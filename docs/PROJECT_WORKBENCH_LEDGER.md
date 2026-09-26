@@ -78,6 +78,10 @@ Run `36214534334` exposed a response-listener race: reading JSON inside the
 Playwright callback could yield before app assertions consulted the recorded
 response. The Inspector fixture now records response headers synchronously and
 reads bodies when asserting them; no product assertion or status check is removed.
+Run `36214762041` passed Inspector/continuity/recovery and all default B/C journeys,
+then caught a redundant fixture `shared_chat` request racing the actual pane's
+initial bind (409 busy). Context/joined fixtures now await and assert the actual
+normal-UI binding response instead of issuing a second competing bind.
 
 ## Starting point (2026-09-26)
 

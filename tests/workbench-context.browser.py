@@ -188,11 +188,11 @@ def main(renderer):
                         expect(page.locator('dialog.orbit-onboarding')).not_to_be_visible()
                         page.get_by_role("button", name="Connect local host", exact=True).click()
                         page.get_by_role("textbox", name="Host session token").fill(token)
-                        page.get_by_role("button", name="Unlock local host", exact=True).click()
+                        with page.expect_response(lambda response: response.url == origin + '/api/agent' and response.request.post_data_json.get('action') == 'shared_chat') as binding:
+                            page.get_by_role("button", name="Unlock local host", exact=True).click()
                         expect(page.locator(".saved")).to_contain_text("Workspace connected", timeout=15000)
-                        status, bound = api(origin, token, "/api/agent", {"action": "shared_chat", "pane_id": PANE,
-                            "session_id": session, "profile_id": "default", "initial": chat})
-                        assert status == 200, (status, bound)
+                        bound = binding.value.json()
+                        assert binding.value.status == 200 and bound['state']['session'] == session, bound
                         page.get_by_role("button", name="Open orbit menu").click()
                         page.get_by_role("button", name="Project Workbench", exact=True).click()
                         workbench = page.locator("dialog.project-workbench-dialog")
