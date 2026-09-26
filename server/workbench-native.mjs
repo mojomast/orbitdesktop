@@ -133,7 +133,8 @@ export function createWorkbenchNative({store,records,data,execution,hermes,now=D
     const b=await hermes.readBinding({workspace_id:s.workspace_id,pane_id:attempt.recipient.pane_id});
     if(b?.trusted_host!==true||b.sandbox!==false||b.profile_id!==attempt.recipient.profile_id||b.session_id!==attempt.recipient.session_id||b.config_generation===undefined||b.binding_revision===undefined)throw wbError('stale_resource');
     const n=b.native_runtime;
-    if(n?.kind!=='local-pinned'||n?.commit!==HERMES_NATIVE_CONTRACT.commit||typeof n.model!=='string'||n.model.length>200||n.destination!=='loopback configured model endpoint'||!/^[a-f0-9]{64}$/.test(n.configuration_hash??''))throw wbError('unavailable');
+    const supportedDestination=n?.destination==='loopback configured model endpoint'||(n?.destination==='DeepSeek hosted inference: https://api.deepseek.com/v1'&&n?.model==='deepseek-flash');
+    if(n?.kind!=='local-pinned'||n?.commit!==HERMES_NATIVE_CONTRACT.commit||typeof n.model!=='string'||n.model.length>200||!supportedDestination||!/^[a-f0-9]{64}$/.test(n.configuration_hash??''))throw wbError('unavailable');
     return {pane_id:attempt.recipient.pane_id,profile_id:b.profile_id,session_id:b.session_id,config_generation:b.config_generation,binding_revision:b.binding_revision,native_runtime:{kind:n.kind,commit:n.commit,model:n.model,destination:n.destination,configuration_hash:n.configuration_hash}};
   }
   async function authorize(g,{active=false}={}){

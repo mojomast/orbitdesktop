@@ -75,6 +75,21 @@ test('strict contracts exclude model authority and owner-supplied approval short
   for(const field of ['attempt_id','workspace_id','candidate_id','profile_id','run_id','confirm','grant_id'])assert.equal(validateNativeTool({action:'inspect',[field]:randomUUID()}),false);
   assert.equal(validateNative({action:'start',workspace_id:randomUUID(),project_id:randomUUID(),grant_id:randomUUID(),confirm:true}),false);
 });
+test('hosted DeepSeek binding survives consent and fences credential rotation and unsupported destinations',async t=>{
+  let channel;
+  const metadata=nativeRuntimeMetadata({source:'/source',python:'/python',endpoint:'https://api.deepseek.com/v1',profile_id:'fixture',model:'deepseek-flash',apiKey:'synthetic-key'});
+  const f=fixture(t,{bindingMetadata:metadata,startNative:async config=>{await config.authorize();channel=config.channel;return {completion:new Promise(()=>{})};},stopNative:async()=>({requested:true})});
+  const a=await f.prepare();
+  assert.deepEqual(a.grant.recipient.native_runtime,metadata);
+  await f.native.dispatch({...f.base,action:'start',grant_id:a.grant.id});
+  assert.equal((await privateCall(channel,{action:'inspect'})).ok,true);
+  f.hermes.bindingMetadata={...metadata,configuration_hash:'f'.repeat(64)};
+  assert.equal((await privateCall(channel,{action:'inspect'},2)).ok,false);
+  for(const replacement of [{destination:'https://unapproved.example/v1'},{model:'other-model'}]){
+    f.hermes.bindingMetadata={...metadata,...replacement};
+    await assert.rejects(f.prepare(),{code:'unavailable'});
+  }
+});
 test('real SQLite owner grants: HMAC/replay/cross-attempt/schema isolation, budget and binding fences',async t=>{
   const channels=[];const f=fixture(t,{startNative:async config=>{channels.push(config.channel);await config.authorize();return {completion:new Promise(()=>{})};},stopNative:async()=>({requested:true})});
   const a=await f.prepare(),b=await f.prepare();

@@ -11,6 +11,18 @@ Keep the pinned Hermes runtime and use the isolated release procedure; never edi
 a packaged release. Configuration and credentials are snapshotted at startup.
 Obtain fresh task consent after the target-only restart. No schema change is needed.
 
+For schema-8 releases, pass `--schema-min 8 --schema-max 8` explicitly to
+`release_package.mjs build`; do not rely on its older packaging defaults. Fail the
+activation sequence immediately if release selection fails. A successful process
+start does not establish that the intended pointer was selected.
+
+The initial hosted-inference increment missed the native consent destination
+allowlist. Live preview correctly refused the hosted metadata before any grant or
+model call. The follow-up permits only the exact DeepSeek destination/model pair
+at that boundary and tests consent, authenticated tool access, credential-rotation
+fencing, and refusal of other hosted destinations/models. No live model success
+is implied by those synthetic regressions.
+
 ## Result-delivery increment (schema 8; not deployed)
 
 ### Recreating the native acceptance environment
