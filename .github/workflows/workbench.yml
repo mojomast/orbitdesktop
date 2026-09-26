@@ -50,7 +50,11 @@ jobs:
           git clone --no-checkout https://github.com/NousResearch/hermes-agent /tmp/opencode/orbit-hermes-native
           git -C /tmp/opencode/orbit-hermes-native checkout --detach d0288be5b3330d2442e3907185b8e9d0958297bb
           uv sync --project /tmp/opencode/orbit-hermes-native --frozen --python 3.14 --no-default-groups
-      - name: Contract, build and Node regression gate
+      - name: Contract, build and Node regression gate (actual Hermes root enabled)
+        env:
+          # The full Node gate must execute the actual-Hermes cases (result-boundary,
+          # native, real-project-native/synthetic private key), not silently skip them.
+          HERMES_NATIVE_SOURCE: /tmp/opencode/orbit-hermes-native
         run: npm run check
       - name: Python adapters, publisher and portable archive parity
         run: |
@@ -60,12 +64,10 @@ jobs:
             tests/test_orbit_bundle.py tests/test_portable_endpoints.py; do
             python3 "$test" || exit 1
           done
-      - name: Actual Hermes, actual plugin, authenticated Comet providers, simulated model
+      - name: Actual Hermes Python runtime (Node actual-Hermes cases already ran in the gate)
         env:
           HERMES_NATIVE_SOURCE: /tmp/opencode/orbit-hermes-native
-        run: |
-          node --experimental-strip-types --test tests/workbench-native.test.mjs
-          python3 tests/test_workbench_native_runtime.py
+        run: python3 tests/test_workbench_native_runtime.py
       - name: Real disposable release packaging and launch instance
         env:
           RELEASE_INSTANCE: '1'
