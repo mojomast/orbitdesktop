@@ -30,7 +30,9 @@ const digest=value=>sha(JSON.stringify(value));
 const TTL=60000;
 const gitEnv={PATH:'/usr/bin:/bin',HOME:'/dev/null',XDG_CONFIG_HOME:'/dev/null',GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:'/dev/null',GIT_TERMINAL_PROMPT:'0',GIT_OPTIONAL_LOCKS:'0',GIT_AUTHOR_NAME:'Orbit Workbench',GIT_AUTHOR_EMAIL:'workbench@localhost',GIT_COMMITTER_NAME:'Orbit Workbench',GIT_COMMITTER_EMAIL:'workbench@localhost'};
 function git(root,...args){return execFileSync('/usr/bin/git',['-c','core.hooksPath=/dev/null','-c','protocol.allow=never','-c','core.fsmonitor=false','-C',root,...args],{env:gitEnv,timeout:10000,maxBuffer:1024*1024,stdio:['ignore','pipe','pipe']}).toString('utf8').trim();}
+function gitInput(root,args,input){return execFileSync('/usr/bin/git',['-c','core.hooksPath=/dev/null','-c','protocol.allow=never','-c','core.fsmonitor=false','-C',root,...args],{env:gitEnv,timeout:10000,maxBuffer:1024*1024,stdio:['pipe','pipe','pipe'],input}).toString('utf8').trim();}
 const publicIntegration=({private_root,...record})=>({...record,artifact_path:private_root});
+const modeOf=(root,pathValue)=>{const stat=fs.lstatSync(path.join(root,pathValue));if(!stat.isFile()||stat.isSymbolicLink())stale();return (stat.mode&0o111)?'100755':'100644';};
 
 export function createWorkbenchWorkflow({store,records,data,execution,now=Date.now}){
   if(!path.isAbsolute(store?.root??'')||!records?.project||!data?.db||!execution?.dispatch)throw Error('Workbench workflow dependencies required');
@@ -61,7 +63,7 @@ export function createWorkbenchWorkflow({store,records,data,execution,now=Date.n
     const files=candidate.files.map(file=>{
       const read=readCandidateFile(store,candidate,file.path);
       if(read.hash!==file.hash||read.bytes!==file.bytes)stale();
-      return {path:file.path,hash:file.hash,bytes:file.bytes};
+       return {path:file.path,hash:file.hash,bytes:file.bytes,mode:modeOf(candidate.root,file.path)};
     });
     return {project,candidate,review,source,files,source_head:repository?.head??null};
   }
@@ -80,8 +82,26 @@ export function createWorkbenchWorkflow({store,records,data,execution,now=Date.n
       fs.mkdirSync(path.dirname(destination),{recursive:true,mode:0o700});
       const bytes=read(entry);
       if(sha(bytes)!==entry.hash||bytes.length!==entry.bytes)stale();
-      fs.writeFileSync(destination,bytes,{flag:'wx',mode:0o600});
+      fs.writeFileSync(destination,bytes,{flag:'wx',mode:entry.mode==='100755'?0o700:0o600});
     }
+  }
+  // Build the Git index from the explicit captured manifest. This bypasses
+  // .gitignore and .gitattributes, so repository metadata cannot silently
+  // omit, transform, or reclassify reviewed bytes during private integration.
+  function commitManifest(folder,manifest,read,message,parent){
+    git(folder,'read-tree','--empty');
+    const expected=new Map();
+    for(const file of manifest){
+      const bytes=read(file);if(sha(bytes)!==file.hash||bytes.length!==file.bytes)stale();
+      const oid=gitInput(folder,['hash-object','-w','--stdin','--no-filters'],bytes);
+      git(folder,'update-index','--add','--cacheinfo',`${file.mode??'100644'},${oid},${file.path}`);
+      expected.set(file.path,`${file.mode??'100644'} blob ${oid}`);
+    }
+    const tree=git(folder,'write-tree'),args=['commit-tree',tree];if(parent)args.push('-p',parent);args.push('-m',message);
+    const commit=git(folder,...args),branch=git(folder,'symbolic-ref','HEAD');git(folder,'update-ref',branch,commit);
+    const actual=git(folder,'ls-tree','-r','-z','--full-tree',commit).split('\0').filter(Boolean).map(row=>{const [meta,name]=row.split('\t');return {meta,path:name};});
+    if(actual.length!==expected.size||actual.some(entry=>expected.get(entry.path)!==entry.meta))stale();
+    return commit;
   }
   async function confirm(body){
     scope(body);
@@ -102,17 +122,20 @@ export function createWorkbenchWorkflow({store,records,data,execution,now=Date.n
     try{
       fs.mkdirSync(staging,{mode:0o700});
       git(staging,'init','--quiet','--initial-branch',`comet/integration-${name}`);
-      materialize(staging,source.manifest,file=>readProjectFile(project,file.path).bytes);
-      git(staging,'add','--all');git(staging,'commit','--quiet','-m','Captured approved source base');
-      const base_commit=git(staging,'rev-parse','HEAD');
+      const sourceFiles=source.manifest.map(file=>({...file,mode:modeOf(project.root,file.path)}));
+      materialize(staging,sourceFiles,file=>readProjectFile(project,file.path).bytes);
+      const base_commit=commitManifest(staging,sourceFiles,file=>readProjectFile(project,file.path).bytes,'Captured approved source base');
       for(const file of source.manifest)fs.unlinkSync(path.join(staging,file.path));
       materialize(staging,files,file=>{
         const observed=readCandidateFile(store,candidate,file.path);
         if(observed.hash!==file.hash)stale();
         return readProjectFile({root:candidate.root,identity:`${fs.statSync(candidate.root).dev}:${fs.statSync(candidate.root).ino}`},file.path).bytes;
       });
-      git(staging,'add','--all');git(staging,'commit','--quiet','--allow-empty','-m',`Reviewed candidate ${candidate.id}`);
-      const candidate_commit=git(staging,'rev-parse','HEAD');
+      const candidate_commit=commitManifest(staging,files,file=>{
+        const observed=readCandidateFile(store,candidate,file.path);
+        if(observed.hash!==file.hash)stale();
+        return readProjectFile({root:candidate.root,identity:`${fs.statSync(candidate.root).dev}:${fs.statSync(candidate.root).ino}`},file.path).bytes;
+      },`Reviewed candidate ${candidate.id}`,base_commit);
       // Revalidate both trees immediately before making the branch visible.
       const final=await actual(body);
       if(final.source.hash!==source.hash||final.source_head!==source_head||final.candidate.hash!==candidate.hash||final.review.review_identity!==review.review_identity)stale();

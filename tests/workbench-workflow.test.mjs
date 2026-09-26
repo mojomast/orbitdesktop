@@ -29,8 +29,11 @@ function fixture(t){
 const git=(folder,...args)=>execFileSync('/usr/bin/git',['-C',folder,...args],{encoding:'utf8',env:{PATH:'/usr/bin:/bin',HOME:folder,GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:'/dev/null',GIT_AUTHOR_NAME:'Fixture',GIT_AUTHOR_EMAIL:'fixture@example.invalid',GIT_COMMITTER_NAME:'Fixture',GIT_COMMITTER_EMAIL:'fixture@example.invalid'}}).trim();
 
 test('real approved candidate creates a separate private two-commit Git branch, with durable retry receipt',async t=>{
-  const f=fixture(t);
-  assert.equal(workflowSchema.oneOf.length,10);
+  const f=fixture(t);fs.writeFileSync(path.join(f.projectRoot,'.gitignore'),'math.js\n');fs.writeFileSync(path.join(f.projectRoot,'.gitattributes'),'*.js -diff\n');
+  assert.deepEqual(workflowSchema.oneOf.map(item=>item.properties.action.const).sort(),[
+    'integration_preview','integrate_confirm','integration_list','retention_inventory','retention_plan','recipe_preview','recipe_apply',
+    'patch_preview','patch_export','private_patch_get','patch_list','patch_finalize_retry','patch_check_cancel','patch_acknowledge_unknown',
+  ].sort());
   const {task}=await f.call('task_create',{title:'Repair sum',acceptance_statement:'sum returns arithmetic addition',check_definition_id:'host-regression',profile_id:'default',session_id:'fixture'});
   const issued=await f.call('candidate_preview',{task_id:task.id});
   const {candidate}=await f.call('candidate_create',{task_id:task.id,preview_id:issued.preview_id,preview_digest:issued.preview.digest});
@@ -53,6 +56,9 @@ test('real approved candidate creates a separate private two-commit Git branch, 
   assert.equal(git(artifact,'rev-list','--count','HEAD'),'2');
   assert.match(git(artifact,'show',`${result.integration.base_commit}:math.js`),/a - b/);
   assert.match(git(artifact,'show',`${result.integration.candidate_commit}:math.js`),/a \+ b/);
+  assert.equal(git(artifact,'show',`${result.integration.base_commit}:.gitignore`),'math.js');
+  assert.equal(git(artifact,'show',`${result.integration.candidate_commit}:.gitattributes`),'*.js -diff');
+  assert.deepEqual(git(artifact,'ls-tree','-r','--name-only',result.integration.candidate_commit).split('\n').sort(),['.gitattributes','.gitignore','math.js'].sort());
   assert.match(fs.readFileSync(path.join(f.projectRoot,'math.js'),'utf8'),/a - b/);
   assert.equal(fs.existsSync(path.join(f.projectRoot,'.git')),false);
   const retry=await f.flow('integrate_confirm',{...selection,preview_id:preview.preview_id,preview_digest:preview.preview_digest,op_id});
