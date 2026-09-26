@@ -223,7 +223,7 @@ test('external Node dependencies are bound by lock hash and ABI',async t=>{
   write(path.join(dir,'package.json'),'{}');
   write(path.join(dir,'package-lock.json'),'{"lockfileVersion":3,"packages":{}}');
   const lockHash=sha(fs.readFileSync(path.join(dir,'package-lock.json')));
-  const external={kind:'referenced-readonly',path:path.join(base,'node_modules'),node_abi:process.versions.modules,node_version:process.versions.node,lockfile_hash:lockHash};
+  const external={kind:'operator-managed-external',path:path.join(base,'node_modules'),node_abi:process.versions.modules,node_version:process.versions.node,lockfile_hash:lockHash};
   const manifest=buildManifest({root:dir,release_id:'rel-ext',compat:{schema_min:7,schema_max:7},external,created_at:1});
   write(path.join(dir,'.orbit-release-manifest.json'),`${JSON.stringify(manifest,null,2)}\n`);
   assert.equal(verifyManifest({root:dir,manifest}).ok,true);
@@ -260,7 +260,7 @@ test('start mode spawns the verified entry, forwards signals and preserves exit 
   assert.equal(result.forwarded_signals.length,0,'no signal is forwarded before one is delivered');
 });
 
-test('a probe that throws restores the prior selection for activate and rollback',async t=>{
+test('a failed probe restores the exact pointer and a retry still works',async t=>{
   const base=root();t.after(()=>fs.rmSync(base,{recursive:true,force:true}));
   const runtime=runtimeWithSchema(base,7);
   const a=fakeRelease(base,'rel-throw-a'),b=fakeRelease(base,'rel-throw-b');
@@ -273,16 +273,25 @@ test('a probe that throws restores the prior selection for activate and rollback
   assert.equal(failed.rolled_back,true);
   assert.equal(failed.reason,'probe_failed');
   assert.equal(failed.probe_threw,true);
-  assert.equal(readPointer(runtime).release_id,'rel-throw-a','a thrown probe restores the prior pointer');
-  assert.equal(readPointer(runtime).manifest_integrity,before.manifest_integrity);
+  assert.deepEqual(readPointer(runtime),before,'a failed activation restores the exact original pointer');
   await activate({runtime,release:b.dir,probe:healthyProbe,now:3});
   const active=readPointer(runtime);
+  assert.equal(active.release_id,'rel-throw-b');
+  assert.equal(active.previous.release_id,'rel-throw-a');
   const rollbackFailed=await rollback({runtime,probe:throwingProbe,now:4});
   assert.equal(rollbackFailed.rolled_back,false);
   assert.equal(rollbackFailed.reason,'probe_failed');
   assert.equal(rollbackFailed.probe_threw,true);
-  assert.equal(readPointer(runtime).release_id,'rel-throw-b','a thrown rollback probe leaves the active pointer unchanged');
-  assert.equal(readPointer(runtime).manifest_integrity,active.manifest_integrity);
+  assert.deepEqual(readPointer(runtime),active,'a failed rollback restores the exact current pointer');
+  const retried=await rollback({runtime,probe:healthyProbe,now:5});
+  assert.equal(retried.rolled_back,true,'a retried rollback still works after a failed probe');
+  const rolled=readPointer(runtime);
+  assert.equal(rolled.release_id,'rel-throw-a');
+  assert.equal(rolled.previous.release_id,'rel-throw-b');
+  const beforeIdempotent=readPointer(runtime);
+  const repeated=await activate({runtime,release:a.dir,probe:healthyProbe,now:6});
+  assert.equal(repeated.idempotent,true);
+  assert.deepEqual(readPointer(runtime),beforeIdempotent,'re-activating the same release preserves the previous rollback target');
 });
 
 

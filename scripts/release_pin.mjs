@@ -30,21 +30,34 @@ export async function activate({runtime,release,probe,healthcheckUrl,now=Date.no
   const runtimeRoot=assertAbsoluteRoot('runtime',runtime,{mustExist:true});
   const releaseRoot=assertAbsoluteRoot('release',release,{mustExist:true});
   const {manifest}=verifyRelease(releaseRoot);
-  const previous=flattenPointer(readPointer(runtimeRoot));
+  // Keep the ORIGINAL validated pointer for exact restoration; flatten only when
+  // embedding it as the new pointer's previous link.
+  const original=readPointer(runtimeRoot);
+  const previous=flattenPointer(original);
   assertSeparatedRoots({runtime:runtimeRoot,release:releaseRoot,previous:previous?.release_path});
   const {schema_version}=await currentSchemaVersion(runtimeRoot,{open});
   checkCompatibility({manifest,schema_version,nodeVersion});
+  // Re-activating the same physical release is idempotent: never replace previous
+  // with itself and never lose a valid rollback target.
+  const sameTarget=original&&original.release_id===manifest.release_id&&canonicalTarget(original.release_path)===releaseRoot&&original.manifest_integrity===manifest.integrity;
+  if(sameTarget){
+    let launch;
+    try{launch=await resolveLaunch({runtime:runtimeRoot,open,nodeVersion});}
+    catch(error){return {pointer_selected:true,runtime_activated:false,idempotent:true,reason:'launch_unavailable',error:error.code??'unavailable'};}
+    const health=await probeSafely({probe,healthcheckUrl,launch});
+    return {pointer_selected:true,runtime_activated:health.ok===true,idempotent:true,...(health.ok===false?{reason:'probe_failed',probe_threw:health.threw===true}:{}),health,launch:{release_id:launch.release_id,physical_root:launch.physical_root,entry:launch.entry,env:launch.env}};
+  }
   const pointer={version:1,release_id:manifest.release_id,release_path:releaseRoot,manifest_integrity:manifest.integrity,schema_version,activated_at:now,previous};
   writePointerAtomic(runtimeRoot,pointer);
   let launch;
   try{launch=await resolveLaunch({runtime:runtimeRoot,open,nodeVersion});}
   catch(error){
-    if(previous)writePointerAtomic(runtimeRoot,previous);else await removePointer(runtimeRoot);
+    if(original)writePointerAtomic(runtimeRoot,original);else await removePointer(runtimeRoot);
     return {pointer_selected:false,runtime_activated:false,rolled_back:true,reason:'launch_unavailable',error:error.code??'unavailable'};
   }
   const health=await probeSafely({probe,healthcheckUrl,launch});
   if(health.ok===false){
-    if(previous)writePointerAtomic(runtimeRoot,previous);else await removePointer(runtimeRoot);
+    if(original)writePointerAtomic(runtimeRoot,original);else await removePointer(runtimeRoot);
     return {pointer_selected:false,runtime_activated:false,rolled_back:true,reason:'probe_failed',probe_threw:health.threw===true,health,launch:{release_id:launch.release_id,physical_root:launch.physical_root}};
   }
   return {pointer_selected:true,runtime_activated:health.ok===true,health,launch:{release_id:launch.release_id,physical_root:launch.physical_root,entry:launch.entry,env:launch.env}};
@@ -65,13 +78,13 @@ export async function rollback({runtime,probe,healthcheckUrl,now=Date.now(),node
   let launch;
   try{launch=await resolveLaunch({runtime:runtimeRoot,open,nodeVersion});}
   catch(error){
-    writePointerAtomic(runtimeRoot,flattenPointer(current));
-    return {rolled_back:false,reason:'launch_unavailable',error:error.code??'unavailable'};
+    writePointerAtomic(runtimeRoot,current);
+    return {rolled_back:false,reason:'launch_unavailable',error:error.code??'unavailable',pointer:current};
   }
   const health=await probeSafely({probe,healthcheckUrl,launch});
   if(health.ok===false){
-    writePointerAtomic(runtimeRoot,flattenPointer(current));
-    return {rolled_back:false,reason:'probe_failed',probe_threw:health.threw===true,health,pointer:flattenPointer(current)};
+    writePointerAtomic(runtimeRoot,current);
+    return {rolled_back:false,reason:'probe_failed',probe_threw:health.threw===true,health,pointer:current};
   }
   return {rolled_back:true,health,launch:{release_id:launch.release_id,physical_root:launch.physical_root,entry:launch.entry,env:launch.env}};
 }
