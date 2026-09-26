@@ -4,6 +4,7 @@ import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { randomUUID } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import { ManagedTerminalIdentityLedger } from '../server/managed-terminal-ledger.mjs';
 import { ManagedTerminalProvider } from '../server/managed-terminal-provider.mjs';
 import { ManagedTerminalBroker } from '../server/managed-terminal-broker.mjs';
@@ -244,7 +245,18 @@ test('literal input is bounded, confirmed, journaled before sending and replayed
 
 test('server restart requires explicit fresh consent and invalidates previous leases', async t => {
   const f = await fixture(t); await f.adopt(); const lease = await f.grant('observe');
-  await f.run('kill-server'); await f.run('new-session', '-d', '-s', f.sessionName, '/bin/bash');
+  const oldPid=Number((await f.run('display-message','-p','#{pid}')).stdout.trim());
+  assert.ok(Number.isSafeInteger(oldPid)&&oldPid>1);
+  await f.run('kill-server');
+  // kill-server acknowledges the command before the server necessarily exits.
+  // Do not let new-session connect to the old server during its shutdown.
+  const deadline=Date.now()+5000;
+  for(;;){
+    try{process.kill(oldPid,0);}catch(error){if(error.code==='ESRCH')break;throw error;}
+    assert.ok(Date.now()<deadline,'previous fixture tmux server must exit before restart');
+    await delay(10);
+  }
+  await f.run('new-session', '-d', '-s', f.sessionName, '/bin/bash');
   assert.equal(await f.provider.inspectExact({ sessionName: f.sessionName }), null);
   assert.equal((await f.broker.reconcile({ workspaceId: 'workspace' })).entries[0].status, 'requires_consent');
   await assert.rejects(f.broker.adopt({ workspaceId: 'workspace', paneId: f.paneId }), { code: 'confirmation_required' });

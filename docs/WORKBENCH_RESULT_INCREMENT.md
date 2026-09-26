@@ -97,6 +97,13 @@ input, rather than linking or chmodding the input tree. It still verifies real
 dependency resolution from the packaged entrypoint and unchanged input-root
 permissions. Remote browser gates remain pending until a complete CI run passes.
 
+Run `36269534438` exposed an intermittent pre-existing tmux restart fixture race:
+`kill-server` acknowledged shutdown before the old server process exited, so an
+immediate `new-session` could connect to the dying server. The regression now
+observes the exact old PID's exit before restarting its isolated server; fresh
+consent and old-lease invalidation assertions are unchanged. The broker suite
+passed 13/13 and the restart case passed ten consecutive focused runs locally.
+
 ### Final acceptance — Gate 1 and Gate 2 accepted
 
 All three original worker lanes are integrated. The final production-source
