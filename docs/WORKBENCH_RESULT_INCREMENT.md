@@ -63,7 +63,37 @@ not authorized. A disposable activation test does not authorize owner activation
 
 ## Current status
 
-### Latest integrated checkpoint (after `b45ee86`)
+### Latest verification checkpoint (source `1c99936`)
+
+Full parent `npm run check` passed contract generation, isolated build and
+**560 Node tests, zero failures, one explicitly gated disposable-release skip**
+with `HERMES_NATIVE_SOURCE` enabled. Log:
+`/tmp/opencode/comet-next-final-candidate-check.log`.
+
+Flash's `GATE2_FINAL=1 L4_GEOMETRY=1` journeys passed both renderers on
+`1c99936`, preserving an explicitly owner-arranged unrelated float, its live
+iframe document nonce and unsaved draft, with revision acknowledgement and exact
+Return restoration. A newer owner sync refuses Return. Both recorded seven
+deterministic requests, one chat message and zero page errors. Strict CI is
+enabled. Parent inspected both masked screenshots and confirmed visible actual
+diff and check verdicts. Inspection also caught an explanation lookup defect:
+the view expected `task_id` on a native grant, which instead identifies its
+attempt. That producer fix and a literal-text browser assertion are pending;
+the earlier heading-only assertion did not establish explanation availability.
+
+The full disposable release/archive/final-source run and merged-provider
+lost-reply recovery acceptance remain pending. Live-model trials remain zero.
+
+Subsequent independent real-provider tests confirmed lost-reply replay and
+revoked-project DB-only settlement, but exposed a re-registration fence gap:
+old artifact bytes and available receipts became accessible under the project's
+new generation. Parent reproduced the failure in
+`tests/workbench-recovery-boundary.test.mjs`; the generation-fence fix is pending.
+Strict Review tests now require literal recorded explanation text instead of
+just a heading and intentionally fail on the lookup defect above. Thus the
+earlier 560-test pass is checkpoint evidence, **not a green final-source gate**.
+
+### Earlier integrated checkpoint (after `b45ee86`)
 
 - Gate 1 is accepted. Checked patch export also passed intermediate strict
   `GATE2_FINAL=1` browser journeys on default and Docking against `a417f2b`:
