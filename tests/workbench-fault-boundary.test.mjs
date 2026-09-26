@@ -48,7 +48,12 @@ async function settleJob(f,id){
   throw Error('job did not settle');
 }
 
-test('a model-style claim of success cannot override a failed check',async t=>{
+// Baseline boundary regression only: there is no result text in this case. It
+// proves the server refuses an owner approval over a failing recorded evidence set,
+// so no explanation string can substitute for the recorder verdict. The stronger
+// mandatory fault — a delivered result text that claims success while the checks
+// failed — requires the merged Sol/Luna result channel and real workflow routes.
+test('review approval is refused for a failing recorded evidence set',async t=>{
   const f=fixture(t);
   const {candidate}=await f.prepare();
   const p=await f.call('check_preview',{candidate_id:candidate.id,definition_id:'host-regression'});
@@ -64,7 +69,11 @@ test('a model-style claim of success cannot override a failed check',async t=>{
   assert.equal(fs.readFileSync(path.join(f.projectRoot,'math.js'),'utf8'),WRONG);
 });
 
-test('moving or unknown patch targets are refused without writing the original',async t=>{
+// Baseline boundary regression only: this exercises candidate_apply compare-and-swap
+// and path escape refusal, not Luna's patch_preview/patch_export workflow. The
+// stronger mandatory fault — source Git moves between patch_preview and
+// patch_export, so the export must refuse — requires the merged workflow routes.
+test('candidate_apply refuses unknown hashes and path escapes without writing the original',async t=>{
   const f=fixture(t);
   const {candidate}=await f.prepare();
   const current=await f.call('candidate_get',{candidate_id:candidate.id});

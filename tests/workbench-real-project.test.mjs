@@ -26,12 +26,20 @@ test('agent-profiles subproject: existing test passes, detects a labelled defect
   assert.equal(manifest.manifest_version,1);
   assert.equal(manifest.revision,PIN);
   assert.deepEqual(manifest.inputs,['server/agent-profiles.mjs','tests/agent-profiles.test.mjs'],'explicit two-input selection');
+  assert.deepEqual(Object.keys(manifest.input_hashes),manifest.inputs,'every input needs a pinned SHA-256');
   assert.match(manifest.dependencies,/no ambient node_modules/);
   const candidates=[];
   t.after(()=>{for(const candidate of candidates)fs.rmSync(candidate,{recursive:true,force:true});});
 
-  const sources=manifest.inputs.map(input=>({input,text:fs.readFileSync(path.join(ROOT,input),'utf8')}));
-  const originalHashes=Object.fromEntries(sources.map(({input,text})=>[input,sha(text)]));
+  const sources=manifest.inputs.map(input=>{
+    const pinned=spawnSync('git',['-C',ROOT,'show',`${PIN}:${input}`],{encoding:'utf8'});
+    assert.equal(pinned.status,0,pinned.stderr);
+    assert.equal(sha(pinned.stdout),manifest.input_hashes[input],`${input} must be bound to the pinned revision`);
+    const worktree=fs.readFileSync(path.join(ROOT,input),'utf8');
+    assert.equal(sha(worktree),manifest.input_hashes[input],`${input} worktree drifted from the pinned revision`);
+    return {input,text:pinned.stdout};
+  });
+  const originalHashes=Object.fromEntries(sources.map(({input})=>[input,manifest.input_hashes[input]]));
 
   const candidate=fs.mkdtempSync('/tmp/opencode/orbit-real-project-');
   candidates.push(candidate);

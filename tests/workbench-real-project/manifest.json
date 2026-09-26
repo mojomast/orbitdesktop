@@ -4,6 +4,10 @@
   "description": "Real maintained pure-Node Orbit subproject selected by explicit SOURCE SELECTION, not a whole-repo capture.",
   "revision": "5b31fdaba1f867eeaf7b0aa30438f096a55b54f6",
   "inputs": ["server/agent-profiles.mjs", "tests/agent-profiles.test.mjs"],
+  "input_hashes": {
+    "server/agent-profiles.mjs": "6482d38cce935e23dec3f54ba9fb2360fb554f62e409bd62076a1561081312ba",
+    "tests/agent-profiles.test.mjs": "8762a26cf205f4585e7ba92c364be0dc9f90866867be4be19ed33c72e27483c0"
+  },
   "test_command": "node --experimental-strip-types --test tests/agent-profiles.test.mjs",
   "dependencies": "none (node builtins only; no ambient node_modules)",
   "defect": {

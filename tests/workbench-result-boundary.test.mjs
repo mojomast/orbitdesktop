@@ -145,7 +145,10 @@ test('real pinned Hermes delivers a typed result receipt with resolved evidence 
   assert.equal(receipt.run_id,status.grant.run_id);
   assert.equal(receipt.attempt_id,attempt.id);
   assert.equal(receipt.candidate_id,candidate.id);
-  assert.equal(receipt.candidate_hash,candidate.hash);
+  const finalCandidate=await f.call('candidate_get',{candidate_id:candidate.id});
+  assert.equal(receipt.candidate_hash,finalCandidate.candidate.hash,'result binds the final repaired candidate hash');
+  assert.equal(receipt.candidate_generation,finalCandidate.candidate.generation,'result binds the final candidate generation');
+  assert.notEqual(receipt.candidate_hash,candidate.hash,'the repaired candidate differs from the pre-repair candidate');
   assert.equal(receipt.recipient.pane_id,attempt.recipient.pane_id);
   assert.equal(receipt.recipient.profile_id,attempt.recipient.profile_id);
   assert.equal(receipt.recipient.session_id,attempt.recipient.session_id);
