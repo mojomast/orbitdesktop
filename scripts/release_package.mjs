@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Versioned release packaging. Assembles a NEW immutable root from an explicit
 // git-tracked (cached) source allowlist plus a built dist. Node dependencies are
-// referenced read-only from outside and bound by lock hash and Node ABI/version.
+// operator-managed external and bound by resolution, lock hash and Node ABI/version
+// only (the manifest does not hash or enforce the dependency tree).
 //
 // Permission safety: read-only bits are applied only to the exact files/dirs THIS
 // packer created. Every path is validated first (strict relative path, canonical
@@ -12,7 +13,7 @@ import path from 'node:path';
 import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {fileURLToPath,pathToFileURL} from 'node:url';
-import {buildManifest,writeManifest,verifyManifest,readManifest,MANIFEST_NAME,OWNED_MARKER} from './release_manifest.mjs';
+import {buildManifest,writeManifest,verifyManifest,readManifest,MANIFEST_NAME,OWNED_MARKER,EXTERNAL_KIND} from './release_manifest.mjs';
 import {assertAbsoluteRoot,canonicalTarget,rootsCollide} from './release_roots.mjs';
 
 export const REPO_ROOT=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
@@ -250,7 +251,7 @@ function parseArgs(argv){
     else if(arg==='--schema-max')options.compat={...(options.compat??{}),schema_max:Number(rest[++i])};
     else if(arg==='--node')options.compat={...(options.compat??{}),node:rest[++i]};
     else if(arg==='--hermes-commit')options.compat={...(options.compat??{}),hermes_commit:rest[++i]};
-    else if(arg==='--external-path')options.external={...(options.external??{}),kind:'referenced-readonly',path:rest[++i]};
+    else if(arg==='--external-path')options.external={...(options.external??{}),kind:EXTERNAL_KIND,path:rest[++i]};
     else if(arg==='--external-abi')options.external={...(options.external??{}),node_abi:rest[++i]};
     else if(arg==='--external-node')options.external={...(options.external??{}),node_version:rest[++i]};
     else if(arg==='--writable')options.readOnly=false;

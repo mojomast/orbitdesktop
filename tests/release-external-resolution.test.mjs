@@ -21,7 +21,7 @@ function release(base,{dependencies={'dep-a':'1.0.0'},lockVersion='1.0.0'}={}){
   write(path.join(rel,'package-lock.json'),JSON.stringify({lockfileVersion:3,packages}));
   return rel;
 }
-const manifest=externalPath=>({dependencies:{external:{kind:'referenced-readonly',path:externalPath,node_abi:process.versions.modules,node_version:process.versions.node,lockfile_hash:'x'.repeat(64)}}});
+const manifest=externalPath=>({dependencies:{external:{kind:'operator-managed-external',path:externalPath,node_abi:process.versions.modules,node_version:process.versions.node,lockfile_hash:'x'.repeat(64)}}});
 
 test('ambient resolution outside the declared external root is refused',t=>{
   const base=scratch();t.after(()=>fs.rmSync(base,{recursive:true,force:true}));

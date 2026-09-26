@@ -9,7 +9,7 @@ import path from 'node:path';
 import {execFileSync,spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {packageRelease,removeOwnedRelease} from '../scripts/release_package.mjs';
-import {MANIFEST_NAME,verifyManifest,readManifest} from '../scripts/release_manifest.mjs';
+import {buildManifest,MANIFEST_NAME,verifyManifest,readManifest} from '../scripts/release_manifest.mjs';
 
 const sha256=value=>createHash('sha256').update(value).digest('hex');
 const mode=target=>fs.statSync(target).mode&0o777;
@@ -96,4 +96,20 @@ test('removeOwnedRelease refuses a tampered on-disk manifest or inventory',t=>{
   assert.throws(()=>removeOwnedRelease({root:out,manifest:{...result.manifest,integrity:'0'.repeat(64)},scratchBase:base,env:{}}),{code:'not_owned'});
   removeOwnedRelease({root:out,manifest:result.manifest,scratchBase:base,env:{}});
   assert.equal(fs.existsSync(out),false);
+});
+
+test('external dependencies are labelled by scope and immutability, not read-only',t=>{
+  const base=scratch();t.after(()=>fs.rmSync(base,{recursive:true,force:true}));
+  const {source}=syntheticSource(base),dist=syntheticDist(base);
+  const out=path.join(base,'release-external');fs.mkdirSync(path.join(base,'releases'));
+  const external={kind:'operator-managed-external',path:base,node_abi:process.versions.modules,node_version:process.versions.node};
+  const result=packageRelease({sourceRoot:source,distRoot:dist,outRoot:out,release_id:'rel-x',compat:{schema_min:7,schema_max:7},external,readOnly:true,env:{}});
+  const recorded=result.manifest.dependencies.external;
+  assert.equal(recorded.integrity_scope,'resolution-and-installed-version');
+  assert.equal(recorded.immutability,'operator-managed-not-enforced');
+  assert.equal(recorded.kind,'operator-managed-external');
+  assert.equal(verifyManifest({root:out,manifest:result.manifest}).ok,true);
+  assert.throws(()=>buildManifest({root:out,release_id:'x',compat:{schema_min:7,schema_max:7},external:{...external,integrity_scope:'full-copy-hash'}}),{code:'invalid_external'});
+  assert.throws(()=>buildManifest({root:out,release_id:'x',compat:{schema_min:7,schema_max:7},external:{...external,immutability:'enforced'}}),{code:'invalid_external'});
+  removeOwnedRelease({root:out,manifest:result.manifest,scratchBase:base,env:{}});
 });

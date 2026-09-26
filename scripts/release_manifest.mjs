@@ -18,6 +18,12 @@ export const DEFAULT_HERMES_COMMIT='d0288be5b3330d2442e3907185b8e9d0958297bb';
 export const MANIFEST_NAME='.orbit-release-manifest.json';
 export const OWNED_MARKER='.orbit-release-owned.json';
 export const MANIFEST_VERSION=1;
+// External runtime dependencies are operator-provisioned; the manifest binds their
+// RESOLUTION and installed version/lock/ABI, not their bytes. These authoritative
+// fields state that boundary honestly instead of claiming a vendored/immutable tree.
+export const EXTERNAL_KIND='operator-managed-external';
+export const EXTERNAL_INTEGRITY_SCOPE='resolution-and-installed-version';
+export const EXTERNAL_IMMUTABILITY='operator-managed-not-enforced';
 export const DEFAULT_EXCLUDE=Object.freeze(['.git','node_modules','.runtime','active-release.json',MANIFEST_NAME,OWNED_MARKER]);
 export const REQUIRED_COMPONENTS=Object.freeze({
   server:['server/index.mjs'],
@@ -120,19 +126,21 @@ function readLockfile(root){
   return {lockfile:'package-lock.json',lockfile_hash:sha256(fs.readFileSync(target)),lockfile_version:lock.lockfileVersion,package_count:Object.keys(lock.packages??{}).length,install:'npm-ci-offline',node_modules_included:false};
 }
 
-// Node dependencies are referenced read-only from outside the immutable release.
-// Their provenance (lock hash + Node ABI/version) is recorded rather than pretending
-// the release contains a complete vendored dependency tree.
+// Node dependencies are operator-provisioned outside the immutable release. The
+// manifest binds their resolution and installed version/lock/ABI only; it does not
+// hash the dependency tree and does not enforce their immutability.
 function normaliseExternal({external,lockfile_hash}={}){
   if(external===undefined||external===null)return null;
   const errors=[];
-  if(external.kind!=='referenced-readonly')errors.push('kind');
+  if(external.kind!==EXTERNAL_KIND)errors.push('kind');
   if(typeof external.path!=='string'||!external.path.trim())errors.push('path');
   if(typeof external.node_abi!=='string'||!external.node_abi)errors.push('node_abi');
   if(typeof external.node_version!=='string'||!external.node_version)errors.push('node_version');
   if(external.lockfile_hash!==lockfile_hash)errors.push('lockfile_hash');
+  if(external.integrity_scope!==undefined&&external.integrity_scope!==EXTERNAL_INTEGRITY_SCOPE)errors.push('integrity_scope');
+  if(external.immutability!==undefined&&external.immutability!==EXTERNAL_IMMUTABILITY)errors.push('immutability');
   if(errors.length)throw new ManifestError('invalid_external','External dependency provenance is incomplete or does not match the lockfile.',{missing:errors});
-  return {kind:'referenced-readonly',path:external.path,node_abi:external.node_abi,node_version:external.node_version,lockfile_hash};
+  return {kind:EXTERNAL_KIND,path:external.path,node_abi:external.node_abi,node_version:external.node_version,lockfile_hash,integrity_scope:EXTERNAL_INTEGRITY_SCOPE,immutability:EXTERNAL_IMMUTABILITY};
 }
 
 export function buildManifest({root,release_id,compat={},revision=null,external=null,created_at=Date.now()}={}){
@@ -203,6 +211,9 @@ export function verifyManifest({root,manifest}){
     if(manifest?.dependencies?.external){
       const ext=manifest.dependencies.external;
       if(ext.lockfile_hash!==lock.lockfile_hash)errors.push({code:'external_lock_mismatch'});
+      if(ext.kind!==EXTERNAL_KIND)errors.push({code:'invalid_external',field:'kind'});
+      if(ext.integrity_scope!==EXTERNAL_INTEGRITY_SCOPE)errors.push({code:'invalid_external',field:'integrity_scope'});
+      if(ext.immutability!==EXTERNAL_IMMUTABILITY)errors.push({code:'invalid_external',field:'immutability'});
       if(typeof ext.node_abi!=='string'||!ext.node_abi||typeof ext.node_version!=='string'||!ext.node_version)errors.push({code:'invalid_external'});
     }
   }catch(error){errors.push({code:error.code??'lockfile_unreadable'});}
