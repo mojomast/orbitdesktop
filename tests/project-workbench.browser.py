@@ -47,8 +47,24 @@ def api(origin, token, body):
 def connected(page, token):
     page.get_by_role("button", name="Connect local host", exact=True).click()
     page.get_by_role("textbox", name="Host session token").fill(token)
-    page.get_by_role("button", name="Unlock local host", exact=True).click()
-    expect(page.locator(".saved")).to_contain_text("Workspace connected", timeout=15000)
+    def acknowledged(response):
+        if response.url.split("?")[0] != page.url.split("?")[0].rstrip("/") + "/api/workspace" or response.status != 200:
+            return False
+        body = response.request.post_data_json or {}
+        return (body.get("workspace_id") == WORKSPACE_ID and body.get("action") == "read"
+                and body.get("observed_revision", 0) > 0)
+
+    # The status label can legitimately change to "Saved locally" after a UI
+    # save. Require this document's authenticated acknowledgement instead of
+    # depending on how long a transient success label remains on screen.
+    with page.expect_response(acknowledged, timeout=15000) as pending:
+        page.get_by_role("button", name="Unlock local host", exact=True).click()
+    response = pending.value
+    state = response.json()
+    observed = response.request.post_data_json["observed_revision"]
+    assert state["workspace_id"] == WORKSPACE_ID, state
+    assert state["revision"] >= observed > 0, state
+    assert state["observed_revision"] >= observed and state.get("browser_seen"), state
 
 
 def open_workbench(page):

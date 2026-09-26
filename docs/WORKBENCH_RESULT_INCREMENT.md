@@ -104,6 +104,14 @@ observes the exact old PID's exit before restarting its isolated server; fresh
 consent and old-lease invalidation assertions are unchanged. The broker suite
 passed 13/13 and the restart case passed ten consecutive focused runs locally.
 
+Run `36269737686` passed the Node, Python-native and release gates, then one
+project-workbench reload fixture failed waiting for the transient text
+“Workspace connected” after it had changed to “Saved locally”. The other three
+plain/linked renderer journeys passed. The fixture now requires a fresh
+authenticated browser read carrying an observed revision, and checks the
+server's workspace identity, acknowledged revision and browser timestamp.
+It does not accept local-save text as proof of server readiness.
+
 ### Final acceptance — Gate 1 and Gate 2 accepted
 
 All three original worker lanes are integrated. The final production-source
