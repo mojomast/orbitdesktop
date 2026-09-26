@@ -81,3 +81,28 @@ only Node built-ins. Selection/profile implementation and acceptance are pending
 
 The user explicitly chose **Keep live gate unrun**. No real-model trials will
 be admitted in this increment. Deterministic acceptance remains a separate gate.
+
+## Independent review findings during integration
+
+Flash's first implementation produced five scoped commits (`607b30b`, `497f068`,
+`fb50d52`, `b8c756b`, `0366eca`). Parent integrated the independent regression /
+evaluation catalogue and pinned subproject fixture as `578f9c6` and `6b607ad`.
+Release/browser integration is held for owner-applied fixes:
+
+- Manifest canonical serialization omits nested keys; parent reproduced changing
+  `compat.schema_max` without changing the digest and getting `ok:true` in a
+  disposable fixture `/tmp/opencode/comet-release-review-MGWq1m`.
+- Manifest verification needs exact inventory, required-component, path/mode and
+  ancestor-symlink checks, plus complete compatibility metadata.
+- Default SQLite opener is asynchronous but the schema reader calls it
+  synchronously; acceptance needs the real default SQLite path/opener.
+- Pointer selection needs canonical runtime/release separation and an actual
+  physical-release launcher. An arbitrary old server's HTTP 200 cannot prove
+  activation of the selected release.
+- Default scratch creation precedes protected-root validation; empty/missing
+  path arguments and source/destination collisions need pre-write rejection.
+
+These are pending review findings, not accepted release capability. The assigned
+Flash owner is applying fixes and regressions. The generic failing-evidence and
+candidate-CAS tests are baseline coverage; they do not yet prove contradictory
+delivered explanations or moving-target patch export.
