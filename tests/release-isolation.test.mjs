@@ -260,3 +260,29 @@ test('start mode spawns the verified entry, forwards signals and preserves exit 
   assert.equal(result.forwarded_signals.length,0,'no signal is forwarded before one is delivered');
 });
 
+test('a probe that throws restores the prior selection for activate and rollback',async t=>{
+  const base=root();t.after(()=>fs.rmSync(base,{recursive:true,force:true}));
+  const runtime=runtimeWithSchema(base,7);
+  const a=fakeRelease(base,'rel-throw-a'),b=fakeRelease(base,'rel-throw-b');
+  const throwingProbe=()=>{throw Error('probe transport boom');};
+  await activate({runtime,release:a.dir,probe:healthyProbe,now:1});
+  const before=readPointer(runtime);
+  const failed=await activate({runtime,release:b.dir,probe:throwingProbe,now:2});
+  assert.equal(failed.pointer_selected,false);
+  assert.equal(failed.runtime_activated,false);
+  assert.equal(failed.rolled_back,true);
+  assert.equal(failed.reason,'probe_failed');
+  assert.equal(failed.probe_threw,true);
+  assert.equal(readPointer(runtime).release_id,'rel-throw-a','a thrown probe restores the prior pointer');
+  assert.equal(readPointer(runtime).manifest_integrity,before.manifest_integrity);
+  await activate({runtime,release:b.dir,probe:healthyProbe,now:3});
+  const active=readPointer(runtime);
+  const rollbackFailed=await rollback({runtime,probe:throwingProbe,now:4});
+  assert.equal(rollbackFailed.rolled_back,false);
+  assert.equal(rollbackFailed.reason,'probe_failed');
+  assert.equal(rollbackFailed.probe_threw,true);
+  assert.equal(readPointer(runtime).release_id,'rel-throw-b','a thrown rollback probe leaves the active pointer unchanged');
+  assert.equal(readPointer(runtime).manifest_integrity,active.manifest_integrity);
+});
+
+

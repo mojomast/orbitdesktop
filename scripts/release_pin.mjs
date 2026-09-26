@@ -19,6 +19,12 @@ async function runProbe({probe,healthcheckUrl,launch}){
   if(healthcheckUrl)return probeReleaseIdentity({url:healthcheckUrl,release_id:launch.release_id,manifest_integrity:launch.pointer.manifest_integrity});
   return {ok:null,skipped:true,unverified:true};
 }
+// A probe that throws or rejects is a failure, not an unhandled crash: the caller
+// must restore the prior selection and report a typed probe_failed result.
+async function probeSafely(args){
+  try{return await runProbe(args);}
+  catch(error){return {ok:false,threw:true,error:error?.message??'probe_threw'};}
+}
 
 export async function activate({runtime,release,probe,healthcheckUrl,now=Date.now(),nodeVersion=process.versions.node,open}={}){
   const runtimeRoot=assertAbsoluteRoot('runtime',runtime,{mustExist:true});
@@ -36,10 +42,10 @@ export async function activate({runtime,release,probe,healthcheckUrl,now=Date.no
     if(previous)writePointerAtomic(runtimeRoot,previous);else await removePointer(runtimeRoot);
     return {pointer_selected:false,runtime_activated:false,rolled_back:true,reason:'launch_unavailable',error:error.code??'unavailable'};
   }
-  const health=await runProbe({probe,healthcheckUrl,launch});
+  const health=await probeSafely({probe,healthcheckUrl,launch});
   if(health.ok===false){
     if(previous)writePointerAtomic(runtimeRoot,previous);else await removePointer(runtimeRoot);
-    return {pointer_selected:false,runtime_activated:false,rolled_back:true,reason:'probe_failed',health,launch:{release_id:launch.release_id,physical_root:launch.physical_root}};
+    return {pointer_selected:false,runtime_activated:false,rolled_back:true,reason:'probe_failed',probe_threw:health.threw===true,health,launch:{release_id:launch.release_id,physical_root:launch.physical_root}};
   }
   return {pointer_selected:true,runtime_activated:health.ok===true,health,launch:{release_id:launch.release_id,physical_root:launch.physical_root,entry:launch.entry,env:launch.env}};
 }
@@ -62,10 +68,10 @@ export async function rollback({runtime,probe,healthcheckUrl,now=Date.now(),node
     writePointerAtomic(runtimeRoot,flattenPointer(current));
     return {rolled_back:false,reason:'launch_unavailable',error:error.code??'unavailable'};
   }
-  const health=await runProbe({probe,healthcheckUrl,launch});
+  const health=await probeSafely({probe,healthcheckUrl,launch});
   if(health.ok===false){
     writePointerAtomic(runtimeRoot,flattenPointer(current));
-    return {rolled_back:false,reason:'probe_failed',health};
+    return {rolled_back:false,reason:'probe_failed',probe_threw:health.threw===true,health,pointer:flattenPointer(current)};
   }
   return {rolled_back:true,health,launch:{release_id:launch.release_id,physical_root:launch.physical_root,entry:launch.entry,env:launch.env}};
 }

@@ -61,6 +61,11 @@ export function guardDestination({dest,source=REPO_ROOT,protect=[],env=process.e
   if(canonicalSource.startsWith(canonical_dest+path.sep))throw new BuildGuardError('source_ancestor_destination','Refusing to build into an ancestor of the source root.',{dest:destination,source:canonicalSource});
   const canonicalSourceDist=path.join(canonicalSource,'dist');
   const roots=protectedRoots({protect,env});
+  const explicit=dest!==undefined&&dest!==null;
+  const scratch=canonicalTarget(scratchBase(env));
+  const inScratch=canonical_dest===scratch||canonical_dest.startsWith(scratch+path.sep);
+  if(explicit&&!inScratch&&roots.length===0)
+    throw new BuildGuardError('protected_roots_required','A non-scratch build destination requires explicitly declared protected served/runtime roots (ORBIT_PROTECTED_ROOTS/ORBIT_RELEASE_ROOT/ORBIT_RUNTIME_DIR/ORBIT_SERVED_DIST).',{dest:destination,canonical_dest,scratch_base:scratch});
   const destIdentity=identityOf(destination)??identityOf(canonical_dest);
   for(const root of roots){
     const canonical_root=canonicalTarget(root);

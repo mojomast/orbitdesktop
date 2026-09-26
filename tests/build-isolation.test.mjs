@@ -81,7 +81,7 @@ test('--allow-source-dist is scoped to a verified scratch source',t=>{
   assert.ok(guardDestination({dest:path.join(source,'dist'),source,env,allowSourceDist:true}).destination);
   assert.throws(()=>guardDestination({dest:path.join(source,'other'),source,env,allowSourceDist:true}),{code:'unsupported_destination'});
   const outside=path.join(base,'outside');fs.mkdirSync(outside);
-  assert.throws(()=>guardDestination({dest:path.join(outside,'dist'),source:outside,env:{ORBIT_BUILD_SCRATCH:path.join(base,'scratch-only')},allowSourceDist:true}),{code:'source_not_scratch'});
+  assert.throws(()=>guardDestination({dest:path.join(outside,'dist'),source:outside,env:{ORBIT_BUILD_SCRATCH:path.join(base,'scratch-only'),ORBIT_PROTECTED_ROOTS:path.join(base,'declared')},allowSourceDist:true}),{code:'source_not_scratch'});
   const destination=path.join(source,'dist');
   write(path.join(source,'node_modules','.bin','vite'),'#!/bin/sh\nexit 0\n');
   const spawn=(command,args)=>{if(args.includes('--outDir'))write(path.join(args[args.indexOf('--outDir')+1],'index.html'),'<h1>built</h1>');return {status:0,stdout:'',stderr:''};};
@@ -89,3 +89,25 @@ test('--allow-source-dist is scoped to a verified scratch source',t=>{
   assert.equal(result.wrote,true);
   assert.equal(fs.readFileSync(path.join(destination,'index.html'),'utf8'),'<h1>built</h1>');
 });
+
+test('a non-scratch destination requires declared protected roots and writes nothing',t=>{
+  const base=root();
+  const source=path.join(base,'src');fs.mkdirSync(source);
+  const scratch=path.join(base,'scratch');fs.mkdirSync(scratch);
+  const outside=path.join(base,'outside');fs.mkdirSync(outside);
+  const sentinel=path.join(outside,'keep.txt');write(sentinel,'KEEP');const before=fs.readFileSync(sentinel);
+  const readOnly=path.join(base,'readonly');fs.mkdirSync(readOnly);write(path.join(readOnly,'keep.txt'),'KEEP');fs.chmodSync(readOnly,0o500);
+  t.after(()=>{try{fs.chmodSync(readOnly,0o700);}catch{}fs.rmSync(base,{recursive:true,force:true});});
+  const env={ORBIT_BUILD_SCRATCH:scratch};
+  assert.throws(()=>guardDestination({dest:outside,source,env}),{code:'protected_roots_required'});
+  assert.throws(()=>runBuild({dest:outside,source,env,typecheck:false}),{code:'protected_roots_required'});
+  assert.deepEqual(fs.readFileSync(sentinel),before,'no write to a non-scratch destination');
+  assert.deepEqual(fs.readdirSync(outside),['keep.txt'],'no files are created');
+  assert.throws(()=>guardDestination({dest:path.join(readOnly,'dist'),source,env}),{code:'protected_roots_required'});
+  assert.deepEqual(fs.readdirSync(readOnly),['keep.txt'],'a read-only target is refused before any write');
+  const served=path.join(base,'served');fs.mkdirSync(served);
+  const declaredEnv={...env,ORBIT_PROTECTED_ROOTS:served};
+  assert.ok(guardDestination({dest:path.join(base,'production-out'),source,env:declaredEnv}).canonical_dest,'declared protected roots permit a non-colliding production destination');
+  assert.throws(()=>guardDestination({dest:path.join(served,'dist'),source,env:declaredEnv}),{code:'protected_destination'});
+});
+
