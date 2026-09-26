@@ -7,6 +7,7 @@ import {captureProject,openProjectRoot,readProjectFile,literalPreview,repository
 import {previewCandidate,createCandidate,readCandidateFile,applyCandidateChanges,candidateHash as providerCandidateHash,removeCandidateWorkspace} from './workbench-candidates.mjs';
 import {CHECK_LIMITS,CHECK_DEFINITIONS,checkDefinition,definitionDigest,checkSpecDigest,discoverTestFiles,runCheck,activeCheckCount,cancelCheck,acknowledgeCheck} from './workbench-checks.mjs';
 import {workbenchBuildIdentity} from './workbench-build-identity.mjs';
+import {createArtifactVerifier} from './workbench-artifact-verification.mjs';
 import {validateWorkbenchProvenance} from '../contracts/workbench-result-v1.mjs';
 
 // Slice C — managed task/candidate/check/evidence/review orchestration for the
@@ -67,21 +68,22 @@ const terminalJob=new Set(['completed','failed','cancelled','inconclusive','outc
 // A single-holder gate with the same lane semantics as the lead-owned
 // server/workbench-gate.mjs. Used only when the caller does not inject one.
 export function createExecutionGate(){
-  const active=new Map();
+  const active=new Map(),quarantines=new Set();
   const lane=kind=>kind==='legacy-agent'?'agent':['agent','legacy-agent','job'].includes(kind)?kind:(()=>{throw wbError('invalid_request');})();
   const holder=k=>active.get(k);
   return {
     claim(kind,id){
       if(typeof id!=='string'||!id)throw wbError('invalid_request');
       const key=lane(kind);
-      if(holder(key))throw wbError('busy');
+      if(quarantines.size||holder(key))throw wbError('busy');
       const token=Symbol(id);active.set(key,token);let released=false;
       return ()=>{if(released)return;released=true;if(active.get(key)===token)active.delete(key);};
     },
+    quarantine(id){if(typeof id!=='string'||!id)throw wbError('invalid_request');quarantines.add(id);return ()=>quarantines.delete(id);},
     legacyStatus(){return {enabled:false,active:0,uncertain:0,pending:0};},
     setLegacyStatus(){throw wbError('unsupported');},
-    busy(kind){return !!holder(lane(kind));},
-    status(){return {agent:!!holder('agent'),job:!!holder('job'),legacy:this.legacyStatus()};},
+    busy(kind){return quarantines.size>0||!!holder(lane(kind));},
+    status(){return {agent:!!holder('agent'),job:!!holder('job'),legacy:this.legacyStatus(),...(quarantines.size?{quarantines:[...quarantines]}:{})};},
   };
 }
 
@@ -825,5 +827,10 @@ export function createWorkbenchExecution({store,records,data,gate,environments,n
     owned.clear();inFlight.clear();
   }
   recoverAll();
-  return {dispatch,contextSource,onRevoke,close,health,recoverFinalization,startApprovedCheck,activeCount:()=>inFlight.size,activeChecks:()=>activeCheckCount(),unknownJobDigest:(workspaceId,projectId)=>unknownJobs(workspaceId,projectId).map(ackDigest),records:data};
+  const {verifyPatchArtifact}=createArtifactVerifier({store,records,data,gate:serial,now,verifyCurrent:({workspace_id,project_id,patch,candidate,task,review,project})=>{
+    if(closed||!health().healthy||unknownJobs(workspace_id,project_id).length||candidate.project_generation!==project.generation||task.acceptance_digest!==digest(task.acceptance)||review.candidate_id!==candidate.id||review.candidate_hash!==candidate.hash||review.review_identity!==patch.review_identity)throw wbError('stale_resource');
+    validatePinned(task,candidate,project);
+    if(rehashCandidate(candidate).hash!==candidate.hash||reviewIdentityFor(workspace_id,project_id,candidate,task)!==review.review_identity||!latestAcceptanceEvidence(workspace_id,project_id,candidate,task).every(Boolean))throw wbError('stale_resource');
+  }});
+  return {dispatch,contextSource,onRevoke,close,health,recoverFinalization,startApprovedCheck,verifyPatchArtifact,activeCount:()=>inFlight.size,activeChecks:()=>activeCheckCount(),unknownJobDigest:(workspaceId,projectId)=>unknownJobs(workspaceId,projectId).map(ackDigest),records:data};
 }

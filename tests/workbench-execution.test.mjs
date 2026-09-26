@@ -7,7 +7,7 @@ import {SqliteWorkspaceStore} from '../server/sqlite-workspace-store.mjs';
 import {WorkbenchStore} from '../server/workbench-store.mjs';
 import {WorkbenchData} from '../server/workbench-data.mjs';
 import {createWorkbenchGate} from '../server/workbench-gate.mjs';
-import {openProjectRoot} from '../server/project-files.mjs';
+import {captureProject,openProjectRoot} from '../server/project-files.mjs';
 import {createWorkbenchExecution,createExecutionGate} from '../server/workbench-execution.mjs';
 import {removeCandidateWorkspace} from '../server/workbench-candidates.mjs';
 import {initial} from '../src/model.ts';
@@ -85,6 +85,44 @@ test('real wrong-sum defect: recorder fail -> exact repair -> pass -> human revi
   assert.equal(state.reviews.length,1);assert.equal(state.tasks[0].status,'accepted');
   assert.ok(state.evidence.every(entry=>!Object.hasOwn(entry,'log_path')));
   assert.deepEqual(fs.readdirSync(f.projectRoot).sort(),['math.js']);
+});
+
+test('explicit patch artifact verification uses frozen checks without modifying candidate review evidence',async t=>{
+  const f=fixture(t),{candidate}=await prepare(f);
+  const read=await f.call('candidate_read',{candidate_id:candidate.id,path:'math.js'});
+  const changed=await f.call('candidate_edit',{candidate_id:candidate.id,path:'math.js',expected_hash:read.file.hash,content:RIGHT});
+  const checked=await runCheck(f,candidate.id,'host-regression');
+  assert.equal(checked.evidence.verdict,'pass');
+  const current=await f.call('candidate_get',{candidate_id:candidate.id});
+  const {review}=await f.call('review_decide',{candidate_id:candidate.id,evidence_ids:[checked.evidence.id],decision:'approved',expected_identity:current.review_identity});
+  const source=captureProject(f.project),privateRecord=privateCandidate(f,candidate.id);
+  const privateRoot=path.join(f.store.root,'workbench-patches');fs.mkdirSync(privateRoot,{recursive:true});
+  const stage=path.join(privateRoot,`.verify-${randomUUID()}`,'roundtrip');fs.mkdirSync(path.join(stage,'.git'),{recursive:true});
+  fs.writeFileSync(path.join(stage,'math.js'),RIGHT);
+  const privatePatch=path.join(privateRoot,`${randomUUID()}.patch`);fs.writeFileSync(privatePatch,'fixture patch');
+  const patch=f.data.create('patches',{workspace_id:f.workspace_id,project_id:f.project.id,task_id:review.task_id,candidate_id:candidate.id,candidate_hash:changed.candidate.hash,candidate_generation:changed.candidate.generation,review_id:review.id,review_identity:review.review_identity,status:'preparing',artifact_hash:sha('fixture patch'),bytes:13,private_root:privatePatch,source:{manifest_hash:source.hash,files:source.manifest.map(file=>({...file,mode:'100644'}))},candidate:{files:privateRecord.files.map(file=>({path:file.path,hash:file.hash,bytes:file.bytes,mode:'100644'}))},review:{required_check_state:{acceptance_digest:current.candidate.acceptance_digest??f.data.get('tasks',f.workspace_id,f.project.id,review.task_id).acceptance_digest}},roundtrip:{verified:true}});
+  const before=f.data.list('evidence',f.workspace_id,f.project.id);
+  fs.writeFileSync(privatePatch,'altered patch');
+  await assert.rejects(f.execution.verifyPatchArtifact({workspace_id:f.workspace_id,project_id:f.project.id,artifact_id:patch.id,stage_root:stage}),{code:'stale_resource'});
+  fs.writeFileSync(privatePatch,'fixture patch');
+  fs.chmodSync(path.join(stage,'math.js'),0o700);
+  await assert.rejects(f.execution.verifyPatchArtifact({workspace_id:f.workspace_id,project_id:f.project.id,artifact_id:patch.id,stage_root:stage}),{code:'stale_resource'});
+  assert.equal(f.data.get('patches',f.workspace_id,f.project.id,patch.id).status,'preparing');
+  fs.chmodSync(path.join(stage,'math.js'),0o600);
+  const result=await f.execution.verifyPatchArtifact({workspace_id:f.workspace_id,project_id:f.project.id,artifact_id:patch.id,stage_root:stage});
+  assert.equal(result.verification.status,'verified');assert.equal(result.verification.results.length,1);
+  assert.equal(result.verification.results[0].verdict,'pass');
+  assert.deepEqual(f.data.list('evidence',f.workspace_id,f.project.id),before);
+  await assert.rejects(f.execution.verifyPatchArtifact({workspace_id:f.workspace_id,project_id:f.project.id,artifact_id:patch.id,stage_root:stage}),{code:'stale_resource'});
+});
+
+test('a restarted verifying patch receipt quarantines shared dispatch without rerunning checks',t=>{
+  const f=fixture(t),artifact=f.data.create('patches',{workspace_id:f.workspace_id,project_id:f.project.id,status:'verifying',verification:{status:'running'}});
+  const gate=createWorkbenchGate();
+  createWorkbenchExecution({store:f.store,records:f.records,data:f.data,gate});
+  assert.throws(()=>gate.claim('job',randomUUID()),{code:'busy'});
+  assert.throws(()=>gate.claim('agent',randomUUID()),{code:'busy'});
+  assert.ok(gate.status().quarantines.includes(`patch-verification:${artifact.id}`));
 });
 
 test('an approval is refused when the source target changed after candidate creation',async t=>{
