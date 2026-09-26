@@ -509,6 +509,25 @@ def main(renderer):
                         expect(review_view.locator(".workbench-review-diff")).to_contain_text("Exact candidate diff")
                         expect(review_view.locator(".workbench-review-checks")).to_contain_text("Required checks and evidence")
                         expect(review_view.locator(".workbench-review-explanation")).to_contain_text("Worker explanation")
+                        step = "expand literal Hermes explanation and assert exact text, provenance and no model/chat effect"
+                        requests_before_expand = len(model.requests)
+                        messages_before_expand = page.locator('.pane[data-pane-id="%s"] .chat-messages .chat-message' % helper.PANE).count()
+                        explanation_details = review_view.locator("details").filter(has_text="Expand literal Hermes explanation")
+                        assert "No recorded worker explanation is available" not in review_view.locator(".workbench-review-explanation").inner_text(), \
+                            "the recorded worker explanation is missing from the review view (producer: grant task_id filter)"
+                        expect(explanation_details).to_be_visible(timeout=15000)
+                        if explanation_details.get_attribute("open") is None:
+                            explanation_details.locator("summary").click()
+                        explanation_text = review_view.locator("pre.workbench-review-explanation-text").inner_text()
+                        assert explanation_text.startswith(ANSWER_TOKEN + ": repaired the failing sum."), explanation_text
+                        assert "see evidence:" in explanation_text, explanation_text
+                        explanation_section = review_view.locator(".workbench-review-explanation")
+                        expect(explanation_section).to_contain_text("Candidate binding")
+                        expect(explanation_section).to_contain_text("Exact current candidate version")
+                        diff_section_text = review_view.locator(".workbench-review-diff").inner_text()
+                        assert re.search(r"[a-f0-9]{64}", diff_section_text), diff_section_text[:200]
+                        assert len(model.requests) == requests_before_expand, "expanding the explanation must not call the model"
+                        assert page.locator('.pane[data-pane-id="%s"] .chat-messages .chat-message' % helper.PANE).count() == messages_before_expand, "expanding the explanation must not add a chat turn"
                         diff_text = review_view.locator("pre.workbench-review-diff-text").inner_text()
                         assert "math.js" in diff_text and "@@" in diff_text, diff_text[:200]
                         listed = helper.api(origin, token, "/api/workbench", {"action": "list"})[1]
