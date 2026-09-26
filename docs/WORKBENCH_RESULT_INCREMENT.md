@@ -63,6 +63,33 @@ not authorized. A disposable activation test does not authorize owner activation
 
 ## Current status
 
+### Latest integrated checkpoint (after `b45ee86`)
+
+- Gate 1 is accepted. Checked patch export also passed intermediate strict
+  `GATE2_FINAL=1` browser journeys on default and Docking against `a417f2b`:
+  exact downloaded hashes, frozen required checks, persisted receipt discovery
+  without an ID fallback, and retrieval after reload. Each retained seven
+  deterministic model requests, one chat message and zero page errors.
+- The project-bound trusted Review pane mounts through explicit owner controls,
+  and repeated opening reuses its pane identity. Parent inspected the synthetic
+  screenshots. Metadata obscured the diff/check verdicts, so mounting is accepted
+  but useful Review placement is **not yet accepted**.
+- Sol's revoked-project recovery fixes are integrated as `ff18aff`; independent
+  parent execution/result/native tests passed **48/48**, with actual Hermes
+  enabled and no skipped tests. Observed artifact recovery after revocation is
+  inconclusive rather than publishable; historical intervention does not restore
+  text disclosure or execution authority. Cursor contracts are generated.
+- Luna's remaining consumer fixes cover reachable cancellation, historical
+  recovery controls, older receipt pagination, literal patch preview and useful
+  Review geometry. Flash's strict `L4_GEOMETRY=1` acceptance remains pending;
+  its pre-placement visibility and browser-ack assertions are being corrected
+  before final-source verification.
+- Final full-source checks, portable archive regeneration/parity and disposable
+  release-instance repetition remain pending. Product-model trials remain zero.
+
+The following entries retain the chronological integration history; earlier
+pending-work statements describe their recorded checkpoint.
+
 All three requested aliases completed their initial contract/audit phase. Sol's
 contract-only `b76b6e8` was integrated as `a1fa0f7`; the ownership ledger baseline
 is `99a1990`. Worker branches received that shared contract baseline, preserving
