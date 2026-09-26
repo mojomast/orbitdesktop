@@ -86,6 +86,17 @@ test('metadata bindings preserve layout and resources survive whole-state sync a
   const backup=path.join(f.root,'backup.sqlite');await f.store.backup(backup);
   const copy=new Database(backup,{readonly:true});try{assert.equal(copy.prepare('SELECT count(*) AS n FROM wb_projects').get().n,1);assert.equal(copy.prepare('SELECT count(*) AS n FROM wb_bindings').get().n,1);}finally{copy.close();}
 });
+test('review binding discovery is workspace scoped and revoked projects do not break listing',async t=>{
+  const f=fixture(t),project=await f.register(),before=f.store.read(f.workspace_id),snapshot=await f.call('inspect',{project_id:project.id});
+  const leaf=node=>node.type==='pane'?node.pane:leaf(node.first),pane=leaf(before.state.monitors[0].layout);
+  await f.call('bind',{project_id:project.id,resource_id:snapshot.resources.find(r=>r.kind==='file').id,pane_id:pane.id,base_revision:before.revision,role:'candidate_diff'});
+  const listed=await f.call('list');
+  assert.equal(listed.bindings.length,1);assert.equal(listed.bindings[0].pane_id,pane.id);
+  assert.deepEqual((await f.api.dispatch({action:'list',workspace_id:f.other})).bindings,[]);
+  await f.call('revoke_project',{project_id:project.id,base_generation:project.generation});
+  const revoked=await f.call('list');assert.equal(revoked.projects[0].active,false);assert.deepEqual(revoked.bindings,[]);
+  assert.deepEqual(f.store.read(f.workspace_id),before);
+});
 test('HTTP boundary requires owner Bearer and allowed origin; IDs and confirm cannot authorize',async t=>{
   const f=fixture(t);
   const send=async(headers,body)=>{const req=Readable.from([JSON.stringify(body)]);Object.assign(req,{method:'POST',headers:{host:'127.0.0.1:4318',origin:'http://127.0.0.1:4318',...headers}});const res={headers:{},setHeader(k,v){this.headers[k]=v;}};await f.api.handle(req,res);return res;};

@@ -317,6 +317,8 @@ export function createPane(p: Pane, font: number, a: PaneActions): PaneView {
       term.dispose();
     };
   } else if (p.kind === 'browser' && p.url === REVIEW_URL) {
+    body.style.overflow='auto';
+    body.style.padding='.75rem';
     cleanup=mountWorkbenchReviewHost(body,p.id,()=>sessionToken);
   } else if (p.kind === 'browser' && p.url === 'orbit://shared-browser') {
     head.style.display='none';
