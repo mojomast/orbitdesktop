@@ -827,10 +827,10 @@ export function createWorkbenchExecution({store,records,data,gate,environments,n
     owned.clear();inFlight.clear();
   }
   recoverAll();
-  const {verifyPatchArtifact}=createArtifactVerifier({store,records,data,gate:serial,now,verifyCurrent:({workspace_id,project_id,patch,candidate,task,review,project})=>{
+  const {verifyPatchArtifact,retryPatchArtifact,acknowledgePatchArtifactUnknown,cancelPatchArtifact,patchArtifactRecovery}=createArtifactVerifier({store,records,data,gate:serial,now,verifyCurrent:({workspace_id,project_id,patch,candidate,task,review,project})=>{
     if(closed||!health().healthy||unknownJobs(workspace_id,project_id).length||candidate.project_generation!==project.generation||task.acceptance_digest!==digest(task.acceptance)||review.candidate_id!==candidate.id||review.candidate_hash!==candidate.hash||review.review_identity!==patch.review_identity)throw wbError('stale_resource');
     validatePinned(task,candidate,project);
     if(rehashCandidate(candidate).hash!==candidate.hash||reviewIdentityFor(workspace_id,project_id,candidate,task)!==review.review_identity||!latestAcceptanceEvidence(workspace_id,project_id,candidate,task).every(Boolean))throw wbError('stale_resource');
   }});
-  return {dispatch,contextSource,onRevoke,close,health,recoverFinalization,startApprovedCheck,verifyPatchArtifact,activeCount:()=>inFlight.size,activeChecks:()=>activeCheckCount(),unknownJobDigest:(workspaceId,projectId)=>unknownJobs(workspaceId,projectId).map(ackDigest),records:data};
+  return {dispatch,contextSource,onRevoke,close,health,recoverFinalization,startApprovedCheck,verifyPatchArtifact,retryPatchArtifact,acknowledgePatchArtifactUnknown,cancelPatchArtifact,patchArtifactRecovery,activeCount:()=>inFlight.size,activeChecks:()=>activeCheckCount(),unknownJobDigest:(workspaceId,projectId)=>unknownJobs(workspaceId,projectId).map(ackDigest),records:data};
 }

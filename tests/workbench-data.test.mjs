@@ -89,6 +89,18 @@ test('schema 7 enforces job operation uniqueness at the database boundary',t=>{
   assert.equal(f.data.get('jobs',f.workspace,f.project.id,first.id).request_fingerprint,'a'.repeat(64));
 });
 
+test('schema 8 enforces patch op IDs and refuses conflicting old copies without deleting records',async t=>{
+  const f=fixture(t),scope={workspace_id:f.workspace,project_id:f.project.id},op_id=randomUUID();
+  f.data.create('patches',{...scope,op_id,status:'preparing'});
+  assert.throws(()=>f.data.create('patches',{...scope,op_id,status:'preparing'}),error=>error.code==='SQLITE_CONSTRAINT_UNIQUE');
+  f.store.db.exec('DROP INDEX wb_patches_operation');
+  f.data.create('patches',{...scope,op_id,status:'verifying'});
+  const target=path.join(f.root,'patch-conflict');fs.mkdirSync(target);await f.store.backup(path.join(target,'workspace.sqlite'));
+  assert.throws(()=>new SqliteWorkspaceStore(target),/MIGRATION_INVALID/);
+  const db=new Database(path.join(target,'workspace.sqlite'),{readonly:true});
+  try{assert.equal(db.pragma('user_version',{simple:true}),8);assert.equal(db.prepare('SELECT count(*) AS n FROM wb_patches').get().n,2);}finally{db.close();}
+});
+
 test('schema 6 migration refuses conflicting operation receipts without deleting either record',async t=>{
   const f=fixture(t),scope={workspace_id:f.workspace,project_id:f.project.id};
   f.store.db.exec('DROP INDEX wb_jobs_operation_identity');f.store.db.pragma('user_version=6');

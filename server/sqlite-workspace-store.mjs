@@ -133,7 +133,12 @@ export class SqliteWorkspaceStore {
        this.db.transaction(()=>{
          const current=this.db.pragma('user_version',{simple:true});
          if(current>8)throw failure('UPGRADE_REQUIRED');
-         if(current===7){this.db.exec(workbenchResultSchemaSql);this.db.pragma('user_version = 8');}
+          if(current===7){this.db.exec(workbenchResultSchemaSql);this.db.pragma('user_version = 8');}
+          // Existing schema-8 development copies may predate this operation
+          // index. Reassert it on open, without deleting conflicting receipts.
+          const duplicates=this.db.prepare("SELECT 1 FROM wb_patches WHERE json_extract(record_json,'$.op_id') IS NOT NULL GROUP BY workspace_id,project_id,json_extract(record_json,'$.op_id') HAVING count(*)>1 LIMIT 1").get();
+          if(duplicates)throw failure('MIGRATION_INVALID');
+          this.db.exec("CREATE UNIQUE INDEX IF NOT EXISTS wb_patches_operation ON wb_patches(workspace_id,project_id,json_extract(record_json,'$.op_id')) WHERE json_extract(record_json,'$.op_id') IS NOT NULL");
        }).immediate();
       this.bundles=createBundleRegistry({db:this.db,root:this.root});
       // Rebuildable discovery only. Frozen original workspace JSON is never updated.

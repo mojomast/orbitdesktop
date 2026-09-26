@@ -87,10 +87,10 @@ test('real wrong-sum defect: recorder fail -> exact repair -> pass -> human revi
   assert.deepEqual(fs.readdirSync(f.projectRoot).sort(),['math.js']);
 });
 
-test('explicit patch artifact verification uses frozen checks without modifying candidate review evidence',async t=>{
+async function approvedPatch(t,{content=RIGHT}={}){
   const f=fixture(t),{candidate}=await prepare(f);
   const read=await f.call('candidate_read',{candidate_id:candidate.id,path:'math.js'});
-  const changed=await f.call('candidate_edit',{candidate_id:candidate.id,path:'math.js',expected_hash:read.file.hash,content:RIGHT});
+  const changed=await f.call('candidate_edit',{candidate_id:candidate.id,path:'math.js',expected_hash:read.file.hash,content});
   const checked=await runCheck(f,candidate.id,'host-regression');
   assert.equal(checked.evidence.verdict,'pass');
   const current=await f.call('candidate_get',{candidate_id:candidate.id});
@@ -98,9 +98,14 @@ test('explicit patch artifact verification uses frozen checks without modifying 
   const source=captureProject(f.project),privateRecord=privateCandidate(f,candidate.id);
   const privateRoot=path.join(f.store.root,'workbench-patches');fs.mkdirSync(privateRoot,{recursive:true});
   const stage=path.join(privateRoot,`.verify-${randomUUID()}`,'roundtrip');fs.mkdirSync(path.join(stage,'.git'),{recursive:true});
-  fs.writeFileSync(path.join(stage,'math.js'),RIGHT);
+  fs.writeFileSync(path.join(stage,'math.js'),content);
   const privatePatch=path.join(privateRoot,`${randomUUID()}.patch`);fs.writeFileSync(privatePatch,'fixture patch');
   const patch=f.data.create('patches',{workspace_id:f.workspace_id,project_id:f.project.id,task_id:review.task_id,candidate_id:candidate.id,candidate_hash:changed.candidate.hash,candidate_generation:changed.candidate.generation,review_id:review.id,review_identity:review.review_identity,status:'preparing',artifact_hash:sha('fixture patch'),bytes:13,private_root:privatePatch,source:{manifest_hash:source.hash,files:source.manifest.map(file=>({...file,mode:'100644'}))},candidate:{files:privateRecord.files.map(file=>({path:file.path,hash:file.hash,bytes:file.bytes,mode:'100644'}))},review:{required_check_state:{acceptance_digest:current.candidate.acceptance_digest??f.data.get('tasks',f.workspace_id,f.project.id,review.task_id).acceptance_digest}},roundtrip:{verified:true}});
+  return {f,patch,stage,privatePatch};
+}
+
+test('explicit patch artifact verification uses frozen checks without modifying candidate review evidence',async t=>{
+  const {f,patch,stage,privatePatch}=await approvedPatch(t);
   const before=f.data.list('evidence',f.workspace_id,f.project.id);
   fs.writeFileSync(privatePatch,'altered patch');
   await assert.rejects(f.execution.verifyPatchArtifact({workspace_id:f.workspace_id,project_id:f.project.id,artifact_id:patch.id,stage_root:stage}),{code:'stale_resource'});
@@ -116,13 +121,85 @@ test('explicit patch artifact verification uses frozen checks without modifying 
   await assert.rejects(f.execution.verifyPatchArtifact({workspace_id:f.workspace_id,project_id:f.project.id,artifact_id:patch.id,stage_root:stage}),{code:'stale_resource'});
 });
 
+test('known completed artifact result survives DB finalization fault and restarts with DB-only retry',async t=>{
+  const {f,patch,stage}=await approvedPatch(t),scope={workspace_id:f.workspace_id,project_id:f.project.id,artifact_id:patch.id};
+  const original=f.data.update.bind(f.data);let injected=false;
+  f.data.update=(kind,w,p,id,revision,fields)=>{
+    if(!injected&&kind==='patches'&&id===patch.id&&fields.status==='verified'){injected=true;throw Object.assign(Error('fixture write fault'),{code:'unavailable'});}
+    return original(kind,w,p,id,revision,fields);
+  };
+  try{await assert.rejects(f.execution.verifyPatchArtifact({...scope,stage_root:stage}),{code:'unavailable'});}
+  finally{f.data.update=original;}
+  assert.equal(injected,true);
+  assert.equal(f.data.get('patches',f.workspace_id,f.project.id,patch.id).status,'verification_pending');
+  const pendingRoot=path.join(f.store.root,'workbench-execution','patch-verification-pending');
+  assert.ok(fs.existsSync(path.join(pendingRoot,`${patch.id}.json`)));
+  const gate=createWorkbenchGate(),restarted=createWorkbenchExecution({store:f.store,records:f.records,data:f.data,gate});
+  assert.throws(()=>gate.claim('job',randomUUID()),{code:'busy'});
+  const state=restarted.patchArtifactRecovery(scope);assert.equal(state.recoverable,true);
+  const before=fs.readdirSync(path.join(f.store.root,'workbench-execution')).filter(name=>name.startsWith('check-')).length;
+  assert.throws(()=>restarted.retryPatchArtifact({...scope,expected_digest:'0'.repeat(64)}),{code:'stale_resource'});
+  const result=restarted.retryPatchArtifact({...scope,expected_digest:state.recovery_digest});
+  assert.equal(result.verification.status,'verified');assert.equal(result.replayed,true);
+  assert.equal(fs.readdirSync(path.join(f.store.root,'workbench-execution')).filter(name=>name.startsWith('check-')).length,before);
+  assert.equal(gate.status().quarantines,undefined);gate.claim('job',randomUUID())();
+  assert.equal(fs.existsSync(path.join(pendingRoot,`${patch.id}.json`)),false);
+});
+
+test('lost artifact journal after a child exit remains unknown until exact owner acknowledgment',async t=>{
+  const {f,patch,stage}=await approvedPatch(t),scope={workspace_id:f.workspace_id,project_id:f.project.id,artifact_id:patch.id};
+  const original=fs.fsyncSync;let injected=false;
+  fs.fsyncSync=fd=>{
+    const target=fs.readlinkSync(`/proc/self/fd/${fd}`);
+    if(!injected&&target.includes('patch-verification-pending')&&target.endsWith('.tmp')){injected=true;throw Object.assign(Error('journal fault'),{code:'EIO'});}
+    return original(fd);
+  };
+  try{await assert.rejects(f.execution.verifyPatchArtifact({...scope,stage_root:stage}),{code:'EIO'});}
+  finally{fs.fsyncSync=original;}
+  assert.equal(injected,true);
+  const state=f.execution.patchArtifactRecovery(scope);
+  assert.equal(state.status,'outcome_unknown');assert.equal(state.recoverable,false);
+  assert.throws(()=>f.execution.retryPatchArtifact({...scope,expected_digest:state.recovery_digest}),{code:'outcome_unknown'});
+  assert.throws(()=>f.execution.acknowledgePatchArtifactUnknown({...scope,expected_digest:'0'.repeat(64),known_externally_terminated:true}),{code:'stale_resource'});
+  assert.equal(f.execution.acknowledgePatchArtifactUnknown({...scope,expected_digest:state.recovery_digest,known_externally_terminated:true}).verification.status,'acknowledged_unknown');
+});
+
+test('owner can cancel the internally owned artifact check and recorder settles a known failure',async t=>{
+  const slow="await new Promise(resolve=>setTimeout(resolve,1800));\nexport const sum=(a,b)=>a+b;\n";
+  const {f,patch,stage}=await approvedPatch(t,{content:slow}),scope={workspace_id:f.workspace_id,project_id:f.project.id,artifact_id:patch.id};
+  const running=f.execution.verifyPatchArtifact({...scope,stage_root:stage});
+  let process;
+  for(let i=0;i<200;i++){
+    process=f.data.get('patches',f.workspace_id,f.project.id,patch.id).verification?.process;
+    if(process?.pid)break;
+    await sleep(10);
+  }
+  assert.ok(process?.pid);
+  const pending=f.execution.patchArtifactRecovery(scope);
+  assert.throws(()=>f.execution.acknowledgePatchArtifactUnknown({...scope,expected_digest:pending.recovery_digest,known_externally_terminated:true}),{code:'stale_resource'});
+  assert.equal(f.execution.cancelPatchArtifact(scope).requested,true);
+  const result=await running;
+  assert.equal(result.verification.status,'inconclusive');
+  assert.equal(f.data.get('patches',f.workspace_id,f.project.id,patch.id).status,'verification_failed');
+});
+
 test('a restarted verifying patch receipt quarantines shared dispatch without rerunning checks',t=>{
-  const f=fixture(t),artifact=f.data.create('patches',{workspace_id:f.workspace_id,project_id:f.project.id,status:'verifying',verification:{status:'running'}});
+  const f=fixture(t),artifact=f.data.create('patches',{workspace_id:f.workspace_id,project_id:f.project.id,status:'verifying',verification:{id:randomUUID(),status:'running',process:{job_id:randomUUID(),state:'starting'}}});
   const gate=createWorkbenchGate();
-  createWorkbenchExecution({store:f.store,records:f.records,data:f.data,gate});
+  const service=createWorkbenchExecution({store:f.store,records:f.records,data:f.data,gate});
   assert.throws(()=>gate.claim('job',randomUUID()),{code:'busy'});
   assert.throws(()=>gate.claim('agent',randomUUID()),{code:'busy'});
   assert.ok(gate.status().quarantines.includes(`patch-verification:${artifact.id}`));
+  const current=f.data.get('patches',f.workspace_id,f.project.id,artifact.id);
+  assert.equal(current.status,'outcome_unknown');
+  const scope={workspace_id:f.workspace_id,project_id:f.project.id,artifact_id:artifact.id};
+  const recovery=service.patchArtifactRecovery(scope);
+  assert.equal(recovery.recoverable,false);assert.match(recovery.recovery_digest,/^[a-f0-9]{64}$/);
+  assert.throws(()=>service.acknowledgePatchArtifactUnknown({...scope,expected_digest:'0'.repeat(64),known_externally_terminated:true}),{code:'stale_resource'});
+  assert.throws(()=>service.acknowledgePatchArtifactUnknown({...scope,expected_digest:recovery.recovery_digest,known_externally_terminated:false}),{code:'stale_resource'});
+  assert.equal(service.acknowledgePatchArtifactUnknown({...scope,expected_digest:recovery.recovery_digest,known_externally_terminated:true}).verification.status,'acknowledged_unknown');
+  assert.equal(gate.status().quarantines,undefined);
+  gate.claim('job',randomUUID())();
 });
 
 test('an approval is refused when the source target changed after candidate creation',async t=>{
