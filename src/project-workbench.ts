@@ -191,6 +191,11 @@ export function showProjectWorkbench(getToken: () => string): void {
       void import('./workbench-review-host').then(({openWorkbenchReview})=>openWorkbenchReview(selectedProject,getToken)).then(()=>{if(current(selectedEpoch))dialog.close();}).catch(error=>{if(current(selectedEpoch))state('error',`Review view unavailable: ${error.message}`);}).finally(()=>{openReview.disabled=false;});
     });
     execution.prepend(openReview);
+    const openReviewRequested=(event:Event)=>{
+      const detail=(event as CustomEvent).detail;
+      if(current(selectedEpoch)&&project?.id===selectedProject&&detail?.workspace_id===workspaceId&&detail?.project_id===selectedProject)openReview.click();
+    };
+    window.addEventListener('orbit-open-workbench-review',openReviewRequested);
     const referenceDialogs=new Set<HTMLDialogElement>();
     function openReference(title:string,request:Record<string,unknown>,evidenceId?:string){
       const dialog=el('dialog','hermes-tools-dialog'),content=el('pre','workbench-result-text'),files=el('div');
@@ -222,7 +227,7 @@ export function showProjectWorkbench(getToken: () => string): void {
     const authority=mountWorkbenchTaskAuthority({container:authorityContainer,token:getToken,workspace_id:workspaceId,project_id:selectedProject});
     const workflow=mountWorkbenchWorkflow({container:workflowContainer,token:getToken,workspace_id:workspaceId,project_id:selectedProject});
     const result=mountWorkbenchTaskResult({container:resultContainer,token:getToken,workspace_id:workspaceId,project_id:selectedProject,onOpenEvidence:ref=>openReference('Exact recorded check evidence',{action:'job_get',job_id:ref.job_id},ref.evidence_id),onOpenCandidate:ref=>openReference('Exact recorded candidate version',{action:'candidate_version_get',...ref})});
-    executionMount={dispose(){task.dispose();authority.dispose();workflow.dispose();result.dispose();for(const dialog of referenceDialogs)dialog.close();},async refresh(){await Promise.all([task.refresh(),authority.refresh(),workflow.refresh(),result.refresh()]);}};
+    executionMount={dispose(){window.removeEventListener('orbit-open-workbench-review',openReviewRequested);task.dispose();authority.dispose();workflow.dispose();result.dispose();for(const dialog of referenceDialogs)dialog.close();},async refresh(){await Promise.all([task.refresh(),authority.refresh(),workflow.refresh(),result.refresh()]);}};
   }
   async function askTerminal(resource:Resource){
     if(!project||resource.kind!=='terminal')return;
