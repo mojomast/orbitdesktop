@@ -10,10 +10,10 @@ import {readCandidateFile} from './workbench-candidates.mjs';
 
 const sha=bytes=>createHash('sha256').update(bytes).digest('hex');
 const hashJson=value=>sha(Buffer.from(JSON.stringify(value)));
-const TTL=60000,RESPONSE_MAX=2*1024*1024,FILE_MAX=256*1024;
+const TTL=60000,RESPONSE_MAX=2*1024*1024,FILE_MAX=256*1024,PATCH_LIST_MAX_ITEMS=32,PATCH_LIST_MAX_BYTES=128*1024;
 const gitEnv={PATH:'/usr/bin:/bin',HOME:'/dev/null',XDG_CONFIG_HOME:'/dev/null',GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:'/dev/null',GIT_TERMINAL_PROMPT:'0',GIT_OPTIONAL_LOCKS:'0'};
 const publicPatch=record=>({version:record.version,id:record.id,artifact_id:record.id,workspace_id:record.workspace_id,project_id:record.project_id,task_id:record.task_id,candidate_id:record.candidate_id,candidate_hash:record.candidate_hash,candidate_generation:record.candidate_generation,review_id:record.review_id,review_identity:record.review_identity,preview_digest:record.preview_digest,status:record.status,artifact_hash:record.artifact_hash,bytes:record.bytes,format:record.format,source:record.source,candidate:record.candidate,review:record.review,changes:record.changes,exclusions:record.exclusions,unsupported:record.unsupported,roundtrip:record.roundtrip,verification:record.verification?{version:record.verification.version,id:record.verification.id,status:record.verification.status,artifact_id:record.verification.artifact_id,artifact_hash:record.verification.artifact_hash,source_manifest_hash:record.verification.source_manifest_hash,candidate_id:record.verification.candidate_id,candidate_hash:record.verification.candidate_hash,candidate_generation:record.verification.candidate_generation,review_id:record.verification.review_id,review_identity:record.verification.review_identity,acceptance_digest:record.verification.acceptance_digest,required_checks_digest:record.verification.required_checks_digest,results:(record.verification.results??[]).map(({definition_id,definition_digest,required_test_files,verdict,test_results,candidate_hash_before,candidate_hash_after,artifact_hash,log_hash,env_fingerprint,recorded_by})=>({definition_id,definition_digest,required_test_files,verdict,test_results,candidate_hash_before,candidate_hash_after,artifact_hash,log_hash,env_fingerprint,recorded_by})),recorded_by:record.verification.recorded_by,verified_at:record.verification.verified_at??null}:null,created_at:record.created_at,updated_at:record.updated_at});
-const publicPatchSummary=record=>({artifact_id:record.id,id:record.id,task_id:record.task_id,candidate_id:record.candidate_id,candidate_hash:record.candidate_hash,candidate_generation:record.candidate_generation,review_id:record.review_id,status:record.status,artifact_hash:record.artifact_hash,bytes:record.bytes,format:record.format,created_at:record.created_at,verification:record.verification?{id:record.verification.id,status:record.verification.status,artifact_hash:record.verification.artifact_hash,acceptance_digest:record.verification.acceptance_digest,required_checks_digest:record.verification.required_checks_digest,results:(record.verification.results??[]).map(({definition_id,definition_digest,verdict,log_hash,env_fingerprint})=>({definition_id,definition_digest,verdict,log_hash,env_fingerprint})),verified_at:record.verification.verified_at??null}:null});
+const publicPatchSummary=record=>({artifact_id:record.id,task_id:record.task_id,candidate_id:record.candidate_id,candidate_hash:record.candidate_hash,candidate_generation:record.candidate_generation,review_id:record.review_id,status:record.status,artifact_hash:record.artifact_hash,bytes:record.bytes,created_at:record.created_at,verification_status:record.verification?.status??null});
 const safeRelative=value=>typeof value==='string'&&value.length>0&&value.length<=4096&&!value.startsWith('/')&&!value.includes('\\')&&!/[\0-\x1f\x7f:]/.test(value)&&value.split('/').every(part=>part&&part!=='.'&&part!=='..'&&!/[. ]$/.test(part)&&! /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i.test(part));
 const ROUNDTRIP=Symbol('patch-roundtrip-stage');
 
@@ -201,7 +201,24 @@ export function createWorkbenchPatchExport({store,records,data,execution,inspect
     const state=execution.patchArtifactRecovery({workspace_id:body.workspace_id,project_id:body.project_id,artifact_id:record.id});
     return {artifact_id:state.artifact_id,status:state.status,verification_status:state.verification_status,recovery_digest:state.recovery_digest,recoverable:state.recoverable,process_owned:state.process_owned};
   }
-  function listPatches(body){scope(body);return {patches:data.list('patches',body.workspace_id,body.project_id).map(record=>({...publicPatchSummary(record),recovery:recoveryView(body,record)}))};}
+  function listPatches(body){
+    scope(body);
+    const records=data.list('patches',body.workspace_id,body.project_id).sort((a,b)=>(b.created_at??b.updated_at??0)-(a.created_at??a.updated_at??0)||String(b.id).localeCompare(String(a.id)));
+    const patches=[];let truncated=records.length>0;
+    for(const record of records.slice(0,PATCH_LIST_MAX_ITEMS)){
+      const entry={...publicPatchSummary(record),recovery:recoveryView(body,record)};
+      const candidate=[...patches,entry],isLast=patches.length+1>=records.length;
+      const bytes=Buffer.byteLength(JSON.stringify({patches:candidate,total_count:records.length,truncated:!isLast}));
+      if(bytes>PATCH_LIST_MAX_BYTES&&patches.length)break;
+      patches.push(entry);
+      if(patches.length===records.length||patches.length===PATCH_LIST_MAX_ITEMS)truncated=false;
+      if(bytes>PATCH_LIST_MAX_BYTES)break; // Always include the newest bounded summary.
+    }
+    if(patches.length<records.length)truncated=true;
+    const response={patches,total_count:records.length,truncated};
+    if(Buffer.byteLength(JSON.stringify(response))>PATCH_LIST_MAX_BYTES)throw wbError('limit_exceeded');
+    return response;
+  }
   async function retryFinalization(body){
     scope(body);const before=data.get('patches',body.workspace_id,body.project_id,body.artifact_id);
     const recovery=execution.patchArtifactRecovery({workspace_id:body.workspace_id,project_id:body.project_id,artifact_id:body.artifact_id});

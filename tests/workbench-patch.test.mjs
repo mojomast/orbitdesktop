@@ -66,6 +66,14 @@ test('patch is an exact private unified diff, round-trips, and ignores Git ignor
   assert.equal(exported.patch.status,'available');assert.equal(exported.patch.roundtrip.verified,true);
   assert.equal(exported.patch.verification.status,'verified');assert.deepEqual(exported.patch.verification.results.map(item=>item.definition_id),['node-test','host-regression']);assert.ok(exported.patch.verification.results.every(item=>item.verdict==='pass'));
   for(const privateField of ['private_root','op_id','revision','process','pid','pgid','artifact_root','stage_root'])assert.equal(Object.hasOwn(exported.patch,privateField),false);
+  const savedList=await f.flow('patch_list');assert.equal(savedList.patches.length,1);assert.equal(savedList.truncated,false);
+  for(const privateField of ['private_root','op_id','revision','source','candidate','review','changes','exclusions','unsupported','roundtrip','verification'])assert.equal(Object.hasOwn(savedList.patches[0],privateField),false);
+  assert.equal(savedList.patches[0].verification_status,'verified');
+  const list=f.data.list.bind(f.data),record=f.data.get('patches',f.workspace_id,f.project.id,exported.patch.id);
+  f.data.list=(kind,...args)=>kind==='patches'?Array.from({length:48},(_,index)=>({...record,created_at:1000+index,source:{files:Array(500).fill({path:'large-manifest-entry'})},candidate:{files:Array(500).fill({path:'large-candidate-entry'})}})):list(kind,...args);
+  try{
+    const bounded=await f.flow('patch_list');assert.equal(bounded.total_count,48);assert.equal(bounded.patches.length,32);assert.equal(bounded.truncated,true);assert.equal(bounded.patches[0].created_at,1047);assert.ok(Buffer.byteLength(JSON.stringify(bounded))<128*1024);
+  }finally{f.data.list=(kind,...args)=>list(kind,...args);}
   const downloaded=await f.flow('private_patch_get',{artifact_id:exported.patch.id});
   assert.match(downloaded.patch,/^--- a\/math\.js/m);assert.match(downloaded.patch,/\+.*a \+ b/);
   assert.equal(downloaded.receipt.verification.status,'verified');assert.equal(Object.hasOwn(downloaded.receipt,'private_root'),false);
@@ -106,7 +114,7 @@ test('unknown artifact-check outcomes remain durable and cannot be converted to 
     assert.equal((await f.flow('patch_export',request)).patch.verification.status,'outcome_unknown');
     await assert.rejects(f.flow('private_patch_get',{artifact_id:response.patch.id}),{code:'permission_denied'});
     const pending=(await f.flow('patch_list')).patches[0];assert.equal(pending.recovery.recoverable,false);
-    const acknowledged=await f.flow('patch_acknowledge_unknown',{artifact_id:pending.id,expected_digest:pending.recovery.recovery_digest,known_externally_terminated:true});
+    const acknowledged=await f.flow('patch_acknowledge_unknown',{artifact_id:pending.artifact_id,expected_digest:pending.recovery.recovery_digest,known_externally_terminated:true});
     assert.equal(acknowledged.patch.status,'verification_failed');assert.equal(acknowledged.patch.verification.status,'acknowledged_unknown');
   }finally{f.execution.verifyPatchArtifact=verify;}
 });
@@ -119,12 +127,12 @@ test('recorded artifact-check journals finalize after reload without launching c
   f.data.update=update;
   let listed=await f.flow('patch_list');assert.equal(listed.patches.length,1);let patch=listed.patches[0];
   assert.equal(patch.status,'verification_pending');assert.equal(patch.recovery.recoverable,true);assert.equal(patch.recovery.process_owned,false);
-  const jobsBefore=f.data.list('jobs',f.workspace_id,f.project.id).length,verificationId=patch.verification.id;
-  const recovered=await f.flow('patch_finalize_retry',{artifact_id:patch.id,expected_digest:patch.recovery.recovery_digest});
+  const jobsBefore=f.data.list('jobs',f.workspace_id,f.project.id).length,verificationId=f.data.get('patches',f.workspace_id,f.project.id,patch.artifact_id).verification.id;
+  const recovered=await f.flow('patch_finalize_retry',{artifact_id:patch.artifact_id,expected_digest:patch.recovery.recovery_digest});
   assert.equal(recovered.patch.status,'available');assert.equal(recovered.patch.verification.id,verificationId);
   assert.equal(f.data.list('jobs',f.workspace_id,f.project.id).length,jobsBefore);
   listed=await f.flow('patch_list');patch=listed.patches[0];assert.equal(patch.status,'available');
-  assert.equal((await f.flow('private_patch_get',{artifact_id:patch.id})).receipt.verification.status,'verified');
+  assert.equal((await f.flow('private_patch_get',{artifact_id:patch.artifact_id})).receipt.verification.status,'verified');
 });
 
 test('JSON-escaped private patch responses over the route cap are refused before artifact creation',async t=>{

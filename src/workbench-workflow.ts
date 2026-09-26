@@ -92,8 +92,8 @@ export function mountWorkbenchWorkflow(args:{container:HTMLElement;token:string|
     finalizePatch.disabled=!item||!['verified','verification_pending'].includes(String(item.status))||item.status==='verification_pending'&&recovery?.recoverable!==true||typeof recovery?.recovery_digest!=='string';
     cancelPatchCheck.disabled=!item||item.status!=='verifying'||recovery?.process_owned!==true;
     acknowledgePatchUnknown.disabled=!item||!['verifying','outcome_unknown'].includes(String(item.status))||recovery?.process_owned===true||recovery?.recoverable===true||!terminated.checked;
-    patchView.replaceChildren();if(!item){patchView.append(el('p','','No saved private patch artifacts.'));return;}
-    patchView.append(field('Status',item.status),field('Artifact ID',item.artifact_id??item.id),field('SHA-256 / bytes',`${item.artifact_hash} / ${item.bytes}`),field('Required-check verification',item.verification),field('Recovery state',recovery));
+     patchView.replaceChildren();if(!item){patchView.append(el('p','','No saved private patch artifacts on this bounded newest-first page.'));return;}
+     patchView.append(field('Status',item.status),field('Artifact ID',item.artifact_id??item.id),field('Task / candidate / review',`${item.task_id} / ${item.candidate_id} / ${item.review_id}`),field('Candidate SHA-256 / generation',`${item.candidate_hash} / ${item.candidate_generation}`),field('Artifact SHA-256 / bytes',`${item.artifact_hash} / ${item.bytes}`),field('Verification state',item.verification_status),field('Recovery state',recovery));
     if(item.status==='verification_failed')patchView.append(el('p','','This patch did not pass all frozen required checks or has an inconclusive/acknowledged outcome. It cannot be downloaded.'));
   }
   terminated.addEventListener('change',showSelectedPatch);
@@ -133,10 +133,11 @@ export function mountWorkbenchWorkflow(args:{container:HTMLElement;token:string|
      if(!candidateSelect.value&&candidateSelect.options.length)candidateSelect.selectedIndex=0;
      previewIntegration.disabled=!candidateSelect.value;
      patchRecords=(patches.patches??[]) as Reply[];const selectedPatch=savedPatch.value;savedPatch.replaceChildren();
-     for(const record of patchRecords){const id=String(record.artifact_id??record.id),option=el('option','',`${id} · ${record.status}`);option.value=id;savedPatch.append(option);}
-     if(patchRecords.some((record:Reply)=>String(record.artifact_id??record.id)===selectedPatch))savedPatch.value=selectedPatch;else if(patchRecords.length)savedPatch.selectedIndex=patchRecords.length-1;
-     const terminationLabel=el('label');terminationLabel.append(el('span','','I independently confirmed the patch verifier has terminated '),terminated);
-     showSelectedPatch();patchInventory.replaceChildren(el('h4','','Persisted private patch receipts'),savedPatch,downloadPatch,finalizePatch,cancelPatchCheck,terminationLabel,acknowledgePatchUnknown,patchView);
+      for(const record of patchRecords){const id=String(record.artifact_id??record.id),option=el('option','',`${record.created_at??''} · ${record.task_id} · ${record.status} · ${id}`);option.value=id;savedPatch.append(option);}
+      if(patchRecords.some((record:Reply)=>String(record.artifact_id??record.id)===selectedPatch))savedPatch.value=selectedPatch;else if(patchRecords.length)savedPatch.selectedIndex=0;
+      const terminationLabel=el('label');terminationLabel.append(el('span','','I independently confirmed the patch verifier has terminated '),terminated);
+      const listNotice=el('p','',patches.truncated===true?`Showing the newest ${patchRecords.length} of ${patches.total_count} patch receipts; refresh/list again after acting on these items to discover older receipts.`:`Showing all ${patchRecords.length} persisted patch receipts.`);
+      patchInventory.replaceChildren(el('h4','','Persisted private patch receipts'),listNotice,savedPatch,downloadPatch,finalizePatch,cancelPatchCheck,terminationLabel,acknowledgePatchUnknown,patchView);
      retention.replaceChildren(el('h3','','Retention inventory'),field('Private record counts',inventory.counts),field('Private integration artifacts',state.integrations),field('Cleanup plan',inventory.reason),field('Deletions',inventory.deletions));
     status.textContent='Workflow ready. Actions require explicit preview and confirmation.';
   }
