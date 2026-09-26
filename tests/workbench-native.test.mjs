@@ -147,6 +147,11 @@ test('pinned real Hermes -> actual plugin -> authenticated private bridge -> SQL
   assert.equal(status.result.text.startsWith('Finished fixture; recorder evidence is authoritative. evidence:'),true);
   assert.equal(status.result.resolved_references.length,1);
   assert.equal(status.result.resolved_references[0].verdict,'pass');
+  const linked=f.data.get('evidence',f.base.workspace_id,f.base.project_id,status.result.resolved_references[0].evidence_id);
+  f.data.update('evidence',f.base.workspace_id,f.base.project_id,linked.id,linked.revision,{superseded:true});
+  const relinked=await nativeCall({...f.base,action:'result_get',result_id:status.result.id});
+  assert.equal(relinked.result.model_suggested_references.length,1);
+  assert.deepEqual(relinked.result.resolved_references,[]);
   assert.equal((await nativeCall({...f.base,action:'result_get',result_id:status.result.id})).result.text,status.result.text);
   const state=await f.call('execution_state');assert.deepEqual(state.evidence.map(e=>e.verdict),['fail','pass']);
   assert.equal(fs.readFileSync(path.join(f.projectRoot,'math.js'),'utf8'),WRONG);

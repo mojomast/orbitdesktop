@@ -14,7 +14,17 @@ import {commandIdentity} from '../server/command-identity.mjs';
 import {initial} from '../src/model.ts';
 import {HERMES_NATIVE_CONTRACT} from '../contracts/workbench-native-v1.mjs';
 import {validateWorkbenchProvenance} from '../contracts/workbench-result-v1.mjs';
+import {createWorkbenchBuildIdentity} from '../server/workbench-build-identity.mjs';
+import {pathToFileURL} from 'node:url';
 const wait=()=>new Promise(resolve=>setTimeout(resolve,5));
+test('source recorder identity is a startup snapshot despite subsequent on-disk changes',t=>{
+  const root=fs.mkdtempSync('/tmp/opencode/sol-build-identity-'),server=path.join(root,'server'),contracts=path.join(root,'contracts');fs.mkdirSync(server);fs.mkdirSync(contracts);
+  t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+  fs.writeFileSync(path.join(server,'one.mjs'),'export const value=1;');fs.writeFileSync(path.join(contracts,'one.mjs'),'export const contract=1;');
+  const serverURL=pathToFileURL(server+'/'),contractURL=pathToFileURL(contracts+'/'),first=createWorkbenchBuildIdentity(serverURL,contractURL),identity=first();
+  fs.writeFileSync(path.join(server,'one.mjs'),'export const value=2;');
+  assert.equal(first(),identity);assert.notEqual(createWorkbenchBuildIdentity(serverURL,contractURL)(),identity);
+});
 async function privateCall(channel,args,seq){
   const raw=JSON.stringify(args),mac=createHmac('sha256',channel.secret).update(`${seq}\n${raw}`).digest('hex');
   return new Promise((resolve,reject)=>{const req=http.request({socketPath:channel.socket,path:'/tool',method:'POST',headers:{'content-type':'application/json','x-orbit-grant':channel.grant_id,'x-orbit-sequence':String(seq),'x-orbit-mac':mac}},res=>{let body='';res.on('data',chunk=>body+=chunk);res.on('end',()=>resolve(JSON.parse(body)));});req.on('error',reject);req.end(raw);});

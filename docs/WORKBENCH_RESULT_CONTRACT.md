@@ -50,6 +50,12 @@ finalization state, retains the bounded frame in a private recovery journal,
 blocks new admission on unhealthy storage, and permits only `result_retry`
 (expected digest, DB-only finalization). Never re-run Hermes on reconnect or
 delivery failure. Unknown process ownership remains separately quarantined.
+The shared runtime lease is held through settlement. A filesystem fault before
+the observed journal is durable yields `dispatch_unknown` and shared-gate
+quarantine, not a healthy empty completion. Observed-only recovery after
+restart finalizes as fenced/unavailable; a prepared authorized receipt may
+finalize its exact saved contents. Post-commit journal cleanup failure is
+non-fatal; exact finalized-receipt retry is idempotent.
 
 Owner-authenticated native `status` retains safely projected grant/toolcalls/
 health and adds
@@ -74,7 +80,9 @@ Resolve independently to `resolved_references` (`[{evidence_id,job_id,verdict}]`
 only where evidence belongs to the exact task/attempt's approved candidate
 generation/hash, workspace/project and current permissible grant scope. Missing,
 revoked, superseded or foreign IDs remain text/unlinked. Suggested references
-never override check verdict. Render text without links/HTML interpretation;
+never override check verdict. Revalidate stored resolved references on every
+owner read, removing newly superseded/revoked or stale candidate links from
+the public projection. Render text without links/HTML interpretation;
 create links only for server-resolved IDs. A model sentence claiming checks
 passed is never evidence of a pass.
 
@@ -91,6 +99,10 @@ host UI data, never agent disclosure. Later forwarding to another agent needs a 
 one-shot disclosure. `result_deliver` rechecks current binding, result authority
 and original recipient; request principal/binding fields are selectors, not
 trusted attestations. No card is generated automatically on completion.
+`cards_list` accepts optional `after_id` pagination and returns
+`{cards,next_cursor,truncated}` with intact explanations under a 1.5 MiB JSON
+budget; consumers follow `next_cursor` rather than assuming the first page is
+the entire pane history.
 
 ## Trusted provenance
 
@@ -103,8 +115,9 @@ Owner-started checks use `{kind:'owner_action'}` and
 `{kind:'owner_approval',preview_id}`; recorder is still Comet, not owner.
 Build ID is the Doctor definition: SHA-256 over sorted `server/*.mjs` and
 `contracts/*.mjs` names/bytes (excluding `mobile-proxy.mjs`), computed by
-service helper, never Git HEAD or a caller tag. Verifier ID/hash come from
-the check definition. Historical records without trustworthy origin project
+service helper, never Git HEAD or a caller tag. The source hash is snapshotted
+at module load, not recalculated from mutable disk while serving. Verifier
+ID/hash come from the check definition. Historical records without trustworthy origin project
 `{kind:'legacy_unknown'}` rather than inferred native/owner claims.
 
 Admission persists immutable provenance; observed-result staging/finalization
@@ -114,6 +127,16 @@ conflict. Review approval remains a separate owner action referencing exact
 evidence, not an assertion that the owner initiated its check.
 
 ## Reviewed patch request boundary
+
+For a result's exact candidate generation, owner execution actions
+`candidate_version_get({workspace_id,project_id,candidate_id,candidate_hash,
+generation})` and `candidate_version_read` (same fields plus `path`) select only
+the current private root or internally recorded `root_history`. They recapture
+the bounded tree and check its candidate hash before exposing metadata/text;
+the read action rechecks after reading the bound file. A missing/tampered old
+root fails typed unavailable/stale. These are owner reads, not model tools;
+result links must pass the stored hash/generation rather than load the current
+candidate by ID alone.
 
 `patch_preview({workspace_id,project_id,task_id,candidate_id,review_id})`,
 `patch_export` (same IDs plus `preview_id,preview_digest,op_id`), and

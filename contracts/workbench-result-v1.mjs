@@ -62,7 +62,7 @@ export const resultRequests=Object.freeze({
   result_get:strict({action:{const:'result_get'},...scope,result_id:resultUuid}),
   result_retry:strict({action:{const:'result_retry'},...scope,result_id:resultUuid,expected_digest:resultHash}),
   result_deliver:strict({action:{const:'result_deliver'},...scope,result_id:resultUuid,pane_id:resultUuid,profile_id:{type:'string',minLength:1,maxLength:200},session_id:{type:'string',minLength:1,maxLength:300},op_id:resultUuid}),
-  cards_list:strict({action:{const:'cards_list'},workspace_id:resultUuid,pane_id:resultUuid,profile_id:{type:'string',minLength:1,maxLength:200},session_id:{type:'string',minLength:1,maxLength:300}}),
+  cards_list:{...strict({action:{const:'cards_list'},workspace_id:resultUuid,pane_id:resultUuid,profile_id:{type:'string',minLength:1,maxLength:200},session_id:{type:'string',minLength:1,maxLength:300},after_id:resultUuid}),required:['action','workspace_id','pane_id','profile_id','session_id']},
 });
 
 // Owner-authenticated requests on existing /api/workbench/workflow. No caller

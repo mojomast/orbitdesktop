@@ -86,8 +86,10 @@ export function createWorkbenchNativeRuntime({source,python,root,endpoint,profil
         child.once('close',(code,signal)=>{clearTimeout(timer);const result=parseNativeResult(Buffer.concat(frames),{overflow});const outcome={termination_confirmed:true,exit_code:code,signal,result};code===0&&!failed?resolve({status:'completed',...outcome}):reject(Object.assign(Error('Native runtime terminated'),outcome));});
         // FD3 is private runtime input, never model arguments or environment.
         child.stdio[3].end(JSON.stringify({endpoint,model,api_key:apiKey,input,max_iterations:scope.budget.calls+2,session_id:scope.recipient.session_id}));
-      }).finally(()=>{children.delete(run_id);release();try{fs.unlinkSync(channelFile);}catch{};try{fs.writeFileSync(path.join(dir,'retention.json'),JSON.stringify({run_id,grant_id:scope.id,ended_at:Date.now(),policy:'Private runtime files retained; channel key removed. Host inventory/manual retention only, never recursive request cleanup.'}),{mode:0o600});}catch{}});
-      return {scope,run_id,completion};
+      }).finally(()=>{children.delete(run_id);try{fs.unlinkSync(channelFile);}catch{};try{fs.writeFileSync(path.join(dir,'retention.json'),JSON.stringify({run_id,grant_id:scope.id,ended_at:Date.now(),policy:'Private runtime files retained; channel key removed. Host inventory/manual retention only, never recursive request cleanup.'}),{mode:0o600});}catch{}});
+      // The shared lease remains held until the service persists or quarantines
+      // this observed completion. Release is idempotent.
+      return {scope,run_id,completion,releaseNative:release};
     }catch(error){if(child)terminate(child);else error.native_outcome='not_started';release();if(channelFile)try{fs.unlinkSync(channelFile);}catch{};throw error;}
   }
   async function stopNative({run_id}){const child=children.get(run_id);return {requested:child?terminate(child):false};}

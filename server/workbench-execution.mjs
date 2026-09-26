@@ -110,6 +110,8 @@ export const executionRequests=Object.freeze({
   candidate_preview:strict({...base,action:{const:'candidate_preview'},task_id:uuid}),
   candidate_create:strict({...base,action:{const:'candidate_create'},task_id:uuid,preview_id:uuid,preview_digest:hash64}),
   candidate_get:strict({...base,action:{const:'candidate_get'},candidate_id:uuid}),
+  candidate_version_get:strict({...base,action:{const:'candidate_version_get'},candidate_id:uuid,candidate_hash:hash64,generation:{type:'integer',minimum:1,maximum:256}}),
+  candidate_version_read:strict({...base,action:{const:'candidate_version_read'},candidate_id:uuid,candidate_hash:hash64,generation:{type:'integer',minimum:1,maximum:256},path:safePath}),
   candidate_read:strict({...base,action:{const:'candidate_read'},candidate_id:uuid,path:safePath}),
   candidate_export:strict({...base,action:{const:'candidate_export'},candidate_id:uuid}),
   candidate_edit:strict({...base,action:{const:'candidate_edit'},candidate_id:uuid,path:safePath,expected_hash:hash64,content:{type:'string',maxLength:262144}}),
@@ -346,6 +348,27 @@ export function createWorkbenchExecution({store,records,data,gate,environments,n
     const candidate=candidateRecord(workspace_id,project_id,candidate_id);
     const file=readCandidateFile(store,candidate,relative);
     return {candidate_id:candidate.id,file:{path:file.path,hash:file.hash,bytes:file.bytes,text:file.binary?'':file.text,binary:file.binary}};
+  }
+  function candidateVersion({workspace_id,project_id,candidate_id,candidate_hash,generation}){
+    const project=requireActive(workspace_id,project_id),candidate=candidateRecord(workspace_id,project_id,candidate_id);
+    if(candidate.project_generation!==project.generation)throw wbError('stale_resource');
+    const version=candidate.generation===generation&&candidate.hash===candidate_hash?candidate:
+      (candidate.root_history??[]).find(entry=>entry.generation===generation&&entry.hash===candidate_hash);
+    if(!version)throw wbError('stale_resource');
+    const historical={...candidate,root:version.root,generation,hash:candidate_hash,files:version===candidate?candidate.files:[]};
+    let observed;
+    try{observed=rehashCandidate(historical);}catch(error){throw wbError(error?.code==='stale_resource'?'stale_resource':'unavailable');}
+    if(observed.hash!==candidate_hash)throw wbError('stale_resource');
+    return {...historical,files:observed.files,exclusions:observed.exclusions,limited:observed.limited};
+  }
+  function candidateVersionGet(body){
+    const candidate=candidateVersion(body);
+    return {candidate:publicCandidate(candidate)};
+  }
+  function candidateVersionRead(body){
+    const candidate=candidateVersion(body),file=readCandidateFile(store,candidate,body.path);
+    if(rehashCandidate(candidate).hash!==body.candidate_hash||!candidate.files.some(entry=>entry.path===body.path&&entry.hash===file.hash&&entry.bytes===file.bytes))throw wbError('stale_resource');
+    return {candidate_id:candidate.id,candidate_hash:candidate.hash,generation:candidate.generation,file:{path:file.path,hash:file.hash,bytes:file.bytes,text:file.binary?'':file.text,binary:file.binary}};
   }
   function candidateExport({workspace_id,project_id,candidate_id}){
     const project=requireActive(workspace_id,project_id);
@@ -753,6 +776,8 @@ export function createWorkbenchExecution({store,records,data,gate,environments,n
       case 'candidate_preview':return candidatePreview(body);
       case 'candidate_create':return candidateCreate(body);
       case 'candidate_get':return candidateGet(body);
+      case 'candidate_version_get':return candidateVersionGet(body);
+      case 'candidate_version_read':return candidateVersionRead(body);
       case 'candidate_read':return candidateRead(body);
       case 'candidate_export':return candidateExport(body);
       case 'candidate_edit':return candidateEdit(body);
