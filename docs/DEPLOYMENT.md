@@ -1,5 +1,29 @@
 # Testing candidate deployment and rollback
 
+## Provisioning the RouteTok TypeScript cache
+
+Use a fresh private provisioning directory containing only the reviewed pinned
+`package.json` and `package-lock.json`, an empty HOME, empty user/global npmrc
+files, and a dedicated mode-0700 cache. With a sanitized environment, provision
+via `npm ci --ignore-scripts --include=dev --no-audit --no-fund
+--registry=https://registry.npmjs.org`. This operator step requires download
+authorization and must never use an owner's node_modules or npm credentials.
+Keep the lock byte-identical. Do not run npm audit/fix or update tool versions.
+
+Set `ORBIT_WORKBENCH_NPM_CACHE` to the persistent private cache root for the
+isolated service before its authorized activation. Workbench preparation copies
+only cache content and runs offline with scripts disabled. Missing cached
+artifacts fail rather than causing network requests. The cache is a provisioning
+input, not a guarantee of dependency integrity: lockfile integrity plus hashed
+private prepared trees and executable modes establish the execution identity.
+
+The real-profile regression is enabled with `ORBIT_ROUTETOK_TEST_SOURCE` (a clean
+disposable RouteTok checkout pinned at `5982efe845f99528b2facde08991d951269ec4ab`)
+and `ORBIT_ROUTETOK_TEST_CACHE` (the dedicated provisioned cache). It exercises
+profile preview/approval/preparation, acceptance binding, the real managed
+recorder, all 59 TypeScript test files, and dependency executable-mode tampering.
+CI provisions that public pinned checkout explicitly. No inference is involved.
+
 ## Authorized DeepSeek native inference
 
 The native adapter permits the exact HTTPS base `https://api.deepseek.com/v1`

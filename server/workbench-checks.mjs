@@ -30,13 +30,13 @@ try {
 // and recorder, not arbitrary host resources.
 export const CHECK_LIMITS=Object.freeze({durationMs:60000,logBytes:262144,previewBytes:16384,maxConcurrent:1,storage:'advisory: no storage quota is enforced; each run retains at most logBytes in a private directory and total disk use is host-limited'});
 export const CHECK_DEFINITIONS=Object.freeze({
-  'node-test':Object.freeze({id:'node-test',executable:process.execPath,args:Object.freeze([TEST_RUNNER]),runner_hash:TEST_RUNNER_HASH,result_protocol:1,discovery:'captured **/*.test.{js,cjs,mjs} and **/test/**/*.{js,cjs,mjs}; explicit pinned files v1'}),
+  'node-test':Object.freeze({id:'node-test',executable:process.execPath,args:Object.freeze([TEST_RUNNER]),runner_hash:TEST_RUNNER_HASH,result_protocol:1,discovery:'captured **/*.test.{js,cjs,mjs}, **/test/**/*.{js,cjs,mjs}, and test/**/*.test.ts with candidate-local tsx; explicit pinned files v2'}),
   'host-regression':Object.freeze({id:'host-regression',executable:process.execPath,args:Object.freeze([]),script:HOST_SCRIPT}),
 });
 export function checkDefinition(id){const definition=Object.hasOwn(CHECK_DEFINITIONS,id)?CHECK_DEFINITIONS[id]:undefined;if(!definition)throw wbError('unsupported');return definition;}
 export const definitionDigest=definition=>digest(JSON.stringify(definition));
 export const checkSpecDigest=fields=>digest(JSON.stringify(fields));
-export const discoverTestFiles=files=>files.map(file=>file.path).filter(file=>/(?:^|\/)[^/]+\.test\.(?:js|cjs|mjs)$/.test(file)||/(?:^|\/)test\/.*\.(?:js|cjs|mjs)$/.test(file)).sort();
+export const discoverTestFiles=files=>files.map(file=>file.path).filter(file=>/(?:^|\/)[^/]+\.test\.(?:js|cjs|mjs)$/.test(file)||/(?:^|\/)test\/.*\.(?:js|cjs|mjs)$/.test(file)||/^test\/.*\.test\.ts$/.test(file)).sort();
 export function parseTestResults(buffer,files){
   try{
     if(!Array.isArray(files)||!files.length||files.length>512||new Set(files).size!==files.length)throw Error();
@@ -141,7 +141,7 @@ async function executeCheck({definition_id,candidate_root,workspace_id,project_i
   const temp=fs.mkdtempSync(path.join(directory,'private-'));fs.chmodSync(temp,0o700);
   const log_path=path.join(directory,'output.log');
   const fd=fs.openSync(log_path,fs.constants.O_WRONLY|fs.constants.O_CREAT|fs.constants.O_EXCL|fs.constants.O_NOFOLLOW,0o600);
-  const env={PATH:'/usr/bin:/bin',HOME:temp,LANG:'C.UTF-8',LC_ALL:'C.UTF-8',NODE_OPTIONS:'',TMPDIR:temp};
+  const env={PATH:'/usr/bin:/bin',HOME:temp,LANG:'C.UTF-8',LC_ALL:'C.UTF-8',NODE_OPTIONS:'',TMPDIR:temp,TSX_DISABLE_CACHE:'1'};
   const env_fingerprint=digest(JSON.stringify(env));
   let args=definition.args;
   if(definition_id==='node-test'){

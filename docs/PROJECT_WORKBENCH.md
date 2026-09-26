@@ -1,5 +1,38 @@
 # Comet Project Workbench
 
+## Locked TypeScript test profile
+
+The RouteTok-compatible profile preserves the project's npm v3 lock and includes
+exactly the declared development toolchain (`tsx`, `typescript`, `@types/node`).
+It supports `tsx --test "test/**/*.test.ts"`, without root runtime dependencies,
+workspaces, overrides, peer/optional/bundled root dependencies, or install hooks.
+Every locked artifact must have SHA-512 integrity and resolve to HTTPS
+`registry.npmjs.org`. Transitive platform-optional packages are selected by npm.
+
+Preparation requires a dedicated owner-provisioned mode-0700 npm cache selected
+by `ORBIT_WORKBENCH_NPM_CACHE`. Cache provisioning/download is a separate operator
+operation, not a worker tool. Only `_cacache` is copied into a private preparation
+directory. The approved command is `npm ci --include=dev --offline --ignore-scripts
+--no-audit --no-fund --no-package-lock=false`, under the existing timeout. Cache
+misses fail; there is no online fallback, ambient HOME/npmrc, or shared dependency
+mount. Lifecycle scripts stay disabled, including esbuild's install script; its
+locked platform binary is used directly. The preview identifies the complete
+artifact list, lock and toolchain hashes, cache path and exact command.
+
+The managed Node runner discovers `test/**/*.test.ts` and imports tsx only from
+the verified candidate execution view. Its structured test protocol and complete
+required-file checks remain authoritative. Transpile caching is disabled; no
+generated candidate outputs are permitted. Executable bits are retained for the
+locked esbuild binary and included in dependency identity. This lane permits
+16 MiB dependency files and 128 MiB total dependency bytes; source-capture limits
+are unchanged. The older local-tarball lane retains its previous limits.
+
+After preparing dependencies, preview and approve **Required checks** to bind the
+profile before baseline execution. Create fresh tasks after deployment: a check
+definition binds the installed runner, so old acceptance contracts may be stale.
+This remains trusted-host execution, not an OS sandbox or arbitrary npm-script
+support. Type checking/building are not implied by the test profile.
+
 ## Project inspection, one-shot sharing, and supervised candidate checks
 
 Open **Project Workbench** from the normal Orbit menu / workspace tools. No special

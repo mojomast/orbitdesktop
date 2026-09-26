@@ -5,6 +5,7 @@ import {spawn} from 'node:child_process';
 import Ajv from 'ajv';
 import {wbError} from './workbench-store.mjs';
 import {captureProject,openProjectRoot,readProjectFile} from './project-files.mjs';
+import {registryTypeScriptProfile,privateCacheRoot} from './workbench-registry-profile.mjs';
 
 const uuid={type:'string',pattern:'^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$'};
 const hex={type:'string',pattern:'^[a-f0-9]{64}$'};
@@ -60,7 +61,12 @@ function inspect(candidate,inputs){
   let pkg,lock;
   try{pkg=JSON.parse(packageBytes);lock=JSON.parse(lockBytes);}catch{throw wbError('invalid_request');}
   if(!pkg||!lock||lock.lockfileVersion!==3||!lock.packages||!lock.packages['']||!pkg.name||lock.packages[''].name!==pkg.name||JSON.stringify(lock.packages[''].dependencies??{})!==JSON.stringify(pkg.dependencies??{})||pkg.scripts?.preinstall||pkg.scripts?.install||pkg.scripts?.postinstall)throw wbError('unsupported');
-  if(pkg.workspaces||pkg.optionalDependencies||pkg.devDependencies||pkg.peerDependencies||pkg.overrides||pkg.bundleDependencies||pkg.bundledDependencies)throw wbError('unsupported');
+  if(pkg.devDependencies){
+    const registry=registryTypeScriptProfile(pkg,lock);
+    if(inputs.length!==2)throw wbError('unsupported');
+    return {selected,lock_hash:hash(lockBytes),source_hash:candidate.hash,registry};
+  }
+  if(pkg.workspaces||pkg.optionalDependencies||pkg.peerDependencies||pkg.overrides||pkg.bundleDependencies||pkg.bundledDependencies)throw wbError('unsupported');
   const required=new Set(['package.json','package-lock.json']);
   for(const [name,info] of Object.entries(lock.packages)){
     if(!name)continue;
@@ -73,7 +79,7 @@ function inspect(candidate,inputs){
   for(const item of selected)validFile(candidate.root,item.path,item);
   return {selected,lock_hash:hash(lockBytes),source_hash:candidate.hash};
 }
-function traverse(root,copyTo,{rejectBins=false}={}){
+function traverse(root,copyTo,{rejectBins=false,largeFiles=false}={}){
   const files=[];let nodes=0,total=0;
   const base=openProjectRoot(root);
   function walk(fd,relative,depth){
@@ -91,13 +97,14 @@ function traverse(root,copyTo,{rejectBins=false}={}){
           if(copyTo)fs.mkdirSync(path.join(copyTo,key),{mode:0o700});
           walk(item,key,depth+1);
         }else if(before.isFile()&&before.nlink===1){
-          if(before.size>4*1024*1024||total+before.size>64*1024*1024)throw wbError('limit_exceeded');
+          if(before.size>(largeFiles?16:4)*1024*1024||total+before.size>(largeFiles?128:64)*1024*1024)throw wbError('limit_exceeded');
           const bytes=Buffer.alloc(before.size);let offset=0;
           while(offset<bytes.length){const count=fs.readSync(item,bytes,offset,bytes.length-offset,offset);if(!count)throw wbError('stale_resource');offset+=count;}
           const after=fs.fstatSync(item);
           if(after.size!==before.size||after.mtimeMs!==before.mtimeMs||after.ctimeMs!==before.ctimeMs)throw wbError('stale_resource');
-          total+=bytes.length;files.push([key,hash(bytes)]);
-          if(copyTo)fs.writeFileSync(path.join(copyTo,key),bytes,{flag:'wx',mode:0o600});
+          const executable=!!(before.mode&0o111);
+          total+=bytes.length;files.push(largeFiles?[key,hash(bytes),executable]:[key,hash(bytes)]);
+          if(copyTo)fs.writeFileSync(path.join(copyTo,key),bytes,{flag:'wx',mode:largeFiles&&executable?0o700:0o600});
         }else throw wbError('unsupported');
       }finally{fs.closeSync(item);}
     }
@@ -105,9 +112,9 @@ function traverse(root,copyTo,{rejectBins=false}={}){
   try{walk(base.fd,'',0);}finally{base.close();}
   return digest(files);
 }
-const treeHash=root=>traverse(root);
-const runNpm=(node,npm,cwd,config)=>new Promise((resolve,reject)=>{
-  const child=spawn('/usr/bin/timeout',['--kill-after=5s','60s',node,npm,'ci','--ignore-scripts','--offline','--no-audit','--no-fund','--omit=dev','--no-package-lock=false'],{
+const treeHash=(root,largeFiles=false)=>traverse(root,undefined,{largeFiles});
+const runNpm=(node,npm,cwd,config,development=false)=>new Promise((resolve,reject)=>{
+  const child=spawn('/usr/bin/timeout',['--kill-after=5s','60s',node,npm,'ci','--ignore-scripts','--offline','--no-audit','--no-fund',development?'--include=dev':'--omit=dev','--no-package-lock=false'],{
     cwd,stdio:['ignore','pipe','pipe'],env:{PATH:path.dirname(node),HOME:config,NPM_CONFIG_USERCONFIG:path.join(config,'userconfig'),NPM_CONFIG_GLOBALCONFIG:path.join(config,'globalconfig'),NPM_CONFIG_CACHE:path.join(config,'cache'),NPM_CONFIG_REGISTRY:'http://127.0.0.1:9/',NPM_CONFIG_OFFLINE:'true',NPM_CONFIG_IGNORE_SCRIPTS:'true',NPM_CONFIG_AUDIT:'false',NPM_CONFIG_FUND:'false'},detached:true,
   });
   let output='';
@@ -116,7 +123,7 @@ const runNpm=(node,npm,cwd,config)=>new Promise((resolve,reject)=>{
   child.on('close',(code,signal)=>{code===0?resolve():reject(Object.assign(wbError(code===124||code===137||signal?'outcome_unknown':'unavailable'),{detail:output.slice(-512)}));});
 });
 
-export function createWorkbenchEnvironments({store,records,data,now=Date.now,gate}={}){
+export function createWorkbenchEnvironments({store,records,data,now=Date.now,gate,registryCache=process.env.ORBIT_WORKBENCH_NPM_CACHE}={}){
   if(!path.isAbsolute(store?.root??'')||!records?.project||!data?.get||!data?.create||!data?.update||!data?.list)throw Error('Workbench environments require store, records and data');
   const root=path.join(store.root,'workbench-environments');
   fs.mkdirSync(root,{recursive:true,mode:0o700});
@@ -136,7 +143,9 @@ export function createWorkbenchEnvironments({store,records,data,now=Date.now,gat
       const candidate=data.get('candidates',body.workspace_id,body.project_id,body.candidate_id);
       if(candidate.project_generation!==project.generation)throw wbError('stale_resource');
       const observed=inspect(candidate,body.required_inputs),chain=toolchain();
+      if(observed.registry)privateCacheRoot(registryCache);
       const spec={candidate_id:body.candidate_id,project_generation:project.generation,required_inputs:body.required_inputs.slice().sort(),input_hashes:Object.fromEntries(observed.selected.map(file=>[file.path,file.hash])),source_hash:observed.source_hash,source_selection_policy:'candidate_generation_may_change_if_dependency_inputs_remain_identical',lock_hash:observed.lock_hash,toolchain_hash:chain.hash,toolchain:{node:chain.node,npm:chain.npm,version:chain.version},network_policy:'offline_only',lifecycle_policy:'ignore_scripts',command:['/usr/bin/timeout','--kill-after=5s','60s',chain.node,chain.npm,'ci','--ignore-scripts','--offline','--no-audit','--no-fund','--omit=dev','--no-package-lock=false']};
+      if(observed.registry){spec.registry=observed.registry;spec.registry_cache=registryCache;spec.command=spec.command.map(arg=>arg==='--omit=dev'?'--include=dev':arg);}
       const preview_id=randomUUID(),preview_digest=digest(spec),expires_at=now()+60000;
       previews.set(preview_id,{...spec,preview_digest,expires_at,workspace_id:body.workspace_id,project_id:body.project_id});
       return {preview_id,preview_digest,expires_at,...spec};
@@ -165,12 +174,16 @@ export function createWorkbenchEnvironments({store,records,data,now=Date.now,gat
       const source=path.join(dir,'source'),config=path.join(dir,'config');fs.mkdirSync(source,{mode:0o700});fs.mkdirSync(config,{mode:0o700});
       fs.writeFileSync(path.join(config,'userconfig'),'',{mode:0o600});fs.writeFileSync(path.join(config,'globalconfig'),'',{mode:0o600});
       for(const item of observed.selected){const destination=path.join(source,item.path);fs.mkdirSync(path.dirname(destination),{recursive:true,mode:0o700});fs.writeFileSync(destination,validFile(candidate.root,item.path,item),{flag:'wx',mode:0o600});}
-      await runNpm(p.toolchain.node,p.toolchain.npm,source,config);
+      if(p.registry){
+        const cache=privateCacheRoot(p.registry_cache);const destination=path.join(config,'cache','_cacache');fs.mkdirSync(destination,{recursive:true,mode:0o700});
+        traverse(path.join(cache,'_cacache'),destination,{largeFiles:true});
+      }
+      await runNpm(p.toolchain.node,p.toolchain.npm,source,config,!!p.registry);
       if(scope(body).generation!==p.project_generation)throw wbError('stale_resource');
       current(body,p);
       const dependency_root=path.join(source,'node_modules');
       if(!fs.statSync(dependency_root).isDirectory())throw wbError('unavailable');
-      const dependency_hash=treeHash(dependency_root);
+      const dependency_hash=treeHash(dependency_root,!!p.registry);
       const prepared={dependency_root,dependency_hash,node_path:p.toolchain.node,lock_hash:p.lock_hash,toolchain_hash:p.toolchain_hash,profile_id:p.id,profile_version:p.profile_version,source_hash:candidate.hash,environment_identity:digest([p.id,p.lock_hash,p.toolchain_hash,dependency_hash,dir]),network_policy:p.network_policy,lifecycle_policy:p.lifecycle_policy};
       return data.update('profiles',body.workspace_id,body.project_id,p.id,record.revision,{status:'ready',prepared,finished_at:now()});
     }catch(error){if(record){try{data.update('profiles',body.workspace_id,body.project_id,p.id,record.revision,{status:error.code==='outcome_unknown'?'outcome_unknown':'failed',finished_at:now(),failure_code:error.code??'unavailable',private_artifact:dir});}catch{}}throw error;}
@@ -185,11 +198,11 @@ export function createWorkbenchEnvironments({store,records,data,now=Date.now,gat
     const rootDir=path.join(root,randomUUID()),source=path.join(rootDir,'source');
     fs.mkdirSync(rootDir,{mode:0o700});fs.mkdirSync(source,{mode:0o700});
     try{
-      if(treeHash(p.prepared.dependency_root)!==p.prepared.dependency_hash)throw wbError('stale_resource');
+      if(treeHash(p.prepared.dependency_root,!!p.registry)!==p.prepared.dependency_hash)throw wbError('stale_resource');
       for(const item of candidate.files){const destination=path.join(source,item.path);fs.mkdirSync(path.dirname(destination),{recursive:true,mode:0o700});fs.writeFileSync(destination,validFile(candidate.root,item.path,item),{flag:'wx',mode:0o600});}
       fs.mkdirSync(path.join(source,'node_modules'),{mode:0o700});
-      if(traverse(p.prepared.dependency_root,path.join(source,'node_modules'))!==p.prepared.dependency_hash)throw wbError('stale_resource');
-      if(treeHash(path.join(source,'node_modules'))!==p.prepared.dependency_hash||treeHash(p.prepared.dependency_root)!==p.prepared.dependency_hash)throw wbError('stale_resource');
+      if(traverse(p.prepared.dependency_root,path.join(source,'node_modules'),{largeFiles:!!p.registry})!==p.prepared.dependency_hash)throw wbError('stale_resource');
+      if(treeHash(path.join(source,'node_modules'),!!p.registry)!==p.prepared.dependency_hash||treeHash(p.prepared.dependency_root,!!p.registry)!==p.prepared.dependency_hash)throw wbError('stale_resource');
       if(scope(body).generation!==p.project_generation)throw wbError('stale_resource');
       current(body,p);
       const opened=openProjectRoot(source),sourceIdentity=opened.identity;opened.close();
@@ -200,8 +213,8 @@ export function createWorkbenchEnvironments({store,records,data,now=Date.now,gat
         const observed=capture.files.map(file=>({path:file.path,hash:file.hash,bytes:file.bytes.length})).sort((a,b)=>a.path.localeCompare(b.path));
         const expected=candidate.files.map(({path,hash,bytes})=>({path,hash,bytes})).sort((a,b)=>a.path.localeCompare(b.path));
         if(capture.limited||stable(observed)!==stable(expected)||capture.exclusions.some(entry=>entry.path!=='node_modules'||entry.reason!=='excluded_by_policy'))throw wbError('stale_resource');
-        const dependency_hash=traverse(path.join(source,'node_modules'),undefined,{rejectBins:true});
-        if(dependency_hash!==prepared.dependency_hash||treeHash(p.prepared.dependency_root)!==prepared.dependency_hash)throw wbError('stale_resource');
+        const dependency_hash=traverse(path.join(source,'node_modules'),undefined,{rejectBins:true,largeFiles:!!p.registry});
+        if(dependency_hash!==prepared.dependency_hash||treeHash(p.prepared.dependency_root,!!p.registry)!==prepared.dependency_hash)throw wbError('stale_resource');
         return {source_hash:candidate.hash,dependency_hash,environment_identity:prepared.environment_identity,output_hash:digest([]),allowed_outputs:[]};
       };
       verify();
@@ -214,7 +227,7 @@ export function createWorkbenchEnvironments({store,records,data,now=Date.now,gat
     const body={workspace_id,project_id,profile_id},project=scope(body),p=profile(body);
     if(p.project_generation!==project.generation||p.status!=='ready'||!p.prepared||candidate_id&&p.candidate_id!==candidate_id)throw wbError('stale_resource');
     current(body,p);
-    if(treeHash(p.prepared.dependency_root)!==p.prepared.dependency_hash)throw wbError('stale_resource');
+    if(treeHash(p.prepared.dependency_root,!!p.registry)!==p.prepared.dependency_hash)throw wbError('stale_resource');
     return {profile_id:p.id,profile_version:p.profile_version,project_generation:p.project_generation,lock_hash:p.lock_hash,toolchain_hash:p.toolchain_hash,dependency_hash:p.prepared.dependency_hash,environment_identity:p.prepared.environment_identity,network_policy:p.network_policy,lifecycle_policy:p.lifecycle_policy};
   }
   return {dispatch,createExecutionView,verifyProfile};

@@ -156,7 +156,7 @@ const native=createWorkbenchNative({store:workspaceService.store,records:workben
 workbenchServices.native=native;workbenchServices.nativeConfigured=!!nativeOptions;
 const nativeHandler=workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:body=>native.dispatch(body)});
 const workflowHandler=workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:body=>workflow.dispatch(body)});
-const environmentHandler=workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:body=>environments.dispatch(body)});
+const environmentHandler=workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:body=>environments.dispatch(body),publicReasons:['dedicated_npm_cache_required','private_npm_cache_required','typescript_test_command_unsupported','typescript_dependency_shape_unsupported','typescript_toolchain_dependencies_required','development_lock_mismatch','registry_lock_entry_unsupported','registry_url_unsupported','registry_artifact_limit']});
 const server = http.createServer(async (req, res) => {
   const allowedHosts = new Set([
     `127.0.0.1:${port}`,

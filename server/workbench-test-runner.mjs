@@ -16,7 +16,10 @@ const emit=record=>{
   fs.writeSync(3,line);
 };
 emit({type:'start',files});
-for await(const event of run({files:files.map(file=>path.resolve(file)),concurrency:1})){
+const typescript=files.some(file=>file.endsWith('.ts'));
+// Use only the candidate's verified dependency view, never ambient/global tsx.
+const execArgv=typescript?['--import',path.resolve('node_modules/tsx/dist/loader.mjs')]:[];
+for await(const event of run({files:files.map(file=>path.resolve(file)),concurrency:1,execArgv})){
   const d=event.data;
   if(event.type==='test:stdout'){process.stdout.write(d.message);continue;}
   if(event.type==='test:stderr'){process.stderr.write(d.message);continue;}

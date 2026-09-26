@@ -53,11 +53,22 @@ jobs:
           git clone --no-checkout https://github.com/NousResearch/hermes-agent /tmp/opencode/orbit-hermes-native
           git -C /tmp/opencode/orbit-hermes-native checkout --detach d0288be5b3330d2442e3907185b8e9d0958297bb
           uv sync --project /tmp/opencode/orbit-hermes-native --frozen --python 3.14 --no-default-groups
+      - name: Provision pinned public RouteTok dependency cache
+        run: |
+          umask 077
+          git clone --no-checkout https://github.com/mojomast/routetok.git /tmp/opencode/orbit-routetok-source
+          git -C /tmp/opencode/orbit-routetok-source checkout --detach 5982efe845f99528b2facde08991d951269ec4ab
+          mkdir -p /tmp/opencode/orbit-routetok-provision/cache /tmp/opencode/orbit-routetok-provision/home
+          cp /tmp/opencode/orbit-routetok-source/package{,-lock}.json /tmp/opencode/orbit-routetok-provision/
+          touch /tmp/opencode/orbit-routetok-provision/userconfig /tmp/opencode/orbit-routetok-provision/globalconfig
+          env -i PATH="$PATH" HOME=/tmp/opencode/orbit-routetok-provision/home NPM_CONFIG_CACHE=/tmp/opencode/orbit-routetok-provision/cache NPM_CONFIG_USERCONFIG=/tmp/opencode/orbit-routetok-provision/userconfig NPM_CONFIG_GLOBALCONFIG=/tmp/opencode/orbit-routetok-provision/globalconfig npm ci --prefix /tmp/opencode/orbit-routetok-provision --ignore-scripts --include=dev --no-audit --no-fund --registry=https://registry.npmjs.org
       - name: Contract, build and Node regression gate (actual Hermes root enabled)
         env:
           # The full Node gate must execute the actual-Hermes cases (result-boundary,
           # native, real-project-native/synthetic private key), not silently skip them.
           HERMES_NATIVE_SOURCE: /tmp/opencode/orbit-hermes-native
+          ORBIT_ROUTETOK_TEST_SOURCE: /tmp/opencode/orbit-routetok-source
+          ORBIT_ROUTETOK_TEST_CACHE: /tmp/opencode/orbit-routetok-provision/cache
         run: npm run check
       - name: Python adapters, publisher and portable archive parity
         run: |
