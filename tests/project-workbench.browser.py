@@ -88,7 +88,7 @@ def main(renderer, linked=False):
                                  '--id','workbench-continuity','--version','1.0.0','--title','Synthetic continuity','--runtime',str(root / 'runtime'),
                                  cwd=root,env={'PATH':os.environ['PATH'],'HOME':str(root / 'home')}).stdout)
         build_env = {"HOME": str(root / "home"), "PATH": os.environ["PATH"], "npm_config_cache": str(root / ".npm")}
-        build = run(shutil.which("node"), str(ROOT / "scripts/isolated_build.mjs"), "--source", str(root), "--dest", str(root / "dist"), cwd=root, env=build_env)
+        build = run(shutil.which("node"), str(ROOT / "scripts/isolated_build.mjs"), "--source", str(root), "--dest", str(root / "dist"), "--allow-source-dist", cwd=root, env=build_env)
         assert (root / "dist" / "index.html").is_file(), f"Build produced no dist/index.html:\n{build.stdout}\n{build.stderr}"
 
         project = root / "project"

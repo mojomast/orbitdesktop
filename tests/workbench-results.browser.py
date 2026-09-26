@@ -210,7 +210,7 @@ def main(renderer):
             (root / name).mkdir()
         env = {"HOME": str(root / "home"), "PATH": os.environ["PATH"], "npm_config_cache": str(root / ".npm")}
         built = helper.run(shutil.which("node"), str(ROOT / "scripts/isolated_build.mjs"),
-                           "--source", str(root), "--dest", str(root / "dist"), cwd=root, env=env)
+                           "--source", str(root), "--dest", str(root / "dist"), "--allow-source-dist", cwd=root, env=env)
         log("isolated build: %s" % built.stdout.strip())
         assert (root / "dist/index.html").is_file()
 

@@ -109,7 +109,7 @@ def main(renderer):
         for name in ("runtime", "home", "cwd", "tmux", "project"):
             (root / name).mkdir()
         env = {"HOME": str(root / "home"), "PATH": os.environ["PATH"], "npm_config_cache": str(root / ".npm")}
-        run(shutil.which("node"), str(ROOT / "scripts/isolated_build.mjs"), "--source", str(root), "--dest", str(root / "dist"), cwd=root, env=env)
+        run(shutil.which("node"), str(ROOT / "scripts/isolated_build.mjs"), "--source", str(root), "--dest", str(root / "dist"), "--allow-source-dist", cwd=root, env=env)
         assert (root / "dist/index.html").is_file()
         project = root / "project"
         git_env = {**env, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null"}
