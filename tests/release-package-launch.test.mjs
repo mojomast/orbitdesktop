@@ -14,7 +14,7 @@ import path from 'node:path';
 import {spawn,spawnSync} from 'node:child_process';
 import {randomBytes} from 'node:crypto';
 import {SqliteWorkspaceStore} from '../server/sqlite-workspace-store.mjs';
-import {REPO_ROOT,packageRelease,releaseInputs,unlockRelease} from '../scripts/release_package.mjs';
+import {REPO_ROOT,packageRelease,releaseInputs,removeOwnedRelease} from '../scripts/release_package.mjs';
 import {verifyManifest,readManifest} from '../scripts/release_manifest.mjs';
 import {activate,readPointer} from '../scripts/release_pin.mjs';
 
@@ -46,7 +46,11 @@ function freePort(){return new Promise((resolve,reject)=>{const server=net.creat
 test('disposable immutable release packages and launches with external deps and pointer isolation',
   {skip:!INSTANCE,timeout:600000},async t=>{
   const base=fs.mkdtempSync('/tmp/opencode/orbit-release-instance-');
-  t.after(()=>{try{unlockRelease(base);}catch{}fs.rmSync(base,{recursive:true,force:true});});
+  const releases=[];
+  t.after(()=>{
+    for(const {root,manifest} of releases){try{removeOwnedRelease({root,manifest,scratchBase:base});}catch{}}
+    try{fs.rmSync(base,{recursive:true,force:true});}catch{}
+  });
   fs.mkdirSync(path.join(base,'releases'),{recursive:true});
   fs.mkdirSync(path.join(base,'home'),{recursive:true});
   fs.symlinkSync(path.join(SOURCE,'node_modules'),path.join(base,'node_modules'),'dir');
@@ -62,6 +66,7 @@ test('disposable immutable release packages and launches with external deps and 
   const external={kind:'referenced-readonly',path:path.join(base,'node_modules'),node_abi:process.versions.modules,node_version:process.versions.node};
   const compat={schema_min:7,schema_max:7};
   const a=packageRelease({sourceRoot:SOURCE,distRoot:distDir,outRoot:path.join(base,'releases','rel-a'),release_id:'rel-a',compat,revision:'instance',external,readOnly:true});
+  releases.push({root:a.root,manifest:a.manifest});
   const aEntry=path.join(a.root,'server/index.mjs');
   assert.equal(fs.statSync(aEntry).mode&0o777,0o444,'release files are read-only');
   assert.equal(verifyManifest({root:a.root,manifest:a.manifest}).ok,true);
@@ -83,6 +88,7 @@ test('disposable immutable release packages and launches with external deps and 
 
   // A second release and a pointer change must not mutate the first process's files.
   const b=packageRelease({sourceRoot:SOURCE,distRoot:distDir,outRoot:path.join(base,'releases','rel-b'),release_id:'rel-b',compat,revision:'instance',external,readOnly:true});
+  releases.push({root:b.root,manifest:b.manifest});
   const beforeHash=readManifest({root:a.root}).files.map(file=>file.sha256).join('');
   await activate({runtime,release:b.root,probe:()=>({ok:true,identity_match:true})});
   assert.equal(readPointer(runtime).release_id,'rel-b');

@@ -9,9 +9,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
 import {fileURLToPath,pathToFileURL} from 'node:url';
-import {HERMES_NATIVE_CONTRACT} from '../contracts/workbench-native-v1.mjs';
 
 export const REPO_ROOT=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
+// Pinned runtime commit for release compatibility. Kept as a local constant so the
+// release tooling depends only on Node builtins (it must run even when the shared
+// dependency tree is unavailable); packageRelease may override it explicitly.
+export const DEFAULT_HERMES_COMMIT='d0288be5b3330d2442e3907185b8e9d0958297bb';
 export const MANIFEST_NAME='.orbit-release-manifest.json';
 export const MANIFEST_VERSION=1;
 export const DEFAULT_EXCLUDE=Object.freeze(['.git','node_modules','.runtime','active-release.json',MANIFEST_NAME]);
@@ -92,7 +95,7 @@ export function serviceBuildId(root){
 }
 
 function normaliseCompat(compat={}){
-  const value={node:compat.node??'>=22.12',schema_min:compat.schema_min??7,schema_max:compat.schema_max??7,hermes_commit:compat.hermes_commit??HERMES_NATIVE_CONTRACT.commit};
+  const value={node:compat.node??'>=22.12',schema_min:compat.schema_min??7,schema_max:compat.schema_max??7,hermes_commit:compat.hermes_commit??DEFAULT_HERMES_COMMIT};
   assertCompatComplete(value);
   return value;
 }
