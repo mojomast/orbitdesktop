@@ -45,6 +45,7 @@ GATEWAY_KEY = "fixture-synthetic-not-real"
 NATIVE_ROUTE = "/api/workbench/native"
 EXEC_ROUTE = "/api/workbench/execution"
 WORKBENCH_ROUTE = "/api/workbench"
+WORKFLOW_ROUTE = "/api/workbench/workflow"
 WRONG = "export const sum = (a,b) => a - b;\n"
 RIGHT = "export const sum = (a,b) => a + b;\n"
 ANSWER_TOKEN = "FLASH-NORMAL-UI-EXPLANATION"
@@ -334,10 +335,71 @@ def main(renderer):
                         expect(panel).to_contain_text("Host-authored result card recorded")
                         card = page.locator('.pane[data-pane-id="%s"] section.agent-task-results details[data-result-id]' % helper.PANE)
                         expect(card.first).to_be_visible(timeout=20000)
+
+                        step = "Gate 2: owner review of the recorded pass through the UI"
+                        passing_id = next(entry["id"] for entry in state_body["evidence"] if entry["verdict"] == "pass")
+                        with page.expect_response(lambda r: r.url.split("?")[0] == origin + EXEC_ROUTE
+                                                  and post_json(r.request).get("action") == "execution_state", timeout=30000):
+                            pane.locator("button").filter(has_text=re.compile("^Refresh execution workbench$")).first.click()
+                        checkbox = pane.locator("label", has_text="Passing evidence " + passing_id).locator("input[type=checkbox]")
+                        expect(checkbox).to_be_visible(timeout=20000)
+                        checkbox.check()
+                        review = click_text(pane.locator(".workbench-execution-review"), "Approve", "review_decide")["review"]
+                        assert review["decision"] == "approved" and passing_id in review["evidence_ids"], review
+
+                        step = "Gate 2: reviewed patch preview, export and download through the UI"
+                        click_plain(workbench, "Refresh project inspection")
+                        select = pane.get_by_label("Approved candidate and review")
+                        expect(select.locator("option")).not_to_have_count(0, timeout=30000)
+                        select.select_option(value="%s:%s:%s" % (candidate["id"], review["id"], task["id"]))
+                        patch_preview = click_text(pane, "Preview reviewed patch", "patch_preview", WORKFLOW_ROUTE)
+                        assert patch_preview["format"] == "git-unified-diff", patch_preview
+                        assert patch_preview["roundtrip"]["verified"] is True, patch_preview["roundtrip"]
+                        assert any(change["path"] == "math.js" for change in patch_preview["changes"]), patch_preview["changes"]
+                        exported = click_text(pane, "Create private verified patch", "patch_export", WORKFLOW_ROUTE)["patch"]
+                        assert exported["status"] == "available", exported
+                        assert exported["roundtrip"]["verified"] is True, exported["roundtrip"]
+                        with page.expect_download(timeout=30000) as download_info:
+                            click_plain(pane, "Retrieve private patch")
+                        patch_file = Path(download_info.value.path())
+                        patch_bytes = patch_file.read_bytes()
+                        assert b"--- a/math.js" in patch_bytes and b"+++ b/math.js" in patch_bytes, patch_bytes[:200]
+
+                        step = "Gate 2: apply the downloaded patch to a safe exact base and run an independent check"
+                        base = root / ("exact-base-" + secrets.token_hex(4)); base.mkdir()
+                        (base / "math.js").write_text(WRONG)
+                        git_env = {"PATH": os.environ["PATH"], "HOME": str(root / "home"), "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null"}
+                        subprocess.run(["git", "init", "-q"], cwd=base, env=git_env, check=True)
+                        subprocess.run(["git", "add", "math.js"], cwd=base, env=git_env, check=True)
+                        subprocess.run(["git", "-c", "user.email=fixture@example.invalid", "-c", "user.name=Fixture", "commit", "-q", "-m", "exact base"], cwd=base, env=git_env, check=True)
+                        (base / "change.patch").write_bytes(patch_bytes)
+                        subprocess.run(["git", "apply", "--whitespace=nowarn", "change.patch"], cwd=base, env=git_env, check=True)
+                        assert (base / "math.js").read_text() == RIGHT, (base / "math.js").read_text()
+                        (base / "independent-check.mjs").write_text("import { sum } from './math.js';\nif (sum(2, 3) !== 5) { console.error('independent check failed'); process.exit(1); }\n")
+                        subprocess.run([shutil.which("node"), "independent-check.mjs"], cwd=base, env={"PATH": os.environ["PATH"], "HOME": str(root / "home")}, check=True)
+                        assert (project / "math.js").read_text() == WRONG, "the original project is never modified"
+
+                        step = "Gate 2: reload preserves the result, review and workspace continuity"
+                        ws_before = helper.api(origin, token, "/api/workspace", {"action": "read"})[1]["state"]
+                        pane_ids_before = [monitor["layout"]["pane"]["id"] for monitor in ws_before["monitors"]]
+                        page.reload()
+                        expect(page.locator('.pane[data-pane-id="%s"]' % helper.PANE)).to_be_visible(timeout=20000)
+                        page.get_by_role("button", name="Connect local host", exact=True).click()
+                        page.get_by_role("textbox", name="Host session token").fill(token)
+                        page.get_by_role("button", name="Unlock local host", exact=True).click()
+                        expect(page.locator(".saved")).to_contain_text("Workspace connected", timeout=15000)
+                        expect(page.locator('.pane[data-pane-id="%s"] section.agent-task-results details[data-result-id]' % helper.PANE).first).to_be_visible(timeout=20000)
+                        persisted = helper.api(origin, token, EXEC_ROUTE, {"action": "execution_state", "project_id": project_id})[1]
+                        assert any(item["decision"] == "approved" for item in persisted["reviews"]), persisted["reviews"]
+                        ws_after = helper.api(origin, token, "/api/workspace", {"action": "read"})[1]["state"]
+                        assert [monitor["layout"]["pane"]["id"] for monitor in ws_after["monitors"]] == pane_ids_before, "other panes keep their identities across reload"
+                        assert (project / "math.js").read_text() == WRONG
+
                         assert not page_errors, page_errors
                         log(json.dumps({"renderer": renderer, "renderer_actual": (renderer_info or {}).get("renderer", "default"),
-                                        "ui_handoff": True, "ui_result_panel": True, "model_requests": len(model.requests),
-                                        "page_errors": len(page_errors)}))
+                                        "ui_handoff": True, "ui_result_panel": True, "gate2_patch_roundtrip": True,
+                                        "gate2_independent_apply_check": True, "gate2_reload_persisted": True,
+                                        "model_requests": len(model.requests), "page_errors": len(page_errors), "admitted_live_model_trials": 0}))
                     finally:
                         if page_errors:
                             page.screenshot(path="/tmp/opencode/comet-results-ui-%s-error.png" % renderer, full_page=True)
