@@ -1,0 +1,210 @@
+{
+  "inspect": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "const": "inspect"
+      }
+    },
+    "required": [
+      "action"
+    ],
+    "additionalProperties": false
+  },
+  "read_context": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "const": "read_context"
+      },
+      "context_id": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+      }
+    },
+    "required": [
+      "action",
+      "context_id"
+    ],
+    "additionalProperties": false
+  },
+  "candidate_read": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "const": "candidate_read"
+      },
+      "path": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 4096,
+        "pattern": "^[^\\u0000\\\\]+$"
+      }
+    },
+    "required": [
+      "action",
+      "path"
+    ],
+    "additionalProperties": false
+  },
+  "candidate_patch": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "const": "candidate_patch"
+      },
+      "expected_candidate_hash": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "changes": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 32,
+        "items": {
+          "oneOf": [
+            {
+              "type": "object",
+              "properties": {
+                "op": {
+                  "const": "create"
+                },
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096,
+                  "pattern": "^[^\\u0000\\\\]+$"
+                },
+                "expected_hash": {
+                  "type": "null"
+                },
+                "content": {
+                  "type": "string",
+                  "maxLength": 262144
+                }
+              },
+              "required": [
+                "op",
+                "path",
+                "expected_hash",
+                "content"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "op": {
+                  "const": "change"
+                },
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096,
+                  "pattern": "^[^\\u0000\\\\]+$"
+                },
+                "expected_hash": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "content": {
+                  "type": "string",
+                  "maxLength": 262144
+                }
+              },
+              "required": [
+                "op",
+                "path",
+                "expected_hash",
+                "content"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "op": {
+                  "const": "delete"
+                },
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096,
+                  "pattern": "^[^\\u0000\\\\]+$"
+                },
+                "expected_hash": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                }
+              },
+              "required": [
+                "op",
+                "path",
+                "expected_hash"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        }
+      }
+    },
+    "required": [
+      "action",
+      "expected_candidate_hash",
+      "changes"
+    ],
+    "additionalProperties": false
+  },
+  "job_start": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "const": "job_start"
+      },
+      "definition_id": {
+        "enum": [
+          "node-test",
+          "host-regression"
+        ]
+      }
+    },
+    "required": [
+      "action"
+    ],
+    "additionalProperties": false
+  },
+  "job_status": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "const": "job_status"
+      },
+      "job_id": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+      }
+    },
+    "required": [
+      "action",
+      "job_id"
+    ],
+    "additionalProperties": false
+  },
+  "evidence": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "const": "evidence"
+      },
+      "job_id": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+      }
+    },
+    "required": [
+      "action",
+      "job_id"
+    ],
+    "additionalProperties": false
+  }
+}

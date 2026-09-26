@@ -1,0 +1,85 @@
+{
+  "schema": "orbit.hermes.source-contract.v1",
+  "provenance": {
+    "kind": "sanitized_source_extraction_not_live_gateway_probe",
+    "repository": "https://github.com/NousResearch/hermes-agent",
+    "commit": "d0288be5b3330d2442e3907185b8e9d0958297bb",
+    "package_version": "0.0.0",
+    "python_tested": "3.14.3",
+    "dependency_lock": "uv.lock at the same commit",
+    "dependency_lock_sha256": "bd27ac91236fa57f9eeffea8d4a324f3ca7f9b218525d74bec14a67fc1163887",
+    "sources": {
+      "capabilities": "gateway/platforms/api_server.py:2493-2532",
+      "feature_flags": "gateway/platforms/api_server.py:67-95",
+      "run_idempotency": "gateway/platforms/api_server_runs.py:243-247,360-371,638-649,677-714",
+      "durable_store": "gateway/platforms/api_server_run_idempotency.py:54-62",
+      "plugins": "hermes_cli/plugins.py:230,456",
+      "tool_selection": "model_tools.py:314-340,505-541"
+    },
+    "documentation": [
+      "https://hermes-agent.nousresearch.com/docs/developer-guide/plugins/",
+      "https://hermes-agent.nousresearch.com/docs/user-guide/features/plugins/",
+      "https://github.com/NousResearch/hermes-agent/blob/d0288be5b3330d2442e3907185b8e9d0958297bb/gateway/platforms/api_server.py"
+    ]
+  },
+  "capabilities_selected_literal_fields": {
+    "object": "hermes.api_server.capabilities",
+    "platform": "hermes-agent",
+    "runtime": {"mode": "server_agent", "tool_execution": "server", "split_runtime": false},
+    "features": {
+      "chat_completions": true,
+      "chat_completions_streaming": true,
+      "responses_api": true,
+      "responses_streaming": true,
+      "run_submission": true,
+      "run_status": true,
+      "run_events_sse": true,
+      "run_stop": true,
+      "run_steer": true,
+      "run_approval_response": true,
+      "tool_progress_events": true,
+      "approval_events": true,
+      "session_resources": true,
+      "session_continuity_header": "X-Hermes-Session-Id",
+      "session_key_header": "X-Hermes-Session-Key"
+    },
+    "endpoints": {
+      "runs": {"method": "POST", "path": "/v1/runs"},
+      "run_status": {"method": "GET", "path": "/v1/runs/{run_id}"},
+      "run_events": {"method": "GET", "path": "/v1/runs/{run_id}/events"},
+      "run_stop": {"method": "POST", "path": "/v1/runs/{run_id}/stop"}
+    }
+  },
+  "dynamic_fields_not_fabricated": ["model", "auth.required", "features.runs_idempotency.durable", "features.cors", "features.browser_extension_control"],
+  "idempotency": {
+    "feature_path": "features.runs_idempotency",
+    "supported": true,
+    "durable": "runtime store property; must inspect actual response",
+    "retention_seconds": 86400,
+    "header": "Idempotency-Key",
+    "key": "1-255 visible ASCII characters when supplied",
+    "ordinary_scope": "SHA256(active profile + NUL + expected API credential); raw credential is never persisted",
+    "fingerprint": "SHA256(canonical JSON of exact parsed body and gateway_session_key)",
+    "conflict": "same scope/key with different fingerprint is rejected",
+    "replay": "existing receipt lookup precedes concurrency admission"
+  },
+  "continuation": {
+    "native_session_continuation_flag_exists": false,
+    "capabilities_version_field_exists": false,
+    "source_behavior": "POST /v1/runs selects body.session_id, then previous_response_id session, then declared X-Hermes-Session-Key session, else fresh run_id. It loads selected session history only when conversation_history is empty and previous_response_id is absent. Compression may resolve the supplied session ID to its live successor."
+  },
+  "native_attempt_adapter": {
+    "gateway_run_api_used": false,
+    "reason": "The generic gateway plugin registration context does not authenticate Orbit attempt authority. The shipped adapter starts a dedicated pinned local Hermes process with a private profile and exact approved session ID; channel scope is supplied out of band.",
+    "plugin_api": "register(ctx); ctx.get_config(key, default); ctx.register_tool(name, toolset, schema, handler)",
+    "runtime_api": "AIAgent(...enabled_toolsets=['orbit_workbench'], skip_context_files=True, skip_memory=True, skip_background_review=True).run_conversation(input)",
+    "supported_config": {"tools": {"tool_search": {"enabled": "off"}}, "toolsets": ["orbit_workbench"]},
+    "model_endpoint": "explicit numeric-loopback OpenAI-compatible endpoint only",
+    "private_tools_endpoint": "POST /tool over mode-0600 Unix socket inside mode-0700 directory; HMAC-SHA256(sequence + newline + exact body), private per-attempt key, monotonically increasing sequence",
+    "runtime_retention": "Up to 128 entries in the dedicated private runtime directory; exact channel-key file is removed after process exit, generated Hermes homes are retained with private retention receipts rather than recursively deleted by a request.",
+    "binding_metadata": ["kind", "commit", "model", "destination", "configuration_hash"],
+    "continuation_limit": "The private attempt-local Hermes database starts fresh. Matching the approved profile/session identity does not import or continue the original gateway's tool history.",
+    "tested": "actual pinned Hermes + actual plugin + deterministic local OpenAI HTTP/SSE fixture; no paid inference",
+    "test_paths": ["tests/test_workbench_native_runtime.py", "tests/workbench-native.test.mjs"]
+  }
+}

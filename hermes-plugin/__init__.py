@@ -162,6 +162,11 @@ def invoke(ctx, params):
 
 
 def register(ctx):
+    if ctx.get_config("native_channel_file", ""):
+        from .workbench import register as register_workbench
+        register_workbench(ctx)
+        return
+
     def handle(params, **kwargs):
         del kwargs
         try:
