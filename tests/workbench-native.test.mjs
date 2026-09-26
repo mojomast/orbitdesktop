@@ -133,7 +133,7 @@ test('pinned real Hermes -> actual plugin -> authenticated private bridge -> SQL
     if(step===3)args={action:'candidate_patch',expected_candidate_hash:results[0].result.candidate.hash,changes:[{op:'change',path:'math.js',expected_hash:results[2].result.file.hash,content:RIGHT}]};
     if(step===4)args={action:'job_start'};
     if(step===5)args={action:'evidence',job_id:results[4].result.job.id};
-    const message=step<6?{role:'assistant',content:null,tool_calls:[{id:`call_${step}`,type:'function',function:{name:'orbit_workbench',arguments:JSON.stringify(args)}}]}:{role:'assistant',content:'Finished fixture; recorder evidence is authoritative.'};
+    const message=step<6?{role:'assistant',content:null,tool_calls:[{id:`call_${step}`,type:'function',function:{name:'orbit_workbench',arguments:JSON.stringify(args)}}]}:{role:'assistant',content:`Finished fixture; recorder evidence is authoritative. evidence:${results[5].result.evidence[0].id}`};
     const result={id:'fixture',object:'chat.completion',created:1,model:'orbit-local-fixture',choices:[{index:0,message,finish_reason:step<6?'tool_calls':'stop'}],usage:{prompt_tokens:10,completion_tokens:10,total_tokens:20}};
     if(body.stream){const delta=structuredClone(message);if(delta.tool_calls)delta.tool_calls[0].index=0;res.setHeader('content-type','text/event-stream');res.end(`data: ${JSON.stringify({...result,object:'chat.completion.chunk',choices:[{index:0,delta,finish_reason:null}]})}\n\ndata: ${JSON.stringify({...result,object:'chat.completion.chunk',choices:[{index:0,delta:{},finish_reason:step<6?'tool_calls':'stop'}]})}\n\ndata: [DONE]\n\n`);}else{res.setHeader('content-type','application/json');res.end(JSON.stringify(result));}
   });
@@ -144,7 +144,9 @@ test('pinned real Hermes -> actual plugin -> authenticated private bridge -> SQL
   let status;for(let i=0;i<900;i++){status=await nativeCall({...f.base,action:'status',grant_id:grant.id});if(status.grant.status!=='running')break;await wait(100);}
   assert.equal(status.grant.status,'completed',JSON.stringify({status,toolResults}));
   assert.equal(status.result.availability,'available',JSON.stringify(status.result));
-  assert.equal(status.result.text,'Finished fixture; recorder evidence is authoritative.');
+  assert.equal(status.result.text.startsWith('Finished fixture; recorder evidence is authoritative. evidence:'),true);
+  assert.equal(status.result.resolved_references.length,1);
+  assert.equal(status.result.resolved_references[0].verdict,'pass');
   assert.equal((await nativeCall({...f.base,action:'result_get',result_id:status.result.id})).result.text,status.result.text);
   const state=await f.call('execution_state');assert.deepEqual(state.evidence.map(e=>e.verdict),['fail','pass']);
   assert.equal(fs.readFileSync(path.join(f.projectRoot,'math.js'),'utf8'),WRONG);

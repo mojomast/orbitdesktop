@@ -74,7 +74,8 @@ export function createWorkbenchNative({store,records,data,execution,hermes,now=D
       for(const card of data.list('cards',body.workspace_id,p.id)){
         if(card.project_generation!==active.generation||card.pane_id!==body.pane_id||card.profile_id!==body.profile_id||card.session_id!==body.session_id)continue;
         const r=get('results',card,card.result_id),g=get('grants',r,r.grant_id),a=get('attempts',r,r.attempt_id);
-        if(digest(await binding(a,r))!==card.recipient_digest)continue;
+        let currentBinding;try{currentBinding=await binding(a,r);}catch{continue;}
+        if(digest(currentBinding)!==card.recipient_digest)continue;
         const v=projectResult(r);if(v.availability==='available')cards.push({...card,text:v.text,availability:v.availability,provenance:v.provenance});
       }
     }
