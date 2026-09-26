@@ -182,14 +182,41 @@ export function showProjectWorkbench(getToken: () => string): void {
     if(executionProject===project.id){void executionMount?.refresh?.();return;}
     disposeExecution();execution.replaceChildren(el('p','','Loading tasks, candidates and evidence…'));
     const selectedProject=project.id,selectedEpoch=epoch;
-    const [{mountWorkbenchExecution},{mountWorkbenchTaskAuthority},{mountWorkbenchWorkflow}]=await Promise.all([import('./workbench-execution'),import('./workbench-task-authority'),import('./workbench-workflow')]);
+    const [{mountWorkbenchExecution},{mountWorkbenchTaskAuthority},{mountWorkbenchWorkflow},{mountWorkbenchTaskResult}]=await Promise.all([import('./workbench-execution'),import('./workbench-task-authority'),import('./workbench-workflow'),import('./workbench-task-result')]);
     if(!current(selectedEpoch)||project?.id!==selectedProject)return;
     execution.replaceChildren();executionProject=selectedProject;
-    const taskContainer=el('div'),authorityContainer=el('div'),workflowContainer=el('div');execution.append(taskContainer,authorityContainer,workflowContainer);
+    const taskContainer=el('div'),authorityContainer=el('div'),workflowContainer=el('div'),resultContainer=el('div');execution.append(taskContainer,authorityContainer,resultContainer,workflowContainer);
+    const referenceDialogs=new Set<HTMLDialogElement>();
+    function openReference(title:string,request:Record<string,unknown>,evidenceId?:string){
+      const dialog=el('dialog','hermes-tools-dialog'),content=el('pre','workbench-result-text'),files=el('div');
+      const abort=new AbortController(),token=getToken();
+      const valid=()=>!abort.signal.aborted&&current(selectedEpoch)&&project?.id===selectedProject&&getToken()===token;
+      async function read(body:Record<string,unknown>){
+        const response=await fetch('/api/workbench/execution',{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({workspace_id:workspaceId,project_id:selectedProject,...body}),signal:abort.signal});
+        const data=await response.json();if(!valid())throw Error('stale_resource');
+        if(!response.ok||data.ok!==true)throw Error(typeof data.code==='string'?data.code:'unavailable');return data;
+      }
+      content.textContent='Loading exact recorded identity…';
+      dialog.setAttribute('aria-label',title);dialog.append(el('h3','',title),button('Close','Close recorded reference',()=>dialog.close()),files,content);
+      referenceDialogs.add(dialog);document.body.append(dialog);dialog.showModal();
+      dialog.addEventListener('close',()=>{abort.abort();referenceDialogs.delete(dialog);dialog.remove();},{once:true});
+      void read(request).then(data=>{
+        if(evidenceId){const evidence=data.evidence?.find((entry:{id:string})=>entry.id===evidenceId);if(!evidence)throw Error('unavailable');content.textContent=JSON.stringify({job:data.job,evidence},null,2);return;}
+        const candidate=data.candidate;
+        if(candidate?.id!==request.candidate_id||candidate?.hash!==request.candidate_hash||candidate?.generation!==request.generation)throw Error('stale_resource');
+        content.textContent=JSON.stringify(candidate,null,2);
+        let sequence=0;
+        for(const file of candidate.files??[])files.append(button(String(file.path),'Read this file from the exact recorded candidate version',()=>{
+          const selected=++sequence;content.textContent='Loading recorded file…';
+          void read({...request,action:'candidate_version_read',path:file.path}).then(value=>{if(selected===sequence)content.textContent=value.file?.binary?'Binary preview unavailable.':String(value.file?.text??'');}).catch(error=>{if(valid()&&selected===sequence)content.textContent=`Recorded file unavailable: ${error.message}`;});
+        }));
+      }).catch(error=>{if(valid())content.textContent=`Recorded reference unavailable: ${error.message}. No newer version was substituted.`;});
+    }
     const task=mountWorkbenchExecution({container:taskContainer,token:getToken,workspace_id:workspaceId,project_id:selectedProject,onAskContext:(jobId:string)=>{void askContext({kind:'job',job_id:jobId});}});
     const authority=mountWorkbenchTaskAuthority({container:authorityContainer,token:getToken,workspace_id:workspaceId,project_id:selectedProject});
     const workflow=mountWorkbenchWorkflow({container:workflowContainer,token:getToken,workspace_id:workspaceId,project_id:selectedProject});
-    executionMount={dispose(){task.dispose();authority.dispose();workflow.dispose();},async refresh(){await Promise.all([task.refresh(),authority.refresh(),workflow.refresh()]);}};
+    const result=mountWorkbenchTaskResult({container:resultContainer,token:getToken,workspace_id:workspaceId,project_id:selectedProject,onOpenEvidence:ref=>openReference('Exact recorded check evidence',{action:'job_get',job_id:ref.job_id},ref.evidence_id),onOpenCandidate:ref=>openReference('Exact recorded candidate version',{action:'candidate_version_get',...ref})});
+    executionMount={dispose(){task.dispose();authority.dispose();workflow.dispose();result.dispose();for(const dialog of referenceDialogs)dialog.close();},async refresh(){await Promise.all([task.refresh(),authority.refresh(),workflow.refresh(),result.refresh()]);}};
   }
   async function askTerminal(resource:Resource){
     if(!project||resource.kind!=='terminal')return;

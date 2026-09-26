@@ -106,3 +106,41 @@ These are pending review findings, not accepted release capability. The assigned
 Flash owner is applying fixes and regressions. The generic failing-evidence and
 candidate-CAS tests are baseline coverage; they do not yet prove contradictory
 delivered explanations or moving-target patch export.
+
+## Integration evidence and tooling incident
+
+Sol's initial S1/S2 commits are integrated as `4779afb` and `3aee029`. Parent
+independent verification passed **51/51** native/result/provenance/five-finding/
+execution-loop tests with the actual pinned Hermes enabled, plus the separate
+Python two-attempt runtime test. Follow-up recovery and disclosure review fixes
+remain pending; these passes are not final acceptance.
+
+Flash's reviewed release/build fixes and concrete evaluation fixtures are
+integrated through `7713101`. Parent independently passed **24/24** build/release
+boundary, fixture setup and pinned-subproject tests. An ordinary `npm run build`
+completed into `/tmp/opencode/orbit-isolated-build-85766ad9-7c6f-462d-81a8-c59f7efaa8b5`.
+No checkout build was used. A running disposable release gate remains pending.
+
+Luna's result/patch commits are integrated through `03ef306`. Parent mounted the
+result panel in normal Project Workbench and added exact evidence/candidate
+navigation callbacks. TypeScript and **7/7** patch/workflow tests pass. Handoff
+completion, historical candidate reader, real UI and patch cross-review remain
+pending.
+
+### Dependency permission incident (2026-09-26)
+
+Flash's **unintegrated** release-package fixture called `unlockRelease` on a test
+base containing a symlink to shared owner dependencies. Its recursive chmod
+treated the symlink as a file and followed it, changing only
+`/home/mojo/projects/orbit/node_modules` from the worker-observed `0700` to `0644`.
+Parent observed TypeScript/Node import failures, stopped permission/release work
+and notified all workers. Flash confirmed the exact call and single-path change.
+
+Parent restored only that directory's confirmed original `0700` mode. Adjacent
+dependency directories remained `0700`; AJV/SQLite imports and subsequent checks
+passed. No recursive permission repair, dependency installation, service restart
+or owner cleanup was performed. All **181** served asset files still match the
+pre-increment SHA-256 manifest. The faulty `07af700` package commit is held out of
+integration. Only private sentinel-based permission regression tests are cleared
+until the fix is independently reviewed. Evidence is retained under
+`/tmp/opencode/comet-next-flash-scratch/`; no raw transcripts are committed.
