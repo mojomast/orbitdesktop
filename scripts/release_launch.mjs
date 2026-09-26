@@ -5,6 +5,7 @@
 // identity. Runtime data lives outside every release.
 import fs from 'node:fs';
 import path from 'node:path';
+import {spawn} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {readManifest,verifyManifest,assertCompatComplete} from './release_manifest.mjs';
@@ -90,13 +91,21 @@ export async function resolveLaunch({runtime,open=defaultOpen,nodeVersion=proces
   const pointer=readPointer(runtimeRoot);
   if(!pointer)throw new PinError('no_active_release','No active release is selected.');
   const {root,manifest}=verifyRelease(pointer.release_path);
+  if(pointer.release_id!==manifest.release_id)throw new PinError('pointer_manifest_mismatch','The pointer release id does not match the verified manifest.',{pointer_release_id:pointer.release_id,manifest_release_id:manifest.release_id});
+  if(pointer.manifest_integrity!==manifest.integrity)throw new PinError('pointer_manifest_mismatch','The pointer manifest integrity does not match the verified manifest.',{pointer_integrity:pointer.manifest_integrity,manifest_integrity:manifest.integrity});
+  if(canonicalTarget(pointer.release_path)!==root)throw new PinError('pointer_path_mismatch','The pointer release path is not the verified physical root.',{pointer_path:pointer.release_path,physical_root:root});
   assertSeparatedRoots({runtime:runtimeRoot,release:root});
   const {schema_version}=await currentSchemaVersion(runtimeRoot,{open});
   checkCompatibility({manifest,schema_version,nodeVersion});
+  const external=manifest.dependencies?.external;
+  if(external){
+    if(external.node_abi!==process.versions.modules)throw new PinError('dependency_abi_mismatch','External dependency ABI does not match the running Node.',{expected:external.node_abi,actual:process.versions.modules});
+    if(external.lockfile_hash!==manifest.dependencies.lockfile_hash)throw new PinError('dependency_lock_mismatch','External dependency lock hash does not match the release lockfile.',{});
+  }
   const entry=path.join(root,'server/index.mjs'),assets_index=path.join(root,'dist/index.html');
   if(!fs.existsSync(entry))throw new PinError('release_incomplete','Release is missing server/index.mjs.',{release:root});
   if(!fs.existsSync(assets_index))throw new PinError('release_incomplete','Release is missing dist/index.html.',{release:root});
-  return {release_id:manifest.release_id,manifest,physical_root:root,entry,assets_index,pointer,env:Object.freeze({ORBIT_RUNTIME_DIR:runtimeRoot,ORBIT_RELEASE_ROOT:root,ORBIT_RELEASE_ID:manifest.release_id,ORBIT_RELEASE_INTEGRITY:pointer.manifest_integrity})};
+  return {release_id:manifest.release_id,manifest,physical_root:root,entry,assets_index,pointer,env:Object.freeze({ORBIT_RUNTIME_DIR:runtimeRoot,ORBIT_RELEASE_ROOT:root,ORBIT_RELEASE_ID:manifest.release_id,ORBIT_RELEASE_INTEGRITY:manifest.integrity})};
 }
 
 // A 200 from an arbitrary (possibly old) server is not proof. The probe must
@@ -121,18 +130,36 @@ function parseArgs(argv){
     const arg=argv[i];
     if(arg==='--runtime')options.runtime=argv[++i];
     else if(arg==='--probe')options.probeUrl=argv[++i];
+    else if(arg==='--start')options.start=true;
     else throw new PinError('invalid_request',`Unknown argument: ${arg}`);
   }
   return options;
+}
+
+// Start the verified physical entry with the verified environment. The operator
+// controls the process; this never activates a release, and no credential value is
+// logged. Signals are forwarded and the child's exit status is preserved.
+export async function startRelease({runtime,probeUrl,spawnImpl=spawn,proc=process}={}){
+  const launch=await resolveLaunch({runtime});
+  if(probeUrl){
+    const probe=await probeReleaseIdentity({url:probeUrl,release_id:launch.release_id,manifest_integrity:launch.manifest.integrity});
+    if(probe.ok!==true)return {started:false,reason:'probe_failed',probe,release_id:launch.release_id};
+  }
+  const child=spawnImpl(proc.execPath,['--experimental-strip-types',launch.entry],{cwd:launch.physical_root,env:{...proc.env,...launch.env},stdio:'inherit'});
+  const forwarded=[];
+  for(const signal of ['SIGINT','SIGTERM','SIGHUP'])proc.on?.(signal,()=>{forwarded.push(signal);try{child.kill(signal);}catch{}});
+  const result=await new Promise(resolve=>child.once('exit',(code,signal)=>resolve({code:Number.isInteger(code)?code:(signal?1:0),signal})));
+  return {started:true,release_id:launch.release_id,physical_root:launch.physical_root,exit_code:result.code,exit_signal:result.signal??null,forwarded_signals:forwarded};
 }
 
 async function main(){
   try{
     const options=parseArgs(process.argv.slice(2));
     if(!options.runtime)throw new PinError('invalid_request','--runtime is required');
+    if(options.start){const result=await startRelease(options);console.log(JSON.stringify({ok:result.started!==false,...result}));if(result.started===false)process.exitCode=1;return;}
     const launch=await resolveLaunch(options);
     let probe=null;
-    if(options.probeUrl)probe=await probeReleaseIdentity({url:options.probeUrl,release_id:launch.release_id,manifest_integrity:launch.pointer.manifest_integrity});
+    if(options.probeUrl)probe=await probeReleaseIdentity({url:options.probeUrl,release_id:launch.release_id,manifest_integrity:launch.manifest.integrity});
     console.log(JSON.stringify({ok:true,release_id:launch.release_id,physical_root:launch.physical_root,entry:launch.entry,assets_index:launch.assets_index,env:launch.env,probe}));
   }catch(error){
     console.log(JSON.stringify({ok:false,code:error.code??'unavailable',message:error.message}));

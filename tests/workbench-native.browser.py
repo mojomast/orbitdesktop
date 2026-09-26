@@ -207,7 +207,7 @@ def main(renderer):
         root = Path(temp)
         # NEVER build or modify the checkout: only this disposable copy.
         assert root != ROOT and not str(root).startswith(str(ROOT) + os.sep)
-        for name in ("server", "src", "contracts", "docs", "public", "hermes-plugin"):
+        for name in ("server", "src", "contracts", "docs", "public", "hermes-plugin", "scripts"):
             shutil.copytree(ROOT / name, root / name)
         for name in ("index.html", "package.json", "tsconfig.json", "vite.config.js"):
             shutil.copy2(ROOT / name, root / name)

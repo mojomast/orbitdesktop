@@ -66,6 +66,10 @@ jobs:
         run: |
           node --experimental-strip-types --test tests/workbench-native.test.mjs
           python3 tests/test_workbench_native_runtime.py
+      - name: Real disposable release packaging and launch instance
+        env:
+          RELEASE_INSTANCE: '1'
+        run: node --experimental-strip-types --test tests/release-package-launch.test.mjs
       - name: Install Playwright and Chromium system dependencies
         env:
           PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers

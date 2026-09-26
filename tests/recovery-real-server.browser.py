@@ -31,7 +31,7 @@ def monitor(index, kind):
 with tempfile.TemporaryDirectory(prefix="orbit-recovery-real-") as temporary:
     root = Path(temporary)
     # Source copies ensure broken dist fixtures never replace the owner's build.
-    for name in ("server", "src", "contracts"):
+    for name in ("server", "src", "contracts", "scripts"):
         shutil.copytree(ROOT / name, root / name)
     (root / "node_modules").symlink_to(ROOT / "node_modules", target_is_directory=True)
     shutil.copy2(ROOT / "package.json", root / "package.json")

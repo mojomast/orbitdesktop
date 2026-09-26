@@ -61,7 +61,7 @@ def main():
 
     with tempfile.TemporaryDirectory(prefix="orbit-docking-spike-", dir="/tmp/opencode") as temporary:
         root = Path(temporary)
-        for name in ("server", "src", "contracts", "dist"):
+        for name in ("server", "src", "contracts", "dist", "scripts"):
             shutil.copytree(ROOT / name, root / name)
         shutil.copytree(build, root / "dist/orbit-docking")
         (root / "node_modules").symlink_to(ROOT / "node_modules", target_is_directory=True)

@@ -222,7 +222,7 @@ def main(renderer):
     with tempfile.TemporaryDirectory(prefix="orbit-results-browser-", dir="/tmp/opencode") as temp:
         root = Path(temp)
         assert root != ROOT and not str(root).startswith(str(ROOT) + os.sep)
-        for name in ("server", "src", "contracts", "docs", "public", "hermes-plugin"):
+        for name in ("server", "src", "contracts", "docs", "public", "hermes-plugin", "scripts"):
             shutil.copytree(ROOT / name, root / name)
         for name in ("index.html", "package.json", "tsconfig.json", "vite.config.js"):
             shutil.copy2(ROOT / name, root / name)
@@ -351,6 +351,9 @@ def main(renderer):
                                                                           "pane_id": receipt["recipient"]["pane_id"], "profile_id": receipt["recipient"]["profile_id"],
                                                                           "session_id": receipt["recipient"]["session_id"], "op_id": str(uuid.uuid4())})
                         assert card_receipt.get("card") or card_receipt.get("id"), safe(json.dumps(card_receipt))
+                        listed = call(origin, token, NATIVE_ROUTE, {"action": "cards_list", "pane_id": receipt["recipient"]["pane_id"],
+                                                                   "profile_id": receipt["recipient"]["profile_id"], "session_id": receipt["recipient"]["session_id"]})
+                        log("cards_list=" + safe(json.dumps(listed)))
                         cards = wait_card(page, helper.PANE)
                         card = cards.filter(has=page.locator('pre.workbench-result-text')).first
                         expect(card.locator("summary")).to_have_text(CARD_SUMMARY, timeout=20000)

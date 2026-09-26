@@ -101,7 +101,7 @@ def main(renderer):
                    for node in ast.walk(ast.parse(Path(__file__).read_text())))
     with tempfile.TemporaryDirectory(prefix="orbit-context-browser-", dir="/tmp/opencode") as temp:
         root = Path(temp)
-        for name in ("server", "src", "contracts", "docs", "public"):
+        for name in ("server", "src", "contracts", "docs", "public", "scripts"):
             shutil.copytree(ROOT / name, root / name)
         for name in ("index.html", "package.json", "tsconfig.json", "vite.config.js"):
             shutil.copy2(ROOT / name, root / name)

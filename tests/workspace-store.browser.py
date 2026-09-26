@@ -18,7 +18,7 @@ from playwright.sync_api import sync_playwright, expect
 ROOT = Path(__file__).resolve().parents[1]
 with tempfile.TemporaryDirectory(prefix="orbit-store-browser-") as temporary:
     root = Path(temporary)
-    for name in ("server", "src", "contracts", "dist"):
+    for name in ("server", "src", "contracts", "dist", "scripts"):
         shutil.copytree(ROOT / name, root / name)
     (root / "node_modules").symlink_to(ROOT / "node_modules", target_is_directory=True)
     shutil.copy2(ROOT / "package.json", root / "package.json")

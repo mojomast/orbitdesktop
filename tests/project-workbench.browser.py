@@ -74,7 +74,7 @@ def result_for(responses, action):
 def main(renderer, linked=False):
     with tempfile.TemporaryDirectory(prefix="orbit-project-workbench-", dir="/tmp/opencode") as temporary:
         root = Path(temporary)
-        for name in ("server", "src", "contracts", "docs", "public"):
+        for name in ("server", "src", "contracts", "docs", "public", "scripts"):
             if (ROOT / name).is_dir():
                 shutil.copytree(ROOT / name, root / name)
         for name in ("index.html", "package.json", "tsconfig.json", "vite.config.js"):

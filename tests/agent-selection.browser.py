@@ -57,7 +57,7 @@ thread = threading.Thread(target=gateway.serve_forever, daemon=True); thread.sta
 try:
     with tempfile.TemporaryDirectory(prefix='orbit-agent-selection-', dir='/tmp/opencode') as temporary:
         root = Path(temporary)
-        for name in ('server', 'src', 'contracts', 'dist', 'docs'):
+        for name in ('server', 'src', 'contracts', 'dist', 'docs', 'scripts'):
             shutil.copytree(ROOT / name, root / name)
         (root / 'node_modules').symlink_to(ROOT / 'node_modules', target_is_directory=True)
         shutil.copy2(ROOT / 'package.json', root / 'package.json')

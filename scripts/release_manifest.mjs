@@ -116,7 +116,22 @@ function readLockfile(root){
   return {lockfile:'package-lock.json',lockfile_hash:sha256(fs.readFileSync(target)),lockfile_version:lock.lockfileVersion,package_count:Object.keys(lock.packages??{}).length,install:'npm-ci-offline',node_modules_included:false};
 }
 
-export function buildManifest({root,release_id,compat={},revision=null,created_at=Date.now()}={}){
+// Node dependencies are referenced read-only from outside the immutable release.
+// Their provenance (lock hash + Node ABI/version) is recorded rather than pretending
+// the release contains a complete vendored dependency tree.
+function normaliseExternal({external,lockfile_hash}={}){
+  if(external===undefined||external===null)return null;
+  const errors=[];
+  if(external.kind!=='referenced-readonly')errors.push('kind');
+  if(typeof external.path!=='string'||!external.path.trim())errors.push('path');
+  if(typeof external.node_abi!=='string'||!external.node_abi)errors.push('node_abi');
+  if(typeof external.node_version!=='string'||!external.node_version)errors.push('node_version');
+  if(external.lockfile_hash!==lockfile_hash)errors.push('lockfile_hash');
+  if(errors.length)throw new ManifestError('invalid_external','External dependency provenance is incomplete or does not match the lockfile.',{missing:errors});
+  return {kind:'referenced-readonly',path:external.path,node_abi:external.node_abi,node_version:external.node_version,lockfile_hash};
+}
+
+export function buildManifest({root,release_id,compat={},revision=null,external=null,created_at=Date.now()}={}){
   const absolute=path.resolve(root);
   if(!fs.existsSync(absolute)||!fs.statSync(absolute).isDirectory())throw new ManifestError('invalid_root','Release root must be an existing directory.',{root:absolute});
   if(typeof release_id!=='string'||release_id.trim()==='')throw new ManifestError('invalid_request','A nonempty release id is required.');
@@ -125,11 +140,13 @@ export function buildManifest({root,release_id,compat={},revision=null,created_a
   const missing=REQUIRED_FLAT.filter(entry=>!present.has(entry)).map(entry=>({path:entry}));
   if(missing.length)throw new ManifestError('missing_required_component','Release manifest is missing required content.',{missing});
   if(revision!==null&&(typeof revision!=='string'||!revision.trim()))throw new ManifestError('invalid_request','revision must be a nonempty string when provided.');
+  const dependencies=readLockfile(absolute);
+  dependencies.external=normaliseExternal({external,lockfile_hash:dependencies.lockfile_hash});
   const manifest={
     version:MANIFEST_VERSION,release_id,created_at,
     source:{build_id:serviceBuildId(absolute),revision},
     compat:normaliseCompat(compat),
-    dependencies:readLockfile(absolute),
+    dependencies,
     runtime:{directory_env:'ORBIT_RUNTIME_DIR',sqlite_filename:'workspace.sqlite'},
     files,
     required:REQUIRED_COMPONENTS,
@@ -179,6 +196,11 @@ export function verifyManifest({root,manifest}){
   try{
     const lock=readLockfile(absolute);
     if(manifest?.dependencies?.lockfile_hash!==lock.lockfile_hash)errors.push({code:'lockfile_hash_mismatch'});
+    if(manifest?.dependencies?.external){
+      const ext=manifest.dependencies.external;
+      if(ext.lockfile_hash!==lock.lockfile_hash)errors.push({code:'external_lock_mismatch'});
+      if(typeof ext.node_abi!=='string'||!ext.node_abi||typeof ext.node_version!=='string'||!ext.node_version)errors.push({code:'invalid_external'});
+    }
   }catch(error){errors.push({code:error.code??'lockfile_unreadable'});}
   return {ok:errors.length===0,errors,release_id:manifest?.release_id??null};
 }

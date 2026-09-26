@@ -8,8 +8,9 @@ import http from 'node:http';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
 import Database from 'better-sqlite3';
+import {EventEmitter} from 'node:events';
 import {ManifestError,assertCompatComplete,buildManifest,canonicalJson,manifestIntegrity,readManifest,verifyManifest} from '../scripts/release_manifest.mjs';
-import {PinError,activate,checkCompatibility,currentSchemaVersion,probeReleaseIdentity,readPointer,resolveLaunch,rollback} from '../scripts/release_pin.mjs';
+import {PinError,activate,checkCompatibility,currentSchemaVersion,probeReleaseIdentity,readPointer,resolveLaunch,rollback,startRelease,writePointerAtomic} from '../scripts/release_pin.mjs';
 import {assertSeparatedRoots} from '../scripts/release_roots.mjs';
 
 const root=()=>fs.mkdtempSync('/tmp/opencode/orbit-rel-');
@@ -195,3 +196,67 @@ test('compatibility rejects an older Node',t=>{
   assert.throws(()=>checkCompatibility({manifest,schema_version:7,nodeVersion:'18.0.0'}),{code:'node_incompatible'});
   assert.doesNotThrow(()=>checkCompatibility({manifest,schema_version:7,nodeVersion:'22.23.1'}));
 });
+
+test('resolveLaunch strictly matches the pointer against the verified manifest',async t=>{
+  const base=root();t.after(()=>fs.rmSync(base,{recursive:true,force:true}));
+  const runtime=runtimeWithSchema(base,7);
+  const a=fakeRelease(base,'rel-match');
+  await activate({runtime,release:a.dir,probe:healthyProbe,now:1});
+  const pointer=readPointer(runtime);
+  writePointerAtomic(runtime,{...pointer,release_id:'tampered-id'});
+  await assert.rejects(resolveLaunch({runtime}),{code:'pointer_manifest_mismatch'});
+  writePointerAtomic(runtime,{...pointer,manifest_integrity:'0'.repeat(64)});
+  await assert.rejects(resolveLaunch({runtime}),{code:'pointer_manifest_mismatch'});
+  writePointerAtomic(runtime,pointer);
+  const launch=await resolveLaunch({runtime});
+  assert.equal(launch.release_id,'rel-match');
+});
+
+test('external Node dependencies are bound by lock hash and ABI',async t=>{
+  const base=root();t.after(()=>fs.rmSync(base,{recursive:true,force:true}));
+  const runtime=runtimeWithSchema(base,7);
+  const dir=path.join(base,'rel-ext');
+  write(path.join(dir,'dist/index.html'),'x');
+  write(path.join(dir,'server/index.mjs'),'// s');
+  for(const name of CONTRACTS)write(path.join(dir,'contracts',name),'// c');
+  write(path.join(dir,'hermes-plugin/workbench.py'),'# p');
+  write(path.join(dir,'package.json'),'{}');
+  write(path.join(dir,'package-lock.json'),'{"lockfileVersion":3,"packages":{}}');
+  const lockHash=sha(fs.readFileSync(path.join(dir,'package-lock.json')));
+  const external={kind:'referenced-readonly',path:path.join(base,'node_modules'),node_abi:process.versions.modules,node_version:process.versions.node,lockfile_hash:lockHash};
+  const manifest=buildManifest({root:dir,release_id:'rel-ext',compat:{schema_min:7,schema_max:7},external,created_at:1});
+  write(path.join(dir,'.orbit-release-manifest.json'),`${JSON.stringify(manifest,null,2)}\n`);
+  assert.equal(verifyManifest({root:dir,manifest}).ok,true);
+  const badExternal={...external,lockfile_hash:sha('other')};
+  assert.throws(()=>buildManifest({root:dir,release_id:'rel-bad',compat:{schema_min:7,schema_max:7},external:badExternal}),{code:'invalid_external'});
+  // A release whose external ABI does not match this Node is refused.
+  const abiManifest=structuredClone(manifest);abiManifest.release_id='rel-abi';abiManifest.dependencies.external.node_abi='0';abiManifest.integrity=manifestIntegrity(abiManifest);
+  write(path.join(dir,'.orbit-release-manifest.json'),`${JSON.stringify(abiManifest,null,2)}\n`);
+  const result=await activate({runtime,release:dir,probe:healthyProbe});
+  assert.equal(result.pointer_selected,false);
+  assert.equal(result.rolled_back,true);
+  assert.equal(result.error,'dependency_abi_mismatch');
+  assert.equal(readPointer(runtime),null);
+});
+
+test('start mode spawns the verified entry, forwards signals and preserves exit status',async t=>{
+  const base=root();t.after(()=>fs.rmSync(base,{recursive:true,force:true}));
+  const runtime=runtimeWithSchema(base,7);
+  const a=fakeRelease(base,'rel-start');
+  await activate({runtime,release:a.dir,probe:healthyProbe,now:1});
+  const handlers={};const kills=[];
+  const child=new EventEmitter();child.kill=signal=>{kills.push(signal);return true;};
+  const proc={execPath:'/usr/bin/node',env:{},on:signal=>{handlers[signal]=(...args)=>child.kill(...args);},};
+  let captured;
+  const pending=startRelease({runtime,spawnImpl:(command,args,options)=>{captured={command,args,options};setTimeout(()=>child.emit('exit',0,null),10);return child;},proc});
+  const result=await pending;
+  assert.equal(captured.command,'/usr/bin/node');
+  assert.equal(captured.args[0],'--experimental-strip-types');
+  assert.match(captured.args[1],/server\/index\.mjs$/);
+  assert.equal(captured.options.env.ORBIT_RELEASE_ID,'rel-start');
+  assert.equal(captured.options.env.ORBIT_RELEASE_ROOT,fs.realpathSync.native(a.dir));
+  assert.equal(result.started,true);
+  assert.equal(result.exit_code,0);
+  assert.equal(result.forwarded_signals.length,0,'no signal is forwarded before one is delivered');
+});
+

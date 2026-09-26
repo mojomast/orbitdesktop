@@ -31,7 +31,7 @@ def main():
         raise RuntimeError('tmux is required for the reload shell-continuity assertion')
     with tempfile.TemporaryDirectory(prefix='orbit-docking-persist-', dir='/tmp/opencode') as temporary:
         root = Path(temporary)
-        for name in ('server', 'src', 'contracts', 'dist', 'public'):
+        for name in ('server', 'src', 'contracts', 'dist', 'public', 'scripts'):
             shutil.copytree(ROOT / name, root / name)
         (root / 'node_modules').symlink_to(ROOT / 'node_modules', target_is_directory=True)
         shutil.copy2(ROOT / 'package.json', root / 'package.json')
