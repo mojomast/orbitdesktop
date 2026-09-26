@@ -144,3 +144,19 @@ pre-increment SHA-256 manifest. The faulty `07af700` package commit is held out 
 integration. Only private sentinel-based permission regression tests are cleared
 until the fix is independently reviewed. Evidence is retained under
 `/tmp/opencode/comet-next-flash-scratch/`; no raw transcripts are committed.
+
+Further inspection found Vite's `.vite`/`.vite-temp` caches beneath the shared
+dependency symlink, so the intended read-only use was not structurally read-only.
+Parent copied installed dependencies locally into distinct
+`/tmp/opencode/comet-next-{integration,sol,luna,flash}-private-deps` trees (no
+install/network) and atomically repointed each worktree's dependency symlink.
+Future fixture/cache writes are lane-local. Owner caches were preserved, not
+deleted. This supersedes the initial shared-tooling setup.
+
+### Renderer evidence correction
+
+Flash reported two API-browser runs labelled default/docking. Parent source review
+found the renderer argument was only used in reporting; navigation omitted the
+docking query. Those runs therefore do **not** establish docking acceptance.
+The fixture must select and assert the actual renderer before new evidence counts.
+Normal-UI Gate 1 is still pending; worker reports alone do not satisfy it.
