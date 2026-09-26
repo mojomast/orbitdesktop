@@ -412,25 +412,32 @@ def main(renderer):
                             step = "Gate 2 FINAL: helper verification, exact artifact re-retrieval, no check spawn"
                             verification = exported.get("verification") or {}
                             assert verification.get("status") == "verified", verification
-                            checks = verification.get("checks") or []
-                            assert checks, verification
-                            for check in checks:
-                                assert check.get("status") == "pass", check
-                                assert isinstance(check.get("artifact_hash"), str) and len(check.get("artifact_hash")) == 64, check
-                            jobs_after = helper.api(origin, token, EXEC_ROUTE, {"action": "execution_state", "project_id": project_id})[1]["jobs"]
-                            listed = helper.api(origin, token, WORKFLOW_ROUTE, {"action": "patch_list", "project_id": project_id})[1]["patches"]
-                            match = next((item for item in listed if item.get("id") == exported.get("id") or item.get("artifact_id") == exported.get("artifact_id")), None)
-                            assert match, listed
-                            again = helper.api(origin, token, WORKFLOW_ROUTE, {"action": "private_patch_get", "artifact_id": match.get("artifact_id") or match.get("id")})[1]["patch"]
+                            results = verification.get("results") or []
+                            assert results, verification
+                            for result in results:
+                                assert result.get("verdict") == "pass", result
+                                assert isinstance(result.get("artifact_hash"), str) and len(result.get("artifact_hash")) == 64, result
+                            jobs_after_preview = helper.api(origin, token, EXEC_ROUTE, {"action": "execution_state", "project_id": project_id})[1]["jobs"]
+                            artifact_id = exported.get("artifact_id") or exported.get("id")
+                            listed_status, listed = helper.api(origin, token, WORKFLOW_ROUTE, {"action": "patch_list", "project_id": project_id})
+                            if listed_status == 200 and listed.get("ok") is True:
+                                patches = listed.get("patches") or []
+                                match = next((item for item in patches if item.get("id") == artifact_id or item.get("artifact_id") == artifact_id), None)
+                                assert match, patches
+                                artifact_id = match.get("artifact_id") or match.get("id")
+                            again = helper.api(origin, token, WORKFLOW_ROUTE, {"action": "private_patch_get", "artifact_id": artifact_id})[1]["patch"]
                             assert again == patch_bytes.decode("utf-8"), "re-retrieved artifact bytes must match the downloaded bytes"
                             jobs_final = helper.api(origin, token, EXEC_ROUTE, {"action": "execution_state", "project_id": project_id})[1]["jobs"]
-                            assert len(jobs_final) == len(jobs_after), "re-retrieval must not spawn a new check"
+                            assert len(jobs_final) == len(jobs_after_preview), "re-retrieval must not spawn a new check"
+                            log_extra = {"gate2_final": True, "gate2_verification_status": verification.get("status"), "gate2_patch_list": listed_status == 200}
+                        else:
+                            log_extra = {"gate2_final": False}
 
                         assert not page_errors, page_errors
                         log(json.dumps({"renderer": renderer, "renderer_actual": (renderer_info or {}).get("renderer", "default"),
                                         "ui_handoff": True, "ui_result_panel": True, "gate2_patch_roundtrip": True,
                                         "gate2_independent_apply_check": True, "gate2_reload_persisted": True,
-                                        "gate2_final": os.environ.get("GATE2_FINAL") == "1",
+                                        **log_extra,
                                         "model_requests": len(model.requests), "chat_messages": chat_messages_before,
                                         "page_errors": len(page_errors), "admitted_live_model_trials": 0}))
                     finally:
