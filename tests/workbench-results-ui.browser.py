@@ -696,6 +696,45 @@ def main(renderer):
                                           "review_screenshot": screenshot, "review_useful_arrangement": useful,
                                           "review_pane_scroll": pane_scroll, "review_diff_visible": diff_visible, "review_verdict_visible": verdict_visible})
 
+                        step = "revoked project remount keeps receipt metadata, forbids private get, no inference"
+                        requests_before_revoke = len(model.requests)
+                        jobs_before_revoke = len(helper.api(origin, token, EXEC_ROUTE, {"action": "execution_state", "project_id": project_id})[1]["jobs"])
+                        page.on("dialog", lambda dialog: dialog.accept())
+                        revoke_scope = page.locator("dialog.project-workbench-dialog")
+                        if not (revoke_scope.count() and revoke_scope.first.is_visible()):
+                            recipe_pane = open_project_workbench()
+                        page.locator("dialog.project-workbench-dialog").locator("button").filter(has_text=re.compile("^Revoke project access$")).first.click()
+                        time.sleep(1.0)
+                        open_dialog = page.locator("dialog.project-workbench-dialog")
+                        if open_dialog.count() and open_dialog.first.is_visible():
+                            close_button = open_dialog.get_by_role("button", name="Close", exact=True)
+                            if close_button.count() and close_button.first.is_visible():
+                                close_button.first.click()
+                            else:
+                                page.keyboard.press("Escape")
+                        remount = open_project_workbench()
+                        receipt_select = remount.get_by_label("Saved private patch artifact")
+                        expect(receipt_select.locator("option")).not_to_have_count(0, timeout=20000)
+                        receipt_text = "\n".join(receipt_select.locator("option").all_text_contents())
+                        assert str(exported.get("artifact_id") or exported.get("id")) in receipt_text, receipt_text
+                        # Exact hash/status are asserted from the API receipt below (the UI
+                        # option is a compact metadata-only label).
+                        listed_after = helper.api(origin, token, WORKFLOW_ROUTE, {"action": "patch_list", "project_id": project_id})
+                        assert listed_after[0] == 200 and listed_after[1].get("ok") is True, listed_after
+                        receipt_meta = next((item for item in listed_after[1]["patches"] if (item.get("artifact_id") or item.get("id")) == (exported.get("artifact_id") or exported.get("id"))), None)
+                        assert receipt_meta, listed_after[1]["patches"]
+                        assert receipt_meta["status"] == exported["status"] and receipt_meta["artifact_hash"] == exported["artifact_hash"]
+                        forbidden = helper.api(origin, token, WORKFLOW_ROUTE, {"action": "private_patch_get", "artifact_id": exported.get("artifact_id") or exported.get("id"), "project_id": project_id})
+                        assert forbidden[0] != 200 or forbidden[1].get("ok") is not True, forbidden
+                        new_export = remount.locator("button").filter(has_text=re.compile("^Create private verified patch$")).first
+                        if new_export.count():
+                            assert new_export.is_disabled(), "a revoked project must not offer a new patch export"
+                        assert len(model.requests) == requests_before_revoke, "revoked remount must not call the model"
+                        jobs_after_revoke = helper.api(origin, token, EXEC_ROUTE, {"action": "execution_state", "project_id": project_id})
+                        assert jobs_after_revoke[0] != 200 or len(jobs_after_revoke[1].get("jobs", [])) == jobs_before_revoke, "revoked remount must not run a check"
+                        log_extra.update({"revoked_remount_receipt_metadata": True, "revoked_private_get_forbidden": True,
+                                          "revoked_new_export_disabled": True, "revoked_no_inference": True})
+
                         assert not page_errors, page_errors
                         log(json.dumps({"renderer": renderer, "renderer_actual": (renderer_info or {}).get("renderer", "default"),
                                         "ui_handoff": True, "ui_result_panel": True, "gate2_patch_roundtrip": True,
