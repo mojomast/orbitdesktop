@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {spawn} from 'node:child_process';
 import {createHash} from 'node:crypto';
+import {fileURLToPath} from 'node:url';
 import {openProjectRoot} from './project-files.mjs';
 import {wbError} from './workbench-store.mjs';
 
@@ -11,6 +12,8 @@ const digest=value=>createHash('sha256').update(value).digest('hex');
 // still terminates instead of leaking a detached job. It is a resource bound,
 // NOT a sandbox or isolation mechanism, and it runs under the same UID.
 const SUPERVISOR='/usr/bin/timeout';
+const TEST_RUNNER=fileURLToPath(new URL('./workbench-test-runner.mjs',import.meta.url));
+const TEST_RUNNER_HASH=digest(fs.readFileSync(TEST_RUNNER));
 const HOST_SCRIPT=`import {pathToFileURL} from 'node:url';
 try {
   const {sum} = await import(pathToFileURL(process.argv[2]).href);
@@ -27,16 +30,41 @@ try {
 // and recorder, not arbitrary host resources.
 export const CHECK_LIMITS=Object.freeze({durationMs:60000,logBytes:262144,previewBytes:16384,maxConcurrent:1,storage:'advisory: no storage quota is enforced; each run retains at most logBytes in a private directory and total disk use is host-limited'});
 export const CHECK_DEFINITIONS=Object.freeze({
-  'node-test':Object.freeze({id:'node-test',executable:process.execPath,args:Object.freeze(['--test','--test-reporter=spec'])}),
+  'node-test':Object.freeze({id:'node-test',executable:process.execPath,args:Object.freeze([TEST_RUNNER]),runner_hash:TEST_RUNNER_HASH,result_protocol:1,discovery:'captured **/*.test.{js,cjs,mjs} and **/test/**/*.{js,cjs,mjs}; explicit pinned files v1'}),
   'host-regression':Object.freeze({id:'host-regression',executable:process.execPath,args:Object.freeze([]),script:HOST_SCRIPT}),
 });
 export function checkDefinition(id){const definition=Object.hasOwn(CHECK_DEFINITIONS,id)?CHECK_DEFINITIONS[id]:undefined;if(!definition)throw wbError('unsupported');return definition;}
 export const definitionDigest=definition=>digest(JSON.stringify(definition));
-export const checkSpecDigest=({definition_id,definition_digest,candidate_hash,acceptance_version})=>digest(JSON.stringify({definition_id,definition_digest,candidate_hash,acceptance_version}));
+export const checkSpecDigest=fields=>digest(JSON.stringify(fields));
+export const discoverTestFiles=files=>files.map(file=>file.path).filter(file=>/(?:^|\/)[^/]+\.test\.(?:js|cjs|mjs)$/.test(file)||/(?:^|\/)test\/.*\.(?:js|cjs|mjs)$/.test(file)).sort();
+export function parseTestResults(buffer,files){
+  try{
+    if(!Array.isArray(files)||!files.length||files.length>512||new Set(files).size!==files.length)throw Error();
+    if(!buffer.length||buffer.length>262144||buffer.at(-1)!==10)throw Error();
+    const rows=buffer.toString('utf8').trimEnd().split('\n').map(line=>JSON.parse(line));
+    if(rows.length<2)throw Error();
+    const counts={tests:0,passed:0,failed:0,skipped:0,todo:0,suites:0};const covered=new Set();let anyFailure=false;
+    for(let i=0;i<rows.length;i++){
+      const row=rows[i];
+      if(row.version!==1||row.sequence!==i)throw Error();
+      if(i===0){if(row.type!=='start'||JSON.stringify(row.files)!==JSON.stringify(files)||Object.keys(row).length!==4)throw Error();continue;}
+      if(i===rows.length-1){if(row.type!=='end'||Object.keys(row).length!==3)throw Error();continue;}
+      if(row.type!=='result'||Object.keys(row).length!==9||!['test','suite'].includes(row.kind)||![row.wrapper,row.passed,row.skip,row.todo].every(value=>typeof value==='boolean')||!(row.file===null||files.includes(row.file)))throw Error();
+      if(!row.passed&&!row.todo)anyFailure=true;
+      if(row.wrapper)continue;
+      if(row.kind==='suite'){counts.suites++;continue;}
+      counts.tests++;if(row.skip)counts.skipped++;else if(row.todo)counts.todo++;else if(row.passed){counts.passed++;covered.add(row.file);}else counts.failed++;
+    }
+    return {version:1,valid:true,...counts,required_files:files,covered_files:[...covered].sort(),complete:files.every(file=>covered.has(file)),success:counts.tests>0&&counts.passed>0&&!anyFailure&&files.every(file=>covered.has(file))};
+  }catch{return {version:1,valid:false,success:false,reason:'missing_malformed_or_truncated_results'};}
+}
 
 const active=new Map();
 const pending=new Set();
 export const activeCheckCount=()=>active.size;
+// Only an explicit owner acknowledgement may drop uncertain ownership. It does
+// not assert termination and never signals an unverified process identity.
+export const acknowledgeCheck=job_id=>active.delete(job_id);
 function processStart(pid){
   try{const stat=fs.readFileSync(`/proc/${pid}/stat`,'utf8');const fields=stat.slice(stat.lastIndexOf(')')+2).trim().split(/\s+/);return fields[19]??null;}catch{return null;}
 }
@@ -84,9 +112,15 @@ function privateRoot(root){
   const opened=openProjectRoot(root);
   try{if(!fs.fstatSync(opened.fd).isDirectory())throw wbError('permission_denied');}finally{opened.close();}
 }
-function validateRoots(candidate,artifacts){
+function validateRoots(candidate,artifacts,boundary=artifacts){
   privateRoot(artifacts);privateRoot(candidate);
-  if(candidate===artifacts||!candidate.startsWith(`${artifacts}${path.sep}`))throw wbError('permission_denied');
+  if(boundary!==artifacts){
+    // Only the sibling private producer namespace is admitted. No owner/API
+    // request contains a root or boundary; execution supplies this trusted value.
+    if(path.basename(artifacts)!=='workbench-execution'||path.basename(boundary)!=='workbench-environments'||path.dirname(boundary)!==path.dirname(artifacts))throw wbError('permission_denied');
+    privateRoot(boundary);
+  }
+  if(candidate===boundary||!candidate.startsWith(`${boundary}${path.sep}`))throw wbError('permission_denied');
   if(artifacts.startsWith(`${candidate}${path.sep}`))throw wbError('permission_denied');
 }
 
@@ -95,13 +129,13 @@ export async function runCheck(options){
   const reservation=Symbol('check');pending.add(reservation);
   try{return await executeCheck(options);}finally{pending.delete(reservation);}
 }
-async function executeCheck({definition_id,candidate_root,workspace_id,project_id,job_id,artifact_root,rehash,spawn_record}){
+async function executeCheck({definition_id,candidate_root,workspace_id,project_id,job_id,artifact_root,candidate_boundary=artifact_root,rehash,spawn_record,required_test_files=[]}){
   const definition=checkDefinition(definition_id);
   if(typeof workspace_id!=='string'||typeof project_id!=='string'||typeof job_id!=='string'||!job_id||typeof rehash!=='function'||typeof spawn_record!=='function')throw wbError('invalid_request');
-  validateRoots(candidate_root,artifact_root);
+  validateRoots(candidate_root,artifact_root,candidate_boundary);
   const before=(await rehash())?.hash;
   if(typeof before!=='string'||!before)throw wbError('stale_resource');
-  validateRoots(candidate_root,artifact_root);
+  validateRoots(candidate_root,artifact_root,candidate_boundary);
   const definition_digest=definitionDigest(definition);
   const directory=fs.mkdtempSync(path.join(artifact_root,'check-'));fs.chmodSync(directory,0o700);
   const temp=fs.mkdtempSync(path.join(directory,'private-'));fs.chmodSync(temp,0o700);
@@ -110,6 +144,10 @@ async function executeCheck({definition_id,candidate_root,workspace_id,project_i
   const env={PATH:'/usr/bin:/bin',HOME:temp,LANG:'C.UTF-8',LC_ALL:'C.UTF-8',NODE_OPTIONS:'',TMPDIR:temp};
   const env_fingerprint=digest(JSON.stringify(env));
   let args=definition.args;
+  if(definition_id==='node-test'){
+    if(digest(fs.readFileSync(TEST_RUNNER))!==TEST_RUNNER_HASH)throw wbError('stale_resource');
+    args=[TEST_RUNNER,JSON.stringify(required_test_files)];
+  }
   if(definition_id==='host-regression'){
     const script=path.join(temp,'verify.mjs');
     fs.writeFileSync(script,HOST_SCRIPT,{mode:0o600,flag:'wx'});
@@ -119,28 +157,35 @@ async function executeCheck({definition_id,candidate_root,workspace_id,project_i
   const supervisedArgs=['--kill-after=1s',`${seconds}s`,definition.executable,...args];
   const command={supervisor:SUPERVISOR,executable:definition.executable,args,supervised:supervisedArgs};
   let child,childStart=null,ended=false,timed_out=false,log_bytes=0,stdout=Buffer.alloc(0),stderr=Buffer.alloc(0),timer,killTimer,hardTimer;
+  let results=Buffer.alloc(0),resultsOverflow=false,spawnRecordError=null,recordingError=null,settled;
   const logHash=createHash('sha256');
   const capture=(stream,chunk)=>{
     const remaining=CHECK_LIMITS.previewBytes-(stream==='stdout'?stdout.length:stderr.length);
     if(remaining>0){if(stream==='stdout')stdout=Buffer.concat([stdout,chunk.subarray(0,remaining)]);else stderr=Buffer.concat([stderr,chunk.subarray(0,remaining)]);}
     const room=CHECK_LIMITS.logBytes-log_bytes;
-    if(room>0){const part=chunk.subarray(0,room);fs.writeSync(fd,part);logHash.update(part);log_bytes+=part.length;}
+    if(room>0&&!recordingError){
+      try{const part=chunk.subarray(0,room);fs.writeSync(fd,part);logHash.update(part);log_bytes+=part.length;}
+      catch{recordingError='log_recording_failed';if(childStart&&processStart(child.pid)===childStart)signalGroup(child.pid,'SIGTERM');active.get(job_id)?.escalate();}
+    }
   };
   const started_at=Date.now();
   const finish=(extra)=>{
-    ended=true;clearTimeout(timer);clearTimeout(killTimer);clearTimeout(hardTimer);active.delete(job_id);
+    ended=true;clearTimeout(timer);clearTimeout(killTimer);clearTimeout(hardTimer);if(!extra.process_survival_unknown)active.delete(job_id);
     try{fs.closeSync(fd);}catch{}
     const log_hash=logHash.digest('hex');
     return {exit_code:null,signal:null,verdict:'inconclusive',started_at,ended_at:Date.now(),candidate_hash_before:before,candidate_hash_after:before,definition_id,definition_digest,definition_hash:definition_digest,stdout_preview:stdout.toString('utf8'),stderr_preview:stderr.toString('utf8'),log_path,log_hash,log_bytes,artifact_hash:digest(JSON.stringify({log_hash,log_bytes,definition_digest})),env_fingerprint,limits:CHECK_LIMITS,timed_out:false,process_survival_unknown:false,supervisor:SUPERVISOR,command,...extra};
   };
   try{
-    child=spawn(SUPERVISOR,supervisedArgs,{cwd:candidate_root,env,detached:true,stdio:['ignore','pipe','pipe'],shell:false,windowsHide:true});
+    child=spawn(SUPERVISOR,supervisedArgs,{cwd:candidate_root,env,detached:true,stdio:['ignore','pipe','pipe','pipe'],shell:false,windowsHide:true});
     // Install the error/close listeners IMMEDIATELY. A missing executable emits an
     // asynchronous 'error' event; an unhandled one would crash the host.
-    const settled=new Promise(resolve=>{
+    settled=new Promise(resolve=>{
       child.once('error',error=>resolve({code:null,signal:null,error}));
       child.once('close',(code,signal)=>resolve({code,signal,error:null}));
     });
+    child.stdout.on('data',chunk=>capture('stdout',chunk));
+    child.stderr.on('data',chunk=>capture('stderr',chunk));
+    child.stdio[3].on('data',chunk=>{if(results.length+chunk.length>262144){resultsOverflow=true;return;}if(!resultsOverflow)results=Buffer.concat([results,chunk]);});
     const pid=child.pid;
     if(!pid){
       const failure=await settled;
@@ -152,30 +197,29 @@ async function executeCheck({definition_id,candidate_root,workspace_id,project_i
       // PID/PGID we cannot verify (a reused PID could target an unrelated
       // process); the external supervisor still bounds the command. Report a
       // real unknown, never a pass.
-      await settled;
+      active.set(job_id,{pid,child,started_at:null,cancel_requested:false,escalate:()=>{}});
+      await Promise.race([settled,new Promise(resolve=>{hardTimer=setTimeout(()=>{child.stdout.destroy();child.stderr.destroy();child.stdio[3].destroy();resolve();},CHECK_LIMITS.durationMs+3000);})]);
       return finish({spawn_error:'identity_unavailable',process_survival_unknown:true});
     }
-    const entry={pid,started_at:childStart,cancelled:false,cancel_requested:false,escalate:()=>{
+    const entry={pid,child,started_at:childStart,cancelled:false,cancel_requested:false,escalate:()=>{
       if(!killTimer)killTimer=setTimeout(()=>{if(processStart(pid)===childStart)signalGroup(pid,'SIGKILL');},500);
     }};
     active.set(job_id,entry);
     // Durable record is written in the same synchronous turn as spawn, before any
     // child event is awaited, so a crash cannot leave an unrecorded run.
-    spawn_record({pid,pgid:pid,started_at:childStart,supervisor:SUPERVISOR,command});
-    child.stdout.on('data',chunk=>capture('stdout',chunk));
-    child.stderr.on('data',chunk=>capture('stderr',chunk));
+    try{spawn_record({pid,pgid:pid,started_at:childStart,supervisor:SUPERVISOR,command});}
+    catch{spawnRecordError='spawn_record_failed';if(processStart(pid)===childStart)signalGroup(pid,'SIGTERM');entry.escalate();}
     timer=setTimeout(()=>{timed_out=true;if(processStart(pid)===childStart)signalGroup(pid,'SIGTERM');entry.escalate();},CHECK_LIMITS.durationMs);
     // Hard deadline independent of whether the leader still exists. If a
     // descendant inherited the child's stdio and outlives the leader, the `close`
     // event may never fire; destroying the pipes and resolving guarantees the
     // recorder cannot hang. The lost leader is reported as inconclusive, and no
     // unrelated PID is ever signalled.
-    const hardDeadline=new Promise(resolve=>{hardTimer=setTimeout(()=>{timed_out=true;try{child.stdout?.destroy();child.stderr?.destroy();}catch{}resolve({code:null,signal:null,error:null,forced:true});},CHECK_LIMITS.durationMs+3000);});
+    const hardDeadline=new Promise(resolve=>{hardTimer=setTimeout(()=>{timed_out=true;try{child.stdout?.destroy();child.stderr?.destroy();child.stdio[3]?.destroy();}catch{}resolve({code:null,signal:null,error:null,forced:true});},CHECK_LIMITS.durationMs+3000);});
     const result=await Promise.race([settled,hardDeadline]);
     // uutils/GNU timeout exits 124 when the deadline fired.
     if(result.code===124)timed_out=true;
     entry.cancelled=entry.cancelled||entry.cancel_requested;
-    active.delete(job_id);
     clearTimeout(timer);clearTimeout(killTimer);clearTimeout(hardTimer);
     fs.closeSync(fd);ended=true;
     let after;
@@ -193,13 +237,15 @@ async function executeCheck({definition_id,candidate_root,workspace_id,project_i
       }
       if(groupAlive(pid))process_survival_unknown=true;
     }
-    const verdict=timed_out||entry.cancelled||!after||after!==before||result.error||result.forced||process_survival_unknown?'inconclusive':result.code===0?'pass':'fail';
-    return {exit_code:result.code,signal:result.signal,verdict,started_at,ended_at:Date.now(),candidate_hash_before:before,candidate_hash_after:after??null,definition_id,definition_digest,definition_hash:definition_digest,stdout_preview:stdout.toString('utf8'),stderr_preview:stderr.toString('utf8'),log_path,log_hash,log_bytes,artifact_hash:digest(JSON.stringify({log_hash,log_bytes,definition_digest})),env_fingerprint,limits:CHECK_LIMITS,timed_out,process_survival_unknown,supervisor:SUPERVISOR,command};
+    if(!process_survival_unknown)active.delete(job_id);
+    const test_results=definition_id==='node-test'?parseTestResults(resultsOverflow?Buffer.alloc(0):results,required_test_files):null;
+    const verdict=recordingError||spawnRecordError||timed_out||entry.cancelled||!after||after!==before||result.error||result.forced||process_survival_unknown?'inconclusive':result.code!==0?'fail':test_results&&!test_results.success?'inconclusive':'pass';
+    return {exit_code:result.code,signal:result.signal,verdict,cancelled:entry.cancelled,recording_error:recordingError,spawn_error:spawnRecordError,test_results,started_at,ended_at:Date.now(),candidate_hash_before:before,candidate_hash_after:after??null,definition_id,definition_digest,definition_hash:definition_digest,stdout_preview:stdout.toString('utf8'),stderr_preview:stderr.toString('utf8'),log_path,log_hash,log_bytes,artifact_hash:digest(JSON.stringify({log_hash,log_bytes,definition_digest,test_results})),env_fingerprint,limits:CHECK_LIMITS,timed_out,process_survival_unknown,supervisor:SUPERVISOR,command};
   }catch(error){
     if(child?.pid){if(childStart&&processStart(child.pid)===childStart)signalGroup(child.pid,'SIGTERM');setTimeout(()=>{if(childStart&&processStart(child.pid)===childStart)signalGroup(child.pid,'SIGKILL');},500).unref();child.on('error',()=>{});}
     throw error;
   }finally{
-    if(!ended){clearTimeout(timer);clearTimeout(killTimer);clearTimeout(hardTimer);active.delete(job_id);try{fs.closeSync(fd);}catch{}}
+    if(!ended){clearTimeout(timer);clearTimeout(killTimer);clearTimeout(hardTimer);if(!child?.pid)active.delete(job_id);try{fs.closeSync(fd);}catch{}}
     // Bounded best-effort cleanup of the private temp; a huge tree written by the
     // supervised command is left in place rather than stalling the recorder.
     boundedRemove(temp);

@@ -54,6 +54,30 @@
           "maxLength": 64,
           "pattern": "^[A-Za-z0-9_-]+$"
         },
+        "required_checks": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "properties": {
+              "definition_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[A-Za-z0-9_-]+$"
+              },
+              "execution_profile_id": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+              }
+            },
+            "required": [
+              "definition_id"
+            ],
+            "additionalProperties": false
+          }
+        },
         "profile_id": {
           "type": "string",
           "minLength": 1,
@@ -80,6 +104,110 @@
         "check_definition_id",
         "profile_id",
         "session_id"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "task_acceptance_preview"
+        },
+        "workspace_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "project_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "task_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "candidate_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "expected_acceptance_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "required_checks": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "properties": {
+              "definition_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[A-Za-z0-9_-]+$"
+              },
+              "execution_profile_id": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+              }
+            },
+            "required": [
+              "definition_id"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "action",
+        "workspace_id",
+        "project_id",
+        "task_id",
+        "candidate_id",
+        "expected_acceptance_digest",
+        "required_checks"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "task_acceptance_approve"
+        },
+        "workspace_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "project_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "task_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "candidate_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "preview_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "preview_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "action",
+        "workspace_id",
+        "project_id",
+        "task_id",
+        "candidate_id",
+        "preview_id",
+        "preview_digest"
       ],
       "additionalProperties": false
     },
@@ -283,6 +411,186 @@
       "type": "object",
       "properties": {
         "action": {
+          "const": "candidate_apply"
+        },
+        "workspace_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "project_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "candidate_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "expected_candidate_hash": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "changes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "op": {
+                    "const": "delete"
+                  },
+                  "path": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4096,
+                    "pattern": "^[^\\u0000\\\\]+$"
+                  },
+                  "expected_hash": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  }
+                },
+                "required": [
+                  "op",
+                  "path",
+                  "expected_hash"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "op": {
+                    "const": "create"
+                  },
+                  "path": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4096,
+                    "pattern": "^[^\\u0000\\\\]+$"
+                  },
+                  "expected_hash": {
+                    "type": "null"
+                  },
+                  "content": {
+                    "type": "string",
+                    "maxLength": 262144
+                  }
+                },
+                "required": [
+                  "op",
+                  "path",
+                  "expected_hash",
+                  "content"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "op": {
+                    "const": "create"
+                  },
+                  "path": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4096,
+                    "pattern": "^[^\\u0000\\\\]+$"
+                  },
+                  "expected_hash": {
+                    "type": "null"
+                  },
+                  "content_base64": {
+                    "type": "string",
+                    "maxLength": 349528
+                  }
+                },
+                "required": [
+                  "op",
+                  "path",
+                  "expected_hash",
+                  "content_base64"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "op": {
+                    "const": "change"
+                  },
+                  "path": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4096,
+                    "pattern": "^[^\\u0000\\\\]+$"
+                  },
+                  "expected_hash": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "content": {
+                    "type": "string",
+                    "maxLength": 262144
+                  }
+                },
+                "required": [
+                  "op",
+                  "path",
+                  "expected_hash",
+                  "content"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "op": {
+                    "const": "change"
+                  },
+                  "path": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4096,
+                    "pattern": "^[^\\u0000\\\\]+$"
+                  },
+                  "expected_hash": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "content_base64": {
+                    "type": "string",
+                    "maxLength": 349528
+                  }
+                },
+                "required": [
+                  "op",
+                  "path",
+                  "expected_hash",
+                  "content_base64"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        }
+      },
+      "required": [
+        "action",
+        "workspace_id",
+        "project_id",
+        "candidate_id",
+        "expected_candidate_hash",
+        "changes"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "action": {
           "const": "submission_create"
         },
         "workspace_id": {
@@ -415,6 +723,10 @@
           "minLength": 1,
           "maxLength": 64,
           "pattern": "^[A-Za-z0-9_-]+$"
+        },
+        "execution_profile_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
         }
       },
       "required": [
@@ -431,6 +743,48 @@
       "properties": {
         "action": {
           "const": "check_run"
+        },
+        "workspace_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "project_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "candidate_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "preview_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "preview_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "op_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        }
+      },
+      "required": [
+        "action",
+        "workspace_id",
+        "project_id",
+        "candidate_id",
+        "preview_id",
+        "preview_digest",
+        "op_id"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "check_start"
         },
         "workspace_id": {
           "type": "string",
@@ -511,6 +865,33 @@
       "properties": {
         "action": {
           "const": "job_get"
+        },
+        "workspace_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "project_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "job_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        }
+      },
+      "required": [
+        "action",
+        "workspace_id",
+        "project_id",
+        "job_id"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "job_finalize_retry"
         },
         "workspace_id": {
           "type": "string",

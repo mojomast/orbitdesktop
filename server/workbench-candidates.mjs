@@ -72,7 +72,7 @@ export function candidateHash(candidate){
 
 function childDirectory(parent,name,dev,create=false){
   const target=`${fdPath(parent)}/${name}`;
-  if(create){try{fs.mkdirSync(target,{mode:0o700});}catch(error){if(error.code!=='EEXIST')throw error;}}
+  if(create){try{fs.mkdirSync(target,{mode:0o700});fs.fsyncSync(parent);}catch(error){if(error.code!=='EEXIST')throw error;}}
   const fd=fs.openSync(target,C.O_RDONLY|C.O_DIRECTORY|C.O_NOFOLLOW|C.O_NONBLOCK);
   try{if(fs.fstatSync(fd).dev!==dev)throw wbError('unsupported');return fd;}
   catch(error){fs.closeSync(fd);throw error;}
@@ -150,6 +150,111 @@ function rehash(candidate,root){
     const data=readAt(candidate,root,file.path);
     return {path:file.path,hash:data.hash,bytes:data.bytes.length,state:candidate.files.find(item=>item.path===file.path).state};
   });
+}
+
+// A candidate root is an exact private tree, not merely a collection of paths
+// that happen to match its manifest. In particular, never carry an untracked
+// symlink, hardlink, directory or special file into a new generation.
+function verifiedTree(candidate,root){
+  const expected=manifest(candidate.files),byPath=new Map(expected.map(file=>[file.path,file]));
+  const directories=new Set();
+  for(const file of expected){const parts=file.path.split('/');while(parts.length>1){parts.pop();directories.add(parts.join('/'));}}
+  const seen=new Set();let nodes=0;
+  const walk=(fd,prefix,depth)=>{
+    if(depth>CANDIDATE_LIMITS.depth||++nodes>CANDIDATE_LIMITS.cleanupNodes)throw wbError('limit_exceeded');
+    const dir=fs.opendirSync(fdPath(fd));
+    try{let entry;while((entry=dir.readSync())){
+      const relative=prefix?`${prefix}/${entry.name}`:entry.name;
+      safeParts(relative);
+      const target=`${fdPath(fd)}/${entry.name}`,stat=fs.lstatSync(target);
+      if(stat.dev!==root.dev)throw wbError('unsupported');
+      if(stat.isDirectory()&&directories.has(relative)){
+        const child=childDirectory(fd,entry.name,root.dev);
+        try{if(identity(fs.fstatSync(child))!==identity(stat))throw wbError('stale_resource');walk(child,relative,depth+1);}
+        finally{fs.closeSync(child);}
+      }else if(stat.isFile()&&byPath.has(relative)&&stat.nlink===1)seen.add(relative);
+      else throw wbError('unsupported');
+    }}finally{dir.closeSync();}
+  };
+  walk(root.fd,'',0);
+  if(seen.size!==expected.length)throw wbError('stale_resource');
+  return expected.map(file=>{
+    const data=readAt(candidate,root,file.path);
+    if(data.hash!==file.hash||data.bytes.length!==file.bytes)throw wbError('stale_resource');
+    return {...file,bytesBuffer:data.bytes,state:candidate.files.find(item=>item.path===file.path).state};
+  });
+}
+
+// The caller must serialize this operation against checks and durably replace
+// candidate.root along with these returned fields in its own transaction. The
+// old root stays immutable for historical readers until retention disposes it.
+export function applyCandidateChanges({store,candidate,expected_candidate_hash,changes}){
+  if(typeof expected_candidate_hash!=='string'||candidateHash(candidate)!==expected_candidate_hash||candidate.hash!==expected_candidate_hash)throw wbError('stale_resource');
+  if(candidate.limited||!Array.isArray(candidate.exclusions)||candidate.exclusions.some(item=>item.reason!=='excluded_by_policy')){
+    throw Object.assign(wbError('unsupported'),{reason:'incomplete_candidate_capture',limited:candidate.limited===true,exclusions:Array.isArray(candidate.exclusions)?candidate.exclusions.filter(item=>item.reason!=='excluded_by_policy'):[]});
+  }
+  if(!Array.isArray(changes)||changes.length<1||changes.length>CANDIDATE_LIMITS.edits)throw wbError('invalid_request');
+  if(candidate.generation>=CANDIDATE_LIMITS.edits)throw wbError('limit_exceeded');
+  const before=manifest(candidate.files),current=new Map(before.map(file=>[file.path,file]));
+  const seen=new Set(),operations=new Map();
+  for(const change of changes){
+    if(!change||typeof change!=='object'||Array.isArray(change))throw wbError('invalid_request');
+    safeParts(change.path);
+    if(seen.has(change.path))throw wbError('invalid_request');seen.add(change.path);
+    const previous=current.get(change.path),op=change.op;
+    if(!['create','change','delete'].includes(op))throw wbError('invalid_request');
+    if(op==='create'){
+      if(previous||change.expected_hash!==null)throw wbError('stale_resource');
+    }else if(!previous||previous.hash!==change.expected_hash)throw wbError('stale_resource');
+    let bytes;
+    if(op!=='delete'){
+      if(typeof change.content==='string'&&change.content_base64===undefined)bytes=Buffer.from(change.content,'utf8');
+      else if(typeof change.content_base64==='string'&&change.content===undefined&&/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(change.content_base64)){
+        bytes=Buffer.from(change.content_base64,'base64');
+        if(bytes.toString('base64')!==change.content_base64)throw wbError('invalid_request');
+      }else throw wbError('invalid_request');
+      if(bytes.length>CANDIDATE_LIMITS.fileBytes)throw wbError('limit_exceeded');
+    }else if(change.content!==undefined||change.content_base64!==undefined)throw wbError('invalid_request');
+    operations.set(change.path,{op,bytes});
+  }
+  const next=before.filter(file=>operations.get(file.path)?.op!=='delete'&&operations.get(file.path)?.op!=='change');
+  for(const [relative,{op,bytes}] of operations)if(op!=='delete')next.push({path:relative,hash:sha(bytes),bytes:bytes.length});
+  manifest(next); // file/directory collisions, count, depth and aggregate bytes
+  const source=openCandidate(store,candidate);let parent,stage,created=false;
+  const name=randomUUID(),root=path.join(store.root,'workbench-execution','candidates',name);
+  try{
+    const original=verifiedTree(candidate,source);
+    parent=candidatesParent(store);
+    fs.mkdirSync(`${fdPath(parent.fd)}/${name}`,{mode:0o700});created=true;
+    const fd=childDirectory(parent.fd,name,parent.dev);stage={fd,dev:parent.dev,identity:identity(fs.fstatSync(fd))};
+    const files=[];
+    for(const file of original){
+      if(operations.has(file.path))continue;
+      const destination=fileParent(stage,file.path,true);
+      try{writeNew(destination.fd,destination.name,file.bytesBuffer);fs.fsyncSync(destination.fd);}
+      finally{destination.close();}
+      files.push({path:file.path,hash:file.hash,bytes:file.bytes,state:file.state});
+    }
+    for(const [relative,{op,bytes}] of operations){
+      if(op==='delete')continue;
+      const destination=fileParent(stage,relative,true);
+      try{writeNew(destination.fd,destination.name,bytes);fs.fsyncSync(destination.fd);}
+      finally{destination.close();}
+      files.push({path:relative,hash:sha(bytes),bytes:bytes.length,state:op==='create'?'created':'modified'});
+    }
+    files.sort(order);
+    // Both snapshots must still be complete immediately before returning the
+    // new root. A caller must not publish a root on an exception.
+    verifiedTree(candidate,source);
+    const generation=candidate.generation+1;
+    const updated={...candidate,root,files,generation};
+    verifiedTree(updated,stage);
+    fs.fsyncSync(stage.fd);fs.fsyncSync(parent.fd);
+    return {root,files,generation,hash:candidateHash(updated),total_bytes:files.reduce((sum,file)=>sum+file.bytes,0),supersedes_evidence:true};
+  }catch(error){
+    if(created)removeCandidateWorkspace(store,{root});
+    throw failure(error);
+  }finally{if(stage)fs.closeSync(stage.fd);parent?.close();source.close();}
 }
 export function editCandidateFile({store,candidate,path:relative,expected_hash,content}){
   knownFile(candidate,relative);
