@@ -92,14 +92,19 @@ receipt keyed by `op_id`. It neither posts to Hermes nor inserts a fake assistan
 turn. `cards_list` uses workspace and pane/profile/session binding, no
 caller-selected project; the server filters to owner-authorized results and
 returns bounded card records `{id,result_id,task_id,attempt_id,pane_id,
-profile_id,session_id,text,availability,provenance,created_at}`. Cards persist
+profile_id,session_id,text,availability,provenance,created_at,candidate_id,
+candidate_hash,candidate_generation,resolved_references}`. The last four
+fields are server-projected exact candidate/evidence navigation (and may be
+null or empty). Cards persist
 across reload, but `cards_list` filters current active project/generation,
 retention and exact current pane/profile/session/configuration binding. It is
 host UI data, never agent disclosure. Later forwarding to another agent needs a separately reviewed
 one-shot disclosure. `result_deliver` rechecks current binding, result authority
 and original recipient; request principal/binding fields are selectors, not
 trusted attestations. No card is generated automatically on completion.
-`cards_list` accepts optional `after_id` pagination and returns
+`cards_list` projects only documented host-card fields (never persisted
+`op_id`, `recipient_digest` or SQLite revision metadata), newest first.
+It accepts optional `after_id` pagination and returns
 `{cards,next_cursor,truncated}` with intact explanations under a 1.5 MiB JSON
 budget; consumers follow `next_cursor` rather than assuming the first page is
 the entire pane history.

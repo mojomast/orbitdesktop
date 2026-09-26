@@ -107,10 +107,10 @@ export function createWorkbenchNative({store,records,data,execution,hermes,now=D
         const r=get('results',card,card.result_id),g=get('grants',r,r.grant_id),a=get('attempts',r,r.attempt_id);
         let currentBinding;try{currentBinding=await binding(a,r);}catch{continue;}
         if(digest(currentBinding)!==card.recipient_digest||requireScope(r).generation!==card.project_generation)continue;
-        const v=projectResult(r);if(v.availability==='available')cards.push({...card,text:v.text,availability:v.availability,provenance:v.provenance,candidate_id:v.candidate_id,candidate_hash:v.candidate_hash,resolved_references:v.resolved_references});
+        const v=projectResult(r);if(v.availability==='available')cards.push({id:card.id,result_id:card.result_id,task_id:card.task_id,attempt_id:card.attempt_id,pane_id:card.pane_id,profile_id:card.profile_id,session_id:card.session_id,created_at:card.created_at,text:v.text,availability:v.availability,provenance:v.provenance,candidate_id:v.candidate_id,candidate_hash:v.candidate_hash,candidate_generation:v.candidate_generation,resolved_references:v.resolved_references});
       }
     }
-    cards.sort((a,b)=>a.created_at-b.created_at||a.id.localeCompare(b.id));
+    cards.sort((a,b)=>b.created_at-a.created_at||b.id.localeCompare(a.id));
     const start=body.after_id?cards.findIndex(card=>card.id===body.after_id)+1:0;
     if(body.after_id&&start===0)throw wbError('stale_resource');
     const page=[];let truncated=false;

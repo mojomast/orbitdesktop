@@ -70,6 +70,7 @@ test('durable owner result survives reload, stays distinct from checks, and host
   const op_id=randomUUID(),delivery=await f.owner('result_deliver',{result_id:result.id,pane_id:f.pane_id,profile_id:'fixture',session_id:'result-session',op_id});
   assert.equal((await f.owner('result_deliver',{result_id:result.id,pane_id:f.pane_id,profile_id:'fixture',session_id:'result-session',op_id})).card.id,delivery.card.id);
   const cards=await f.native.dispatch({action:'cards_list',workspace_id:f.base.workspace_id,pane_id:f.pane_id,profile_id:'fixture',session_id:'result-session'});assert.equal(cards.cards[0].text,result.text);
+  for(const privateKey of ['op_id','recipient_digest','revision','updated_at'])assert.equal(Object.hasOwn(cards.cards[0],privateKey),false);
   assert.equal((await f.native.dispatch({action:'cards_list',workspace_id:f.base.workspace_id,pane_id:randomUUID(),profile_id:'fixture',session_id:'result-session'})).cards.length,0);
   assert.equal((await f.owner('status',{grant_id:grant.id})).result.id,result.id);
   const fresh=f.data.get('grants',f.base.workspace_id,f.base.project_id,grant.id);
@@ -116,11 +117,13 @@ test('cards_list paginates intact text under the owner response cap',async t=>{
   const {result}=await f.owner('status',{grant_id:grant.id}),op_id=randomUUID();
   const delivered=await f.owner('result_deliver',{result_id:result.id,pane_id:f.pane_id,profile_id:'fixture',session_id:'result-session',op_id});
   for(let i=0;i<42;i++)f.data.create('cards',{workspace_id:f.base.workspace_id,project_id:f.base.project_id,project_generation:result.project_generation,op_id:randomUUID(),result_id:result.id,task_id:result.task_id,attempt_id:result.attempt_id,pane_id:f.pane_id,profile_id:'fixture',session_id:'result-session',recipient_digest:delivered.card.recipient_digest});
+  f.data.now=()=>Date.now()+10000;
+  const newest=f.data.create('cards',{workspace_id:f.base.workspace_id,project_id:f.base.project_id,project_generation:result.project_generation,op_id:randomUUID(),result_id:result.id,task_id:result.task_id,attempt_id:result.attempt_id,pane_id:f.pane_id,profile_id:'fixture',session_id:'result-session',recipient_digest:delivered.card.recipient_digest});
   const query=fields=>f.native.dispatch({action:'cards_list',workspace_id:f.base.workspace_id,pane_id:f.pane_id,profile_id:'fixture',session_id:'result-session',...fields});
-  const first=await query({});assert.equal(first.truncated,true);assert.ok(Buffer.byteLength(JSON.stringify(first))<1500000);assert.ok(first.cards.every(card=>card.text.length===60000));
+  const first=await query({});assert.equal(first.truncated,true);assert.equal(first.cards[0].id,newest.id);assert.ok(Buffer.byteLength(JSON.stringify(first))<1500000);assert.ok(first.cards.every(card=>card.text.length===60000));
   let count=first.cards.length,cursor=first.next_cursor;
   while(cursor){const page=await query({after_id:cursor});count+=page.cards.length;cursor=page.next_cursor;assert.ok(Buffer.byteLength(JSON.stringify(page))<1500000);}
-  assert.equal(count,43);
+  assert.equal(count,44);
 });
 test('post-commit journal unlink fault cannot wedge finalized receipt or replay',async t=>{
   const f=fixture(t),{grant}=await f.start(),unlink=fs.unlinkSync;
