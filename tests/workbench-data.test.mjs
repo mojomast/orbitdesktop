@@ -51,7 +51,7 @@ test('schema 5 additive upgrade retains project identities and leaves source bac
   const target=path.join(f.root,'upgraded');fs.mkdirSync(target);fs.copyFileSync(backup,path.join(target,'workspace.sqlite'));
   const upgraded=new SqliteWorkspaceStore(target);
   try{
-    assert.equal(upgraded.db.pragma('user_version',{simple:true}),6);
+    assert.equal(upgraded.db.pragma('user_version',{simple:true}),7);
     assert.equal(new WorkbenchStore(upgraded).project(f.workspace,f.project.id).id,f.project.id);
     for(const kind of WORKBENCH_RECORD_KINDS)assert.deepEqual(new WorkbenchData(upgraded).list(kind,f.workspace,f.project.id),[]);
   }finally{upgraded.close();}
@@ -79,4 +79,22 @@ test('durable legacy uncertainty fences dispatch before its lazy UI adapter is c
   assert.ok(!JSON.stringify(gate.status()).includes('SYNTHETIC_PRIVATE_INPUT'));
   assert.deepEqual(fs.readFileSync(file),before);
   fs.writeFileSync(file,'malformed');assert.equal(gate.status().legacy.uncertain,1);
+});
+
+test('schema 7 enforces job operation uniqueness at the database boundary',t=>{
+  const f=fixture(t),scope={workspace_id:f.workspace,project_id:f.project.id},op_id=randomUUID();
+  const first=f.data.create('jobs',{...scope,op_id,status:'starting',request_fingerprint:'a'.repeat(64)});
+  assert.throws(()=>f.data.create('jobs',{...scope,op_id,status:'starting',request_fingerprint:'b'.repeat(64)}),error=>error.code==='SQLITE_CONSTRAINT_UNIQUE');
+  assert.equal(f.data.list('jobs',f.workspace,f.project.id).length,1);
+  assert.equal(f.data.get('jobs',f.workspace,f.project.id,first.id).request_fingerprint,'a'.repeat(64));
+});
+
+test('schema 6 migration refuses conflicting operation receipts without deleting either record',async t=>{
+  const f=fixture(t),scope={workspace_id:f.workspace,project_id:f.project.id};
+  f.store.db.exec('DROP INDEX wb_jobs_operation_identity');f.store.db.pragma('user_version=6');
+  const op_id=randomUUID();f.data.create('jobs',{...scope,op_id,status:'completed'});f.data.create('jobs',{...scope,op_id,status:'running'});
+  const target=path.join(f.root,'conflicted');fs.mkdirSync(target);await f.store.backup(path.join(target,'workspace.sqlite'));
+  assert.throws(()=>new SqliteWorkspaceStore(target),/MIGRATION_INVALID/);
+  const read=new Database(path.join(target,'workspace.sqlite'),{readonly:true});
+  try{assert.equal(read.pragma('user_version',{simple:true}),6);assert.equal(read.prepare('SELECT count(*) AS n FROM wb_jobs').get().n,2);}finally{read.close();}
 });

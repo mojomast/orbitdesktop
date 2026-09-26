@@ -10,8 +10,8 @@ const backupInvalid=()=>Object.assign(Error('BACKUP_INVALID'),{category:'BACKUP_
 function backupVersion(db) {
   try {
     const version=db.pragma('user_version',{simple:true});
-    if(version>6)throw Object.assign(Error('UPGRADE_REQUIRED'),{category:'UPGRADE_REQUIRED'});
-    if(![1,2,3,4,5,6].includes(version)||db.pragma('quick_check',{simple:true})!=='ok'||db.prepare("SELECT value FROM store_metadata WHERE key='bootstrap_complete'").get()?.value!=='1')throw backupInvalid();
+    if(version>7)throw Object.assign(Error('UPGRADE_REQUIRED'),{category:'UPGRADE_REQUIRED'});
+    if(![1,2,3,4,5,6,7].includes(version)||db.pragma('quick_check',{simple:true})!=='ok'||db.prepare("SELECT value FROM store_metadata WHERE key='bootstrap_complete'").get()?.value!=='1')throw backupInvalid();
     return version;
   } catch(error) {
     if(error.category==='UPGRADE_REQUIRED')throw error;

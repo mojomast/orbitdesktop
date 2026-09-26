@@ -203,11 +203,11 @@ test('opening a version-1 database upgrades in place without losing its records'
   assert.equal(read.status, 200);
   assert.deepEqual(read.body.recovery_policy, { held: false, generation: 0 });
   assert.equal(read.body.workspace_id, workspace_id);
-  assert.equal(fixtureState.service.store.diagnostics().schema_version, 6);
+  assert.equal(fixtureState.service.store.diagnostics().schema_version, 7);
   const held = await request(policy(read.body.revision, true), { route: 'recovery' });
   assert.equal(held.status, 200);
   const check = new Database(path.join(root, 'workspace.sqlite'), { readonly: true });
-  try { assert.equal(check.pragma('user_version', { simple: true }), 6); } finally { check.close(); }
+  try { assert.equal(check.pragma('user_version', { simple: true }), 7); } finally { check.close(); }
 });
 
 test('failed policy transition rolls back state, generation, revision, checkpoint, receipt, and event', async t => {

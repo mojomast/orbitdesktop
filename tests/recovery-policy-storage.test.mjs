@@ -50,5 +50,5 @@ test('SIGKILL during v1-to-v2 policy upgrade rolls back schema and retries witho
     assert.equal(inspect.pragma('table_info(receipts)').some(column=>column.name==='policy_generation'),false);
   } finally {inspect.close();}
   const reopened=new SqliteWorkspaceStore(root);
-  try {assert.deepEqual(reopened.read(id),before);assert.equal(reopened.diagnostics().schema_version,6);}finally {reopened.close();}
+  try {assert.deepEqual(reopened.read(id),before);assert.equal(reopened.diagnostics().schema_version,7);}finally {reopened.close();}
 });

@@ -170,10 +170,10 @@ test('SQLite data enforces scope, immutable identity, CAS, kind allow-list and i
   denied(()=>f.data.update('tasks',f.ws,f.first.id,record.id,2,{private:'bad'}),'stale_resource');
   const updated=f.data.update('tasks',f.ws,f.first.id,record.id,1,{private:'changed'});
   assert.equal(updated.id,record.id);assert.equal(updated.revision,2);assert.equal(f.data.get('tasks',f.ws,f.first.id,record.id).private,'changed');
-  for(const kind of ['grants','tasks; DROP TABLE workspaces']){
+  for(const kind of ['arbitrary_grants','tasks; DROP TABLE workspaces']){
     assert.ok(!WORKBENCH_RECORD_KINDS.includes(kind));denied(()=>f.data.list(kind,f.ws,f.first.id),'invalid_request');
   }
-  for(const kind of ['approvals','grants','previews','tokens','sessions']){
+  for(const kind of ['approvals','previews','tokens','sessions']){
     assert.ok(!WORKBENCH_RECORD_KINDS.includes(kind));assert.doesNotMatch(workbenchExecutionSchemaSql,new RegExp(`CREATE TABLE[^;]*wb_${kind}\\b`,'i'));
   }
 });
