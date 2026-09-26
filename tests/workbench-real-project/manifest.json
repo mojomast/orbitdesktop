@@ -1,0 +1,21 @@
+{
+  "manifest_version": 1,
+  "project": "orbit-agent-profiles",
+  "description": "Real maintained pure-Node Orbit subproject selected by explicit SOURCE SELECTION, not a whole-repo capture.",
+  "revision": "5b31fdaba1f867eeaf7b0aa30438f096a55b54f6",
+  "inputs": ["server/agent-profiles.mjs", "tests/agent-profiles.test.mjs"],
+  "test_command": "node --experimental-strip-types --test tests/agent-profiles.test.mjs",
+  "dependencies": "none (node builtins only; no ambient node_modules)",
+  "defect": {
+    "file": "server/agent-profiles.mjs",
+    "description": "Widen the sessions page cap from 100 to 200; the existing bounded-display test must fail.",
+    "find": "data.slice(0, 100).filter",
+    "replace": "data.slice(0, 200).filter"
+  },
+  "acceptance": {
+    "baseline": "pass",
+    "defect_candidate": "fail",
+    "repaired": "pass",
+    "original_unchanged": true
+  }
+}
