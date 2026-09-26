@@ -48,7 +48,10 @@ export function readNativeApiKeyFile(filename){
 }
 export function nativeRuntimeEnvironmentOptions({root,gate,config_generation,env=process.env}={}){
   if(!env.ORBIT_NATIVE_HERMES_SOURCE)return null;
-  return {source:env.ORBIT_NATIVE_HERMES_SOURCE,python:env.ORBIT_NATIVE_HERMES_PYTHON,endpoint:env.ORBIT_NATIVE_HERMES_MODEL_URL,profile_id:env.ORBIT_NATIVE_HERMES_PROFILE,model:env.ORBIT_NATIVE_HERMES_MODEL??'orbit-local-fixture',apiKeyFile:env.ORBIT_NATIVE_HERMES_API_KEY_FILE,root,gate,config_generation};
+  // Internal host-only object. Read once at service startup so consent metadata
+  // and its lazily constructed runtime receive identical credential bytes.
+  const apiKey=env.ORBIT_NATIVE_HERMES_API_KEY_FILE===undefined?'local-fixture':readNativeApiKeyFile(env.ORBIT_NATIVE_HERMES_API_KEY_FILE);
+  return {source:env.ORBIT_NATIVE_HERMES_SOURCE,python:env.ORBIT_NATIVE_HERMES_PYTHON,endpoint:env.ORBIT_NATIVE_HERMES_MODEL_URL,profile_id:env.ORBIT_NATIVE_HERMES_PROFILE,model:env.ORBIT_NATIVE_HERMES_MODEL??'orbit-local-fixture',apiKey,root,gate,config_generation};
 }
 
 // Host-configured adapter. Never pass request/model-selected executables, paths,

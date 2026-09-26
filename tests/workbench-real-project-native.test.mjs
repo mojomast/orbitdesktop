@@ -12,7 +12,7 @@ import {createWorkbenchGate} from '../server/workbench-gate.mjs';
 import {openProjectRoot,captureProject} from '../server/project-files.mjs';
 import {createWorkbenchExecution} from '../server/workbench-execution.mjs';
 import {createWorkbenchNative} from '../server/workbench-native.mjs';
-import {createWorkbenchNativeRuntime} from '../server/workbench-native-runtime.mjs';
+import {createWorkbenchNativeRuntime,nativeRuntimeEnvironmentOptions,nativeRuntimeMetadata} from '../server/workbench-native-runtime.mjs';
 import {initial} from '../src/model.ts';
 import {commandIdentity} from '../server/command-identity.mjs';
 
@@ -44,9 +44,13 @@ test('pinned maintained Node project: native repair, structured checks, owner re
   store.commit(commandIdentity({workspace_id,action:'sync',base_revision:0,state:initial(),operation_id:randomUUID(),intent:'Pinned real project'},'owner'),{create:()=>({id:workspace_id,revision:1,state:initial(),capability:randomUUID(),api:'http://127.0.0.1:4318'})});
   const data=new WorkbenchData(store),records=new WorkbenchStore(store),opened=openProjectRoot(projectRoot),project=records.register(workspace_id,{root:projectRoot,name:'Pinned agent profiles',identity:opened.identity});opened.close();
   const gate=createWorkbenchGate(),execution=createWorkbenchExecution({store,records,data,gate}),scope={workspace_id,project_id:project.id},calls=[];
+  let originalKeySeen=false,rotatedKeySeen=false;
   t.after(()=>execution.close());
   const model=http.createServer(async(req,res)=>{
     if(req.method!=='POST'){res.setHeader('content-type','application/json');res.end(JSON.stringify({object:'list',data:[]}));return;}
+    const credentials=Object.values(req.headers).flat().join(' ');
+    if(credentials.includes('fixture-private-key'))originalKeySeen=true;
+    if(credentials.includes('rotated-after-startup'))rotatedKeySeen=true;
     let raw='';for await(const chunk of req)raw+=chunk;
     const body=JSON.parse(raw);if(!Array.isArray(body.messages)){res.statusCode=404;res.end('{}');return;}
     const results=body.messages.filter(item=>item.role==='tool').map(item=>{try{return JSON.parse(item.content);}catch{return {};}}),step=results.length;
@@ -63,7 +67,13 @@ test('pinned maintained Node project: native repair, structured checks, owner re
   });
   await new Promise(resolve=>model.listen(0,'127.0.0.1',resolve));t.after(()=>model.close());
   const source=process.env.HERMES_NATIVE_SOURCE,keyFile=path.join(base,'endpoint-key');fs.writeFileSync(keyFile,'fixture-private-key\n',{mode:0o600});
-  const runtime=createWorkbenchNativeRuntime({source,python:process.env.HERMES_NATIVE_PYTHON??path.join(source,'.venv/bin/python'),root:path.join(base,'agents'),endpoint:`http://127.0.0.1:${model.address().port}/v1`,profile_id:'fixture',config_generation:1,apiKeyFile:keyFile,gate});
+  const configured=nativeRuntimeEnvironmentOptions({root:path.join(base,'agents'),gate,env:{ORBIT_NATIVE_HERMES_SOURCE:source,ORBIT_NATIVE_HERMES_PYTHON:process.env.HERMES_NATIVE_PYTHON??path.join(source,'.venv/bin/python'),ORBIT_NATIVE_HERMES_MODEL_URL:`http://127.0.0.1:${model.address().port}/v1`,ORBIT_NATIVE_HERMES_PROFILE:'fixture',ORBIT_NATIVE_HERMES_API_KEY_FILE:keyFile}});
+  const selected=nativeRuntimeMetadata(configured);
+  fs.writeFileSync(keyFile,'rotated-after-startup\n');
+  const runtime=createWorkbenchNativeRuntime({...configured,config_generation:1});
+  assert.equal(configured.apiKey,'fixture-private-key');
+  assert.deepEqual(selected,runtime.bindingMetadata,'server readBinding and runtime share the same startup credential snapshot');
+  assert.deepEqual(nativeRuntimeMetadata(configured),runtime.bindingMetadata);
   const hermes={...runtime,readBinding:async()=>({trusted_host:true,sandbox:false,profile_id:'fixture',session_id:'real-project',config_generation:1,binding_revision:1,native_runtime:runtime.bindingMetadata})};
   const native=createWorkbenchNative({store,records,data,execution,hermes});t.after(()=>native.close());
   const call=(action,fields={})=>execution.dispatch({...scope,action,...fields});
@@ -102,4 +112,5 @@ test('pinned maintained Node project: native repair, structured checks, owner re
   assert.equal(fs.readFileSync(path.join(projectRoot,sourceFile),'utf8'),original);
   assert.equal(data.list('evidence',workspace_id,project.id).length,2);
   assert.equal(calls.length,9);assert.equal(JSON.stringify(calls).includes('fixture-private-key'),false);
+  assert.equal(originalKeySeen,true);assert.equal(rotatedKeySeen,false);
 });

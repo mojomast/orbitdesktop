@@ -23,10 +23,13 @@ test('private native endpoint key file is bounded, identity-bound and never proj
   const file=path.join(root,'key'),alias=path.join(root,'alias');fs.writeFileSync(file,'private-endpoint-token\n',{mode:0o600});
   assert.equal(readNativeApiKeyFile(file),'private-endpoint-token');
   const options=nativeRuntimeEnvironmentOptions({root,env:{ORBIT_NATIVE_HERMES_SOURCE:'/tmp/source',ORBIT_NATIVE_HERMES_PYTHON:'/tmp/python',ORBIT_NATIVE_HERMES_MODEL_URL:'http://127.0.0.1:3456/v1',ORBIT_NATIVE_HERMES_PROFILE:'fixture',ORBIT_NATIVE_HERMES_API_KEY_FILE:file}});
-  assert.equal(options.apiKeyFile,file);assert.equal(JSON.stringify(options).includes('private-endpoint-token'),false);
+  assert.equal(options.apiKey,'private-endpoint-token');assert.equal(options.apiKeyFile,undefined);
   const a=nativeRuntimeMetadata({source:'/tmp/source',python:'/tmp/python',endpoint:'http://127.0.0.1:3456/v1',profile_id:'fixture',apiKey:readNativeApiKeyFile(file)});
+  assert.deepEqual(nativeRuntimeMetadata(options),a,'server/index.mjs binds consent using the same key-file identity as runtime startup');
   const b=nativeRuntimeMetadata({source:'/tmp/source',python:'/tmp/python',endpoint:'http://127.0.0.1:3456/v1',profile_id:'fixture',apiKey:'rotated'});
   assert.notEqual(a.configuration_hash,b.configuration_hash);assert.equal(JSON.stringify(a).includes('private-endpoint-token'),false);
+  fs.writeFileSync(file,'rotated\n');assert.deepEqual(nativeRuntimeMetadata(options),a,'rotation requires explicit service restart, not a second credential read');
+  fs.writeFileSync(file,'private-endpoint-token\n');
   fs.symlinkSync(file,alias);assert.throws(()=>readNativeApiKeyFile(alias));
   fs.chmodSync(file,0o644);assert.throws(()=>readNativeApiKeyFile(file));
   fs.chmodSync(file,0o600);fs.writeFileSync(file,'x'.repeat(4097));assert.throws(()=>readNativeApiKeyFile(file));
