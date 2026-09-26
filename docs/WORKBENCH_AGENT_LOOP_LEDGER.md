@@ -117,6 +117,17 @@ in-flight jobs after that await. The deterministic real-Git regression admits a
 second check during review and requires refusal; **19/19** workflow/loop tests
 pass (`/tmp/opencode/comet-review-race-check.log`).
 
+Published `e7e3c8d023eca5aa5e3e1390b93a8f7427740136` passed the full
+[Workbench CI](https://github.com/mojomast/orbitdesktop/actions/runs/36219686107),
+including pinned-runtime, both native browser journeys, linked registration,
+PTY continuity/recovery and portable parity. Its
+[plugin CI](https://github.com/mojomast/orbitdesktop/actions/runs/36219686083)
+found a pre-existing test race: `kill-server` acknowledges before tmux exits,
+and immediate `new-session` can reach the dying server. The adoption fixture now
+opens a Linux pidfd before killing the private server and waits for kernel exit
+notification before recreation; no sleeps or retry-until-green workaround.
+Targeted adoption/real-lease tests pass (`/tmp/opencode/comet-tmux-exit-regression.log`).
+
 - No authorized paid/real model or live deployment was exercised. No credentials
   were borrowed, service restarted, owner runtime migrated or tokens rotated.
 - The isolated model toolset denies host-tool fallback, but candidate test code

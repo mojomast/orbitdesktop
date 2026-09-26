@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, stat, chmod, symlink, readFile, writeFile } from 'node:fs/promises';
-import { execFile, execFileSync } from 'node:child_process';
+import { execFile, execFileSync, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { randomUUID } from 'node:crypto';
 import { ManagedTerminalIdentityLedger, LEDGER_SENTINEL_SUFFIX } from '../server/managed-terminal-ledger.mjs';
@@ -150,7 +150,15 @@ test('LocalHost shell is adopted, durably recovered, fenced on replacement, and 
   assert.equal(await p2.inspectExact({ sessionName }), null);
   assert.equal(await p2.attachmentArguments({ sessionName }), null, 'Changed shells must not be silently attached or recreated');
   assert.equal((await b2.reconcile({ workspaceId: 'workspace' })).entries[0].status, 'identity_changed');
+  // kill-server acknowledges the command before the old server has exited. Bind
+  // a Linux pidfd BEFORE killing it, then await kernel exit notification instead
+  // of racing new-session against a dying server/socket (or retrying until green).
+  const waiter=spawn('/usr/bin/python3',['-c',"import os,select,sys\nfd=os.pidfd_open(int(sys.argv[1]))\nprint('READY',flush=True)\nready=select.select([fd],[],[],10)[0]\nos.close(fd)\nsys.exit(0 if ready else 1)",String(original.serverPid)],{env,stdio:['ignore','pipe','pipe']});
+  t.after(()=>{if(waiter.exitCode===null)waiter.kill();});
+  await new Promise((resolve,reject)=>{let ready=false;waiter.stdout.once('data',data=>{ready=true;try{assert.equal(data.toString().trim(),'READY');resolve();}catch(error){reject(error);}});waiter.once('error',reject);waiter.once('exit',()=>{if(!ready)reject(Error('pidfd observer exited before binding the old tmux server'));});});
+  const exited=new Promise((resolve,reject)=>waiter.once('exit',code=>code===0?resolve():reject(Error('Old tmux server did not exit'))));
   await run('kill-server');
+  await exited;
   await run('new-session', '-d', '-s', sessionName, '/bin/bash');
   const p3 = await ManagedTerminalProvider.create({ ...options, ledger: recovered });
   const b3 = new ManagedTerminalBroker({ ownerId: 'owner', providerId: socket + '-reloaded', provider: p3, workspaceRead });
