@@ -1,123 +1,9 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "Comet Project Workbench owner requests v1",
   "oneOf": [
     {
       "type": "object",
       "properties": {
-        "action": {
-          "const": "list"
-        },
-        "workspace_id": {
-          "type": "string",
-          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-        }
-      },
-      "required": [
-        "action",
-        "workspace_id"
-      ],
-      "additionalProperties": false
-    },
-    {
-      "type": "object",
-      "properties": {
-        "action": {
-          "const": "register_preview"
-        },
-        "workspace_id": {
-          "type": "string",
-          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-        },
-        "root": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 4096
-        },
-        "name": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 120
-        },
-        "git_mapping": {
-          "type": "object",
-          "properties": {
-            "git_directory": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 4096
-            },
-            "common_directory": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 4096
-            }
-          },
-          "required": [
-            "git_directory",
-            "common_directory"
-          ],
-          "additionalProperties": false
-        }
-      },
-      "required": [
-        "action",
-        "workspace_id",
-        "root",
-        "name"
-      ],
-      "additionalProperties": false
-    },
-    {
-      "type": "object",
-      "properties": {
-        "action": {
-          "const": "register_commit"
-        },
-        "workspace_id": {
-          "type": "string",
-          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-        },
-        "approval_id": {
-          "type": "string",
-          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-        }
-      },
-      "required": [
-        "action",
-        "workspace_id",
-        "approval_id"
-      ],
-      "additionalProperties": false
-    },
-    {
-      "type": "object",
-      "properties": {
-        "action": {
-          "const": "inspect"
-        },
-        "workspace_id": {
-          "type": "string",
-          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-        },
-        "project_id": {
-          "type": "string",
-          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-        }
-      },
-      "required": [
-        "action",
-        "workspace_id",
-        "project_id"
-      ],
-      "additionalProperties": false
-    },
-    {
-      "type": "object",
-      "properties": {
-        "action": {
-          "const": "revoke_project"
-        },
         "workspace_id": {
           "type": "string",
           "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
@@ -126,25 +12,30 @@
           "type": "string",
           "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
         },
-        "base_generation": {
-          "type": "integer",
-          "minimum": 1
+        "action": {
+          "const": "integration_preview"
+        },
+        "candidate_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "review_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
         }
       },
       "required": [
-        "action",
         "workspace_id",
         "project_id",
-        "base_generation"
+        "action",
+        "candidate_id",
+        "review_id"
       ],
       "additionalProperties": false
     },
     {
       "type": "object",
       "properties": {
-        "action": {
-          "const": "file"
-        },
         "workspace_id": {
           "type": "string",
           "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
@@ -153,25 +44,45 @@
           "type": "string",
           "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
         },
-        "resource_id": {
+        "action": {
+          "const": "integrate_confirm"
+        },
+        "candidate_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "review_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "preview_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "preview_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "op_id": {
           "type": "string",
           "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
         }
       },
       "required": [
-        "action",
         "workspace_id",
         "project_id",
-        "resource_id"
+        "action",
+        "candidate_id",
+        "review_id",
+        "preview_id",
+        "preview_digest",
+        "op_id"
       ],
       "additionalProperties": false
     },
     {
       "type": "object",
       "properties": {
-        "action": {
-          "const": "bind"
-        },
         "workspace_id": {
           "type": "string",
           "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
@@ -180,46 +91,96 @@
           "type": "string",
           "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
         },
-        "resource_id": {
+        "action": {
+          "const": "integration_list"
+        }
+      },
+      "required": [
+        "workspace_id",
+        "project_id",
+        "action"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "workspace_id": {
           "type": "string",
           "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
         },
-        "pane_id": {
+        "project_id": {
           "type": "string",
           "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
         },
-        "base_revision": {
-          "type": "integer",
-          "minimum": 1
+        "action": {
+          "const": "retention_inventory"
+        }
+      },
+      "required": [
+        "workspace_id",
+        "project_id",
+        "action"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "workspace_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
         },
-        "role": {
+        "project_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "action": {
+          "const": "retention_plan"
+        }
+      },
+      "required": [
+        "workspace_id",
+        "project_id",
+        "action"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "workspace_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "project_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "action": {
+          "const": "recipe_preview"
+        },
+        "recipe": {
           "enum": [
-            "project_files",
-            "primary_agent",
-            "active_terminal",
-            "preview",
-            "candidate_diff",
-            "job_output"
+            "project_focus",
+            "investigate",
+            "implement",
+            "review",
+            "return"
           ]
         }
       },
       "required": [
-        "action",
         "workspace_id",
         "project_id",
-        "resource_id",
-        "pane_id",
-        "base_revision",
-        "role"
+        "action",
+        "recipe"
       ],
       "additionalProperties": false
     },
     {
       "type": "object",
       "properties": {
-        "action": {
-          "const": "unbind"
-        },
         "workspace_id": {
           "type": "string",
           "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
@@ -228,65 +189,39 @@
           "type": "string",
           "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
         },
-        "binding_id": {
+        "action": {
+          "const": "recipe_apply"
+        },
+        "recipe": {
+          "enum": [
+            "project_focus",
+            "investigate",
+            "implement",
+            "review",
+            "return"
+          ]
+        },
+        "preview_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "preview_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "op_id": {
           "type": "string",
           "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
         }
       },
       "required": [
-        "action",
         "workspace_id",
         "project_id",
-        "binding_id"
-      ],
-      "additionalProperties": false
-    },
-    {
-      "type": "object",
-      "properties": {
-        "action": {
-          "const": "link_pane"
-        },
-        "workspace_id": {
-          "type": "string",
-          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-        },
-        "project_id": {
-          "type": "string",
-          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-        },
-        "pane_id": {
-          "type": "string",
-          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-        },
-        "base_revision": {
-          "type": "integer",
-          "minimum": 1
-        }
-      },
-      "required": [
         "action",
-        "workspace_id",
-        "project_id",
-        "pane_id",
-        "base_revision"
-      ],
-      "additionalProperties": false
-    },
-    {
-      "type": "object",
-      "properties": {
-        "action": {
-          "const": "doctor"
-        },
-        "workspace_id": {
-          "type": "string",
-          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-        }
-      },
-      "required": [
-        "action",
-        "workspace_id"
+        "recipe",
+        "preview_id",
+        "preview_digest",
+        "op_id"
       ],
       "additionalProperties": false
     }

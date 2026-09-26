@@ -19,6 +19,10 @@ import {workbenchOwnerRoute} from './workbench-owner-route.mjs';
 import {createWorkbenchTerminalSource} from './workbench-terminal-source.mjs';
 import {createWorkbenchContext} from './workbench-context.mjs';
 import {createWorkbenchExecution} from './workbench-execution.mjs';
+import {createWorkbenchEnvironments} from './workbench-environments.mjs';
+import {createWorkbenchWorkflow} from './workbench-workflow.mjs';
+import {createWorkbenchNative} from './workbench-native.mjs';
+import {createWorkbenchNativeRuntime,nativeRuntimeEnvironmentOptions,nativeRuntimeMetadata} from './workbench-native-runtime.mjs';
 const port = Number(process.env.PORT || 4318);
 if (!Number.isInteger(port) || port < 1024 || port > 65535)
   throw Error("PORT must be between 1024 and 65535");
@@ -63,7 +67,8 @@ const workbench = createWorkbench({store:workspaceService.store,token,port,devOr
 const workbenchData=new WorkbenchData(workspaceService.store);
 const executionGate=createWorkbenchGate({legacySnapshot:legacyQueueSnapshot(runtimeRoot)});
 const agentHandler = createAgentHandler({ token, port, devOrigins, reply, workspaceContext: workspaceService.context, workspaceRead:workspaceService.read, runtimeDirectory:runtimeRoot,executionGate });
-const execution=createWorkbenchExecution({store:workspaceService.store,records:workbench.records,data:workbenchData,gate:executionGate});
+const environments=createWorkbenchEnvironments({store:workspaceService.store,records:workbench.records,data:workbenchData,gate:executionGate});
+const execution=createWorkbenchExecution({store:workspaceService.store,records:workbench.records,data:workbenchData,gate:executionGate,environments});
 workbenchServices.execution=execution;
 // Managed terminals: strictly optional. A failure here (no tmux, readonly runtime,
 // unsupported platform) disables the route; it must never block the host server or
@@ -128,6 +133,29 @@ const contextSharing=createWorkbenchContext({store:workspaceService.store,record
 workbenchServices.context=contextSharing;
 const contextHandler=workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:body=>contextSharing.dispatch(body)});
 const executionHandler=workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:body=>execution.dispatch(body)});
+const workflow=createWorkbenchWorkflow({store:workspaceService.store,records:workbench.records,data:workbenchData,execution});
+const nativeOptions=nativeRuntimeEnvironmentOptions({root:path.join(runtimeRoot,'workbench-native-runtime'),gate:executionGate});
+const nativeRuntimes=new Map();
+const nativeQuarantines=new Map();
+const nativeHermes={
+  quarantineNative({grant_id}){if(!nativeQuarantines.has(grant_id))nativeQuarantines.set(grant_id,executionGate.quarantine(`native:${grant_id}`));},
+  acknowledgeNativeUnknown({grant_id}){nativeQuarantines.get(grant_id)?.();nativeQuarantines.delete(grant_id);},
+  async readBinding(body){
+    const binding=await agentHandler.workbench.readBinding(body);
+    if(!nativeOptions||binding.profile_id!==nativeOptions.profile_id)return binding;
+    const native_runtime=nativeRuntimeMetadata(nativeOptions);
+    const config_generation=binding.config_generation+':'+native_runtime.configuration_hash;
+    if(!nativeRuntimes.has(config_generation))nativeRuntimes.set(config_generation,createWorkbenchNativeRuntime({...nativeOptions,config_generation}));
+    return {...binding,config_generation,native_runtime};
+  },
+  async startNative(body){const runtime=nativeRuntimes.get(body.scope.recipient.config_generation);if(!runtime)throw Object.assign(Error('unavailable'),{code:'unavailable',native_outcome:'not_started'});if(agentHandler.workbench.hasActiveConversation({workspace_id:body.scope.workspace_id,pane_id:body.scope.recipient.pane_id}))throw Object.assign(Error('busy'),{code:'busy',native_outcome:'not_started'});return runtime.startNative(body);},
+  async stopNative(body){return Promise.all([...nativeRuntimes.values()].map(runtime=>runtime.stopNative(body)));},
+};
+const native=createWorkbenchNative({store:workspaceService.store,records:workbench.records,data:workbenchData,execution,hermes:nativeOptions?nativeHermes:{readBinding:nativeHermes.readBinding,quarantineNative:nativeHermes.quarantineNative,acknowledgeNativeUnknown:nativeHermes.acknowledgeNativeUnknown}});
+workbenchServices.native=native;workbenchServices.nativeConfigured=!!nativeOptions;
+const nativeHandler=workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:body=>native.dispatch(body)});
+const workflowHandler=workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:body=>workflow.dispatch(body)});
+const environmentHandler=workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:body=>environments.dispatch(body)});
 const server = http.createServer(async (req, res) => {
   const allowedHosts = new Set([
     `127.0.0.1:${port}`,
@@ -141,6 +169,9 @@ const server = http.createServer(async (req, res) => {
   if(url.pathname==='/api/workbench')return workbench.handle(req,res);
   if(url.pathname==='/api/workbench/context')return contextHandler(req,res);
   if(url.pathname==='/api/workbench/execution')return executionHandler(req,res);
+  if(url.pathname==='/api/workbench/native')return nativeHandler(req,res);
+  if(url.pathname==='/api/workbench/workflow')return workflowHandler(req,res);
+  if(url.pathname==='/api/workbench/environments')return environmentHandler(req,res);
   if (url.pathname === "/api/managed-terminals") return managedTerminalHandler(req, res);
   if(url.pathname==='/api/workspace/events')return workspaceEvents(req,res);
   if(url.pathname==='/api/workspace/control/events')return workspaceEvents(req,res,true);
@@ -393,6 +424,7 @@ for (const signal of ["SIGTERM", "SIGINT"])
   process.on(signal, () => {
     execution.close();
     contextSharing.close?.();
+    native.close();
     for (const ws of wss.clients) ws.terminate();
     server.close(() => {workspaceService.close();process.exit(0);});
     setTimeout(() => process.exit(0), 2000).unref();

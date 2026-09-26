@@ -208,6 +208,10 @@ export function mountWorkbenchExecution(args: {
       resetPreview();
     });
   });
+  const startCheck=button('Start check in background','Admit the approved check and return its durable job ID immediately',()=>{
+    if(!checkPreview||!opId)return;const preview=checkPreview,operation=opId;
+    void act('Admitting check',{action:'check_start',candidate_id:preview.candidate_id,preview_id:preview.preview_id,preview_digest:preview.spec_digest,op_id:operation},data=>{checkView.append(row('Durable job',data.job));resetPreview();});
+  });
   const exportCandidate = button('Export read-only artifact', 'Export the candidate as a read-only artifact; integration is unsupported', () => {
     const candidate = selectedCandidate(); if (!candidate) return;
     void act('Exporting candidate', { action: 'candidate_export', candidate_id: candidate.id }, data => {
@@ -288,9 +292,11 @@ export function mountWorkbenchExecution(args: {
       item.append(row('Job', `${job.id} · ${job.status} · pid ${job.pid ?? 'none'} · started ${job.started_at ?? 'none'} · ended ${job.ended_at ?? 'none'} · op ${job.op_id}`));
       if (job.outcome_note) item.append(row('Outcome', `${job.outcome_note} — not verified`));
       if (job.status === 'outcome_unknown') item.append(row('Outcome', 'Unknown — not verified'));
+      if(job.status==='finalization_pending')item.append(button('Retry recording result',`Retry database finalization for job ${job.id} without running it again`,()=>void act('Finalizing observed result',{action:'job_finalize_retry',job_id:job.id},()=>{})));
       if (args.onAskContext) item.append(button('Ask agent about this job', `Ask agent about job ${job.id}`, () => { if (pending) { report('Execution: busy.'); return; } args.onAskContext?.(job.id); }));
-      if (job.status === 'starting' || job.status === 'running') item.append(button('Cancel check', `Cancel check job ${job.id}`, () => void act('Requesting cancellation',
-        { action: 'check_cancel', job_id: job.id, expected_pid: job.pid, expected_started_at: job.process_start }, () => {})));
+      if (job.status === 'starting' || job.status === 'running') item.append(button('Cancel check', `Cancel check job ${job.id}`, () => {
+        void request({action:'check_cancel',job_id:job.id,expected_pid:job.pid,expected_started_at:job.process_start},epoch).then(result=>{if(result&&!disposed){status.textContent='Cancellation requested; inspect the recorded process outcome.';void refresh();}});
+      }));
       if (job.status === 'cancel_requested') item.append(row('Cancellation', `Requested; not confirmed until the child exits. ${job.cancel_confirmed ? 'Confirmed.' : 'Not yet confirmed.'}`));
       if (data.unknown_jobs[job.id]) item.append(
         row('Acknowledge digest', data.unknown_jobs[job.id]),
@@ -335,13 +341,21 @@ export function mountWorkbenchExecution(args: {
   checkDefinition.addEventListener('change', () => { checkPreview = null; opId = ''; renderPreviews(); });
   taskSelect.addEventListener('change', resetPreview);
   candidateSelect.addEventListener('change', () => { selectedFile = null; dirty = false; edit.value = ''; expected.textContent = 'Expected hash: no file selected'; selectedEvidence.clear(); resetPreview(); render(); });
-  args.container.replaceChildren(el('h2', '', 'Execution workbench'), status, error, summary,
-    el('h3', '', 'Create task'), labelled('Title', title), labelled('Acceptance statement', acceptance), labelled('Check definition', definition),
-    labelled('Profile ID', profile), labelled('Session ID', session), createTask, taskView,
-    labelled('Task', taskSelect), previewCandidate, previewView, createCandidate,
-    labelled('Candidate', candidateSelect), candidateView, fileList, fileMeta, exportCandidate, expected, edit, saveEdit,
-    labelled('Check definition', checkDefinition), previewCheck, checkView, runCheck, jobsView, reviewView,
-    el('h3', '', 'Owner-pasted proposed patch'), submissionNote, proposed, submission);
+  const sections=new Map<string,HTMLElement>();
+  const section=(name:string,...children:Node[])=>{const node=el('section',`workbench-task-${name.toLowerCase()}`);node.setAttribute('aria-label',name);node.tabIndex=-1;node.append(el('h3','',name),...children);sections.set(name,node);return node;};
+  const requestSection=section('Request',labelled('Title',title),labelled('Acceptance statement',acceptance),labelled('Check definition',definition),labelled('Profile ID',profile),labelled('Session ID',session),createTask,taskView,labelled('Task',taskSelect));
+  const contextSection=section('Context',el('p','','Use Ask agent on a check result, file selection, or diff. Add snapshots and a question to one bounded packet; review its recipient before sharing.'));
+  const changesSection=section('Changes',previewCandidate,previewView,createCandidate,labelled('Candidate',candidateSelect),candidateView,fileList,fileMeta,exportCandidate,expected,edit,saveEdit);
+  const checksSection=section('Checks',labelled('Check definition',checkDefinition),previewCheck,checkView,startCheck,runCheck,jobsView);
+  const completeEvidence=button('Select complete current evidence','Select the server-aggregated complete passing check set for this exact candidate',()=>{
+    const candidate=selectedCandidate();if(!candidate)return;
+    void act('Aggregating required checks',{action:'candidate_get',candidate_id:candidate.id},result=>{selectedEvidence.clear();for(const id of (result.review_evidence_ids??[]) as string[])selectedEvidence.add(id);if(!result.acceptance_complete)report('Required checks are missing, failed, or stale. Run every required check for this exact candidate.');render();},false);
+  });
+  const reviewSection=section('Review',completeEvidence,reviewView);
+  const navigation=el('nav','workbench-task-navigation');navigation.setAttribute('aria-label','Task sections');
+  for(const [name,node] of sections)navigation.append(button(name,`Open task ${name} section`,()=>{node.scrollIntoView({block:'start'});node.focus();}));
+  const legacy=el('details');legacy.append(el('summary','','Manual proposal compatibility'),submissionNote,proposed,submission);
+  args.container.replaceChildren(el('h2', '', 'Execution workbench'),status,error,button('Refresh execution workbench','Refresh execution workbench',()=>void refresh()),navigation,requestSection,contextSection,changesSection,checksSection,reviewSection,summary,legacy);
   controls();
   void refresh();
   return {

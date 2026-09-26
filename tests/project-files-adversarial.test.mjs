@@ -263,7 +263,7 @@ test('workbench binding is metadata-only and reports an absent execution adapter
   assert.equal(inspect.execution.state,'unavailable');assert.deepEqual(inspect.execution.tasks,[]);assert.deepEqual(inspect.execution.jobs,[]);
   const doctor=await f.call('doctor');
   assert.match(doctor.server_build,/^[a-f0-9]{64}$/);
-  assert.match(doctor.execution,/adapter unavailable/);assert.match(doctor.gateway_compatibility,/agent tools disabled/);
+  assert.match(doctor.execution,/adapter unavailable/);assert.match(doctor.native_adapter,/Blocked: no explicitly configured/);
   const leaf=node=>node.type==='pane'?node.pane:leaf(node.first);
   const pane=leaf(before.state.monitors[0].layout);
   const linked=await f.call('link_pane',{project_id:project.id,pane_id:pane.id,base_revision:before.revision});

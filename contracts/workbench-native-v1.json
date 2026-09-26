@@ -67,6 +67,11 @@
               "type": "integer",
               "minimum": 1000,
               "maximum": 900000
+            },
+            "repair_iterations": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10
             }
           },
           "required": [

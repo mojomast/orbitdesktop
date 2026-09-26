@@ -56,7 +56,7 @@ export function createWorkbenchNative({store,records,data,execution,hermes,now=D
       if(previews.size>=64)throw wbError('busy');
       const scope=await snapshot(body),preview_id=randomUUID(),expires_at=now()+60000,preview_digest=digest(scope);
       const p={...scope,preview_id,preview_digest,expires_at};previews.set(preview_id,p);
-      return {preview:p,preview_id,preview_digest,expires_at,contract:HERMES_NATIVE_CONTRACT};
+      return {preview:p,preview_id,preview_digest,expires_at,repair_iteration_limit:p.budget.repair_iterations??3,output_limit_bytes:1048576,storage_policy:'Bounded candidate/file/retained-log inputs; no host disk quota or filesystem isolation',contract:HERMES_NATIVE_CONTRACT};
     }
     if(body.action==='approve'){
       const p=previews.get(body.preview_id);
@@ -110,7 +110,7 @@ export function createWorkbenchNative({store,records,data,execution,hermes,now=D
     let current=get('grants',g,g.id),status=current.status;
     if(status==='stop_requested')status='stopped';
     else if(status==='running'){
-      try{await authorize(g,{active:true});status=success?'completed':'failed';}catch{status='fenced';}
+      try{await authorize(g,{active:true});status=success?'completed':'failed';}catch{status=now()>=g.expires_at?'expired':'fenced';}
     }
     current=get('grants',g,g.id);
     if(current.status==='stop_requested')status='stopped';
@@ -123,7 +123,8 @@ export function createWorkbenchNative({store,records,data,execution,hermes,now=D
     const current=await authorize(g,{active:true});
     if(current.calls_used>=g.budget.calls){pauseBudget(g);throw wbError('limit_exceeded');}
     if(args.action==='job_start'&&current.checks_used>=g.budget.checks)throw wbError('limit_exceeded');
-    update('grants',g,g.id,{calls_used:current.calls_used+1,checks_used:current.checks_used+(args.action==='job_start'?1:0)});
+    if(args.action==='candidate_patch'&&(current.repairs_used??0)>=(g.budget.repair_iterations??3)){update('grants',g,g.id,{status:'paused_budget',reason:'repair_iterations_exhausted'});channels.delete(g.id);throw wbError('limit_exceeded');}
+    update('grants',g,g.id,{calls_used:current.calls_used+1,checks_used:current.checks_used+(args.action==='job_start'?1:0),repairs_used:(current.repairs_used??0)+(args.action==='candidate_patch'?1:0)});
     const call=data.create('toolcalls',{workspace_id:g.workspace_id,project_id:g.project_id,grant_id:g.id,attempt_id:g.attempt_id,action:args.action,args_digest:digest(args),status:'started'});
     const base={workspace_id:g.workspace_id,project_id:g.project_id},candidate={...base,candidate_id:g.candidate_id};
     try{
@@ -132,7 +133,7 @@ export function createWorkbenchNative({store,records,data,execution,hermes,now=D
         case 'inspect': {const a=get('attempts',g,g.attempt_id),t=get('tasks',g,a.task_id),c=await execution.dispatch({action:'candidate_get',...candidate});result={task:{title:t.title,acceptance:t.acceptance},candidate:c.candidate,contexts:g.contexts.map(c=>({id:c.id,hash:c.hash})),budget:g.budget};break;}
         case 'read_context':if(!g.contexts.some(c=>c.id===args.context_id))throw wbError('permission_denied');result={snapshot:get('contexts',g,args.context_id).snapshot};break;
         case 'candidate_read':result=await execution.dispatch({action:'candidate_read',...candidate,path:args.path});break;
-        case 'candidate_patch':result=await execution.dispatch({action:'candidate_apply',...candidate,changes:args.changes,expected_candidate_hash:args.expected_candidate_hash});break;
+        case 'candidate_patch':result=await execution.dispatch({action:'candidate_apply',...candidate,changes:args.changes,expected_candidate_hash:args.expected_candidate_hash},{kind:'native_agent',grant_id:g.id});break;
         case 'job_start': {const definition_id=args.definition_id??g.definition_id;if(!(g.required_checks??[{definition_id:g.definition_id}]).some(check=>check.definition_id===definition_id))throw wbError('permission_denied');const p=await execution.dispatch({action:'check_preview',...candidate,definition_id});await authorize(g,{active:true});result=await execution.dispatch({action:'check_run',...candidate,preview_id:p.preview_id,preview_digest:p.preview.spec_digest,op_id:call.id});break;}
         case 'job_status':case 'evidence': {const j=get('jobs',g,args.job_id);if(j.candidate_id!==g.candidate_id||!data.list('toolcalls',g.workspace_id,g.project_id).some(c=>c.grant_id===g.id&&c.id===j.op_id))throw wbError('permission_denied');result=await execution.dispatch({action:'job_get',...base,job_id:j.id});break;}
       }

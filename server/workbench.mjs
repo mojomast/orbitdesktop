@@ -6,6 +6,7 @@ import {workbenchSchema} from '../contracts/workbench-v1.mjs';
 import {WorkbenchStore,wbError} from './workbench-store.mjs';
 import {openProjectRoot,captureProject,readProjectFile,literalPreview,repositorySnapshot,PROJECT_LIMITS} from './project-files.mjs';
 import {allowedRequest,tokenMatches} from './security.mjs';
+import {previewWorktree,revalidateWorktree} from './workbench-worktrees.mjs';
 const validate=new Ajv({strict:true}).compile(workbenchSchema);
 const publicProject=({identity,...project})=>project;
 const publicResource=({identity,...resource})=>resource;
@@ -24,20 +25,22 @@ export function createWorkbench({store,token,port,devOrigins,reply,now=Date.now,
   async function dispatch(body){
     if(!validate(body))throw wbError('invalid_request');
     const workspace=store.read(body.workspace_id);
-    if(body.action==='doctor')return {version:1,schema_version:store.db.pragma('user_version',{simple:true}),server_build:identity,frontend_build:fs.existsSync(new URL('../dist/index.html',import.meta.url))?createHash('sha256').update(fs.readFileSync(new URL('../dist/index.html',import.meta.url))).digest('hex'):null,renderer_support:['default','docking (native moveBefore required for continuity)'],gateway_compatibility:'Capabilities checked per configured recipient; real-Hermes acceptance is deployment-specific. Reusable workbench agent tools disabled.',active_workbench_jobs:services.execution?.activeCount?.()??0,execution:services.execution?'Serial, owner-approved candidate checks; trusted host execution, not a sandbox':'Execution adapter unavailable',recovery:'SQLite records persist; pending jobs without proven child ownership become outcome_unknown. No permission, task or disclosure is replayed by layout recovery.',authority:'Owner-authenticated controls; separate one-shot context disclosure, candidate editing and exact check approvals. Acceptance does not integrate or deploy.'};
+    if(body.action==='doctor')return {version:1,schema_version:store.db.pragma('user_version',{simple:true}),server_build:identity,frontend_build:fs.existsSync(new URL('../dist/index.html',import.meta.url))?createHash('sha256').update(fs.readFileSync(new URL('../dist/index.html',import.meta.url))).digest('hex'):null,renderer_support:['default','docking (native moveBefore required for continuity)'],gateway_compatibility:'Capabilities checked per configured recipient; pinned dedicated Hermes runtime is a separate native adapter. Real-model acceptance is deployment-specific.',native_adapter:services.nativeConfigured?'Configured: exact runtime/source and recipient binding verified when previewed':'Blocked: no explicitly configured local pinned Hermes runtime; set ORBIT_NATIVE_HERMES_SOURCE/PYTHON/MODEL_URL/PROFILE',dispatch_health:services.execution?.health?.()??{available:false},active_workbench_jobs:services.execution?.activeCount?.()??0,execution:services.execution?'Serial, owner-approved candidate checks; trusted host execution, not a sandbox':'Execution adapter unavailable',recovery:'SQLite records persist; pending jobs without proven child ownership become outcome_unknown. Finalization retry only records an already observed result. No execution is replayed by layout recovery.',authority:'Owner-authenticated controls; bounded native task consent, exact context disclosure and check contracts. Acceptance, private-branch integration and deployment are separate.'};
     if(body.action==='list')return {projects:records.list(body.workspace_id).map(publicProject),revision:workspace.revision,surfaces:panes(workspace.state)};
     if(body.action==='register_preview'){
       if(approvals.size>=32){for(const [id,value] of approvals)if(value.expires_at<=now())approvals.delete(id);if(approvals.size>=32)throw wbError('busy');}
       const root=openProjectRoot(body.root);root.close();
-      const request={root:body.root,name:body.name,identity:root.identity};
+      const mapping=body.git_mapping?previewWorktree({root:body.root,...body.git_mapping}):null;
+      const request={root:body.root,name:body.name,identity:root.identity,...(mapping?{git_mapping:mapping.mapping}:{})};
       const approval_id=randomUUID(),digest=createHash('sha256').update(JSON.stringify({workspace_id:body.workspace_id,...request})).digest('hex');
       const approval={workspace_id:body.workspace_id,request,digest,expires_at:now()+60000};approvals.set(approval_id,approval);
-      return {approval_id,digest,expires_at:approval.expires_at,root:body.root,name:body.name,authority:'Register this exact directory incarnation for bounded owner-only file/status/diff reads. Fixed read-only provider helpers may run with limits. No model sharing, project-script execution, project writes or terminal capture.',limits:PROJECT_LIMITS,exclusions:['.git from file previews','.env and .env.*','*.pem/*.key/*.p12/*.pfx','node_modules','.runtime','.ssh','.aws','.gnupg','dist/build/coverage','.venv','symlinks, hardlinks and special files']};
+      return {approval_id,digest,expires_at:approval.expires_at,root:body.root,name:body.name,git_mapping:mapping?.mapping??null,authority:'Register this exact directory incarnation for bounded owner-only file/status/diff reads. '+(mapping?mapping.description+' ':'')+'Fixed read-only provider helpers may run with limits. No model sharing, project-script execution, project writes or terminal capture.',limits:PROJECT_LIMITS,exclusions:['.git from file previews','.env and .env.*','*.pem/*.key/*.p12/*.pfx','node_modules','.runtime','.ssh','.aws','.gnupg','dist/build/coverage','.venv','symlinks, hardlinks and special files']};
     }
     if(body.action==='register_commit'){
       const approval=approvals.get(body.approval_id);if(!approval||approval.workspace_id!==body.workspace_id)throw wbError('permission_denied');
       if(approval.expires_at<=now()){approvals.delete(body.approval_id);throw wbError('expired');}
       const root=openProjectRoot(approval.request.root,approval.request.identity);root.close();
+      if(approval.request.git_mapping)revalidateWorktree(approval.request.git_mapping);
       const project=records.register(body.workspace_id,approval.request);approvals.delete(body.approval_id);
       return {project:publicProject(project),approval_digest:approval.digest};
     }
@@ -47,6 +50,7 @@ export function createWorkbench({store,token,port,devOrigins,reply,now=Date.now,
       const revoked=records.revoke(body.workspace_id,project.id,body.base_generation);
       services.context?.onRevoke?.(project.id);
       services.execution?.onRevoke?.(project.id);
+      services.native?.onRevoke?.(project.id);
       for(const [id,approval] of approvals)if(approval.workspace_id===body.workspace_id&&approval.request.root===project.root)approvals.delete(id);
       return {project:publicProject(revoked)};
     }

@@ -77,6 +77,26 @@ export function showWorkbenchContext(args: {
   let recipient: Recipient | null = null;
   let runId = '';
   let attemptId = '';
+  const attachments=new Map<string,string>();
+  const question=el('textarea');question.rows=3;question.maxLength=8000;question.setAttribute('aria-label','Task or question');
+  const sources=el('select');sources.setAttribute('aria-label','Additional context source');
+  const firstLine=el('input'),lastLine=el('input');for(const input of [firstLine,lastLine])input.type='number';firstLine.value='1';lastLine.value='50';firstLine.setAttribute('aria-label','Additional source from line');lastLine.setAttribute('aria-label','Additional source through line');
+  const attachmentView=el('div','workbench-context-attachments');
+  function invalidatePacket(){previewId='';approvalId='';text.value='';approvalNote.textContent='';controls();}
+  function renderAttachments(){attachmentView.replaceChildren();for(const [id,label] of attachments){const entry=el('div');entry.append(row('Snapshot',label),button('Remove','Remove snapshot '+id,()=>{if(pending||shared)return;attachments.delete(id);contextId=attachments.keys().next().value??'';invalidatePacket();renderAttachments();}));attachmentView.append(entry);}}
+  async function ownerApi(endpoint:string,body:Data){const response=await fetch(endpoint,{method:'POST',headers:{Authorization:`Bearer ${ownerToken()}`,'Content-Type':'application/json'},body:JSON.stringify({workspace_id:args.workspace_id,project_id:args.project_id,...body})});const data=asRecord(await response.json());if(!response.ok||data.ok!==true)throw Error(asText(data.code)||'unavailable');return data;}
+  const loadSources=button('Choose more sources','List project file, diff and job sources',()=>void run(async()=>{
+    const inspection=await ownerApi('/api/workbench',{action:'inspect'}),execution=await ownerApi('/api/workbench/execution',{action:'execution_state'});sources.replaceChildren();
+    for(const value of Array.isArray(inspection.resources)?inspection.resources:[]){const resource=asRecord(value);if(resource.kind!=='file')continue;const option=el('option','',asText(resource.path));option.value=JSON.stringify({kind:'file',resource_id:resource.id,expected_hash:resource.hash});sources.append(option);}
+    const repository=asRecord(inspection.repository);if(repository.state==='available'){const option=el('option','','Current project diff');option.value=JSON.stringify({kind:'diff',expected_hash:repository.snapshot_hash});sources.append(option);}
+    for(const value of Array.isArray(execution.jobs)?execution.jobs:[]){const job=asRecord(value);const option=el('option','',`Job ${job.id} · ${job.status}`);option.value=JSON.stringify({kind:'job',job_id:job.id});sources.append(option);}
+  }));
+  const addSource=button('Add snapshot','Capture selected additional source',()=>void run(async()=>{
+    if(!sources.value||attachments.size>=8)throw Error('limit_exceeded');const source=JSON.parse(sources.value) as Data;
+    if(source.kind==='file'){source.start_line=firstLine.valueAsNumber;source.end_line=lastLine.valueAsNumber;}
+    const data=await api({action:'capture',source,...(attemptId?{attempt_id:attemptId}:{})});const id=asText(asRecord(data.context).id);attachments.set(id,sources.selectedOptions[0].textContent??id);contextId=id;invalidatePacket();renderAttachments();
+  }));
+  question.addEventListener('input',()=>{if(!shared)invalidatePacket();});
 
   function refreshAttempts() {
     const selected = asRecord((() => { try { return JSON.parse(recipients.value); } catch { return null; } })());
@@ -130,6 +150,7 @@ export function showWorkbenchContext(args: {
     reconcile.disabled = pending || !unknown;
     check.disabled = pending || !disclosureId;
     stop.disabled = pending || !disclosureId || !runId;
+    question.disabled=pending||shared;loadSources.disabled=pending||shared;addSource.disabled=pending||shared||attachments.size>=8;
   }
   async function run(task: () => Promise<void>, ambiguousShare = false) {
     if (pending || closed) return;
@@ -149,11 +170,13 @@ export function showWorkbenchContext(args: {
     const data = await api({ action: 'capture', source: args.source, ...(attemptId ? { attempt_id: attemptId } : {}) });
     contextId = asText(asRecord(data.context).id);
     if (!contextId) throw Error('unavailable');
+    attachments.set(contextId,args.source.kind);renderAttachments();
     status.textContent = 'Context metadata captured. No text displayed yet. Select a recipient and preview explicitly.';
   }));
   const discard = button('Discard context and choose again', 'Discard the current reviewed source and capture a fresh one', () => {
     if (pending || shared) return;
     contextId = ''; previewId = ''; approvalId = ''; recipient = null; attemptId = '';
+    attachments.clear();renderAttachments();
     text.value = ''; details.replaceChildren(); approvalNote.textContent = '';
     destinationNotice.hidden = true;
     attempts.value = '';
@@ -162,6 +185,10 @@ export function showWorkbenchContext(args: {
     controls();
   });
   const preview = button('Preview for selected recipient', 'Preview exact context bytes for the selected agent recipient', () => void run(async () => {
+    if(attachments.size>1||question.value.trim()){
+      if(!question.value.trim())throw Error('invalid_request');
+      const packet=await api({action:'packet',context_ids:[...attachments.keys()],question:question.value,...(attemptId?{attempt_id:attemptId}:{})});contextId=asText(asRecord(packet.context).id);
+    }
     recipient = JSON.parse(recipients.value) as Recipient;
     const data = await api({ action: 'preview', context_id: contextId, recipient });
     previewId = asText(data.preview_id);
@@ -228,7 +255,7 @@ export function showWorkbenchContext(args: {
   const close = button('Close', 'Close context sharing dialog', () => dialog.close());
   recipients.addEventListener('change', () => { refreshAttempts(); controls(); });
   attempts.addEventListener('change', () => { attemptId = attempts.value; });
-  dialog.append(el('h2', '', 'Share project context'), status, error, recipients, attempts, capture, discard, preview,
+  dialog.append(el('h2', '', 'Share project context'), status, error, recipients, attempts,question, capture, discard,loadSources,sources,firstLine,lastLine,addSource,attachmentView, preview,
     warning, destinationNotice, details, text, approve, approvalNote, share, outcome, responseLabel, copyResponse, outputTruncated, withheld, check, reconcile, stop, close);
   dialog.addEventListener('keydown', event => event.stopPropagation());
   dialog.addEventListener('close', () => { closed = true; dialog.remove(); previousFocus?.focus(); }, { once: true });

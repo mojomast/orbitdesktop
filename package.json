@@ -11,7 +11,7 @@
     "build": "tsc --noEmit && vite build",
     "start": "node --experimental-strip-types server/index.mjs",
     "test": "node --experimental-strip-types --test tests/*.test.mjs",
-    "check": "node scripts/generate-workspace-contract.mjs --check && node scripts/generate-workbench-contract.mjs --check && npm run build && npm test",
+    "check": "node scripts/generate-workspace-contract.mjs --check && node --experimental-strip-types scripts/generate-workbench-contract.mjs --check && npm run build && npm test",
     "format": "prettier --write src server tests docs README.md package.json index.html vite.config.js tsconfig.json"
   },
   "dependencies": {

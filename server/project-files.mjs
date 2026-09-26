@@ -3,6 +3,7 @@ import path from 'node:path';
 import {createHash,randomUUID} from 'node:crypto';
 import {execFile} from 'node:child_process';
 import {wbError} from './workbench-store.mjs';
+import {revalidateWorktree,materializeWorktree} from './workbench-worktrees.mjs';
 const C=fs.constants;
 // Repository observation deliberately uses only raw object reads. `git status`
 // and `git diff` are never invoked because they can run repository-configured
@@ -137,36 +138,53 @@ export async function repositorySnapshot(project,capture,{scratchRoot='/tmp/open
   // The root is opened before any temporary state exists, so a stale root fails
   // without leaving a scratch directory behind.
   try{root=openProjectRoot(project.root,project.identity);}catch{return unavailable('Project root could not be re-verified for repository inspection');}
+  if(project.git_mapping){
+    try{if(project.git_mapping.root!==project.root||project.git_mapping.identity_root!==project.identity)throw wbError('stale_resource');revalidateWorktree(project.git_mapping);}
+    catch{root.close();return unavailable('Approved linked-worktree mapping changed or is unavailable');}
+  }
   let scratch;
   try{
     try{fs.mkdirSync(scratchRoot,{recursive:true,mode:0o700});}catch{return unavailable('Private workbench scratch directory is unavailable');}
     scratch=fs.mkdtempSync(path.join(scratchRoot,SCRATCH_PREFIX));fs.chmodSync(scratch,0o700);
     const deadline=Date.now()+OBSERVATION_TIMEOUT_MS;
     let git;
-    try{git=guardedChild(root.fd,'.git',true,root.dev);}catch{return unavailable('No supported in-root Git directory; the document project remains usable');}
+    if(!project.git_mapping){try{git=guardedChild(root.fd,'.git',true,root.dev);}catch{return unavailable('No supported in-root Git directory; the document project remains usable');}}
     try{
       // Materialize a bounded copy. Config, hooks, logs, info, worktree and
       // module indirection are skipped; anything that is not a plain single
       // link regular file/directory is rejected rather than copied.
       let count=0,total=0;
-      const copy=(fd,destination,depth=0)=>{
+       const copy=(fd,destination,depth=0,device=root.dev)=>{
         if(depth>20)throw wbError('limit_exceeded');fs.mkdirSync(destination,{recursive:true,mode:0o700});
         const directory=fs.opendirSync(fdPath(fd));
         try{let entry;while((entry=directory.readSync())){
           if(++count>PROJECT_LIMITS.gitFiles)throw wbError('limit_exceeded');
           if(['commondir','gitdir'].includes(entry.name))throw wbError('unsupported');
-          if(['config','hooks','logs','info','worktrees','modules'].includes(entry.name))continue;
+           if(['config','hooks','logs','info','worktrees','modules'].includes(entry.name))continue;
           let next;
           try{
             next=child(fd,entry.name);const stat=fs.fstatSync(next),target=path.join(destination,entry.name);
-            if(stat.dev!==root.dev)throw wbError('unsupported');
-            if(stat.isDirectory())copy(next,target,depth+1);
+             if(stat.dev!==device)throw wbError('unsupported');
+             if(stat.isDirectory())copy(next,target,depth+1,device);
             else if(stat.isFile()){const data=bytesAt(next,PROJECT_LIMITS.gitBytes);total+=data.bytes.length;if(total>PROJECT_LIMITS.gitBytes)throw wbError('limit_exceeded');fs.writeFileSync(target,data.bytes,{mode:0o600,flag:'wx'});}
             else throw wbError('unsupported');
           }finally{if(next!==undefined)fs.closeSync(next);}
         }}finally{directory.closeSync();}
       };
-      copy(git,path.join(scratch,'.git'));
+       if(project.git_mapping){
+         materializeWorktree(project.git_mapping,scratch,(fd,name,destination,device)=>{
+           const next=guardedChild(fd,name,false,device);
+           try{
+             const stat=fs.fstatSync(next),target=path.join(destination,name);
+             if(stat.isDirectory())copy(next,target,0,device);
+             else if(stat.isFile()){
+               const data=bytesAt(next,PROJECT_LIMITS.gitBytes);
+               total+=data.bytes.length;if(total>PROJECT_LIMITS.gitBytes)throw wbError('limit_exceeded');
+               fs.writeFileSync(target,data.bytes,{mode:0o600,flag:'wx'});
+             }else throw wbError('unsupported');
+           }finally{fs.closeSync(next);}
+         });
+       }else copy(git,path.join(scratch,'.git'));
       const captured=new Map();
       for(const file of capture.files){
         if(!safePath(file.path))throw wbError('unsupported');
@@ -186,6 +204,7 @@ export async function repositorySnapshot(project,capture,{scratchRoot='/tmp/open
       };
       const runGit=async(args,options)=>{const result=await runLimited(GIT,args,options);if(result.code!==0)throw wbError('unavailable');return result.stdout;};
       const head=String(await runGit(['rev-parse','--verify','HEAD'])).trim();
+      const head_reference=fs.readFileSync(path.join(scratch,'.git','HEAD'),'utf8').trim();
       if(!/^[a-f0-9]{40,64}$/.test(head))throw wbError('unsupported');
       const algorithm=head.length===64?'sha256':'sha1';
       // ls-tree -l reports the true uncompressed blob size before any object is
@@ -198,7 +217,7 @@ export async function repositorySnapshot(project,capture,{scratchRoot='/tmp/open
         if(!record)continue;
         const tab=record.indexOf('\t');if(tab<0)continue;
         const meta=record.slice(0,tab).trim().split(/\s+/);if(meta.length!==4)continue;
-        const [mode,type,oid,size]=meta;if(type!=='blob')continue;
+        const [mode,type,oid,size]=meta;if(type==='commit'||mode==='160000')throw wbError('unsupported');if(type!=='blob')continue;
         const name=record.slice(tab+1);if(!safePath(name))continue;
         tree.set(name,{mode,oid,size:Number(size)});
       }
@@ -282,9 +301,9 @@ export async function repositorySnapshot(project,capture,{scratchRoot='/tmp/open
         truncated?`Unified diff output was truncated at ${PROJECT_LIMITS.diffBytes} bytes.`:'',
       ].filter(Boolean).join(' ');
       return {
-        state:'available',head,status,diff,
+        state:'available',head,head_reference,status,diff,
         snapshot_hash:hash(JSON.stringify({head,manifest_hash:capture.hash,diff})),
-        base:'Raw rev-parse/ls-tree/cat-file object reads over a bounded private .git materialization; unified diffs from /usr/bin/diff over captured bytes. Child Git and diff run under address-space and CPU limits only; no network or filesystem isolation is claimed.',
+         base:`Raw rev-parse/ls-tree/cat-file object reads over a bounded private ${project.git_mapping?'approved linked-worktree':'in-root .git'} materialization; unified diffs from /usr/bin/diff over captured bytes. Child Git and diff run under address-space and CPU limits only; no network or filesystem isolation is claimed.`,
         exclusions:notes,
       };
     }finally{if(git!==undefined)fs.closeSync(git);}

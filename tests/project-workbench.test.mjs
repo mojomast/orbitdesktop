@@ -102,7 +102,7 @@ test('schema 4 upgrades additively and backup preserve-schema can retain the old
   const before=fs.readFileSync(backup);
   const result=JSON.parse(execFileSync(process.execPath,['--experimental-strip-types','scripts/workspace_store.mjs','restore','--source',backup,'--runtime',path.join(root,'restored'),'--confirm-stopped','--preserve-schema'],{encoding:'utf8'}));
   assert.equal(result.schema_version,4);assert.deepEqual(fs.readFileSync(backup),before);
-  const migrated=new SqliteWorkspaceStore(path.join(root,'restored'));try{assert.equal(migrated.db.pragma('user_version',{simple:true}),6);assert.equal(migrated.db.prepare('SELECT count(*) AS n FROM wb_projects').get().n,0);}finally{migrated.close();}
+  const migrated=new SqliteWorkspaceStore(path.join(root,'restored'));try{assert.equal(migrated.db.pragma('user_version',{simple:true}),7);assert.equal(migrated.db.prepare('SELECT count(*) AS n FROM wb_projects').get().n,0);}finally{migrated.close();}
 });
 
 test('revocation fences future and late results, invalidates previews, and requires fresh registration',async t=>{

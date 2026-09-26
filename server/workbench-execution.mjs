@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import {createHash,randomUUID} from 'node:crypto';
 import Ajv from 'ajv';
 import {wbError} from './workbench-store.mjs';
-import {captureProject,openProjectRoot,readProjectFile,literalPreview} from './project-files.mjs';
+import {captureProject,openProjectRoot,readProjectFile,literalPreview,repositorySnapshot} from './project-files.mjs';
 import {previewCandidate,createCandidate,readCandidateFile,applyCandidateChanges,candidateHash as providerCandidateHash,removeCandidateWorkspace} from './workbench-candidates.mjs';
 import {CHECK_LIMITS,CHECK_DEFINITIONS,checkDefinition,definitionDigest,checkSpecDigest,discoverTestFiles,runCheck,activeCheckCount,cancelCheck,acknowledgeCheck} from './workbench-checks.mjs';
 
@@ -375,7 +375,7 @@ export function createWorkbenchExecution({store,records,data,gate,environments,n
     const file=result.candidate.files.find(file=>file.path===relative);
     return {...result,file:{path:file.path,hash:file.hash,bytes:file.bytes}};
   }
-  function candidateApply({workspace_id,project_id,candidate_id,expected_candidate_hash,changes}){
+  function candidateApply({workspace_id,project_id,candidate_id,expected_candidate_hash,changes,principal={kind:'owner'}}){
     const project=requireActive(workspace_id,project_id);
     if(mutatingCandidates.has(candidate_id)||data.list('jobs',workspace_id,project_id).some(job=>job.candidate_id===candidate_id&&(inFlight.has(job.id)||memoryPending.has(job.id)||fs.existsSync(journalPath(job.id))||['starting','running','cancel_requested','finalization_pending'].includes(job.status)||job.status==='outcome_unknown'&&!job.acknowledged)))throw wbError('busy');
     mutatingCandidates.add(candidate_id);let staged;
@@ -395,7 +395,7 @@ export function createWorkbenchExecution({store,records,data,gate,environments,n
         const superseded=[];
         for(const entry of candidateEvidence(workspace_id,project_id,candidate.id)){
           if(entry.superseded)continue;
-          data.create('annotations',{workspace_id,project_id,kind:'evidence_superseded',evidence_id:entry.id,candidate_id:candidate.id,candidate_generation:staged.generation,reason:'candidate_edited',actor:'owner'});superseded.push(entry.id);
+          data.create('annotations',{workspace_id,project_id,kind:'evidence_superseded',evidence_id:entry.id,candidate_id:candidate.id,candidate_generation:staged.generation,reason:'candidate_edited',actor:principal.kind,grant_id:principal.grant_id??null});superseded.push(entry.id);
         }
         return {candidate:publicCandidate(updated),superseded_evidence_ids:superseded};
       }).immediate();
@@ -634,7 +634,7 @@ export function createWorkbenchExecution({store,records,data,gate,environments,n
     heldReleases.get(job.id)?.();heldReleases.delete(job.id);owned.delete(job.id);inFlight.delete(job.id);
     return {job:publicJob(updated)};
   }
-  function reviewDecide({workspace_id,project_id,candidate_id,evidence_ids,decision,expected_identity,note}){
+  async function reviewDecide({workspace_id,project_id,candidate_id,evidence_ids,decision,expected_identity,note}){
     const project=requireActive(workspace_id,project_id);
     const candidate=candidateRecord(workspace_id,project_id,candidate_id);
     const ownerTask=task(workspace_id,project_id,candidate.task_id);
@@ -660,9 +660,16 @@ export function createWorkbenchExecution({store,records,data,gate,environments,n
     // identified target is stale: it needs a fresh candidate and review. The
     // original project is never written.
     if(decision==='approved'&&targetChanged(captureSource(workspace_id,project_id),candidate))throw wbError('stale_resource');
-    const existing=data.list('reviews',workspace_id,project_id).find(entry=>entry.review_identity===identity&&entry.decision===decision);
+    let source_repository=null;
+    if(decision==='approved'&&(project.git_mapping||fs.existsSync(path.join(project.root,'.git')))){
+      const observation=await repositorySnapshot(project,captureProject(project),{scratchRoot:path.join(store.root,'workbench-review-scratch')});
+      if(observation.state!=='available')throw wbError('unsupported');
+      source_repository={head:observation.head,head_reference:observation.head_reference};
+      if(requireActive(workspace_id,project_id).generation!==project.generation||candidateRecord(workspace_id,project_id,candidate_id).hash!==candidate.hash||task(workspace_id,project_id,ownerTask.id).acceptance_digest!==ownerTask.acceptance_digest||rehashCandidate(candidate).hash!==candidate.hash||targetChanged(captureSource(workspace_id,project_id),candidate))throw wbError('stale_resource');
+    }
+    const existing=data.list('reviews',workspace_id,project_id).find(entry=>entry.review_identity===identity&&entry.decision===decision&&digest(entry.source_repository??null)===digest(source_repository));
     if(existing)return {review:publicReview(existing),idempotent:true};
-    const review=data.create('reviews',{workspace_id,project_id,task_id:ownerTask.id,candidate_id:candidate.id,candidate_hash:candidate.hash,evidence_ids:chosen.map(entry=>entry.id),decision,review_identity:identity,acceptance_version:ownerTask.acceptance_version,acceptance_digest:ownerTask.acceptance_digest,actor:'owner',accept_is_merge:false,...(note?{note}:{})});
+    const review=data.create('reviews',{workspace_id,project_id,task_id:ownerTask.id,candidate_id:candidate.id,candidate_hash:candidate.hash,evidence_ids:chosen.map(entry=>entry.id),decision,review_identity:identity,source_repository,acceptance_version:ownerTask.acceptance_version,acceptance_digest:ownerTask.acceptance_digest,actor:'owner',accept_is_merge:false,...(note?{note}:{})});
     const updatedTask=revise('tasks',workspace_id,project_id,ownerTask.id,{status:decision==='approved'?'accepted':'rejected'});
     return {review:publicReview(review),task:updatedTask};
   }
@@ -715,7 +722,7 @@ export function createWorkbenchExecution({store,records,data,gate,environments,n
     return {tasks,candidates,jobs,evidence,reviews,review_identity,target_changed,unknown_jobs:unknown,active_count:inFlight.size,health:health(),revoked:source.project===null,definitions:Object.values(CHECK_DEFINITIONS).map(definition=>({id:definition.id,executable:definition.executable,args:[...definition.args],limits:CHECK_LIMITS,policy:CHECK_POLICY})),policy:EXECUTION_POLICY,execution:EXECUTION_POLICY};
   }
 
-  async function dispatch(body){
+  async function dispatch(body,principal={kind:'owner'}){
     if(closed)throw wbError('unavailable');
     if(!validateExecution(body))throw wbError('invalid_request');
     if(store&&typeof store.read==='function')store.read(body.workspace_id);
@@ -730,7 +737,7 @@ export function createWorkbenchExecution({store,records,data,gate,environments,n
       case 'candidate_read':return candidateRead(body);
       case 'candidate_export':return candidateExport(body);
       case 'candidate_edit':return candidateEdit(body);
-      case 'candidate_apply':return candidateApply(body);
+      case 'candidate_apply':return candidateApply({...body,principal});
       case 'submission_create':return submissionCreate(body);
       case 'attempt_create':return attemptCreate(body);
       case 'check_preview':return checkPreview(body);

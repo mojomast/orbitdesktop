@@ -41,6 +41,7 @@ type Inspection = {
   };
 };
 type Approval = {
+  git_mapping?:unknown;
   approval_id: string;
   digest: string;
   expires_at: number;
@@ -128,6 +129,11 @@ export function showProjectWorkbench(getToken: () => string): void {
   const execution = el("div", "workbench-execution");
   const doctor = el("div", "workbench-doctor");
   const root = el("input");
+  const gitDirectory=el('input'),commonDirectory=el('input');
+  gitDirectory.setAttribute('aria-label','Linked worktree Git directory');
+  commonDirectory.setAttribute('aria-label','Linked worktree common directory');
+  gitDirectory.placeholder='Optional: /repo/.git/worktrees/name';
+  commonDirectory.placeholder='Optional: /repo/.git';
   root.setAttribute("aria-label", "Project root directory");
   root.placeholder = "Absolute project root";
   const name = el("input");
@@ -176,10 +182,14 @@ export function showProjectWorkbench(getToken: () => string): void {
     if(executionProject===project.id){void executionMount?.refresh?.();return;}
     disposeExecution();execution.replaceChildren(el('p','','Loading tasks, candidates and evidence…'));
     const selectedProject=project.id,selectedEpoch=epoch;
-    const {mountWorkbenchExecution}=await import('./workbench-execution');
+    const [{mountWorkbenchExecution},{mountWorkbenchTaskAuthority},{mountWorkbenchWorkflow}]=await Promise.all([import('./workbench-execution'),import('./workbench-task-authority'),import('./workbench-workflow')]);
     if(!current(selectedEpoch)||project?.id!==selectedProject)return;
     execution.replaceChildren();executionProject=selectedProject;
-    executionMount=mountWorkbenchExecution({container:execution,token:getToken,workspace_id:workspaceId,project_id:selectedProject,onAskContext:(jobId:string)=>{void askContext({kind:'job',job_id:jobId});}});
+    const taskContainer=el('div'),authorityContainer=el('div'),workflowContainer=el('div');execution.append(taskContainer,authorityContainer,workflowContainer);
+    const task=mountWorkbenchExecution({container:taskContainer,token:getToken,workspace_id:workspaceId,project_id:selectedProject,onAskContext:(jobId:string)=>{void askContext({kind:'job',job_id:jobId});}});
+    const authority=mountWorkbenchTaskAuthority({container:authorityContainer,token:getToken,workspace_id:workspaceId,project_id:selectedProject});
+    const workflow=mountWorkbenchWorkflow({container:workflowContainer,token:getToken,workspace_id:workspaceId,project_id:selectedProject});
+    executionMount={dispose(){task.dispose();authority.dispose();workflow.dispose();},async refresh(){await Promise.all([task.refresh(),authority.refresh(),workflow.refresh()]);}};
   }
   async function askTerminal(resource:Resource){
     if(!project||resource.kind!=='terminal')return;
@@ -500,6 +510,7 @@ export function showProjectWorkbench(getToken: () => string): void {
         action: "register_preview",
         root: root.value,
         name: name.value,
+        ...(gitDirectory.value||commonDirectory.value?{git_mapping:{git_directory:gitDirectory.value,common_directory:commonDirectory.value}}:{}),
       });
       if (!result) return;
       approval = result;
@@ -509,6 +520,7 @@ export function showProjectWorkbench(getToken: () => string): void {
         field("Root", result.root),
         field("Name", result.name),
         field("Authority", result.authority),
+        field('Approved Git mapping',JSON.stringify(result.git_mapping??'In-root repository only')),
         field("Limits", JSON.stringify(result.limits)),
         field("Exclusions", result.exclusions.join(", ")),
       );
@@ -516,7 +528,7 @@ export function showProjectWorkbench(getToken: () => string): void {
       state("ready", "Review the exact approval before confirming.");
     },
   );
-  for (const input of [root, name])
+  for (const input of [root, name,gitDirectory,commonDirectory])
     input.addEventListener("input", () => {
       invalidate();
       approval = null;
@@ -680,7 +692,7 @@ export function showProjectWorkbench(getToken: () => string): void {
     ),
   );
   inspector.hidden = true;
-  registration.append(labelled('Project root',root),labelled('Project name',name),preview,approvalView,confirm);
+  registration.append(labelled('Project root',root),labelled('Project name',name),labelled('Linked worktree Git directory',gitDirectory),labelled('Linked worktree common directory',commonDirectory),preview,approvalView,confirm);
   dialog.append(
     el("header", "", ""),
     status,

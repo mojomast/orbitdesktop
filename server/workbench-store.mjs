@@ -9,13 +9,13 @@ export class WorkbenchStore {
   constructor(store){this.store=store;this.db=store.db;}
   list(workspaceId){this.store.read(workspaceId);return this.db.prepare('SELECT record_json FROM wb_projects WHERE workspace_id=? ORDER BY id').all(workspaceId).map(row=>JSON.parse(row.record_json));}
   project(workspaceId,id){const row=this.db.prepare('SELECT record_json FROM wb_projects WHERE id=? AND workspace_id=?').get(id,workspaceId);if(!row)throw wbError('permission_denied');const project=JSON.parse(row.record_json);if(project.active===false)throw wbError('permission_denied');return project;}
-  register(workspaceId,{root,name,identity}){
+  register(workspaceId,{root,name,identity,git_mapping}){
     return this.db.transaction(()=>{
       this.store.read(workspaceId);
       const old=this.db.prepare('SELECT record_json FROM wb_projects WHERE workspace_id=? AND root=?').get(workspaceId,root);
-      if(old){const project=JSON.parse(old.record_json);if(project.identity!==identity)throw wbError('stale_resource');if(project.active===false){project.active=true;project.generation++;this.db.prepare('UPDATE wb_projects SET record_json=? WHERE id=?').run(JSON.stringify(project),project.id);}return project;}
+      if(old){const project=JSON.parse(old.record_json);if(project.identity!==identity)throw wbError('stale_resource');const mappingChanged=git_mapping&&JSON.stringify(project.git_mapping)!==JSON.stringify(git_mapping);if(project.active===false||mappingChanged){project.active=true;project.generation++;if(git_mapping)project.git_mapping=git_mapping;this.db.prepare('UPDATE wb_projects SET record_json=? WHERE id=?').run(JSON.stringify(project),project.id);}return project;}
       if(this.list(workspaceId).length>=32)throw wbError('limit_exceeded');
-      const project={version:1,id:randomUUID(),workspace_id:workspaceId,root,name,identity,generation:1,created_at:Date.now()};
+      const project={version:1,id:randomUUID(),workspace_id:workspaceId,root,name,identity,generation:1,created_at:Date.now(),...(git_mapping?{git_mapping}:{})};
       this.db.prepare('INSERT INTO wb_projects VALUES (?,?,?,?)').run(project.id,workspaceId,root,JSON.stringify(project));return project;
     }).immediate();
   }

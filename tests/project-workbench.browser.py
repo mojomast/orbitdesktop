@@ -71,7 +71,7 @@ def result_for(responses, action):
     return body
 
 
-def main(renderer):
+def main(renderer, linked=False):
     with tempfile.TemporaryDirectory(prefix="orbit-project-workbench-", dir="/tmp/opencode") as temporary:
         root = Path(temporary)
         for name in ("server", "src", "contracts", "docs", "public"):
@@ -99,6 +99,13 @@ def main(renderer):
         app.write_text(INITIAL)
         run("git", "add", "app.py", cwd=project, env=git_env)
         run("git", "-c", "user.email=fixture@example.invalid", "-c", "user.name=Fixture", "commit", "-am", "initial", cwd=project, env=git_env)
+        mapping = None
+        if linked:
+            original = project
+            project = root / 'linked worktree 日本語'
+            run('git', 'worktree', 'add', '-b', 'workbench-linked', str(project), cwd=original, env=git_env)
+            mapping = {'git_directory': (project / '.git').read_text().strip().removeprefix('gitdir: '), 'common_directory': str(original / '.git')}
+            app = project / 'app.py'
         defect_text = INITIAL.replace("return total", DEFECT)
         app.write_text(defect_text)
         assert DEFECT in run("git", "diff", "HEAD", cwd=project, env=git_env).stdout
@@ -181,6 +188,9 @@ def main(renderer):
                         assert any(surface["pane_id"] == PANE_ID and surface["kind"] == "terminal" for surface in result_for(responses, "list")["surfaces"])
 
                         dialog.get_by_label("Project root directory").fill(str(project))
+                        if mapping:
+                            dialog.get_by_label('Linked worktree Git directory', exact=True).fill(mapping['git_directory'])
+                            dialog.get_by_label('Linked worktree common directory', exact=True).fill(mapping['common_directory'])
                         dialog.get_by_label("Project name").fill("synthetic-project")
                         dialog.get_by_role("button", name="Preview project registration").click()
                         expect(dialog.locator(".workbench-approval")).to_contain_text("Authority:")
@@ -275,8 +285,8 @@ def main(renderer):
                         assert inspection['execution']['state']=='available'
                         expect(dialog.get_by_role("button", name="Ask agent about this", exact=True)).to_be_enabled()
                         dialog.get_by_role("button", name="Open doctor").click()
-                        expect(dialog.locator(".workbench-doctor")).to_contain_text("schema_version: 6")
-                        assert result_for(responses, "doctor")["schema_version"] == 6
+                        expect(dialog.locator(".workbench-doctor")).to_contain_text("schema_version: 7")
+                        assert result_for(responses, "doctor")["schema_version"] == 7
                         assert token not in dialog.inner_text() and "do-not-read" not in dialog.inner_text()
 
                         status, denied = api(origin, token, {"action": "register_preview", "root": str(project / "linkdir"), "name": "denied"})
@@ -334,7 +344,7 @@ def main(renderer):
                         assert api(origin,token,{'action':'register_commit','approval_id':pending_preview['approval_id']})[0]==403
                         assert api(origin,token,{'action':'inspect','project_id':project_id})[0]==403
                         assert any(item['id']==project_id and item['active'] is False for item in api(origin,token,{'action':'list'})[1]['projects'])
-                        dialog.locator('summary').click()
+                        dialog.locator('.workbench-registration > summary').click()
                         dialog.get_by_label('Project root directory').fill(str(project))
                         dialog.get_by_label('Project name').fill('synthetic-project')
                         dialog.get_by_role('button',name='Preview project registration').click()
@@ -364,4 +374,6 @@ def main(renderer):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--renderer", choices=("default", "docking"), required=True)
-    main(parser.parse_args().renderer)
+    parser.add_argument('--linked', action='store_true')
+    args = parser.parse_args()
+    main(args.renderer, args.linked)

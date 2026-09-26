@@ -6,7 +6,7 @@ const uuid={type:'string',pattern:'^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$
 const hash={type:'string',pattern:'^[a-f0-9]{64}$'};
 const path={type:'string',minLength:1,maxLength:4096,pattern:'^[^\\u0000\\\\]+$'};
 const base={workspace_id:uuid,project_id:uuid};
-export const nativeBudgetSchema=strict({calls:{type:'integer',minimum:1,maximum:100},checks:{type:'integer',minimum:0,maximum:5},duration_ms:{type:'integer',minimum:1000,maximum:900000}});
+export const nativeBudgetSchema={...strict({calls:{type:'integer',minimum:1,maximum:100},checks:{type:'integer',minimum:0,maximum:5},duration_ms:{type:'integer',minimum:1000,maximum:900000},repair_iterations:{type:'integer',minimum:0,maximum:10}}),required:['calls','checks','duration_ms']};
 export const nativeRequests=Object.freeze({
   list:strict({action:{const:'list'},...base}),
   preview:strict({action:{const:'preview'},...base,attempt_id:uuid,context_ids:{type:'array',items:uuid,maxItems:8,uniqueItems:true},budget:nativeBudgetSchema}),
