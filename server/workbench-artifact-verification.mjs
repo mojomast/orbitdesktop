@@ -62,6 +62,7 @@ export function createArtifactVerifier({store,records,data,gate,verifyCurrent,no
     return {verification:updated.verification,replayed:true};
   }
   function recovery({workspace_id,project_id,artifact_id}){
+    store.read(workspace_id);
     const patch=data.get('patches',workspace_id,project_id,artifact_id);
     let observed=null,valid=true;
     try{observed=journal(artifact_id);}catch{valid=false;}

@@ -146,6 +146,29 @@ test('known completed artifact result survives DB finalization fault and restart
   assert.equal(fs.existsSync(path.join(pendingRoot,`${patch.id}.json`)),false);
 });
 
+test('revoked project settles an observed patch journal without publishing or rerunning checks',async t=>{
+  const {f,patch,stage}=await approvedPatch(t),scope={workspace_id:f.workspace_id,project_id:f.project.id,artifact_id:patch.id};
+  const original=f.data.update.bind(f.data);let injected=false;
+  f.data.update=(kind,w,p,id,revision,fields)=>{
+    if(!injected&&kind==='patches'&&id===patch.id&&fields.status==='verified'){injected=true;throw Object.assign(Error('fixture write fault'),{code:'unavailable'});}
+    return original(kind,w,p,id,revision,fields);
+  };
+  try{await assert.rejects(f.execution.verifyPatchArtifact({...scope,stage_root:stage}),{code:'unavailable'});}finally{f.data.update=original;}
+  f.records.revoke(f.workspace_id,f.project.id,f.project.generation);
+  const gate=createWorkbenchGate(),restarted=createWorkbenchExecution({store:f.store,records:f.records,data:f.data,gate});
+  assert.throws(()=>gate.claim('job',randomUUID()),{code:'busy'});
+  const state=restarted.patchArtifactRecovery(scope),before=fs.readdirSync(path.join(f.store.root,'workbench-execution')).filter(name=>name.startsWith('check-')).length;
+  assert.equal(state.recoverable,true);
+  assert.throws(()=>restarted.retryPatchArtifact({...scope,expected_digest:'0'.repeat(64)}),{code:'stale_resource'});
+  assert.throws(()=>gate.claim('job',randomUUID()),{code:'busy'});
+  const result=restarted.retryPatchArtifact({...scope,expected_digest:state.recovery_digest});
+  assert.equal(result.replayed,true);assert.equal(result.verification.status,'inconclusive');
+  assert.equal(f.data.get('patches',f.workspace_id,f.project.id,patch.id).status,'verification_failed');
+  assert.equal(fs.readdirSync(path.join(f.store.root,'workbench-execution')).filter(name=>name.startsWith('check-')).length,before);
+  gate.claim('job',randomUUID())();
+  await assert.rejects(restarted.verifyPatchArtifact({...scope,stage_root:stage}),{code:'permission_denied'});
+});
+
 test('lost artifact journal after a child exit remains unknown until exact owner acknowledgment',async t=>{
   const {f,patch,stage}=await approvedPatch(t),scope={workspace_id:f.workspace_id,project_id:f.project.id,artifact_id:patch.id};
   const original=fs.fsyncSync;let injected=false;
@@ -164,6 +187,23 @@ test('lost artifact journal after a child exit remains unknown until exact owner
   assert.equal(f.execution.acknowledgePatchArtifactUnknown({...scope,expected_digest:state.recovery_digest,known_externally_terminated:true}).verification.status,'acknowledged_unknown');
 });
 
+test('revoked project unknown artifact requires digest-bound termination acknowledgment',async t=>{
+  const {f,patch,stage}=await approvedPatch(t),scope={workspace_id:f.workspace_id,project_id:f.project.id,artifact_id:patch.id};
+  const original=fs.fsyncSync;let injected=false;
+  fs.fsyncSync=fd=>{
+    if(!injected&&fs.readlinkSync(`/proc/self/fd/${fd}`).includes('patch-verification-pending')&&fs.readlinkSync(`/proc/self/fd/${fd}`).endsWith('.tmp')){injected=true;throw Object.assign(Error('journal fault'),{code:'EIO'});}
+    return original(fd);
+  };
+  try{await assert.rejects(f.execution.verifyPatchArtifact({...scope,stage_root:stage}),{code:'EIO'});}finally{fs.fsyncSync=original;}
+  f.records.revoke(f.workspace_id,f.project.id,f.project.generation);
+  const gate=createWorkbenchGate(),restarted=createWorkbenchExecution({store:f.store,records:f.records,data:f.data,gate});
+  const state=restarted.patchArtifactRecovery(scope);assert.equal(state.status,'outcome_unknown');assert.equal(state.recoverable,false);
+  assert.throws(()=>restarted.acknowledgePatchArtifactUnknown({...scope,expected_digest:'0'.repeat(64),known_externally_terminated:true}),{code:'stale_resource'});
+  assert.throws(()=>gate.claim('job',randomUUID()),{code:'busy'});
+  assert.equal(restarted.acknowledgePatchArtifactUnknown({...scope,expected_digest:state.recovery_digest,known_externally_terminated:true}).verification.status,'acknowledged_unknown');
+  gate.claim('job',randomUUID())();
+});
+
 test('owner can cancel the internally owned artifact check and recorder settles a known failure',async t=>{
   const slow="await new Promise(resolve=>setTimeout(resolve,1800));\nexport const sum=(a,b)=>a+b;\n";
   const {f,patch,stage}=await approvedPatch(t,{content:slow}),scope={workspace_id:f.workspace_id,project_id:f.project.id,artifact_id:patch.id};
@@ -177,6 +217,7 @@ test('owner can cancel the internally owned artifact check and recorder settles 
   assert.ok(process?.pid);
   const pending=f.execution.patchArtifactRecovery(scope);
   assert.throws(()=>f.execution.acknowledgePatchArtifactUnknown({...scope,expected_digest:pending.recovery_digest,known_externally_terminated:true}),{code:'stale_resource'});
+  f.records.revoke(f.workspace_id,f.project.id,f.project.generation);
   assert.equal(f.execution.cancelPatchArtifact(scope).requested,true);
   const result=await running;
   assert.equal(result.verification.status,'inconclusive');

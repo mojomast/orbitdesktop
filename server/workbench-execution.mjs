@@ -828,6 +828,8 @@ export function createWorkbenchExecution({store,records,data,gate,environments,n
   }
   recoverAll();
   const {verifyPatchArtifact,retryPatchArtifact,acknowledgePatchArtifactUnknown,cancelPatchArtifact,patchArtifactRecovery}=createArtifactVerifier({store,records,data,gate:serial,now,verifyCurrent:({workspace_id,project_id,patch,candidate,task,review,project})=>{
+    const active=records.project(workspace_id,project_id);
+    if(active.generation!==project.generation)throw wbError('stale_resource');
     if(closed||!health().healthy||unknownJobs(workspace_id,project_id).length||candidate.project_generation!==project.generation||task.acceptance_digest!==digest(task.acceptance)||review.candidate_id!==candidate.id||review.candidate_hash!==candidate.hash||review.review_identity!==patch.review_identity)throw wbError('stale_resource');
     validatePinned(task,candidate,project);
     if(rehashCandidate(candidate).hash!==candidate.hash||reviewIdentityFor(workspace_id,project_id,candidate,task)!==review.review_identity||!latestAcceptanceEvidence(workspace_id,project_id,candidate,task).every(Boolean))throw wbError('stale_resource');

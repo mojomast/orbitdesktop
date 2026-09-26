@@ -24,6 +24,9 @@ export function createWorkbenchNative({store,records,data,execution,hermes,now=D
   const update=(kind,s,id,patch)=>{const row=get(kind,s,id);return data.update(kind,s.workspace_id,s.project_id,id,row.revision,patch);};
   const receiptPatch=({id,version,revision,workspace_id,project_id,created_at,updated_at,...fields})=>fields;
   const requireScope=s=>{if(closed)throw wbError('unavailable');store.read(s.workspace_id);return records.project(s.workspace_id,s.project_id);};
+  const historicalScope=s=>{if(closed)throw wbError('unavailable');const project=records.list(s.workspace_id).find(p=>p.id===s.project_id);if(!project)throw wbError('permission_denied');return project;};
+  const historicalGrant=g=>Object.fromEntries(['id','workspace_id','project_id','status','runtime_status','result_status','pending_digest','finalized_digest','termination_confirmed','owner_asserted_terminated','acknowledged_digest','acknowledged_at'].filter(key=>g[key]!==undefined).map(key=>[key,g[key]]));
+  const grantStatus=g=>historicalScope(g).active===false?historicalGrant(g):publicGrant(g);
   const resultsFor=g=>data.list('results',g.workspace_id,g.project_id).filter(r=>r.grant_id===g.id);
   const rawResult=g=>resultsFor(g).at(-1)??null;
   const publicResult=row=>Object.fromEntries(Object.keys(resultReceiptSchema.properties).map(key=>[key,row[key]]));
@@ -69,8 +72,9 @@ export function createWorkbenchNative({store,records,data,execution,hermes,now=D
     catch{try{update('grants',g,g.id,{status:'dispatch_unknown',runtime_status:'unknown'});}catch{}}
   }
   function retryResult(body){
+    const historical=historicalScope(body).active===false;
     const r=get('results',body,body.result_id),g=get('grants',r,r.grant_id);
-    if(g.result_status==='finalized'&&g.finalized_digest===body.expected_digest)return {result:projectResult(r),replayed:true};
+    if(g.result_status==='finalized'&&g.finalized_digest===body.expected_digest)return {result:historical?null:projectResult(r),replayed:true};
     if(g.result_status!=='result_pending'||g.pending_digest!==body.expected_digest)throw wbError('stale_resource');
     const filename=fs.existsSync(resultJournal(r,true))?resultJournal(r,true):resultJournal(r),saved=readJournal(filename);
     if(digest(saved)!==body.expected_digest||saved.id!==r.id||saved.run_id!==r.run_id)throw wbError('stale_resource');
@@ -81,7 +85,7 @@ export function createWorkbenchNative({store,records,data,execution,hermes,now=D
     resultFailures.delete(r.id);try{hermes?.acknowledgeNativeUnknown?.({grant_id:g.id});quarantineFailures.delete(g.id);}catch{quarantineFailures.add(g.id);}
     if(!quarantineFailures.has(g.id)){heldNativeReleases.get(g.id)?.();heldNativeReleases.delete(g.id);}
     try{cleanJournals(r);}catch{} // Cleanup is never part of the committed receipt.
-    return {result:projectResult(get('results',r,r.id)),replayed:false};
+    return {result:historical?null:projectResult(get('results',r,r.id)),replayed:false};
   }
   async function deliverResult(body){
     const r=get('results',body,body.result_id),visible=projectResult(r);
@@ -153,7 +157,7 @@ export function createWorkbenchNative({store,records,data,execution,hermes,now=D
     if(body.action==='result_get')return resultGet(body);
     if(body.action==='result_retry')return retryResult(body);
     if(body.action==='result_deliver')return deliverResult(body);
-    if(validateNative(body)&&body.action==='list'){store.read(body.workspace_id);return {grants:data.list('grants',body.workspace_id,body.project_id).map(publicGrant),health:health()};}
+    if(body.action==='list'){historicalScope(body);return {grants:data.list('grants',body.workspace_id,body.project_id).map(grantStatus),health:health()};}
     if(closed)throw wbError('unavailable');
     if(body.action==='preview'){
       for(const [id,p] of previews)if(p.expires_at<=now())previews.delete(id);
@@ -173,8 +177,9 @@ export function createWorkbenchNative({store,records,data,execution,hermes,now=D
       return {grant:publicGrant(data.create('grants',{...scope,status:'approved',expires_at:now()+p.budget.duration_ms,calls_used:0,checks_used:0,run_id:null}))};
     }
     const g=get('grants',body,body.grant_id);
-    if(body.action==='status')return {grant:publicGrant(g),result:projectResult(rawResult(g)),toolcalls:data.list('toolcalls',body.workspace_id,body.project_id).filter(c=>c.grant_id===g.id),health:health(),...(g.status==='dispatch_unknown'?{unknown_digest:unknownDigest(g),unknown_policy:NATIVE_UNKNOWN_POLICY}:{})};
+    if(body.action==='status'){const historical=historicalScope(body).active===false;return {grant:historical?historicalGrant(g):publicGrant(g),result:historical?null:projectResult(rawResult(g)),toolcalls:historical?[]:data.list('toolcalls',body.workspace_id,body.project_id).filter(c=>c.grant_id===g.id),health:health(),...(g.status==='dispatch_unknown'?{unknown_digest:unknownDigest(g),unknown_policy:NATIVE_UNKNOWN_POLICY}:{})};}
     if(body.action==='acknowledge_unknown'){
+      historicalScope(body);
       if(g.status!=='dispatch_unknown'||body.expected_digest!==unknownDigest(g)||running.has(g.id))throw wbError('stale_resource');
       if(typeof hermes?.acknowledgeNativeUnknown!=='function')throw wbError('unavailable');
       const r=rawResult(g),observedPath=r?resultJournal(r):null;
@@ -191,18 +196,19 @@ export function createWorkbenchNative({store,records,data,execution,hermes,now=D
           update('grants',g,g.id,{status:'acknowledged_unknown',result_status:r?'finalized':g.result_status,acknowledged_digest:body.expected_digest,owner_asserted_terminated:true,acknowledged_at:now(),authority_generation:randomUUID(),risk_policy:NATIVE_UNKNOWN_POLICY});
         }
       }).immediate();
-      if(saved)return {grant:publicGrant(get('grants',g,g.id)),result_pending:true,replayed:false};
+       if(saved)return {grant:grantStatus(get('grants',g,g.id)),result_pending:true,replayed:false};
       resultFailures.delete(g.id);resultFailures.delete(r?.id);
       hermes.acknowledgeNativeUnknown({grant_id:g.id});quarantineFailures.delete(g.id);
       heldNativeReleases.get(g.id)?.();heldNativeReleases.delete(g.id);
-      return {grant:publicGrant(get('grants',g,g.id)),replayed:false};
+       return {grant:grantStatus(get('grants',g,g.id)),replayed:false};
     }
     if(body.action==='stop'){
-      if(g.status==='dispatch_unknown'&&!running.has(g.id))return {grant:publicGrant(g),stop_requested:false,outcome_unknown:true};
-      if(g.runtime_status==='exited')return {grant:publicGrant(g),stop_requested:false,termination_confirmed:true};
+      historicalScope(body);
+      if(g.status==='dispatch_unknown'&&!running.has(g.id))return {grant:grantStatus(g),stop_requested:false,outcome_unknown:true};
+      if(g.runtime_status==='exited')return {grant:grantStatus(g),stop_requested:false,termination_confirmed:true};
       channels.delete(g.id);update('grants',g,g.id,{status:g.run_id?'stop_requested':'stopped',authority_generation:randomUUID(),...(g.run_id?{}:{runtime_status:'not_started'})});
       if(g.run_id)await hermes.stopNative({run_id:g.run_id,grant_id:g.id});
-      return {grant:publicGrant(get('grants',g,g.id)),stop_requested:!!g.run_id,termination_confirmed:!g.run_id};
+      return {grant:grantStatus(get('grants',g,g.id)),stop_requested:!!g.run_id,termination_confirmed:!g.run_id};
     }
     const authorized=await authorize(g);
     if(authorized.status!=='approved'||typeof hermes?.startNative!=='function')throw wbError('unavailable');

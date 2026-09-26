@@ -87,6 +87,17 @@ test('stop before result fences late explanation and preserves termination indep
   const f=fixture(t),{grant}=await f.start();await f.owner('stop',{grant_id:grant.id});f.finish('late secret');await settle();
   const status=await f.owner('status',{grant_id:grant.id});assert.equal(status.grant.status,'stopped');assert.equal(status.grant.runtime_status,'exited');assert.equal(status.result.unavailable_reason,'fenced');assert.equal(status.result.text,null);
 });
+test('revocation keeps native stop reachable for an owned process and fences late text',async t=>{
+  const f=fixture(t),{grant}=await f.start();
+  f.records.revoke(f.base.workspace_id,f.base.project_id,f.records.project(f.base.workspace_id,f.base.project_id).generation);
+  f.native.onRevoke(f.base.project_id);
+  const stopped=await f.owner('stop',{grant_id:grant.id});assert.equal(stopped.stop_requested,true);
+  assert.equal(stopped.grant.status,'stop_requested');
+  f.finish('late secret');await settle();
+  const state=await f.owner('status',{grant_id:grant.id});
+  assert.equal(state.grant.runtime_status,'exited');assert.equal(state.result,null);
+  assert.equal(f.data.list('results',f.base.workspace_id,f.base.project_id)[0].text,null);
+});
 test('result DB failure stages a private receipt and DB-only retry never reruns Hermes',async t=>{
   const f=fixture(t),{grant}=await f.start(),original=f.data.update.bind(f.data);let failed=false;
   f.data.update=(kind,...args)=>{if(kind==='results'&&!failed){failed=true;throw Error('injected result write failure');}return original(kind,...args);};
@@ -100,6 +111,27 @@ test('result DB failure stages a private receipt and DB-only retry never reruns 
   assert.equal(recovered.result.text,'durable receipt');assert.equal((await dispatch('status',{grant_id:grant.id})).grant.status,'completed');
   const release=f.gate.claim('job',randomUUID());release();
   assert.equal((await dispatch('result_retry',{result_id:pending.result.id,expected_digest:pending.grant.pending_digest})).replayed,true);
+});
+test('revoked project recovers native pending result without text, cards, or new authority',async t=>{
+  const f=fixture(t),{grant}=await f.start(),original=f.data.update.bind(f.data);let failed=false;
+  f.data.update=(kind,...args)=>{if(kind==='results'&&!failed){failed=true;throw Error('injected result write failure');}return original(kind,...args);};
+  f.finish('secret completion');await settle();
+  const pending=await f.owner('status',{grant_id:grant.id});assert.equal(pending.grant.status,'result_pending');
+  f.records.revoke(f.base.workspace_id,f.base.project_id,f.records.project(f.base.workspace_id,f.base.project_id).generation);
+  f.native.onRevoke(f.base.project_id);
+  const status=await f.owner('status',{grant_id:grant.id});
+  assert.equal(status.result,null);assert.deepEqual(status.toolcalls,[]);assert.equal(status.grant.pending_digest,pending.grant.pending_digest);
+  assert.equal((await f.owner('list')).grants[0].id,grant.id);
+  assert.throws(()=>f.gate.claim('job',randomUUID()),{code:'busy'});
+  await assert.rejects(f.owner('result_get',{result_id:pending.result.id}),{code:'permission_denied'});
+  await assert.rejects(f.owner('result_retry',{result_id:pending.result.id,expected_digest:'0'.repeat(64)}),{code:'stale_resource'});
+  const recovered=await f.owner('result_retry',{result_id:pending.result.id,expected_digest:pending.grant.pending_digest});
+  assert.equal(recovered.result,null);assert.equal(recovered.replayed,false);
+  assert.equal((await f.owner('result_retry',{result_id:pending.result.id,expected_digest:pending.grant.pending_digest})).result,null);
+  assert.equal((await f.owner('status',{grant_id:grant.id})).result,null);
+  f.gate.claim('job',randomUUID())();
+  await assert.rejects(f.owner('result_deliver',{result_id:pending.result.id,pane_id:f.pane_id,profile_id:'fixture',session_id:'result-session',op_id:randomUUID()}),{code:'permission_denied'});
+  await assert.rejects(f.owner('start',{grant_id:grant.id}),{code:'permission_denied'});
 });
 test('card delivery rechecks project and recipient after asynchronous binding lookup',async t=>{
   const f=fixture(t),{grant}=await f.start();f.finish('safe text');await settle();
@@ -162,6 +194,20 @@ test('journal creation fault fences shared dispatch as unknown without publishin
   assert.equal((await f.owner('acknowledge_unknown',{grant_id:grant.id,expected_digest:status.unknown_digest,known_externally_terminated:true})).replayed,false);
   const acknowledged=await f.owner('status',{grant_id:grant.id});assert.equal(acknowledged.result.unavailable_reason,'persistence_failed');assert.equal(acknowledged.result.text,null);
   const release=f.gate.claim('job',randomUUID());release();
+});
+test('revoked project can acknowledge a truly unknown native run without exposing results',async t=>{
+  const f=fixture(t),{grant}=await f.start(),open=fs.openSync;
+  try{fs.openSync=(filename,...args)=>{if(String(filename).includes('native-result-journal'))throw Error('journal filesystem fault');return open(filename,...args);};f.finish('unproven secret');await settle();}finally{fs.openSync=open;}
+  const unknown=await f.owner('status',{grant_id:grant.id});assert.equal(unknown.grant.status,'dispatch_unknown');
+  f.records.revoke(f.base.workspace_id,f.base.project_id,f.records.project(f.base.workspace_id,f.base.project_id).generation);
+  const status=await f.owner('status',{grant_id:grant.id});assert.equal(status.result,null);assert.equal(status.unknown_digest,unknown.unknown_digest);
+  assert.throws(()=>f.gate.claim('job',randomUUID()),{code:'busy'});
+  await assert.rejects(f.owner('acknowledge_unknown',{grant_id:grant.id,expected_digest:'0'.repeat(64),known_externally_terminated:true}),{code:'stale_resource'});
+  assert.throws(()=>f.gate.claim('job',randomUUID()),{code:'busy'});
+  const settled=await f.owner('acknowledge_unknown',{grant_id:grant.id,expected_digest:status.unknown_digest,known_externally_terminated:true});
+  assert.equal(settled.grant.status,'acknowledged_unknown');assert.equal((await f.owner('status',{grant_id:grant.id})).result,null);
+  f.gate.claim('job',randomUUID())();
+  await assert.rejects(f.owner('result_get',{result_id:unknown.result.id}),{code:'permission_denied'});
 });
 test('owner historical candidate reads bind exact generation/hash and reject tampered roots',async t=>{
   const f=fixture(t),{candidate}=await f.start(),original=candidate.files.find(file=>file.path==='math.js');
