@@ -1,6 +1,8 @@
 import {el,button} from './dom';
 import {workspaceId,ensureWorkspaceSynced} from './workspace-sync';
 import {workspaceFetch} from './workspace-client';
+import {applyOperation} from './workspace-ops';
+import {validate} from './model';
 import {mountWorkbenchReviewView} from './workbench-review-view';
 
 export const REVIEW_URL='orbit://workbench-review';
@@ -67,12 +69,13 @@ export async function openWorkbenchReview(projectId:string,getToken:()=>string):
     target=orphan[0];
     if(!target){
       const previous=new Set(current.state.monitors.map((m:Data)=>m.id));
-      const created=await workspace({action:'apply',base_revision:revision,operations:[{action:'add_window',kind:'browser',name,url:REVIEW_URL}],intent:'Open one trusted candidate Review view'});
+      const next=validate(applyOperation(current.state,{action:'add_window',kind:'browser',name,url:REVIEW_URL}));
+      const created=await workspace({action:'sync',base_revision:revision,state:next,intent:'Open one trusted candidate Review view'});
       const added=created.state.monitors.filter((m:Data)=>!previous.has(m.id));
       if(added.length!==1||added[0].layout.type!=='pane')throw Error('Review creation outcome requires workspace inspection.');
       target={...added[0].layout.pane,window_id:added[0].id};revision=created.revision;
     }
     await api({action:'bind',project_id:projectId,resource_id:resource.id,pane_id:target.id,base_revision:revision,role:'candidate_diff'});
-  }else await workspace({action:'apply',base_revision:revision,operations:[{action:'select',window_id:target.window_id}],intent:'Select the existing candidate Review view'});
+  }else await workspace({action:'sync',base_revision:revision,state:validate(applyOperation(current.state,{action:'select',window_id:target.window_id})),intent:'Select the existing candidate Review view'});
   window.dispatchEvent(new Event('orbit-workbench-review-bound'));
 }
