@@ -27,8 +27,8 @@ try {
 // and recorder, not arbitrary host resources.
 export const CHECK_LIMITS=Object.freeze({durationMs:60000,logBytes:262144,previewBytes:16384,maxConcurrent:1,storage:'advisory: no storage quota is enforced; each run retains at most logBytes in a private directory and total disk use is host-limited'});
 export const CHECK_DEFINITIONS=Object.freeze({
-  'node-test':Object.freeze({id:'node-test',executable:'/usr/bin/node',args:Object.freeze(['--test','--test-reporter=spec'])}),
-  'host-regression':Object.freeze({id:'host-regression',executable:'/usr/bin/node',args:Object.freeze([]),script:HOST_SCRIPT}),
+  'node-test':Object.freeze({id:'node-test',executable:process.execPath,args:Object.freeze(['--test','--test-reporter=spec'])}),
+  'host-regression':Object.freeze({id:'host-regression',executable:process.execPath,args:Object.freeze([]),script:HOST_SCRIPT}),
 });
 export function checkDefinition(id){const definition=Object.hasOwn(CHECK_DEFINITIONS,id)?CHECK_DEFINITIONS[id]:undefined;if(!definition)throw wbError('unsupported');return definition;}
 export const definitionDigest=definition=>digest(JSON.stringify(definition));

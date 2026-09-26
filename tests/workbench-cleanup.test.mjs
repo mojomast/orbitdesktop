@@ -3,7 +3,14 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import {randomUUID,createHash} from 'node:crypto';
-import {runCheck} from '../server/workbench-checks.mjs';
+import {runCheck,CHECK_DEFINITIONS} from '../server/workbench-checks.mjs';
+
+test('check definitions pin the absolute server Node executable rather than assuming a system installation',()=>{
+  for(const definition of Object.values(CHECK_DEFINITIONS)){
+    assert.equal(definition.executable,process.execPath);
+    assert.equal(path.isAbsolute(definition.executable),true);
+  }
+});
 
 test('job temporary cleanup rejects a directory-to-symlink swap without deleting outside data',async t=>{
   const root=fs.mkdtempSync('/tmp/opencode/workbench-cleanup-');

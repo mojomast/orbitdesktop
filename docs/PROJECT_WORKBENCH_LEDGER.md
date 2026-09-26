@@ -63,6 +63,14 @@ matches the known pre-task baseline. The corrected wrapper uses `set -e`, an
 explicit existing-file list and nonempty/distinct-root assertions. The final
 388-test build ran in `/tmp/opencode/comet-bc-final-2f5s1kkq`, not the checkout.
 
+### Publication follow-up
+
+Integrated increment published as `4b8d3c4`. Its Workbench CI run `36214123941`
+failed because checks assumed `/usr/bin/node`, whereas setup-node installs Node
+under the runner tool cache (real command exit 127). Follow-up pins the server's
+absolute `process.execPath` in the immutable check definition and adds a regression
+assertion. No fail/pass or cancellation assertions were skipped or relaxed.
+
 ## Starting point (2026-09-26)
 
 - Branch: `testing/orbit-docking-managed-terminals`; inspected HEAD
