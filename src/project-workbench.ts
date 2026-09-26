@@ -199,7 +199,8 @@ export function showProjectWorkbench(getToken: () => string): void {
       content.textContent='Loading exact recorded identity…';
       dialog.setAttribute('aria-label',title);dialog.append(el('h3','',title),button('Close','Close recorded reference',()=>dialog.close()),files,content);
       referenceDialogs.add(dialog);document.body.append(dialog);dialog.showModal();
-      dialog.addEventListener('close',()=>{abort.abort();referenceDialogs.delete(dialog);dialog.remove();},{once:true});
+      const authorizationTimer=setInterval(()=>{if(!valid())dialog.close();},500);
+      dialog.addEventListener('close',()=>{clearInterval(authorizationTimer);abort.abort();referenceDialogs.delete(dialog);dialog.remove();},{once:true});
       void read(request).then(data=>{
         if(evidenceId){const evidence=data.evidence?.find((entry:{id:string})=>entry.id===evidenceId);if(!evidence)throw Error('unavailable');content.textContent=JSON.stringify({job:data.job,evidence},null,2);return;}
         const candidate=data.candidate;

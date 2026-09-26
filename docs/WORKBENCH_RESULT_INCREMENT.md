@@ -26,7 +26,8 @@ API IDs or substituted models:
 All four worktrees began at the same baseline. No recursive workers. Separate
 temporary HOME/runtime/database/ports/tmux/browser/build directories are mandatory.
 Heavy tests serialize on `/tmp/opencode/comet-next-heavy-check.lock`; source work
-and lightweight checks remain parallel. Shared installed tooling is read-only.
+and lightweight checks remain parallel. Tooling now uses private dependency
+copies per lane; see the shared-symlink incident and mitigation below.
 
 - **Sol:** `hermes-plugin/workbench.py`, native runtime/service, execution/data,
   SQLite migrations and authoritative source contracts; new result/provenance
@@ -55,8 +56,8 @@ and lightweight checks remain parallel. Shared installed tooling is read-only.
 5. **Gate 2:** final integrated regressions and separate disposable-release gate.
    Reports are not acceptance; all evidence binds its actual source/build/runtime.
 
-Live-model evaluation is **unrun**: no product endpoint/model/budget authorization
-has been supplied. Six case families will be prepared without paid inference.
+Live-model evaluation is **unrun** by explicit user choice. Six concrete case
+families are prepared without product-model inference.
 Owner deployment/activation, runtime migration, token rotation and main merge are
 not authorized. A disposable activation test does not authorize owner activation.
 
@@ -157,6 +158,12 @@ Each private dependency path resolves to its own
 TypeScript sibling-package resolution. An initial copy-root naming error caused
 one TypeScript module-resolution failure; the directory layout was corrected and
 TypeScript passed without changing package bytes or source declarations.
+The copies also contained a nested `node_modules` symlink back to the owner
+dependency root. Parent removed that link from the four private copies and
+verified TypeScript again. The corresponding owner-tree link has an increment-
+window timestamp but its creator is not established; it was preserved rather
+than removed without provenance. No remaining private dependency link resolves
+into the owner tree.
 
 ### Renderer evidence correction
 
@@ -179,6 +186,11 @@ packet boundary was visible before consent; the result panel separated the
 explanation, recorded checks and human review, then explicitly delivered the
 host-authored conversation card. Logs:
 `/tmp/opencode/comet-next-gate1-ui-{default,docking}.log`.
+
+Parent also independently ran the corrected API/reload fixture on both renderers:
+each observed the actual selected renderer, persisted card, 7 model requests,
+unchanged single chat message, native-agent provenance and zero page errors.
+Logs: `/tmp/opencode/comet-next-gate1-reload-{default,docking}.log`.
 
 The independent Node suite on the integrated source passed **537/538**, with
 **0 failures and 1 explicit skip** (the separately gated release-instance test).
