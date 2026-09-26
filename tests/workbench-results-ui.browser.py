@@ -176,11 +176,21 @@ def main(renderer):
         session = "orbit-" + str(uuid.uuid4())
         server = None
         try:
+            fixture = root / "unrelated-fixture"; fixture.mkdir()
+            shutil.copy2(ROOT / "tests/fixtures/runtime-continuity.html", fixture / "index.html")
+            unrelated_published = json.loads(helper.run(shutil.which("python3"), str(ROOT / "scripts/plugin_publish.py"), str(fixture),
+                "--id", "review-unrelated", "--version", "1.0.0", "--title", "Unrelated live pane", "--runtime", str(root / "runtime"),
+                cwd=root, env={"PATH": os.environ["PATH"], "HOME": str(root / "home")}).stdout)
+            unrelated_pane = str(uuid.uuid4())
             monitor = str(uuid.uuid4())
             state = {"version": 1, "selected": monitor, "arc": 14, "view": "windows", "monitors": [{
                 "id": monitor, "name": "Result UI agent", "diagonal": 32, "aspect": "16:9", "height": 0, "distance": 0,
                 "pitch": 0, "yaw": 0, "offset": 0, "fontSize": 19, "frame": {"x": 0, "y": 0, "width": 900, "height": 900, "z": 0},
                 "layout": {"type": "pane", "pane": {"id": helper.PANE, "kind": "agent", "url": ""}}}]}
+            state["monitors"].append({"id": str(uuid.uuid4()), "name": "Unrelated live", "diagonal": 32, "aspect": "16:9",
+                "height": 0, "distance": 0, "pitch": 0, "yaw": 0, "offset": 0, "fontSize": 19,
+                "frame": {"x": 930, "y": 0, "width": 700, "height": 600, "z": 1},
+                "layout": {"type": "pane", "pane": {"id": unrelated_pane, "kind": "browser", "url": unrelated_published["entry"]}}})
             server_env = {**env, "PORT": str(port), "ORBIT_TOKEN": token, "ORBIT_RUNTIME_DIR": str(root / "runtime"),
                           "ORBIT_CWD": str(root / "cwd"), "ORBIT_TMUX_SOCKET": "results-ui-" + str(uuid.uuid4()),
                           "ORBIT_TMUX_CONFIG": "/dev/null", "TMUX_TMPDIR": str(root / "tmux"),
@@ -246,6 +256,8 @@ def main(renderer):
                         expect(page.locator(".saved")).to_contain_text("Workspace connected", timeout=15000)
                         renderer_info = page.evaluate("() => window.__orbitDocking ? {renderer: window.__orbitDocking.renderer, supported: window.__orbitDocking.supported} : null")
                         assert (renderer_info or {}).get("renderer", "default") == renderer, ("renderer", renderer, renderer_info)
+                        expect(page.locator('.pane[data-pane-id="%s"] iframe' % unrelated_pane)).to_be_visible(timeout=20000)
+                        page.evaluate("id => {window.__unrelatedFrame = document.querySelector(`.pane[data-pane-id=\"${id}\"] iframe`);}", unrelated_pane)
                         if renderer == "docking":
                             assert renderer_info.get("supported") is True, renderer_info
 
@@ -445,6 +457,81 @@ def main(renderer):
                             log_extra = {"gate2_final": True, "gate2_verification_status": verification.get("status"), "gate2_required_definitions": required_defs, "gate2_patch_list": True}
                         else:
                             log_extra = {"gate2_final": False}
+
+                        step = "Gate 2: project-bound candidate Review view mounts exactly one reused trusted pane"
+                        review_url = "orbit://workbench-review"
+
+                        def workspace_panes():
+                            st = helper.api(origin, token, "/api/workspace", {"action": "read"})[1]["state"]
+                            found = []
+                            for item in st["monitors"]:
+                                stack = [item["layout"]]
+                                while stack:
+                                    node = stack.pop()
+                                    if node.get("type") == "pane":
+                                        found.append(node["pane"])
+                                    else:
+                                        stack.extend([node["first"], node["second"]])
+                            return found
+
+                        assert not [p for p in workspace_panes() if p["url"] == review_url], "no review pane before the explicit action"
+
+                        def open_project_workbench():
+                            item = page.get_by_role("button", name="Project Workbench", exact=True)
+                            if item.count() == 0 or not item.first.is_visible():
+                                page.get_by_role("button", name="Open orbit menu").click()
+                            item.first.click()
+                            dialog = page.locator("dialog.project-workbench-dialog")
+                            dialog.get_by_role("button", name="Open project result-ui-fixture").click()
+                            return dialog.locator(".workbench-execution")
+
+                        action_pane = open_project_workbench()
+                        expect(action_pane.get_by_role("heading", name="Execution workbench")).to_be_visible(timeout=15000)
+                        action_pane.locator("button").filter(has_text=re.compile("^Open candidate Review view$")).first.click()
+                        deadline = time.time() + 25
+                        review_pane = None
+                        while time.time() < deadline:
+                            review_pane = next((p for p in workspace_panes() if p["url"] == review_url), None)
+                            if review_pane:
+                                break
+                            time.sleep(.2)
+                        assert review_pane, "the owner button must create/reuse one reserved review pane"
+                        assert "?" not in review_pane["url"], review_pane["url"]
+                        review_view = page.locator('.pane[data-pane-id="%s"] .workbench-review-view' % review_pane["id"])
+                        expect(review_view).to_be_visible(timeout=20000)
+                        expect(review_view.locator(".workbench-review-diff")).to_contain_text("Exact candidate diff")
+                        expect(review_view.locator(".workbench-review-checks")).to_contain_text("Required checks and evidence")
+                        expect(review_view.locator(".workbench-review-explanation")).to_contain_text("Worker explanation")
+                        diff_text = review_view.locator("pre.workbench-review-diff-text").inner_text()
+                        assert "math.js" in diff_text and "@@" in diff_text, diff_text[:200]
+                        screenshot = "/tmp/opencode/comet-next-flash-scratch/review-view-%s.png" % renderer
+                        page.screenshot(path=screenshot, full_page=True, mask=[page.locator('input[type=password], input[aria-label="Host session token"]')])
+                        diff_box = review_view.locator(".workbench-review-diff").bounding_box()
+                        checks_box = review_view.locator(".workbench-review-checks").bounding_box()
+                        assert diff_box and checks_box, (diff_box, checks_box)
+                        viewport = page.viewport_size
+                        for box in (diff_box, checks_box):
+                            assert box["width"] > 0 and box["height"] > 0, box
+                            assert box["y"] < viewport["height"] and box["y"] + box["height"] > 0, (box, viewport)
+                            assert box["x"] < viewport["width"] and box["x"] + box["width"] > 0, (box, viewport)
+                        revision_ack = helper.api(origin, token, "/api/workspace", {"action": "read"})[1]["revision"]
+                        assert isinstance(revision_ack, int) and revision_ack >= 1, revision_ack
+                        listed = helper.api(origin, token, "/api/workbench", {"action": "list"})[1]
+                        owned = [b for b in listed.get("bindings", []) if b.get("pane_id") == review_pane["id"] and b.get("role") == "candidate_diff"]
+                        assert len(owned) == 1, owned
+                        assert len([p for p in workspace_panes() if p["id"] == unrelated_pane]) == 1, "the unrelated live pane must not be duplicated or removed"
+                        expect(page.locator('.pane[data-pane-id="%s"] iframe' % unrelated_pane)).to_have_count(1)
+                        # Exact live-iframe object retention across arrangement changes is L4 geometry work (pending).
+
+                        again_pane = open_project_workbench()
+                        again_pane.locator("button").filter(has_text=re.compile("^Open candidate Review view$")).first.click()
+                        time.sleep(1.0)
+                        review_panes = [p for p in workspace_panes() if p["url"] == review_url]
+                        assert len(review_panes) == 1, review_panes
+                        assert review_panes[0]["id"] == review_pane["id"], (review_panes, review_pane)
+                        log_extra.update({"review_view_mounted": True, "review_pane_reused": True, "review_unrelated_live": True,
+                                          "review_screenshot": screenshot, "review_diff_box": diff_box, "review_checks_box": checks_box,
+                                          "workspace_revision": revision_ack})
 
                         assert not page_errors, page_errors
                         log(json.dumps({"renderer": renderer, "renderer_actual": (renderer_info or {}).get("renderer", "default"),
