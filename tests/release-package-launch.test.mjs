@@ -68,7 +68,7 @@ test('disposable immutable release packages and launches with external deps and 
   assert.equal(built.status,0,built.stderr+built.stdout);
   assert.ok(fs.existsSync(path.join(distDir,'index.html')));
 
-  const external={kind:'referenced-readonly',path:EXTERNAL_DEPS,node_abi:process.versions.modules,node_version:process.versions.node};
+  const external={kind:'operator-managed-external',path:EXTERNAL_DEPS,node_abi:process.versions.modules,node_version:process.versions.node};
   const compat={schema_min:7,schema_max:schemaVersion};
   const a=packageRelease({sourceRoot:SOURCE,distRoot:distDir,outRoot:path.join(base,'releases','rel-a'),release_id:'rel-a',compat,revision:'instance',external,readOnly:true});
   releases.push({root:a.root,manifest:a.manifest});
