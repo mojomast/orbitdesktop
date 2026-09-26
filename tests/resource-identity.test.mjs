@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
-import { mkdtemp, readdir, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
+import { setTimeout as delay } from 'node:timers/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { randomUUID } from 'node:crypto';
@@ -135,6 +136,24 @@ function sameIncarnation(actual, bound) {
   return actual !== null && Object.keys(bound).every((key) => actual[key] === bound[key]);
 }
 
+async function waitForServerExit(serverPid) {
+  const deadline = Date.now() + 5000;
+  while (true) {
+    try {
+      const stat = await readFile(`/proc/${serverPid}/stat`, 'utf8');
+      // A zombie has exited and closed its listening socket, even if its parent
+      // has not reaped it yet. Do not issue another tmux command during shutdown.
+      if (stat.slice(stat.lastIndexOf(')') + 2).startsWith('Z ')) return;
+    } catch (error) {
+      // procfs can report ESRCH if the process disappears after open, before read.
+      if (error.code === 'ENOENT' || error.code === 'ESRCH') return;
+      throw error;
+    }
+    assert.ok(Date.now() < deadline, `tmux server ${serverPid} did not exit`);
+    await delay(10);
+  }
+}
+
 test('real private tmux: lookup cannot create; detached shell retains identity; recreation and restart invalidate it', async (t) => {
   const fixture = await privateTmux(t);
   const foreign = await privateTmux(t);
@@ -189,6 +208,8 @@ test('real private tmux: lookup cannot create; detached shell retains identity; 
   assert.ok(!sameIncarnation(recreated, original), 'same layout pane name cannot authorize a new tmux shell');
 
   await fixture.run('kill-server');
+  // kill-server acknowledges the request before the server has necessarily exited.
+  await waitForServerExit(recreated.serverPid);
   assert.equal(await lookup(fixture, workspaceId, request), null);
   await fixture.run('new-session', '-d', '-s', sessionName, '/bin/bash --noprofile --norc');
   const restarted = await lookup(fixture, workspaceId, request);
