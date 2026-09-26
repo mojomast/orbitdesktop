@@ -506,9 +506,9 @@ def main(renderer):
                         assert "?" not in review_pane["url"], review_pane["url"]
                         review_view = page.locator('.pane[data-pane-id="%s"] .workbench-review-view' % review_pane["id"])
                         expect(review_view).to_be_visible(timeout=20000)
-                        expect(review_view.locator(".workbench-review-diff")).to_contain_text("Exact candidate diff")
-                        expect(review_view.locator(".workbench-review-checks")).to_contain_text("Required checks and evidence")
-                        expect(review_view.locator(".workbench-review-explanation")).to_contain_text("Worker explanation")
+                        expect(review_view.locator(".workbench-review-diff")).to_contain_text("--- a/math.js", timeout=20000)
+                        expect(review_view.locator(".workbench-review-checks")).to_be_visible(timeout=20000)
+                        expect(review_view.locator(".workbench-review-explanation")).to_be_visible(timeout=20000)
                         step = "expand literal Hermes explanation and assert exact text, provenance and no model/chat effect"
                         requests_before_expand = len(model.requests)
                         messages_before_expand = page.locator('.pane[data-pane-id="%s"] .chat-messages .chat-message' % helper.PANE).count()
@@ -524,8 +524,19 @@ def main(renderer):
                         explanation_section = review_view.locator(".workbench-review-explanation")
                         expect(explanation_section).to_contain_text("Candidate binding")
                         expect(explanation_section).to_contain_text("Exact current candidate version")
-                        diff_section_text = review_view.locator(".workbench-review-diff").inner_text()
-                        assert re.search(r"[a-f0-9]{64}", diff_section_text), diff_section_text[:200]
+                        metadata_details = review_view.locator("details.workbench-review-metadata")
+                        expect(metadata_details).to_be_visible(timeout=15000)
+                        if metadata_details.get_attribute("open") is None:
+                            metadata_details.locator("summary").click()
+                        actual_candidate_hash = helper.api(origin, token, EXEC_ROUTE, {"action": "candidate_get", "project_id": project_id, "candidate_id": candidate["id"]})[1]["candidate"]["hash"]
+                        metadata_text = metadata_details.inner_text()
+                        assert candidate["id"] in metadata_text, metadata_text[:300]
+                        assert actual_candidate_hash in metadata_text, "compact metadata must show the exact candidate SHA-256"
+                        assert "--- a/math.js" in review_view.locator(".workbench-review-diff").inner_text()
+                        # Collapse long details before the geometry screenshot; access stays available.
+                        for details in (metadata_details, explanation_details):
+                            if details.get_attribute("open") is not None:
+                                details.locator("summary").click()
                         assert len(model.requests) == requests_before_expand, "expanding the explanation must not call the model"
                         assert page.locator('.pane[data-pane-id="%s"] .chat-messages .chat-message' % helper.PANE).count() == messages_before_expand, "expanding the explanation must not add a chat turn"
                         diff_text = review_view.locator("pre.workbench-review-diff-text").inner_text()

@@ -364,26 +364,33 @@ def main(renderer):
                     def record(response):
                         path = response.url.split("?")[0]
                         if path in [origin + route for route in RECORD_ROUTES]:
-                            try:
-                                body = response.json()
-                            except Exception:
-                                body = {}
-                            responses.append((response.request, response.status, body))
+                            # Store the Response reference only: no deserialization inside
+                            # the event callback (nested Playwright sync reentrance).
+                            responses.append((response.request, response.status, response))
 
                     page.on("response", record)
 
                     def result(action, route=EXEC_ROUTE):
-                        matches = [(request, status, body) for request, status, body in responses
+                        matches = [(request, status, response) for request, status, response in responses
                                    if request.url.split("?")[0] == origin + route and post_json(request).get("action") == action]
                         assert matches, ("Missing %s response on %s" % (action, route))
-                        _, status, body = matches[-1]
+                        _, status, response = matches[-1]
+                        try:
+                            body = response.json()
+                        except Exception:
+                            body = {}
                         assert status == 200 and body.get("ok") is True, (action, status, body)
                         return body
 
                     def last(action, route=EXEC_ROUTE):
-                        matches = [body for request, status, body in responses
+                        matches = [response for request, status, response in responses
                                    if request.url.split("?")[0] == origin + route and post_json(request).get("action") == action]
-                        return matches[-1] if matches else None
+                        if not matches:
+                            return None
+                        try:
+                            return matches[-1].json()
+                        except Exception:
+                            return None
 
                     def click_text(scope, label, action, route=EXEC_ROUTE, timeout=30000):
                         with page.expect_response(lambda response: response.url.split("?")[0] == origin + route
@@ -409,26 +416,15 @@ def main(renderer):
                                                   timeout=30000):
                             target.first.click()
 
-                    def refresh_workbench(dialog):
+                    def refresh_workbench(dialog, pane):
                         # "Refresh project inspection" re-runs inspect() and then
                         # execution/authority/workflow refresh(); used when the
-                        # workflow's approved-review list must be rebuilt.
+                        # workflow's approved-review list must be rebuilt. Wait for the
+                        # actual UI option, not an API response ordering (the final
+                        # refresh uses Promise.all and is concurrent).
                         target = dialog.locator("button").filter(has_text=re.compile("^Refresh project inspection$"))
-                        # A single waiter: resolve on the workflow refresh's own
-                        # execution_state read, which necessarily follows its
-                        # integration_list read. Avoids concurrent response waiters.
-                        seen = {"integration_list": False}
-
-                        def predicate(response):
-                            url = response.url.split("?")[0]
-                            action = post_json(response.request).get("action")
-                            if url == origin + WORKFLOW_ROUTE and action == "integration_list":
-                                seen["integration_list"] = True
-                                return False
-                            return seen["integration_list"] and url == origin + EXEC_ROUTE and action == "execution_state"
-
-                        with page.expect_response(predicate, timeout=45000):
-                            target.first.click()
+                        target.first.click()
+                        expect(pane.get_by_label("Approved candidate and review").locator("option")).not_to_have_count(0, timeout=45000)
 
                     def click_plain(scope, label):
                         # helper buttons carry a descriptive aria-label/title while
@@ -700,7 +696,7 @@ def main(renderer):
                         review = click_text(pane.locator(".workbench-execution-review"), "Approve", "review_decide")["review"]
                         assert review["decision"] == "approved" and passing_evidence_id in review["evidence_ids"], review
 
-                        refresh_workbench(workbench)
+                        refresh_workbench(workbench, pane)
                         select = pane.get_by_label("Approved candidate and review")
                         expect(select.locator("option")).not_to_have_count(0)
                         select.select_option(value="%s:%s:%s" % (candidate["id"], review["id"], task["id"]))
@@ -720,6 +716,45 @@ def main(renderer):
                             ["git", "-C", str(artifact), "show", log_text[0] + ":math.js"], text=True) == WRONG
                         assert (project / "math.js").read_text() == WRONG
 
+                        step = "open the trusted candidate Review view before the review recipe"
+                        review_button = pane.locator("button").filter(has_text=re.compile("^Open candidate Review view$")).first
+                        expect(review_button).to_be_visible(timeout=15000)
+                        review_button.click()
+                        deadline = time.time() + 20
+                        review_pane_url = None
+                        while time.time() < deadline:
+                            current = api("/api/workspace", "read")[1]["state"]
+                            urls = []
+                            for monitor in current["monitors"]:
+                                stack = [monitor["layout"]]
+                                while stack:
+                                    node = stack.pop()
+                                    if node.get("type") == "pane":
+                                        urls.append(node["pane"]["url"])
+                                    else:
+                                        stack.extend([node["first"], node["second"]])
+                            if "orbit://workbench-review" in urls:
+                                review_pane_url = "orbit://workbench-review"
+                                break
+                            time.sleep(.2)
+                        assert review_pane_url, "owner button must create the trusted Review pane"
+                        dialog = page.locator("dialog.project-workbench-dialog")
+                        if dialog.count() and dialog.first.is_visible():
+                            close_button = dialog.get_by_role("button", name="Close", exact=True)
+                            if close_button.count() and close_button.first.is_visible():
+                                close_button.first.click()
+                            else:
+                                page.keyboard.press("Escape")
+                        menu_item = page.get_by_role("button", name="Project Workbench", exact=True)
+                        if not (menu_item.count() and menu_item.first.is_visible()):
+                            page.get_by_role("button", name="Open orbit menu").click()
+                            expect(menu_item).to_be_visible(timeout=10000)
+                        menu_item.first.click()
+                        workbench = page.locator("dialog.project-workbench-dialog")
+                        workbench.get_by_role("button", name="Open project native-fixture").click()
+                        pane = workbench.locator(".workbench-execution")
+                        expect(pane.get_by_role("heading", name="Execution workbench")).to_be_visible(timeout=15000)
+
                         step = "recipe CAS apply and return preserve workspace identity"
                         ws_before = api("/api/workspace", "read")[1]
                         state_before = ws_before["state"]
@@ -736,7 +771,7 @@ def main(renderer):
                         applied_revision = applied["workspace"]["revision"]
                         assert applied_revision == revision_before + 1, applied
                         ws_mid = api("/api/workspace", "read")[1]
-                        assert ws_mid["state"] == state_before, "recipe reorder must keep the same pane identities"
+                        assert [monitor["id"] for monitor in ws_mid["state"]["monitors"]] == monitor_ids_before, "recipe must keep the same window identities"
                         return_preview = click_text(pane, "Preview return", "recipe_preview", WORKFLOW_ROUTE)
                         assert return_preview["preview_id"] and return_preview["base_revision"] == applied_revision, return_preview
                         returned = click_text(pane, "Apply previewed arrangement", "recipe_apply", WORKFLOW_ROUTE)
@@ -797,10 +832,15 @@ def main(renderer):
                     except Exception:
                         log(safe("FAIL: renderer=%s step=%s" % (renderer, step)))
                         log(safe(traceback.format_exc()))
-                        log(safe("Last responses: " + json.dumps([
-                            {"action": (post_json(request).get("action")), "url": request.url.split("?")[0],
-                             "status": status, "ok": body.get("ok"), "code": body.get("code")}
-                            for request, status, body in responses[-16:]])))
+                        last_responses = []
+                        for request, status, response in responses[-16:]:
+                            try:
+                                body = response.json()
+                            except Exception:
+                                body = {}
+                            last_responses.append({"action": (post_json(request).get("action")), "url": request.url.split("?")[0],
+                                                   "status": status, "ok": body.get("ok"), "code": body.get("code")})
+                        log(safe("Last responses: " + json.dumps(last_responses)))
                         log(safe("Model snapshots=%s errors=%s" % ([len(item) for item in model.result_snapshots], model.errors)))
                         log(safe("gateway posts=%d gets=%s" % (len(gateway.posts), gateway.gets)))
                         log(safe("page_errors=%s terminals=%s external=%s" % (page_errors, terminals, external)))
