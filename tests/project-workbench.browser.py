@@ -69,10 +69,15 @@ def connected(page, token):
 
 def open_workbench(page):
     page.get_by_role("button", name="Open orbit menu").click()
-    page.get_by_role("button", name="Project Workbench", exact=True).click()
+    with page.expect_response(lambda response: response.url.split("?")[0].endswith("/api/workbench")
+                              and (response.request.post_data_json or {}).get("action") == "list") as pending:
+        page.get_by_role("button", name="Project Workbench", exact=True).click()
+    response = pending.value
+    assert response.status == 200 and response.json().get("ok") is True
     dialog = page.locator("dialog.project-workbench-dialog[aria-label='Comet Project Workbench']")
     expect(dialog).to_be_visible()
     expect(dialog.locator(".workbench-status")).to_have_attribute("role", "status")
+    expect(dialog.locator(".workbench-status")).to_contain_text(re.compile(r"No projects registered|\d+ projects available"))
     return dialog
 
 
@@ -245,7 +250,9 @@ def main(renderer, linked=False):
                         assert file_buttons.count() == 1
                         assert not any(name in dialog.locator(".workbench-files").inner_text() for name in (".env", "secret.pem", "linkdir"))
                         resource_id = next(item["id"] for item in inspection["resources"] if item.get("path") == "app.py")
-                        dialog.get_by_role("button", name="Refresh project inspection").click()
+                        with page.expect_response(lambda response: response.url.split("?")[0] == origin + "/api/workbench"
+                                                  and (response.request.post_data_json or {}).get("action") == "inspect"):
+                            dialog.get_by_role("button", name="Refresh project inspection").click()
                         expect(dialog.locator(".workbench-status")).to_contain_text("Inspected synthetic-project")
                         refreshed_inspection = result_for(responses, "inspect")
                         assert next(item["id"] for item in refreshed_inspection["resources"] if item.get("path") == "app.py") == resource_id

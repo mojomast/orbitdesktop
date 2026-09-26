@@ -76,6 +76,7 @@ jobs:
           RELEASE_INSTANCE: '1'
         run: node --experimental-strip-types --test tests/release-package-launch.test.mjs
       - name: Install Playwright and Chromium system dependencies
+        id: browser_tools
         env:
           PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
         run: |
@@ -83,6 +84,7 @@ jobs:
           /tmp/opencode/orbit-workbench-venv/bin/pip install --disable-pip-version-check playwright==1.58.0
           /tmp/opencode/orbit-workbench-venv/bin/python -m playwright install --with-deps chromium
       - name: Exercise both workbench renderers on disposable fixtures
+        if: ${{ !cancelled() && steps.browser_tools.outcome == 'success' }}
         env:
           PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
         run: |
@@ -97,6 +99,7 @@ jobs:
           done
           exit "$status"
       - name: Live PTY continuity and independent recovery regressions
+        if: ${{ !cancelled() && steps.browser_tools.outcome == 'success' }}
         env:
           PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
         run: |
@@ -104,6 +107,7 @@ jobs:
           /tmp/opencode/orbit-workbench-venv/bin/python tests/runtime-continuity.browser.py --pty --renderer docking
           /tmp/opencode/orbit-workbench-venv/bin/python tests/recovery-real-server.browser.py
       - name: Context, execution and joined workflow on both renderers
+        if: ${{ !cancelled() && steps.browser_tools.outcome == 'success' }}
         env:
           PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
         run: |
@@ -114,6 +118,7 @@ jobs:
             HERMES_NATIVE_SOURCE=/tmp/opencode/orbit-hermes-native /tmp/opencode/orbit-workbench-venv/bin/python tests/workbench-native.browser.py --renderer "$renderer"
           done
       - name: Gate 1 result delivery and host-card handoff on both renderers
+        if: ${{ !cancelled() && steps.browser_tools.outcome == 'success' }}
         env:
           PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
         run: |
@@ -121,6 +126,7 @@ jobs:
             /tmp/opencode/orbit-workbench-venv/bin/python tests/workbench-results.browser.py --renderer "$renderer"
           done
       - name: Gate 1 normal-UI supervised worker handoff and result review on both renderers
+        if: ${{ !cancelled() && steps.browser_tools.outcome == 'success' }}
         env:
           PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
           GATE2_FINAL: '1'
@@ -130,6 +136,7 @@ jobs:
             HERMES_NATIVE_SOURCE=/tmp/opencode/orbit-hermes-native /tmp/opencode/orbit-workbench-venv/bin/python tests/workbench-results-ui.browser.py --renderer "$renderer"
           done
       - name: Normal-UI pending-check cancel with real providers on both renderers
+        if: ${{ !cancelled() && steps.browser_tools.outcome == 'success' }}
         env:
           PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
         run: |
@@ -137,6 +144,7 @@ jobs:
             /tmp/opencode/orbit-workbench-venv/bin/python tests/workbench-recovery-revocation.browser.py --renderer "$renderer"
           done
       - name: Normal-UI artifact verification cancel on both renderers
+        if: ${{ !cancelled() && steps.browser_tools.outcome == 'success' }}
         env:
           PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
         run: |

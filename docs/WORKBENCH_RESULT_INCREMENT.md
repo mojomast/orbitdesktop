@@ -112,6 +112,12 @@ authenticated browser read carrying an observed revision, and checks the
 server's workspace identity, acknowledged revision and browser timestamp.
 It does not accept local-save text as proof of server readiness.
 
+Run `36270303040` then exposed a second readiness ambiguity in the same fixture:
+the text assertion “projects” also matched “Loading projects and panes…”, allowing
+the test to inspect the response list before the request completed. Opening the
+Workbench now awaits its actual successful list response and a completed list
+status; repeated inspection also awaits its own response instead of old UI text.
+
 ### Final acceptance — Gate 1 and Gate 2 accepted
 
 All three original worker lanes are integrated. The final production-source
