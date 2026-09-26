@@ -435,6 +435,13 @@ def main(renderer):
                         # their visible text stays short, so click by visible text.
                         scope.locator("button").filter(has_text=re.compile("^" + re.escape(label) + "$")).first.click()
 
+                    def refresh_authority(scope):
+                        # The authority act() is busy-guarded: while "Loading task authority"
+                        # runs it populates the selects before finishing, so a later act()
+                        # would silently return early. Wait for completion before selecting.
+                        click_plain(scope, "Refresh task authority")
+                        expect(scope).to_contain_text("Loading task authority: complete.", timeout=30000)
+
                     def click_pair(scope, label, first_action, second_action, route, timeout=30000):
                         captured = {}
 
@@ -696,7 +703,7 @@ def main(renderer):
                         refresh_workbench(workbench)
                         select = pane.get_by_label("Approved candidate and review")
                         expect(select.locator("option")).not_to_have_count(0)
-                        select.select_option(value="%s:%s" % (candidate["id"], review["id"]))
+                        select.select_option(value="%s:%s:%s" % (candidate["id"], review["id"], task["id"]))
                         integration_preview = click_text(pane, "Preview private integration", "integration_preview", WORKFLOW_ROUTE)
                         assert integration_preview["candidate_hash"] == review["candidate_hash"], integration_preview
                         assert integration_preview["source_hash"] == candidate["source_manifest_hash"], integration_preview
