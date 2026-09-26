@@ -547,8 +547,21 @@ def main(renderer):
                         fixture_eval("(value) => window.__continuityFixture.setDraft(value)", draft_token)
                         ids_before = window_ids()
                         frames_before = {m["id"]: m.get("frame") for m in workspace_state()["monitors"]}
-                        placement_before = helper.api(origin, token, "/api/workspace", {"action": "read"})[1].get("placement")
-                        seen_before = helper.api(origin, token, "/api/workspace", {"action": "read"})[1].get("browser_seen")
+                        read_body = helper.api(origin, token, "/api/workspace", {"action": "read"})[1]
+                        placement_before = read_body.get("placement") or {"version": 1, "layout": None, "floats": [], "active": None}
+                        seen_before = read_body.get("browser_seen") or 0
+                        # Owner-arranged explicit float for the unrelated pane (existing placement_save route, CAS).
+                        monitor_frame = frames_before[unrelated_window]
+                        unrelated_float = {"windows": [unrelated_window],
+                            "frame": {"x": monitor_frame["x"], "y": monitor_frame["y"], "width": monitor_frame["width"], "height": monitor_frame["height"]},
+                            "active": unrelated_window}
+                        float_placement = {"version": 1, "layout": placement_before.get("layout"), "floats": [unrelated_float], "active": unrelated_window}
+                        float_status, float_body = helper.api(origin, token, "/api/workspace", {"action": "placement_save",
+                            "base_revision": read_body["revision"], "placement": float_placement, "operation_id": str(uuid.uuid4()),
+                            "intent": "Owner float for unrelated pane"})
+                        assert float_status == 200 and "error" not in float_body, (float_status, float_body)
+                        assert [f.get("windows") for f in (float_body.get("placement") or {}).get("floats", [])] == [[unrelated_window]], float_body.get("placement")
+                        placement_before = float_body.get("placement")
                         recipe_pane = open_project_workbench()
                         expect(recipe_pane.get_by_role("heading", name="Execution workbench")).to_be_visible(timeout=15000)
                         review_preview = workflow_click(recipe_pane, "Preview Review", "recipe_preview")
@@ -629,17 +642,22 @@ def main(renderer):
                             recipe_pane.locator("button").filter(has_text=re.compile("^Preview return$")).first.click()
                         stale_status = stale_wait.value.status
                         assert stale_status != 200, "a return after a newer owner change must be refused"
-                        pinned_floats = [f for f in ((placement_before or {}).get("floats") or []) if f.get("pinned") is True]
+                        def float_preserved(placement):
+                            return any(f.get("windows") == [unrelated_window] and f.get("frame") == unrelated_float["frame"]
+                                       and f.get("active") == unrelated_float.get("active") for f in ((placement or {}).get("floats") or []))
+                        float_preserved_after = float_preserved(placement_after)
+                        float_preserved_return = float_preserved(helper.api(origin, token, "/api/workspace", {"action": "read"})[1].get("placement"))
+                        assert float_preserved_after, "Review apply must not move the owner-arranged unrelated float"
+                        assert float_preserved_return, "Return must preserve the owner-arranged unrelated float"
                         if os.environ.get("L4_GEOMETRY") == "1":
                             assert geometry_or_placement_changed, ("trusted review preview must change geometry or placement, not only order", review_preview["operations"])
                             assert geometry_ops, ("trusted review preview must include non-reorder geometry/placement operations", review_preview["operations"])
                             assert useful, {"pane_scroll": pane_scroll, "diff_visible": diff_visible, "verdict_visible": verdict_visible}
-                            assert pinned_floats, "the fixture requires a pinned placement float adjunct for the unrelated window"
                         log_extra.update({"l4_geometry_ops": geometry_ops, "l4_applied_revision": applied_revision,
                                           "l4_frames_changed": frames_changed, "l4_placement_changed": placement_changed,
                                           "l4_return_refused_after_owner_change": True, "l4_unrelated_nonce_retained": True,
                                           "l4_unrelated_draft_retained": True, "l4_pinned_frame_unchanged": True,
-                                          "l4_pinned_float_adjunct": bool(pinned_floats),
+                                          "l4_unrelated_float_preserved": bool(float_preserved_after and float_preserved_return),
                                           "review_screenshot": screenshot, "review_useful_arrangement": useful,
                                           "review_pane_scroll": pane_scroll, "review_diff_visible": diff_visible, "review_verdict_visible": verdict_visible})
 
