@@ -133,6 +133,13 @@ jobs:
           for renderer in default docking; do
             /tmp/opencode/orbit-workbench-venv/bin/python tests/workbench-recovery-revocation.browser.py --renderer "$renderer"
           done
+      - name: Normal-UI artifact verification cancel on both renderers
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
+        run: |
+          for renderer in default docking; do
+            /tmp/opencode/orbit-workbench-venv/bin/python tests/workbench-artifact-cancel.browser.py --renderer "$renderer"
+          done
       - name: Upload sanitized synthetic failure screenshot
         if: failure()
         uses: actions/upload-artifact@v4
@@ -157,3 +164,5 @@ jobs:
             /tmp/opencode/comet-results-ui-docking-error.png
             /tmp/opencode/comet-recovery-revocation-default-error.png
             /tmp/opencode/comet-recovery-revocation-docking-error.png
+            /tmp/opencode/comet-artifact-cancel-default-error.png
+            /tmp/opencode/comet-artifact-cancel-docking-error.png
