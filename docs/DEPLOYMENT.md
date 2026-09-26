@@ -23,6 +23,13 @@ at that boundary and tests consent, authenticated tool access, credential-rotati
 fencing, and refusal of other hosted destinations/models. No live model success
 is implied by those synthetic regressions.
 
+Native tool-channel sockets are ephemeral and live in exclusive mode-0700
+`orbit-native-*` directories under the service's temporary directory. This avoids
+Unix socket pathname limits when the durable runtime path is long. Authenticated
+channel messages still require the attempt secret, sequence and grant checks.
+The directory contains no durable receipt state and is removed on normal close;
+after a crash, orphan cleanup is an operator task, never automatic replay.
+
 ## Result-delivery increment (schema 8; not deployed)
 
 ### Recreating the native acceptance environment

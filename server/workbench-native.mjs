@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import http from 'node:http';
 import {createHash,createHmac,randomBytes,randomUUID,timingSafeEqual} from 'node:crypto';
 import {nativeSchema,nativeRequests,validateNative,validateNativeTool,HERMES_NATIVE_CONTRACT} from '../contracts/workbench-native-v1.mjs';
@@ -317,8 +318,10 @@ export function createWorkbenchNative({store,records,data,execution,hermes,now=D
     listenPromise=openSocket();return listenPromise;
   }
   async function openSocket(){
-    const root=path.join(store.root,'native-channels');fs.mkdirSync(root,{recursive:true,mode:0o700});
-    socketDir=fs.mkdtempSync(path.join(root,'c-'));fs.chmodSync(socketDir,0o700);
+    // Ephemeral authenticated transport must not inherit the durable runtime's
+    // pathname length. mkdtemp creates an exclusive private directory; no channel
+    // secrets or durable receipts are stored here, and close removes the socket.
+    socketDir=fs.mkdtempSync(path.join(os.tmpdir(),'orbit-native-'));fs.chmodSync(socketDir,0o700);
     const socket=path.join(socketDir,'bridge.sock');if(Buffer.byteLength(socket)>100)throw wbError('unavailable');
     server=http.createServer(async(req,res)=>{
       res.setHeader('Content-Type','application/json');res.setHeader('Cache-Control','no-store');

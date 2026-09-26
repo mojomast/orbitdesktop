@@ -46,8 +46,8 @@ test('private native endpoint key file is bounded, identity-bound and never proj
   fs.chmodSync(file,0o644);assert.throws(()=>readNativeApiKeyFile(file));
   fs.chmodSync(file,0o600);fs.writeFileSync(file,'x'.repeat(4097));assert.throws(()=>readNativeApiKeyFile(file));
 });
-function fixture(t,adapter={},now=Date.now){
-  const root=fs.mkdtempSync('/tmp/opencode/wn-'),projectRoot=path.join(root,'project');fs.mkdirSync(projectRoot);fs.writeFileSync(path.join(projectRoot,'math.js'),WRONG);
+function fixture(t,adapter={},now=Date.now,prefix='/tmp/opencode/wn-'){
+  const root=fs.mkdtempSync(prefix),projectRoot=path.join(root,'project');fs.mkdirSync(projectRoot);fs.writeFileSync(path.join(projectRoot,'math.js'),WRONG);
   const store=new SqliteWorkspaceStore(path.join(root,'r')),workspace_id=randomUUID(),pane_id=randomUUID();
   store.commit(commandIdentity({workspace_id,action:'sync',base_revision:0,state:initial(),operation_id:randomUUID(),intent:'Native fixture'},'owner'),{create:()=>({id:workspace_id,revision:1,state:initial(),capability:randomUUID(),api:'http://127.0.0.1:4318'})});
   const data=new WorkbenchData(store,{now}),records=new WorkbenchStore(store),opened=openProjectRoot(projectRoot),project=records.register(workspace_id,{root:projectRoot,name:'Native fixture',identity:opened.identity});opened.close();
@@ -75,13 +75,15 @@ test('strict contracts exclude model authority and owner-supplied approval short
   for(const field of ['attempt_id','workspace_id','candidate_id','profile_id','run_id','confirm','grant_id'])assert.equal(validateNativeTool({action:'inspect',[field]:randomUUID()}),false);
   assert.equal(validateNative({action:'start',workspace_id:randomUUID(),project_id:randomUUID(),grant_id:randomUUID(),confirm:true}),false);
 });
-test('hosted DeepSeek binding survives consent and fences credential rotation and unsupported destinations',async t=>{
+test('hosted DeepSeek binding with long runtime path survives consent and fences credential rotation and unsupported destinations',async t=>{
   let channel;
   const metadata=nativeRuntimeMetadata({source:'/source',python:'/python',endpoint:'https://api.deepseek.com/v1',profile_id:'fixture',model:'deepseek-flash',apiKey:'synthetic-key'});
-  const f=fixture(t,{bindingMetadata:metadata,startNative:async config=>{await config.authorize();channel=config.channel;return {completion:new Promise(()=>{})};},stopNative:async()=>({requested:true})});
+  const f=fixture(t,{bindingMetadata:metadata,startNative:async config=>{await config.authorize();channel=config.channel;return {completion:new Promise(()=>{})};},stopNative:async()=>({requested:true})},Date.now,'/tmp/opencode/'+ 'long-runtime-'.repeat(8));
   const a=await f.prepare();
   assert.deepEqual(a.grant.recipient.native_runtime,metadata);
   await f.native.dispatch({...f.base,action:'start',grant_id:a.grant.id});
+  assert.ok(Buffer.byteLength(channel.socket)<100);
+  assert.equal(fs.statSync(path.dirname(channel.socket)).mode&0o777,0o700);
   assert.equal((await privateCall(channel,{action:'inspect'})).ok,true);
   f.hermes.bindingMetadata={...metadata,configuration_hash:'f'.repeat(64)};
   assert.equal((await privateCall(channel,{action:'inspect'},2)).ok,false);
