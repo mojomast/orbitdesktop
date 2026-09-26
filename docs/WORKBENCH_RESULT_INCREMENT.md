@@ -249,3 +249,16 @@ native browser journey on **both renderers**, each with 8 model requests,
 6 completed tool calls, fail→pass evidence, dependency-profile execution, recipe
 revision 1→3, unchanged original source and zero page errors/external requests.
 Logs: `/tmp/opencode/comet-native-browser-{default,docking}.log`.
+
+Flash's retained-browser run on snapshot `4ef4a93` passed project inspection
+plain/linked (4 runs), context (2), execution (2), joined workflow (2), and live
+PTY continuity (2, 94 transitions each). The stale Doctor fixture expectation
+was updated to schema 8 without changing its remaining assertions. Logs are
+under `/tmp/opencode/comet-next-flash-scratch/`.
+
+Parent integrated exact-pointer restoration on failed release activation or
+rollback, including preservation of the previous-release reference and
+idempotent same-release activation. Independent release-boundary tests passed
+**14/14**. CI now supplies the pinned Hermes path to the full Node gate so the
+new result-boundary and real-project cases execute; the separate actual-runtime
+step retains Python isolation coverage without repeating the same Node cases.
