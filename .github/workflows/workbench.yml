@@ -24,7 +24,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22.14.0'
+          node-version: '22.23.1'
           cache: npm
       - uses: actions/setup-python@v5
         with:
@@ -42,6 +42,14 @@ jobs:
               ast.parse(path.read_text(), filename=str(path))
           PY
       - run: npm ci
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.11.2'
+      - name: Prepare pinned Hermes runtime for local-model acceptance
+        run: |
+          git clone --no-checkout https://github.com/NousResearch/hermes-agent /tmp/opencode/orbit-hermes-native
+          git -C /tmp/opencode/orbit-hermes-native checkout --detach d0288be5b3330d2442e3907185b8e9d0958297bb
+          uv sync --project /tmp/opencode/orbit-hermes-native --frozen --python 3.14 --no-default-groups
       - name: Contract, build and Node regression gate
         run: npm run check
       - name: Python adapters, publisher and portable archive parity
@@ -52,6 +60,12 @@ jobs:
             tests/test_orbit_bundle.py tests/test_portable_endpoints.py; do
             python3 "$test" || exit 1
           done
+      - name: Actual Hermes, actual plugin, authenticated Comet providers, simulated model
+        env:
+          HERMES_NATIVE_SOURCE: /tmp/opencode/orbit-hermes-native
+        run: |
+          node --experimental-strip-types --test tests/workbench-native.test.mjs
+          python3 tests/test_workbench_native_runtime.py
       - name: Install Playwright and Chromium system dependencies
         env:
           PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
@@ -70,6 +84,7 @@ jobs:
           status=0
           for renderer in default docking; do
             /tmp/opencode/orbit-workbench-venv/bin/python tests/project-workbench.browser.py --renderer "$renderer" || status=1
+            /tmp/opencode/orbit-workbench-venv/bin/python tests/project-workbench.browser.py --renderer "$renderer" --linked || status=1
           done
           exit "$status"
       - name: Live PTY continuity and independent recovery regressions
@@ -87,6 +102,7 @@ jobs:
             /tmp/opencode/orbit-workbench-venv/bin/python tests/workbench-context.browser.py --renderer "$renderer"
             /tmp/opencode/orbit-workbench-venv/bin/python tests/workbench-execution.browser.py --renderer "$renderer"
             /tmp/opencode/orbit-workbench-venv/bin/python tests/workbench-journey.browser.py --renderer "$renderer"
+            HERMES_NATIVE_SOURCE=/tmp/opencode/orbit-hermes-native /tmp/opencode/orbit-workbench-venv/bin/python tests/workbench-native.browser.py --renderer "$renderer"
           done
       - name: Upload sanitized synthetic failure screenshot
         if: failure()

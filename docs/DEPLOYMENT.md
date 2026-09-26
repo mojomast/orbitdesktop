@@ -1,5 +1,25 @@
 # Testing candidate deployment and rollback
 
+## Agent-loop candidate (schema 7; not deployed by implementation)
+
+Use the [current ledger](WORKBENCH_AGENT_LOOP_LEDGER.md) for exact source and
+verification evidence. Schema 6→7 is additive but rejects duplicate scoped job
+operation keys; investigate a restored copy rather than deleting receipts. A
+separately authorized upgrade requires writer exclusion and a consistent schema-6
+backup plus candidate generations, job/finalization journals, ordinary chat
+submission journals, dependency environments, native runtime homes and integration
+artifacts. SQLite alone is not a complete evidence backup. Protect these as private
+data. Do not resurrect a native channel key or process-local lease from a backup.
+
+Rollback uses the matching pre-upgrade binary and a schema-6 backup restored into a
+new runtime with `restore --preserve-schema`; never lower `user_version`. Any
+post-backup execution receipts must be reconciled explicitly before admitting new
+work. No owner/test credential rotation or deployed-runtime change is implied.
+
+The native adapter additionally requires the explicitly configured pinned local
+Hermes source/Python/model endpoint/profile described in `PROJECT_WORKBENCH.md`.
+Deterministic runtime compatibility does not authorize external inference spending.
+
 This is an owner-operated, single-writer deployment. **Local loopback operation is
 supported without Tailscale.** An ordinary reverse proxy or Tailscale Serve may
 optionally provide HTTPS. Configure the exact external origin when using a proxy;
