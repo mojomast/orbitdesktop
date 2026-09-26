@@ -16,8 +16,9 @@ export const REPO_ROOT=path.resolve(path.dirname(fileURLToPath(import.meta.url))
 // dependency tree is unavailable); packageRelease may override it explicitly.
 export const DEFAULT_HERMES_COMMIT='d0288be5b3330d2442e3907185b8e9d0958297bb';
 export const MANIFEST_NAME='.orbit-release-manifest.json';
+export const OWNED_MARKER='.orbit-release-owned.json';
 export const MANIFEST_VERSION=1;
-export const DEFAULT_EXCLUDE=Object.freeze(['.git','node_modules','.runtime','active-release.json',MANIFEST_NAME]);
+export const DEFAULT_EXCLUDE=Object.freeze(['.git','node_modules','.runtime','active-release.json',MANIFEST_NAME,OWNED_MARKER]);
 export const REQUIRED_COMPONENTS=Object.freeze({
   server:['server/index.mjs'],
   contracts:['contracts/workspace-v1.mjs','contracts/workbench-v1.mjs','contracts/workbench-result-v1.mjs'],

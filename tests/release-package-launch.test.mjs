@@ -20,6 +20,9 @@ import {activate,readPointer} from '../scripts/release_pin.mjs';
 
 const INSTANCE=process.env.RELEASE_INSTANCE==='1';
 const SOURCE=process.env.RELEASE_SOURCE_ROOT?path.resolve(process.env.RELEASE_SOURCE_ROOT):REPO_ROOT;
+// External Node dependencies must be a per-lane private copy under scratch, never the
+// shared/owner tree. The lane's node_modules symlink resolves to that private copy.
+const EXTERNAL_DEPS=process.env.RELEASE_EXTERNAL_DEPS?path.resolve(process.env.RELEASE_EXTERNAL_DEPS):path.join(REPO_ROOT,'node_modules');
 
 test('packaging allowlist excludes credentials and includes the runtime module closure',()=>{
   const inputs=releaseInputs({sourceRoot:SOURCE});
@@ -53,7 +56,9 @@ test('disposable immutable release packages and launches with external deps and 
   });
   fs.mkdirSync(path.join(base,'releases'),{recursive:true});
   fs.mkdirSync(path.join(base,'home'),{recursive:true});
-  fs.symlinkSync(path.join(SOURCE,'node_modules'),path.join(base,'node_modules'),'dir');
+  const externalReal=fs.realpathSync(EXTERNAL_DEPS);
+  assert.ok(externalReal.startsWith('/tmp/opencode/')&&!externalReal.startsWith('/home/'),`external deps must be a private per-lane copy, got ${externalReal}`);
+  fs.symlinkSync(EXTERNAL_DEPS,path.join(base,'node_modules'),'dir');
   const runtime=path.join(base,'runtime');fs.mkdirSync(runtime);
   const store=new SqliteWorkspaceStore(runtime);const schemaVersion=store.db.pragma('user_version',{simple:true});store.close();
   assert.ok(Number.isInteger(schemaVersion)&&schemaVersion>=7,'runtime schema initialized');
@@ -63,7 +68,7 @@ test('disposable immutable release packages and launches with external deps and 
   assert.equal(built.status,0,built.stderr+built.stdout);
   assert.ok(fs.existsSync(path.join(distDir,'index.html')));
 
-  const external={kind:'referenced-readonly',path:path.join(base,'node_modules'),node_abi:process.versions.modules,node_version:process.versions.node};
+  const external={kind:'referenced-readonly',path:EXTERNAL_DEPS,node_abi:process.versions.modules,node_version:process.versions.node};
   const compat={schema_min:7,schema_max:7};
   const a=packageRelease({sourceRoot:SOURCE,distRoot:distDir,outRoot:path.join(base,'releases','rel-a'),release_id:'rel-a',compat,revision:'instance',external,readOnly:true});
   releases.push({root:a.root,manifest:a.manifest});

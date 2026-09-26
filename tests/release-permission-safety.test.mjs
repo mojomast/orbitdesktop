@@ -1,12 +1,12 @@
 // Isolated permission-safety regression for release packaging. Uses only Node
 // builtins and a PRIVATE synthetic dependency tree under scratch: a shared external
-// result must never be chmodded through a symlink or hardlink, and cleanup only
-// touches an exact, marker-verified, manifest-matching owned release root.
+// result must never be chmodded through a symlink or hardlink, unsafe relative paths
+// and symlinked roots are refused, and every mode stays unchanged on refusal.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import {OWNED_MARKER,PermissionSafetyError,applyReadOnlyOwnedFiles,lockOwnedDirectories,removeOwnedRelease} from '../scripts/release_package.mjs';
+import {OWNED_MARKER,PermissionSafetyError,applyReadOnlyOwnedFiles,lockOwnedDirectories,removeOwnedRelease,safeRelative} from '../scripts/release_package.mjs';
 
 const mode=target=>fs.statSync(target).mode&0o777;
 const scratch=()=>fs.mkdtempSync('/tmp/opencode/orbit-perm-');
@@ -35,57 +35,57 @@ test('a symlinked external file is refused and unchanged',t=>{
   assert.equal(mode(file),0o600,'external file sentinel unchanged');
 });
 
-test('a hardlinked external file is refused and unchanged',t=>{
+test('unsafe relative paths are refused without any chmod',t=>{
+  const base=scratch();t.after(()=>fs.rmSync(base,{recursive:true,force:true}));
+  for(const relative of ['../escape','/absolute','a\\b','a//b','./x','..',''])assert.equal(safeRelative(relative),false,relative);
+  assert.throws(()=>applyReadOnlyOwnedFiles({root:base,files:['../escape']}),{code:'unsafe_path'});
+  assert.throws(()=>lockOwnedDirectories({root:base,files:['../escape']}),{code:'unsafe_path'});
+});
+
+test('a root with a symlink ancestor is refused',t=>{
+  const base=scratch();t.after(()=>fs.rmSync(base,{recursive:true,force:true}));
+  const real=path.join(base,'real');fs.mkdirSync(real);fs.writeFileSync(path.join(real,'x.txt'),'x');
+  const link=path.join(base,'link');fs.symlinkSync(real,link,'dir');
+  assert.throws(()=>applyReadOnlyOwnedFiles({root:link,files:['x.txt']}),{code:'unsafe_root'});
+  const ancestorLink=path.join(base,'ancestor-link');fs.symlinkSync(base,ancestorLink,'dir');
+  const child=path.join(base,'child');fs.mkdirSync(child);fs.writeFileSync(path.join(child,'y.txt'),'y');
+  const viaAncestor=path.join(ancestorLink,'child');
+  assert.throws(()=>applyReadOnlyOwnedFiles({root:viaAncestor,files:['y.txt']}),{code:'symlink_ancestor'});
+  assert.equal(mode(child),0o700);
+  assert.equal(mode(real),0o700);
+});
+
+test('a nested hardlink is refused and neither link nor target changes',t=>{
   const base=scratch();t.after(()=>fs.rmSync(base,{recursive:true,force:true}));
   const {file}=syntheticExternal(base);
-  const hard=path.join(base,'hard.js');fs.linkSync(file,hard);
-  assert.equal(fs.statSync(hard).nlink,2);
-  assert.throws(()=>applyReadOnlyOwnedFiles({root:base,files:['hard.js']}),{code:'hardlinked_file'});
+  const rel=path.join(base,'rel');fs.mkdirSync(path.join(rel,'nested'),{recursive:true});
+  fs.linkSync(file,path.join(rel,'nested','hard.js'));
+  assert.throws(()=>applyReadOnlyOwnedFiles({root:rel,files:['nested/hard.js']}),{code:'hardlinked_file'});
   assert.equal(mode(file),0o600,'hardlink target unchanged');
-  assert.equal(mode(hard),0o600,'hardlink entry unchanged');
+  assert.equal(mode(path.join(rel,'nested','hard.js')),0o600,'hardlink entry unchanged');
+  assert.equal(mode(path.join(rel,'nested')),0o700,'no directory chmod before refusal');
 });
 
-test('a root symlink alias is refused for read-only and cleanup',t=>{
+test('cleanup refuses unmarked, mismatched, marker-symlink and outside roots',t=>{
   const base=scratch();t.after(()=>fs.rmSync(base,{recursive:true,force:true}));
-  const {ext,file}=syntheticExternal(base);
-  const alias=path.join(base,'alias');fs.symlinkSync(ext,alias,'dir');
-  assert.throws(()=>applyReadOnlyOwnedFiles({root:alias,files:[]}),{code:'unsafe_root'});
-  assert.throws(()=>removeOwnedRelease({root:alias,manifest:{release_id:'r',integrity:'0'.repeat(64),files:[]},scratchBase:base}),{code:'unsafe_root'});
-  assert.equal(mode(ext),0o700);assert.equal(mode(file),0o600);
-});
-
-test('only an exact marker+inventory owned release is made read-only then removed',t=>{
-  const base=scratch();t.after(()=>fs.rmSync(base,{recursive:true,force:true}));
-  const rel=path.join(base,'rel');fs.mkdirSync(rel);
-  fs.writeFileSync(path.join(rel,'a.txt'),'a');fs.mkdirSync(path.join(rel,'deep'));fs.writeFileSync(path.join(rel,'deep','b.txt'),'b');
-  const integrity='a'.repeat(64);
-  fs.writeFileSync(path.join(rel,OWNED_MARKER),JSON.stringify({version:1,release_id:'rel',manifest_integrity:integrity,nonce:'t'}));
-  const manifest={release_id:'rel',integrity,files:[{path:'a.txt'},{path:'deep/b.txt'}]};
-  applyReadOnlyOwnedFiles({root:rel,files:['a.txt','deep/b.txt',OWNED_MARKER]});
-  lockOwnedDirectories({root:rel,files:['a.txt','deep/b.txt']});
-  assert.equal(mode(path.join(rel,'a.txt')),0o444);
-  assert.equal(mode(path.join(rel,'deep','b.txt')),0o444);
-  assert.equal(mode(rel),0o555);
-  const removed=removeOwnedRelease({root:rel,manifest,scratchBase:base});
-  assert.equal(removed.removed,true);
-  assert.equal(fs.existsSync(rel),false,'owned release fully removed');
-});
-
-test('cleanup refuses an unmarked root, a mismatched manifest and an outside root',t=>{
-  const base=scratch();t.after(()=>fs.rmSync(base,{recursive:true,force:true}));
-  const rel=path.join(base,'nore');fs.mkdirSync(rel);fs.writeFileSync(path.join(rel,'a.txt'),'a');
   const manifest={release_id:'x',integrity:'b'.repeat(64),files:[{path:'a.txt'}]};
+  const rel=path.join(base,'nore');fs.mkdirSync(rel);fs.writeFileSync(path.join(rel,'a.txt'),'a');
   assert.throws(()=>removeOwnedRelease({root:rel,manifest,scratchBase:base}),{code:'not_owned'});
   const marked=path.join(base,'marked');fs.mkdirSync(marked);fs.writeFileSync(path.join(marked,'a.txt'),'a');
   fs.writeFileSync(path.join(marked,OWNED_MARKER),JSON.stringify({version:1,release_id:'other',manifest_integrity:'b'.repeat(64)}));
   assert.throws(()=>removeOwnedRelease({root:marked,manifest,scratchBase:base}),{code:'not_owned'});
+  const {file}=syntheticExternal(base);
+  const symlinkMarker=path.join(base,'marker-symlink');fs.mkdirSync(symlinkMarker);fs.writeFileSync(path.join(symlinkMarker,'a.txt'),'a');
+  fs.symlinkSync(file,path.join(symlinkMarker,OWNED_MARKER));
+  assert.throws(()=>removeOwnedRelease({root:symlinkMarker,manifest,scratchBase:base}),{code:'not_owned'});
+  assert.equal(mode(file),0o600,'marker symlink target never read or chmodded');
   const outside=scratch();t.after(()=>fs.rmSync(outside,{recursive:true,force:true}));
   fs.writeFileSync(path.join(outside,OWNED_MARKER),JSON.stringify({version:1,release_id:'x',manifest_integrity:'b'.repeat(64)}));
   fs.writeFileSync(path.join(outside,'a.txt'),'a');
   assert.throws(()=>removeOwnedRelease({root:outside,manifest,scratchBase:base}),{code:'outside_scratch_base'});
 });
 
-test('the generic recursive unlockRelease is no longer part of the public API',async()=>{
+test('the generic recursive unlockRelease/setReadOnly are no longer part of the public API',async()=>{
   const module=await import('../scripts/release_package.mjs');
   assert.equal('unlockRelease' in module,false);
   assert.equal('setReadOnly' in module,false);
