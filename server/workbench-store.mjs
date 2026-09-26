@@ -9,6 +9,7 @@ export class WorkbenchStore {
   constructor(store){this.store=store;this.db=store.db;}
   list(workspaceId){this.store.read(workspaceId);return this.db.prepare('SELECT record_json FROM wb_projects WHERE workspace_id=? ORDER BY id').all(workspaceId).map(row=>JSON.parse(row.record_json));}
   project(workspaceId,id){const row=this.db.prepare('SELECT record_json FROM wb_projects WHERE id=? AND workspace_id=?').get(id,workspaceId);if(!row)throw wbError('permission_denied');const project=JSON.parse(row.record_json);if(project.active===false)throw wbError('permission_denied');return project;}
+  projectForRecovery(workspaceId,id){this.store.read(workspaceId);const row=this.db.prepare('SELECT record_json FROM wb_projects WHERE id=? AND workspace_id=?').get(id,workspaceId);if(!row)throw wbError('permission_denied');return JSON.parse(row.record_json);}
   register(workspaceId,{root,name,identity,git_mapping}){
     return this.db.transaction(()=>{
       this.store.read(workspaceId);

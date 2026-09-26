@@ -71,7 +71,7 @@ export const patchRequests=Object.freeze({
   patch_preview:strict({action:{const:'patch_preview'},...scope,task_id:resultUuid,candidate_id:resultUuid,review_id:resultUuid}),
   patch_export:strict({action:{const:'patch_export'},...scope,task_id:resultUuid,candidate_id:resultUuid,review_id:resultUuid,preview_id:resultUuid,preview_digest:resultHash,op_id:resultUuid}),
   private_patch_get:strict({action:{const:'private_patch_get'},...scope,artifact_id:resultUuid}),
-  patch_list:{...strict({action:{const:'patch_list'},...scope,after_id:resultUuid}),required:['action','workspace_id','project_id']},
+  patch_list:{...strict({action:{const:'patch_list'},...scope,after_id:resultUuid,op_id:resultUuid}),required:['action',...Object.keys(scope)]},
   patch_finalize_retry:strict({action:{const:'patch_finalize_retry'},...scope,artifact_id:resultUuid,expected_digest:resultHash}),
   patch_check_cancel:strict({action:{const:'patch_check_cancel'},...scope,artifact_id:resultUuid}),
   patch_acknowledge_unknown:strict({action:{const:'patch_acknowledge_unknown'},...scope,artifact_id:resultUuid,expected_digest:resultHash,known_externally_terminated:{const:true}}),

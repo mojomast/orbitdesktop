@@ -61,6 +61,7 @@ export function createWorkbenchPatchExport({store,records,data,execution,inspect
   const root=path.join(store.root,'workbench-patches');fs.mkdirSync(root,{recursive:true,mode:0o700});
   const previews=new Map(),exportFlights=new Map();
   function scope(body){store.read(body.workspace_id);return records.project(body.workspace_id,body.project_id);}
+  function recoveryScope(body){store.read(body.workspace_id);return records.projectForRecovery(body.workspace_id,body.project_id);}
   function readSource(project,entry){const bytes=readProjectFile(project,entry.path),observed=readWithMode(project.root,project.identity,entry.path);if(bytes.hash!==entry.hash||bytes.hash!==observed.hash||bytes.bytes.length!==entry.bytes||bytes.bytes.length!==observed.bytes.length)throw wbError('stale_resource');return {bytes:bytes.bytes,mode:observed.mode};}
   function readCandidate(candidate,entry){
     const rootStat=fs.lstatSync(candidate.root);if(!rootStat.isDirectory()||rootStat.isSymbolicLink())throw wbError('stale_resource');const identity=`${rootStat.dev}:${rootStat.ino}`;
@@ -202,42 +203,45 @@ export function createWorkbenchPatchExport({store,records,data,execution,inspect
     return {artifact_id:state.artifact_id,status:state.status,verification_status:state.verification_status,recovery_digest:state.recovery_digest,recoverable:state.recoverable,process_owned:state.process_owned};
   }
   function listPatches(body){
-    scope(body);
-    const records=data.list('patches',body.workspace_id,body.project_id).sort((a,b)=>(b.created_at??b.updated_at??0)-(a.created_at??a.updated_at??0)||String(b.id).localeCompare(String(a.id)));
-    const patches=[];let truncated=records.length>0;
+    recoveryScope(body);
+    if(body.after_id&&body.op_id)throw wbError('invalid_request');
+    const all=data.list('patches',body.workspace_id,body.project_id).sort((a,b)=>(b.created_at??b.updated_at??0)-(a.created_at??a.updated_at??0)||String(b.id).localeCompare(String(a.id)));
+    let records=all;
+    if(body.op_id){const found=all.find(record=>record.op_id===body.op_id);records=found?[found]:[];}
+    else if(body.after_id){const index=all.findIndex(record=>record.id===body.after_id);if(index<0)throw wbError('stale_resource');records=all.slice(index+1);}
+    const patches=[];
     for(const record of records.slice(0,PATCH_LIST_MAX_ITEMS)){
       const entry={...publicPatchSummary(record),recovery:recoveryView(body,record)};
-      const candidate=[...patches,entry],isLast=patches.length+1>=records.length;
-      const bytes=Buffer.byteLength(JSON.stringify({patches:candidate,total_count:records.length,truncated:!isLast}));
+      const candidate=[...patches,entry],truncated=patches.length+1<records.length||records.length>PATCH_LIST_MAX_ITEMS;
+      const bytes=Buffer.byteLength(JSON.stringify({patches:candidate,total_count:all.length,truncated,next_after_id:truncated?entry.artifact_id:null}));
       if(bytes>PATCH_LIST_MAX_BYTES&&patches.length)break;
       patches.push(entry);
-      if(patches.length===records.length||patches.length===PATCH_LIST_MAX_ITEMS)truncated=false;
       if(bytes>PATCH_LIST_MAX_BYTES)break; // Always include the newest bounded summary.
     }
-    if(patches.length<records.length)truncated=true;
-    const response={patches,total_count:records.length,truncated};
+    const truncated=body.op_id?false:patches.length<records.length;
+    const response={patches,total_count:all.length,truncated,next_after_id:truncated&&patches.length?patches.at(-1).artifact_id:null};
     if(Buffer.byteLength(JSON.stringify(response))>PATCH_LIST_MAX_BYTES)throw wbError('limit_exceeded');
     return response;
   }
   async function retryFinalization(body){
-    scope(body);const before=data.get('patches',body.workspace_id,body.project_id,body.artifact_id);
+    const project=recoveryScope(body),before=data.get('patches',body.workspace_id,body.project_id,body.artifact_id);
     const recovery=execution.patchArtifactRecovery({workspace_id:body.workspace_id,project_id:body.project_id,artifact_id:body.artifact_id});
     if(recovery.recovery_digest!==body.expected_digest)throw wbError('stale_resource');
     let current=before;
-    if(before.status==='verified')current=await promoteVerified({workspace_id:body.workspace_id,project_id:body.project_id,task_id:before.task_id,candidate_id:before.candidate_id,review_id:before.review_id,preview_id:before.preview_id,preview_digest:before.preview_digest,op_id:before.op_id},before);
+    if(before.status==='verified'&&project.active!==false)current=await promoteVerified({workspace_id:body.workspace_id,project_id:body.project_id,task_id:before.task_id,candidate_id:before.candidate_id,review_id:before.review_id,preview_id:before.preview_id,preview_digest:before.preview_digest,op_id:before.op_id},before);
     else{
       const result=execution.retryPatchArtifact({workspace_id:body.workspace_id,project_id:body.project_id,artifact_id:body.artifact_id,expected_digest:body.expected_digest});
       current=data.get('patches',body.workspace_id,body.project_id,body.artifact_id);
-      if(result.verification?.status==='verified'&&current.status==='verified')current=await promoteVerified({workspace_id:body.workspace_id,project_id:body.project_id,task_id:before.task_id,candidate_id:before.candidate_id,review_id:before.review_id,preview_id:before.preview_id,preview_digest:before.preview_digest,op_id:before.op_id},current);
+      if(project.active!==false&&result.verification?.status==='verified'&&current.status==='verified')current=await promoteVerified({workspace_id:body.workspace_id,project_id:body.project_id,task_id:before.task_id,candidate_id:before.candidate_id,review_id:before.review_id,preview_id:before.preview_id,preview_digest:before.preview_digest,op_id:before.op_id},current);
     }
     return {patch:publicPatch(current),recovery:recoveryView(body,current),idempotent:false};
   }
   function acknowledgeUnknown(body){
-    scope(body);execution.acknowledgePatchArtifactUnknown({workspace_id:body.workspace_id,project_id:body.project_id,artifact_id:body.artifact_id,expected_digest:body.expected_digest,known_externally_terminated:body.known_externally_terminated});
+    recoveryScope(body);execution.acknowledgePatchArtifactUnknown({workspace_id:body.workspace_id,project_id:body.project_id,artifact_id:body.artifact_id,expected_digest:body.expected_digest,known_externally_terminated:body.known_externally_terminated});
     const patch=data.get('patches',body.workspace_id,body.project_id,body.artifact_id);return {patch:publicPatch(patch),recovery:recoveryView(body,patch)};
   }
   function cancelCheck(body){
-    scope(body);const result=execution.cancelPatchArtifact({workspace_id:body.workspace_id,project_id:body.project_id,artifact_id:body.artifact_id}),patch=data.get('patches',body.workspace_id,body.project_id,body.artifact_id);return {patch:publicPatch(patch),recovery:recoveryView(body,patch),cancellation:result};
+    recoveryScope(body);const result=execution.cancelPatchArtifact({workspace_id:body.workspace_id,project_id:body.project_id,artifact_id:body.artifact_id}),patch=data.get('patches',body.workspace_id,body.project_id,body.artifact_id);return {patch:publicPatch(patch),recovery:recoveryView(body,patch),cancellation:result};
   }
   async function dispatch(body){
     if(!validatePatchRequest(body))return null;

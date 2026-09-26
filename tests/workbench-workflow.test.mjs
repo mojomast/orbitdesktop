@@ -12,6 +12,8 @@ import {createWorkbenchWorkflow,workflowSchema} from '../server/workbench-workfl
 import {openProjectRoot} from '../server/project-files.mjs';
 import {initial} from '../src/model.ts';
 import {commandIdentity} from '../server/command-identity.mjs';
+import {Readable} from 'node:stream';
+import {createWorkspaceService} from '../server/workspace.mjs';
 
 function fixture(t){
   const root=fs.mkdtempSync('/tmp/opencode/workbench-workflow-'),projectRoot=path.join(root,'source');fs.mkdirSync(projectRoot);
@@ -25,6 +27,13 @@ function fixture(t){
   const call=(action,fields={})=>execution.dispatch({action,workspace_id,project_id:project.id,...fields});
   const flow=(action,fields={})=>workflow.dispatch({action,workspace_id,project_id:project.id,...fields});
   return {root,projectRoot,store,workspace_id,project,records,data,call,flow};
+}
+async function ownerSavePlacement(f,placement){
+  const port=4317,token='fixture-owner-token',service=createWorkspaceService({token,port,root:path.join(f.root,'workspace-service'),store:f.store,reply:(res,status,data)=>{res.writeHead(status);res.end(JSON.stringify(data));}});
+  const request={workspace_id:f.workspace_id,action:'placement_save',base_revision:f.store.read(f.workspace_id).revision,placement,operation_id:randomUUID(),intent:'Preserve an existing owner floating window during Review'};
+  const req=Readable.from([Buffer.from(JSON.stringify(request))]);req.method='POST';req.url='/api/workspace';req.headers={host:`127.0.0.1:${port}`,origin:`http://127.0.0.1:${port}`,authorization:`Bearer ${token}`};
+  const response=await new Promise((resolve,reject)=>{const res={writeHead(status){this.status=status;},end(bytes){try{resolve({status:this.status,body:JSON.parse(bytes)});}catch(error){reject(error);}}};service.handle(req,res).catch(reject);});
+  assert.equal(response.status,200);return response.body;
 }
 const git=(folder,...args)=>execFileSync('/usr/bin/git',['-C',folder,...args],{encoding:'utf8',env:{PATH:'/usr/bin:/bin',HOME:folder,GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:'/dev/null',GIT_AUTHOR_NAME:'Fixture',GIT_AUTHOR_EMAIL:'fixture@example.invalid',GIT_COMMITTER_NAME:'Fixture',GIT_COMMITTER_EMAIL:'fixture@example.invalid'}}).trim();
 
@@ -106,22 +115,35 @@ test('project focus preserves pane identities and return requires an unchanged w
   await assert.rejects(f.flow('recipe_preview',{recipe:'return'}),{code:'stale_resource'});
 });
 
-test('Review placement previews and commits the real bound review window order, then CAS-returns the same window/pane identities',async t=>{
-  const f=fixture(t),before=f.store.read(f.workspace_id),ids=before.state.monitors.map(window=>window.id),panesByWindow=new Map(before.state.monitors.map(window=>[window.id,JSON.stringify(window.layout)]));
+test('Review targets only the bound trusted window, floats it beside the agent, preserves an unrelated owner float and CAS-returns exact state',async t=>{
+  const f=fixture(t),ids=f.store.read(f.workspace_id).state.monitors.map(window=>window.id),first=f.store.read(f.workspace_id);
   const pane=window=>{const visit=node=>node.type==='pane'?node.pane.id:visit(node.first);return visit(window.layout);};
+  const reviewPane=pane(first.state.monitors[1]);
+  f.store.commit(commandIdentity({workspace_id:f.workspace_id,action:'apply',operations:[],base_revision:first.revision,operation_id:randomUUID()},'owner'),{apply:value=>{const state=structuredClone(value.state);const visit=node=>node.type==='pane'?(node.pane.id===reviewPane?Object.assign(node.pane,{kind:'browser',url:'orbit://workbench-review'}):undefined):(visit(node.first),visit(node.second));visit(state.monitors.find(item=>item.id===ids[1]).layout);state.monitors[0].frame={x:80,y:60,width:480,height:360,z:2};state.monitors[1].frame={x:12,y:20,width:450,height:300,z:1};return state;}});
+  await ownerSavePlacement(f,{version:1,layout:{type:'group',windows:[ids[0],ids[1]]},floats:[{windows:[ids[2]],frame:{x:700,y:40,width:320,height:240},active:ids[2]}],active:ids[0]});
+  const before=f.store.read(f.workspace_id),priorState=structuredClone(before.state),priorPlacement=structuredClone(before.placement);
   const file=f.records.resource(f.project.id,'review-diff.js',{kind:'file',hash:'1'.repeat(64),identity:'review-diff',state:'available'});
   const agent=f.records.resource(f.project.id,'review-agent',{kind:'conversation',hash:'2'.repeat(64),identity:'review-agent',state:'available'});
   f.records.bind({workspace_id:f.workspace_id,project_id:f.project.id,resource_id:file.id,pane_id:pane(before.state.monitors[1]),base_revision:before.revision,role:'candidate_diff'});
   f.records.bind({workspace_id:f.workspace_id,project_id:f.project.id,resource_id:agent.id,pane_id:pane(before.state.monitors[0]),base_revision:before.revision,role:'primary_agent'});
-  const preview=await f.flow('recipe_preview',{recipe:'review'}),operation=preview.operations[0];
-  assert.equal(operation.action,'reorder_windows');assert.deepEqual(operation.window_ids,[ids[1],ids[0],ids[2]]);
-  assert.deepEqual(f.store.read(f.workspace_id).state.monitors.map(window=>window.id),ids,'preview does not mutate user placement');
+  const preview=await f.flow('recipe_preview',{recipe:'review',width:1400,height:900});
+  assert.deepEqual(preview.operations.map(operation=>operation.action),['update_window','select','set_view']);
+  assert.deepEqual(f.store.read(f.workspace_id).state,priorState,'preview does not mutate owner state');
+  assert.deepEqual(f.store.read(f.workspace_id).placement,priorPlacement,'preview does not mutate Docking placement');
+  await assert.rejects(f.flow('recipe_preview',{recipe:'review'}),{code:'invalid_request'});
   const applied=await f.flow('recipe_apply',{recipe:'review',preview_id:preview.preview_id,preview_digest:preview.preview_digest,op_id:randomUUID()});
-  assert.deepEqual(applied.workspace.state.monitors.map(window=>window.id),[ids[1],ids[0],ids[2]]);
-  for(const window of applied.workspace.state.monitors)assert.equal(JSON.stringify(window.layout),panesByWindow.get(window.id));
+  assert.equal(applied.workspace.state.monitors[0].id,ids[0]);assert.equal(applied.workspace.state.monitors[1].id,ids[1]);
+  const targetFrame=applied.workspace.state.monitors[1].frame;assert.ok(targetFrame.x>=560&&targetFrame.x<1400);assert.ok(targetFrame.y>=0&&targetFrame.y+targetFrame.height<=900);
+  assert.equal(applied.workspace.state.selected,ids[1]);assert.equal(applied.workspace.state.view,'windows');
+  assert.equal(pane(applied.workspace.state.monitors[1]),reviewPane);
+  assert.deepEqual(applied.workspace.placement.floats.find(item=>item.windows.includes(ids[1])).frame,{x:targetFrame.x,y:targetFrame.y,width:targetFrame.width,height:targetFrame.height});
+  assert.deepEqual(applied.workspace.placement.floats.find(item=>item.windows.includes(ids[2])),priorPlacement.floats[0],'unrelated owner float remains exact');
+  assert.ok(applied.workspace.placement.layout.windows.includes(ids[0]));assert.ok(!applied.workspace.placement.layout.windows.includes(ids[1]));
   const returning=await f.flow('recipe_preview',{recipe:'return'});
   const restored=await f.flow('recipe_apply',{recipe:'return',preview_id:returning.preview_id,preview_digest:returning.preview_digest,op_id:randomUUID()});
-  assert.deepEqual(restored.workspace.state.monitors.map(window=>window.id),ids);
-  for(const window of restored.workspace.state.monitors)assert.equal(JSON.stringify(window.layout),panesByWindow.get(window.id));
+  assert.deepEqual(restored.workspace.state,priorState);assert.deepEqual(restored.workspace.placement,priorPlacement);
   await assert.rejects(f.flow('recipe_preview',{recipe:'return'}),{code:'stale_resource'});
+  const current=f.store.read(f.workspace_id),wrongUrl=structuredClone(current.state);const alter=node=>node.type==='pane'?(node.pane.id===reviewPane?node.pane.url='orbit://generic-browser':undefined):(alter(node.first),alter(node.second));alter(wrongUrl.monitors.find(item=>item.id===ids[1]).layout);
+  f.store.commit(commandIdentity({workspace_id:f.workspace_id,action:'apply',operations:[],base_revision:current.revision,operation_id:randomUUID()},'owner'),{apply:()=>wrongUrl});
+  await assert.rejects(f.flow('recipe_preview',{recipe:'review',width:1400,height:900}),{code:'unsupported'});
 });

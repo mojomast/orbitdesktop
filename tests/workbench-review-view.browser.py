@@ -84,7 +84,7 @@ def main():
                         page.goto(origin)
                         page.evaluate("""async () => {
                           const {mountWorkbenchReviewView}=await import('/src/workbench-review-view.ts');
-                          const container=document.createElement('main');document.body.replaceChildren(container);
+                          const container=document.createElement('main');container.style.cssText='width:560px;height:320px;overflow:hidden;border:1px solid #888';document.body.replaceChildren(container);
                           window.reviewPanel=mountWorkbenchReviewView(container,{paneId:'review-pane-fixture',getToken:()=> 'fixture-owner-token',workspace_id:""" + repr(WORKSPACE) + """,project_id:""" + repr(PROJECT) + """});
                         }""")
                         expect(page.locator('.workbench-review-status')).to_contain_text('required checks complete')
@@ -94,6 +94,14 @@ def main():
                         expect(page.get_by_text('host-regression', exact=True)).to_be_visible()
                         expect(page.locator('.workbench-review-diff-text')).to_contain_text('<script>must remain literal</script>')
                         assert page.locator('.workbench-review-diff-text script').count() == 0
+                        expect(page.locator('.workbench-review-summary')).to_contain_text('Repair sum')
+                        expect(page.locator('.workbench-review-verdict').filter(has_text='PASS').first).to_be_visible()
+                        clip = page.locator('main').bounding_box()
+                        for selector in ('.workbench-review-diff-text', '.workbench-review-verdict'):
+                            box = page.locator(selector).first.bounding_box()
+                            assert clip['y'] <= box['y'] < clip['y'] + clip['height'], (selector, clip, box)
+                        first_diff_line = page.locator('.workbench-review-diff-text').evaluate("node => { const walker=document.createTreeWalker(node,NodeFilter.SHOW_TEXT); let text; while(text=walker.nextNode()){const at=text.textContent.indexOf('--- a/math.js'); if(at>=0){const range=document.createRange();range.setStart(text,at);range.setEnd(text,at+12);return range.getBoundingClientRect().toJSON();}} return null; }")
+                        assert first_diff_line and clip['y'] <= first_diff_line['y'] < clip['y'] + clip['height'], (clip, first_diff_line)
                         page.get_by_text('Expand literal Hermes explanation').click()
                         expect(page.locator('.workbench-review-explanation-text')).to_contain_text('<img src=x onerror=alert(1)>')
                         assert page.locator('.workbench-review-explanation-text img').count() == 0
@@ -102,6 +110,37 @@ def main():
                         assert any(url.endswith('/workflow') and call['action'] == 'patch_preview' for url, call in seen)
                         assert not any(call['action'] in ('patch_export', 'patch_finalize_retry', 'patch_check_cancel', 'patch_acknowledge_unknown') for _, call in seen)
                         page.evaluate('window.reviewPanel.dispose()')
+                        page.evaluate("""async () => {
+                          window.workflowRequests=[];window.exportStartedResolve=null;window.reviewEventDetail=null;
+                          window.addEventListener('orbit-open-workbench-review',event=>window.reviewEventDetail=event.detail);
+                          window.exportStarted=new Promise(resolve=>window.exportStartedResolve=resolve);
+                          const respond=value=>Promise.resolve(new Response(JSON.stringify({ok:true,...value}),{status:200,headers:{'Content-Type':'application/json'}}));
+                          window.fetch=(url,init={})=>{
+                            const body=JSON.parse(init.body||'{}'),action=body.action;window.workflowRequests.push(action);
+                            if(url.endsWith('/execution'))return respond({reviews:[{id:REVIEW,candidate_id:CANDIDATE,task_id:TASK,decision:'approved'}]});
+                            if(action==='integration_list')return respond({integrations:[]});
+                            if(action==='retention_plan')return respond({counts:{},integrations:[],deletions:[],reason:'No deletion'});
+                            if(action==='patch_list')return respond(body.op_id||window.exportResolve?{patches:[{artifact_id:'99999999-9999-4999-8999-999999999999',task_id:TASK,candidate_id:CANDIDATE,candidate_hash:HASH,candidate_generation:4,review_id:REVIEW,status:'verifying',artifact_hash:HASH,bytes:1,created_at:1,verification_status:'pending',recovery:{recovery_digest:HASH,recoverable:false,process_owned:true}}],total_count:1,truncated:false,next_after_id:null}:{patches:[],total_count:0,truncated:false,next_after_id:null});
+                            if(action==='patch_preview')return respond({preview_id:'66666666-6666-4666-8666-666666666666',preview_digest:'e'.repeat(64),expires_at:Date.now()+60000,patch_text:'--- a/math.js\\n+++ b/math.js\\n-old\\n+new',format:'git-unified-diff',source:{manifest_hash:HASH},candidate:{hash:HASH},review:{},changes:[],exclusions:[],unsupported:[],roundtrip:{verified:true},bytes:30,artifact_hash:HASH});
+                            if(action==='patch_export'){window.exportStartedResolve();return new Promise(resolve=>window.exportResolve=()=>resolve(new Response(JSON.stringify({ok:true,patch:{artifact_id:'99999999-9999-4999-8999-999999999999',status:'available',artifact_hash:HASH,bytes:1,roundtrip:{verified:true},verification:{status:'verified'},changes:[]}}),{status:200,headers:{'Content-Type':'application/json'}})));}
+                            if(action==='patch_check_cancel')return respond({cancellation:{requested:true},patch:{status:'verifying'},recovery:{process_owned:true}});
+                            return respond({patch:{status:'available'}});
+                          };
+                          const {mountWorkbenchWorkflow}=await import('/src/workbench-workflow.ts');
+                          const container=document.querySelector('main');window.workflowPanel=mountWorkbenchWorkflow({container,token:()=> 'fixture-owner-token',workspace_id:WORKSPACE,project_id:PROJECT});
+                        }""".replace('REVIEW',repr(REVIEW)).replace('CANDIDATE',repr(CANDIDATE)).replace('TASK',repr(TASK)).replace('HASH',repr(HASH)).replace('WORKSPACE',repr(WORKSPACE)).replace('PROJECT',repr(PROJECT)))
+                        page.locator('button', has_text='Open trusted Review view').click()
+                        assert page.evaluate('window.reviewEventDetail') == {'workspace_id': WORKSPACE, 'project_id': PROJECT}
+                        page.locator('button', has_text='Preview reviewed patch').click()
+                        expect(page.locator('button', has_text='Create private verified patch')).to_be_enabled()
+                        page.locator('button', has_text='Create private verified patch').click()
+                        page.evaluate('window.exportStarted')
+                        expect(page.locator('button', has_text='Request patch-check cancellation')).to_be_enabled(timeout=5000)
+                        page.locator('button', has_text='Request patch-check cancellation').click()
+                        page.wait_for_function("window.workflowRequests.includes('patch_check_cancel')")
+                        assert page.evaluate("window.workflowRequests.indexOf('patch_check_cancel') > window.workflowRequests.indexOf('patch_export')")
+                        page.evaluate('window.exportResolve()')
+                        page.evaluate('window.workflowPanel.dispose()')
                         browser.close()
                 finally:
                     server.terminate()
