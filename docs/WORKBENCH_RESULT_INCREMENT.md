@@ -164,4 +164,41 @@ Flash reported two API-browser runs labelled default/docking. Parent source revi
 found the renderer argument was only used in reporting; navigation omitted the
 docking query. Those runs therefore do **not** establish docking acceptance.
 The fixture must select and assert the actual renderer before new evidence counts.
-Normal-UI Gate 1 is still pending; worker reports alone do not satisfy it.
+Those historical runs do not count toward Gate 1; worker reports alone do not
+satisfy it. The corrected fixture selects and asserts the installed renderer.
+
+## Gate 1 accepted; Wave 2 active
+
+On integrated source `5e2abdf`, parent independently ran
+`tests/workbench-results-ui.browser.py` for **default and docking** with the
+actual pinned Hermes and a deterministic loopback model. Each run reported the
+matching actual renderer, UI handoff and result panel, **7 model requests** and
+**0 page errors**. Normal UI controls created the task/candidate/attempt and
+previewed/approved/started the supervised worker. The explicit fresh-worker
+packet boundary was visible before consent; the result panel separated the
+explanation, recorded checks and human review, then explicitly delivered the
+host-authored conversation card. Logs:
+`/tmp/opencode/comet-next-gate1-ui-{default,docking}.log`.
+
+The independent Node suite on the integrated source passed **537/538**, with
+**0 failures and 1 explicit skip** (the separately gated release-instance test).
+The prior run's 15 failures were resolved through schema-8 administrative CLI
+compatibility and isolated static-server fixture fixes, preserving historical
+schema-7 backup behavior. Log:
+`/tmp/opencode/comet-next-integration-node-second.log`.
+
+Result recovery/historical reads and public newest-first card projection are
+integrated. The corrected release package was integrated together with its
+symlink/hardlink/path safety fixes, after parent **24/24** private permission,
+minimal-package and release-boundary tests passed. The earlier hold on the
+faulty package implementation is superseded by those fixes. Flash reports a
+passing disposable release-instance gate; final-source parent verification is
+still required. True contradictory-explanation and moving-source patch boundary
+regressions are integrated.
+
+Wave 2 is authorized in the same three worker lanes: Sol's pinned real-project
+journey/private credential configuration and recoverable artifact verifier;
+Luna's checked private patch publication and useful Review arrangement; Flash's
+independent integrated patch/project/release acceptance. Gate 2, final full checks,
+portable archive regeneration and final capability documentation remain pending.
+Live product-model evaluation remains **unrun** by explicit user choice.

@@ -63,6 +63,17 @@ Exact prepared Hermes payloads are durable before POST; unknown outcomes are not
 replayed. Candidate checks use approved private copies and recorder results, not
 completion markers. Worktrees and owner-UID processes are not sandboxes; reusable
 runtime tools stay blocked pending authenticated request-scope binding.
+Schema 7 adds bounded native task grants and authenticated private tool calls.
+Schema 8 adds private result receipts, explicit conversation-card deliveries and
+review-bound patch records. The pinned native Hermes adapter receives its packet
+on FD3 and emits only the public `final_response` through bounded, versioned FD4;
+stdout/stderr are never explanation sources. Result availability, termination,
+recorded checks and human review are independent states. Check provenance records
+the authenticated initiator, approval authority and service recorder separately;
+the recorder build identity is snapshotted at service startup. Host-delivered
+cards remain outside model conversation history and do not invoke a model.
+See [result contracts](WORKBENCH_RESULT_CONTRACT.md) and the
+[increment acceptance ledger](WORKBENCH_RESULT_INCREMENT.md) for current gates.
 Normal reads use indexed asset versions; startup/admin publication refresh performs
 filesystem scanning. Hash-addressed asset responses verify indexed bytes before serving.
 Retention plans include all saved revisions/checkpoints and are dry-run only.
