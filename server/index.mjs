@@ -11,6 +11,7 @@ import { LocalHostProvider } from "./local-host.mjs";
 import { createAgentHandler } from "./agent.mjs";
 import { createWorkspaceService, runtimeRoot } from "./workspace.mjs";
 import { createWorkspaceEvents } from './workspace-events.mjs';
+import { createWorkbench } from './workbench.mjs';
 const port = Number(process.env.PORT || 4318);
 if (!Number.isInteger(port) || port < 1024 || port > 65535)
   throw Error("PORT must be between 1024 and 65535");
@@ -42,6 +43,7 @@ function reply(res, status, data) {
 }
 const workspaceService = createWorkspaceService({ token, port, devOrigins, reply });
 const workspaceEvents = createWorkspaceEvents({store:workspaceService.store,token,port,devOrigins,reply});
+const workbench = createWorkbench({store:workspaceService.store,token,port,devOrigins,reply});
 const agentHandler = createAgentHandler({ token, port, devOrigins, reply, workspaceContext: workspaceService.context, workspaceRead:workspaceService.read, runtimeDirectory:runtimeRoot });
 // Managed terminals: strictly optional. A failure here (no tmux, readonly runtime,
 // unsupported platform) disables the route; it must never block the host server or
@@ -110,6 +112,7 @@ const server = http.createServer(async (req, res) => {
   if (!allowedHosts.has(req.headers.host))
     return reply(res, 403, { error: "Host rejected" });
   const url = new URL(req.url, "http://localhost");
+  if(url.pathname==='/api/workbench')return workbench.handle(req,res);
   if (url.pathname === "/api/managed-terminals") return managedTerminalHandler(req, res);
   if(url.pathname==='/api/workspace/events')return workspaceEvents(req,res);
   if(url.pathname==='/api/workspace/control/events')return workspaceEvents(req,res,true);

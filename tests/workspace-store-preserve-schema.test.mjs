@@ -78,7 +78,7 @@ test('preserve-schema restores a pre-upgrade schema-3 backup without migrating',
   } finally { database.close(); }
 });
 
-test('normal restore of the same backup migrates the copy to schema 4', async (t) => {
+test('normal restore of the same backup migrates the copy to schema 5', async (t) => {
   const root = tempRoot('orbit-preserve-normal-');
   t.after(() => removeRoot(root));
   const { id, backup } = await schema3Backup(root);
@@ -87,12 +87,12 @@ test('normal restore of the same backup migrates the copy to schema 4', async (t
   const result = run(['restore', '--runtime', destination, '--source', backup, '--confirm-stopped']);
   assert.equal(result.restored, true);
   assert.equal(result.preserved, undefined);
-  assert.equal(result.schema_version, 4);
-  assert.equal(rawVersion(path.join(destination, 'workspace.sqlite')), 4);
+  assert.equal(result.schema_version, 5);
+  assert.equal(rawVersion(path.join(destination, 'workspace.sqlite')), 5);
   assert.equal(sha256(backup), before, 'source backup must remain byte-for-byte unchanged');
   const reopened = new SqliteWorkspaceStore(destination);
   try {
-    assert.equal(reopened.diagnostics().schema_version, 4);
+    assert.equal(reopened.diagnostics().schema_version, 5);
     assert.equal(reopened.read(id).revision, 1);
   } finally { reopened.close(); }
 });
@@ -110,7 +110,7 @@ test('preserve-schema refuses an existing destination and leaves it untouched', 
   assert.equal(fs.existsSync(path.join(destination, 'workspace.sqlite')), false);
 });
 
-test('preserve-schema reports schema 4 for a schema-4 backup without tampering', async (t) => {
+test('preserve-schema reports schema 5 for a schema-5 backup without tampering', async (t) => {
   const root = tempRoot('orbit-preserve-v4-');
   t.after(() => removeRoot(root));
   const store = new SqliteWorkspaceStore(root);
@@ -120,8 +120,8 @@ test('preserve-schema reports schema 4 for a schema-4 backup without tampering',
   store.close();
   const destination = path.join(root, 'restored-v4');
   const result = run(['restore', '--runtime', destination, '--source', backup, '--confirm-stopped', '--preserve-schema']);
-  assert.deepEqual(result, { restored: true, preserved: true, schema_version: 4 });
-  assert.equal(rawVersion(path.join(destination, 'workspace.sqlite')), 4);
+  assert.deepEqual(result, { restored: true, preserved: true, schema_version: 5 });
+  assert.equal(rawVersion(path.join(destination, 'workspace.sqlite')), 5);
 });
 
 test('preserve-schema is rejected outside restore and requires confirmation', async (t) => {

@@ -1,5 +1,11 @@
 # Dependency-ordered evolution plan
 
+> Historical plan through the earlier evolution slices. For current Project
+> Workbench implementation and acceptance use
+> [PROJECT_WORKBENCH_LEDGER.md](PROJECT_WORKBENCH_LEDGER.md). Statements below
+> about unwired terminals or transient docking are historical, superseded by
+> [TESTING_BRANCH.md](TESTING_BRANCH.md), not present capability claims.
+
 This is the working backlog, not a claim that phases are complete.
 
 Current increment: strict legacy contracts, generated parity artifacts, isolated native

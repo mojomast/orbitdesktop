@@ -1,0 +1,274 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Comet Project Workbench owner requests v1",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "list"
+        },
+        "workspace_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        }
+      },
+      "required": [
+        "action",
+        "workspace_id"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "register_preview"
+        },
+        "workspace_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "root": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        }
+      },
+      "required": [
+        "action",
+        "workspace_id",
+        "root",
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "register_commit"
+        },
+        "workspace_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "approval_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        }
+      },
+      "required": [
+        "action",
+        "workspace_id",
+        "approval_id"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "inspect"
+        },
+        "workspace_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "project_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        }
+      },
+      "required": [
+        "action",
+        "workspace_id",
+        "project_id"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "revoke_project"
+        },
+        "workspace_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "project_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "base_generation": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "action",
+        "workspace_id",
+        "project_id",
+        "base_generation"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "file"
+        },
+        "workspace_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "project_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "resource_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        }
+      },
+      "required": [
+        "action",
+        "workspace_id",
+        "project_id",
+        "resource_id"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "bind"
+        },
+        "workspace_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "project_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "resource_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "pane_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "base_revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "role": {
+          "enum": [
+            "project_files",
+            "primary_agent",
+            "active_terminal",
+            "preview",
+            "candidate_diff",
+            "job_output"
+          ]
+        }
+      },
+      "required": [
+        "action",
+        "workspace_id",
+        "project_id",
+        "resource_id",
+        "pane_id",
+        "base_revision",
+        "role"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "unbind"
+        },
+        "workspace_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "project_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "binding_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        }
+      },
+      "required": [
+        "action",
+        "workspace_id",
+        "project_id",
+        "binding_id"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "link_pane"
+        },
+        "workspace_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "project_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "pane_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "base_revision": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "action",
+        "workspace_id",
+        "project_id",
+        "pane_id",
+        "base_revision"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "doctor"
+        },
+        "workspace_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        }
+      },
+      "required": [
+        "action",
+        "workspace_id"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}

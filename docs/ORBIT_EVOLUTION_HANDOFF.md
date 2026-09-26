@@ -1,5 +1,10 @@
 # Evolution handoff — September 25, 2026
 
+> Archived chronological handoff. Its per-increment constraints/results apply to
+> the commits described, not today's implementation. Current Project Workbench
+> work is tracked in [PROJECT_WORKBENCH_LEDGER.md](PROJECT_WORKBENCH_LEDGER.md);
+> the reviewed 78b6a8f capabilities are in [TESTING_BRANCH.md](TESTING_BRANCH.md).
+
 ## Testing branch publication
 
 The owner requested documentation, a commit and a push to a testing branch.

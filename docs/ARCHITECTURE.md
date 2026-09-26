@@ -51,6 +51,10 @@ Schema 3 adds an indexed bundle registry and workspace-scoped metadata event que
 Schema 4 adds transactional docking placement, revision/checkpoint copies, and
 shared workspace-revision CAS. Schema-3 databases upgrade on opening; owner
 runtimes must be backed up and tested in a separate copy before upgrade.
+Schema 5 adds separate project/resource/surface-binding records. The owner-only
+`/api/workbench` and host-owned Project Inspector use those IDs for confined,
+bounded file observations and private Git materialization. Model disclosure and
+execution are not implied by project registration. See [Project Workbench](PROJECT_WORKBENCH.md).
 Normal reads use indexed asset versions; startup/admin publication refresh performs
 filesystem scanning. Hash-addressed asset responses verify indexed bytes before serving.
 Retention plans include all saved revisions/checkpoints and are dry-run only.

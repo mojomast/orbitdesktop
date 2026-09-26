@@ -1,0 +1,109 @@
+.project-workbench-dialog {
+  width: min(960px, calc(100vw - 32px));
+  max-height: min(90vh, 1000px);
+  overflow: auto;
+  padding: 24px;
+  color: var(--theme-textColor, #e9edf4);
+  background: var(--theme-panelColor, #17202b);
+  border: 1px solid var(--theme-borderColor, #607080);
+  border-radius: 12px;
+  font-family: var(--theme-font, system-ui);
+  line-height: 1.45;
+}
+
+.project-workbench-dialog::backdrop {
+  background: rgb(0 0 0 / 65%);
+}
+
+.project-workbench-dialog header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+.project-workbench-dialog h2,
+.project-workbench-dialog h3 {
+  margin: 16px 0 8px;
+}
+
+.project-workbench-dialog button,
+.project-workbench-dialog input,
+.project-workbench-dialog select,
+.project-workbench-dialog textarea {
+  margin: 4px;
+  padding: 7px 10px;
+  color: var(--theme-buttonTextColor, #e9edf4);
+  background: var(--theme-buttonColor, #263546);
+  border: 1px solid var(--theme-borderColor, #607080);
+  border-radius: 5px;
+  font: inherit;
+}
+
+.project-workbench-dialog button {
+  cursor: pointer;
+}
+.project-workbench-dialog button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.project-workbench-dialog :focus-visible {
+  outline: 2px solid var(--theme-accentColor, #78baff);
+  outline-offset: 2px;
+}
+.project-workbench-dialog input[type="number"] {
+  width: 90px;
+}
+.project-workbench-dialog input:not([type="number"]) {
+  max-width: 100%;
+}
+.project-workbench-dialog p {
+  margin: 6px 0;
+  overflow-wrap: anywhere;
+}
+.project-workbench-dialog .workbench-status,
+.project-workbench-dialog .workbench-note {
+  color: var(--theme-mutedColor, #abb7c6);
+}
+
+.project-workbench-dialog .workbench-project-entry,
+.project-workbench-dialog .workbench-file-entry,
+.project-workbench-dialog .workbench-repository,
+.project-workbench-dialog .workbench-file,
+.project-workbench-dialog .workbench-bindings,
+.project-workbench-dialog .workbench-execution,
+.project-workbench-dialog .workbench-doctor,
+.project-workbench-dialog .workbench-approval {
+  margin: 10px 0;
+  padding: 10px;
+  border: 1px solid var(--theme-borderColor, #607080);
+  border-radius: 6px;
+}
+
+.project-workbench-dialog :is(.workbench-file-text, .workbench-diff) {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  white-space: pre;
+  overflow: auto;
+  font-family: ui-monospace, monospace;
+  font-size: 0.85em;
+}
+
+.project-workbench-dialog .workbench-file-text {
+  min-height: 240px;
+  resize: vertical;
+}
+.project-workbench-dialog .workbench-diff {
+  max-height: 340px;
+  padding: 10px;
+}
+.project-workbench-dialog .workbench-stale {
+  color: var(--theme-accentColor, #78baff);
+  font-weight: bold;
+}
+.project-workbench-dialog .workbench-files { max-height: 22rem; overflow: auto; }
+.project-workbench-dialog summary { cursor: pointer; font-weight: bold; margin: 0.75em 0; }
+.project-workbench-dialog [hidden] {
+  display: none;
+}

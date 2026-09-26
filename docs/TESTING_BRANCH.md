@@ -2,6 +2,11 @@
 
 Branch: **`testing/orbit-docking-managed-terminals`**
 
+**Current work:** [Comet Project Workbench](PROJECT_WORKBENCH.md) adds an integrated
+Slice A inspector and schema 5. Its [ledger](PROJECT_WORKBENCH_LEDGER.md) tracks
+fresh CI/baseline results and remaining slices. The release-integration evidence
+below describes the reviewed `78b6a8f` increment (schema 4), not the newer feature.
+
 This branch starts from implementation commit `23a1afe` and includes the cumulative
 evolution work since `38a9d56`, not only the latest docking changes. It is a testing
 candidate, not approval to deploy, migrate an owner runtime, or replace `main`.

@@ -17,6 +17,12 @@ the cumulative changes, verified results, isolated test commands and remaining
 gates. Optional docking is off by default; this branch is not a live-runtime
 upgrade instruction.
 
+**Comet Project Workbench — Slice A:** the normal workspace menu now opens an
+owner-only project inspector with explicit root registration, bounded file/range
+previews, identified worktree diffs, stable pane bindings, revocation and Doctor.
+[Current capabilities and limits](docs/PROJECT_WORKBENCH.md) distinguish this
+usable inspection slice from the context-sharing/jobs/review workflow still to come.
+
 Local loopback operation does **not** require Tailscale. Ordinary HTTP(S) hosting
 and optional private tailnet access use the same application; see the
 [deployment and rollback guide](docs/DEPLOYMENT.md). Deployment-specific acceptance

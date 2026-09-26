@@ -40,6 +40,10 @@ dependency nor a required acceptance-test environment.
 - Schema 4 adds docking placement adjuncts to schema 3. Layout/plugin manifests
   stay v1. See [Docking persistence](DOCKING_PERSISTENCE.md) and
   [Store operations](WORKSPACE_STORE.md) for the implementation contract.
+- Schema 5 adds Project Workbench project/resource/surface-binding metadata outside
+  layout state. See [Project Workbench](PROJECT_WORKBENCH.md). Backup includes these
+  tables, but layout checkpoints do not restore them. Return to a schema-4 build
+  using its compatible pre-upgrade backup, never by lowering `user_version`.
 - **No mixed-version rolling upgrade.** Old binaries must refuse a newer schema;
   a newer binary is not permission to run alongside an older writer.
 

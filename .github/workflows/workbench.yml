@@ -1,0 +1,85 @@
+name: Orbit workbench browser tests
+# Owner-only Project Workbench browser gate. Runs the Node/contract regression
+# gate plus the dedicated Project Workbench browser fixture under BOTH renderers
+# (default and docking).
+#
+# Runner: GitHub-hosted ubuntu-latest. Each fixture run builds and serves its own
+# disposable temp root under /tmp/opencode; the checkout is not an owner runtime.
+# The fixture emits a synthetic failure screenshot at a fixed /tmp/opencode path
+# with any host session token masked and readiness errors redacted. No server
+# logs, temp runtimes, environment files, tokens or traces are uploaded.
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: workbench-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  workbench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.14.0'
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install tmux
+        run: sudo apt-get update && sudo apt-get install -y tmux
+      - name: Prepare isolated test scratch directory
+        run: mkdir -p /tmp/opencode
+      - run: npm ci
+      - name: Contract, build and Node regression gate
+        run: npm run check
+      - name: Python adapters, publisher and portable archive parity
+        run: |
+          for test in tests/test_command_adapters.py tests/test_workspace_contract.py \
+            tests/test_workspace_batch_limit_regression.py tests/test_hermes_plugin.py \
+            tests/plugin-publish.test.py tests/orbit-catalog.test.py \
+            tests/test_orbit_bundle.py tests/test_portable_endpoints.py; do
+            python3 "$test" || exit 1
+          done
+      - name: Install Playwright and Chromium system dependencies
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
+        run: |
+          python3 -m venv /tmp/opencode/orbit-workbench-venv
+          /tmp/opencode/orbit-workbench-venv/bin/pip install --disable-pip-version-check playwright==1.58.0
+          /tmp/opencode/orbit-workbench-venv/bin/python -m playwright install --with-deps chromium
+      - name: Exercise both workbench renderers on disposable fixtures
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
+        run: |
+          test -f tests/project-workbench.browser.py || {
+            echo "::error::tests/project-workbench.browser.py is missing"
+            exit 1
+          }
+          status=0
+          for renderer in default docking; do
+            /tmp/opencode/orbit-workbench-venv/bin/python tests/project-workbench.browser.py --renderer "$renderer" || status=1
+          done
+          exit "$status"
+      - name: Live PTY continuity and independent recovery regressions
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
+        run: |
+          /tmp/opencode/orbit-workbench-venv/bin/python tests/runtime-continuity.browser.py --pty --renderer default
+          /tmp/opencode/orbit-workbench-venv/bin/python tests/runtime-continuity.browser.py --pty --renderer docking
+          /tmp/opencode/orbit-workbench-venv/bin/python tests/recovery-real-server.browser.py
+      - name: Upload sanitized synthetic failure screenshot
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workbench-failure-screenshot
+          if-no-files-found: ignore
+          retention-days: 7
+          # Strict allowlist: only the two fixture-emitted synthetic screenshots
+          # (token masked, readiness errors redacted) under /tmp/opencode.
+          path: |
+            /tmp/opencode/orbit-project-workbench-default.png
+            /tmp/opencode/orbit-project-workbench-docking.png

@@ -7,6 +7,7 @@ import {validateDockingPlacement,emptyPlacement,placementEqual,prunePlacement} f
 import {applyOperation} from '../src/workspace-ops.ts';
 import {canonicalJson} from './command-identity.mjs';
 import {bundleSchemaSql,createBundleRegistry} from './bundle-registry.mjs';
+import {workbenchSchemaSql} from './workbench-store.mjs';
 
 const uuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
 const checkId = id => { if(typeof id!=='string'||!uuid.test(id))throw failure('INVALID_OPERATION'); return id; };
@@ -33,7 +34,7 @@ export class SqliteWorkspaceStore {
     this.db=new Database(this.filename,{timeout:busyTimeoutMs});
     try {
       const version=this.db.pragma('user_version',{simple:true});
-      if(version>4)throw failure('UPGRADE_REQUIRED');
+      if(version>5)throw failure('UPGRADE_REQUIRED');
       if(exists&&version===0&&!legacyPresent&&!importLegacy)throw failure('STORE_UNINITIALIZED');
       fs.chmodSync(this.filename,0o600);
       this.db.pragma('foreign_keys = ON');
@@ -69,7 +70,7 @@ export class SqliteWorkspaceStore {
       // restartable. Upgrade under the writer lock; old binaries refuse v2.
       this.db.transaction(()=>{
         const current=this.db.pragma('user_version',{simple:true});
-        if(current>4)throw failure('UPGRADE_REQUIRED');
+        if(current>5)throw failure('UPGRADE_REQUIRED');
         if(current===1) {
           this.db.exec(`
             ALTER TABLE receipts ADD COLUMN policy_generation INTEGER NOT NULL DEFAULT 0 CHECK(policy_generation>=0);
@@ -81,7 +82,7 @@ export class SqliteWorkspaceStore {
       }).immediate();
       this.db.transaction(()=>{
         const current=this.db.pragma('user_version',{simple:true});
-        if(current>4)throw failure('UPGRADE_REQUIRED');
+        if(current>5)throw failure('UPGRADE_REQUIRED');
         if(current===2) {
           this.db.exec(bundleSchemaSql);
           this.db.exec("CREATE INDEX IF NOT EXISTS events_workspace_sequence ON events(json_extract(event_json,'$.workspace_id'),sequence)");
@@ -92,7 +93,7 @@ export class SqliteWorkspaceStore {
       // Already-open old writers must be stopped: no mixed-version writers supported.
       this.db.transaction(()=>{
         const current=this.db.pragma('user_version',{simple:true});
-        if(current>4)throw failure('UPGRADE_REQUIRED');
+        if(current>5)throw failure('UPGRADE_REQUIRED');
         if(current===3) {
           // Guard each column add: a database rewound to an older user_version (or
           // an interrupted earlier upgrade) may already carry the placement columns.
@@ -105,6 +106,11 @@ export class SqliteWorkspaceStore {
           `);
           this.db.pragma('user_version = 4');
         }
+      }).immediate();
+      this.db.transaction(()=>{
+        const current=this.db.pragma('user_version',{simple:true});
+        if(current>5)throw failure('UPGRADE_REQUIRED');
+        if(current===4){this.db.exec(workbenchSchemaSql);this.db.pragma('user_version = 5');}
       }).immediate();
       this.bundles=createBundleRegistry({db:this.db,root:this.root});
       // Rebuildable discovery only. Frozen original workspace JSON is never updated.
@@ -360,7 +366,7 @@ export class SqliteWorkspaceStore {
         const directory=path.join(stage,'checkpoints',record.id);fs.mkdirSync(directory,{recursive:true,mode:0o700});
         for(const checkpoint of checkpoints)fs.writeFileSync(path.join(directory,`${checkpoint.id}.json`),JSON.stringify(checkpoint),{mode:0o600});
       }
-      fs.writeFileSync(path.join(stage,'EXPORT_WARNING.txt'),'Offline legacy layout export only. Receipts/outbox are NOT preserved by old binaries. Immutable bundles and other runtime resources must be retained separately. No services have been started.\n',{mode:0o600});
+      fs.writeFileSync(path.join(stage,'EXPORT_WARNING.txt'),'Offline legacy layout export only. Project Workbench records and registration policies are NOT exported. Receipts/outbox are NOT preserved by old binaries. Immutable bundles and other runtime resources must be retained separately. No services have been started.\n',{mode:0o600});
       if(fs.existsSync(destination))throw failure('DESTINATION_EXISTS');
       fs.renameSync(stage,destination);
       return {path:destination,workspaces:snapshot.length};
