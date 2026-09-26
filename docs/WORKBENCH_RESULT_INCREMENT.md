@@ -63,6 +63,25 @@ not authorized. A disposable activation test does not authorize owner activation
 
 ## Current status
 
+### Final-candidate fixes (source `ad8d2d0`)
+
+The explanation lookup now joins through the native grant's attempt and validates
+the returned receipt's task, candidate and project generation. Strict browser
+acceptance requires expansion of the literal recorded explanation without a
+new model request or chat message; its final rerun is pending.
+
+The artifact publication fence now freezes and checks the original project
+generation for retrieval, export replay and active finalization retry. Parent
+retained the independent **real supplier/provider** regression instead of the
+lane's compatibility stub. Both cases pass: exact lost-reply recovery without
+another check, metadata-only revoked recovery, and refusal after re-registration.
+
+The normal-UI managed-check cancellation fixture passes both renderers with a
+real server, SQLite and a fixture-only blocking check. This is ordinary check
+cancellation, not proof of cancellation during patch-artifact verification.
+Final archive/release and final-source acceptance remain pending; chronological
+results below retain their exact tested source and limitations.
+
 ### Latest verification checkpoint (source `1c99936`)
 
 Full parent `npm run check` passed contract generation, isolated build and
