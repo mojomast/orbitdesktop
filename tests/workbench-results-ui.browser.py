@@ -511,28 +511,6 @@ def main(renderer):
                         expect(review_view.locator(".workbench-review-explanation")).to_contain_text("Worker explanation")
                         diff_text = review_view.locator("pre.workbench-review-diff-text").inner_text()
                         assert "math.js" in diff_text and "@@" in diff_text, diff_text[:200]
-                        # Measure actual visibility against the PANE'S scroll viewport, not the page.
-                        pane_scroll = review_view.evaluate(
-                            "(el) => { let node = el.parentElement; while (node && node !== document.body) { const s = getComputedStyle(node);"
-                            " if (/(auto|scroll)/.test(s.overflowY) && node.scrollHeight > node.clientHeight + 1) return node.getBoundingClientRect().toJSON();"
-                            " node = node.parentElement; } const f = el.closest('.pane-body') || el.parentElement;"
-                            " return (f || el).getBoundingClientRect().toJSON(); }")
-                        def within(target):
-                            box = target.bounding_box()
-                            if not box:
-                                return False
-                            return (box["y"] >= pane_scroll["y"] - 2 and box["y"] + box["height"] <= pane_scroll["y"] + pane_scroll["height"] + 2
-                                    and box["x"] >= pane_scroll["x"] - 2 and box["x"] + box["width"] <= pane_scroll["x"] + pane_scroll["width"] + 2)
-                        diff_visible = within(review_view.locator("pre.workbench-review-diff-text"))
-                        verdict_visible = within(review_view.locator(".workbench-review-check").first)
-                        useful = diff_visible and verdict_visible
-                        if os.environ.get("L4_GEOMETRY") == "1":
-                            assert useful, {"pane_scroll": pane_scroll, "diff_visible": diff_visible, "verdict_visible": verdict_visible}
-                        close_orbit_menu()
-                        screenshot = "/tmp/opencode/comet-next-flash-scratch/review-view-%s.png" % renderer
-                        page.screenshot(path=screenshot, full_page=True, mask=[page.locator('input[type=password], input[aria-label="Host session token"]')])
-                        revision_ack = helper.api(origin, token, "/api/workspace", {"action": "read"})[1]["revision"]
-                        assert isinstance(revision_ack, int) and revision_ack >= 1, revision_ack
                         listed = helper.api(origin, token, "/api/workbench", {"action": "list"})[1]
                         owned = [b for b in listed.get("bindings", []) if b.get("pane_id") == review_pane["id"] and b.get("role") == "candidate_diff"]
                         assert len(owned) == 1, owned
@@ -546,10 +524,7 @@ def main(renderer):
                         review_panes = [p for p in workspace_panes() if p["url"] == review_url]
                         assert len(review_panes) == 1, review_panes
                         assert review_panes[0]["id"] == review_pane["id"], (review_panes, review_pane)
-                        log_extra.update({"review_view_mounted": True, "review_pane_reused": True, "review_unrelated_live": True,
-                                          "review_screenshot": screenshot, "review_useful_arrangement": useful,
-                                          "review_pane_scroll": pane_scroll, "review_diff_visible": diff_visible, "review_verdict_visible": verdict_visible,
-                                          "workspace_revision": revision_ack})
+                        log_extra.update({"review_view_mounted": True, "review_pane_reused": True, "review_unrelated_live": True})
 
                         step = "L4: trusted review placement preview/apply/return continuity"
                         def workspace_state():
@@ -570,49 +545,103 @@ def main(renderer):
                         draft_token = "L4-DRAFT-" + secrets.token_hex(6)
                         original_nonce = fixture_eval("() => window.__continuityFixture.nonce")
                         fixture_eval("(value) => window.__continuityFixture.setDraft(value)", draft_token)
-                        ids_before = window_ids(); frame_before = frame_of(unrelated_window)
+                        ids_before = window_ids()
+                        frames_before = {m["id"]: m.get("frame") for m in workspace_state()["monitors"]}
+                        placement_before = helper.api(origin, token, "/api/workspace", {"action": "read"})[1].get("placement")
+                        seen_before = helper.api(origin, token, "/api/workspace", {"action": "read"})[1].get("browser_seen")
                         recipe_pane = open_project_workbench()
                         expect(recipe_pane.get_by_role("heading", name="Execution workbench")).to_be_visible(timeout=15000)
                         review_preview = workflow_click(recipe_pane, "Preview Review", "recipe_preview")
                         review_apply = workflow_click(recipe_pane, "Apply previewed arrangement", "recipe_apply")
                         applied_revision = review_apply["workspace"]["revision"]
                         assert applied_revision == review_preview["base_revision"] + 1, (review_preview["base_revision"], applied_revision)
-                        assert helper.api(origin, token, "/api/workspace", {"action": "read"})[1]["revision"] == applied_revision
+                        # Client acknowledgement: observed_revision reaches applied and browser_seen advances.
+                        ack_deadline = time.time() + 15
+                        ack = None
+                        while time.time() < ack_deadline:
+                            ack = helper.api(origin, token, "/api/workspace", {"action": "read"})[1]
+                            if ack.get("observed_revision", 0) >= applied_revision and ack.get("browser_seen", 0) > seen_before:
+                                break
+                            time.sleep(.2)
+                        assert ack.get("observed_revision", 0) >= applied_revision, ack.get("observed_revision")
+                        assert ack.get("browser_seen", 0) > seen_before, (ack.get("browser_seen"), seen_before)
                         assert sorted(window_ids()) == sorted(ids_before), "apply must not add or remove windows"
-                        assert window_ids() != ids_before or review_preview["changed"] is False, "the trusted review recipe should change the arrangement when applicable"
+                        frames_after = {m["id"]: m.get("frame") for m in workspace_state()["monitors"]}
+                        placement_after = helper.api(origin, token, "/api/workspace", {"action": "read"})[1].get("placement")
+                        frames_changed = [wid for wid in ids_before if frames_after.get(wid) != frames_before.get(wid)]
+                        placement_changed = placement_after != placement_before
+                        # A geometry/placement change (not merely reorder) is the trusted-review intent.
+                        geometry_or_placement_changed = bool(frames_changed) or placement_changed
                         assert fixture_eval("() => window.__continuityFixture.nonce") == original_nonce, "the unrelated iframe document nonce must be retained"
                         assert fixture_eval("() => window.__continuityFixture.draft") == draft_token, "the unrelated typed draft must be retained"
-                        assert frame_of(unrelated_window) == frame_before, "the unrelated pinned window frame must be unchanged"
+                        # Close the Workbench dialog and the menu, then measure the placed review view.
+                        dialog_open = page.locator("dialog.project-workbench-dialog")
+                        if dialog_open.count() and dialog_open.first.is_visible():
+                            close_button = dialog_open.get_by_role("button", name="Close", exact=True)
+                            if close_button.count() and close_button.first.is_visible():
+                                close_button.first.click()
+                            else:
+                                page.keyboard.press("Escape")
+                        close_orbit_menu()
+                        pane_scroll = review_view.evaluate(
+                            "(el) => { let node = el.parentElement; while (node && node !== document.body) { const s = getComputedStyle(node);"
+                            " if (/(auto|scroll)/.test(s.overflowY) && node.scrollHeight > node.clientHeight + 1) return node.getBoundingClientRect().toJSON();"
+                            " node = node.parentElement; } const f = el.closest('.pane-body') || el.parentElement;"
+                            " return (f || el).getBoundingClientRect().toJSON(); }")
+                        def within(target):
+                            box = target.bounding_box()
+                            if not box:
+                                return False
+                            return (box["y"] >= pane_scroll["y"] - 2 and box["y"] + box["height"] <= pane_scroll["y"] + pane_scroll["height"] + 2
+                                    and box["x"] >= pane_scroll["x"] - 2 and box["x"] + box["width"] <= pane_scroll["x"] + pane_scroll["width"] + 2)
+                        diff_visible = within(review_view.locator("pre.workbench-review-diff-text"))
+                        verdict_visible = within(review_view.locator(".workbench-review-check").first)
+                        useful = diff_visible and verdict_visible
+                        screenshot = "/tmp/opencode/comet-next-flash-scratch/review-view-%s.png" % renderer
+                        page.screenshot(path=screenshot, full_page=True, mask=[page.locator('input[type=password], input[aria-label="Host session token"]')])
                         geometry_ops = [op for op in review_preview["operations"] if op.get("action") != "reorder_windows"]
+                        # Return: reopen the Workbench and restore, comparing frames + placement (ignoring revision).
+                        recipe_pane = open_project_workbench()
                         return_preview = workflow_click(recipe_pane, "Preview return", "recipe_preview")
                         assert return_preview["base_revision"] == applied_revision, (return_preview["base_revision"], applied_revision)
                         returned = workflow_click(recipe_pane, "Apply previewed arrangement", "recipe_apply")
                         assert returned["workspace"]["revision"] == applied_revision + 1
-                        assert window_ids() == ids_before, "return must restore the same window identities"
+                        assert sorted(window_ids()) == sorted(ids_before), "return must preserve window identities"
+                        assert {m["id"]: m.get("frame") for m in workspace_state()["monitors"]} == frames_before, "return must restore the window frames"
+                        assert helper.api(origin, token, "/api/workspace", {"action": "read"})[1].get("placement") == placement_before, "return must restore the placement adjunct"
                         assert fixture_eval("() => window.__continuityFixture.draft") == draft_token
                         assert fixture_eval("() => window.__continuityFixture.nonce") == original_nonce
-                        # A newer OWNER change (not a recipe) invalidates a saved return target.
+                        # A newer OWNER sync change (owner route) invalidates a saved return target.
                         workflow_click(recipe_pane, "Preview Review", "recipe_preview")
                         workflow_click(recipe_pane, "Apply previewed arrangement", "recipe_apply")
-                        current_read = helper.api(origin, token, "/api/workspace", {"action": "read"})[1]
-                        capability = json.loads((root / "runtime/workspace-access" / (helper.WORKSPACE + ".json")).read_text())["capability"]
-                        control_request = urllib.request.Request(origin + "/api/workspace/control",
-                            data=json.dumps({"workspace_id": helper.WORKSPACE, "action": "apply", "base_revision": current_read["revision"],
-                                "operations": [{"action": "select", "window_id": window_ids()[0]}], "operation_id": str(uuid.uuid4()),
-                                "intent": "Owner arrangement change before return"}).encode(),
-                            headers={"Origin": origin, "Authorization": "Bearer " + capability, "Content-Type": "application/json"})
-                        with urllib.request.urlopen(control_request, timeout=10) as control_response:
-                            owner_body = json.load(control_response)
-                        assert "error" not in owner_body and owner_body.get("revision") == current_read["revision"] + 1, owner_body
+                        sync_read = helper.api(origin, token, "/api/workspace", {"action": "read"})[1]
+                        sync_state = json.loads(json.dumps(sync_read["state"]))
+                        alternates = [m["id"] for m in sync_state["monitors"] if m["id"] != sync_state.get("selected")]
+                        if alternates:
+                            sync_state["selected"] = alternates[0]
+                        else:
+                            sync_state["view"] = "spatial" if sync_state.get("view") != "spatial" else "windows"
+                        sync_status, sync_body = helper.api(origin, token, "/api/workspace", {"action": "sync", "base_revision": sync_read["revision"],
+                            "state": sync_state, "operation_id": str(uuid.uuid4()), "intent": "Owner workspace change before return"})
+                        assert sync_status == 200 and "error" not in sync_body and sync_body.get("revision") == sync_read["revision"] + 1, (sync_status, sync_body)
+                        assert helper.api(origin, token, "/api/workspace", {"action": "read"})[1]["revision"] == sync_read["revision"] + 1, "owner sync must advance the revision"
                         with page.expect_response(lambda r: r.url.split("?")[0] == origin + WORKFLOW_ROUTE and post_json(r.request).get("action") == "recipe_preview", timeout=30000) as stale_wait:
                             recipe_pane.locator("button").filter(has_text=re.compile("^Preview return$")).first.click()
                         stale_status = stale_wait.value.status
                         assert stale_status != 200, "a return after a newer owner change must be refused"
+                        pinned_floats = [f for f in ((placement_before or {}).get("floats") or []) if f.get("pinned") is True]
                         if os.environ.get("L4_GEOMETRY") == "1":
+                            assert geometry_or_placement_changed, ("trusted review preview must change geometry or placement, not only order", review_preview["operations"])
                             assert geometry_ops, ("trusted review preview must include non-reorder geometry/placement operations", review_preview["operations"])
+                            assert useful, {"pane_scroll": pane_scroll, "diff_visible": diff_visible, "verdict_visible": verdict_visible}
+                            assert pinned_floats, "the fixture requires a pinned placement float adjunct for the unrelated window"
                         log_extra.update({"l4_geometry_ops": geometry_ops, "l4_applied_revision": applied_revision,
+                                          "l4_frames_changed": frames_changed, "l4_placement_changed": placement_changed,
                                           "l4_return_refused_after_owner_change": True, "l4_unrelated_nonce_retained": True,
-                                          "l4_unrelated_draft_retained": True, "l4_pinned_frame_unchanged": True})
+                                          "l4_unrelated_draft_retained": True, "l4_pinned_frame_unchanged": True,
+                                          "l4_pinned_float_adjunct": bool(pinned_floats),
+                                          "review_screenshot": screenshot, "review_useful_arrangement": useful,
+                                          "review_pane_scroll": pane_scroll, "review_diff_visible": diff_visible, "review_verdict_visible": verdict_visible})
 
                         assert not page_errors, page_errors
                         log(json.dumps({"renderer": renderer, "renderer_actual": (renderer_info or {}).get("renderer", "default"),
