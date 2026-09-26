@@ -121,6 +121,7 @@ jobs:
         env:
           PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
           GATE2_FINAL: '1'
+          L4_GEOMETRY: '1'
         run: |
           for renderer in default docking; do
             HERMES_NATIVE_SOURCE=/tmp/opencode/orbit-hermes-native /tmp/opencode/orbit-workbench-venv/bin/python tests/workbench-results-ui.browser.py --renderer "$renderer"
