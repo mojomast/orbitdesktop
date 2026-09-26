@@ -81,6 +81,14 @@ fetching it from `mojomast/hermes` is not the configured bootstrap procedure.
 See `DEPLOYMENT.md` for reproducible setup. Replacement CI must pass before
 activation; no owner or isolated-instance restart is part of this correction.
 
+The replacement plugin run `36269114642` passed. Workbench run `36269114589`
+passed the corrected Node gate, then exposed another old-fixture assumption:
+the Python runtime test supplied FD3 but not the required public-result FD4.
+The fixture now redirects FD4 explicitly into its private temporary directory
+and verifies a single bounded UTF-8 final-response frame with the exact public
+text and completion flag. The runtime protocol is not weakened. Full replacement
+Workbench CI remains required before deployment.
+
 ### Final acceptance — Gate 1 and Gate 2 accepted
 
 All three original worker lanes are integrated. The final production-source

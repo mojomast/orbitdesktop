@@ -99,12 +99,21 @@ class RealRuntimeTest(unittest.TestCase):
                 (hermes / "config.yaml").write_text(json.dumps({"plugins": {"enabled": ["orbit-desktop"], "entries": {"orbit-desktop": {"enabled": True, "settings": {"native_channel_file": str(channel_file)}}}}, "tools": {"tool_search": {"enabled": "off"}}, "toolsets": ["orbit_workbench"], "compression": {"enabled": False}, "memory": {"enabled": False}}))
                 config_file = root / "runner.json"
                 config_file.write_text(json.dumps({"endpoint": endpoint, "api_key": "local-fixture", "model": "orbit-local-fixture", "max_iterations": 5, "session_id": attempt, "input": "Use the approved Workbench tool."}))
-                # The shell only redirects this isolated fixture file to FD3;
-                # no owner runtime/profile or ambient credential is executed.
+                result_file = root / "public-result.jsonl"
+                # Explicitly provide both IPC descriptors. An ambient/reused FD4
+                # is not the public result channel, even if a local run accepts it.
+                # No owner runtime/profile or ambient credential is executed.
                 env = {"PATH": "/usr/bin:/bin", "HOME": str(home), "HERMES_HOME": str(hermes), "PYTHONPATH": str(SOURCE), "PYTHONNOUSERSITE": "1", "HERMES_BUNDLED_PLUGINS": str(root / "empty"), "HERMES_ENABLE_PROJECT_PLUGINS": "0", "HERMES_DISABLE_TELEMETRY": "1"}
                 try:
-                    result = subprocess.run(["/bin/bash", "-c", 'exec "$1" "$2" --runtime 3<"$3"', "fixture", str(SOURCE / ".venv/bin/python"), str(PLUGIN / "workbench.py"), str(config_file)], cwd=root, env=env, capture_output=True, text=True, timeout=90)
+                    result = subprocess.run(["/bin/bash", "-c", 'exec "$1" "$2" --runtime 3<"$3" 4>"$4"', "fixture", str(SOURCE / ".venv/bin/python"), str(PLUGIN / "workbench.py"), str(config_file), str(result_file)], cwd=root, env=env, capture_output=True, text=True, timeout=90)
                     self.assertEqual(result.returncode, 0, result.stderr[-12000:] + result.stdout[-4000:])
+                    frame = result_file.read_bytes()
+                    self.assertLessEqual(len(frame), 72 * 1024)
+                    self.assertEqual(len(frame.splitlines()), 1)
+                    self.assertEqual(json.loads(frame.decode("utf-8")), {
+                        "version": 1, "type": "final_response",
+                        "text": "Fixture complete", "completed": True,
+                    })
                     self.assertEqual(private_calls, [{"action": "inspect"}], result.stderr[-6000:] + result.stdout[-6000:] + json.dumps(model_requests[-1].get("messages", []))[-6000:])
                     self.assertFalse((root / "HOST_TOOL_BYPASS").exists())
                     self.assertGreaterEqual(len(model_requests), 3)
