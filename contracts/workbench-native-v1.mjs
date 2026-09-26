@@ -1,6 +1,7 @@
 // Owner requests and model arguments are separate contracts. No model argument
 // can select an attempt, recipient, workspace, project, grant or authority.
 import Ajv from 'ajv';
+import {resultRequests} from './workbench-result-v1.mjs';
 const strict=properties=>({type:'object',properties,required:Object.keys(properties),additionalProperties:false});
 const uuid={type:'string',pattern:'^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$'};
 const hash={type:'string',pattern:'^[a-f0-9]{64}$'};
@@ -15,6 +16,7 @@ export const nativeRequests=Object.freeze({
   status:strict({action:{const:'status'},...base,grant_id:uuid}),
   stop:strict({action:{const:'stop'},...base,grant_id:uuid}),
   acknowledge_unknown:strict({action:{const:'acknowledge_unknown'},...base,grant_id:uuid,expected_digest:hash,known_externally_terminated:{const:true}}),
+  ...resultRequests,
 });
 export const nativeSchema=Object.freeze({$schema:'http://json-schema.org/draft-07/schema#',oneOf:Object.values(nativeRequests)});
 const change={oneOf:[
