@@ -49,6 +49,7 @@ WORKFLOW_ROUTE = "/api/workbench/workflow"
 WRONG = "export const sum = (a,b) => a - b;\n"
 RIGHT = "export const sum = (a,b) => a + b;\n"
 ANSWER_TOKEN = "FLASH-NORMAL-UI-EXPLANATION"
+UNRELATED = "UNRELATED-SENTINEL-KEEP\n"
 HANDOFF_SENTENCE = "Supervised worker handoff"
 
 
@@ -164,7 +165,7 @@ def main(renderer):
                    "--dest", str(root / "dist"), "--allow-source-dist", cwd=root, env=env)
         assert (root / "dist/index.html").is_file()
 
-        project = root / "project"; project.mkdir(); (project / "math.js").write_text(WRONG)
+        project = root / "project"; project.mkdir(); (project / "math.js").write_text(WRONG); (project / "unrelated.txt").write_text(UNRELATED)
         model = ModelFixture(); threading.Thread(target=model.serve_forever, daemon=True).start()
         model_url = "http://127.0.0.1:%d/v1" % model.server_port
         gateway = helper.SyntheticGateway(); threading.Thread(target=gateway.serve_forever, daemon=True).start()
@@ -319,6 +320,8 @@ def main(renderer):
                         assert any(entry["verdict"] == "pass" for entry in state_body["evidence"]), state_body["evidence"]
 
                         step = "normal-UI result panel: refresh then select the issued grant"
+                        chat_messages_before = page.locator('.pane[data-pane-id="%s"] .chat-messages .chat-message' % helper.PANE).count()
+                        requests_before_delivery = len(model.requests)
                         panel = pane.locator(".workbench-task-results-panel")
                         expect(panel).to_be_visible(timeout=20000)
                         click_plain(panel, "Refresh task result")
@@ -335,6 +338,8 @@ def main(renderer):
                         expect(panel).to_contain_text("Host-authored result card recorded")
                         card = page.locator('.pane[data-pane-id="%s"] section.agent-task-results details[data-result-id]' % helper.PANE)
                         expect(card.first).to_be_visible(timeout=20000)
+                        assert len(model.requests) == requests_before_delivery, "delivery must not call the model"
+                        assert page.locator('.pane[data-pane-id="%s"] .chat-messages .chat-message' % helper.PANE).count() == chat_messages_before, "delivery must not add a chat turn"
 
                         step = "Gate 2: owner review of the recorded pass through the UI"
                         passing_id = next(entry["id"] for entry in state_body["evidence"] if entry["verdict"] == "pass")
@@ -367,21 +372,24 @@ def main(renderer):
 
                         step = "Gate 2: apply the downloaded patch to a safe exact base and run an independent check"
                         base = root / ("exact-base-" + secrets.token_hex(4)); base.mkdir()
-                        (base / "math.js").write_text(WRONG)
+                        (base / "math.js").write_text(WRONG); (base / "unrelated.txt").write_text(UNRELATED)
                         git_env = {"PATH": os.environ["PATH"], "HOME": str(root / "home"), "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null"}
                         subprocess.run(["git", "init", "-q"], cwd=base, env=git_env, check=True)
-                        subprocess.run(["git", "add", "math.js"], cwd=base, env=git_env, check=True)
+                        subprocess.run(["git", "add", "math.js", "unrelated.txt"], cwd=base, env=git_env, check=True)
                         subprocess.run(["git", "-c", "user.email=fixture@example.invalid", "-c", "user.name=Fixture", "commit", "-q", "-m", "exact base"], cwd=base, env=git_env, check=True)
                         (base / "change.patch").write_bytes(patch_bytes)
                         subprocess.run(["git", "apply", "--whitespace=nowarn", "change.patch"], cwd=base, env=git_env, check=True)
                         assert (base / "math.js").read_text() == RIGHT, (base / "math.js").read_text()
+                        assert (base / "unrelated.txt").read_text() == UNRELATED, "an unrelated file in the exact base is untouched by the patch"
                         (base / "independent-check.mjs").write_text("import { sum } from './math.js';\nif (sum(2, 3) !== 5) { console.error('independent check failed'); process.exit(1); }\n")
                         subprocess.run([shutil.which("node"), "independent-check.mjs"], cwd=base, env={"PATH": os.environ["PATH"], "HOME": str(root / "home")}, check=True)
                         assert (project / "math.js").read_text() == WRONG, "the original project is never modified"
+                        assert (project / "unrelated.txt").read_text() == UNRELATED, "an unrelated original file is never modified"
 
-                        step = "Gate 2: reload preserves the result, review and workspace continuity"
+                        step = "Gate 2: reload preserves the result, review and workspace identity"
                         ws_before = helper.api(origin, token, "/api/workspace", {"action": "read"})[1]["state"]
                         pane_ids_before = [monitor["layout"]["pane"]["id"] for monitor in ws_before["monitors"]]
+                        requests_before_reload = len(model.requests)
                         page.reload()
                         expect(page.locator('.pane[data-pane-id="%s"]' % helper.PANE)).to_be_visible(timeout=20000)
                         page.get_by_role("button", name="Connect local host", exact=True).click()
@@ -392,14 +400,39 @@ def main(renderer):
                         persisted = helper.api(origin, token, EXEC_ROUTE, {"action": "execution_state", "project_id": project_id})[1]
                         assert any(item["decision"] == "approved" for item in persisted["reviews"]), persisted["reviews"]
                         ws_after = helper.api(origin, token, "/api/workspace", {"action": "read"})[1]["state"]
-                        assert [monitor["layout"]["pane"]["id"] for monitor in ws_after["monitors"]] == pane_ids_before, "other panes keep their identities across reload"
+                        assert [monitor["layout"]["pane"]["id"] for monitor in ws_after["monitors"]] == pane_ids_before, "workspace pane identity is preserved across reload (single-pane fixture here; multi-pane continuity is covered by runtime-continuity and Luna L4)"
+                        renderer_after = page.evaluate("() => window.__orbitDocking ? window.__orbitDocking.renderer : 'default'")
+                        assert renderer_after == renderer, ("renderer after reload", renderer, renderer_after)
+                        assert len(model.requests) == requests_before_reload, "reload must not call the model"
+                        assert page.locator('.pane[data-pane-id="%s"] .chat-messages .chat-message' % helper.PANE).count() == chat_messages_before, "reload must not add a chat turn"
                         assert (project / "math.js").read_text() == WRONG
+                        assert (project / "unrelated.txt").read_text() == UNRELATED
+
+                        if os.environ.get("GATE2_FINAL") == "1":
+                            step = "Gate 2 FINAL: helper verification, exact artifact re-retrieval, no check spawn"
+                            verification = exported.get("verification") or {}
+                            assert verification.get("status") == "verified", verification
+                            checks = verification.get("checks") or []
+                            assert checks, verification
+                            for check in checks:
+                                assert check.get("status") == "pass", check
+                                assert isinstance(check.get("artifact_hash"), str) and len(check.get("artifact_hash")) == 64, check
+                            jobs_after = helper.api(origin, token, EXEC_ROUTE, {"action": "execution_state", "project_id": project_id})[1]["jobs"]
+                            listed = helper.api(origin, token, WORKFLOW_ROUTE, {"action": "patch_list", "project_id": project_id})[1]["patches"]
+                            match = next((item for item in listed if item.get("id") == exported.get("id") or item.get("artifact_id") == exported.get("artifact_id")), None)
+                            assert match, listed
+                            again = helper.api(origin, token, WORKFLOW_ROUTE, {"action": "private_patch_get", "artifact_id": match.get("artifact_id") or match.get("id")})[1]["patch"]
+                            assert again == patch_bytes.decode("utf-8"), "re-retrieved artifact bytes must match the downloaded bytes"
+                            jobs_final = helper.api(origin, token, EXEC_ROUTE, {"action": "execution_state", "project_id": project_id})[1]["jobs"]
+                            assert len(jobs_final) == len(jobs_after), "re-retrieval must not spawn a new check"
 
                         assert not page_errors, page_errors
                         log(json.dumps({"renderer": renderer, "renderer_actual": (renderer_info or {}).get("renderer", "default"),
                                         "ui_handoff": True, "ui_result_panel": True, "gate2_patch_roundtrip": True,
                                         "gate2_independent_apply_check": True, "gate2_reload_persisted": True,
-                                        "model_requests": len(model.requests), "page_errors": len(page_errors), "admitted_live_model_trials": 0}))
+                                        "gate2_final": os.environ.get("GATE2_FINAL") == "1",
+                                        "model_requests": len(model.requests), "chat_messages": chat_messages_before,
+                                        "page_errors": len(page_errors), "admitted_live_model_trials": 0}))
                     finally:
                         if page_errors:
                             page.screenshot(path="/tmp/opencode/comet-results-ui-%s-error.png" % renderer, full_page=True)
