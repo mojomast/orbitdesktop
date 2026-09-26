@@ -128,7 +128,8 @@ with tempfile.TemporaryDirectory(prefix="orbit-continuity-", dir="/tmp/opencode"
                 try:
                     expect(iframe(pid)).to_have_count(1, timeout=15000)
                 except AssertionError as error:
-                    raise AssertionError(f"Initial browser pane {pid} missing; rendered={page.locator('.pane').evaluate_all('(nodes)=>nodes.map(n=>n.dataset.paneId)')}; pageerrors={errors}; state={page.evaluate('localStorage.getItem(\"orbit.workspace.v1\")')}") from error
+                    saved_state = page.evaluate('localStorage.getItem("orbit.workspace.v1")')
+                    raise AssertionError(f"Initial browser pane {pid} missing; rendered={page.locator('.pane').evaluate_all('(nodes)=>nodes.map(n=>n.dataset.paneId)')}; pageerrors={errors}; state={saved_state}") from error
                 page.frame_locator(f'.pane[data-pane-id="{pid}"] iframe').locator("#draft").fill(f"unsaved-{i}-{workspace}")
             page.evaluate("""ids => {window.__continuityNodes = Object.fromEntries(ids.map(id => {
                 const pane = document.querySelector(`.pane[data-pane-id="${id}"]`);

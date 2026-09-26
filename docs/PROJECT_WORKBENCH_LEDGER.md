@@ -115,3 +115,34 @@ independently built `78b6a8f` baseline after verifying its SHA-256 exactly match
 the pre-task `dc62f47d…` build; its referenced baseline assets were restored too.
 No server was restarted or browser reloaded. Workbench build evidence remains in
 disposable copies; the checkout's existing served entrypoint is not the new build.
+
+## Deployment-agent report and CI follow-up
+
+The owner relayed successful isolated deployment acceptance for `7a4fc17`: a
+consistent schema-4 pre-upgrade backup (`integrity_check` OK), schema-5 migration,
+matching `a2f1faa8…` frontend, 309 Node / 55 Python tests, both Workbench renderers,
+both 94-transition live-PTY gates, recovery, and 12/12 deployed-origin checks.
+These are **deployment-agent reported results**, not a second inspection by this
+checkout. The private screenshot and deployment host details are not copied here.
+The isolated service is transient across host reboot; credential separation and
+startup logging remain operator concerns reported by the deployment agent.
+
+Actual GitHub status for `7a4fc17`: plugin run `36210612154` **passed**; Workbench
+run `36210612310` **failed** (308/309), before Python, in the real-server cleanup
+replacement fixture. That fixture injected `kill-server` then immediately started
+the replacement; it now waits for the original PID's observed exit before issuing
+the replacement command, keeping all destructive ownership checks intact.
+
+The reported Python 3.11 parser failure is also fixed: the continuity diagnostic
+computes its saved-state expression outside the f-string. CI now parses all Python
+test files before the expensive gates. Actual Python 3.11 parsing passes locally;
+Playwright is only installed in the existing Python 3.13 environment here, so the
+local browser result is not represented as a Python 3.11 runtime pass.
+
+Follow-up verification: isolated `npm run check` **309/309**, provider tests
+**18/18**, and both continuity renderers **94 transitions / revision 53/53 / zero
+page errors**. The first combined shell command hit its 120-second tool deadline
+after default passed, interrupting docking; docking then completed with a larger
+deadline. Logs: `/tmp/opencode/comet-ci-followup-{check,default,docking-complete}.log`.
+No deployment, live restart, token rotation, stash operation or owner-runtime
+access was performed by this checkout during this follow-up.

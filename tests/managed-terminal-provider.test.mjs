@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import childProcess, { execFile, spawn } from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, readdir, rm, stat, writeFile, chmod, symlink } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, stat, writeFile, chmod, symlink } from 'node:fs/promises';
+import { setTimeout as delay } from 'node:timers/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import test from 'node:test';
@@ -376,6 +377,21 @@ test('namespace lock and cross-registry reservation reject competing owners', as
   assert.equal(await b.lookup(second), second);
 });
 
+async function waitForServerExit(serverPid) {
+  const deadline = Date.now() + 5000;
+  while (true) {
+    try {
+      const stat = await readFile(`/proc/${serverPid}/stat`, 'utf8');
+      if (stat.slice(stat.lastIndexOf(')') + 2).startsWith('Z ')) return;
+    } catch (error) {
+      if (error.code === 'ENOENT' || error.code === 'ESRCH') return;
+      throw error;
+    }
+    assert.ok(Date.now() < deadline, `tmux server ${serverPid} did not exit`);
+    await delay(10);
+  }
+}
+
 test('cleanup rechecks ownership in the destructive command after a real server replacement', async t => {
   for (const action of ['closeSession', 'dispose']) {
     const f = await fixture(t, 'replace');
@@ -385,7 +401,11 @@ test('cleanup rechecks ownership in the destructive command after a real server 
     instrumented[promisify.custom] = async (file, args, options) => {
       if (armed && !injected && file === tmux && args.includes(f.socket) && args.includes('if-shell')) {
         injected = true;
+        const before = await raw(f, 'owned');
         await f.run('kill-server');
+        // kill-server acknowledges before exit. Complete the injected replacement
+        // before testing the destructive command's atomic ownership check.
+        await waitForServerExit(before.serverPid);
         await f.run('new-session', '-d', '-s', 'replacement', '/bin/bash');
       }
       return exec(file, args, options);

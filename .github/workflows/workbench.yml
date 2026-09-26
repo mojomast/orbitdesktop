@@ -33,6 +33,14 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y tmux
       - name: Prepare isolated test scratch directory
         run: mkdir -p /tmp/opencode
+      - name: Check Python fixture syntax on the selected interpreter
+        run: |
+          python3 - <<'PY'
+          import ast
+          from pathlib import Path
+          for path in Path('tests').glob('*.py'):
+              ast.parse(path.read_text(), filename=str(path))
+          PY
       - run: npm ci
       - name: Contract, build and Node regression gate
         run: npm run check
