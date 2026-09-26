@@ -1,137 +1,197 @@
-// Structural release-isolation tests: ordinary builds must not be able to modify a
-// served release, canonical roots must reject empty/symlink/ancestor/inode aliases,
-// manifests must cover server/plugin/contracts, and activation/rollback must fail
-// safely without database downgrade.
+// Release boundary regressions: recursive manifest integrity over nested values,
+// complete inventory/required/path/mode/symlink verification, real-SQLite schema
+// compatibility, separated-root enforcement and truthful activation/rollback.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
+import http from 'node:http';
 import path from 'node:path';
-import {BuildGuardError,canonicalTarget,guardDestination,planBuild,resolveDestination,runBuild} from '../scripts/isolated_build.mjs';
-import {ManifestError,buildManifest,readManifest,verifyManifest} from '../scripts/release_manifest.mjs';
-import {PinError,activate,checkCompatibility,currentSchemaVersion,pointerPath,readPointer,rollback} from '../scripts/release_pin.mjs';
+import {createHash} from 'node:crypto';
+import Database from 'better-sqlite3';
+import {ManifestError,assertCompatComplete,buildManifest,canonicalJson,manifestIntegrity,readManifest,verifyManifest} from '../scripts/release_manifest.mjs';
+import {PinError,activate,checkCompatibility,currentSchemaVersion,probeReleaseIdentity,readPointer,resolveLaunch,rollback} from '../scripts/release_pin.mjs';
+import {assertSeparatedRoots} from '../scripts/release_roots.mjs';
 
-const root=()=>fs.mkdtempSync('/tmp/opencode/orbit-iso-');
-const write=(target,text)=>{fs.mkdirSync(path.dirname(target),{recursive:true});fs.writeFileSync(target,text);};
+const root=()=>fs.mkdtempSync('/tmp/opencode/orbit-rel-');
+const write=(target,text,mode)=>{fs.mkdirSync(path.dirname(target),{recursive:true});fs.writeFileSync(target,text);if(mode)fs.chmodSync(target,mode);};
+const sha=value=>createHash('sha256').update(value).digest('hex');
+const CONTRACTS=['workspace-v1.mjs','workbench-v1.mjs','workbench-result-v1.mjs'];
 
-function fakeRelease(base,release_id,{files={}}={}){
+function fakeRelease(base,release_id,{compat={schema_min:7,schema_max:7},lock={lockfileVersion:3,packages:{}}}={}){
   const dir=path.join(base,release_id);
   write(path.join(dir,'dist/index.html'),'<h1>served</h1>');
-  write(path.join(dir,'server/index.mjs'),'// server');
-  for(const name of ['workspace-v1.mjs','workbench-v1.mjs','workbench-result-v1.mjs'])write(path.join(dir,'contracts',name),'// contract');
-  write(path.join(dir,'hermes-plugin/workbench.py'),'# plugin');
+  write(path.join(dir,'server/index.mjs'),`// server ${release_id}\n`);
+  for(const name of CONTRACTS)write(path.join(dir,'contracts',name),`// contract ${name}\n`);
+  write(path.join(dir,'hermes-plugin/workbench.py'),'# plugin\n');
   write(path.join(dir,'package.json'),'{}');
-  for(const [name,text] of Object.entries(files))write(path.join(dir,name),text);
-  const manifest=buildManifest({root:dir,release_id,compat:{node:'>=22.12',schema_min:7,schema_max:7},created_at:1});
-  fs.writeFileSync(path.join(dir,'.orbit-release-manifest.json'),`${JSON.stringify(manifest,null,2)}\n`);
+  write(path.join(dir,'package-lock.json'),JSON.stringify(lock));
+  const manifest=buildManifest({root:dir,release_id,compat,revision:'test',created_at:1});
+  write(path.join(dir,'.orbit-release-manifest.json'),`${JSON.stringify(manifest,null,2)}\n`);
   return {dir,manifest};
 }
+function runtimeWithSchema(base,schema){
+  const runtime=path.join(base,'runtime');fs.mkdirSync(runtime);
+  const db=new Database(path.join(runtime,'workspace.sqlite'));db.pragma(`user_version = ${schema}`);db.close();
+  return runtime;
+}
+const healthyProbe=context=>({ok:true,identity_match:true,release_id:context.release_id});
 
-test('ordinary build default destination is isolated and never the checkout dist',t=>{
-  const base=root();t.after(()=>fs.rmSync(base,{recursive:true,force:true}));
-  const destination=resolveDestination({env:{ORBIT_BUILD_SCRATCH:base},dryRun:true});
-  assert.ok(path.isAbsolute(destination));
-  assert.ok(destination.startsWith(base+path.sep));
-  assert.equal(destination.startsWith(path.resolve('dist')+path.sep),false);
-  const plan=planBuild({dest:path.join(base,'out'),env:{ORBIT_BUILD_SCRATCH:base},dryRun:true});
-  assert.equal(plan.wrote,undefined);
-  assert.ok(plan.destination.startsWith(base));
-});
-
-test('canonical roots reject empty, relative, root, symlink, ancestor and alias destinations',t=>{
-  const base=root();t.after(()=>fs.rmSync(base,{recursive:true,force:true}));
-  const served=path.join(base,'served');write(path.join(served,'dist/index.html'),'served');
-  for(const dest of ['', '   ', 'relative/dir', '/'])assert.throws(()=>guardDestination({dest,protect:[served],env:{}}),error=>error instanceof BuildGuardError&&(error.code==='invalid_destination'));
-  assert.throws(()=>guardDestination({dest:served,protect:[served],env:{}}),{code:'protected_destination'});
-  assert.throws(()=>guardDestination({dest:path.join(served,'dist'),protect:[served],env:{}}),{code:'protected_destination'});
-  assert.throws(()=>guardDestination({dest:base,protect:[path.join(served,'dist')],env:{}}),{code:'protected_destination'});
-  assert.throws(()=>guardDestination({dest:path.join(served,'.','dist'),protect:[served],env:{}}),{code:'protected_destination'});
-  const link=path.join(base,'served-link');fs.symlinkSync(served,link,'dir');
-  assert.throws(()=>guardDestination({dest:path.join(link,'dist'),protect:[served],env:{}}),{code:'protected_destination'});
-  assert.equal(canonicalTarget(path.join(link,'dist')),path.join(canonicalTarget(served),'dist'));
-  // env-configured protected roots
-  assert.throws(()=>guardDestination({dest:path.join(served,'dist'),env:{ORBIT_PROTECTED_ROOTS:served}}),{code:'protected_destination'});
-  // an unrelated destination is allowed
-  assert.ok(guardDestination({dest:path.join(base,'safe-out'),protect:[served],env:{}}).destination);
-});
-
-test('ordinary build cannot modify a sentinel served release',t=>{
-  const base=root();t.after(()=>fs.rmSync(base,{recursive:true,force:true}));
-  const served=path.join(base,'served');const sentinel=path.join(served,'dist','index.html');write(sentinel,'SENTINEL-RELEASE');
-  const before=fs.readFileSync(sentinel);
-  assert.throws(()=>runBuild({dest:path.join(served,'dist'),source:base,protect:[served],env:{},typecheck:false}),{code:'protected_destination'});
-  assert.deepEqual(fs.readFileSync(sentinel),before,'protected build must not touch the served release');
-  // Default destination: an injected spawn proves the ordinary build wrote only to scratch.
-  write(path.join(base,'node_modules/.bin/vite'),'#!/bin/sh\nexit 0\n');
-  const destination=path.join(base,'scratch-out');
-  const spawn=(command,args)=>{if(args.includes('--outDir')){const target=args[args.indexOf('--outDir')+1];write(path.join(target,'index.html'),'<h1>built</h1>');}return {status:0,stdout:'',stderr:''};};
-  const result=runBuild({dest:destination,source:base,protect:[served],env:{},typecheck:false,spawn});
-  assert.equal(result.wrote,true);
-  assert.ok(fs.existsSync(path.join(destination,'index.html')));
-  assert.deepEqual(fs.readFileSync(sentinel),before,'served sentinel must remain unchanged');
-});
-
-test('release manifest covers served, server, plugin and contracts content and detects tampering',t=>{
+test('manifest integrity covers nested file hashes and compatibility values',t=>{
   const base=root();t.after(()=>fs.rmSync(base,{recursive:true,force:true}));
   const {dir,manifest}=fakeRelease(base,'rel-1');
-  assert.ok(manifest.files.some(file=>file.path==='dist/index.html'));
-  assert.ok(manifest.files.some(file=>file.path==='server/index.mjs'));
-  assert.ok(manifest.files.some(file=>file.path==='hermes-plugin/workbench.py'));
-  assert.ok(manifest.files.some(file=>file.path==='contracts/workbench-result-v1.mjs'));
   assert.equal(verifyManifest({root:dir,manifest}).ok,true);
-  write(path.join(dir,'server/index.mjs'),'// tampered');
-  const tampered=verifyManifest({root:dir,manifest});
-  assert.equal(tampered.ok,false);
-  assert.ok(tampered.errors.some(error=>error.code==='hash_mismatch'&&error.path==='server/index.mjs'));
-  // Missing required component fails closed.
-  const empty=path.join(base,'empty');fs.mkdirSync(empty);
-  assert.throws(()=>buildManifest({root:empty,release_id:'empty'}),error=>error instanceof ManifestError&&error.code==='missing_required_component');
-  // Symlinked content is rejected rather than silently hashed.
-  const linked=path.join(base,'linked');
-  write(path.join(linked,'dist/index.html'),'x');write(path.join(linked,'server/index.mjs'),'x');
-  for(const name of ['workspace-v1.mjs','workbench-v1.mjs','workbench-result-v1.mjs'])write(path.join(linked,'contracts',name),'x');
-  write(path.join(linked,'hermes-plugin/workbench.py'),'x');write(path.join(linked,'package.json'),'{}');
-  fs.symlinkSync(path.join(linked,'server/index.mjs'),path.join(linked,'alias.mjs'));
-  assert.throws(()=>buildManifest({root:linked,release_id:'linked'}),{code:'symlink_not_allowed'});
+  assert.equal(manifestIntegrity(manifest),manifest.integrity);
+  assert.equal(canonicalJson({b:1,a:{d:2,c:3}}),'{"a":{"c":3,"d":2},"b":1}');
+  // Nested file hash mutation without recomputation must invalidate integrity.
+  const fileTampered=structuredClone(manifest);fileTampered.files[0].sha256='0'.repeat(64);
+  assert.ok(verifyManifest({root:dir,manifest:fileTampered}).errors.some(error=>error.code==='integrity'),'nested file hash must be covered');
+  // Nested compat mutation without recomputation must invalidate integrity.
+  const compatTampered=structuredClone(manifest);compatTampered.compat.schema_max=99;
+  assert.ok(verifyManifest({root:dir,manifest:compatTampered}).errors.some(error=>error.code==='integrity'),'nested compat must be covered');
 });
 
-test('activation pins one complete release, rolls back on health failure and refuses DB downgrade',async t=>{
+test('manifest verification rejects extra, missing, unsafe, duplicate, mode and symlink content',t=>{
   const base=root();t.after(()=>fs.rmSync(base,{recursive:true,force:true}));
-  const runtime=path.join(base,'runtime');fs.mkdirSync(runtime);write(path.join(runtime,'workspace.sqlite'),'');
-  const a=fakeRelease(base,'rel-a'),b=fakeRelease(base,'rel-b'),c=fakeRelease(base,'rel-c');
-  const open=()=>({pragma:()=>7,close(){}});
-  const okCheck=async()=>({ok:true,status:200});
-  const first=await activate({runtime,release:a.dir,open,check:okCheck,now:1});
-  assert.equal(first.activated,true);
-  assert.equal(readPointer(runtime).release_id,'rel-a');
-  const second=await activate({runtime,release:b.dir,open,check:okCheck,now:2});
-  assert.equal(second.activated,true);
-  assert.equal(readPointer(runtime).release_id,'rel-b');
-  assert.equal(readPointer(runtime).previous.release_id,'rel-a','previous release retained');
-  // Healthcheck failure must keep the previous (working) release.
-  const failed=await activate({runtime,release:c.dir,open,check:async()=>({ok:false,status:500}),now:3});
-  assert.equal(failed.activated,false);
-  assert.equal(failed.rolled_back,true);
-  assert.equal(readPointer(runtime).release_id,'rel-b');
-  assert.ok(fs.existsSync(a.dir),'retained releases are not deleted on rollback');
-  // Rollback to the previous release succeeds with matching schema.
-  const reverted=await rollback({runtime,open,check:okCheck,now:4});
-  assert.equal(reverted.rolled_back,true);
-  assert.equal(readPointer(runtime).release_id,'rel-a');
-  // A newer database cannot be paired with an older release (no DB downgrade).
-  const older=fakeRelease(base,'rel-old',{});older.manifest=buildManifest({root:older.dir,release_id:'rel-old',compat:{schema_max:6},created_at:1});
-  fs.writeFileSync(path.join(older.dir,'.orbit-release-manifest.json'),`${JSON.stringify(older.manifest,null,2)}\n`);
-  await assert.rejects(activate({runtime,release:older.dir,open,check:okCheck}),{code:'schema_downgrade_refused'});
-  await assert.rejects(rollback({runtime:path.join(base,'empty-runtime'),open,check:okCheck}),{code:'no_active_release'});
+  const {dir,manifest}=fakeRelease(base,'rel-2');
+  write(path.join(dir,'server/extra.mjs'),'// unlisted served/server file');
+  assert.ok(verifyManifest({root:dir,manifest}).errors.some(error=>error.code==='unlisted_file'&&error.path==='server/extra.mjs'));
+  fs.rmSync(path.join(dir,'server/extra.mjs'));
+  write(path.join(dir,'dist/index.html'),'<h1>tampered</h1>');
+  assert.ok(verifyManifest({root:dir,manifest}).errors.some(error=>error.code==='hash_mismatch'));
+  write(path.join(dir,'dist/index.html'),'<h1>served</h1>');
+  fs.chmodSync(path.join(dir,'server/index.mjs'),0o700);
+  assert.ok(verifyManifest({root:dir,manifest}).errors.some(error=>error.code==='mode_mismatch'),'mode change must be detected');
+  fs.chmodSync(path.join(dir,'server/index.mjs'),parseInt(manifest.files.find(file=>file.path==='server/index.mjs').mode,8));
+  for(const unsafe of ['../escape','/absolute','a\\b','a//b','./x']){
+    const injected=structuredClone(manifest);injected.files.push({path:unsafe,bytes:1,mode:'644',sha256:'0'.repeat(64)});injected.integrity=manifestIntegrity(injected);
+    assert.ok(verifyManifest({root:dir,manifest:injected}).errors.some(error=>error.code==='unsafe_path'&&error.path===unsafe),unsafe);
+  }
+  const duplicated=structuredClone(manifest);duplicated.files.push({...duplicated.files[0]});duplicated.integrity=manifestIntegrity(duplicated);
+  assert.ok(verifyManifest({root:dir,manifest:duplicated}).errors.some(error=>error.code==='duplicate_path'));
+  const linked=path.join(base,'rel-linked');write(path.join(linked,'dist/index.html'),'x');fs.mkdirSync(path.join(linked,'server'));
+  fs.symlinkSync(path.join(dir,'server/index.mjs'),path.join(linked,'server/index.mjs'));
+  assert.equal(verifyManifest({root:linked,manifest:manifest}).ok,false,'symlinked content must fail closed');
 });
 
-test('compatibility rejects an older Node and a release-integrity failure',async t=>{
+test('manifest requires the lockfile and a complete compatibility set',t=>{
+  const base=root();t.after(()=>fs.rmSync(base,{recursive:true,force:true}));
+  const {dir}=fakeRelease(base,'rel-3');
+  fs.rmSync(path.join(dir,'package-lock.json'));
+  assert.throws(()=>buildManifest({root:dir,release_id:'rel-3'}),error=>error instanceof ManifestError&&error.code==='missing_required_component');
+  for(const bad of [{node:'',schema_min:7,schema_max:7,hermes_commit:'0'.repeat(40)},{node:'>=22',schema_min:null,schema_max:7,hermes_commit:'0'.repeat(40)},{node:'>=22',schema_min:7,schema_max:7,hermes_commit:'nope'},{node:'>=22',schema_min:8,schema_max:7,hermes_commit:'0'.repeat(40)}])
+    assert.throws(()=>assertCompatComplete(bad),{code:'incomplete_compatibility'});
+  assert.throws(()=>checkCompatibility({manifest:{compat:{node:'>=22',schema_min:7,schema_max:7,hermes_commit:null}},schema_version:7}),{code:'incomplete_compatibility'});
+});
+
+test('currentSchemaVersion reads a real SQLite file through the real opener',async t=>{
+  const base=root();t.after(()=>fs.rmSync(base,{recursive:true,force:true}));
+  const runtime=runtimeWithSchema(base,7);
+  const {schema_version,database}=await currentSchemaVersion(runtime);
+  assert.equal(schema_version,7);
+  assert.equal(database,path.join(runtime,'workspace.sqlite'));
+  const empty=path.join(base,'empty-runtime');fs.mkdirSync(empty);
+  assert.deepEqual(await currentSchemaVersion(empty),{schema_version:null,database:null});
+});
+
+test('activation refuses colliding runtime/release roots before any write',async t=>{
+  const base=root();t.after(()=>fs.rmSync(base,{recursive:true,force:true}));
+  const release=fakeRelease(base,'rel-sep');
+  const runtimeInsideRelease=path.join(release.dir,'data');fs.mkdirSync(runtimeInsideRelease);
+  const before=JSON.stringify(readPointer(runtimeInsideRelease));
+  await assert.rejects(activate({runtime:runtimeInsideRelease,release:release.dir,probe:healthyProbe}),{code:'roots_not_separated'});
+  assert.equal(JSON.stringify(readPointer(runtimeInsideRelease)),before,'no pointer is written for colliding roots');
+  const runtime=runtimeWithSchema(base,7);
+  const releaseInsideRuntime=path.join(runtime,'rel');fs.mkdirSync(releaseInsideRuntime);
+  assert.throws(()=>assertSeparatedRoots({runtime,release:releaseInsideRuntime}),{code:'roots_not_separated'});
+  const alias=path.join(base,'runtime-alias');fs.symlinkSync(release.dir,alias,'dir');
+  await assert.rejects(activate({runtime:alias,release:release.dir,probe:healthyProbe}),{code:'roots_not_separated'});
+  await assert.rejects(activate({runtime:'relative/runtime',release:release.dir}),{code:'invalid_root'});
+  await assert.rejects(activate({runtime:'',release:release.dir}),{code:'invalid_root'});
+  const prior=path.join(runtime,'prior');fs.mkdirSync(prior);
+  assert.throws(()=>assertSeparatedRoots({runtime,release:release.dir,previous:prior}),{code:'roots_not_separated'});
+});
+
+test('activation reports pointer selection separately from verified runtime activation',async t=>{
+  const base=root();t.after(()=>fs.rmSync(base,{recursive:true,force:true}));
+  const runtime=runtimeWithSchema(base,7);
+  const a=fakeRelease(base,'rel-a'),b=fakeRelease(base,'rel-b'),c=fakeRelease(base,'rel-c');
+  const first=await activate({runtime,release:a.dir,probe:healthyProbe,now:1});
+  assert.equal(first.pointer_selected,true);assert.equal(first.runtime_activated,true);
+  const second=await activate({runtime,release:b.dir,probe:healthyProbe,now:2});
+  assert.equal(second.runtime_activated,true);
+  let pointer=readPointer(runtime);
+  assert.equal(pointer.release_id,'rel-b');assert.equal(pointer.previous.release_id,'rel-a');assert.equal(pointer.previous.previous,null);
+  // An old server returning 200 without the pinned identity is not activated.
+  const mismatched=await activate({runtime,release:c.dir,probe:()=>({ok:false,identity_match:false,status:200}),now:3});
+  assert.equal(mismatched.pointer_selected,false);assert.equal(mismatched.runtime_activated,false);assert.equal(mismatched.rolled_back,true);
+  assert.equal(readPointer(runtime).release_id,'rel-b');
+  // No probe supplied: selected but explicitly unverified, never claimed healthy.
+  const unverified=await activate({runtime,release:c.dir,now:4});
+  assert.equal(unverified.pointer_selected,true);assert.equal(unverified.runtime_activated,false);assert.equal(unverified.health.unverified,true);
+  assert.equal(readPointer(runtime).release_id,'rel-c');
+  assert.equal(readPointer(runtime).previous.release_id,'rel-b');
+  assert.equal(readPointer(runtime).previous.previous,null,'previous chain must stay bounded');
+});
+
+test('a real 200 without release identity is rejected; identity match is required',async t=>{
+  const base=root();t.after(()=>fs.rmSync(base,{recursive:true,force:true}));
+  const {dir,manifest}=fakeRelease(base,'rel-probe');
+  const old=await probeReleaseIdentity({url:'data:',release_id:manifest.release_id,manifest_integrity:manifest.integrity,fetchImpl:async()=>({status:200,text:async()=>JSON.stringify({ok:true})})});
+  assert.equal(old.ok,false);assert.equal(old.identity_match,false);
+  const matched=await probeReleaseIdentity({url:'data:',release_id:manifest.release_id,manifest_integrity:manifest.integrity,fetchImpl:async()=>({status:200,text:async()=>JSON.stringify({release_id:manifest.release_id,manifest_integrity:manifest.integrity})})});
+  assert.equal(matched.ok,true);assert.equal(matched.identity_match,true);
+  const runtime=runtimeWithSchema(base,7);
+  await activate({runtime,release:dir,probe:healthyProbe});
+  const server=http.createServer((request,response)=>{response.writeHead(200,{'content-type':'application/json'});response.end(JSON.stringify({ok:true}));});
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));t.after(()=>server.close());
+  const next=fakeRelease(base,'rel-probe-2');
+  const result=await activate({runtime,release:next.dir,healthcheckUrl:`http://127.0.0.1:${server.address().port}/`,now:9});
+  assert.equal(result.rolled_back,true,'a bare 200 must not activate');
+  assert.equal(readPointer(runtime).release_id,'rel-probe');
+});
+
+test('rollback restores the previous release and refuses a database downgrade',async t=>{
+  const base=root();t.after(()=>fs.rmSync(base,{recursive:true,force:true}));
+  const runtime=runtimeWithSchema(base,7);
+  const a=fakeRelease(base,'rel-r1'),b=fakeRelease(base,'rel-r2');
+  await activate({runtime,release:a.dir,probe:healthyProbe,now:1});
+  await activate({runtime,release:b.dir,probe:healthyProbe,now:2});
+  const reverted=await rollback({runtime,probe:healthyProbe,now:3});
+  assert.equal(reverted.rolled_back,true);assert.equal(readPointer(runtime).release_id,'rel-r1');
+  assert.equal(readPointer(runtime).previous.previous,null);
+  const older=fakeRelease(base,'rel-old',{compat:{schema_min:6,schema_max:6}});
+  await assert.rejects(activate({runtime,release:older.dir,probe:healthyProbe}),{code:'schema_downgrade_refused'});
+  const empty=path.join(base,'empty');fs.mkdirSync(empty);
+  await assert.rejects(rollback({runtime:empty}),{code:'no_active_release'});
+  const freshBase=root();t.after(()=>fs.rmSync(freshBase,{recursive:true,force:true}));
+  const freshRuntime=runtimeWithSchema(freshBase,7);
+  await activate({runtime:freshRuntime,release:a.dir,probe:healthyProbe,now:4});
+  await assert.rejects(rollback({runtime:freshRuntime}),{code:'no_previous_release'});
+});
+
+test('the pinned launch helper returns the verified physical root, entry and env',async t=>{
+  const base=root();t.after(()=>fs.rmSync(base,{recursive:true,force:true}));
+  const runtime=runtimeWithSchema(base,7);
+  const a=fakeRelease(base,'rel-launch');
+  await activate({runtime,release:a.dir,probe:healthyProbe,now:1});
+  const launch=await resolveLaunch({runtime});
+  assert.equal(launch.release_id,'rel-launch');
+  assert.equal(launch.physical_root,fs.realpathSync.native(a.dir));
+  assert.equal(launch.entry,path.join(launch.physical_root,'server/index.mjs'));
+  assert.equal(launch.assets_index,path.join(launch.physical_root,'dist/index.html'));
+  assert.equal(launch.env.ORBIT_RUNTIME_DIR,fs.realpathSync.native(runtime));
+  assert.equal(launch.env.ORBIT_RELEASE_ROOT,launch.physical_root);
+  assert.equal(launch.env.ORBIT_RELEASE_ID,'rel-launch');
+  assert.equal(launch.env.ORBIT_RELEASE_INTEGRITY,a.manifest.integrity);
+  const empty=path.join(base,'no-pointer');fs.mkdirSync(empty);
+  await assert.rejects(resolveLaunch({runtime:empty}),{code:'no_active_release'});
+  write(path.join(a.dir,'server/index.mjs'),'// tampered after manifest');
+  await assert.rejects(resolveLaunch({runtime}),{code:'release_integrity_failed'});
+});
+
+test('compatibility rejects an older Node',t=>{
   const base=root();t.after(()=>fs.rmSync(base,{recursive:true,force:true}));
   const {manifest}=fakeRelease(base,'rel-node');
   assert.throws(()=>checkCompatibility({manifest,schema_version:7,nodeVersion:'18.0.0'}),{code:'node_incompatible'});
   assert.doesNotThrow(()=>checkCompatibility({manifest,schema_version:7,nodeVersion:'22.23.1'}));
-  const runtime=path.join(base,'runtime');fs.mkdirSync(runtime);write(path.join(runtime,'workspace.sqlite'),'');
-  write(path.join(base,'rel-node','server/index.mjs'),'// tampered after manifest');
-  await assert.rejects(activate({runtime,release:path.join(base,'rel-node'),open:()=>({pragma:()=>7,close(){}}),check:async()=>({ok:true})}),{code:'release_integrity_failed'});
-  assert.equal(readPointer(runtime),null,'no pointer is written for an invalid release');
 });
