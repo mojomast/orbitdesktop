@@ -156,8 +156,10 @@ def main(renderer):
 
                     page.on("response", record_response)
                     try:
-                        page.goto(origin + ("?renderer=docking" if renderer == "docking" else ""), wait_until="networkidle")
+                        page.goto(origin + ("?renderer=docking" if renderer == "docking" else ""), wait_until="domcontentloaded")
+                        expect(page.locator('dialog.orbit-onboarding')).to_be_visible()
                         page.keyboard.press("Escape")
+                        expect(page.locator('dialog.orbit-onboarding')).not_to_be_visible()
                         connected(page, token)
                         frame=page.frame_locator(f'.pane[data-pane-id="{BROWSER_PANE}"] iframe')
                         frame.locator('#draft').fill('Keep this unrelated draft')
@@ -286,7 +288,9 @@ def main(renderer):
                         assert page.evaluate("performance.getEntriesByType('navigation').length") == 1
                         assert page.evaluate("JSON.parse(localStorage.getItem('orbit.workspace.v1')).monitors[0].layout.pane.id") == PANE_ID
                         assert not any("/api/terminal" in url for url in websockets), websockets
-                        page.reload(wait_until="networkidle")
+                        # Workspace event streams/polling can remain connected;
+                        # connected() below waits for actual application readiness.
+                        page.reload(wait_until="domcontentloaded")
                         connected(page, token)
                         dialog = open_workbench(page)
                         expect(dialog.get_by_role("button", name="Open project synthetic-project")).to_be_visible()

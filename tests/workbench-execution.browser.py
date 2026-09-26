@@ -127,8 +127,10 @@ def main(renderer):
                         return result(action)
 
                     try:
-                        page.goto(origin + ("?renderer=docking" if renderer == "docking" else ""), wait_until="networkidle")
+                        page.goto(origin + ("?renderer=docking" if renderer == "docking" else ""), wait_until="domcontentloaded")
+                        expect(page.locator('dialog.orbit-onboarding')).to_be_visible()
                         page.keyboard.press("Escape")
+                        expect(page.locator('dialog.orbit-onboarding')).not_to_be_visible()
                         page.get_by_role("button", name="Connect local host", exact=True).click()
                         page.get_by_role("textbox", name="Host session token").fill(token)
                         page.get_by_role("button", name="Unlock local host", exact=True).click()

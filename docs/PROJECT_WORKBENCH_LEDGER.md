@@ -70,6 +70,10 @@ failed because checks assumed `/usr/bin/node`, whereas setup-node installs Node
 under the runner tool cache (real command exit 127). Follow-up pins the server's
 absolute `process.execPath` in the immutable check definition and adds a regression
 assertion. No fail/pass or cancellation assertions were skipped or relaxed.
+Follow-up `4a730aa` passed Node/Python gates; run `36214225213` then exposed
+an Inspector reload waiting for `networkidle` while workspace streams/polling
+remain connected. Fixtures now wait for DOM load followed by their existing
+explicit connected/application assertions, rather than incidental network silence.
 
 ## Starting point (2026-09-26)
 
