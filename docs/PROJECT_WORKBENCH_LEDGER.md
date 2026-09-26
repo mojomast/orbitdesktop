@@ -74,6 +74,10 @@ Follow-up `4a730aa` passed Node/Python gates; run `36214225213` then exposed
 an Inspector reload waiting for `networkidle` while workspace streams/polling
 remain connected. Fixtures now wait for DOM load followed by their existing
 explicit connected/application assertions, rather than incidental network silence.
+Run `36214534334` exposed a response-listener race: reading JSON inside the
+Playwright callback could yield before app assertions consulted the recorded
+response. The Inspector fixture now records response headers synchronously and
+reads bodies when asserting them; no product assertion or status check is removed.
 
 ## Starting point (2026-09-26)
 

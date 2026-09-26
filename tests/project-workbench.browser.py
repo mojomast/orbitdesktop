@@ -61,9 +61,12 @@ def open_workbench(page):
 
 
 def result_for(responses, action):
-    matches = [(status, body) for observed, status, body in responses if observed == action]
+    matches = [entry for entry in responses if entry[0] == action]
     assert matches, f"No /api/workbench response for {action}; observed: {responses}"
-    status, body = matches[-1]
+    entry = matches[-1]
+    _, status, body = entry
+    if not isinstance(body, dict):
+        body = entry[2] = body.json()
     assert status == 200 and body.get("ok") is True, (action, status, body)
     return body
 
@@ -152,7 +155,9 @@ def main(renderer):
                     def record_response(response):
                         if response.url.split("?")[0] == origin + "/api/workbench":
                             request_body = response.request.post_data_json
-                            responses.append((request_body.get("action"), response.status, response.json()))
+                            # Record headers synchronously; body reads inside the
+                            # event callback can yield to UI assertions first.
+                            responses.append([request_body.get("action"), response.status, response])
 
                     page.on("response", record_response)
                     try:
@@ -290,6 +295,9 @@ def main(renderer):
                         assert not any("/api/terminal" in url for url in websockets), websockets
                         # Workspace event streams/polling can remain connected;
                         # connected() below waits for actual application readiness.
+                        for entry in responses:
+                            if not isinstance(entry[2], dict):
+                                entry[2] = entry[2].json()
                         page.reload(wait_until="domcontentloaded")
                         connected(page, token)
                         dialog = open_workbench(page)
@@ -306,6 +314,9 @@ def main(renderer):
                         assert not errors, errors
                         assert not agent_requests, agent_requests
                         assert not any("/api/terminal" in url for url in websockets), websockets
+                        for entry in responses:
+                            if not isinstance(entry[2], dict):
+                                entry[2] = entry[2].json()
                         assert all(status == 200 and body.get("ok") is True for _, status, body in responses), responses
                         page.screenshot(path=f"/tmp/opencode/orbit-project-workbench-{renderer}.png", full_page=True)
                         page.once('dialog',lambda confirmation:confirmation.accept())
