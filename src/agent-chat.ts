@@ -193,6 +193,51 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     await submit(state.queue[0]);
   }
   const messages = el('div', 'chat-messages');
+  // Host-authored task receipts are deliberately outside ChatState.messages:
+  // displaying one must never add an assistant turn or trigger model inference.
+  const taskCards = el('section', 'agent-task-results');
+  taskCards.setAttribute('aria-label', 'Supervised worker task results');
+  taskCards.hidden = true;
+  let cardsLoading = false, cardsDigest = '';
+  async function refreshTaskCards() {
+    if (disposed || cardsLoading || switching) return;
+    const token = getToken();
+    if (!token) { taskCards.replaceChildren(); taskCards.hidden = true; cardsDigest = ''; return; }
+    const requested = scope();
+    cardsLoading = true;
+    try {
+      const response = await fetch('/api/workbench/native', {
+        method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({action:'cards_list',workspace_id:requested.workspace_id,pane_id:requested.pane_id,profile_id:requested.profile_id,session_id:requested.session_id}),
+        signal: controller.signal,
+      });
+      if (!current(requested) || getToken() !== token) return;
+      if (!response.ok) throw Error('Task results unavailable');
+      const data = await response.json();
+      if (!current(requested) || getToken() !== token) return;
+      const cards = Array.isArray(data.cards) ? data.cards.slice(0, 100) : [];
+      const digest = JSON.stringify(cards);
+      if (digest === cardsDigest) return;
+      cardsDigest = digest;
+      taskCards.replaceChildren();
+      taskCards.hidden = cards.length === 0;
+      for (const card of cards) {
+        const item = el('details');
+        item.dataset.resultId = String(card.result_id || '');
+        item.append(el('summary', '', 'Comet task result · supervised worker'));
+        item.append(el('p', '', 'Host-delivered result from a separate worker. This has not been sent to this conversation’s model.'));
+        const text = el('pre', 'workbench-result-text');
+        text.style.whiteSpace = 'pre-wrap'; text.style.overflowWrap = 'anywhere';
+        text.textContent = card.availability === 'available' && typeof card.text === 'string'
+          ? card.text : 'Agent explanation unavailable. Recorded checks and human review remain separate.';
+        item.append(text, el('p', '', `Task ${String(card.task_id || '')} · Attempt ${String(card.attempt_id || '')}`));
+        item.append(el('p', '', 'The worker’s explanation is untrusted text. Consult Recorded checks and Human review in Project Workbench for verification and acceptance.'));
+        taskCards.append(item);
+      }
+    } catch {
+      if (current(requested)) { taskCards.replaceChildren(); taskCards.hidden = true; cardsDigest = ''; }
+    } finally { cardsLoading = false; }
+  }
   const inlineTools = createInlineTools(paneId, messages, () => api({action:'activity'}));
   badge.append(inlineTools.toggle);
   const activity = registerActivity(paneId, () => {
@@ -467,7 +512,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   form.append(input, tools, send);
   form.onsubmit = e => { e.preventDefault(); void submit(); };
   input.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); void submit(); } };
-  body.append(badge, bindingControls, strip, notice, messages, progress, approvals, controls,recovery, queueList, form);
+  body.append(badge, bindingControls, strip, notice, messages, taskCards, progress, approvals, controls,recovery, queueList, form);
   if (toolbar) {
     toolbar.classList.add('agent-pane-head');
     badge.classList.add('agent-toolbar-meta');
@@ -505,6 +550,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     const changed = chatBindingKey(next) !== chatBindingKey(state) || next.binding_revision !== state.binding_revision;
     if (changed) {
       saveDraft(); generation++; clearTimeout(timer); toolsDialog?.close(); liveController?.abort(); approvals.replaceChildren();
+      taskCards.replaceChildren(); taskCards.hidden = true; cardsDigest = '';
       queuePaused = true; toolStatus = ''; streamStatus = '';
     }
     state = next;
@@ -523,7 +569,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
       if (state.run) schedule();
     } catch(e) {showError(e);} finally { switching = false; if (!disposed) { update(); if (!catalogRequested) void loadProfiles(); } }
   }
-  const sharedTimer = setInterval(() => {void syncShared();}, 1800);
+  const sharedTimer = setInterval(() => {void syncShared(); void refreshTaskCards();}, 1800);
   void syncShared();
   const onUnlock = () => { void syncShared(); if (state.run) void poll(); };
   window.addEventListener('orbit-host-connected', onUnlock);

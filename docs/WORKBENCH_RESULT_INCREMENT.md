@@ -62,5 +62,22 @@ not authorized. A disposable activation test does not authorize owner activation
 
 ## Current status
 
-All three requested aliases launched successfully into the initial contract/audit
-phase. Interfaces are not yet frozen; implementation and acceptance are pending.
+All three requested aliases completed their initial contract/audit phase. Sol's
+contract-only `b76b6e8` was integrated as `a1fa0f7`; the ownership ledger baseline
+is `99a1990`. Worker branches received that shared contract baseline, preserving
+Sol's original commit with a merge. All three implementation lanes are active.
+
+Flash independently ran the actual pinned runtime baseline: existing fixture
+7/7 passed; the new boundary regression produced one pass and two expected
+failures (lost final response and owner attribution on native checks). The
+separate two-attempt Python runtime test rejected the host terminal fallback.
+Sanitized logs live under `/tmp/opencode/comet-next-flash-scratch/`.
+
+The representative real-project selection is the maintained Orbit agent-profile
+subproject at `5b31fda`: `server/agent-profiles.mjs` and its existing
+`tests/agent-profiles.test.mjs`. This is an explicit selected subproject, not a
+claim of full-repository executable capture. Its existing meaningful tests need
+only Node built-ins. Selection/profile implementation and acceptance are pending.
+
+The user explicitly chose **Keep live gate unrun**. No real-model trials will
+be admitted in this increment. Deterministic acceptance remains a separate gate.
