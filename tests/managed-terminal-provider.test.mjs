@@ -18,6 +18,19 @@ const providerError = (code) => (error) => error instanceof ManagedTerminalProvi
 const registryError = (code) => (error) => error instanceof TerminalResourceRegistryError &&
   error.code === code && error.message === `Terminal resource registry: ${code}`;
 
+test('attach startup needs no fresh directory or server and rejects destructive lifecycle calls', async t => {
+  const f = await fixture(t);
+  const { ManagedTerminalIdentityLedger } = await import('../server/managed-terminal-ledger.mjs');
+  const ledger = new ManagedTerminalIdentityLedger({ directory: f.root });
+  const p = await ManagedTerminalProvider.create({ mode: 'attach', socket: f.socket, tmuxTmpDir: f.root, ledger });
+  assert.equal(ledger.loaded, true);
+  assert.deepEqual((await readdir(f.root)).sort(), ['identity-ledger.json', 'identity-ledger.json.initialized']);
+  await assert.rejects(p.createSession({ sessionName: 'forbidden' }), providerError('unavailable'));
+  await assert.rejects(p.closeSession({ sessionName: 'forbidden' }), providerError('unavailable'));
+  await p.dispose();
+  assert.deepEqual((await readdir(f.root)).sort(), ['identity-ledger.json', 'identity-ledger.json.initialized']);
+});
+
 async function fixture(t, label = 'managed') {
   const root = await mkdtemp('/tmp/opencode/orbit-managed-');
   const socket = `${label}-${randomUUID()}`;

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { dockingRequested, dockingUnsupportedReason } from '../src/docking-renderer.ts';
+import { dockviewToPlacement, prunePlacement } from '../src/docking-placement.ts';
 
 test('explicit local query flag alone requests docking', () => {
   assert.equal(dockingRequested('?renderer=docking'), true);
@@ -8,6 +9,12 @@ test('explicit local query flag alone requests docking', () => {
   for (const query of ['', '?renderer=default', '?x=docking', '?renderer=Docking', '?renderer=docking-upgraded']) {
     assert.equal(dockingRequested(query), false, query);
   }
+});
+
+test('placement helpers keep live window ids separate from v1 geometry', () => {
+  const serialized = { grid: { root: { type: 'leaf', data: { id: 'group', views: ['one', 'two'] } } } };
+  const placement = dockviewToPlacement(serialized, 'two');
+  assert.deepEqual(prunePlacement(placement, ['one']), { version: 1, layout: { type: 'group', windows: ['one'] }, floats: [], active: null });
 });
 
 test('fail closed when connected moves or windows are unavailable', () => {

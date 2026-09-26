@@ -5,6 +5,7 @@ import path from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { initial } from '../src/model.ts';
+import { emptyPlacement } from '../src/docking-placement.ts';
 import { loadSqliteWorkspaceStore, tempRoot, removeRoot } from './fixtures/sqlite-store-helpers.mjs';
 
 const SqliteWorkspaceStore = await loadSqliteWorkspaceStore();
@@ -125,7 +126,7 @@ test('legacy import preserves full record, checkpoint, and original JSON bytes',
   assert.equal(actual.observed_revision, fixture.record.observed_revision);
   assert.equal(actual.browser_seen, fixture.record.browser_seen);
   assert.deepEqual(actual.futureMetadata, { revoked: true });
-  assert.deepEqual(store.checkpointGet(LEGACY_ID, LEGACY_CP), fixture.checkpoint);
+  assert.deepEqual(store.checkpointGet(LEGACY_ID, LEGACY_CP), { ...fixture.checkpoint, placement: emptyPlacement() });
   const listed = store.checkpointList(LEGACY_ID);
   assert.equal(listed.length, 1);
   assert.deepEqual(listed[0], (({ state, ...metadata }) => metadata)(fixture.checkpoint));
@@ -146,7 +147,7 @@ test('reopening with import enabled never reimports modified originals', { skip 
   }));
   const reopened = new SqliteWorkspaceStore(root, { importLegacy: true });
   t.after(() => reopened.close());
-  assert.deepEqual(reopened.read(LEGACY_ID), {...fixture.record,recovery_policy:{held:false,generation:0}});
+  assert.deepEqual(reopened.read(LEGACY_ID), {...fixture.record,placement:emptyPlacement(),placement_revision:0,recovery_policy:{held:false,generation:0}});
   assert.equal(reopened.read(LEGACY_ID).revision, 7);
   assert.deepEqual(reopened.checkpointList(LEGACY_ID), [
     (({ state, ...metadata }) => metadata)(fixture.checkpoint),
@@ -174,7 +175,7 @@ test('legacy import is atomic when another workspace JSON is corrupt', { skip },
   fs.unlinkSync(corruptFile);
   const recovered = new SqliteWorkspaceStore(root, { importLegacy: true });
   t.after(() => recovered.close());
-  assert.deepEqual(recovered.read(LEGACY_ID), {...fixture.record,recovery_policy:{held:false,generation:0}});
+  assert.deepEqual(recovered.read(LEGACY_ID), {...fixture.record,placement:emptyPlacement(),placement_revision:0,recovery_policy:{held:false,generation:0}});
   assert.equal(recovered.read(LEGACY_ID).revision, 7);
   assert.deepEqual(recovered.checkpointList(LEGACY_ID), [
     (({ state, ...metadata }) => metadata)(fixture.checkpoint),

@@ -17,6 +17,11 @@ the cumulative changes, verified results, isolated test commands and remaining
 gates. Optional docking is off by default; this branch is not a live-runtime
 upgrade instruction.
 
+Local loopback operation does **not** require Tailscale. Ordinary HTTP(S) hosting
+and optional private tailnet access use the same application; see the
+[deployment and rollback guide](docs/DEPLOYMENT.md). Deployment-specific acceptance
+is documented separately from local fixture results.
+
 ## More than a chat window
 
 Most AI interfaces end at an answer. Orbit gives the agent a workspace in which to act: create a small application, place it beside your work, configure its behavior, and help you use it. You remain in control of the files, services, credentials, and deployment.

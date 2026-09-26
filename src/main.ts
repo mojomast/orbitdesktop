@@ -33,6 +33,8 @@ import {
 import { createPane, setToken, sessionToken, type PaneView } from "./panes";
 import { moveConnected } from './connected-dom';
 import { dockingRequested, installDockingRenderer, type DockingController } from './docking-renderer';
+import { createDockingSync } from './docking-sync';
+import type { DockingPlacement } from './docking-placement';
 import { placeWindow, wireWindow } from "./windows";
 import { connectWorkspace } from "./workspace-sync";
 import { DesktopScene } from "./scene";
@@ -49,8 +51,20 @@ const monitors = new Map<string, HTMLElement>();
 const minimizer = installMinimize();
 // Optional, off-by-default Dockview placement overlay. Stays null unless the local
 // browser URL opts in with ?renderer=docking and the moveBefore capability exists.
-// The v1 workspace stays authoritative; Dockview tab/float state is transient.
+// The v1 workspace stays authoritative; docking placement is a separate adjunct.
 let docking: DockingController | null = null;
+let dockingSync: ReturnType<typeof createDockingSync> | null = null;
+// Placement notifications are also produced by passive/late Dockview layout work.
+// Only an explicit gesture on library chrome may forward them to persistence;
+// elapsed time since reconciliation is not evidence of a user edit.
+let dockingPlacementGesture = 0;
+let dockingPlacementAllowed = false;
+let reconcilingDocking = false;
+function cancelDockingPlacementGesture() {
+  dockingPlacementGesture++;
+  dockingPlacementAllowed = false;
+}
+let firstDockingSnapshot: { placement: DockingPlacement; revision: number } | null = null;
 let focused: string | null = null;
 window.addEventListener('orbit-focus-agent', event => {
   const paneId=(event as CustomEvent<string>).detail;
@@ -341,6 +355,11 @@ function choose(id: string) {
 function updateScene() {
   if (state.monitors.some((m) => !monitors.has(m.id))) return;
   scene.retainWindows(state.monitors);
+  if (docking) {
+    reconcilingDocking = true;
+    try { docking.retainWindows(state.monitors, state.selected); }
+    finally { reconcilingDocking = false; }
+  }
   for (const m of state.monitors) {
     const meta = monitors.get(m.id)?.querySelector(".monitor-meta");
     if (meta) meta.textContent = `${m.diagonal}″ / ${m.aspect}`;
@@ -349,7 +368,6 @@ function updateScene() {
     // Docking placement is an opt-in overlay: it reuses the same live monitor
     // elements and PaneViews and only changes where they are positioned. A
     // layout-only change must not dispose or reload any pane runtime.
-    if (docking) docking.retainWindows(state.monitors, state.selected);
     state.monitors.forEach((m, i) => {
       const element = monitors.get(m.id)!;
       element.classList.toggle('selected', m.id === state.selected);
@@ -1187,10 +1205,12 @@ window.addEventListener("beforeunload", () => {
     localStorage.setItem("orbit.workspace.v1", JSON.stringify(state));
   } catch {}
   docking?.dispose();
+  dockingSync?.dispose();
   views.forEach((v) => v.dispose());
   scene.dispose();
 });
 workspaceBridge = connectWorkspace(() => state, next => {
+  cancelDockingPlacementGesture();
   applyingRemote = true;
   try {
     const valid = validate(next);
@@ -1220,7 +1240,12 @@ workspaceBridge = connectWorkspace(() => state, next => {
     renderAll(); setView(state.view); choose(state.selected);
     if (previousFocus && state.monitors.some(m => m.id === previousFocus) && state.selected === previousFocus) focus(previousFocus);
   } finally { applyingRemote = false; }
-}, () => sessionToken, message => { saved.textContent = message; });
+}, () => sessionToken, message => { saved.textContent = message; }, {
+  onRemote: (placement, revision) => {
+    if (dockingSync) dockingSync.remote(placement, revision);
+    else firstDockingSnapshot = { placement, revision };
+  },
+});
 renderAll();
 setView(state.view || 'windows');
 // Opt-in docking placement only when the local URL explicitly asks for it. The
@@ -1228,16 +1253,54 @@ setView(state.view || 'windows');
 // refuses explicitly, leaving this default renderer in place, when the browser
 // cannot preserve connected pane documents.
 if (dockingRequested(location.search)) {
+  const beginPlacementGesture = (event: Event) => {
+    const target = event.target;
+    if (!event.isTrusted || applyingRemote || !(target instanceof Element) ||
+        !target.closest('.docking-root') || target.closest('.docking-surfaces')) return;
+    dockingPlacementGesture++;
+    dockingPlacementAllowed = true;
+  };
+  const endPlacementGesture = () => {
+    const generation = dockingPlacementGesture;
+    // Include Dockview's pointer-release rAF snapshot, then close the gate. It
+    // stays closed indefinitely, including layout events after its own 2-rAF
+    // suppression expires. A remote apply invalidates even an ongoing gesture.
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (generation === dockingPlacementGesture) dockingPlacementAllowed = false;
+    }));
+  };
+  desktopHost.addEventListener('pointerdown', beginPlacementGesture, true);
+  for (const type of ['click', 'keydown']) desktopHost.addEventListener(type, event => {
+    beginPlacementGesture(event);
+    endPlacementGesture();
+  }, true);
+  window.addEventListener('pointerup', endPlacementGesture, true);
+  window.addEventListener('pointercancel', cancelDockingPlacementGesture, true);
+  window.addEventListener('blur', cancelDockingPlacementGesture);
   installDockingRenderer({
     host: desktopHost,
     getState: () => state,
     onSelect: choose,
     onError: message => notify(`Docking renderer: ${message}`),
+    onPlacementChange: placement => {
+      if (dockingPlacementAllowed && !applyingRemote && !reconcilingDocking) dockingSync?.local(placement);
+    },
   })
     .then(controller => {
       if (!controller) return;
       docking = controller;
       renderAll();
+      dockingSync = createDockingSync({
+        applyPlacement: placement => {
+          cancelDockingPlacementGesture();
+          docking!.applyPlacement(placement);
+        },
+        savePlacement: placement => workspaceBridge!.savePlacement(placement),
+        reload: () => workspaceBridge!.sync(),
+        status: notify,
+      });
+      if (firstDockingSnapshot) dockingSync.hydrate(firstDockingSnapshot.placement, firstDockingSnapshot.revision);
+      firstDockingSnapshot = null;
     })
     .catch(error => notify(`Docking renderer failed: ${String(error)}`));
 }

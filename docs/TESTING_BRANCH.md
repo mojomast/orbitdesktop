@@ -6,6 +6,64 @@ This branch starts from implementation commit `23a1afe` and includes the cumulat
 evolution work since `38a9d56`, not only the latest docking changes. It is a testing
 candidate, not approval to deploy, migrate an owner runtime, or replace `main`.
 
+## Release integration
+
+The current working candidate adds durable docking placement, owner-managed
+terminal controls, and per-pane Hermes profile/session selection. The older
+implementation evidence below is historical; it is not evidence for untested
+changes in this candidate. See [deployment and rollback](DEPLOYMENT.md).
+
+**Tailscale is optional.** Core tests use isolated served loopback origins. Ordinary
+HTTP(S) deployments do not require a tailnet. The owner has delegated optional
+tailnet-origin acceptance to the Hermes Orbit agent; those results are pending
+and must not be inferred from local browser passes.
+
+### User-reachable surfaces
+
+- `?renderer=docking`: docking placement is implemented as a versioned,
+  per-workspace Windows-view adjunct, outside v1 layout. Docking remains opt-in;
+  saving placement is on by default when using it. See
+  [persistence model](DOCKING_PERSISTENCE.md) for validation, orphan handling and
+  checkpoint/recovery semantics.
+- Terminal pane **Managed…**: metadata-only reconciliation, explicit adoption,
+  finite observe/input leases, one-shot bounded output, per-send confirmation and
+  revocation. Adoption does not create or move the shell. Recorded managed panes
+  use identity-conditional **attach-only** reconnect; missing/changed identity
+  never silently respawns a replacement. Grants are process-local and are not
+  restored with the private continuity ledger. See [lifecycle and consent](MANAGED_TERMINALS.md).
+  **Release…** is a separate explicit recovery action, not automatic respawn: it
+  removes proven continuity metadata without killing the shell, and warns that a
+  later explicit Connect may create a new shell if missing. Uncertain input sends
+  retain the exact operation ID/body for retries, including across dialog reopen;
+  discarding that warning requires explicit acknowledgement of duplicate risk.
+- Agent pane **Profile / Session / Apply**: select a server-configured Hermes
+  profile and an existing conversation independently per pane. Profile URLs/keys
+  remain server-side. Changes are staged until Apply, pending runs block switching,
+  and drafts are isolated by profile/session. See [configuration](HERMES.md).
+- `/recovery`: independent owner recovery, checkpoint restore and registered-plugin
+  activation hold; the hold is not process termination or private-data revocation.
+
+### Deliberate boundaries
+
+Workspace event delivery is **polling only**; there is no half-enabled workspace
+SSE/push route. Hermes run-activity SSE is separate. Bundle retention remains an
+explicit dry-run planner: destructive collection is not shipped. The CLI test
+publishes a real disposable bundle, refreshes its index, runs the plan twice,
+rejects a delete command and verifies unchanged artifact bytes.
+
+The fresh-private-namespace terminal creation/cleanup provider remains internal;
+normal panes use the non-destructive attach/adopt path over their existing tmux
+namespace. No plugin/model observation bridge, host reboot supervision, pidfd-class
+identity guarantee, or mixed-version rolling upgrade is implied. Checkpoints
+cover layout and placement, not processes or shell side effects.
+
+Theme personalities remain presets of the same generated v1 appearance contract,
+not a competing schema. The release coherence test validates all 14 presets as
+both operation requests and full sync states, checks packaged wallpapers and
+verifies that applying a theme preserves the pane/layout identities. Catalog
+admission and immutable publication remain separate supply-chain gates, not an
+alternate workspace authority.
+
 ## Included and deliberately excluded
 
 - Strict workspace contracts; SQLite transactional state/revisions/checkpoints,
@@ -17,20 +75,52 @@ candidate, not approval to deploy, migrate an owner runtime, or replace `main`.
 - Connected runtime reconciliation and experimental normal-frontend docking.
   `?renderer=docking` opts in **only on a build containing this branch**. The default
   movable-window renderer remains available without that flag. Tabs/floating
-  placement are transient and reset on reload, not new checkpointed v1 fields.
-- An internal managed-terminal lifecycle prototype and identity registry. They
-  are **unwired**: no existing terminal adoption, observation API, grants or new
-  permission path. The Linux prototype has documented kernel-identity limitations;
+  placement now has a separate persistence adjunct; it is never a new v1 field.
+- An owner-reachable managed-terminal attach/adopt path and identity registry.
+  Its Linux provider has documented kernel-identity limitations;
   it is not pidfd-class ABA proof or a sandbox against another same-UID process.
 
-Serialized layouts and plugin manifests remain **v1**. SQLite is **schema 3**.
+Serialized layouts and plugin manifests remain **v1**. The candidate uses SQLite
+**schema 4**, with an additive migration from schema 3 for placement adjuncts.
 See [store operations](WORKSPACE_STORE.md) before considering any runtime upgrade:
 stop old writers through an authorized session-preserving plan, retain a verified
 backup and bundles, and never treat legacy JSON as a writable fallback. Database
-downgrade requires deliberate export to a separate runtime; layout checkpoints do
+downgrade requires a compatible pre-upgrade backup restored to a separate runtime
+with the matching older build (`restore --preserve-schema` avoids upgrading the
+copy); it cannot convert a schema-4 backup into schema 3. Layout checkpoints do
 not undo schema changes, shell effects, conversations or disposed iframe documents.
 
-## Verification recorded for the implementation
+### Current integration evidence (local acceptance, not deployment acceptance)
+
+`npm run check` passes the production build/typecheck and **278/278 Node tests**;
+`npm audit` reports zero vulnerabilities. All eight Python adapter/publisher/catalog/
+portable-source suites pass (**55/55 tests**), including regenerated source archive
+parity. The expanded disposable docking persistence test has passed three-column geometry
+reload, grouped/floating placement reload, surviving tmux shell PID, empty-adjunct
+reset, and restoration through the independent `/recovery` UI. Surviving iframe
+elements remain identical through in-page placement changes; a full reload creates
+fresh documents as expected. This run reported **zero page errors**, revision
+**7/7** observed, and browser application. The separate docking workspace/PTY
+fixture passes **85 checks / 73 layout transitions**, including pointer sash resize,
+plugin publication/lifecycle, recovery hold, and URL-change/close negative controls.
+
+Unit regressions additionally cover per-group active tabs, 100-window conversion,
+same-axis split geometry, orphan pruning inside the store transaction, queued
+gestures during saves, recovery after a concurrent failed layout read (without
+poisoning the placement/polling promise queue), and schema-preserving offline rollback. Managed-terminal
+lifecycle and ambiguous-input retry fixes are integrated. These results do not
+imply deployment or owner-runtime migration; source publication is separate.
+
+Final tested `dist/index.html` SHA-256:
+`dc62f47d8dc59c798d2c032b38a98882e3838b8e208de15476d3aa5fa3e5d3ed`.
+The strict common renderer matrix passes **34 transitions per renderer** with
+identical normalized transcripts, restored checkpoint frame coordinates, and
+zero page errors (default revision **21/21**, docking **26/26**). The companion
+live-PTY continuity suite passes **94 transitions under each renderer**, revision
+**53/53**, with `browser_applied=true` and zero page errors. Docking metadata is
+pruned in every view, not only Windows. See [renderer parity](RENDERER_PARITY.md).
+
+## Historical verification for implementation `23a1afe`
 
 | Check | Observed result |
 | --- | --- |
@@ -89,7 +179,13 @@ export PLAYWRIGHT_BROWSERS_PATH=/tmp/opencode/orbit-test-browsers
 /tmp/opencode/orbit-test-venv/bin/python -m playwright install chromium
 
 /tmp/opencode/orbit-test-venv/bin/python tests/docking-workspace.browser.py --pty
+/tmp/opencode/orbit-test-venv/bin/python tests/docking-persistence.browser.py
+/tmp/opencode/orbit-test-venv/bin/python tests/renderer-parity.browser.py --pty
 /tmp/opencode/orbit-test-venv/bin/python tests/runtime-continuity.browser.py --pty
+/tmp/opencode/orbit-test-venv/bin/python tests/runtime-continuity.browser.py --pty --renderer docking
+/tmp/opencode/orbit-test-venv/bin/python tests/managed-terminals.browser.py --renderer default
+/tmp/opencode/orbit-test-venv/bin/python tests/managed-terminals.browser.py --renderer docking
+/tmp/opencode/orbit-test-venv/bin/python tests/agent-selection.browser.py
 /tmp/opencode/orbit-test-venv/bin/python tests/runtime-import.browser.py
 /tmp/opencode/orbit-test-venv/bin/python tests/recovery.browser.py
 /tmp/opencode/orbit-test-venv/bin/python tests/recovery-real-server.browser.py

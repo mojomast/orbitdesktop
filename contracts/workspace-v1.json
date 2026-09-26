@@ -1215,6 +1215,53 @@
       "revision": "none",
       "idempotency": "durable receipt by authenticated actor/workspace/operation_id within recovery policy generation; obsolete generation replay rejected; legacy missing keys are not retry-safe"
     },
+    "placement_save": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
+            "const": "placement_save"
+          },
+          "base_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "placement": {
+            "$ref": "#/$defs/dockingPlacement"
+          },
+          "operation_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_.:-]{1,128}$"
+          },
+          "intent": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action",
+          "base_revision",
+          "placement",
+          "operation_id",
+          "intent"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$ref": "#/$defs/placementSnapshot"
+      },
+      "sideEffect": "layout",
+      "permission": "authenticated-workspace",
+      "revision": "current-base-revision",
+      "idempotency": "legacy-no-durable-receipt"
+    },
     "restore": {
       "input": {
         "type": "object",
@@ -1884,6 +1931,125 @@
         ],
         "additionalProperties": false
       },
+      "placementFrame": {
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "y": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "width": {
+            "type": "number",
+            "minimum": 80,
+            "maximum": 10000
+          },
+          "height": {
+            "type": "number",
+            "minimum": 60,
+            "maximum": 10000
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "width",
+          "height"
+        ],
+        "additionalProperties": false
+      },
+      "placementGroup": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "const": "group"
+          },
+          "windows": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+            },
+            "minItems": 1,
+            "maxItems": 100,
+            "uniqueItems": true
+          },
+          "active": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          }
+        },
+        "required": [
+          "type",
+          "windows"
+        ],
+        "additionalProperties": false
+      },
+      "placementBranch": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "const": "branch"
+          },
+          "direction": {
+            "enum": [
+              "horizontal",
+              "vertical"
+            ]
+          },
+          "ratio": {
+            "type": "number",
+            "minimum": 0.05,
+            "maximum": 0.95
+          },
+          "first": {
+            "$ref": "#/$defs/placementNode"
+          },
+          "second": {
+            "$ref": "#/$defs/placementNode"
+          }
+        },
+        "required": [
+          "type",
+          "direction",
+          "ratio",
+          "first",
+          "second"
+        ],
+        "additionalProperties": false
+      },
+      "placementFloat": {
+        "type": "object",
+        "properties": {
+          "windows": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+            },
+            "minItems": 1,
+            "maxItems": 100,
+            "uniqueItems": true
+          },
+          "frame": {
+            "$ref": "#/$defs/placementFrame"
+          },
+          "active": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          }
+        },
+        "required": [
+          "windows",
+          "frame"
+        ],
+        "additionalProperties": false
+      },
       "appearance": {
         "type": "object",
         "properties": {
@@ -2348,6 +2514,58 @@
           "monitors",
           "selected",
           "arc"
+        ],
+        "additionalProperties": false
+      },
+      "placementNode": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/placementGroup"
+          },
+          {
+            "$ref": "#/$defs/placementBranch"
+          }
+        ]
+      },
+      "dockingPlacement": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "const": 1
+          },
+          "layout": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/placementNode"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "floats": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/placementFloat"
+            },
+            "maxItems": 100
+          },
+          "active": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "version",
+          "layout",
+          "floats"
         ],
         "additionalProperties": false
       },
@@ -3274,6 +3492,14 @@
           "recovery_policy": {
             "$ref": "#/$defs/recoveryPolicy"
           },
+          "placement": {
+            "$ref": "#/$defs/dockingPlacement"
+          },
+          "placement_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
           "command_receipt": {
             "$ref": "#/$defs/commandReceipt"
           }
@@ -3284,6 +3510,57 @@
           "state",
           "observed_revision",
           "browser_seen"
+        ],
+        "additionalProperties": false
+      },
+      "placementSnapshot": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "placement_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "placement": {
+            "$ref": "#/$defs/dockingPlacement"
+          },
+          "observed_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "browser_seen": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "recovery_policy": {
+            "$ref": "#/$defs/recoveryPolicy"
+          },
+          "command_receipt": {
+            "$ref": "#/$defs/commandReceipt"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "revision",
+          "placement_revision",
+          "placement",
+          "command_receipt"
         ],
         "additionalProperties": false
       },
@@ -3370,6 +3647,14 @@
           },
           "recovery_policy": {
             "$ref": "#/$defs/recoveryPolicy"
+          },
+          "placement": {
+            "$ref": "#/$defs/dockingPlacement"
+          },
+          "placement_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
           },
           "command_receipt": {
             "$ref": "#/$defs/commandReceipt"
@@ -3469,6 +3754,44 @@
             "operation_id"
           ]
         }
+      },
+      {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
+            "const": "placement_save"
+          },
+          "base_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "placement": {
+            "$ref": "#/$defs/dockingPlacement"
+          },
+          "operation_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_.:-]{1,128}$"
+          },
+          "intent": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action",
+          "base_revision",
+          "placement",
+          "operation_id",
+          "intent"
+        ],
+        "additionalProperties": false
       },
       {
         "type": "object",

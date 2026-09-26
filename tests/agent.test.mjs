@@ -9,12 +9,12 @@ const token = 'orbit-test-token-'.repeat(4);
 const session = 'orbit-12345678-1234-4234-9234-123456789abc';
 const runId = 'run_123456789abcdef';
 
-async function setup(t, mock, configured = true) {
+async function setup(t, mock, configured = true, extra = {}) {
   const calls = [];
   const runtimeDirectory=fs.mkdtempSync(path.join(os.tmpdir(),'orbit-agent-test-'));
-  let port;
+  let port, handler;
   const reply = (res, status, data) => { res.writeHead(status, {'Content-Type':'application/json'}); res.end(JSON.stringify(data)); };
-  const server = http.createServer((req,res) => createAgentHandler({token,port,devOrigins:[],reply,runtimeDirectory,apiUrl:configured?'http://hermes.test':null,apiKey:configured?'private-upstream-key':null,fetchImpl:async (url, options) => { calls.push({url,options}); return mock(url,options); }})(req,res));
+  const server = http.createServer((req,res) => (handler ||= createAgentHandler({token,port,devOrigins:[],reply,runtimeDirectory,apiUrl:configured?'http://hermes.test':null,apiKey:configured?'private-upstream-key':null,...extra,fetchImpl:async (url, options) => { calls.push({url,options}); return mock(url,options); }}))(req,res));
   await new Promise(r=>server.listen(0,'127.0.0.1',r)); port=server.address().port;
   t.after(async()=>{await new Promise(r=>server.close(r));fs.rmSync(runtimeDirectory,{recursive:true,force:true});});
   const origin=`http://127.0.0.1:${port}`;
@@ -135,4 +135,70 @@ test('follow-up turns load prior user/assistant messages from Hermes, not the cl
 test('unconfigured bridge fails closed',async t=>{
  const {request,calls}=await setup(t,()=>json({}),false);
  assert.equal((await request({action:'start',input:'hi'})).status,503); assert.equal(calls.length,0);
+});
+test('profiles and sessions expose bounded public fields; selection validates upstream history and fences bindings',async t=>{
+  const workspace_id='12345678-1234-4234-9234-123456789abc', pane_id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const target='external:valid_001';
+  const extra={profiles:[{id:'blue',label:'Blue',apiUrl:'https://blue.example/p/blue',apiKey:'blue-secret'}],workspaceRead:()=>({state:{monitors:[{layout:{type:'pane',pane:{id:pane_id,kind:'agent'}}}]}})};
+  const {request,calls}=await setup(t,(url,opts)=>url.endsWith('/api/sessions?limit=100&offset=0')?json({data:[{id:target,title:'External',secret:'hidden'},{id:'../bad',title:'Bad'}],has_more:false}):url.endsWith(`/api/sessions/${encodeURIComponent(target)}`)?json({id:target,title:'External',secret:'hidden'}):url.includes('/messages?')?json({data:[{role:'user',content:'hello'},{role:'assistant',content:'world'},{role:'system',content:'secret'}]}):url.endsWith('/v1/runs')?json({run_id:runId,status:'running'}):json({data:[]}),true,extra);
+  const base={workspace_id,pane_id,session_id:session};
+  assert.equal((await request({action:'profiles'},{Authorization:'Bearer wrong'})).status,401);
+  const profiles=await request({...base,action:'profiles'});
+  assert.deepEqual(profiles.body,{profiles:[{id:'default',label:'Default'},{id:'blue',label:'Blue'}],default_profile_id:'default'});
+  assert.equal((await request({...base,action:'shared_chat',initial:{session,messages:[]}})).body.state.binding_revision,0);
+  assert.equal((await request({...base,action:'shared_chat',replace:true,initial:{session,messages:[{role:'user',text:'injected'}]}})).status,409);
+  const list=await request({...base,action:'sessions',target_profile_id:'blue'});
+  assert.deepEqual(list.body.sessions,[{id:target,title:'External',updated_at:''}]);
+  assert.ok(!JSON.stringify(list.body).includes('secret'));
+  assert.equal((await request({...base,action:'select_session',target_profile_id:'blue',target_session_id:'../bad',expected_binding_revision:0})).status,400);
+  assert.equal((await request({...base,action:'select_session',target_profile_id:'blue',target_session_id:'missing',expected_binding_revision:0})).status,404);
+  const selected=await request({...base,action:'select_session',target_profile_id:'blue',target_session_id:target,expected_binding_revision:0});
+  assert.equal(selected.status,200);assert.equal(selected.body.state.profile_id,'blue');assert.equal(selected.body.state.binding_revision,1);
+  assert.deepEqual(selected.body.state.messages,[{role:'user',text:'hello'},{role:'assistant',text:'world'}]);
+  assert.equal((await request({...base,action:'start',input:'hi'})).status,409);
+  const scoped={...base,profile_id:'blue',session_id:target,expected_binding_revision:1};
+  assert.equal((await request({...base,profile_id:'blue',session_id:target,action:'start',input:'hi'})).status,409);
+  assert.equal((await request({...scoped,action:'start',input:'hi'})).status,202);
+  assert.equal(calls.at(-1).url,'https://blue.example/p/blue/v1/runs');
+  assert.equal(calls.at(-1).options.headers.Authorization,'Bearer blue-secret');
+  assert.equal(JSON.parse(calls.at(-1).options.body).profile,undefined);
+  assert.equal((await request({...scoped,action:'select_session',target_profile_id:'default'})).status,409);
+  assert.equal((await request({...scoped,action:'shared_chat',initial:{session}})).body.state.run,runId);
+});
+
+test('rejected concurrent pane requests cannot release another request\'s start lock', async t => {
+  const workspace_id = '12345678-1234-4234-9234-123456789abc', pane_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  let release, entered;
+  const pending = new Promise(resolve => { release = resolve; });
+  const started = new Promise(resolve => { entered = resolve; });
+  const { request } = await setup(t, async url => {
+    if (url.endsWith('/v1/runs')) { entered(); await pending; return json({run_id:runId,status:'running'}); }
+    return json({data:[]});
+  }, true, {workspaceRead:()=>({state:{monitors:[{layout:{type:'pane',pane:{id:pane_id,kind:'agent'}}}]}})});
+  const base = {workspace_id,pane_id,session_id:session,profile_id:'default',expected_binding_revision:0};
+  await request({...base,action:'shared_chat',initial:{session,messages:[]}});
+  const start = request({...base,action:'start',input:'hello'});
+  try {
+    await started;
+    for (let i=0;i<3;i++) assert.equal((await request({...base,action:'select_session',target_profile_id:'default'})).status,409);
+  } finally { release(); }
+  assert.equal((await start).status,202);
+  assert.equal((await request({...base,action:'shared_chat'})).body.state.run,runId);
+});
+
+test('owner can explicitly replace an unavailable default profile without executing on a fallback', async t => {
+  const workspace_id='12345678-1234-4234-9234-123456789abc',pane_id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const {request,calls}=await setup(t,()=>json({data:[]}),false,{
+    profiles:[{id:'research',label:'Research',apiUrl:'http://research.test/p/research',apiKey:'private-research'}],
+    workspaceRead:()=>({state:{monitors:[{layout:{type:'pane',pane:{id:pane_id,kind:'agent'}}}]}}),
+  });
+  const base={workspace_id,pane_id,session_id:session,profile_id:'default',expected_binding_revision:0};
+  assert.equal((await request({...base,action:'shared_chat',initial:{session,messages:[]}})).status,200);
+  assert.equal((await request({...base,action:'start',input:'No fallback'})).status,400);
+  assert.equal(calls.length,0);
+  assert.equal((await request({...base,action:'sessions',target_profile_id:'research'})).status,200);
+  const selected=await request({...base,action:'select_session',target_profile_id:'research'});
+  assert.equal(selected.status,200);
+  assert.equal(selected.body.state.profile_id,'research');
+  assert.equal(selected.body.state.binding_revision,1);
 });

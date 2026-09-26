@@ -3,6 +3,8 @@
 Run after npm run build with PLAYWRIGHT_BROWSERS_PATH=/tmp/opencode/orbit-evolution-browsers
   /tmp/opencode/orbit-evolution-browser-venv/bin/python tests/runtime-continuity.browser.py
 Pass --pty only when the fixture tmux override is supported and tmux is installed.
+Docking panels must exactly equal live v1 window ids at every transition, including
+spatial/focus and source-window removal, without first returning to Windows.
 """
 import argparse
 import json
@@ -25,6 +27,7 @@ from playwright.sync_api import expect, sync_playwright
 ROOT = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser()
 parser.add_argument("--pty", action="store_true", help="include isolated tmux-backed live shell")
+parser.add_argument("--renderer", choices=("default", "docking"), default="default", help="run identical continuity assertions under either renderer")
 args = parser.parse_args()
 if args.pty and (not shutil.which("tmux") or "ORBIT_TMUX_SOCKET" not in (ROOT / "server/local-host.mjs").read_text()):
     parser.error("PTY requires tmux and ORBIT_TMUX_SOCKET support; not a green skip")
@@ -107,7 +110,9 @@ with tempfile.TemporaryDirectory(prefix="orbit-continuity-", dir="/tmp/opencode"
             page.on("pageerror", lambda error: errors.append(str(error)))
             page.on("framenavigated", lambda frame: navigations.append(frame.url) if frame != page.main_frame else None)
             page.on("websocket", lambda ws: sockets.append(ws))
-            page.goto(origin + "/", wait_until="domcontentloaded")
+            page.goto(origin + ("/?renderer=docking" if args.renderer == "docking" else "/"), wait_until="domcontentloaded")
+            if args.renderer == "docking":
+                page.wait_for_function("() => document.documentElement.dataset.dockingRenderer === 'docking'")
             if not page.evaluate("typeof Element.prototype.moveBefore === 'function'"):
                 raise RuntimeError("UNSUPPORTED BROWSER: Element.moveBefore is required for connected-DOM continuity; this is not a passing skip")
             page.keyboard.press("Escape")
@@ -161,6 +166,10 @@ with tempfile.TemporaryDirectory(prefix="orbit-continuity-", dir="/tmp/opencode"
                 page.evaluate("id => window.__terminalNode = document.querySelector(`.pane[data-pane-id=\"${id}\"]`)", panes[2])
 
             def verify(label):
+                if args.renderer == "docking":
+                    diagnostic = page.evaluate("window.__orbitDocking")
+                    local = page.evaluate("JSON.parse(localStorage.getItem('orbit.workspace.v1'))")
+                    assert sorted(diagnostic["panels"]) == sorted(m["id"] for m in local["monitors"]), (label, diagnostic, local)
                 # A new document, iframe, or pane fails this assertion.
                 assert not errors, f"{label}: page errors {errors}"
                 assert len(navigations) == nav_count, f"{label}: unexpected iframe navigation {navigations[nav_count:]}"
@@ -299,7 +308,13 @@ with tempfile.TemporaryDirectory(prefix="orbit-continuity-", dir="/tmp/opencode"
             expect(page.locator(f'.pane[data-pane-id="{panes[0]}"]')).to_have_count(0, timeout=15000)
             if args.pty:
                 assert len(terminal_frames) == 1
-            print(f"PASS {transitions} continuity transitions; two sandboxed iframe nonces/drafts and DOM identities retained; URL reload and close negative controls; PTY={'live' if args.pty else 'not requested'}; Chromium {browser.version}")
+            final = api('read')
+            for _ in range(60):
+                if final['observed_revision'] >= final['revision']: break
+                page.wait_for_timeout(100); final = api('read')
+            assert final['observed_revision'] >= final['revision'], final
+            page.screenshot(path=f'/tmp/opencode/orbit-parity-{args.renderer}.png')
+            print(f"PASS {transitions} continuity transitions; renderer={args.renderer}; two sandboxed iframe nonces/drafts and DOM identities retained; URL reload and close negative controls; PTY={'live' if args.pty else 'not requested'}; Chromium {browser.version}; page_errors={len(errors)}; revision={final['revision']}; observed_revision={final['observed_revision']}; browser_applied=true")
             context.close()
             browser.close()
     finally:

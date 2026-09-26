@@ -22,21 +22,24 @@ Orbit is a single-owner agent-customizable workspace. It separates trusted core/
 
 `experiments/orbit-docking/` is an isolated opt-in integration fixture importing real
 pane/model/spatial modules; it does not replace the production entrypoint or extend
-v1 persistence. `server/terminal-resource-registry.mjs` is an unwired process-local
-identity primitive, not a grant service or tmux adapter. See
+v1 persistence. `server/terminal-resource-registry.mjs` is a process-local
+identity primitive used by the managed-terminal broker, not itself a grant service or tmux adapter. See
 [docking spike](ORBIT_DOCKING_SPIKE.md) and [registry](TERMINAL_RESOURCE_REGISTRY.md)
-for measured coverage and the provider-lifecycle blocker.
+for the historical spike evidence and current identity boundaries.
 
 `?renderer=docking` now explicitly opts the normal frontend into experimental
 Dockview placement (`src/docking-renderer.ts`, exact `dockview-core@8.3.1`). The
 default renderer remains unchanged. Existing PaneViews, workspace sync and recovery
-remain authoritative; transient tabs/floats are not new v1 state. Library/styles
+remain authoritative; durable tabs/floats use a separate validated placement-v1
+adjunct in SQLite schema 4, never fields in the v1 layout. Library/styles
 load dynamically only on opt-in. See [optional docking](OPTIONAL_DOCKING.md).
 
-`server/managed-terminal-provider.mjs` is a separate **unwired** Linux prototype
-for explicitly created sessions on fresh private tmux namespaces. It never adopts
-legacy terminals or exposes observations/grants. Its ownership/cleanup and kernel-
-identity limitations are documented in [managed terminals](MANAGED_TERMINALS.md).
+`server/managed-terminal-provider.mjs` supports explicit adoption of existing Linux
+tmux shells through the owner-only managed-terminal routes and pane controls.
+Private fresh-session mode remains an internal provider component. Durable private
+identity metadata is separate from process-local, expiring consent grants; neither
+terminal buffers nor grants enter layout checkpoints. Its ownership/cleanup and
+kernel-identity limitations are documented in [managed terminals](MANAGED_TERMINALS.md).
 
 ## State and control
 
@@ -45,6 +48,9 @@ identity limitations are documented in [managed terminals](MANAGED_TERMINALS.md)
 `src/workspace-sync.ts` polls and tracks browser acknowledgement. An acknowledged revision does not prove a widget rendered correctly. Local layout persistence and imports remain supported. Offline changes can be saved server-side; display acknowledgement waits for the browser.
 
 Schema 3 adds an indexed bundle registry and workspace-scoped metadata event queries.
+Schema 4 adds transactional docking placement, revision/checkpoint copies, and
+shared workspace-revision CAS. Schema-3 databases upgrade on opening; owner
+runtimes must be backed up and tested in a separate copy before upgrade.
 Normal reads use indexed asset versions; startup/admin publication refresh performs
 filesystem scanning. Hash-addressed asset responses verify indexed bytes before serving.
 Retention plans include all saved revisions/checkpoints and are dry-run only.
@@ -71,6 +77,13 @@ Generated app plugins use a strict API-v1 manifest and config contract. `scripts
 `server/agent.mjs` bridges authenticated runs, bounded server-loaded conversation history, approvals, stop, steering, activity, capabilities, catalog and job controls. `server/workspace.mjs` supplies the active workspace context and reads `docs/AGENT_GUIDE.md` into it at request time. Editing that guide updates subsequent contexts without copying instructions into several prompts. `src/agent-chat.ts` retains per-pane UI state; Hermes is a real runtime, not a chat stub.
 
 The gateway's tool environment may differ from the terminal host. Local workspace control requires access to the repository/runtime; it is not automatically available to a remote gateway. Layout metadata does not expose terminal buffers or embedded app DOM.
+
+Per-pane Hermes selection uses a server-side profile routing allowlist rather than
+changing the gateway's global active profile. Profile/session bindings belong to
+private shared-chat state, not layout checkpoints. Browser selectors receive
+profile labels and IDs, never gateway keys. See [Hermes setup](HERMES.md) for the
+configuration contract and limitations; a selectable profile does not establish
+that its tools can access this host or that an externally started run is idle.
 
 ## Terminals
 

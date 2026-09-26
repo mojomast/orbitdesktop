@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {initial} from '../src/model.ts';
+import {emptyPlacement} from '../src/docking-placement.ts';
 import {SqliteWorkspaceStore} from '../server/sqlite-workspace-store.mjs';
 import {commandIdentity} from '../server/command-identity.mjs';
 const moduleUrl=new URL('../server/sqlite-workspace-store.mjs',import.meta.url).href;
@@ -63,5 +64,5 @@ test('SIGKILL during legacy import leaves no partial migration and retained orig
   assert.equal(fs.readFileSync(recordFile,'utf8'),original);assert.equal(fs.readFileSync(checkpointFile,'utf8'),checkpoint);
   assert.throws(()=>new SqliteWorkspaceStore(root),error=>error.category==='MIGRATION_REQUIRED');
   const store=new SqliteWorkspaceStore(root,{importLegacy:true});t.after(()=>store.close());
-  assert.deepEqual(store.read(id),{...record,recovery_policy:{held:false,generation:0}});assert.equal(store.checkpointList(id).length,1);assert.equal(store.eventsAfter(0).length,0);
+  assert.deepEqual(store.read(id),{...record,placement:emptyPlacement(),placement_revision:0,recovery_policy:{held:false,generation:0}});assert.equal(store.checkpointList(id).length,1);assert.equal(store.eventsAfter(0).length,0);
 });

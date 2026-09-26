@@ -20,7 +20,8 @@ function fixture(responses,{storageFailure=false}={}) {
       if(name==='./workspace-appearance')return {applyAppearance:()=>{}};
       if(name==='./workspace-events')return {connectWorkspaceEvents:()=>{lifecycle.started++;return {close:()=>{lifecycle.closed++;},poll:async()=>{}};}};
       if(name==='./workspace-client')return {workspaceFetch:async(_token,body)=>{
-        requests.push(body);const next=responses.shift();assert.ok(next,'Unexpected extra request');
+         requests.push(body);const next=responses.shift();assert.ok(next,'Unexpected extra request');
+         if(next.gate)await next.gate;
         if(next.transportError)throw Error('timeout');
         return {ok:next.status===200,status:next.status,json:async()=>{if(next.invalidJson)throw Error('invalid JSON');return next.body;}};
       }};
@@ -32,6 +33,26 @@ function fixture(responses,{storageFailure=false}={}) {
   const connection=exports.connectWorkspace(()=>state,next=>{state=next;applied.push(next);},()=> 'fixture-token',message=>statuses.push(message));
   return {connection,flush:exports.ensureWorkspaceSynced,requests,statuses,storage,applied,lifecycle,dispatch:name=>listeners.get(name)?.(),edit:next=>{state=next;connection.changed();}};
 }
+test('a failed concurrent layout read does not poison placement or polling queues',async()=>{
+  let release;
+  const gate=new Promise(resolve=>{release=resolve;});
+  const state={plugins:[],monitors:[]};
+  const f=fixture([{status:200,body:{state,revision:1}},
+    {gate,transportError:true},{status:200,body:{state,revision:1}},
+    {status:200,body:{revision:2,placement_revision:2}}]);
+  await f.connection.sync();
+  const reading=f.connection.sync();
+  const rejected=assert.rejects(reading,/timeout/);
+  await Promise.resolve();
+  const placement={version:1,layout:null,floats:[],active:null};
+  const saving=f.connection.savePlacement(placement);
+  await Promise.resolve();
+  release();await rejected;
+  assert.equal((await saving).ok,false);
+  await f.connection.sync();
+  assert.equal((await f.connection.savePlacement(placement)).placement_revision,2);
+  assert.deepEqual(f.requests.map(r=>r.action),['read','read','read','placement_save']);
+});
 for(const category of ['RECOVERY_HOLD','RECOVERY_POLICY_CHANGED'])test(`${category} forces a read, backs up local state, never retries the mutation`,async()=>{
   const saved={plugins:[],monitors:[]},local={plugins:[{enabled:true}],monitors:[]};
   const fixtureState=fixture([

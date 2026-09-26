@@ -1,5 +1,6 @@
 import http from "node:http";
 import os from 'node:os';
+import { existsSync, mkdirSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -42,6 +43,63 @@ function reply(res, status, data) {
 const workspaceService = createWorkspaceService({ token, port, devOrigins, reply });
 const workspaceEvents = createWorkspaceEvents({store:workspaceService.store,token,port,devOrigins,reply});
 const agentHandler = createAgentHandler({ token, port, devOrigins, reply, workspaceContext: workspaceService.context, workspaceRead:workspaceService.read, runtimeDirectory:runtimeRoot });
+// Managed terminals: strictly optional. A failure here (no tmux, readonly runtime,
+// unsupported platform) disables the route; it must never block the host server or
+// touch any existing session/server. Attach mode never creates, kills, respawns or
+// attaches anything; grants are process-local and are never restored from disk.
+const managedDirectory = path.join(runtimeRoot, "managed-terminals");
+const managedLedgerPath = path.join(managedDirectory, "identity-ledger.json");
+const managedSentinelPath = path.join(managedDirectory, "identity-ledger.json.initialized");
+const managedTerminals = await (async () => {
+  try {
+    const directory = managedDirectory;
+    mkdirSync(directory, { recursive: true, mode: 0o700 });
+    // Dynamic imports so a partial release that is missing a managed-terminal
+    // module cannot crash the host server at load time; the route degrades to a
+    // fixed 503. Full delivery is still required for the feature to be reachable.
+    const [{ ManagedTerminalIdentityLedger }, { ManagedTerminalProvider },
+      { ManagedTerminalBroker }, { createManagedTerminalHandler }] = await Promise.all([
+      import("./managed-terminal-ledger.mjs"),
+      import("./managed-terminal-provider.mjs"),
+      import("./managed-terminal-broker.mjs"),
+      import("./managed-terminal-routes.mjs"),
+    ]);
+    const ledger = new ManagedTerminalIdentityLedger({ directory, filename: "identity-ledger.json" });
+    const managedProvider = await ManagedTerminalProvider.create({
+      mode: "attach",
+      socket: provider.tmuxSocket,
+      ledger,
+      tmuxTmpDir: process.env.TMUX_TMPDIR,
+    });
+    const broker = new ManagedTerminalBroker({
+      ownerId: "owner",
+      providerId: `local-${provider.tmuxSocket}`,
+      provider: managedProvider,
+      workspaceRead: workspaceService.read,
+      journalPath: path.join(directory, "operations.json"),
+    });
+    const handler = createManagedTerminalHandler({ broker, token, port, devOrigins, reply });
+    // Reconcile only previously consented workspace references. This reads exact
+    // identities, never enumerates tmux, captures output, adopts, or grants. Do not
+    // delay HTTP startup on a suspended external tmux server.
+    void (async () => {
+      for (const workspaceId of [...new Set(ledger.list().map(entry => entry.workspaceId))].slice(0, 100)) {
+        try { await broker.reconcile({ workspaceId }); } catch { /* UI retry reports current availability. */ }
+      }
+    })();
+    return { provider: managedProvider, ledger, broker, handler };
+  } catch (error) {
+    console.error(`Managed terminals unavailable (${error && error.code ? error.code : "error"})`);
+    return null;
+  }
+})();
+const managedTerminalHandler = managedTerminals
+  ? managedTerminals.handler
+  : (req, res) => reply(res, 503, { ok: false, error: "Managed terminals unavailable", code: "unavailable" });
+// A durable sentinel with no ledger means the private ledger was lost after prior
+// initialization. Continuity cannot be proven for ANY pane, so the legacy
+// attach/create fallback is refused until an owner recovery restores the ledger.
+const managedLedgerLost = existsSync(managedSentinelPath) && !existsSync(managedLedgerPath);
 const server = http.createServer(async (req, res) => {
   const allowedHosts = new Set([
     `127.0.0.1:${port}`,
@@ -52,6 +110,7 @@ const server = http.createServer(async (req, res) => {
   if (!allowedHosts.has(req.headers.host))
     return reply(res, 403, { error: "Host rejected" });
   const url = new URL(req.url, "http://localhost");
+  if (url.pathname === "/api/managed-terminals") return managedTerminalHandler(req, res);
   if(url.pathname==='/api/workspace/events')return workspaceEvents(req,res);
   if(url.pathname==='/api/workspace/control/events')return workspaceEvents(req,res,true);
   if (url.pathname === '/api/workspace/recovery') return workspaceService.handle(req, res, false, true);
@@ -149,6 +208,7 @@ wss.on("connection", (ws) => {
   pending++;
   let shell = null,
     authed = false,
+    authenticating = false,
     closed = false,
     outstanding = 0,
     paused = false,
@@ -186,7 +246,7 @@ wss.on("connection", (ws) => {
   }, 15000);
   ws.on("pong", () => (lastSeen = Date.now()));
   let historyPane = null, historyBusy = false;
-  ws.on("message", (raw) => {
+  ws.on("message", async (raw) => {
     let m;
     try {
       m = JSON.parse(raw.toString());
@@ -200,6 +260,7 @@ wss.on("connection", (ws) => {
     }
     if (!authed) {
       if (
+        authenticating ||
         m.type !== "auth" ||
         !tokenMatches(m.token, token) ||
         !geometry(m.cols, m.rows)
@@ -208,8 +269,27 @@ wss.on("connection", (ws) => {
         return;
       }
       clearTimeout(timeout);
+      authenticating = true;
       try {
-        shell = provider.spawn(m);
+        let tmuxArguments;
+        if (typeof m.pane_id === 'string' && /^[a-f0-9-]{36}$/.test(m.pane_id)) {
+          if (!managedTerminals && (managedLedgerLost || existsSync(managedLedgerPath))) throw Error('Managed identity unavailable');
+          const sessionName = 'pane-' + m.pane_id;
+          const recorded = managedTerminals?.ledger.get(sessionName);
+          if (recorded) {
+            tmuxArguments = await managedTerminals.provider.attachmentArguments({sessionName});
+            if (!tmuxArguments) throw Error('Managed identity changed; no replacement shell was created');
+          } else if (managedTerminals) {
+            // Not recorded: refuse the legacy attach/create fallback when the exact
+            // session still carries ANY adopted markers, so a lost/partial ledger
+            // can never make an adopted shell look unmanaged. The probe is side
+            // effect free: it never captures output, adopts or creates a shell.
+            const observed = await managedTerminals.provider.observeExact({ sessionName });
+            if (observed && Object.values(observed.markers).some(value => value !== '')) throw Error('Managed identity unavailable');
+          }
+        }
+        if (closed || ws.readyState !== WebSocket.OPEN) return;
+        shell = provider.spawn(m, {tmuxArguments});
         authed = true;
         pending--;
         sessions.add(shell);

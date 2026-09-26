@@ -17,3 +17,8 @@
 #app .agent-toolbar-meta input[type=color] {flex:0 0 24px; width:24px; min-width:24px; height:24px; padding:1px;}
 #app .agent-pane-head button {flex:0 0 auto; white-space:nowrap; max-width:100%; font-size:11px; padding:3px 5px;}
 #app .agent-toolbar-meta .agent-status {display:inline; flex:0 0 auto; font-size:10px;}
+#app .agent-binding-controls {display:flex; flex-wrap:wrap; align-items:center; gap:4px; min-width:0; max-width:100%;}
+#app .agent-binding-controls label {display:flex; align-items:center; gap:3px; font-size:11px; white-space:nowrap;}
+#app .agent-binding-controls select {max-width:min(180px, 35vw); min-width:60px; font:inherit;}
+#app .agent-binding-controls button {font-size:11px;}
+#app .agent-binding-note {font-size:11px; color:#f5ca83; max-width:100%; overflow-wrap:anywhere;}

@@ -13,10 +13,14 @@ export async function showShelf(token:()=>string) {
  }catch(e){note.textContent=e instanceof Error?e.message:'Shelf unavailable';}}
  d.append(button('Refresh','Refresh published outputs',()=>{void load();}));await load();
 }
-export async function showLive(token:()=>string,session:string,run:string) {
- const d=surface('Live Hermes activity');const note=el('p','','Connecting to Hermes event stream…');const log=el('div');d.append(note,log);const abort=new AbortController();d.addEventListener('close',()=>abort.abort());
+export async function showLive(token:()=>string,session:string,run:string,profileId:string,paneId:string,bindingSignal?:AbortSignal,bindingRevision=0) {
+  const d=surface('Live Hermes activity');const note=el('p','','Connecting to Hermes event stream…');const log=el('div');d.append(note,log);const abort=new AbortController();d.addEventListener('close',()=>abort.abort());
+  const closeForBinding = () => { abort.abort(); d.close(); };
+  if(bindingSignal?.aborted) closeForBinding();
+  else bindingSignal?.addEventListener('abort',closeForBinding,{once:true});
+  d.addEventListener('close',()=>bindingSignal?.removeEventListener('abort',closeForBinding));
  try {
- const r=await fetch('/api/agent',{method:'POST',headers:{Authorization:`Bearer ${token()}`,'Content-Type':'application/json'},body:JSON.stringify({action:'events',session_id:session,run_id:run}),signal:abort.signal});if(!r.ok)throw Error((await r.json()).error);note.textContent='Live events. Closing this window does not stop the run. Chat status polling remains active.';
+  const r=await fetch('/api/agent',{method:'POST',headers:{Authorization:`Bearer ${token()}`,'Content-Type':'application/json'},body:JSON.stringify({action:'events',workspace_id:workspaceId,pane_id:paneId,profile_id:profileId,session_id:session,run_id:run,expected_binding_revision:bindingRevision}),signal:abort.signal});if(!r.ok)throw Error((await r.json()).error);note.textContent='Live events. Closing this window does not stop the run. Chat status polling remains active.';
  const reader=r.body!.getReader();const decoder=new TextDecoder();let buffer='';
  while(d.open){const {value,done}=await reader.read();if(done)break;buffer+=decoder.decode(value,{stream:true}).replace(/\r\n/g,'\n');if(buffer.length>1000000)throw Error('Oversized event; use saved activity.');let pos;
  while((pos=buffer.indexOf('\n\n'))>=0){const block=buffer.slice(0,pos);buffer=buffer.slice(pos+2);const data=block.split('\n').filter(l=>l.startsWith('data:')).map(l=>l.slice(5).trim()).join('\n');if(!data)continue;

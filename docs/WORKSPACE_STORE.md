@@ -1,6 +1,31 @@
 # Workspace store: compatibility, migration, and operations
 
-Orbit's workspace authority is `PATH/workspace.sqlite` (schema `user_version=3` after bundle indexing and event-query indexing), where `PATH` is the configured runtime directory (`ORBIT_RUNTIME_DIR`, or the repository's `.runtime` by default). `server/workspace.mjs` uses `SqliteWorkspaceStore`; this is still a single-owner workspace, not a multi-user database service. The v1 workspace state and command shapes remain defined by `contracts/workspace-v1.mjs`. Layout, plugin registration/configuration, checkpoint state, independent recovery policy, bundle metadata and workspace capability are stored in the database; published app bytes, terminal processes, conversations, external effects and arbitrary runtime files are not workspace snapshots.
+Orbit's workspace authority is `PATH/workspace.sqlite` (schema `user_version=4` with versioned docking placement), where `PATH` is the configured runtime directory (`ORBIT_RUNTIME_DIR`, or the repository's `.runtime` by default). `server/workspace.mjs` uses `SqliteWorkspaceStore`; this is still a single-owner workspace, not a multi-user database service. The v1 workspace state and command shapes remain defined by `contracts/workspace-v1.mjs`. Layout, docking placement, plugin registration/configuration, checkpoint state, independent recovery policy, bundle metadata and workspace capability are stored in the database; published app bytes, terminal processes, conversations, external effects and arbitrary runtime files are not workspace snapshots.
+
+## Docking placement schema upgrade (version 4)
+
+Placement is a separate per-workspace version-1 adjunct (`record.placement`), outside
+the unchanged v1 `record.state`. It contains docked groups/splits, floating group
+frames and the active window ID. `placement_revision` records the workspace
+revision of its last change. The transactional 3→4 upgrade adds placement columns
+to checkpoints/revisions and defaults missing current placement to
+`{"version":1,"layout":null,"floats":[],"active":null}` with placement revision 0.
+Old checkpoints are backfilled to **EMPTY**, never a stale current placement;
+NULL historical placement also means empty. Bootstrap remains schema 1 followed
+by sequential, restartable upgrades. Schema-3 binaries refuse schema 4 at startup
+with `UPGRADE_REQUIRED`; no mixed-version writers are supported, including
+already-open old connections.
+
+`placement_save` is available to the authenticated owner and workspace controller,
+but not the recovery route. It requires `operation_id`, `intent`, `base_revision`
+and placement, using the **shared workspace revision CAS** and durable receipts.
+A changed placement advances the workspace revision and `placement_revision` and
+checkpoints the previous state and placement atomically. An identical save retains
+the revision but still records a receipt. Its response omits state. Normal whole-state
+sync leaves placement untouched; restore restores both checkpoint state and
+placement, defaulting missing historical placement to empty. Placement does not
+enable plugins and can be saved during recovery hold. Persisted placement and
+browser acknowledgement do not establish browser rendering.
 
 Schema 3 adds the bundle registry and a workspace-scoped outbox index without changing
 layout representation. Schema 1/2 stores upgrade on open, retaining state, policy,
@@ -58,12 +83,26 @@ Use an explicit runtime path and a **new** destination. These are administration
 node --experimental-strip-types scripts/workspace_store.mjs diagnose --runtime PATH
 node --experimental-strip-types scripts/workspace_store.mjs backup --runtime PATH --destination /private/new-backup.sqlite
 node --experimental-strip-types scripts/workspace_store.mjs restore --runtime /private/new-runtime --source /private/new-backup.sqlite --confirm-stopped
+node --experimental-strip-types scripts/workspace_store.mjs restore --runtime /private/rollback-runtime --source /private/pre-upgrade-backup.sqlite --confirm-stopped --preserve-schema
 node --experimental-strip-types scripts/workspace_store.mjs export-legacy --runtime PATH --destination /private/new-export --confirm-stopped
 ```
 
 `diagnose` reports schema version, WAL mode, foreign keys, SQLite `quick_check`, counts of workspaces/checkpoints/receipts/events and whether a connection projection error was observed. It is a point-in-time diagnostic, not a rendering or external-resource check. The store requires WAL journaling and `synchronous=FULL`; keep the live database and its SQLite sidecars together rather than treating a raw copy of `workspace.sqlite` as a consistent online backup. `backup` uses SQLite's backup API, checks its standalone output and atomically publishes to an unused path without overwriting an existing destination. It does not copy app bundles or other runtime resources. Coordinate with writers when taking an operationally consistent whole-runtime backup.
 
-`restore` validates a SQLite schema 1, 2 or 3 backup (`quick_check` and bootstrap marker), stages it, upgrades older schemas if needed, and publishes an entirely **new**, nonexistent runtime directory; it will not overwrite a runtime. Schema 2/3 backups retain recovery hold and generation. Stop servers first, and separately provide required bundles/other runtime resources before use. Restore does not restart a server. `export-legacy` refuses if any workspace has an active recovery hold. Otherwise it writes a new offline directory of current workspace/checkpoint JSON and an `EXPORT_WARNING.txt`; old binaries do not preserve SQLite receipts/outbox, bundle indexing or policy enforcement, and exporting does not remove SQLite authority or migrate app bundles. A rollback to an old binary requires a separately prepared runtime and deliberate handling of lost receipt/event/policy continuity; never run old and new writers against one directory. None of these procedures undo shell, conversation, network or external side effects.
+`restore` validates a SQLite schema 1, 2, 3 or 4 backup (`quick_check` and bootstrap marker), stages it, upgrades older schemas if needed, and publishes an entirely **new**, nonexistent runtime directory; it will not overwrite a runtime. Schema 2/3/4 backups retain recovery hold and generation. SQLite backup/restore carries schema-4 placement and its checkpoint/revision copies. Stop servers first, and separately provide required bundles/other runtime resources before use. Restore does not restart a server. `export-legacy` refuses if any workspace has an active recovery hold. Otherwise it writes a new offline archive directory of current workspace/checkpoint JSON and an `EXPORT_WARNING.txt`. Export preserves the adjunct bytes for new readers, but old binaries/consumers do not understand placement and a rollback that ignores it loses it. Old binaries also do not preserve SQLite receipts/outbox, bundle indexing or policy enforcement, and exporting does not remove SQLite authority or migrate app bundles. A rollback to an old binary requires a separately prepared runtime and deliberate handling of lost receipt/event/policy/placement continuity; never run old and new writers against one directory. None of these procedures undo shell, conversation, network or external side effects.
+
+### Rolling back to a pre-upgrade backup (`--preserve-schema`)
+
+`restore --preserve-schema` is the operator path for running a **matching older binary** against a pre-upgrade backup. It validates the backup privately and read-only (existing file, trimmed path, `quick_check`, bootstrap marker, `user_version` in 1–4; newer versions refuse with `UPGRADE_REQUIRED`), copies the artifact with SQLite's backup API into a **new** runtime, runs integrity checks on the copy, and reports the artifact's `schema_version`. It deliberately does **not** instantiate `SqliteWorkspaceStore`, does **not** migrate or upgrade, and never writes `PRAGMA user_version`; the source backup stays byte-for-byte unchanged, and an existing destination is refused.
+
+Procedure:
+
+1. Stop **all** writers of the current runtime, considering live terminal/session preservation.
+2. Keep the pre-upgrade backup you took before cutover (and its bundles/resources).
+3. `node --experimental-strip-types scripts/workspace_store.mjs restore --runtime /private/rollback-runtime --source /private/pre-upgrade-backup.sqlite --confirm-stopped --preserve-schema`
+4. Start only the binary whose schema version matches the reported artifact. Do **not** point the newer server at this runtime; opening it there upgrades it (a normal `restore` migrates instead). There is no supported down-conversion of a newer schema. Old binaries strictly refuse schema 4 at startup (`UPGRADE_REQUIRED`) and no mixed-version writers may share a runtime.
+
+`--preserve-schema` is restore-only and still requires `--confirm-stopped`; it is not a general backup-format converter. Because it publishes a raw pre-upgrade database, the newer server's connection projections are not rebuilt for it — the matching binary rebuilds them on open.
 
 Review the diagnostics and current workspace via the controller after cutover; verify checkpoint listings and the intended state, and inspect the real browser separately before reporting displayed success. Relevant isolated verification is covered by `tests/sqlite-migration.test.mjs`, `tests/sqlite-workspace-store.test.mjs`, `tests/sqlite-contention.test.mjs`, `tests/sqlite-backup-safety.test.mjs`, `tests/workspace-receipts.test.mjs`, client/adapter tests and `tests/workspace-store.browser.py`. Run `npm run check` and the isolated browser/publisher checks for deployment changes; do not use a live owner's runtime as a test fixture.
 

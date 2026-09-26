@@ -421,10 +421,17 @@ def run_browser(args, origin, token, workspace, state, windows, panes,
                         assert (rects[wid][0] < rects[target][0]) == (name == "Dock left"), (name, rects)
                 if name != "Select window" or invalid:
                     page.wait_for_timeout(1400)  # includes a normal sync polling interval
-                    assert local() == before_state, f"{name}: transient command mutated v1"
+                    assert local() == before_state, f"{name}: docking command mutated v1"
                     after_server = api("read", control=True)
-                    assert (after_server["revision"], after_server["state"]) == (before_server["revision"], before_server["state"])
-                    assert len(mutations) == mutation_count, f"{name}: transient command sent server mutation {mutations[mutation_count:]}"
+                    # Docking placement is now a persisted adjunct: a valid command may
+                    # send placement_save and advance the shared revision, but it must
+                    # never change the v1 layout state. Rejected commands send nothing.
+                    assert after_server["state"] == before_server["state"], f"{name}: docking command changed server layout state"
+                    if invalid:
+                        assert len(mutations) == mutation_count, f"{name}: rejected command sent server mutation {mutations[mutation_count:]}"
+                    else:
+                        new_actions = [action for action in mutations[mutation_count:] if action != "placement_save"]
+                        assert not new_actions, f"{name}: docking command sent non-placement mutation {new_actions}"
                 passed(f"{'reject ' if invalid else ''}{name} [{activation}] {windows.index(wid)}→{windows.index(target)}")
                 expect(control).to_be_focused()
 

@@ -2,6 +2,7 @@ import { applyAppearance } from './workspace-appearance';
 import type { Workspace } from './model';
 import { workspaceFetch } from './workspace-client';
 import { connectWorkspaceEvents } from './workspace-events';
+import type { DockingPlacement } from './docking-placement';
 let id = '';
 try { id = localStorage.getItem('orbit.workspace.id') || ''; } catch {}
 if (!/^[a-f0-9-]{36}$/.test(id)) { id = crypto.randomUUID(); try { localStorage.setItem('orbit.workspace.id', id); } catch {} }
@@ -9,8 +10,11 @@ export const workspaceId = id;
 let flush: (() => Promise<void>) | undefined;
 export async function ensureWorkspaceSynced() { if (!flush) throw Error('Workspace connection is starting.'); await flush(); }
 
-export function connectWorkspace(getState: () => Workspace, apply: (state: Workspace) => void, getToken: () => string, status: (message: string) => void) {
+export function connectWorkspace(getState: () => Workspace, apply: (state: Workspace) => void, getToken: () => string, status: (message: string) => void,
+  placementSink?: { onRemote?(placement: DockingPlacement, placementRevision: number): void }) {
   let revision = 0, ready = false, changes = 0, sent = 0, uncertain = false;
+  let lastPlacementRevision: number | undefined;
+  let placementPending: Promise<unknown> = Promise.resolve();
   let pending: Promise<void> | null = null;
   let appVersions: Record<string, number> = {};
   let backupSaved = false;
@@ -58,8 +62,8 @@ export function connectWorkspace(getState: () => Workspace, apply: (state: Works
       }
       appVersions = data.app_versions;
     }
+    const remote = !ready || response.status === 409 || (action === 'read' && data.revision > revision);
     if (data.state) {
-      const remote = !ready || response.status === 409 || (action === 'read' && data.revision > revision);
       revision = data.revision; ready = true;
       if (remote) {
         let backupNote='';
@@ -69,9 +73,14 @@ export function connectWorkspace(getState: () => Workspace, apply: (state: Works
       } else if (action === 'sync') sent = snapshot;
       else if(uncertain)status(`Previous save outcome unresolved; local changes are held. ${backupSaved?'Local backup saved.':'Local backup unavailable; keep this page open.'} Inspect saved state before reconnecting.`);
     }
+    if (data.placement !== undefined && (remote || data.placement_revision !== lastPlacementRevision)) {
+      lastPlacementRevision = data.placement_revision ?? 0;
+      placementSink?.onRemote?.(data.placement, lastPlacementRevision ?? 0);
+    }
   }
   async function sync() {
     if (!getToken()) throw Error('Connect host to enable workspace control.');
+    await placementPending;
     if (pending) await pending;
     pending = request(!ready || changes === sent || uncertain ? 'read' : 'sync');
     try { await pending; } finally { pending = null; }
@@ -80,6 +89,42 @@ export function connectWorkspace(getState: () => Workspace, apply: (state: Works
     await sync(); if (changes !== sent) await sync();
     if(uncertain || changes !== sent)throw Error('Workspace save is unresolved; dependent actions are blocked. Inspect saved state before reconnecting.');
   };
+  function savePlacement(placement: DockingPlacement): Promise<{ conflict?: boolean; ok?: boolean; placement_revision?: number }> {
+    const task = placementPending.then(async () => {
+      if (pending) await pending;
+      if (!getToken() || !ready || uncertain) return { ok: false };
+      // A pending v1 layout edit must be committed (and acknowledged) before a
+      // placement save uses its base revision; otherwise the placement would be
+      // stranded until the next unrelated edit. This flush must not await
+      // placementPending (we are inside that chain) to avoid a deadlock.
+      if (changes !== sent) {
+        const flushing = request('sync');
+        pending = flushing;
+        try { await flushing; } catch { return { ok: false }; }
+        finally { if (pending === flushing) pending = null; }
+      }
+      if (changes !== sent || !ready || uncertain) return { ok: false };
+      try {
+        const response = await workspaceFetch(getToken(), { action: 'placement_save', workspace_id: workspaceId,
+          base_revision: revision, placement, operation_id: crypto.randomUUID(), intent: 'Save docking placement' });
+        if (response.status === 409) {
+          try { await request('read'); } catch { status('Docking placement conflict; authoritative reload unavailable'); }
+          return { conflict: true };
+        }
+        if (!response.ok) return { ok: false };
+        const data = await response.json();
+        if (!Number.isSafeInteger(data.revision) || !Number.isSafeInteger(data.placement_revision)) return { ok: false };
+        revision = data.revision; ready = true;
+        lastPlacementRevision = data.placement_revision;
+        return data;
+      } catch { return { ok: false }; }
+    }).catch(() => ({ ok: false }));
+    // A concurrently awaited layout read can fail before the placement request
+    // starts. Keep the serialization tail fulfilled so reconnect/polling and
+    // later placement saves are not permanently poisoned by that rejection.
+    placementPending = task;
+    return task;
+  }
   window.addEventListener('orbit-host-connected', () => { void sync().catch(e => status(e.message)); });
   window.addEventListener('keydown', event => {
     if (event.ctrlKey && event.altKey && event.code === 'KeyP') {
@@ -103,5 +148,5 @@ export function connectWorkspace(getState: () => Workspace, apply: (state: Works
     if(!suspended)return;
     suspended=false;ready=false;timer=startPolling();events=startEvents();refreshFromEvents();
   });
-  return { changed: () => { changes++; }, sync };
+  return { changed: () => { changes++; }, sync, savePlacement };
 }

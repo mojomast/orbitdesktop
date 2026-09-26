@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {randomUUID, createHash} from 'node:crypto';
 import {validate} from '../src/model.ts';
+import {validateDockingPlacement,emptyPlacement,placementEqual,prunePlacement} from '../src/docking-placement.ts';
 import {applyOperation} from '../src/workspace-ops.ts';
 import {canonicalJson} from './command-identity.mjs';
 import {bundleSchemaSql,createBundleRegistry} from './bundle-registry.mjs';
@@ -32,7 +33,7 @@ export class SqliteWorkspaceStore {
     this.db=new Database(this.filename,{timeout:busyTimeoutMs});
     try {
       const version=this.db.pragma('user_version',{simple:true});
-      if(version>3)throw failure('UPGRADE_REQUIRED');
+      if(version>4)throw failure('UPGRADE_REQUIRED');
       if(exists&&version===0&&!legacyPresent&&!importLegacy)throw failure('STORE_UNINITIALIZED');
       fs.chmodSync(this.filename,0o600);
       this.db.pragma('foreign_keys = ON');
@@ -68,7 +69,7 @@ export class SqliteWorkspaceStore {
       // restartable. Upgrade under the writer lock; old binaries refuse v2.
       this.db.transaction(()=>{
         const current=this.db.pragma('user_version',{simple:true});
-        if(current>3)throw failure('UPGRADE_REQUIRED');
+        if(current>4)throw failure('UPGRADE_REQUIRED');
         if(current===1) {
           this.db.exec(`
             ALTER TABLE receipts ADD COLUMN policy_generation INTEGER NOT NULL DEFAULT 0 CHECK(policy_generation>=0);
@@ -80,11 +81,29 @@ export class SqliteWorkspaceStore {
       }).immediate();
       this.db.transaction(()=>{
         const current=this.db.pragma('user_version',{simple:true});
-        if(current>3)throw failure('UPGRADE_REQUIRED');
+        if(current>4)throw failure('UPGRADE_REQUIRED');
         if(current===2) {
           this.db.exec(bundleSchemaSql);
           this.db.exec("CREATE INDEX IF NOT EXISTS events_workspace_sequence ON events(json_extract(event_json,'$.workspace_id'),sequence)");
           this.db.pragma('user_version = 3');
+        }
+      }).immediate();
+      // Schema-3 binaries strictly refuse schema 4 at startup (UPGRADE_REQUIRED).
+      // Already-open old writers must be stopped: no mixed-version writers supported.
+      this.db.transaction(()=>{
+        const current=this.db.pragma('user_version',{simple:true});
+        if(current>4)throw failure('UPGRADE_REQUIRED');
+        if(current===3) {
+          // Guard each column add: a database rewound to an older user_version (or
+          // an interrupted earlier upgrade) may already carry the placement columns.
+          const columns = table => new Set(this.db.prepare(`PRAGMA table_info(${table})`).all().map(column=>column.name));
+          if(!columns('checkpoints').has('placement_json'))this.db.exec('ALTER TABLE checkpoints ADD COLUMN placement_json TEXT;');
+          if(!columns('revisions').has('placement_json'))this.db.exec('ALTER TABLE revisions ADD COLUMN placement_json TEXT;');
+          this.db.exec(`
+            UPDATE checkpoints SET placement_json='{"version":1,"layout":null,"floats":[],"active":null}' WHERE placement_json IS NULL;
+            UPDATE workspaces SET record_json=json_set(record_json,'$.placement',coalesce(json_extract(record_json,'$.placement'),json('{"version":1,"layout":null,"floats":[],"active":null}')),'$.placement_revision',coalesce(json_extract(record_json,'$.placement_revision'),0));
+          `);
+          this.db.pragma('user_version = 4');
         }
       }).immediate();
       this.bundles=createBundleRegistry({db:this.db,root:this.root});
@@ -127,24 +146,35 @@ export class SqliteWorkspaceStore {
   read(id) {
     const row=this.db.prepare('SELECT record_json FROM workspaces WHERE id=?').get(checkId(id));
     if(!row)throw missing();
-    return JSON.parse(row.record_json);
+    const record=JSON.parse(row.record_json);
+    record.placement??=emptyPlacement();
+    record.placement_revision??=0;
+    return record;
   }
   putRecord(record) {
     this.db.prepare('INSERT INTO workspaces VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,record_json=excluded.record_json').run(record.id,record.revision,JSON.stringify(record));
   }
   putRevision(record,created) {
-    this.db.prepare('INSERT INTO revisions VALUES (?,?,?,?)').run(record.id,record.revision,JSON.stringify(record.state),created);
+    if(this.db.pragma('user_version',{simple:true})>=4)
+      this.db.prepare('INSERT INTO revisions VALUES (?,?,?,?,?)').run(record.id,record.revision,JSON.stringify(record.state),created,JSON.stringify(record.placement??emptyPlacement()));
+    else
+      this.db.prepare('INSERT INTO revisions VALUES (?,?,?,?)').run(record.id,record.revision,JSON.stringify(record.state),created);
   }
   insertCheckpoint(workspaceId,entry) {
-    this.db.prepare('INSERT INTO checkpoints VALUES (?,?,?,?,?,?)').run(workspaceId,entry.id,entry.revision,entry.created,entry.label,JSON.stringify(entry.state));
+    if(this.db.pragma('user_version',{simple:true})>=4)
+      this.db.prepare('INSERT INTO checkpoints VALUES (?,?,?,?,?,?,?)').run(workspaceId,entry.id,entry.revision,entry.created,entry.label,JSON.stringify(entry.state),JSON.stringify(entry.placement??emptyPlacement()));
+    else
+      this.db.prepare('INSERT INTO checkpoints VALUES (?,?,?,?,?,?)').run(workspaceId,entry.id,entry.revision,entry.created,entry.label,JSON.stringify(entry.state));
   }
   checkpointList(id) {
     return this.db.prepare('SELECT id,revision,created,label FROM checkpoints WHERE workspace_id=? ORDER BY created DESC,id DESC').all(checkId(id));
   }
   checkpointGet(id,key) {
-    const row=this.db.prepare('SELECT id,revision,created,label,state_json FROM checkpoints WHERE workspace_id=? AND id=?').get(checkId(id),checkId(key));
+    const row=this.db.prepare('SELECT id,revision,created,label,state_json,placement_json FROM checkpoints WHERE workspace_id=? AND id=?').get(checkId(id),checkId(key));
     if(!row)throw missing();
-    const {state_json,...metadata}=row;return {...metadata,state:JSON.parse(state_json)};
+    const {state_json,placement_json,...metadata}=row, state=JSON.parse(state_json);
+    const placement=placement_json?validateDockingPlacement(JSON.parse(placement_json)):emptyPlacement();
+    return {...metadata,state,placement:prunePlacement(placement,state.monitors.map(m=>m.id))};
   }
   commit(command,change) {
     const {workspaceId,actor,operationId,requestHash,intent,action}=command;
@@ -169,6 +199,7 @@ export class SqliteWorkspaceStore {
         // state. The normal base revision CAS covers both state and policy.
         const transition=change.recoveryPolicy;
         if(transition!==undefined && (!previous||typeof transition!=='boolean'||change.checkpointOnly))throw failure('INVALID_OPERATION');
+        if(change.checkpointOnly&&change.placement!==undefined)throw failure('INVALID_OPERATION');
         const now=Date.now();
         let record,checkpoint;
         if(!previous) {
@@ -176,24 +207,34 @@ export class SqliteWorkspaceStore {
           record=change.create();
           if(record?.then||record.id!==workspaceId||record.revision!==1||!record.capability)throw failure('INVALID_OPERATION');
           stateCheck(record.state);
+          if(change.placement!==undefined) {
+            record.placement=validateDockingPlacement(change.placement,{windowIds:record.state.monitors.map(m=>m.id)});
+            record.placement_revision=placementEqual(record.placement,emptyPlacement())?0:record.revision;
+          }
         } else {
           if(previous.state?.version!==1)throw failure('UPGRADE_REQUIRED');
           record=structuredClone(previous);
           if(!change.checkpointOnly) {
             const state=transition!==undefined
               ? (transition?applyOperation(structuredClone(previous.state),{action:'plugin_disable_all'}):structuredClone(previous.state))
-              : change.apply(structuredClone(previous));
+              : change.apply?change.apply(structuredClone(previous)):structuredClone(previous.state);
             if(state?.then)throw failure('INVALID_OPERATION');
             stateCheck(state);
-            const changed=canonicalJson(state)!==canonicalJson(previous.state);
+            const stateChanged=canonicalJson(state)!==canonicalJson(previous.state);
+            const nextPlacement=change.placement===undefined?prunePlacement(previous.placement??emptyPlacement(),state.monitors.map(m=>m.id)):validateDockingPlacement(change.placement,{windowIds:state.monitors.map(m=>m.id)});
+            const placementChanged=!placementEqual(nextPlacement,previous.placement??emptyPlacement());
             record.state=state;
-            if(changed||!change.skipUnchanged||transition!==undefined)record.revision++;
+            if(stateChanged||placementChanged||!change.skipUnchanged||transition!==undefined)record.revision++;
+            record.placement=nextPlacement;
+            if(placementChanged)record.placement_revision=record.revision;
           }
           if(change.checkpointLabel!==undefined && (change.checkpointOnly||record.revision!==previous.revision)) {
-            checkpoint={id:randomUUID(),created:now,label:[...String(change.checkpointLabel||'Checkpoint')].slice(0,160).join(''),revision:previous.revision,state:previous.state};
+            checkpoint={id:randomUUID(),created:now,label:[...String(change.checkpointLabel||'Checkpoint')].slice(0,160).join(''),revision:previous.revision,state:previous.state,placement:previous.placement??emptyPlacement()};
             this.insertCheckpoint(workspaceId,checkpoint);
           }
         }
+        record.placement??=emptyPlacement();
+        record.placement_revision??=0;
         record.recovery_policy=transition===undefined?structuredClone(policy):{held:transition,generation:policy.generation+1};
         if(!safeInteger(record.recovery_policy.generation))throw failure('INVALID_OPERATION');
         // Gate the final validated state for every mutation, including whole-state
@@ -305,6 +346,7 @@ export class SqliteWorkspaceStore {
     return {schema_version:this.db.pragma('user_version',{simple:true}),journal_mode:this.db.pragma('journal_mode',{simple:true}),foreign_keys:this.db.pragma('foreign_keys',{simple:true}),integrity:this.db.pragma('quick_check',{simple:true}),workspaces:this.db.prepare('SELECT count(*) AS n FROM workspaces').get().n,checkpoints:this.db.prepare('SELECT count(*) AS n FROM checkpoints').get().n,receipts:this.db.prepare('SELECT count(*) AS n FROM receipts').get().n,events:this.db.prepare('SELECT count(*) AS n FROM events').get().n,projection_error:!!this.projectionError};
   }
   exportLegacy(destination) {
+    // Archive includes the adjunct; rollback consumers that ignore it lose placement.
     destination=path.resolve(destination);
     if(fs.existsSync(destination))throw failure('DESTINATION_EXISTS');
     const snapshot=this.db.transaction(()=>this.db.prepare('SELECT id FROM workspaces ORDER BY id').all().map(({id})=>({record:this.read(id),checkpoints:this.checkpointList(id).map(entry=>this.checkpointGet(id,entry.id))}))).deferred();

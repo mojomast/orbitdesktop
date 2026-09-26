@@ -1,5 +1,6 @@
 import { moveConnected, supportsConnectedMove } from './connected-dom.ts';
 import type { Monitor, Workspace } from './model';
+import { dockviewToPlacement, placementToDockview, prunePlacement, ensurePlacementWindows, placementEqual, type DockingPlacement } from './docking-placement.ts';
 
 export function dockingRequested(search: string): boolean {
   return new URLSearchParams(search).get('renderer') === 'docking';
@@ -27,6 +28,7 @@ export interface DockingController {
   retainWindows(monitors: Monitor[], selected: string): void;
   placeWindows(elements: Map<string, HTMLElement>, monitors: Monitor[], selected: string, focused: string | null): void;
   layout(): void;
+  applyPlacement(placement: DockingPlacement): void;
   dispose(): void;
 }
 
@@ -35,6 +37,7 @@ export interface DockingOptions {
   getState: () => Workspace;
   onSelect: (id: string) => void;
   onError: (message: string) => void;
+  onPlacementChange?: (placement: DockingPlacement) => void;
 }
 
 type Diagnostic = {
@@ -112,6 +115,19 @@ export async function installDockingRenderer(options: DockingOptions): Promise<D
   // reconciliation or placement command. That activation is a placement side
   // effect, not the user choosing a window, so it must not write v1 selection.
   let activationSuppressed = false;
+  let suppressPlacement = true;
+  let lastEmittedPlacement: DockingPlacement | null = null;
+  let suppressionGeneration = 0;
+  function suppressChanges() {
+    suppressPlacement = true;
+    const generation = ++suppressionGeneration;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (!disposed && generation === suppressionGeneration) {
+        lastEmittedPlacement = dockviewToPlacement(dock.toJSON(), dock.activePanel?.id ?? null);
+        suppressPlacement = false;
+      }
+    }));
+  }
   function suppressActivation() {
     activationSuppressed = true;
     requestAnimationFrame(() => requestAnimationFrame(() => { activationSuppressed = false; }));
@@ -131,12 +147,28 @@ export async function installDockingRenderer(options: DockingOptions): Promise<D
     diagnostic.floating = dock.panels.filter(p => p.api.location.type === 'floating').map(p => p.id);
     diagnostic.active = dock.activePanel?.id ?? null;
   }
+  function emitPlacement() {
+    if (!disposed && !suppressPlacement && options.onPlacementChange) {
+      const placement = dockviewToPlacement(dock.toJSON(), dock.activePanel?.id ?? null);
+      if (!placementEqual(placement, lastEmittedPlacement)) {
+        lastEmittedPlacement = placement;
+        options.onPlacementChange(placement);
+      }
+    }
+  }
+  // Dockview reports grid/sash changes separately from panel moves. Floating
+  // dragging also emits an end event; read its final frame after the drag.
   const subscriptions = [
     dock.onDidActivePanelChange(({ panel }) => {
       refresh();
       if (!reconciling && !activationSuppressed && panel && ids.includes(panel.id)) options.onSelect(panel.id);
+      emitPlacement();
     }),
-    dock.onDidAddPanel(refresh), dock.onDidRemovePanel(refresh), dock.onDidMovePanel(refresh),
+    dock.onDidAddPanel(() => { refresh(); emitPlacement(); }),
+    dock.onDidRemovePanel(() => { refresh(); emitPlacement(); }),
+    dock.onDidMovePanel(() => { refresh(); emitPlacement(); }),
+    dock.onDidLayoutChange(emitPlacement),
+    dock.onDidMutateLayout(emitPlacement),
   ];
 
   function retainWindows(monitors: Monitor[], selected: string): void {
@@ -148,6 +180,7 @@ export async function installDockingRenderer(options: DockingOptions): Promise<D
     }
     reconciling = true;
     suppressActivation();
+    suppressChanges();
     try {
       const wanted = new Set(nextIds);
       for (const panel of dock.panels) if (!wanted.has(panel.id)) dock.removePanel(panel);
@@ -159,13 +192,8 @@ export async function installDockingRenderer(options: DockingOptions): Promise<D
           ...(dock.panels.length ? { position: { referencePanel: dock.panels[dock.panels.length - 1], direction: 'right' as const } } : {}),
         });
       }
-      // A v1 reorder is an explicit new docked sequence; ordinary reconciliation
-      // keeps transient tab/floating placement intact.
-      if (ids.length && ids.join('\0') !== nextIds.join('\0')) {
-        for (let i = 1; i < nextIds.length; i++) {
-          dock.getPanel(nextIds[i])!.api.moveTo({ group: dock.getPanel(nextIds[i - 1])!.group, position: 'right' });
-        }
-      }
+      // The v1 monitor list and docking adjunct have distinct responsibilities.
+      // Reorder/add/remove must not dissolve surviving tabs or floating groups.
       ids = nextIds;
       if (dock.getPanel(selected)) dock.getPanel(selected)!.api.setActive();
       const previousTarget = targetSelect.value;
@@ -174,6 +202,27 @@ export async function installDockingRenderer(options: DockingOptions): Promise<D
       windowSelect.value = wanted.has(selected) ? selected : nextIds[0] ?? '';
       targetSelect.value = previousTarget !== windowSelect.value && wanted.has(previousTarget)
         ? previousTarget : nextIds.find(id => id !== windowSelect.value) ?? windowSelect.value;
+      refresh();
+      layout();
+    } finally { reconciling = false; }
+  }
+
+  function applyPlacement(placement: DockingPlacement): void {
+    if (disposed) return;
+    let pruned = ensurePlacementWindows(prunePlacement(placement, ids), ids);
+    if (!ids.length) return;
+    if (!pruned.layout && !pruned.floats.length) {
+      // Empty/legacy checkpoints mean the default grid, not "keep whatever
+      // transient tabs/floats happened to be on screen before restore".
+      pruned = dockviewToPlacement({grid:{orientation:'HORIZONTAL',root:{type:'branch',data:ids.map(id=>({type:'leaf' as const,data:{id,views:[id]},size:1}))}}}, options.getState().selected);
+    }
+    reconciling = true;
+    suppressActivation();
+    suppressChanges();
+    try {
+      // The pure structural adapter deliberately has a broader type than
+      // Dockview's runtime JSON, while producing its required fields.
+      dock.fromJSON(placementToDockview(pruned, options.getState().monitors.map(m => ({ id: m.id, title: m.name }))) as Parameters<typeof dock.fromJSON>[0], { reuseExistingPanels: true });
       refresh();
       layout();
     } finally { reconciling = false; }
@@ -220,6 +269,17 @@ export async function installDockingRenderer(options: DockingOptions): Promise<D
   observer.observe(options.host);
   observer.observe(grid);
   const abort = new AbortController();
+  // Dockview 8.3.1 does not expose floating-group drag/resize completion on
+  // DockviewApi. Pointer release catches final frames even when release occurs
+  // outside the grid; deduplication avoids re-saving toolbar/tab/sash events.
+  let pointerStartedInDock = false;
+  root.addEventListener('pointerdown', () => { pointerStartedInDock = true; }, { signal: abort.signal });
+  window.addEventListener('pointerup', () => {
+    if (!pointerStartedInDock) return;
+    pointerStartedInDock = false;
+    requestAnimationFrame(emitPlacement);
+  }, { signal: abort.signal });
+  window.addEventListener('pointercancel', () => { pointerStartedInDock = false; }, { signal: abort.signal });
   windowSelect.addEventListener('change', () => {
     if (targetSelect.value === windowSelect.value) targetSelect.value = ids.find(id => id !== windowSelect.value) ?? windowSelect.value;
   }, { signal: abort.signal });
@@ -234,6 +294,7 @@ export async function installDockingRenderer(options: DockingOptions): Promise<D
     // select or a user's tab activation should flow back into v1 selection.
     reconciling = true;
     suppressActivation();
+    suppressChanges();
     try {
       if (!ids.includes(id) || !panel) error = 'Unknown docking window.';
       else if (command === 'tab' || command === 'dock-left' || command === 'dock-right') {
@@ -257,6 +318,15 @@ export async function installDockingRenderer(options: DockingOptions): Promise<D
     if (error) options.onError(error);
     refresh();
     layout();
+    // The explicit toolbar action is the user edit. Async Dockview notifications
+    // remain suppressed so they cannot echo this snapshot back as another save.
+    if (!error && command !== 'select') {
+      const placement = dockviewToPlacement(dock.toJSON(), dock.activePanel?.id ?? null);
+      if (!placementEqual(placement, lastEmittedPlacement)) {
+        lastEmittedPlacement = placement;
+        options.onPlacementChange?.(placement);
+      }
+    }
     if (button.isConnected) button.focus({ preventScroll: true });
   }, { signal: abort.signal });
   function tick() {
@@ -270,7 +340,7 @@ export async function installDockingRenderer(options: DockingOptions): Promise<D
   layout();
 
   return {
-    surfaces, retainWindows, placeWindows, layout,
+    surfaces, retainWindows, placeWindows, layout, applyPlacement,
     dispose() {
       if (disposed) return;
       disposed = true;

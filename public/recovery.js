@@ -24,7 +24,8 @@
     workspace_id: document.querySelector('[data-testid="meta-workspace-id"]'),
     revision: document.querySelector('[data-testid="meta-revision"]'),
     observed_revision: document.querySelector('[data-testid="meta-observed-revision"]'),
-    browser_seen: document.querySelector('[data-testid="meta-browser-seen"]')
+    browser_seen: document.querySelector('[data-testid="meta-browser-seen"]'),
+    placement: document.querySelector('[data-testid="meta-placement"]')
   };
   const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
   let revision = null;
@@ -63,6 +64,19 @@
     fields.revision.textContent = String(data.revision);
     fields.observed_revision.textContent = String(data.observed_revision);
     fields.browser_seen.textContent = data.browser_seen === null ? '—' : String(data.browser_seen);
+    const placement = data.placement;
+    if (!placement || (!placement.layout && !placement.floats?.length)) {
+      fields.placement.textContent = 'Placement: none';
+    } else {
+      let groups = 0;
+      function visit(node) {
+        if (!node) return;
+        if (node.type === 'group') groups++;
+        else if (node.type === 'branch') { visit(node.first); visit(node.second); }
+      }
+      visit(placement.layout);
+      fields.placement.textContent = `Placement: ${groups} docked groups, ${placement.floats.length} floats, active ${placement.active || 'none'}, revision ${data.placement_revision ?? 0}`;
+    }
     revision = data.revision;
     showRecoveryPolicy(data.recovery_policy);
     updateButtons();

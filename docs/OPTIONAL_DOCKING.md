@@ -11,14 +11,13 @@ The normal Orbit renderer places each window as a movable desktop window inside
 `.desktop-host`. The optional docking renderer keeps that same DOM and the same
 `PaneView` runtimes, but positions each live `<article class="monitor">` element
 over a rectangle owned by a pinned `dockview-core@8.3.1` grid. Windows therefore
-gain library-provided **transient** tabs, docking and floating placement while
+gain library-provided tabs, docking and floating placement while
 Orbit keeps owning pane identity, iframe document retention, PTY/WebSocket
 lifetime, v1 layout, focus/spatial behavior and checkpoints.
 
-- v1 `Workspace` (windows, panes, kind, URL, plugins) remains the **only**
-  authoritative persisted layout.
-- Dockview tab/group/floating placement is transient: it is **not** written to
-  v1, localStorage, the server or checkpoints, and it **resets on reload**.
+- v1 `Workspace` (windows, panes, kind, URL, plugins) remains the authoritative
+  pane/runtime layout. Docking placement is a separate versioned per-workspace
+  adjunct, persisted only when the opt-in renderer is active.
 - Layout-only changes (select, tab, dock, float, resize, reorder, spatial, focus)
   reuse the existing connected monitor elements through
   `src/connected-dom.ts` (`Element.moveBefore`) and must not dispose, reload or
@@ -26,7 +25,7 @@ lifetime, v1 layout, focus/spatial behavior and checkpoints.
 - The default renderer is behaviorally unchanged when the opt-in is absent.
 
 The rendering approach and its measured limits were established by
-[the docking spike](ORBIT_DOCKING_SPIKE.md): Dockview owns transient grid/tab/
+[the docking spike](ORBIT_DOCKING_SPIKE.md): Dockview owns grid/tab/
 floating placement, Orbit owns runtime identity. See
 [runtime continuity](RUNTIME_CONTINUITY.md) for the default connected-DOM gate.
 
@@ -62,8 +61,7 @@ http://127.0.0.1:<port>/?renderer=docking
   already-floating window, return a docked window, unknown target) are rejected
   atomically with a status message; panels, placement and v1 state are unchanged
   and no runtime is disposed.
-- No server route, credential, grant, observation or privileged plugin API is
-  added. Dockview close/tab-action controls that could destroy a runtime are
+- No new credential, grant or privileged plugin API is added. Dockview close/tab-action controls that could destroy a runtime are
   hidden; closing panes still goes through the normal Orbit confirmation and
   workspace operations.
 
@@ -90,55 +88,57 @@ silently close a pane.
 
 ## Persistence and recovery
 
-- Tabs, dock direction, floating position and transient geometry are not saved
-  and are intentionally absent after reload. Reloading shows the v1 layout.
-- Normal workspace sync, browser acknowledgement, checkpoints and restore are the
-  authoritative behavior and are reused unchanged. Checkpoints retain a document
-  only while its pane identity/kind/URL still corresponds to a live runtime; they
-  cannot resurrect a document that a URL change or close deliberately disposed.
+- Tabs, split ratios, floating frames and the active docking window are saved
+  through the additive `placement_save` command as a versioned per-workspace
+  adjunct with shared workspace-revision CAS and durable command receipts.
+  Reloading `?renderer=docking` restores that saved arrangement. Opening the
+  default renderer leaves its v1 layout and behavior unchanged.
+- Placement references stable v1 window ids; it is never written to v1 state,
+  v1 layout or localStorage. Layout-only movement retains PaneViews and does
+  not dispose panes. A full page reload creates fresh iframe documents but a
+  reconnected terminal can reattach to its surviving tmux shell.
+- Offline or rejected saves report an unsaved/conflict status rather than
+  claiming persistence. An authoritative remote placement replaces pending
+  local placement with a visible conflict notice. Recovery reads expose a
+  placement summary independently of Dockview; checkpoint restore restores
+  placement, and an old checkpoint without placement restores an empty adjunct.
+- Checkpoints retain a document only while its pane identity/kind/URL still
+  corresponds to a live runtime; they cannot resurrect a document disposed by
+  a URL change or close.
 - Closing a pane or changing a browser URL still disposes/replaces that runtime;
   docking adds no way to preserve it.
 
 ## Verification
 
-Measured on this checkout (Chromium 145.0.7632.6 via the pinned Playwright
-environment; no owner runtime, server, tmux socket or profile was used):
+Existing opt-in docking acceptance evidence (Chromium 145.0.7632.6, disposable
+runtime) predates versioned placement and is recorded in the handoff. For the
+placement change, the focused checks are:
 
-- `tests/docking-renderer.test.mjs`: **4/4**. Full build/Node and managed-provider
-  verification is recorded in [the handoff](ORBIT_EVOLUTION_HANDOFF.md).
-- `tests/docking-workspace.browser.py --pty`: **85 checks / 73 layout and
-  continuity transitions pass, 0 fail**, exactly **1 terminal WebSocket**, with
-  retained sandboxed iframe nonces/drafts/DOM identities, a fresh private-socket
-  shell marker + retained variable + original PID at every transition, a real
-  **45 px sash drag that changed measured panel geometry**, keyboard focus
-  restoration, the self-target rejection controls, plugin publish/enable/update/
-  disable, recovery-hold activation rejection, the separate-context missing-
-  `moveBefore` explicit refusal (default placement still operational), and the
-  URL-change / `close_pane` disposal negative controls. Browser acknowledgement
-  was proved against the normal `main.ts` committed controller state (frame.z
-  excluded), with the **server's `observed_revision` reaching the committed
-  revision**, i.e. the real workspace path, not a module-only fixture.
-- Lead review found opaque grid/floating backgrounds obscuring live panes despite
-  passing identity checks. Those backgrounds are now transparent. A screenshot
-  pixel probe verifies actual iframe paint, not only DOM visibility; synthetic
-  screenshots were inspected outside Git. Additional regressions verify Windows
-  focus/unfocus and that hidden docking tabs become visible when entering Spatial.
-- `tests/runtime-continuity.browser.py` (default renderer, browser-only):
-  **93/93 transitions pass** in the delegated run. The parent also runs the full
-  **94-transition PTY** gate before final acceptance; see the handoff for results.
+- `node --experimental-strip-types --test tests/docking-renderer.test.mjs tests/docking-placement.test.mjs`: **10 passed**.
+- `npx tsc --noEmit` and `npm run check`: passed; the full Node suite is **255/255**
+  on this checkout.
+- `tests/docking-persistence.browser.py`: **PASS** (Chromium 145.0.7632.6, disposable
+  runtime). It grouped two windows and floated a third, the server persisted the
+  adjunct (`placement_revision` 3), a reload restored the grouped + floating
+  arrangement and the float frame within 6 px, hydration did **not** autosave
+  (revision unchanged), the iframe document was fresh, and the reconnected tmux
+  shell reported the same PID.
+- `tests/docking-workspace.browser.py --pty`: **exit 0, 86 checks pass**, including
+  the physical sash drag and the real controller checkpoint restore now carrying
+  placement.
 
 ```sh
 npm run check
 PLAYWRIGHT_BROWSERS_PATH=/tmp/opencode/orbit-evolution-browsers \
-  /tmp/opencode/orbit-evolution-browser-venv/bin/python tests/docking-workspace.browser.py --pty
+  /tmp/opencode/orbit-evolution-browser-venv/bin/python tests/docking-persistence.browser.py
 ```
 
 The browser gate copies the built UI/server into a disposable runtime (fresh
 token, workspace UUID, HOME, cwd, private tmux socket and `/dev/null` config) and
-drives `?renderer=docking` in real Chromium. The private tmux socket name must
-stay short so the unix socket path fits the OS limit; the harness uses a short
-`orbit-dock-` prefix. It never contacts the owner's server, tmux socket or
-profile.
+drives `?renderer=docking` in real Chromium. Private tmux socket names must stay
+short so the unix socket path fits the OS limit (the harnesses use short
+`orbit-dock-` / `orbit-persist-` prefixes). They never contact the owner's
+server, tmux socket or profile.
 
 ## Limitations
 

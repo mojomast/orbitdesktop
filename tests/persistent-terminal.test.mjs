@@ -80,3 +80,44 @@ test('persistent host shell retains variable and PID across PTY client disconnec
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('spawned host shell never inherits owner/agent secrets (HERMES_PROFILES_JSON, HERMES_API_KEY, ORBIT_TOKEN)', async t => {
+  const { mkdir } = await import('node:fs/promises');
+  const root = await mkdtemp(path.join(os.tmpdir(), 'orbit-env-'));
+  const cwd = path.join(root, 'cwd');
+  await mkdir(cwd, { recursive: true });
+  const secret = 'super-secret-profiles-json-value';
+  const provider = new LocalHostProvider({
+    cwd,
+    home: root,
+    tmuxSocket: `orbit-env-${randomUUID()}`,
+    tmuxConfig: '/dev/null',
+    env: { PATH: process.env.PATH, HOME: root, SHELL: '/bin/bash',
+      HERMES_PROFILES_JSON: secret, HERMES_API_KEY: 'hermes-key-secret', ORBIT_TOKEN: 'orbit-token-secret' },
+  });
+  const shell = provider.spawn({ cols: 80, rows: 24 });
+  t.after(() => { try { shell.kill(); } catch {} });
+  const output = await new Promise((resolve, reject) => {
+    let data = '';
+    const timer = setTimeout(() => { subscription.dispose(); reject(Error(`Timed out polling spawned environment: ${data}`)); }, 8000);
+    const subscription = shell.onData((chunk) => {
+      data += chunk;
+      // `DONEMARKz` only ever appears in the shell's output, never in the echoed
+      // command text (`DONEMARK%s`), so this cannot fire on input echo alone.
+      if (data.includes('DONEMARKz')) {
+        clearTimeout(timer);
+        subscription.dispose();
+        resolve(data);
+      }
+    });
+    setTimeout(() => shell.write("printenv; printf 'DONEMARK%s\\n' z\r"), 250);
+  });
+  try {
+    assert.match(output, /PATH=/, 'environment dump must have run');
+    assert.equal(output.includes(secret), false, 'HERMES_PROFILES_JSON must not reach the spawned shell');
+    assert.equal(output.includes('hermes-key-secret'), false, 'HERMES_API_KEY must not reach the spawned shell');
+    assert.equal(output.includes('orbit-token-secret'), false, 'ORBIT_TOKEN must not reach the spawned shell');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

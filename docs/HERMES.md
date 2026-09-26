@@ -36,7 +36,7 @@ Live acceptance: `tests/browser-hermes-jobs-live.py` displayed seven actual gate
 
 **Tool activity** in the tools menu fetches the current Orbit conversation's actual persisted tool calls, arguments, and results from Hermes. It polls every three seconds while open. Expand entries to inspect commands, file operations, and tool output. This is persisted history, not SSE streaming: in-flight tools may appear only after persistence. The latest 80 message records are queried, with bounded/truncated output. System instructions are excluded. Tool results can contain private file contents or credentials produced by tools; this owner-authenticated view is not a secrets-redaction boundary. Nothing is rendered as HTML.
 
-The server retains upstream authentication and checks that steering targets the requested Orbit session. Non-Orbit session identifiers are rejected. Tool activity is read-only; it does not rerun commands. Existing Stop and approval controls remain separate.
+The server retains upstream authentication and checks that steering targets the pane's bound profile and session. Existing non-Orbit sessions require validated owner selection through the pane controls; unbound legacy requests remain Orbit-namespaced. Tool activity is read-only; it does not rerun commands. Existing Stop and approval controls remain separate.
 
 Live verification: `tests/browser-hermes-runtime-live.py` starts a real harmless terminal tool call, sends native steering through Orbit, observes the changed final answer, and verifies the real terminal arguments/result in the activity viewer. No mocked Hermes replies were used for that acceptance test.
 
@@ -63,11 +63,16 @@ Set these server environment variables (never Vite/client variables):
 
 - `HERMES_API_URL`: the Hermes API origin, e.g. `http://127.0.0.1:28643`.
 - `HERMES_API_KEY`: the configured profile's API_SERVER_KEY.
+- `HERMES_PROFILES_JSON` (optional): private server-side JSON allowlist of profiles. Example: `[{"id":"studio","label":"Studio","apiUrl":"http://127.0.0.1:28643/p/studio","apiKey":"REPLACE_WITH_PRIVATE_KEY"}]`. Each entry requires a unique safe ID, display label, HTTP(S) **base URL**, and matching profile key. Orbit appends API paths to this base verbatim: use `/p/studio` for a multiplexed gateway, or the dedicated profile gateway's base URL for older installations. The Orbit profile ID does not select an upstream global profile or imply a URL prefix. The legacy `HERMES_API_URL`/`HERMES_API_KEY` pair remains the `default` profile; do not duplicate `default` in JSON. Alternatively define `default` in JSON without the legacy pair. Keep this JSON in private service environment, never a Vite variable or checked-in file. Invalid configuration fails closed.
 - `ORBIT_TOKEN`: a private 32+ character Orbit access token.
-- `ORBIT_PUBLIC_ORIGIN`: exact private HTTPS origin when using Tailscale Serve.
+- `ORBIT_PUBLIC_ORIGIN`: exact externally served HTTP(S) origin when using a reverse proxy. Tailscale Serve is optional, not required for local operation or other HTTPS deployments.
 - `PORT`: loopback listener port.
 
 The existing Connect host token unlocks both shells and agent chat. Never send the Hermes API key to the browser. `.env.deploy` is chmod 0600, Git-ignored, and excluded from Docker build contexts. `HERMES_API_KEY` and `ORBIT_TOKEN` are removed from the spawned terminal's explicit environment. This is not isolation from a malicious same-UID process or Docker administrator; Orbit remains a trusted single-owner service.
+
+Each agent pane now has a server-authoritative profile/session binding and revision. The authenticated profile catalog returns IDs and labels only; bounded session listings and server-loaded user/assistant text history omit upstream private fields. Switching validates the target session upstream before committing; New chat instead issues a fresh `orbit-<UUID>` ID. Stale revisions and active runs block switches, and requests are routed with the selected profile's URL/key rather than a global active-profile mutation. Legacy clients bind only an Orbit-namespaced conversation to `default`; subsequent pane requests must carry the bound profile/session/revision. A non-Orbit Hermes session may only be used after validated pane selection. The build queue remains default-profile only.
+
+The session catalog and metadata/messages endpoints are based on the published Hermes API contract and have not been exercised against the currently installed gateway version. An unsupported catalog reports that it is unavailable; selection failures leave the original binding intact. Orbit cannot prove that an external Hermes client has no active run merely from session timestamps, nor can it guarantee recovery of a run whose creation response was lost. Reconcile uncertain actions upstream; do not use a timestamp as an active-run lock. Profile-specific endpoint deployment must be verified with the installed gateway before relying on a new profile.
 
 ## Prior container deployment (superseded)
 
@@ -101,9 +106,9 @@ A request that loses its network connection while creating a run may have reache
 
 ## Security
 
-Every bridge action requires exact Origin/Host validation and Orbit bearer auth. Only the configured Hermes origin is callable, redirects are rejected, and API paths/actions are allowlisted. Run status/stop/approval operations verify the upstream run belongs to the supplied Orbit-namespaced session, so they cannot operate on dashboard threads. Client-supplied models, system instructions, and histories are ignored. Payloads and request durations are bounded; upstream errors are sanitized. Only once/deny approvals are allowed, not persistent approval rules.
+Every bridge action requires exact Origin/Host validation and Orbit bearer auth. Only configured Hermes base URLs are callable, redirects are rejected, and API paths/actions are allowlisted. Run status/stop/approval operations verify the upstream run belongs to the selected profile/session and fence pane requests by binding revision. Client-supplied models, system instructions, and replay histories are ignored. Payloads and request durations are bounded; upstream errors are sanitized. Only once/deny approvals are allowed, not persistent approval rules.
 
-Hermes tools can operate on the Hermes host, beyond the terminal container. Keep the Orbit token private and limit Tailscale access to trusted devices. This is a single-owner app, not a multi-tenant permission boundary.
+Hermes tools can operate on the Hermes host, beyond the terminal container. Keep the Orbit token private and restrict any network access to trusted devices. Tailscale is one optional way to do that. This is a single-owner app, not a multi-tenant permission boundary.
 
 ## Verification
 

@@ -1,20 +1,25 @@
 import fs from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { createSharedChats } from './shared-chats.mjs';
 import { automation } from './automation.mjs';
 import { tokenMatches, allowedRequest } from './security.mjs';
 import { createBuildQueue } from './build-queue.mjs';
+import { createAgentProfiles, validSessionId, sanitizeSessions, sanitizeHistory } from './agent-profiles.mjs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const sessionPattern = /^orbit-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const runPattern = /^run_[a-zA-Z0-9_-]{8,100}$/;
-const instructions = 'You are Hermes, accessed through the owner’s Comet/Orbit Desktop agent chat. This is a separate conversation using your configured profile, tools and memory, not a continuation of another dashboard thread. Orbit terminal panes run as the owner on the host. Your agent tools still run in the configured Hermes environment. Use plain text in replies. Do not claim to see screen pixels, iframe contents, or terminal buffers unless supplied. Follow normal tool approval policies.';
+const instructions = 'You are Hermes, accessed through the owner’s Comet/Orbit Desktop agent chat. This pane uses its explicitly selected profile and conversation, which may resume a saved Hermes session. Orbit terminal panes run as the owner on the host. Your agent tools still run in the configured Hermes environment. Use plain text in replies. Do not claim to see screen pixels, iframe contents, or terminal buffers unless supplied. Follow normal tool approval policies.';
 
-export function createAgentHandler({ token, port, devOrigins, reply, workspaceContext, workspaceRead, runtimeDirectory = process.env.ORBIT_RUNTIME_DIR || fileURLToPath(new URL('../.runtime/', import.meta.url)), apiUrl = process.env.HERMES_API_URL, apiKey = process.env.HERMES_API_KEY, fetchImpl = fetch }) {
-  async function upstream(path, body, method) {
-    const r = await fetchImpl(`${apiUrl.replace(/\/$/, '')}${path}`, {
+export function createAgentHandler({ token, port, devOrigins, reply, workspaceContext, workspaceRead, runtimeDirectory = process.env.ORBIT_RUNTIME_DIR || fileURLToPath(new URL('../.runtime/', import.meta.url)), apiUrl = process.env.HERMES_API_URL, apiKey = process.env.HERMES_API_KEY, profiles, profilesJson = process.env.HERMES_PROFILES_JSON, fetchImpl = fetch }) {
+  let configuration;
+  try { configuration = createAgentProfiles({profiles,profilesJson,apiUrl,apiKey}); } catch { configuration = null; }
+  const endpoint = (profile, route) => `${profile.apiUrl.replace(/\/$/, '')}${route}`;
+  async function upstreamFor(profile, route, body, method) {
+    const r = await fetchImpl(endpoint(profile,route), {
       method: method || (body === undefined ? 'GET' : 'POST'),
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      headers: { Authorization: `Bearer ${profile.apiKey}`, 'Content-Type': 'application/json' },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       signal: AbortSignal.timeout(20000),
       redirect: 'error',
@@ -39,7 +44,9 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
     if (req.method !== 'POST' || !allowedRequest(req, port, devOrigins)) return reply(res, 403, { error: 'Origin rejected' });
     const auth = req.headers.authorization || '';
     if (!auth.startsWith('Bearer ') || !tokenMatches(auth.slice(7), token)) return reply(res, 401, { error: 'Use Connect host with the Orbit session token first.' });
-    if (!apiUrl || !apiKey) return reply(res, 503, { error: 'Hermes is not configured on this Orbit server.' });
+    res.setHeader('Cache-Control','no-store');
+    if (!configuration || !configuration.list.length) return reply(res, 503, { error: 'Hermes is not configured on this Orbit server.' });
+    let paneLock;
     try {
       const chunks = []; let bytes = 0;
       for await (const part of req) {
@@ -50,24 +57,65 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
       const raw = Buffer.concat(chunks).toString('utf8');
       let body;
       try { body = JSON.parse(raw); } catch { return reply(res, 400, { error: 'Invalid JSON' }); }
-      if (!body || typeof body !== 'object' || !sessionPattern.test(body.session_id || '')) return reply(res, 400, { error: 'Invalid Orbit conversation.' });
+      if (!body || typeof body !== 'object') return reply(res,400,{error:'Invalid request.'});
+      if (body.action === 'profiles') return reply(res,200,{profiles:configuration.list,default_profile_id:'default'});
+      const profileId = body.profile_id === undefined ? 'default' : body.profile_id;
+      const profile = configuration.get(profileId);
+      // A removed profile must fail closed for execution, but the owner still
+      // needs to read the binding and explicitly select a configured replacement.
+      if (!profile && !['shared_chat','sessions','select_session'].includes(body.action)) return reply(res,400,{error:'Unknown Hermes profile.'});
+      const upstream = (route, payload, method) => upstreamFor(profile,route,payload,method);
+      if (!validSessionId(body.session_id) || (!body.pane_id && !sessionPattern.test(body.session_id))) return reply(res, 400, { error: 'Invalid Orbit conversation.' });
       if (body.pane_id) {
         if (!/^[a-f0-9-]{36}$/.test(body.workspace_id || '') || !/^[a-f0-9-]{36}$/.test(body.pane_id)) return reply(res,400,{error:'Invalid shared pane'});
         validatePane(body);
+        const candidateLock = `pane:${body.workspace_id}:${body.pane_id}`;
+        if(shared.locks.has(candidateLock)) return reply(res,409,{error:'This pane is busy; retry shortly.'});
+        paneLock = candidateLock;
+        shared.locks.add(paneLock);
+        if (body.action === 'sessions') {
+          const target = configuration.get(body.target_profile_id);
+          if (!target) return reply(res,400,{error:'Unknown Hermes profile.'});
+          try { const data = await upstreamFor(target,'/api/sessions?limit=100&offset=0'); return reply(res,200,{sessions:sanitizeSessions(data).data,supported:true}); }
+          catch(error) { if (error.status === 404) return reply(res,200,{sessions:[],supported:false,note:'Session catalog unavailable on this Hermes version.'}); throw error; }
+        }
         if (body.action === 'shared_chat') {
-          if(body.replace === true) {
-            const current = shared.read(body.workspace_id,body.pane_id);
-            if(current?.run || current?.session !== body.session_id || !sessionPattern.test(body.initial?.session || '')) return reply(res,409,{error:'Conversation changed or is still running.'});
-            shared.write(body.workspace_id,body.pane_id,{session:body.initial.session,messages:(body.initial.messages || []).filter(m=>['user','assistant'].includes(m.role)&&typeof m.text==='string').slice(-100)});
-          }
+          if(body.replace === true) return reply(res,409,{error:'Use validated session selection to change conversations.'});
           const state = shared.bind(body.workspace_id,body.pane_id,body.initial);
           return reply(res,200,{state});
         }
         const linked = shared.read(body.workspace_id,body.pane_id);
-        if (body.action === 'start' && !linked) return reply(res,409,{error:'This chat has not linked yet. Open it on the desktop and reload once.'});
-        if (linked && linked.session !== body.session_id) return reply(res,409,{error:'This pane is linked to another conversation. Wait for synchronization.'});
+        if (!linked) return reply(res,409,{error:'This chat has not linked yet. Open it on the desktop and reload once.'});
+        const revision = body.expected_binding_revision;
+        if (body.action === 'select_session') {
+          if (revision !== linked.binding_revision || linked.session !== body.session_id || linked.profile_id !== profileId || linked.run || shared.locks.has(`session:${linked.profile_id}:${linked.session}`)) return reply(res,409,{error:'Conversation changed or is still running.'});
+          const target = configuration.get(body.target_profile_id);
+          if (!target) return reply(res,400,{error:'Unknown Hermes profile.'});
+          const creating = body.target_session_id === undefined || body.target_session_id === null;
+          const targetId = creating ? `orbit-${randomUUID()}` : body.target_session_id;
+          if (!validSessionId(targetId)) return reply(res,400,{error:'Invalid Hermes session.'});
+          if (shared.locks.has(`session:${target.id}:${targetId}`) || shared.hasActive(target.id,targetId,body.workspace_id,body.pane_id)) return reply(res,409,{error:'This conversation is already running.'});
+          let title;
+          let messages=[];
+          try { if (!creating) {
+            const metadata = await upstreamFor(target,`/api/sessions/${encodeURIComponent(targetId)}`);
+            if (metadata.id !== targetId) return reply(res,404,{error:'Hermes session not found.'});
+            title = typeof metadata.title === 'string' ? metadata.title.slice(0,100) : undefined;
+            const history = await upstreamFor(target,`/api/sessions/${encodeURIComponent(targetId)}/messages?limit=80&offset=0`);
+            messages = sanitizeHistory(history);
+          }
+          } catch(error) { if (error.status === 404) return reply(res,404,{error:'Hermes session not found.'}); throw error; }
+           const current = shared.read(body.workspace_id,body.pane_id);
+           validatePane(body);
+           if (shared.locks.has(`session:${target.id}:${targetId}`) || shared.hasActive(target.id,targetId,body.workspace_id,body.pane_id)) return reply(res,409,{error:'This conversation is already running.'});
+           if (current.binding_revision !== revision || current.session !== body.session_id || current.profile_id !== profileId || current.run) return reply(res,409,{error:'Conversation changed or is still running.'});
+          const state = shared.write(body.workspace_id,body.pane_id,{session:targetId,profile_id:target.id,binding_revision:revision+1,messages,title});
+          return reply(res,200,{state});
+        }
+        if(linked.session !== body.session_id || linked.profile_id !== profileId || revision !== linked.binding_revision) return reply(res,409,{error:'This pane is linked to another conversation. Wait for synchronization.'});
       }
       if (body.action === 'build_queue') {
+        if (profileId !== 'default') return reply(res,409,{error:'Build queue is only available for the default Hermes profile.'});
         buildQueue ||= createBuildQueue({ directory: path.join(runtimeDirectory,'build-queue'), upstream, context: workspaceContext });
         try {
           if (body.operation === 'approvals') return reply(res, 200, { approvals: await buildQueue.approvals(body) });
@@ -92,8 +140,10 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
         if (run.session_id !== body.session_id) return reply(res, 404, { error: 'Run not found in this Orbit conversation.' });
         const caps = await upstream('/v1/capabilities');
         if (!caps.features?.run_events_sse) return reply(res, 409, { error: 'Streaming unavailable; use status polling.' });
+        // Read-only streams must not starve status/stop/approval requests.
+        if (paneLock) { shared.locks.delete(paneLock); paneLock = undefined; }
         const abort = new AbortController(); res.on('close', () => abort.abort());
-        const stream = await fetchImpl(`${apiUrl.replace(/\/$/, '')}/v1/runs/${body.run_id}/events`, { headers: { Authorization: `Bearer ${apiKey}` }, signal: abort.signal, redirect: 'error' });
+        const stream = await fetchImpl(endpoint(profile,`/v1/runs/${body.run_id}/events`), { headers: { Authorization: `Bearer ${profile.apiKey}` }, signal: abort.signal, redirect: 'error' });
         if (!stream.ok) return reply(res, 502, { error: 'Activity stream unavailable; use status polling.' });
         res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' });
         try { for await (const chunk of stream.body) { if (!res.write(chunk)) await new Promise(resolve => { res.once('drain', resolve); res.once('close', resolve); }); if (res.destroyed) break; } } finally { abort.abort(); res.end(); }
@@ -142,11 +192,12 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
       }
       if (body.action === 'start') {
         if (typeof body.input !== 'string' || !body.input.trim() || body.input.length > 100000) return reply(res, 400, { error: 'Enter a message of 1–100,000 characters.' });
-        const lock = body.session_id;
+        const lock = `session:${profileId}:${body.session_id}`;
         if(shared.locks.has(lock)) return reply(res,409,{error:'A message is already starting in this conversation.'});
         if(body.pane_id) {
           const current = shared.read(body.workspace_id,body.pane_id);
           if(current?.run) return reply(res,409,{error:'This conversation is already running on another device.'});
+          if(shared.hasActive(profileId,body.session_id,body.workspace_id,body.pane_id)) return reply(res,409,{error:'This conversation is already running in another pane.'});
         }
         shared.locks.add(lock);
         try {
@@ -173,7 +224,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
         }
         const data = await upstream('/v1/runs', { input: body.input.trim(), session_id: body.session_id, instructions: instructions + context, conversation_history });
         if(body.pane_id) {
-          const current = shared.read(body.workspace_id,body.pane_id) || {session:body.session_id,messages:[]};
+           const current = shared.read(body.workspace_id,body.pane_id);
           shared.write(body.workspace_id,body.pane_id,{...current,run:data.run_id,messages:[...current.messages,{role:'user',text:body.input.trim()}].slice(-100)});
         }
         return reply(res, 202, { run_id: data.run_id, status: data.status });
@@ -205,12 +256,14 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
       }
       if(body.pane_id && ['completed','failed','cancelled','interrupted'].includes(run.status)) {
         const current = shared.read(body.workspace_id,body.pane_id);
-        if(current?.run === body.run_id) shared.write(body.workspace_id,body.pane_id,{...current,run:undefined,messages:[...current.messages,{role:'assistant',text:run.output || `Run ${run.status}.`}].slice(-100)});
+        if(current?.run === body.run_id && current.session === body.session_id && current.profile_id === profileId) shared.write(body.workspace_id,body.pane_id,{...current,run:undefined,messages:[...current.messages,{role:'assistant',text:run.output || `Run ${run.status}.`}].slice(-100)});
       }
       return reply(res, 200, { run_id: run.run_id, status: run.status, output: typeof run.output === 'string' ? run.output : '', error: run.error ? 'Hermes reported a run failure. Try again or check the Hermes dashboard.' : undefined, last_event: run.last_event, approvals });
     } catch (error) {
       if (res.headersSent) { res.end(); return; }
       return reply(res, error.status || 502, { error: error.status ? error.message : 'Cannot reach Hermes right now. Your run may still be active; retry status before sending again.' });
+    } finally {
+      if(paneLock) shared.locks.delete(paneLock);
     }
   };
 }

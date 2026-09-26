@@ -1,5 +1,11 @@
 # Workspace event polling
 
+**Supported release transport: polling only.** There is no workspace SSE route,
+WebSocket subscription, or push-enable flag to configure. Local HTTP and ordinary
+HTTPS origins use the same protocol; Tailscale/tailnet is optional transport, not
+an application dependency. Hermes run-activity SSE is a separate capability and
+must not be confused with workspace event delivery.
+
 Workspace command commits already write small metadata outbox entries atomically with their receipts. The authenticated event endpoint exposes **finite, bounded pages**, not server-sent events or a push subscription. A browser can use a page as a hint to read the authoritative workspace through the existing sync path; it must never interpret event metadata as an instruction or assume that receiving an event proves rendering.
 
 `POST /api/workspace/events` requires the owner Orbit Bearer token and the normal allowed Host and Origin. `POST /api/workspace/control/events` instead requires the capability of the requested workspace; the server verifies it against the current record on **every** request. Controller capabilities must not be sent to browser code. Neither endpoint mutates or acknowledges workspace state. The server routes are integrated separately from the reusable `server/workspace-events.mjs` handler.

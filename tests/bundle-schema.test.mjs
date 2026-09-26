@@ -28,7 +28,7 @@ test('bundle CLI refuses implicit old-schema upgrade; interrupted schema 3 migra
   const check=new Database(file);try {assert.equal(check.pragma('user_version',{simple:true}),2);assert.equal(check.prepare("SELECT name FROM sqlite_master WHERE name='bundles'").get(),undefined);}finally {check.close();}
   const restored=new SqliteWorkspaceStore(root);
   try {
-    assert.equal(restored.diagnostics().schema_version,3);assert.deepEqual(restored.read(id),before);
+    assert.equal(restored.diagnostics().schema_version,4);assert.deepEqual(restored.read(id),before);
     assert.deepEqual(restored.commit(identity(1,'hold'),{recoveryPolicy:true}).result,held.result);
     assert.ok(restored.db.prepare("SELECT name FROM sqlite_master WHERE name='events_workspace_sequence'").get());
   }finally {restored.close();}

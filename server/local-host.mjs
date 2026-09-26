@@ -28,7 +28,7 @@ export class LocalHostProvider {
     this.tmuxConfig = tmuxConfig;
   }
 
-  spawn({ cols, rows, pane_id }) {
+  spawn({ cols, rows, pane_id }, { tmuxArguments } = {}) {
     const shell =
       process.platform === "win32"
         ? "powershell.exe"
@@ -39,10 +39,16 @@ export class LocalHostProvider {
       TERM: "xterm-256color",
       COLORTERM: "truecolor",
     };
+    // Owner/agent credentials must never be inherited by a spawned host shell.
+    // HERMES_PROFILES_JSON is a new server-config secret (configured API keys);
+    // it is removed here alongside the existing secrets, never passed to tmux or
+    // the shell environment.
     delete env.ORBIT_TOKEN;
     delete env.HERMES_API_KEY;
+    delete env.HERMES_PROFILES_JSON;
     const persistent = typeof pane_id === 'string' && /^[a-f0-9-]{36}$/.test(pane_id);
-    return pty.spawn(persistent ? '/usr/bin/tmux' : shell, persistent ? ['-L', this.tmuxSocket, ...(this.tmuxConfig ? ['-f', this.tmuxConfig] : []), 'new-session', '-A', '-s', 'pane-' + pane_id, shell] : [], {
+    if (tmuxArguments && (!persistent || !Array.isArray(tmuxArguments))) throw Error('Invalid managed attachment');
+    return pty.spawn(persistent ? '/usr/bin/tmux' : shell, persistent ? ['-L', this.tmuxSocket, ...(this.tmuxConfig ? ['-f', this.tmuxConfig] : []), ...(tmuxArguments || ['new-session', '-A', '-s', 'pane-' + pane_id, shell])] : [], {
       name: "xterm-256color",
       cols,
       rows,

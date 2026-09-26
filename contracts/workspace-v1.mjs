@@ -29,6 +29,16 @@ const defs = {
   frame: object({ x:num(0,10000), y:num(0,10000), width:num(280,4000), height:num(180,4000), z:num(0,100000) }),
   spatial: object({ x:num(-10000,10000), y:num(-10000,10000), z:num(-10000,10000), width:num(0.3,200), height:num(0.3,200), yaw:num(-360,360), pitch:num(-89,89), resolution:enumeration(1280,1920,2560,3840) }),
   camera: object({ x:num(-10000,10000), y:num(-10000,10000), z:num(-10000,10000), azimuth:num(-Math.PI*2,Math.PI*2), elevation:num(-1.5,1.5), distance:num(0.2,2000) }),
+  // Docking placement adjunct: a versioned, Windows/docking-only projection of
+  // transient Dockview placement. It references stable v1 window ids only and is
+  // never part of `record.state`, never carries runtime handles/params and never
+  // changes v1 pane identity. Unknown/extra fields and non-finite geometry are
+  // rejected by the schema; semantic bounds/duplicates/stale ids are checked by
+  // src/docking-placement.ts on both client and server.
+  placementFrame: object({ x:num(0,10000), y:num(0,10000), width:num(80,10000), height:num(60,10000) }),
+  placementGroup: object({ type:{const:'group'}, windows:array(identifier,{minItems:1,maxItems:100,uniqueItems:true}), active:identifier }, ['type','windows']),
+  placementBranch: object({ type:{const:'branch'}, direction:enumeration('horizontal','vertical'), ratio:num(0.05,0.95), first:ref('placementNode'), second:ref('placementNode') }),
+  placementFloat: object({ windows:array(identifier,{minItems:1,maxItems:100,uniqueItems:true}), frame:ref('placementFrame'), active:identifier }, ['windows','frame']),
   appearance: object(appearance, []),
   layout: { oneOf: [object({type:{const:'pane'},pane:object({id:identifier,kind,url:text()})}),object({type:{const:'split'},axis:enumeration('row','column'),ratio:num(0.15,0.85),first:ref('layout'),second:ref('layout')})] },
   template: { oneOf: [object({pane_id:identifier}),object({axis:enumeration('row','column'),ratio:num(0.15,0.85),first:ref('template'),second:ref('template')})] },
@@ -37,6 +47,8 @@ const defs = {
   config: {type:'object',maxProperties:32,propertyNames:{pattern:'^[a-zA-Z][a-zA-Z0-9_-]{0,47}$'},additionalProperties:{anyOf:[text(4096),{type:'number'},bool]}},
   plugin: object({manifest:ref('manifest'),enabled:bool,window:ref('monitor'),config:ref('config'),backendEndpoint:text()},['manifest','enabled','window','config']),
   workspace: object({version:{const:1},monitors:array(ref('monitor'),{minItems:1}),selected:identifier,arc:num(0,30),view:enumeration('windows','spatial'),sidebarHidden:bool,appearance:ref('appearance'),plugins:array(ref('plugin'),{maxItems:32}),spatialCamera:ref('camera')},['version','monitors','selected','arc']),
+  placementNode: { oneOf: [ref('placementGroup'), ref('placementBranch')] },
+  dockingPlacement: object({version:{const:1},layout:{anyOf:[ref('placementNode'),{type:'null'}]},floats:array(ref('placementFloat'),{maxItems:100}),active:{anyOf:[identifier,{type:'null'}]}},['version','layout','floats']),
 };
 const window = { window_id: identifier }, pane = {...window,pane_id:identifier}, plugin = {plugin_id:ref('manifestId')};
 defs.manifestId = defs.manifest.properties.id;
@@ -82,6 +94,7 @@ function command(name, properties = {}, required = [], effect = 'read', revision
 command('read',{observed_revision:integer(0)});
 command('history');
 command('checkpoint',{label:text(limits.maxLabelCharacters)},[],'checkpoint');
+command('placement_save',{base_revision:integer(0),placement:ref('dockingPlacement'),operation_id:{type:'string',pattern:'^[a-zA-Z0-9_.:-]{1,128}$'},intent:{type:'string',minLength:1,maxLength:160}},['base_revision','placement','operation_id','intent'],'layout','current-base-revision');
 command('restore',{base_revision:integer(0),checkpoint_id:uuid,confirm:bool},['base_revision','checkpoint_id'],'layout','current-base-revision');
 command('recovery_policy',{base_revision:integer(0),operation_id:{type:'string',pattern:'^[a-zA-Z0-9_.:-]{1,128}$'},intent:{type:'string',minLength:1,maxLength:160},confirm:{const:true},held:bool},['base_revision','operation_id','intent','confirm','held'],'recovery-policy','current-base-revision');
 const batch={base_revision:integer(0),operations:array(ref('operation'),{minItems:1,maxItems:limits.maxOperations})};
@@ -102,10 +115,12 @@ commands.jev_suggest.idempotency = 'external-provider-request-not-retry-safe';
 commands.recovery_policy.permission = 'authenticated-owner-on-recovery-route-only';
 commands.recovery_policy.idempotency = 'durable receipt scoped to recovery policy generation; obsolete generation replay rejected';
 defs.recoveryPolicy=object({held:bool,generation:integer(0)});
-defs.snapshot = object({workspace_id:uuid,revision:integer(1),state:ref('workspace'),observed_revision:integer(0),browser_seen:{anyOf:[{type:'number'},{type:'null'}]},app_versions:{type:'object',additionalProperties:{type:'number'}},recovery_policy:ref('recoveryPolicy')},['workspace_id','revision','state','observed_revision','browser_seen']);
+defs.snapshot = object({workspace_id:uuid,revision:integer(1),state:ref('workspace'),observed_revision:integer(0),browser_seen:{anyOf:[{type:'number'},{type:'null'}]},app_versions:{type:'object',additionalProperties:{type:'number'}},recovery_policy:ref('recoveryPolicy'),placement:ref('dockingPlacement'),placement_revision:integer(0)},['workspace_id','revision','state','observed_revision','browser_seen']);
+defs.placementSnapshot = object({workspace_id:uuid,revision:integer(1),placement_revision:integer(0),placement:ref('dockingPlacement'),observed_revision:integer(0),browser_seen:{anyOf:[{type:'number'},{type:'null'}]},recovery_policy:ref('recoveryPolicy'),command_receipt:ref('commandReceipt')},['workspace_id','revision','placement_revision','placement','command_receipt']);
 defs.checkpointMetadata = object({id:uuid,created:{type:'number'},label:text(160),revision:integer(1)});
 const outputs = {
   read:ref('snapshot'),sync:ref('snapshot'),apply:ref('snapshot'),plugins_apply:ref('snapshot'),restore:ref('snapshot'),jev_apply:ref('snapshot'),recovery_policy:ref('snapshot'),
+  placement_save:ref('placementSnapshot'),
   checkpoint:object({checkpoint:uuid}),
   history:object({revision:integer(1),checkpoints:array(ref('checkpointMetadata'))}),
   preview:object({workspace_id:uuid,base_revision:integer(1),preview:{const:true},state:ref('workspace'),changed_fields:array(text(100)),warning:text()}),

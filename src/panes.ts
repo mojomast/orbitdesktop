@@ -4,6 +4,7 @@ import "@xterm/xterm/css/xterm.css";
 import { el, button, select } from "./dom";
 import { createAgentChat } from "./agent-chat";
 import { mountSharedBrowser } from './shared-browser';
+import { mountManagedTerminalControls } from './managed-terminals';
 import { bindToolFeed } from "./tool-feed";
 import type { Pane, PaneKind } from "./model";
 export interface PaneView {
@@ -172,6 +173,7 @@ export function createPane(p: Pane, font: number, a: PaneActions): PaneView {
       } catch { copyStatus.textContent = 'Clipboard blocked — use Ctrl+Shift+V or ⌘V'; }
     }, 'small-button');
     bar.append(selectionMode, selectText, copy, paste, copyStatus);
+    const managed = mountManagedTerminalControls(bar, p.id, () => sessionToken);
     // Keep xterm's selection when clicking the toolbar.
     copy.addEventListener('mousedown', e => e.preventDefault());
     term.onSelectionChange(() => { copy.disabled = !term.hasSelection(); copyStatus.textContent = ''; });
@@ -306,6 +308,7 @@ export function createPane(p: Pane, font: number, a: PaneActions): PaneView {
     };
     cleanup = () => {
       disposed = true;
+      managed.dispose();
       historyDialog?.close();
       historyDialog?.remove();
       ro.disconnect();

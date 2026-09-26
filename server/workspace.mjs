@@ -4,6 +4,7 @@ import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { validate } from '../src/model.ts';
+import { emptyPlacement } from '../src/docking-placement.ts';
 import { applyOperation } from '../src/workspace-ops.ts';
 import { tokenMatches, allowedRequest } from './security.mjs';
 import { validateWorkspaceRequest, workspaceLimits } from './workspace-contract.mjs';
@@ -25,7 +26,8 @@ export function createWorkspaceService({ token, port, devOrigins, reply: sendRep
   const read = id => store.read(id);
   store.reconcileConnections(`http://127.0.0.1:${port}`);
   const appVersions = () => store.bundles.versions();
-  const snapshot = (r,versions) => ({ ...(versions?{app_versions:versions}:{}), workspace_id: r.id, revision: r.revision, state: r.state, recovery_policy: r.recovery_policy || {held:false,generation:0}, observed_revision: r.observed_revision || 0, browser_seen: r.browser_seen || null });
+  const placementSnapshot = r => ({workspace_id:r.id,revision:r.revision,placement:r.placement||emptyPlacement(),placement_revision:r.placement_revision||0,recovery_policy:r.recovery_policy||{held:false,generation:0},observed_revision:r.observed_revision||0,browser_seen:r.browser_seen||null});
+  const snapshot = (r,versions) => ({ ...(versions?{app_versions:versions}:{}), ...placementSnapshot(r), state:r.state });
   const safe = (r,includeAssets=true) => snapshot(r,includeAssets?appVersions():null);
   async function handle(req, res, control = false, recovery = false) {
     let body;
@@ -63,20 +65,25 @@ export function createWorkspaceService({ token, port, devOrigins, reply: sendRep
         for (const op of body.operations) next = applyOperation(next, op);
         return reply(res,200,{workspace_id:record.id,base_revision:record.revision,preview:true,state:next,changed_fields:Object.keys(next).filter(key=>JSON.stringify(next[key])!==JSON.stringify(record.state[key])),warning:'Validation only; no files, browser rendering or external effects were tested. Reapply operations against this base revision to commit.'});
       }
-      if(['sync','apply','plugins_apply','restore','checkpoint','jev_apply','recovery_policy'].includes(body.action)) {
-        if((control && !['apply','restore','checkpoint'].includes(body.action)) || (!control && body.action==='apply'))return reply(res,403,{error:'Action unavailable on this route'});
+      if(['sync','apply','plugins_apply','restore','checkpoint','jev_apply','recovery_policy','placement_save'].includes(body.action)) {
+        if((control && !['apply','restore','checkpoint','placement_save'].includes(body.action)) || (!control && body.action==='apply'))return reply(res,403,{error:'Action unavailable on this route'});
         if(['restore','jev_apply'].includes(body.action)&&body.confirm!==true)return reply(res,409,{error:'Explicit confirmation against the current revision is required'});
         if(body.action==='plugins_apply'&&body.operations.some(op=>!op.action.startsWith('plugin_')))throw Error('Expected plugin operations');
         const identity=commandIdentity(body,control?`workspace-controller:${body.workspace_id}`:'owner');
         // Filesystem indexing is still legacy here, but never runs under a write lock.
         const versions=recovery?null:appVersions();
-        const labels={sync:'Before browser workspace change',apply:'Before agent layout change',plugins_apply:'Before plugin change',restore:'Before restore',jev_apply:'Before confirmed Jev quick action',checkpoint:body.label||'Checkpoint',recovery_policy:'Before recovery policy change'};
-        const committed=store.commit(identity,{
+        const labels={sync:'Before browser workspace change',apply:'Before agent layout change',plugins_apply:'Before plugin change',restore:'Before restore',jev_apply:'Before confirmed Jev quick action',checkpoint:body.label||'Checkpoint',recovery_policy:'Before recovery policy change',placement_save:'Before docking placement change'};
+        const change={
           authorize:current=>!control||tokenMatches(credential,current?.capability),
           create:body.action==='sync'?()=>({id:body.workspace_id,capability:randomBytes(32).toString('base64url'),revision:1,state:validate(structuredClone(body.state)),api:`http://127.0.0.1:${port}`,observed_revision:1,browser_seen:Date.now()}):undefined,
           apply:current=>{
             if(body.action==='sync')return validate(structuredClone(body.state));
-            if(body.action==='restore')return validate(store.checkpointGet(current.id,body.checkpoint_id).state);
+            if(body.action==='placement_save')return current.state;
+            if(body.action==='restore') {
+              const checkpoint=store.checkpointGet(current.id,body.checkpoint_id);
+              change.placement=checkpoint.placement??emptyPlacement();
+              return validate(checkpoint.state);
+            }
             if(body.action==='recovery_policy')return body.held?applyOperation(current.state,{action:'plugin_disable_all'}):current.state;
             let operations=body.operations;
             if(body.action==='jev_apply') {
@@ -89,9 +96,11 @@ export function createWorkspaceService({ token, port, devOrigins, reply: sendRep
             return state;
           },
           recoveryPolicy:body.action==='recovery_policy'?body.held:undefined,
-          checkpointOnly:body.action==='checkpoint',skipUnchanged:body.action==='sync',checkpointLabel:labels[body.action],api:`http://127.0.0.1:${port}`,
-          response:(next,checkpoint)=>({...(body.action==='checkpoint'?{checkpoint:checkpoint.id}:snapshot(next,versions)),command_receipt:{operation_id:identity.operationId,legacy:identity.legacy}}),
-        });
+          placement:body.action==='placement_save'?body.placement:undefined,
+          checkpointOnly:body.action==='checkpoint',skipUnchanged:['sync','placement_save'].includes(body.action),checkpointLabel:labels[body.action],api:`http://127.0.0.1:${port}`,
+          response:(next,checkpoint)=>({...(body.action==='checkpoint'?{checkpoint:checkpoint.id}:body.action==='placement_save'?placementSnapshot(next):snapshot(next,versions)),command_receipt:{operation_id:identity.operationId,legacy:identity.legacy}}),
+        };
+        const committed=store.commit(identity,change);
         return reply(res,200,committed.result);
       }
       if (!control && body.action === 'shelf') {
