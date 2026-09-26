@@ -28,8 +28,20 @@ test('bundle CLI refuses implicit old-schema upgrade; interrupted schema 3 migra
   const check=new Database(file);try {assert.equal(check.pragma('user_version',{simple:true}),2);assert.equal(check.prepare("SELECT name FROM sqlite_master WHERE name='bundles'").get(),undefined);}finally {check.close();}
   const restored=new SqliteWorkspaceStore(root);
   try {
-    assert.equal(restored.diagnostics().schema_version,7);assert.deepEqual(restored.read(id),before);
+     assert.equal(restored.diagnostics().schema_version,8);assert.deepEqual(restored.read(id),before);
     assert.deepEqual(restored.commit(identity(1,'hold'),{recoveryPolicy:true}).result,held.result);
     assert.ok(restored.db.prepare("SELECT name FROM sqlite_master WHERE name='events_workspace_sequence'").get());
   }finally {restored.close();}
+});
+
+test('bundle administration accepts current schema 8 but rejects future schema 9 without modifying it',t=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'orbit-bundle-current-'));
+  t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+  new SqliteWorkspaceStore(root).close();
+  const args=['--experimental-strip-types','scripts/workspace_bundles.mjs','plan','--root',root];
+  const current=JSON.parse(execFileSync(process.execPath,args,{env:{PATH:process.env.PATH},encoding:'utf8'}));
+  assert.ok(current&&typeof current==='object');
+  const db=new Database(path.join(root,'workspace.sqlite'));db.pragma('user_version = 9');db.close();
+  assert.throws(()=>execFileSync(process.execPath,args,{env:{PATH:process.env.PATH},stdio:'pipe'}));
+  const inspect=new Database(path.join(root,'workspace.sqlite'),{readonly:true});try{assert.equal(inspect.pragma('user_version',{simple:true}),9);}finally{inspect.close();}
 });

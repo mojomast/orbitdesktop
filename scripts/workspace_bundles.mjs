@@ -18,7 +18,7 @@ function main(args) {
   const filename=path.join(root,'workspace.sqlite');
   if(!fs.existsSync(filename)||!fs.lstatSync(filename).isFile()||fs.lstatSync(filename).isSymbolicLink())throw Error('Initialized workspace.sqlite required; standalone publication does not need bundle indexing');
   const check=new Database(filename,{readonly:true,fileMustExist:true});
-  try {if(check.pragma('user_version',{simple:true})!==7)throw Error('Bundle administration requires schema 7; coordinate an offline upgrade before publishing with this version');}finally {check.close();}
+  try {if(check.pragma('user_version',{simple:true})!==8)throw Error('Bundle administration requires schema 8; coordinate an offline upgrade before publishing with this version');}finally {check.close();}
   const store=new SqliteWorkspaceStore(root);
   try {
     const registry=createBundleRegistry({db:store.db,root});
