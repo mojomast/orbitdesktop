@@ -186,6 +186,11 @@ export function showProjectWorkbench(getToken: () => string): void {
     if(!current(selectedEpoch)||project?.id!==selectedProject)return;
     execution.replaceChildren();executionProject=selectedProject;
     const taskContainer=el('div'),authorityContainer=el('div'),workflowContainer=el('div'),resultContainer=el('div','workbench-task-results-panel');execution.append(taskContainer,authorityContainer,resultContainer,workflowContainer);
+    const openReview=button('Open candidate Review view','Create or select one trusted, project-bound review pane',()=>{
+      openReview.disabled=true;
+      void import('./workbench-review-host').then(({openWorkbenchReview})=>openWorkbenchReview(selectedProject,getToken)).then(()=>{if(current(selectedEpoch))dialog.close();}).catch(error=>{if(current(selectedEpoch))state('error',`Review view unavailable: ${error.message}`);}).finally(()=>{openReview.disabled=false;});
+    });
+    execution.prepend(openReview);
     const referenceDialogs=new Set<HTMLDialogElement>();
     function openReference(title:string,request:Record<string,unknown>,evidenceId?:string){
       const dialog=el('dialog','hermes-tools-dialog'),content=el('pre','workbench-result-text'),files=el('div');

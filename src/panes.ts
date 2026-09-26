@@ -4,6 +4,7 @@ import "@xterm/xterm/css/xterm.css";
 import { el, button, select } from "./dom";
 import { createAgentChat } from "./agent-chat";
 import { mountSharedBrowser } from './shared-browser';
+import {mountWorkbenchReviewHost,REVIEW_URL} from './workbench-review-host';
 import { mountManagedTerminalControls } from './managed-terminals';
 import { bindToolFeed } from "./tool-feed";
 import type { Pane, PaneKind } from "./model";
@@ -315,6 +316,8 @@ export function createPane(p: Pane, font: number, a: PaneActions): PaneView {
       ws?.close();
       term.dispose();
     };
+  } else if (p.kind === 'browser' && p.url === REVIEW_URL) {
+    cleanup=mountWorkbenchReviewHost(body,p.id,()=>sessionToken);
   } else if (p.kind === 'browser' && p.url === 'orbit://shared-browser') {
     head.style.display='none';
     cleanup=mountSharedBrowser(body,()=>sessionToken,p.id);
