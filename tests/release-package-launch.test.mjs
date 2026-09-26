@@ -2,7 +2,7 @@
 // Cheap checks always run: the packaging allowlist excludes credentials and
 // includes the runtime module closure. The heavy instance test (RELEASE_INSTANCE=1)
 // assembles a complete immutable release from this git-tracked checkout plus a real
-// Vite build, starts the packaged server with read-only external Node dependencies
+// Vite build, starts the packaged server with private external Node dependencies
 // and a writable SQLite outside the release, proves the release identity from
 // /api/health, and proves a pointer change to a second release leaves the first
 // process's immutable source/assets unchanged.
@@ -20,8 +20,8 @@ import {activate,readPointer} from '../scripts/release_pin.mjs';
 
 const INSTANCE=process.env.RELEASE_INSTANCE==='1';
 const SOURCE=process.env.RELEASE_SOURCE_ROOT?path.resolve(process.env.RELEASE_SOURCE_ROOT):REPO_ROOT;
-// External Node dependencies must be a per-lane private copy under scratch, never the
-// shared/owner tree. The lane's node_modules symlink resolves to that private copy.
+// Installed dependencies are read only as fixture input. Each run creates its own
+// external copy under scratch, including on CI where npm ci uses the checkout.
 const EXTERNAL_DEPS=process.env.RELEASE_EXTERNAL_DEPS?path.resolve(process.env.RELEASE_EXTERNAL_DEPS):path.join(REPO_ROOT,'node_modules');
 
 test('packaging allowlist excludes credentials and includes the runtime module closure',()=>{
@@ -57,8 +57,12 @@ test('disposable immutable release packages and launches with external deps and 
   fs.mkdirSync(path.join(base,'releases'),{recursive:true});
   fs.mkdirSync(path.join(base,'home'),{recursive:true});
   const externalReal=fs.realpathSync(EXTERNAL_DEPS);
-  assert.ok(externalReal.startsWith('/tmp/opencode/')&&!externalReal.startsWith('/home/'),`external deps must be a private per-lane copy, got ${externalReal}`);
-  fs.symlinkSync(EXTERNAL_DEPS,path.join(base,'node_modules'),'dir');
+  const originalMode=fs.statSync(externalReal).mode;
+  const privateDeps=path.join(base,'node_modules');
+  fs.cpSync(externalReal,privateDeps,{recursive:true,dereference:false,verbatimSymlinks:true,errorOnExist:true,force:false});
+  assert.equal(fs.lstatSync(privateDeps).isSymbolicLink(),false,'external dependencies are a private copy');
+  assert.notEqual(fs.statSync(privateDeps).ino,fs.statSync(externalReal).ino);
+  t.after(()=>assert.equal(fs.statSync(externalReal).mode,originalMode,'installed dependency root permissions are unchanged'));
   const runtime=path.join(base,'runtime');fs.mkdirSync(runtime);
   const store=new SqliteWorkspaceStore(runtime);const schemaVersion=store.db.pragma('user_version',{simple:true});store.close();
   assert.ok(Number.isInteger(schemaVersion)&&schemaVersion>=7,'runtime schema initialized');
@@ -68,7 +72,7 @@ test('disposable immutable release packages and launches with external deps and 
   assert.equal(built.status,0,built.stderr+built.stdout);
   assert.ok(fs.existsSync(path.join(distDir,'index.html')));
 
-  const external={kind:'operator-managed-external',path:EXTERNAL_DEPS,node_abi:process.versions.modules,node_version:process.versions.node};
+  const external={kind:'operator-managed-external',path:privateDeps,node_abi:process.versions.modules,node_version:process.versions.node};
   const compat={schema_min:7,schema_max:schemaVersion};
   const a=packageRelease({sourceRoot:SOURCE,distRoot:distDir,outRoot:path.join(base,'releases','rel-a'),release_id:'rel-a',compat,revision:'instance',external,readOnly:true});
   releases.push({root:a.root,manifest:a.manifest});

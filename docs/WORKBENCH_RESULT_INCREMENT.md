@@ -89,6 +89,14 @@ and verifies a single bounded UTF-8 final-response frame with the exact public
 text and completion flag. The runtime protocol is not weakened. Full replacement
 Workbench CI remains required before deployment.
 
+Workbench run `36269306502` then passed the Python native gate and exposed a
+release-fixture path assumption: it required the preinstalled dependency root
+itself to live under `/tmp/opencode`, unlike GitHub's disposable checkout.
+The release test now creates a private scratch dependency copy from the installed
+input, rather than linking or chmodding the input tree. It still verifies real
+dependency resolution from the packaged entrypoint and unchanged input-root
+permissions. Remote browser gates remain pending until a complete CI run passes.
+
 ### Final acceptance — Gate 1 and Gate 2 accepted
 
 All three original worker lanes are integrated. The final production-source
