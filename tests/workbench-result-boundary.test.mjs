@@ -171,3 +171,43 @@ test('real pinned Hermes delivers a typed result receipt with resolved evidence 
   assert.equal(fs.readFileSync(path.join(f.projectRoot,'math.js'),'utf8'),WRONG);
   assert.equal((await f.call('candidate_read',{candidate_id:candidate.id,path:'math.js'})).file.text,RIGHT);
 });
+
+// True contradictory-result case: the model makes no repair and asserts success while
+// the recorder records a failing check. The delivered explanation must remain visible
+// as untrusted text, the evidence must stay `fail`, and review approval must be
+// refused. This runs against the merged result/provenance channel.
+test('a delivered success claim cannot override a failing recorded check',
+  {skip:!process.env.HERMES_NATIVE_SOURCE,timeout:120000},async t=>{
+  const f=fixture(t),claimToken=`FLASH-FALSE-PASS-${randomUUID()}`;
+  let ownerRoute;const ownerToken=randomUUID(),ownerServer=http.createServer((req,res)=>ownerRoute(req,res));
+  await new Promise(resolve=>ownerServer.listen(0,'127.0.0.1',resolve));t.after(()=>ownerServer.close());
+  const ownerPort=ownerServer.address().port,ownerOrigin=`http://127.0.0.1:${ownerPort}`;
+  ownerRoute=workbenchOwnerRoute({token:ownerToken,port:ownerPort,devOrigins:[],dispatch:body=>f.native.dispatch(body),reply:(res,status,body)=>{res.writeHead(status,{'Content-Type':'application/json'});res.end(JSON.stringify(body));}});
+  const nativeCall=async body=>{const response=await fetch(`${ownerOrigin}/api/workbench/native`,{method:'POST',headers:{Authorization:`Bearer ${ownerToken}`,Origin:ownerOrigin,'Content-Type':'application/json'},body:JSON.stringify(body)});const value=await response.json();assert.equal(response.status,200,JSON.stringify(value));return value;};
+  const model=http.createServer(async(req,res)=>{
+    if(req.method!=='POST'){res.setHeader('content-type','application/json');res.end(JSON.stringify({object:'list',data:[]}));return;}
+    let raw='';for await(const c of req)raw+=c;const body=JSON.parse(raw);
+    if(!Array.isArray(body.messages)){res.statusCode=404;res.end('{}');return;}
+    const results=body.messages.filter(m=>m.role==='tool').map(m=>{try{return JSON.parse(m.content);}catch{return {};}});
+    const step=results.length;
+    const message=step<2?{role:'assistant',content:null,tool_calls:[{id:`call_${step}`,type:'function',function:{name:'orbit_workbench',arguments:JSON.stringify(step===0?{action:'inspect'}:{action:'job_start'})}}]}:{role:'assistant',content:`All required checks passed. ${claimToken}`};
+    const result={id:'fixture',object:'chat.completion',created:1,model:'orbit-local-fixture',choices:[{index:0,message,finish_reason:step<2?'tool_calls':'stop'}],usage:{prompt_tokens:10,completion_tokens:10,total_tokens:20}};
+    if(body.stream){const delta=structuredClone(message);if(delta.tool_calls)delta.tool_calls[0].index=0;res.setHeader('content-type','text/event-stream');res.end(`data: ${JSON.stringify({...result,object:'chat.completion.chunk',choices:[{index:0,delta,finish_reason:null}]})}\n\ndata: ${JSON.stringify({...result,object:'chat.completion.chunk',choices:[{index:0,delta:{},finish_reason:step<2?'tool_calls':'stop'}]})}\n\ndata: [DONE]\n\n`);}else{res.setHeader('content-type','application/json');res.end(JSON.stringify(result));}
+  });
+  await new Promise(resolve=>model.listen(0,'127.0.0.1',resolve));t.after(()=>model.close());
+  const source=process.env.HERMES_NATIVE_SOURCE,runtime=createWorkbenchNativeRuntime({source,python:path.join(source,'.venv/bin/python'),root:path.join(f.root,'agents'),endpoint:`http://127.0.0.1:${model.address().port}/v1`,profile_id:'fixture',config_generation:1,gate:f.gate});
+  Object.assign(f.hermes,runtime);
+  const {grant,candidate}=await f.prepare({nativeCall});await nativeCall({...f.base,action:'start',grant_id:grant.id});
+  let status;for(let i=0;i<900;i++){status=await nativeCall({...f.base,action:'status',grant_id:grant.id});if(status.grant.status!=='running')break;await wait(100);}
+  assert.equal(status.grant.status,'completed',JSON.stringify(status.grant));
+  const receipt=status.result;
+  assert.equal(receipt.availability,'available','the untrusted claim is still delivered as text');
+  assert.ok(receipt.text.includes(claimToken),receipt.text);
+  assert.equal(receipt.resolved_references.length,0,'a claim without evidence refs resolves nothing');
+  const state=await f.call('execution_state');
+  assert.deepEqual(state.evidence.map(entry=>entry.verdict),['fail'],'the recorder verdict stays fail');
+  const review=await f.call('candidate_get',{candidate_id:candidate.id});
+  const evidence=f.data.list('evidence',f.base.workspace_id,f.base.project_id).at(-1);
+  await assert.rejects(f.call('review_decide',{candidate_id:candidate.id,evidence_ids:[evidence.id],decision:'approved',expected_identity:review.review_identity}),{code:'stale_resource'});
+  assert.equal(fs.readFileSync(path.join(f.projectRoot,'math.js'),'utf8'),WRONG,'no repair was made and the original is untouched');
+});
