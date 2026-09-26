@@ -53,13 +53,17 @@ export function createArtifactVerifier({store,records,data,gate,verifyCurrent,no
     const status=all?'verified':record.results.some(item=>item.verdict==='fail')?'failed':'inconclusive';
     return {status,verification:{...patch.verification,status,results:record.results,process:null,verified_at:all?now():null,recovery_digest:null}};
   }
-  function settle(patch,record){
+  function settle(patch,record,processedDigest=null){
     const fields=outcome(patch,record),scope={workspace_id:patch.workspace_id,project_id:patch.project_id};
     // This is DB-only: never inspect a deleted stage or launch a verifier here.
-    const updated=revise(scope,patch.id,{status:fields.status==='verified'?'verified':'verification_failed',verification:fields.verification});
+    // Persist the exact owner retry digest in the same CAS as the terminal
+    // result. A lost HTTP reply can be replayed without reopening the journal
+    // or accepting a newly computed terminal-state digest.
+    const verification=processedDigest?{...fields.verification,processed_recovery_digest:processedDigest}:fields.verification;
+    const updated=revise(scope,patch.id,{status:fields.status==='verified'?'verified':'verification_failed',verification});
     releaseGate(patch.id);
     try{clearJournal(patch.id);}catch{} // A committed terminal receipt wins over a stale journal.
-    return {verification:updated.verification,replayed:true};
+    return {verification:updated.verification,replayed:true,idempotent:false};
   }
   function recovery({workspace_id,project_id,artifact_id}){
     store.read(workspace_id);
@@ -69,7 +73,13 @@ export function createArtifactVerifier({store,records,data,gate,verifyCurrent,no
     return {artifact_id,status:patch.status,verification_status:patch.verification?.status??null,recovery_digest:recoveryDigest(patch,valid?observed:null),recoverable:!!observed&&valid,process_owned:activeRuns.has(artifact_id)};
   }
   function retryPatchArtifact({workspace_id,project_id,artifact_id,expected_digest}){
-    const state=recovery({workspace_id,project_id,artifact_id}),patch=data.get('patches',workspace_id,project_id,artifact_id);
+    store.read(workspace_id);
+    const patch=data.get('patches',workspace_id,project_id,artifact_id);
+    if(['verified','available','verification_failed'].includes(patch.status)){
+      if(typeof expected_digest!=='string'||!/^[a-f0-9]{64}$/.test(expected_digest)||patch.verification?.processed_recovery_digest!==expected_digest||inProgress.has(artifact_id))throw wbError('stale_resource');
+      return {verification:patch.verification,replayed:true,idempotent:true};
+    }
+    const state=recovery({workspace_id,project_id,artifact_id});
     if(!['verifying','verification_pending','outcome_unknown'].includes(patch.status)||state.recovery_digest!==expected_digest||inProgress.has(artifact_id))throw wbError('stale_resource');
     const observed=journal(artifact_id);
     if(!observed)throw wbError('outcome_unknown');
@@ -84,7 +94,7 @@ export function createArtifactVerifier({store,records,data,gate,verifyCurrent,no
         record={...observed,results:observed.results.map((item,index)=>index===observed.results.length-1?{...item,verdict:'inconclusive',recovery_note:'identity_changed_after_observation'}:item)};
       }
     }
-    try{return settle(patch,record);}catch(error){quarantine(artifact_id);throw error;}
+    try{return settle(patch,record,expected_digest);}catch(error){quarantine(artifact_id);throw error;}
   }
   function acknowledgePatchArtifactUnknown({workspace_id,project_id,artifact_id,expected_digest,known_externally_terminated}){
     const state=recovery({workspace_id,project_id,artifact_id}),patch=data.get('patches',workspace_id,project_id,artifact_id);
