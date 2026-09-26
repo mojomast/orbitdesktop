@@ -117,7 +117,7 @@ automatically replay jobs. Unknown-outcome acknowledgement must be explicit.
 | --- | --- |
 | Explicit root registration | Owner Bearer + allowed Origin/Host; expiring server-issued preview bound to root inode identity and workspace; no caller actor or `confirm` bypass |
 | Revoke project access | Generation-checked, persistent disable of owner Workbench reads; late results fenced; fresh preview required to re-enable |
-| Stable projects/resources/bindings | Versioned records in SQLite schema 7; opaque UUIDs; separate from layout v1; whole-workspace sync cannot erase them |
+| Stable projects/resources/bindings | Versioned records in SQLite schema 8; opaque UUIDs; separate from layout v1; whole-workspace sync cannot erase them |
 | File tree / literal text / ranges | Implemented with bounded descriptor-relative reads; never rendered as HTML |
 | Repository status / readable diff | Bounded private materialization; tracked dirty/deleted and untracked text; explicit exclusions and unsupported states |
 | Linked terminals/conversations/browser panes | Metadata-only association with existing pane identity; no mounting, navigation, capture, permission or session change |

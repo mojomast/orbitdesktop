@@ -149,13 +149,24 @@ Read the [submission guide and admission policy](plugin-catalog/README.md). Refr
 
 The verified target is Linux with an ordinary user account, Node.js 22.12 or newer, npm, Python 3, and tmux at /usr/bin/tmux. Native node-pty builds may also require make and a C++ compiler.
 
-Clone https://github.com/mojomast/orbitdesktop.git, enter the repository, then run:
+For a development instance, clone https://github.com/mojomast/orbitdesktop.git,
+enter the repository, then run:
 
     npm ci
-    npm run build
-    npm start
+    npm run dev
 
-Open http://127.0.0.1:4318. Choose Connect host, enter the server's host-access token, and connect a shell. Without a configured ORBIT_TOKEN, the server generates a token on startup.
+In a second terminal, start the API with the development origins explicitly allowed:
+
+    ORBIT_DEV_ORIGINS=http://127.0.0.1:4173,http://localhost:4173 npm start
+
+Open http://127.0.0.1:4173. Choose Connect host, enter the server's host-access token,
+and connect a shell. Without a configured ORBIT_TOKEN, the server generates a token
+on startup and stores it in the private runtime's `session-token` file.
+
+`npm run build` and `npm run check` build into a separate scratch directory and
+report its path; they do not replace a served checkout's `dist/`. For a served
+release, use the explicit packaging, activation and compatible-backup procedure
+in [deployment documentation](docs/DEPLOYMENT.md).
 
 Host access grants a real shell as the server's operating-system user. Do not run Orbit as root or expose it directly to the public Internet.
 

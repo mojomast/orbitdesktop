@@ -185,7 +185,7 @@ export function showProjectWorkbench(getToken: () => string): void {
     const [{mountWorkbenchExecution},{mountWorkbenchTaskAuthority},{mountWorkbenchWorkflow},{mountWorkbenchTaskResult}]=await Promise.all([import('./workbench-execution'),import('./workbench-task-authority'),import('./workbench-workflow'),import('./workbench-task-result')]);
     if(!current(selectedEpoch)||project?.id!==selectedProject)return;
     execution.replaceChildren();executionProject=selectedProject;
-    const taskContainer=el('div'),authorityContainer=el('div'),workflowContainer=el('div'),resultContainer=el('div');execution.append(taskContainer,authorityContainer,resultContainer,workflowContainer);
+    const taskContainer=el('div'),authorityContainer=el('div'),workflowContainer=el('div'),resultContainer=el('div','workbench-task-results-panel');execution.append(taskContainer,authorityContainer,resultContainer,workflowContainer);
     const referenceDialogs=new Set<HTMLDialogElement>();
     function openReference(title:string,request:Record<string,unknown>,evidenceId?:string){
       const dialog=el('dialog','hermes-tools-dialog'),content=el('pre','workbench-result-text'),files=el('div');
