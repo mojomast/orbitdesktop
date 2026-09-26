@@ -159,6 +159,16 @@ def call(origin, token, route, body):
     return payload
 
 
+def wait_workspace(origin, token, timeout_s=20):
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        status, payload = helper.api(origin, token, WORKBENCH_ROUTE, {"action": "list"})
+        if status == 200 and payload.get("ok") is True:
+            return
+        time.sleep(.1)
+    raise RuntimeError("workspace did not sync after unlock")
+
+
 def wait_card(page, pane_id, timeout_ms=20000):
     card = page.locator('.pane[data-pane-id="%s"] section.agent-task-results details[data-result-id]' % pane_id)
     expect(card.first).to_be_visible(timeout=timeout_ms)
@@ -257,7 +267,7 @@ def main(renderer):
                     context = browser.new_context(viewport={"width": 1800, "height": 1200})
                     chat = {"session": session, "profile_id": "default", "messages": []}
                     context.add_init_script(
-                        "if(window===window.top){localStorage.setItem('orbit.workspace.id'," + json.dumps(helper.WORKSPACE) +
+                        "if(window===window.top){localStorage.setItem('orbit.onboarding.v1','done');localStorage.setItem('orbit.workspace.id'," + json.dumps(helper.WORKSPACE) +
                         ");localStorage.setItem('orbit.workspace.v1',JSON.stringify(" + json.dumps(state) + "));" +
                         "sessionStorage.setItem('orbit-hermes-chat:" + helper.PANE + "',JSON.stringify(" + json.dumps(chat) + "));}")
                     page = context.new_page()
@@ -267,6 +277,10 @@ def main(renderer):
                     try:
                         page.goto(origin)
                         expect(page.locator('.pane[data-pane-id="%s"]' % helper.PANE)).to_be_visible(timeout=20000)
+                        page.get_by_role("button", name="Connect local host", exact=True).click()
+                        page.get_by_role("textbox", name="Host session token").fill(token)
+                        page.get_by_role("button", name="Unlock local host", exact=True).click()
+                        wait_workspace(origin, token)
 
                         log("register project and create a bound native attempt through the owner API")
                         preview = call(origin, token, WORKBENCH_ROUTE, {"action": "register_preview", "root": str(project), "name": "result-fixture"})
