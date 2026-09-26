@@ -1,14 +1,16 @@
 import test, { before, after } from "node:test";
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import http from "node:http";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, cp, symlink } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import { WebSocket } from "ws";
 import { setTimeout as delay } from "node:timers/promises";
 import { tokenMatches, geometry, allowedRequest } from "../server/security.mjs";
+const REPO = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 let port, base, token = `orbit-test-only-${process.pid}-${Date.now()}`;
 let isolatedRoot;
 let child;
@@ -18,6 +20,19 @@ before(async () => {
   const cwd = path.join(isolatedRoot, "cwd");
   const runtime = path.join(isolatedRoot, "runtime");
   await Promise.all([home, cwd, runtime].map((dir) => mkdir(dir)));
+  // Build a private app copy with its own isolated assets; never write ROOT/dist
+  // and never start the served checkout. The server source and all security/PTY
+  // behaviour are identical to the checkout.
+  const app = path.join(isolatedRoot, "app");
+  await mkdir(app);
+  for (const name of ["server", "src", "contracts", "scripts", "public"])
+    await cp(path.join(REPO, name), path.join(app, name), { recursive: true });
+  for (const name of ["index.html", "package.json", "tsconfig.json", "vite.config.js"])
+    await cp(path.join(REPO, name), path.join(app, name));
+  await symlink(path.join(REPO, "node_modules"), path.join(app, "node_modules"), "dir");
+  execFileSync(process.execPath, [path.join(REPO, "scripts/isolated_build.mjs"),
+    "--source", app, "--dest", path.join(app, "dist"), "--allow-source-dist", "--no-typecheck", "--json"],
+    { cwd: app, env: { PATH: process.env.PATH, HOME: home, ORBIT_BUILD_SCRATCH: os.tmpdir() }, encoding: "utf8" });
   port = await new Promise((resolve, reject) => {
     const probe = net.createServer();
     probe.once("error", reject);
@@ -37,6 +52,7 @@ before(async () => {
     ORBIT_CWD: cwd,
   };
   child = spawn(process.execPath, ["--experimental-strip-types", "server/index.mjs"], {
+    cwd: app,
     env,
     stdio: ["ignore", "pipe", "pipe"],
   });
