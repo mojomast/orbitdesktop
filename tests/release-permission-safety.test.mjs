@@ -45,25 +45,28 @@ test('unsafe relative paths are refused without any chmod',t=>{
 test('a root with a symlink ancestor is refused',t=>{
   const base=scratch();t.after(()=>fs.rmSync(base,{recursive:true,force:true}));
   const real=path.join(base,'real');fs.mkdirSync(real);fs.writeFileSync(path.join(real,'x.txt'),'x');
+  const realMode=mode(real);
   const link=path.join(base,'link');fs.symlinkSync(real,link,'dir');
   assert.throws(()=>applyReadOnlyOwnedFiles({root:link,files:['x.txt']}),{code:'unsafe_root'});
   const ancestorLink=path.join(base,'ancestor-link');fs.symlinkSync(base,ancestorLink,'dir');
   const child=path.join(base,'child');fs.mkdirSync(child);fs.writeFileSync(path.join(child,'y.txt'),'y');
+  const childMode=mode(child);
   const viaAncestor=path.join(ancestorLink,'child');
   assert.throws(()=>applyReadOnlyOwnedFiles({root:viaAncestor,files:['y.txt']}),{code:'symlink_ancestor'});
-  assert.equal(mode(child),0o700);
-  assert.equal(mode(real),0o700);
+  assert.equal(mode(child),childMode,'ancestor refusal preserves the original directory mode');
+  assert.equal(mode(real),realMode,'root refusal preserves the original directory mode');
 });
 
 test('a nested hardlink is refused and neither link nor target changes',t=>{
   const base=scratch();t.after(()=>fs.rmSync(base,{recursive:true,force:true}));
   const {file}=syntheticExternal(base);
   const rel=path.join(base,'rel');fs.mkdirSync(path.join(rel,'nested'),{recursive:true});
+  const nestedMode=mode(path.join(rel,'nested'));
   fs.linkSync(file,path.join(rel,'nested','hard.js'));
   assert.throws(()=>applyReadOnlyOwnedFiles({root:rel,files:['nested/hard.js']}),{code:'hardlinked_file'});
   assert.equal(mode(file),0o600,'hardlink target unchanged');
   assert.equal(mode(path.join(rel,'nested','hard.js')),0o600,'hardlink entry unchanged');
-  assert.equal(mode(path.join(rel,'nested')),0o700,'no directory chmod before refusal');
+  assert.equal(mode(path.join(rel,'nested')),nestedMode,'no directory chmod before refusal');
 });
 
 test('cleanup refuses unmarked, mismatched, marker-symlink and outside roots',t=>{

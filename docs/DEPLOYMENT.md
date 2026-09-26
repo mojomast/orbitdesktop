@@ -2,6 +2,36 @@
 
 ## Result-delivery increment (schema 8; not deployed)
 
+### Recreating the native acceptance environment
+
+Temporary implementation paths are not deployment prerequisites that survive a
+host/container change. Recreate the test runtime from the same upstream and
+lockfile used in `.github/workflows/workbench.yml`. The pinned commit belongs to
+**https://github.com/NousResearch/hermes-agent**, not the owner's Hermes fork.
+Use a new private directory; do not overwrite an existing Hermes installation.
+
+```sh
+git clone --no-checkout https://github.com/NousResearch/hermes-agent /tmp/opencode/orbit-hermes-native
+git -C /tmp/opencode/orbit-hermes-native checkout --detach d0288be5b3330d2442e3907185b8e9d0958297bb
+git -C /tmp/opencode/orbit-hermes-native rev-parse HEAD
+uv sync --project /tmp/opencode/orbit-hermes-native --frozen --python 3.14 --no-default-groups
+export HERMES_NATIVE_SOURCE=/tmp/opencode/orbit-hermes-native
+```
+
+CI uses uv 0.11.2. Provision this isolated environment only where dependency
+downloads are authorized, then verify the commit and `.venv/bin/python`. Preserve
+any existing directory and inspect it instead of blindly cloning over it.
+The browser virtualenv and Chromium cache may use other vetted paths; set
+`PLAYWRIGHT_BROWSERS_PATH` accordingly. These deterministic fixtures do not
+authorize product-model inference. Full Git history is required in the Orbit
+checkout because the real-project tests read the pinned `5b31fda` baseline.
+
+Local acceptance and remote CI are distinct gates. Check the completed CI
+conclusions for the exact candidate before activation, not just the historical
+local acceptance ledger. The first published candidate `ae3b1f7` failed remote
+CI on umask-dependent test expectations and missing shallow-checkout history;
+its local results do not supersede those failures.
+
 Schema 7→8 adds private result receipts, host-card delivery records and reviewed
 patch-export records. Native explanations are separate from runtime termination,
 recorded checks and human acceptance. Backups must also include

@@ -63,6 +63,24 @@ not authorized. A disposable activation test does not authorize owner activation
 
 ## Current status
 
+### Post-publication CI correction
+
+The initial `ae3b1f7` push completed with **both remote workflows failed**:
+[Workbench 36267899618](https://github.com/mojomast/orbitdesktop/actions/runs/36267899618)
+and [Plugin 36267899660](https://github.com/mojomast/orbitdesktop/actions/runs/36267899660).
+This supersedes the pre-push statement below that remote runs had not completed;
+the local acceptance results remain historical evidence, not deployment approval.
+The deployment agent correctly left the schema-5 isolated instance unchanged.
+
+CI logs identified two causes: permission-safety fixtures assumed an ambient
+umask of 077, and shallow checkouts omitted the pinned real-project baseline.
+Permission assertions now compare modes before/after refusal, retaining the
+no-chmod invariant under either umask, and both workflows fetch full history.
+The pinned Hermes commit remains available in `NousResearch/hermes-agent`;
+fetching it from `mojomast/hermes` is not the configured bootstrap procedure.
+See `DEPLOYMENT.md` for reproducible setup. Replacement CI must pass before
+activation; no owner or isolated-instance restart is part of this correction.
+
 ### Final acceptance — Gate 1 and Gate 2 accepted
 
 All three original worker lanes are integrated. The final production-source
