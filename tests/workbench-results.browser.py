@@ -12,6 +12,11 @@ copy only; the checkout and any served release are never written.
 Run (both renderers):
   PLAYWRIGHT_BROWSERS_PATH=/tmp/opencode/orbit-evolution-browsers \\
     /tmp/opencode/orbit-managed-ui-venv/bin/python tests/workbench-results.browser.py --renderer default
+
+Correction: an earlier revision never appended ?renderer=docking and did not assert
+the installed renderer, so its reported default+docking passes were both the default
+renderer. This revision applies the query, asserts the actual installed renderer via
+window.__orbitDocking (supported), and re-asserts it after reload.
 """
 
 import argparse
@@ -159,6 +164,22 @@ def call(origin, token, route, body):
     return payload
 
 
+def wait_renderer(page, renderer, timeout_s=20):
+    """Assert the ACTUAL installed renderer, not the fixture label."""
+    deadline = time.time() + timeout_s
+    info = None
+    while time.time() < deadline:
+        info = page.evaluate("() => window.__orbitDocking ? {renderer: window.__orbitDocking.renderer, supported: window.__orbitDocking.supported, reason: window.__orbitDocking.reason ?? null} : null")
+        if renderer == "docking":
+            if info and info.get("renderer") == "docking":
+                assert info.get("supported") is True, info
+                return info
+        elif info is None:
+            return None
+        time.sleep(.1)
+    raise AssertionError("renderer %s not active (observed %r)" % (renderer, info))
+
+
 def wait_workspace(origin, token, timeout_s=20):
     deadline = time.time() + timeout_s
     while time.time() < deadline:
@@ -275,12 +296,15 @@ def main(renderer):
                     page.on("pageerror", lambda error: page_errors.append(str(error)))
                     page.on("response", lambda response: responses.append((response.url, response.status)))
                     try:
-                        page.goto(origin)
+                        page.goto(origin + ("?renderer=docking" if renderer == "docking" else ""))
                         expect(page.locator('.pane[data-pane-id="%s"]' % helper.PANE)).to_be_visible(timeout=20000)
                         page.get_by_role("button", name="Connect local host", exact=True).click()
                         page.get_by_role("textbox", name="Host session token").fill(token)
                         page.get_by_role("button", name="Unlock local host", exact=True).click()
                         wait_workspace(origin, token)
+                        assert ("?renderer=docking" in page.url) == (renderer == "docking"), page.url
+                        renderer_info = wait_renderer(page, renderer)
+                        log("renderer=%s actual=%s" % (renderer, renderer_info))
 
                         log("register project and create a bound native attempt through the owner API")
                         preview = call(origin, token, WORKBENCH_ROUTE, {"action": "register_preview", "root": str(project), "name": "result-fixture"})
@@ -339,6 +363,11 @@ def main(renderer):
                         log("reload: the host card persists and no model call is repeated")
                         page.reload()
                         expect(page.locator('.pane[data-pane-id="%s"]' % helper.PANE)).to_be_visible(timeout=20000)
+                        page.get_by_role("button", name="Connect local host", exact=True).click()
+                        page.get_by_role("textbox", name="Host session token").fill(token)
+                        page.get_by_role("button", name="Unlock local host", exact=True).click()
+                        assert ("?renderer=docking" in page.url) == (renderer == "docking"), page.url
+                        wait_renderer(page, renderer)
                         reloaded = wait_card(page, helper.PANE)
                         expect(reloaded.locator("pre.workbench-result-text").first).to_contain_text(ANSWER_TOKEN, timeout=20000)
                         assert len(model.requests) == before_requests, "reload must not re-run the model"
@@ -349,10 +378,10 @@ def main(renderer):
                     finally:
                         if page_errors:
                             page.screenshot(path="/tmp/opencode/comet-results-%s-error.png" % renderer, full_page=True)
-                    log(json.dumps({"renderer": renderer, "result_delivered": True, "card_persisted": True,
+                    log(json.dumps({"renderer": renderer, "renderer_actual": (renderer_info or {}).get("renderer", "default"), "result_delivered": True, "card_persisted": True,
                                     "model_requests": len(model.requests), "chat_messages": before_messages,
                                     "provenance": job_provenance, "page_errors": len(page_errors)}))
-                    Path(log_path).with_suffix(".json").write_text(json.dumps({"renderer": renderer, "ok": True}, indent=2))
+                    Path(log_path).with_suffix(".json").write_text(json.dumps({"renderer": renderer, "renderer_actual": (renderer_info or {}).get("renderer", "default"), "ok": True}, indent=2))
         finally:
             if server and server.poll() is None:
                 server.terminate()

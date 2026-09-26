@@ -1,6 +1,8 @@
 """Disposable built-UI continuity acceptance test. Never contacts the owner's runtime.
 
-Run after npm run build with PLAYWRIGHT_BROWSERS_PATH=/tmp/opencode/orbit-evolution-browsers
+Builds its own disposable copy with scripts/isolated_build.mjs (or consumes an
+explicit verified build via ORBIT_TEST_DIST); never reads a checkout dist. Run with
+PLAYWRIGHT_BROWSERS_PATH=/tmp/opencode/orbit-evolution-browsers
   /tmp/opencode/orbit-evolution-browser-venv/bin/python tests/runtime-continuity.browser.py
 Pass --pty only when the fixture tmux override is supported and tmux is installed.
 Docking panels must exactly equal live v1 window ids at every transition, including
@@ -34,12 +36,23 @@ if args.pty and (not shutil.which("tmux") or "ORBIT_TMUX_SOCKET" not in (ROOT / 
 
 with tempfile.TemporaryDirectory(prefix="orbit-continuity-", dir="/tmp/opencode") as temporary:
     root = Path(temporary)
-    for name in ("server", "src", "contracts", "dist"):
+    for name in ("server", "src", "contracts", "scripts", "public"):
         shutil.copytree(ROOT / name, root / name)
-    (root / "node_modules").symlink_to(ROOT / "node_modules", target_is_directory=True)
-    shutil.copy2(ROOT / "package.json", root / "package.json")
+    for name in ("index.html", "package.json", "tsconfig.json", "vite.config.js"):
+        shutil.copy2(ROOT / name, root / name)
+    private_deps = os.environ.get("ORBIT_PRIVATE_DEPS") or str(ROOT / "node_modules")
+    (root / "node_modules").symlink_to(private_deps, target_is_directory=True)
     for name in ("runtime", "home", "cwd", "tmux"):
         (root / name).mkdir(mode=0o700)
+    supplied_dist = os.environ.get("ORBIT_TEST_DIST")
+    if supplied_dist:
+        shutil.copytree(supplied_dist, root / "dist")
+    else:
+        subprocess.run([shutil.which("node"), str(ROOT / "scripts/isolated_build.mjs"),
+                        "--source", str(root), "--dest", str(root / "dist"), "--allow-source-dist"],
+                       cwd=root, env={"HOME": str(root / "home"), "PATH": os.environ["PATH"],
+                                      "npm_config_cache": str(root / ".npm")}, check=True)
+    assert (root / "dist/index.html").is_file(), "continuity fixture requires a built dist (ORBIT_TEST_DIST or isolated build)"
     fixture = root / "fixture"
     fixture.mkdir()
     shutil.copy2(ROOT / "tests/fixtures/runtime-continuity.html", fixture / "index.html")
