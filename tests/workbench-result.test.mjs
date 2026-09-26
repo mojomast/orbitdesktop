@@ -157,6 +157,7 @@ test('journal creation fault fences shared dispatch as unknown without publishin
   const status=await f.owner('status',{grant_id:grant.id});
   assert.equal(status.grant.status,'dispatch_unknown');assert.equal(status.result.availability,'pending');assert.throws(()=>f.gate.claim('job',randomUUID()),{code:'busy'});
   assert.equal((await f.owner('acknowledge_unknown',{grant_id:grant.id,expected_digest:status.unknown_digest,known_externally_terminated:true})).replayed,false);
+  const acknowledged=await f.owner('status',{grant_id:grant.id});assert.equal(acknowledged.result.unavailable_reason,'persistence_failed');assert.equal(acknowledged.result.text,null);
   const release=f.gate.claim('job',randomUUID());release();
 });
 test('owner historical candidate reads bind exact generation/hash and reject tampered roots',async t=>{

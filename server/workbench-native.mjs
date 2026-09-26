@@ -177,7 +177,22 @@ export function createWorkbenchNative({store,records,data,execution,hermes,now=D
     if(body.action==='acknowledge_unknown'){
       if(g.status!=='dispatch_unknown'||body.expected_digest!==unknownDigest(g)||running.has(g.id))throw wbError('stale_resource');
       if(typeof hermes?.acknowledgeNativeUnknown!=='function')throw wbError('unavailable');
-      update('grants',g,g.id,{status:'acknowledged_unknown',acknowledged_digest:body.expected_digest,owner_asserted_terminated:true,acknowledged_at:now(),authority_generation:randomUUID(),risk_policy:NATIVE_UNKNOWN_POLICY});resultFailures.delete(g.id);
+      const r=rawResult(g),observedPath=r?resultJournal(r):null;
+      let saved=null;
+      if(r?.availability==='pending'&&observedPath&&fs.existsSync(observedPath)){
+        const observed=readJournal(observedPath);
+        if(observed.id!==r.id||observed.run_id!==r.run_id||observed.observed?.termination_confirmed!==true)throw wbError('stale_resource');
+        saved=fs.existsSync(resultJournal(r,true))?readJournal(resultJournal(r,true)):observed;
+      }
+      data.db.transaction(()=>{
+        if(saved)update('grants',g,g.id,{status:'result_pending',final_status:saved.version===2?saved.final_status:'fenced',runtime_status:'exited',termination_confirmed:true,result_status:'result_pending',pending_digest:digest(saved),owner_asserted_terminated:true,acknowledged_digest:body.expected_digest,acknowledged_at:now(),authority_generation:randomUUID(),risk_policy:NATIVE_UNKNOWN_POLICY});
+        else{
+          if(r?.availability==='pending')update('results',r,r.id,{availability:'explanation_unavailable',unavailable_reason:'persistence_failed',text:null,received_at:now(),resolved_references:[]});
+          update('grants',g,g.id,{status:'acknowledged_unknown',result_status:r?'finalized':g.result_status,acknowledged_digest:body.expected_digest,owner_asserted_terminated:true,acknowledged_at:now(),authority_generation:randomUUID(),risk_policy:NATIVE_UNKNOWN_POLICY});
+        }
+      }).immediate();
+      if(saved)return {grant:publicGrant(get('grants',g,g.id)),result_pending:true,replayed:false};
+      resultFailures.delete(g.id);resultFailures.delete(r?.id);
       hermes.acknowledgeNativeUnknown({grant_id:g.id});quarantineFailures.delete(g.id);
       heldNativeReleases.get(g.id)?.();heldNativeReleases.delete(g.id);
       return {grant:publicGrant(get('grants',g,g.id)),replayed:false};
