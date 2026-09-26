@@ -113,6 +113,22 @@ automatically replay jobs. Unknown-outcome acknowledgement must be explicit.
 
 ## Capability matrix
 
+### Trusted candidate Review view
+
+The normal project execution panel has **Open candidate Review view**. This
+explicit owner action creates one browser-kind workspace pane, or selects the
+existing pane bound to that project. It does not create another terminal or
+agent session. Its fixed `orbit://workbench-review` URL carries no credentials,
+project identifiers or permissions: the host resolves the durable
+`candidate_diff` binding in the current authenticated workspace. An unbound pane
+shows a binding prompt; revoked bindings do not disclose review content.
+
+The trusted view presents the recorded candidate comparison, required checks,
+human decision and literal worker explanation as separate areas. Source and
+candidate identities remain explicit. Refresh revalidates the scope and recorded
+identities; model text is never evidence. A verified patch export is a separate
+owner action and does not authorize modifying or merging into the original tree.
+
 | Capability | Current status / boundary |
 | --- | --- |
 | Explicit root registration | Owner Bearer + allowed Origin/Host; expiring server-issued preview bound to root inode identity and workspace; no caller actor or `confirm` bypass |
