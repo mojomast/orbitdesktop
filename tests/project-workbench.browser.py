@@ -308,7 +308,12 @@ def main(renderer, linked=False):
                         for entry in responses:
                             if not isinstance(entry[2], dict):
                                 entry[2] = entry[2].json()
-                        page.reload(wait_until="domcontentloaded")
+                        # CI rendered the replacement document while Playwright's
+                        # reload lifecycle wait remained pending. Require the
+                        # committed navigation, new fixture document and actual
+                        # workspace acknowledgement instead of that lifecycle event.
+                        page.reload(wait_until="commit")
+                        expect(frame.locator('#document-nonce')).not_to_have_text(nonce)
                         connected(page, token)
                         dialog = open_workbench(page)
                         expect(dialog.get_by_role("button", name="Open project synthetic-project")).to_be_visible()

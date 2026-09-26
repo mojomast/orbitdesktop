@@ -128,6 +128,16 @@ opens a Linux pidfd before killing the private server and waits for kernel exit
 notification before recreation; no sleeps or retry-until-green workaround.
 Targeted adoption/real-lease tests pass (`/tmp/opencode/comet-tmux-exit-regression.log`).
 
+The next commit (`83b0db9`) passed
+[plugin CI](https://github.com/mojomast/orbitdesktop/actions/runs/36220431260),
+but its Inspector browser gate timed out awaiting reload's `domcontentloaded`
+notification. Inspected sanitized screenshots showed the replacement application
+and new iframe document already rendered. The fixture now waits for navigation
+commit, explicitly verifies a new iframe nonce, then requires the normal workspace
+connection acknowledgement. Both linked-worktree renderers pass locally with this
+stronger state-specific reload assertion (`/tmp/opencode/comet-reload-{default,docking}.log`).
+Failed run: https://github.com/mojomast/orbitdesktop/actions/runs/36220431304.
+
 - No authorized paid/real model or live deployment was exercised. No credentials
   were borrowed, service restarted, owner runtime migrated or tokens rotated.
 - The isolated model toolset denies host-tool fallback, but candidate test code
