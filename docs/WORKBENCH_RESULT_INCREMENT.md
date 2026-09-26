@@ -63,6 +63,60 @@ not authorized. A disposable activation test does not authorize owner activation
 
 ## Current status
 
+### Final acceptance — Gate 1 and Gate 2 accepted
+
+All three original worker lanes are integrated. The final production-source
+identity is
+`05264598a7846cefdbedad7eb57e40e954f9d4f3544c1ddac76a55d795e298d0`.
+Production changes were complete at `ad8d2d0`; subsequent changes add independent
+browser assertions, CI and evidence documentation. The portable archive includes
+the final source and documentation, without runtime data, credentials or private
+screenshots. The entries below this section are chronological checkpoints, not
+outstanding work.
+
+| Gate | Independent parent evidence |
+| --- | --- |
+| Contract generation, isolated build, Node regression | `13207ba`: 562 passed, zero failed, one explicit release-instance skip; actual Hermes enabled |
+| Python / publisher / catalog / telemetry | 59 passed, including actual pinned Hermes adapter coverage |
+| Disposable release instance | 2 passed with `RELEASE_INSTANCE=1`; external dependencies, launch identity, pointer isolation and rollback; repeated after final documentation/archive publication |
+| Strict normal UI Gate 2 / Review | Both renderers: exact artifact hashes, frozen required checks, independent Git apply/check, persisted receipt discovery/reload, actual literal explanation, exact candidate identity, visible diff/verdict, explicit placement and revision-checked Return |
+| Review continuity | Existing owner float, iframe document nonce and unsaved draft retained; browser revision acknowledged; newer owner sync refuses Return |
+| Native retained dependency-bearing journey | Both renderers: 8 deterministic requests, 6 tool calls, fail→pass evidence, private integration contains repair, original source unchanged, zero page errors/external requests |
+| Host result delivery / reload | Both renderers: 7 deterministic requests, one unchanged chat message, service-derived native-agent provenance, no repeated inference |
+| Live PTY continuity | Both renderers: 94 transitions, two iframe nonces/drafts and DOM identities retained, revision 53 acknowledged, zero page errors |
+| Real-server recovery | Broken renderer/bad app recovery, persistent hold, blocked checkpoint restore, safe release, keyboard/narrow/forced-colors checks passed |
+| Revoked-project remount | Both renderers: receipt metadata discoverable, download forbidden, new export disabled, no inference or check execution |
+| Ordinary check cancellation | Both renderers: normal-UI cancellation of a real owned check reaches cancelled state |
+| Artifact-export cancellation | Both renderers: real export remains pending; owner cancellation returns HTTP 200; receipt reaches `verification_failed` / `inconclusive` while sentinel remains blocked; private download forbidden |
+| Recovery / re-registration boundary | Real provider and supplier: exact lost-reply replay without re-execution, metadata-only revoked recovery, wrong-digest refusal, old generation cannot regain retrieval/export through re-registration |
+
+Parent logs are `/tmp/opencode/comet-next-final-{node,python,release}.log`,
+`/tmp/opencode/comet-next-parent-{strict,native,remount,job-cancel,artifact-confirmed}-{default,docking}.log`,
+and `/tmp/opencode/comet-next-final-{results,pty}-{default,docking}.log`
+(Docking PTY completion is in `comet-next-final-pty-docking-retry.log`). Native
+fixture summaries also reside in `comet-native-browser-{default,docking}.log`.
+Parent inspected the masked Review screenshots. Early screenshot assertions were
+strengthened to prove actual diff/verdict visibility and literal explanation,
+rather than section headings. The native fixture's nested Playwright callback and
+obsolete response-order/Review-setup assumptions were corrected; its complete
+assertions then passed. A timed-out Docking PTY run was discarded and rerun to
+completion. None of those interrupted runs counts as acceptance.
+
+Runtime: Node 22.23.1 / ABI 127; Hermes
+`d0288be5b3330d2442e3907185b8e9d0958297bb` / Python 3.14.3;
+Chromium 145.0.7632.6. Browser work used disposable workspaces/private dependencies
+and serialized heavy checks. All 181 protected owner-served asset hashes match
+the baseline, the owner checkout is clean, and its dependency-root mode is 0700.
+
+**Limits and authorization:** product-model evaluation remains **UNRUN, zero
+admitted trials**, by explicit user choice; six concrete case families are
+prepared. No push, main merge, owner deployment/restart/migration or credential
+rotation occurred. CI assertions are committed locally; this increment has not
+been represented as a completed remote CI run. External release dependencies are
+operator-managed with resolution/version checks, not byte-hashed or immutable.
+Profile-bound artifact checks and unsupported file/mode cases refuse export
+explicitly. Existing owner credential-rotation concerns remain separately scoped.
+
 ### Final-candidate fixes (source `ad8d2d0`)
 
 The explanation lookup now joins through the native grant's attempt and validates
