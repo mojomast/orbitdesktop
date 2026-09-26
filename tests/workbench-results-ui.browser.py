@@ -12,6 +12,7 @@ Run (both renderers):
 """
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -357,10 +358,12 @@ def main(renderer):
                         select = pane.get_by_label("Approved candidate and review")
                         expect(select.locator("option")).not_to_have_count(0, timeout=30000)
                         select.select_option(value="%s:%s:%s" % (candidate["id"], review["id"], task["id"]))
+                        jobs_before_preview = helper.api(origin, token, EXEC_ROUTE, {"action": "execution_state", "project_id": project_id})[1]["jobs"]
                         patch_preview = click_text(pane, "Preview reviewed patch", "patch_preview", WORKFLOW_ROUTE)
                         assert patch_preview["format"] == "git-unified-diff", patch_preview
                         assert patch_preview["roundtrip"]["verified"] is True, patch_preview["roundtrip"]
                         assert any(change["path"] == "math.js" for change in patch_preview["changes"]), patch_preview["changes"]
+                        assert len(helper.api(origin, token, EXEC_ROUTE, {"action": "execution_state", "project_id": project_id})[1]["jobs"]) == len(jobs_before_preview), "patch preview must not execute checks"
                         exported = click_text(pane, "Create private verified patch", "patch_export", WORKFLOW_ROUTE)["patch"]
                         assert exported["status"] == "available", exported
                         assert exported["roundtrip"]["verified"] is True, exported["roundtrip"]
@@ -409,27 +412,37 @@ def main(renderer):
                         assert (project / "unrelated.txt").read_text() == UNRELATED
 
                         if os.environ.get("GATE2_FINAL") == "1":
-                            step = "Gate 2 FINAL: helper verification, exact artifact re-retrieval, no check spawn"
+                            step = "Gate 2 FINAL: exact hashes, required definitions, durable re-retrieval, no check spawn"
+                            execution = helper.api(origin, token, EXEC_ROUTE, {"action": "execution_state", "project_id": project_id})[1]
+                            task_row = next(entry for entry in execution["tasks"] if entry["id"] == task["id"])
+                            required_defs = [check["definition_id"] for check in task_row["acceptance"]["required_checks"]]
                             verification = exported.get("verification") or {}
                             assert verification.get("status") == "verified", verification
+                            assert verification.get("artifact_hash") == exported.get("artifact_hash"), verification
+                            assert hashlib.sha256(patch_bytes).hexdigest() == exported["artifact_hash"], "downloaded bytes must hash to the exported artifact hash"
                             results = verification.get("results") or []
-                            assert results, verification
+                            assert [result.get("definition_id") for result in results] == required_defs, (required_defs, results)
                             for result in results:
                                 assert result.get("verdict") == "pass", result
-                                assert isinstance(result.get("artifact_hash"), str) and len(result.get("artifact_hash")) == 64, result
-                            jobs_after_preview = helper.api(origin, token, EXEC_ROUTE, {"action": "execution_state", "project_id": project_id})[1]["jobs"]
+                                assert isinstance(result.get("artifact_hash"), str) and len(result["artifact_hash"]) == 64, result
+                                assert isinstance(result.get("definition_digest"), str) and len(result["definition_digest"]) == 64, result
+                            jobs_after_export = helper.api(origin, token, EXEC_ROUTE, {"action": "execution_state", "project_id": project_id})[1]["jobs"]
                             exported_id = exported.get("artifact_id") or exported.get("id")
                             listed_status, listed = helper.api(origin, token, WORKFLOW_ROUTE, {"action": "patch_list", "project_id": project_id})
                             assert listed_status == 200 and listed.get("ok") is True, (listed_status, listed)
                             patches = listed.get("patches") or []
                             match = next((item for item in patches if (item.get("artifact_id") or item.get("id")) == exported_id), None)
                             assert match, ("the exported artifact must appear in patch_list", exported_id, patches)
+                            assert match.get("verification_status") == "verified", match
+                            assert match.get("artifact_hash") == exported["artifact_hash"], match
                             artifact_id = match.get("artifact_id") or match.get("id")
-                            again = helper.api(origin, token, WORKFLOW_ROUTE, {"action": "private_patch_get", "artifact_id": artifact_id})[1]["patch"]
+                            get_status, get_body = helper.api(origin, token, WORKFLOW_ROUTE, {"action": "private_patch_get", "artifact_id": artifact_id, "project_id": project_id})
+                            assert get_status == 200 and get_body.get("ok") is True, (get_status, get_body)
+                            again = get_body["patch"]
                             assert again == patch_bytes.decode("utf-8"), "re-retrieved artifact bytes must match the downloaded bytes"
                             jobs_final = helper.api(origin, token, EXEC_ROUTE, {"action": "execution_state", "project_id": project_id})[1]["jobs"]
-                            assert len(jobs_final) == len(jobs_after_preview), "re-retrieval must not spawn a new check"
-                            log_extra = {"gate2_final": True, "gate2_verification_status": verification.get("status"), "gate2_patch_list": True}
+                            assert len(jobs_final) == len(jobs_after_export), "re-retrieval must not spawn a new check"
+                            log_extra = {"gate2_final": True, "gate2_verification_status": verification.get("status"), "gate2_required_definitions": required_defs, "gate2_patch_list": True}
                         else:
                             log_extra = {"gate2_final": False}
 
