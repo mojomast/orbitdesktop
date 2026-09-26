@@ -6,6 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {spawn} from 'node:child_process';
+import {createRequire} from 'node:module';
 import {randomUUID} from 'node:crypto';
 import {fileURLToPath,pathToFileURL} from 'node:url';
 import {readManifest,verifyManifest,assertCompatComplete} from './release_manifest.mjs';
@@ -85,6 +86,43 @@ export function verifyRelease(releaseDir){
   return {root,manifest,verified};
 }
 
+// Prove the ACTUAL Node resolution of runtime dependencies from the physical entry
+// lands inside the declared external node_modules root, and that installed versions
+// match the release lockfile. Fails closed before any process is started. No NODE_PATH
+// and no custom loader: package specifiers resolve exactly as Node would.
+export function resolveExternalDependencies({root,manifest,requireRoot}={}){
+  const physical=canonicalTarget(path.resolve(root));
+  const packageJson=path.join(physical,'package.json');
+  if(!fs.existsSync(packageJson))throw new PinError('release_incomplete','Release is missing package.json.',{release:physical});
+  const pkg=JSON.parse(fs.readFileSync(packageJson,'utf8'));
+  const dependencies=Object.keys(pkg.dependencies??{});
+  const external=manifest?.dependencies?.external??null;
+  if(!dependencies.length)return {checked:[],external,declared_root:null};
+  if(!external)throw new PinError('external_dependencies_undeclared','The release declares runtime dependencies but no external dependency root.',{dependencies});
+  if(typeof external.path!=='string'||!path.isAbsolute(external.path))throw new PinError('external_path_invalid','External dependency path must be an absolute path.',{path:external.path});
+  if(!fs.existsSync(external.path))throw new PinError('external_path_missing','External dependency root does not exist.',{path:external.path});
+  const stat=fs.statSync(external.path);
+  if(!stat.isDirectory())throw new PinError('external_path_invalid','External dependency root must be a directory.',{path:external.path});
+  const declaredRoot=canonicalTarget(external.path);
+  const lock=JSON.parse(fs.readFileSync(path.join(physical,'package-lock.json'),'utf8'));
+  const anchor=path.join(physical,'server','index.mjs');
+  const require=createRequire(requireRoot??anchor);
+  const checked=[];
+  for(const dependency of dependencies){
+    let resolved;
+    try{resolved=require.resolve(dependency);}catch{throw new PinError('external_dependency_missing',`Cannot resolve runtime dependency ${dependency} from the physical entry.`,{dependency});}
+    const canonicalResolved=fs.realpathSync.native(resolved);
+    if(canonicalResolved!==declaredRoot&&!canonicalResolved.startsWith(declaredRoot+path.sep))throw new PinError('external_resolution_mismatch',`Runtime dependency ${dependency} resolves outside the declared external root.`,{dependency,resolved:canonicalResolved,declared:declaredRoot});
+    let installedVersion=null;
+    try{installedVersion=JSON.parse(fs.readFileSync(path.join(declaredRoot,dependency,'package.json'),'utf8')).version;}catch{}
+    const lockVersion=lock.packages?.[`node_modules/${dependency}`]?.version??null;
+    if(lockVersion&&installedVersion&&lockVersion!==installedVersion)throw new PinError('external_version_mismatch',`Runtime dependency ${dependency} installed version does not match the lockfile.`,{dependency,installed:installedVersion,lock:lockVersion});
+    if(external.node_abi&&external.node_abi!==process.versions.modules)throw new PinError('dependency_abi_mismatch','External dependency ABI does not match the running Node.',{expected:external.node_abi,actual:process.versions.modules});
+    checked.push({dependency,resolved:canonicalResolved,version:installedVersion,lock_version:lockVersion});
+  }
+  return {checked,external,declared_root:declaredRoot};
+}
+
 export async function resolveLaunch({runtime,open=defaultOpen,nodeVersion=process.versions.node}={}){
   const runtimeRoot=canonicalTarget(path.resolve(runtime));
   if(!fs.existsSync(runtimeRoot))throw new PinError('runtime_missing','Runtime directory must already exist.',{runtime:runtimeRoot});
@@ -105,7 +143,8 @@ export async function resolveLaunch({runtime,open=defaultOpen,nodeVersion=proces
   const entry=path.join(root,'server/index.mjs'),assets_index=path.join(root,'dist/index.html');
   if(!fs.existsSync(entry))throw new PinError('release_incomplete','Release is missing server/index.mjs.',{release:root});
   if(!fs.existsSync(assets_index))throw new PinError('release_incomplete','Release is missing dist/index.html.',{release:root});
-  return {release_id:manifest.release_id,manifest,physical_root:root,entry,assets_index,pointer,env:Object.freeze({ORBIT_RUNTIME_DIR:runtimeRoot,ORBIT_RELEASE_ROOT:root,ORBIT_RELEASE_ID:manifest.release_id,ORBIT_RELEASE_INTEGRITY:manifest.integrity})};
+  const dependencies=resolveExternalDependencies({root,manifest});
+  return {release_id:manifest.release_id,manifest,physical_root:root,entry,assets_index,pointer,dependencies,env:Object.freeze({ORBIT_RUNTIME_DIR:runtimeRoot,ORBIT_RELEASE_ROOT:root,ORBIT_RELEASE_ID:manifest.release_id,ORBIT_RELEASE_INTEGRITY:manifest.integrity})};
 }
 
 // A 200 from an arbitrary (possibly old) server is not proof. The probe must

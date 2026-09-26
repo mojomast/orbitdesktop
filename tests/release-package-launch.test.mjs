@@ -69,7 +69,7 @@ test('disposable immutable release packages and launches with external deps and 
   assert.ok(fs.existsSync(path.join(distDir,'index.html')));
 
   const external={kind:'referenced-readonly',path:EXTERNAL_DEPS,node_abi:process.versions.modules,node_version:process.versions.node};
-  const compat={schema_min:7,schema_max:7};
+  const compat={schema_min:7,schema_max:schemaVersion};
   const a=packageRelease({sourceRoot:SOURCE,distRoot:distDir,outRoot:path.join(base,'releases','rel-a'),release_id:'rel-a',compat,revision:'instance',external,readOnly:true});
   releases.push({root:a.root,manifest:a.manifest});
   const aEntry=path.join(a.root,'server/index.mjs');
@@ -103,6 +103,37 @@ test('disposable immutable release packages and launches with external deps and 
   const stillA=await (await fetch(origin+'/api/health')).json();
   assert.equal(stillA.release_id,'rel-a','the running old process keeps its own release identity');
 
+  // A failing probe must roll back without changing the active pointer.
+  const c=packageRelease({sourceRoot:SOURCE,distRoot:distDir,outRoot:path.join(base,'releases','rel-c'),release_id:'rel-c',compat,revision:'instance',external,readOnly:true});
+  releases.push({root:c.root,manifest:c.manifest});
+  const failed=await activate({runtime,release:c.root,probe:()=>({ok:false,identity_match:false,status:200})});
+  assert.equal(failed.pointer_selected,false);
+  assert.equal(failed.rolled_back,true);
+  assert.equal(readPointer(runtime).release_id,'rel-b','a failed probe leaves the active pointer unchanged');
+  assert.ok(fs.existsSync(c.root),'the rejected release is retained, not deleted');
+
+  // An older-schema release must be refused against the current runtime schema.
+  // A declared external path that does not match actual Node resolution must fail
+  // closed before any process starts.
+  const wrongRoot=path.join(base,'not-the-deps');fs.mkdirSync(wrongRoot);
+  const wrong=packageRelease({sourceRoot:SOURCE,distRoot:distDir,outRoot:path.join(base,'releases','rel-wrong'),release_id:'rel-wrong',compat,revision:'instance',external:{...external,path:wrongRoot},readOnly:true});
+  releases.push({root:wrong.root,manifest:wrong.manifest});
+  const wrongResult=await activate({runtime,release:wrong.root,probe:()=>({ok:true,identity_match:true})});
+  assert.equal(wrongResult.pointer_selected,false,'wrong external resolution must not activate');
+  assert.equal(wrongResult.error,'external_resolution_mismatch');
+
+  const olderSchema=Math.max(1,schemaVersion-1);
+  const older=packageRelease({sourceRoot:SOURCE,distRoot:distDir,outRoot:path.join(base,'releases','rel-old'),release_id:'rel-old',compat:{schema_min:1,schema_max:olderSchema},revision:'instance',external,readOnly:true});
+  releases.push({root:older.root,manifest:older.manifest});
+  await assert.rejects(activate({runtime,release:older.root,probe:()=>({ok:true,identity_match:true})}),{code:'schema_downgrade_refused'});
+  assert.equal(readPointer(runtime).release_id,'rel-b','an older-schema release is refused without changing the pointer');
+
+  console.error(JSON.stringify({gate:'release-instance',source_build_id:a.manifest.source.build_id,source_revision:a.manifest.source.revision,
+    node_abi:process.versions.modules,node_version:process.versions.node,runtime_schema:schemaVersion,
+    releases:[a.manifest.release_id,b.manifest.release_id,c.manifest.release_id,older.manifest.release_id],
+    external:a.manifest.dependencies.external,previous_retained:(readPointer(runtime)?.previous?.release_id)??null,
+    old_process_pinned:true,failure_probe_rolled_back:true,downgrade_refused:true},
+    null,2));
   child.kill('SIGTERM');
   const exit=await new Promise(resolve=>child.once('exit',(code,signal)=>resolve({code,signal})));
   assert.ok(exit.code===0||exit.signal==='SIGTERM',JSON.stringify(exit));

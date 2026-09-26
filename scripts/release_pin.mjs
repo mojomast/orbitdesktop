@@ -4,10 +4,10 @@
 // release identity to count as activated; failure restores the previous release.
 // Artifact rollback is not a database downgrade.
 import {fileURLToPath,pathToFileURL} from 'node:url';
-import {PinError,checkCompatibility,currentSchemaVersion,pointerPath,probeReleaseIdentity,readPointer,resolveLaunch,startRelease,verifyRelease,writePointerAtomic} from './release_launch.mjs';
+import {PinError,checkCompatibility,currentSchemaVersion,pointerPath,probeReleaseIdentity,readPointer,resolveExternalDependencies,resolveLaunch,startRelease,verifyRelease,writePointerAtomic} from './release_launch.mjs';
 import {assertAbsoluteRoot,assertSeparatedRoots,canonicalTarget} from './release_roots.mjs';
 
-export {PinError,checkCompatibility,currentSchemaVersion,pointerPath,probeReleaseIdentity,readPointer,resolveLaunch,startRelease,verifyRelease,writePointerAtomic};
+export {PinError,checkCompatibility,currentSchemaVersion,pointerPath,probeReleaseIdentity,readPointer,resolveExternalDependencies,resolveLaunch,startRelease,verifyRelease,writePointerAtomic};
 
 function flattenPointer(pointer){
   if(!pointer)return null;
