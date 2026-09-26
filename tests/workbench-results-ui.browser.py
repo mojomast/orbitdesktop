@@ -562,6 +562,11 @@ def main(renderer):
                         assert float_status == 200 and "error" not in float_body, (float_status, float_body)
                         assert [f.get("windows") for f in (float_body.get("placement") or {}).get("floats", [])] == [[unrelated_window]], float_body.get("placement")
                         placement_before = float_body.get("placement")
+                        # The trusted review recipe needs a bound primary_agent anchor (owner link_pane).
+                        link_rev = helper.api(origin, token, "/api/workspace", {"action": "read"})[1]["revision"]
+                        link_status, link_body = helper.api(origin, token, "/api/workbench", {"action": "link_pane",
+                            "project_id": project_id, "pane_id": helper.PANE, "base_revision": link_rev})
+                        assert link_status == 200 and link_body.get("ok") is True, (link_status, link_body)
                         recipe_pane = open_project_workbench()
                         expect(recipe_pane.get_by_role("heading", name="Execution workbench")).to_be_visible(timeout=15000)
                         review_preview = workflow_click(recipe_pane, "Preview Review", "recipe_preview")
