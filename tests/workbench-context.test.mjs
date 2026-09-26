@@ -151,7 +151,7 @@ test('a job reference envelope derives candidate, task and attempt from server r
 
 test('terminal references never include the observe lease id',async t=>{
   const f=fixture(t);
-  const resourceId=randomUUID(),lease=randomUUID(),text='terminal tail\n';
+  const resourceId=randomUUID(),lease=randomUUID().replaceAll('-',''),text='terminal tail\n';
   f.terminal.source=()=>({text,hash:sha256(text),captured_at:2,resource_id:resourceId,provenance:{broker:'managed-terminal'}});
   const captured=await f.call({action:'capture',project_id:f.project.id,source:{kind:'terminal',resource_id:resourceId,lease_id:lease}});
   const previewed=await f.preview(captured.context.id);
@@ -263,12 +263,12 @@ test('job and terminal sources use server-derived provenance and reject forged o
   await assert.rejects(f.call({action:'capture',project_id:f.project.id,source:{kind:'job',job_id:'bad'}}),{code:'unavailable'});
   const resourceId=randomUUID(),terminalText='$ whoami\nmojo\n';
   f.terminal.source=()=>({text:terminalText,hash:sha256(terminalText),captured_at:2,resource_id:resourceId,provenance:{broker:'managed-terminal',pane_id:f.PANE},truncated:true});
-  const terminal=await f.call({action:'capture',project_id:f.project.id,source:{kind:'terminal',resource_id:resourceId,lease_id:randomUUID()}});
+  const terminal=await f.call({action:'capture',project_id:f.project.id,source:{kind:'terminal',resource_id:resourceId,lease_id:randomUUID().replaceAll('-','')}});
   assert.equal(terminal.context.snapshot.provenance.kind,'terminal');
   assert.equal(terminal.context.snapshot.provenance.broker,'managed-terminal');
   assert.equal(terminal.context.snapshot.truncated,true);
   f.terminal.source=()=>({text:'wrong pane',hash:sha256('wrong pane'),captured_at:2,resource_id:randomUUID(),provenance:{}});
-  await assert.rejects(f.call({action:'capture',project_id:f.project.id,source:{kind:'terminal',resource_id:randomUUID(),lease_id:randomUUID()}}),{code:'stale_resource'});
+  await assert.rejects(f.call({action:'capture',project_id:f.project.id,source:{kind:'terminal',resource_id:randomUUID(),lease_id:randomUUID().replaceAll('-','')}}),{code:'stale_resource'});
 });
 
 test('resources and projects are strictly scoped',async t=>{

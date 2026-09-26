@@ -200,6 +200,11 @@ export const PANE_PATTERN = /^[a-f0-9-]{36}$/;
 export const SESSION_PREFIX = 'pane-';
 export const OPERATION_ID_PATTERN = /^[A-Za-z0-9_-]{8,128}$/;
 export const TOKEN_PATTERN = /^[a-f0-9]{64}$/;
+// Lease IDs are issued by the broker as 16 random bytes in lowercase hex.
+// Consumers import this contract rather than guessing UUID or general-ID syntax.
+export const LEASE_ID_PATTERN = /^[a-f0-9]{32}$/;
+export const leaseIdSchema = Object.freeze({type:'string',pattern:LEASE_ID_PATTERN.source});
+export const isLeaseId = value => typeof value === 'string' && LEASE_ID_PATTERN.test(value);
 export const IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
 
 export class ManagedTerminalContractError extends Error {

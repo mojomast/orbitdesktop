@@ -25,6 +25,7 @@ import Ajv from 'ajv';
 import path from 'node:path';
 import {createHash,randomUUID} from 'node:crypto';
 import {wbError} from './workbench-store.mjs';
+import {leaseIdSchema} from './managed-terminal-contract.mjs';
 import {readProjectFile,literalPreview,captureProject,repositorySnapshot,PROJECT_LIMITS} from './project-files.mjs';
 
 const sha256 = value => createHash('sha256').update(value).digest('hex');
@@ -67,7 +68,7 @@ const sourceSchema={oneOf:[
   strict({kind:{const:'file'},resource_id:uuid,start_line:line,end_line:line,expected_hash:hash64}),
   strict({kind:{const:'diff'},expected_hash:hash64}),
   strict({kind:{const:'job'},job_id:name}),
-  strict({kind:{const:'terminal'},resource_id:uuid,lease_id:uuid}),
+  strict({kind:{const:'terminal'},resource_id:uuid,lease_id:leaseIdSchema}),
 ]};
 export const workbenchContextRequests=Object.freeze({
   capture:strict({action:{const:'capture'},workspace_id:uuid,project_id:uuid,source:sourceSchema,attempt_id:uuid},['action','workspace_id','project_id','source']),

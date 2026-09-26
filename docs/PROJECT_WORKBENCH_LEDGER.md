@@ -1,5 +1,8 @@
 # Comet Project Workbench — implementation ledger
 
+Current extension: [agent-loop hardening ledger](WORKBENCH_AGENT_LOOP_LEDGER.md).
+The B/C results below are historical baseline evidence, not acceptance of that extension.
+
 ## Active increment — B + C (starting at c553778)
 
 Owner authorized parallel implementation of one-shot context sharing and managed
