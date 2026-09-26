@@ -123,6 +123,10 @@ automatically replay jobs. Unknown-outcome acknowledgement must be explicit.
 | Linked terminals/conversations/browser panes | Metadata-only association with existing pane identity; no mounting, navigation, capture, permission or session change |
 | Doctor | Build/schema/support/recovery facts; gateway compatibility not probed without authorized fixture configuration |
 | Task/job/artifact shelf | Private SQLite task/attempt/job/evidence records and bounded log artifacts; legacy queue coordinates through the shared dispatch gate |
+| Native worker explanation | Bounded public Hermes `final_response` over a separate versioned channel; durable owner-scoped receipt, typed unavailable states, DB-only recovery; never inferred from stdout or a completion marker |
+| Check provenance | Authenticated initiator, approval authority and service recorder are distinct; legacy uncertainty remains explicit; explanation claims cannot change recorded verdicts |
+| Conversation result delivery | Explicit owner action creates a host-authored, recipient-bound card outside chat history; no model request; retained cards survive reload subject to current scope and retention |
+| Recorded result references | Only same-scope, server-resolved evidence links; exact retained candidate versions are read by generation/hash, with no substitution of newer content |
 | Context tray / model disclosure | One-shot recipient-bound review/approval, durable immutable requests and receipts; terminal observe leases are not model-sharing consent |
 | Candidate patches / managed jobs / evidence / review | Owner-approved private candidate, expected-hash edits, serial tracked checks, recorder evidence, exact-candidate human decision |
 | Linked worktrees | Explicit owner-reviewed visible root, worktree Git directory and common directory; relationships revalidated; private read-only metadata copy |
@@ -132,7 +136,7 @@ automatically replay jobs. Unknown-outcome acknowledgement must be explicit.
 | Integration | Explicit independent private two-commit repository/branch; in-place original integration unavailable |
 | Investigate / Implement / Review recipes | Explicit role-prioritized window-order preview/apply and revision-checked return; no automatic geometry rewrite |
 | Actual Hermes / simulated model | Pinned runtime/plugin/private bridge/provider journey tested; model-protocol fixture does not establish model reasoning |
-| Real-model and live deployment gates | **Pending separately permitted endpoint/credentials/budget and deployment authorization** |
+| Real-model and live deployment gates | Product-model evaluation is explicitly **unrun by user choice**; owner deployment remains separately unauthorized |
 
 Current verification, remaining scope limits and release gates are tracked in
 [WORKBENCH_AGENT_LOOP_LEDGER.md](WORKBENCH_AGENT_LOOP_LEDGER.md). Source completion,
@@ -227,8 +231,11 @@ authorized instance with `ORBIT_NATIVE_HERMES_SOURCE`, `ORBIT_NATIVE_HERMES_PYTH
 `ORBIT_NATIVE_HERMES_API_KEY_FILE` for a private endpoint credential. The file
 must be an absolute path to a same-UID regular single-linked file with no
 symlink path component, mode denying all group/other access, and 1–4096 bytes
-of UTF-8 text (one final newline is allowed). The service reads it at startup;
-restart after rotation so consent binds the new secret fingerprint. The secret
+of UTF-8 text (one final newline is allowed). The service snapshots it once at
+startup for both consent identity and runtime authentication. Editing the file
+does not change a running service's binding; restart after an authorized rotation
+and obtain fresh consent to bind the new secret fingerprint. An invalid selected
+file fails configuration rather than falling back to the fixture key. The secret
 is sent only through the private FD3 runtime input, not arguments, environment,
 consent metadata or logs. Without the file the local fixture key remains the
 default; no real endpoint credential is assumed.

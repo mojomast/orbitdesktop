@@ -214,3 +214,38 @@ Luna's checked private patch publication and useful Review arrangement; Flash's
 independent integrated patch/project/release acceptance. Gate 2, final full checks,
 portable archive regeneration and final capability documentation remain pending.
 Live product-model evaluation remains **unrun** by explicit user choice.
+
+### Wave 2 integration evidence (not final Gate 2)
+
+- Parent independently passed **25/25** execution/artifact-recovery and pinned
+  real-project tests after integrating `b1f56c5`. The selected two-file project
+  runs through actual Hermes, meaningful failure, repair, existing structured
+  tests, human review and separate artifact verification. No new dependency
+  profile was necessary.
+- Parent independently passed **2/2** disposable release-instance tests on build
+  `7b3a4418bd54dbb5710102e0f9a54000655e8aa817b3128f94b94b1c8811eeb9`,
+  Node 22.23.1 / ABI 127 / schema 8: physical-process pinning across pointer
+  changes, failed-probe restoration and downgrade refusal. Newer source still
+  needs final verification.
+- Python checks passed **59/59** (32 discovered runtime/plugin/bundle/contract
+  tests, 6 publisher tests, 18 catalog tests, 3 telemetry tests). The real-server
+  recovery browser gate also passed with broken-renderer and bad-app fixtures.
+- The retained full native-workflow browser fixture failed before attempt
+  creation; Flash is diagnosing that regression without removing its dependency
+  profile, complete-check or continuity assertions. The new Gate-1 result fixture
+  is not a substitute for this older gate.
+- Private key-file configuration is integrated, but parent review found the
+  normal startup metadata path did not resolve the same key snapshot as runtime
+  creation. Sol owns the correction and integration regression.
+- Browser download/apply tests are integrated with unrelated-file sentinels and
+  explicit unchanged message/model counts. Their final verifier/receipt-discovery
+  assertions remain gated pending Luna's checked exporter integration.
+
+Follow-up resolutions: private-key startup snapshot fix `c217cd4` passed the
+parent's **9/9** actual-Hermes/native/real-project run. Flash's native-fixture fix
+waits for authority refresh completion and selects the current three-part workflow
+option; it preserves all old assertions. Parent independently reran the existing
+native browser journey on **both renderers**, each with 8 model requests,
+6 completed tool calls, fail→pass evidence, dependency-profile execution, recipe
+revision 1→3, unchanged original source and zero page errors/external requests.
+Logs: `/tmp/opencode/comet-native-browser-{default,docking}.log`.

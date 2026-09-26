@@ -5,7 +5,8 @@
 Schema 7→8 adds private result receipts, host-card delivery records and reviewed
 patch-export records. Native explanations are separate from runtime termination,
 recorded checks and human acceptance. Backups must also include
-`native-result-journal/` alongside the existing candidate generations, job and
+`native-result-journal/` and
+`workbench-execution/patch-verification-pending/` alongside candidate generations, job and
 ordinary-submission journals, dependency environments, private Hermes homes and
 integration/patch artifacts. SQLite alone is not a complete backup.
 
@@ -41,6 +42,9 @@ integration and acceptance status.
   versions and Node ABI must match the pinned metadata. Merely setting
   `NODE_PATH` does not configure ESM resolution. Provision the tested directory
   layout and dependency tree explicitly; ordinary builds do not install them.
+  The release file-inventory hash covers the packaged root, not the external
+  dependency bytes. Version/lockfile/resolution checks do not enforce external
+  tree immutability; that tree remains operator-managed.
 - `scripts/release_pin.mjs` selects or rolls back a validated release pointer in
   the external runtime. Pointer selection is distinct from a running process.
   A health probe must return the selected release ID and manifest integrity;
