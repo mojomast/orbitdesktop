@@ -1,5 +1,27 @@
 # Testing candidate deployment and rollback
 
+## Result-delivery increment (schema 8; not deployed)
+
+Schema 7→8 adds private result receipts, host-card delivery records and reviewed
+patch-export records. Native explanations are separate from runtime termination,
+recorded checks and human acceptance. Backups must also include
+`native-result-journal/` alongside the existing candidate generations, job and
+ordinary-submission journals, dependency environments, private Hermes homes and
+integration/patch artifacts. SQLite alone is not a complete backup.
+
+Take a consistent backup with all writers excluded before a separately authorized
+upgrade. A schema-7 binary must not open a schema-8 runtime. Roll back using the
+matching schema-7 backup and binary in a separate runtime; never lower
+`user_version`. Reconcile pending results without launching another worker.
+
+`npm run build` now writes to a separate scratch output and reports its path.
+It does not refresh a served checkout's `dist/`. Explicit build destinations are
+validated before writes against source, runtime and configured protected roots.
+Release selection, verified process activation, database migration and rollback
+are separate operator operations. No operator deployment or activation was
+performed by this increment. See `WORKBENCH_RESULT_INCREMENT.md` for current
+integration and acceptance status.
+
 ## Agent-loop candidate (schema 7; not deployed by implementation)
 
 Use the [current ledger](WORKBENCH_AGENT_LOOP_LEDGER.md) for exact source and
