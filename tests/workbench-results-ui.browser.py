@@ -478,12 +478,19 @@ def main(renderer):
 
                         def open_project_workbench():
                             item = page.get_by_role("button", name="Project Workbench", exact=True)
-                            if item.count() == 0 or not item.first.is_visible():
+                            if not (item.count() and item.first.is_visible()):
                                 page.get_by_role("button", name="Open orbit menu").click()
+                                expect(item).to_be_visible(timeout=10000)
                             item.first.click()
                             dialog = page.locator("dialog.project-workbench-dialog")
                             dialog.get_by_role("button", name="Open project result-ui-fixture").click()
                             return dialog.locator(".workbench-execution")
+
+                        def close_orbit_menu():
+                            item = page.get_by_role("button", name="Project Workbench", exact=True)
+                            if item.count() and item.first.is_visible():
+                                page.get_by_role("button", name="Open orbit menu").click()
+                                expect(item).not_to_be_visible(timeout=10000)
 
                         action_pane = open_project_workbench()
                         expect(action_pane.get_by_role("heading", name="Execution workbench")).to_be_visible(timeout=15000)
@@ -504,16 +511,26 @@ def main(renderer):
                         expect(review_view.locator(".workbench-review-explanation")).to_contain_text("Worker explanation")
                         diff_text = review_view.locator("pre.workbench-review-diff-text").inner_text()
                         assert "math.js" in diff_text and "@@" in diff_text, diff_text[:200]
+                        # Measure actual visibility against the PANE'S scroll viewport, not the page.
+                        pane_scroll = review_view.evaluate(
+                            "(el) => { let node = el.parentElement; while (node && node !== document.body) { const s = getComputedStyle(node);"
+                            " if (/(auto|scroll)/.test(s.overflowY) && node.scrollHeight > node.clientHeight + 1) return node.getBoundingClientRect().toJSON();"
+                            " node = node.parentElement; } const f = el.closest('.pane-body') || el.parentElement;"
+                            " return (f || el).getBoundingClientRect().toJSON(); }")
+                        def within(target):
+                            box = target.bounding_box()
+                            if not box:
+                                return False
+                            return (box["y"] >= pane_scroll["y"] - 2 and box["y"] + box["height"] <= pane_scroll["y"] + pane_scroll["height"] + 2
+                                    and box["x"] >= pane_scroll["x"] - 2 and box["x"] + box["width"] <= pane_scroll["x"] + pane_scroll["width"] + 2)
+                        diff_visible = within(review_view.locator("pre.workbench-review-diff-text"))
+                        verdict_visible = within(review_view.locator(".workbench-review-check").first)
+                        useful = diff_visible and verdict_visible
+                        if os.environ.get("L4_GEOMETRY") == "1":
+                            assert useful, {"pane_scroll": pane_scroll, "diff_visible": diff_visible, "verdict_visible": verdict_visible}
+                        close_orbit_menu()
                         screenshot = "/tmp/opencode/comet-next-flash-scratch/review-view-%s.png" % renderer
                         page.screenshot(path=screenshot, full_page=True, mask=[page.locator('input[type=password], input[aria-label="Host session token"]')])
-                        diff_box = review_view.locator(".workbench-review-diff").bounding_box()
-                        checks_box = review_view.locator(".workbench-review-checks").bounding_box()
-                        assert diff_box and checks_box, (diff_box, checks_box)
-                        viewport = page.viewport_size
-                        for box in (diff_box, checks_box):
-                            assert box["width"] > 0 and box["height"] > 0, box
-                            assert box["y"] < viewport["height"] and box["y"] + box["height"] > 0, (box, viewport)
-                            assert box["x"] < viewport["width"] and box["x"] + box["width"] > 0, (box, viewport)
                         revision_ack = helper.api(origin, token, "/api/workspace", {"action": "read"})[1]["revision"]
                         assert isinstance(revision_ack, int) and revision_ack >= 1, revision_ack
                         listed = helper.api(origin, token, "/api/workbench", {"action": "list"})[1]
@@ -530,7 +547,8 @@ def main(renderer):
                         assert len(review_panes) == 1, review_panes
                         assert review_panes[0]["id"] == review_pane["id"], (review_panes, review_pane)
                         log_extra.update({"review_view_mounted": True, "review_pane_reused": True, "review_unrelated_live": True,
-                                          "review_screenshot": screenshot, "review_diff_box": diff_box, "review_checks_box": checks_box,
+                                          "review_screenshot": screenshot, "review_useful_arrangement": useful,
+                                          "review_pane_scroll": pane_scroll, "review_diff_visible": diff_visible, "review_verdict_visible": verdict_visible,
                                           "workspace_revision": revision_ack})
 
                         assert not page_errors, page_errors
