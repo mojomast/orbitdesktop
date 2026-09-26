@@ -551,6 +551,69 @@ def main(renderer):
                                           "review_pane_scroll": pane_scroll, "review_diff_visible": diff_visible, "review_verdict_visible": verdict_visible,
                                           "workspace_revision": revision_ack})
 
+                        step = "L4: trusted review placement preview/apply/return continuity"
+                        def workspace_state():
+                            return helper.api(origin, token, "/api/workspace", {"action": "read"})[1]["state"]
+                        def window_ids():
+                            return [m["id"] for m in workspace_state()["monitors"]]
+                        def frame_of(window_id):
+                            return next(m["frame"] for m in workspace_state()["monitors"] if m["id"] == window_id)
+                        def fixture_eval(expression, arg=None):
+                            return unrelated_frame.evaluate(expression, arg) if arg is not None else unrelated_frame.evaluate(expression)
+                        def workflow_click(scope, label, action):
+                            with page.expect_response(lambda r: r.url.split("?")[0] == origin + WORKFLOW_ROUTE and post_json(r.request).get("action") == action, timeout=30000):
+                                scope.locator("button").filter(has_text=re.compile("^" + re.escape(label) + "$")).first.click()
+                            return api_result(action, WORKFLOW_ROUTE)
+                        unrelated_window = next(m["id"] for m in workspace_state()["monitors"] if m["layout"].get("pane", {}).get("id") == unrelated_pane)
+                        unrelated_frame = next((f for f in page.frames if "/apps/review-unrelated" in f.url), None)
+                        assert unrelated_frame, [f.url for f in page.frames]
+                        draft_token = "L4-DRAFT-" + secrets.token_hex(6)
+                        original_nonce = fixture_eval("() => window.__continuityFixture.nonce")
+                        fixture_eval("(value) => window.__continuityFixture.setDraft(value)", draft_token)
+                        ids_before = window_ids(); frame_before = frame_of(unrelated_window)
+                        recipe_pane = open_project_workbench()
+                        expect(recipe_pane.get_by_role("heading", name="Execution workbench")).to_be_visible(timeout=15000)
+                        review_preview = workflow_click(recipe_pane, "Preview Review", "recipe_preview")
+                        review_apply = workflow_click(recipe_pane, "Apply previewed arrangement", "recipe_apply")
+                        applied_revision = review_apply["workspace"]["revision"]
+                        assert applied_revision == review_preview["base_revision"] + 1, (review_preview["base_revision"], applied_revision)
+                        assert helper.api(origin, token, "/api/workspace", {"action": "read"})[1]["revision"] == applied_revision
+                        assert sorted(window_ids()) == sorted(ids_before), "apply must not add or remove windows"
+                        assert window_ids() != ids_before or review_preview["changed"] is False, "the trusted review recipe should change the arrangement when applicable"
+                        assert fixture_eval("() => window.__continuityFixture.nonce") == original_nonce, "the unrelated iframe document nonce must be retained"
+                        assert fixture_eval("() => window.__continuityFixture.draft") == draft_token, "the unrelated typed draft must be retained"
+                        assert frame_of(unrelated_window) == frame_before, "the unrelated pinned window frame must be unchanged"
+                        geometry_ops = [op for op in review_preview["operations"] if op.get("action") != "reorder_windows"]
+                        return_preview = workflow_click(recipe_pane, "Preview return", "recipe_preview")
+                        assert return_preview["base_revision"] == applied_revision, (return_preview["base_revision"], applied_revision)
+                        returned = workflow_click(recipe_pane, "Apply previewed arrangement", "recipe_apply")
+                        assert returned["workspace"]["revision"] == applied_revision + 1
+                        assert window_ids() == ids_before, "return must restore the same window identities"
+                        assert fixture_eval("() => window.__continuityFixture.draft") == draft_token
+                        assert fixture_eval("() => window.__continuityFixture.nonce") == original_nonce
+                        # A newer OWNER change (not a recipe) invalidates a saved return target.
+                        workflow_click(recipe_pane, "Preview Review", "recipe_preview")
+                        workflow_click(recipe_pane, "Apply previewed arrangement", "recipe_apply")
+                        current_read = helper.api(origin, token, "/api/workspace", {"action": "read"})[1]
+                        capability = json.loads((root / "runtime/workspace-access" / (helper.WORKSPACE + ".json")).read_text())["capability"]
+                        control_request = urllib.request.Request(origin + "/api/workspace/control",
+                            data=json.dumps({"workspace_id": helper.WORKSPACE, "action": "apply", "base_revision": current_read["revision"],
+                                "operations": [{"action": "select", "window_id": window_ids()[0]}], "operation_id": str(uuid.uuid4()),
+                                "intent": "Owner arrangement change before return"}).encode(),
+                            headers={"Origin": origin, "Authorization": "Bearer " + capability, "Content-Type": "application/json"})
+                        with urllib.request.urlopen(control_request, timeout=10) as control_response:
+                            owner_body = json.load(control_response)
+                        assert "error" not in owner_body and owner_body.get("revision") == current_read["revision"] + 1, owner_body
+                        with page.expect_response(lambda r: r.url.split("?")[0] == origin + WORKFLOW_ROUTE and post_json(r.request).get("action") == "recipe_preview", timeout=30000) as stale_wait:
+                            recipe_pane.locator("button").filter(has_text=re.compile("^Preview return$")).first.click()
+                        stale_status = stale_wait.value.status
+                        assert stale_status != 200, "a return after a newer owner change must be refused"
+                        if os.environ.get("L4_GEOMETRY") == "1":
+                            assert geometry_ops, ("trusted review preview must include non-reorder geometry/placement operations", review_preview["operations"])
+                        log_extra.update({"l4_geometry_ops": geometry_ops, "l4_applied_revision": applied_revision,
+                                          "l4_return_refused_after_owner_change": True, "l4_unrelated_nonce_retained": True,
+                                          "l4_unrelated_draft_retained": True, "l4_pinned_frame_unchanged": True})
+
                         assert not page_errors, page_errors
                         log(json.dumps({"renderer": renderer, "renderer_actual": (renderer_info or {}).get("renderer", "default"),
                                         "ui_handoff": True, "ui_result_panel": True, "gate2_patch_roundtrip": True,
