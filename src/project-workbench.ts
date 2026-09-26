@@ -161,6 +161,40 @@ export function showProjectWorkbench(getToken: () => string): void {
   let openResource: Resource | null = null;
   let openSnapshot: FileSnapshot | null = null;
   let approval: Approval | null = null;
+  let executionMount:{dispose:()=>void;refresh?:()=>void|Promise<void>}|null=null;
+  let executionProject:string|null=null;
+  function disposeExecution(){executionMount?.dispose();executionMount=null;executionProject=null;}
+  async function askContext(source: Record<string,unknown>){
+    if(!project)return;
+    const selectedProject=project.id,selectedEpoch=epoch;
+    const {showWorkbenchContext}=await import('./workbench-context');
+    if(!current(selectedEpoch)||project?.id!==selectedProject)return;
+    showWorkbenchContext({token:getToken(),workspace_id:workspaceId,project_id:selectedProject,source:source as Parameters<typeof showWorkbenchContext>[0]['source']});
+  }
+  async function mountExecution(){
+    if(!project)return;
+    if(executionProject===project.id){void executionMount?.refresh?.();return;}
+    disposeExecution();execution.replaceChildren(el('p','','Loading tasks, candidates and evidence…'));
+    const selectedProject=project.id,selectedEpoch=epoch;
+    const {mountWorkbenchExecution}=await import('./workbench-execution');
+    if(!current(selectedEpoch)||project?.id!==selectedProject)return;
+    execution.replaceChildren();executionProject=selectedProject;
+    executionMount=mountWorkbenchExecution({container:execution,token:getToken,workspace_id:workspaceId,project_id:selectedProject,onAskContext:(jobId:string)=>{void askContext({kind:'job',job_id:jobId});}});
+  }
+  async function askTerminal(resource:Resource){
+    if(!project||resource.kind!=='terminal')return;
+    const selectedEpoch=epoch,selectedProject=project.id;
+    try{
+      const response=await fetch('/api/managed-terminals',{method:'POST',headers:{Authorization:`Bearer ${getToken()}`,'Content-Type':'application/json'},body:JSON.stringify({action:'status'})});
+      const result=await response.json();
+      if(!current(selectedEpoch)||project?.id!==selectedProject)return;
+      if(!response.ok)throw Error('Managed terminal status unavailable.');
+      const adopted=(result.resources??[]).find((entry:{pane_id:string;workspace_id:string})=>entry.pane_id===resource.pane_id&&entry.workspace_id===workspaceId);
+      const lease=(result.leases??[]).find((entry:{resource_id:string;scope:string;state:string})=>entry.resource_id===adopted?.resource_id&&entry.scope==='observe'&&entry.state==='active');
+      if(!lease){state('permission-denied','Use the terminal’s Managed… controls to adopt it and grant a short-lived observe lease, then explicitly capture here. Observation does not authorize model sharing.');return;}
+      await askContext({kind:'terminal',resource_id:resource.id,lease_id:lease.lease_id});
+    }catch{if(current(selectedEpoch))state('unavailable','Cannot read managed terminal metadata. No output was shared.');}
+  }
 
   function invalidate() {
     epoch++;
@@ -231,6 +265,7 @@ export function showProjectWorkbench(getToken: () => string): void {
   function updateButtons() {
     link.disabled = !project || !panes.value || revision < 1;
     bind.disabled = !project || !openResource || !panes.value || revision < 1;
+    agent.disabled=!project||!openResource||!openSnapshot||openSnapshot.binary;
   }
   function showBindings(items: Binding[]) {
     bindingsView.replaceChildren(el("h3", "", "Bindings"));
@@ -250,6 +285,7 @@ export function showProjectWorkbench(getToken: () => string): void {
           if(result){showBindings(result.bindings);state('ready','Exact metadata binding removed; pane runtime unchanged.');}
         }),
       );
+      if(resource?.kind==='terminal')bindingsView.append(button('Ask agent about this terminal','Ask agent about this terminal',()=>{void askTerminal(resource);}));
     }
   }
   function selectionReport() {
@@ -347,28 +383,17 @@ export function showProjectWorkbench(getToken: () => string): void {
         !openSnapshot.stale;
     }
     showBindings(data.bindings);
-    execution.replaceChildren(
-      el("h3", "", "Managed execution"),
-      field("State", data.execution.state),
-      field("Message", data.execution.message),
-    );
-    if (
-      !data.execution.tasks.length &&
-      !data.execution.jobs.length &&
-      !data.execution.artifacts.length
-    )
-      execution.append(
-        el(
-          "p",
-          "",
-          "No managed tasks, jobs, or artifacts exist. Managed execution arrives in a later slice.",
-        ),
-      );
+    void mountExecution();
     updateButtons();
   }
   async function inspect() {
     if (!project) return;
     invalidate();
+    if(project.active===false){
+      repository.replaceChildren(field('State','Project access revoked. Existing job cancellation and agent supervision remain available.'));
+      files.replaceChildren();fileView.hidden=true;
+      await mountExecution();state('revoked','Future reads and execution are blocked. Existing records and intervention controls remain available.');return;
+    }
     const id = project.id;
     state("loading", "Inspecting project…");
     const result = await request<Inspection>({
@@ -396,6 +421,7 @@ export function showProjectWorkbench(getToken: () => string): void {
         button(item.name, `Open project ${item.name}`, () => {
           invalidate();
           project = item;
+          disposeExecution();
           registration.open=false;
           inspection = null;
           openResource = null;
@@ -541,6 +567,7 @@ export function showProjectWorkbench(getToken: () => string): void {
         },
       );
       if (result) {
+        if(inspection&&!inspection.resources.some(resource=>resource.id===result.resource.id))inspection.resources.push(result.resource);
         showBindings(result.bindings);
         state("ready", "Pane metadata linked.");
       }
@@ -568,12 +595,17 @@ export function showProjectWorkbench(getToken: () => string): void {
   );
   panes.addEventListener("change", updateButtons);
   const agent = button(
-    "Ask agent about project",
-    "Ask agent about project",
-    () => {},
+    "Ask agent about this",
+    "Ask agent about this",
+    () => {
+      if(!openResource||!openSnapshot)return;
+      const first=text.selectionStart===text.selectionEnd?selectionStart.valueAsNumber:text.value.slice(0,text.selectionStart).split('\n').length;
+      const last=text.selectionStart===text.selectionEnd?selectionEnd.valueAsNumber:text.value.slice(0,text.selectionEnd).split('\n').length;
+      void askContext({kind:'file',resource_id:openResource.id,start_line:Math.max(1,first||1),end_line:Math.max(first,last||first),expected_hash:openSnapshot.hash});
+    },
   );
   agent.disabled = true;
-  agent.title = "Coming in Slice B";
+  agent.title = "Preview the selected snapshot and recipient before sharing once.";
   const doctorButton = button("Open doctor", "Open doctor", async () => {
     state("loading", "Loading workbench diagnostics…");
     const result = await request<Record<string, unknown>>({ action: "doctor" });
@@ -604,6 +636,7 @@ export function showProjectWorkbench(getToken: () => string): void {
     labelled('Through line',selectionEnd),
     highlight,
     selection,
+    agent,
   );
   fileView.hidden = true;
   inspector.append(
@@ -613,12 +646,15 @@ export function showProjectWorkbench(getToken: () => string): void {
       invalidate();const selected=project;
       const result=await request<{project:Project}>({action:'revoke_project',project_id:selected.id,base_generation:selected.generation});
       if(!result)return;
-      project=null;inspection=null;openResource=null;openSnapshot=null;text.value='';inspector.hidden=true;
+      const revoked=result as {project?:Project};
+      project=revoked.project??{...selected,active:false};inspection=null;openResource=null;openSnapshot=null;text.value='';inspector.hidden=false;
+      disposeExecution();
       repository.replaceChildren();files.replaceChildren();bindingsView.replaceChildren();fileMeta.textContent='';
-      await list();state('revoked','Future project reads are blocked. Register again with a fresh preview to restore owner observation.');
+      await list();await mountExecution();state('revoked','Future project reads are blocked. Existing job cancellation and agent supervision remain available. Register again with fresh approval to restore access.');
     }),
     refreshInspection,
     repository,
+    button('Ask agent about this diff','Ask agent about this diff',()=>{if(inspection?.repository.snapshot_hash)void askContext({kind:'diff',expected_hash:inspection.repository.snapshot_hash});}),
     files,
     fileView,
     panes,
@@ -630,12 +666,17 @@ export function showProjectWorkbench(getToken: () => string): void {
       "Pane links and bindings are metadata only; they do NOT authorize file disclosure or execution.",
     ),
     bindingsView,
+    button('Activity and disclosures','Activity and disclosures',async()=>{
+      if(!project)return;
+      const selectedProject=project.id,selectedEpoch=epoch;
+      const {showWorkbenchActivity}=await import('./workbench-context');
+      if(current(selectedEpoch)&&project?.id===selectedProject)showWorkbenchActivity({token:getToken(),workspace_id:workspaceId,project_id:selectedProject});
+    }),
     execution,
-    agent,
     el(
       "p",
       "workbench-note",
-      "Ask agent about project is disabled in Slice A; recipient-bound context sharing arrives in Slice B.",
+      "Capture and disclosure are separate. Review exact snapshots and the selected recipient before Share once.",
     ),
   );
   inspector.hidden = true;
@@ -657,6 +698,7 @@ export function showProjectWorkbench(getToken: () => string): void {
     ?.append(el("h2", "", "Comet Project Workbench"), close);
   dialog.addEventListener("close", () => {
     invalidate();
+    disposeExecution();
     dialog.remove();
     previousFocus?.focus();
   });

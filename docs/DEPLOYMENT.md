@@ -44,6 +44,12 @@ dependency nor a required acceptance-test environment.
   layout state. See [Project Workbench](PROJECT_WORKBENCH.md). Backup includes these
   tables, but layout checkpoints do not restore them. Return to a schema-4 build
   using its compatible pre-upgrade backup, never by lowering `user_version`.
+- Schema 6 adds private context/task/attempt/candidate/job/evidence/review records.
+  Stop writers under an authorized operator plan and retain a consistent schema-5
+  backup before upgrade. Back up candidate/log directories separately with the
+  database for complete evidence preservation. Unknown run/job records do not
+  authorize automatic retries. Context approvals and runtime grants are not
+  revived by restart or layout recovery. See [Project Workbench](PROJECT_WORKBENCH.md).
 - **No mixed-version rolling upgrade.** Old binaries must refuse a newer schema;
   a newer binary is not permission to run alongside an older writer.
 

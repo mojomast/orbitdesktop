@@ -262,13 +262,14 @@ def main(renderer):
                         expect(dialog.locator(".workbench-bindings")).to_contain_text("project_files")
                         assert "metadata only" in dialog.locator(".workbench-note").first.inner_text()
                         execution = dialog.locator(".workbench-execution")
-                        expect(execution).to_contain_text("State: not_enabled")
-                        expect(execution).to_contain_text("No managed tasks, jobs, or artifacts exist")
+                        expect(execution).to_contain_text("Definitions and limits")
+                        expect(execution).to_contain_text("Jobs and evidence")
                         assert inspection["execution"]["tasks"] == inspection["execution"]["jobs"] == inspection["execution"]["artifacts"] == []
-                        expect(dialog.get_by_role("button", name="Ask agent about project")).to_be_disabled()
+                        assert inspection['execution']['state']=='available'
+                        expect(dialog.get_by_role("button", name="Ask agent about this", exact=True)).to_be_enabled()
                         dialog.get_by_role("button", name="Open doctor").click()
-                        expect(dialog.locator(".workbench-doctor")).to_contain_text("schema_version: 5")
-                        assert result_for(responses, "doctor")["schema_version"] == 5
+                        expect(dialog.locator(".workbench-doctor")).to_contain_text("schema_version: 6")
+                        assert result_for(responses, "doctor")["schema_version"] == 6
                         assert token not in dialog.inner_text() and "do-not-read" not in dialog.inner_text()
 
                         status, denied = api(origin, token, {"action": "register_preview", "root": str(project / "linkdir"), "name": "denied"})

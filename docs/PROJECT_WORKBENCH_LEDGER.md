@@ -1,5 +1,68 @@
 # Comet Project Workbench — implementation ledger
 
+## Active increment — B + C (starting at c553778)
+
+Owner authorized parallel implementation of one-shot context sharing and managed
+candidate execution/evidence. Shared interfaces were fixed before delegation:
+private SQLite schema-6 records via `WorkbenchData`, owner-authenticated dedicated
+routes, shared serial runtime gate, immutable snapshot IDs and candidate hashes.
+No layout-v1 migration, owner deployment, restart or credential borrowing.
+
+- Flash `ses_f24769b20ffe4LCjUnDLMgcMa7`: B context/Hermes adapter/tray, owns new
+  context modules, agent binding integration, and its scoped tests.
+- Flash `ses_f24760ccdffeFugNKSb0n2Pyoo`: C candidate/check/job/evidence/review UI,
+  owns execution modules, staged legacy queue adapter, and its scoped tests.
+- Lead owns shared persistence/migrations, route/auth integration, terminal source
+  mapping, normal Inspector integration, contracts/artifacts/docs and independent
+  release checks. Supporting reviewers get non-overlapping file ownership.
+
+Both actual GitHub workflows for the starting SHA now pass: plugin run
+`36211424601`, Workbench/browser run `36211424626` (including Python 3.11 browser
+execution). The older follow-up notes below describe results before CI finished.
+### B/C integrated verification (local, completed)
+
+- Independent isolated `npm run check`: **388/388 Node tests**, zero failures,
+  skips or TODOs; generated contracts, TypeScript and production build pass.
+  Log: `/tmp/opencode/comet-bc-final-check.log`.
+- Python adapters/publisher/catalog/portable-source checks: **55/55**, including
+  regenerated archive parity. All Python fixtures parse using Python 3.11 syntax.
+- Real Node/SQLite browser tests pass **default and docking** for context sharing,
+  managed execution, and the joined failed-check → exact share → owner-applied
+  candidate repair → passing check → exact human review workflow. Each joined
+  journey has one synthetic gateway POST, zero page errors and zero terminal
+  connections. Shared bytes occur exactly once in the recorded payload; durable
+  request hashes and project/task/attempt/candidate references agree.
+- Context journeys: 20 API responses, one Stop request, one synthetic POST per
+  renderer. Execution journeys: 19 responses and measured fail/pass verdicts.
+- Inspector regression passes both renderers: 20 responses, no agent requests or
+  terminal connections. Live-PTY continuity: **94 transitions per renderer**,
+  revision/observed revision **53/53**, `browser_applied=true`, zero page errors.
+  Real-server recovery/hold regression also passes.
+- Independent authority tests use real SQLite; the final cleanup regression swaps
+  a job temporary directory for an external symlink and verifies external data is
+  preserved. Temporary cleanup now uses bounded descriptor-relative traversal.
+- All three Flash workstreams and descendants finished; lead independently reran
+  integration after freeze. No deployed service restart, migration or token
+  rotation was authorized/performed. Current GitHub publication is recorded below
+  when available; local fixtures do not establish deployment acceptance.
+
+**Limitations:** real-Hermes installation/capability acceptance is still blocked
+on separately authorized credentials/budget. Browser upstream is explicitly
+synthetic. Reusable runtime tools remain blocked; repair uses an owner-reviewed
+patch bridge. Integration into the original worktree is unsupported. The trusted
+host job lane has no filesystem/network sandbox or disk quota. Escaped descendants
+are not contained; detected survival is inconclusive. Context expiry cannot erase
+old backups/WAL pages or recall upstream conversation content.
+
+**Verification-wrapper incident:** a missing optional `LICENSE` file made a copy
+step fail, and a wrapper without fail-fast handling fell through to rebuilding
+checkout `dist`. No server was restarted. The previously verified `78b6a8f`
+entrypoint and referenced assets were restored atomically; entrypoint SHA-256
+`dc62f47d8dc59c798d2c032b38a98882e3838b8e208de15476d3aa5fa3e5d3ed`
+matches the known pre-task baseline. The corrected wrapper uses `set -e`, an
+explicit existing-file list and nonempty/distinct-root assertions. The final
+388-test build ran in `/tmp/opencode/comet-bc-final-2f5s1kkq`, not the checkout.
+
 ## Starting point (2026-09-26)
 
 - Branch: `testing/orbit-docking-managed-terminals`; inspected HEAD

@@ -2,8 +2,8 @@
 
 Branch: **`testing/orbit-docking-managed-terminals`**
 
-**Current work:** [Comet Project Workbench](PROJECT_WORKBENCH.md) adds an integrated
-Slice A inspector and schema 5. Its [ledger](PROJECT_WORKBENCH_LEDGER.md) tracks
+**Current work:** [Comet Project Workbench](PROJECT_WORKBENCH.md) adds the inspector,
+one-shot context sharing, supervised candidate checks and schema 6. Its [ledger](PROJECT_WORKBENCH_LEDGER.md) tracks
 fresh CI/baseline results and remaining slices. The release-integration evidence
 below describes the reviewed `78b6a8f` increment (schema 4), not the newer feature.
 

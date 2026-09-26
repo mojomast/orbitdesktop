@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { createSharedChats } from './shared-chats.mjs';
+import { createWorkbenchHermes } from './workbench-hermes.mjs';
 import { automation } from './automation.mjs';
 import { tokenMatches, allowedRequest } from './security.mjs';
 import { createBuildQueue } from './build-queue.mjs';
@@ -12,14 +13,38 @@ const sessionPattern = /^orbit-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[
 const runPattern = /^run_[a-zA-Z0-9_-]{8,100}$/;
 const instructions = 'You are Hermes, accessed through the owner’s Comet/Orbit Desktop agent chat. This pane uses its explicitly selected profile and conversation, which may resume a saved Hermes session. Orbit terminal panes run as the owner on the host. Your agent tools still run in the configured Hermes environment. Use plain text in replies. Do not claim to see screen pixels, iframe contents, or terminal buffers unless supplied. Follow normal tool approval policies.';
 
-export function createAgentHandler({ token, port, devOrigins, reply, workspaceContext, workspaceRead, runtimeDirectory = process.env.ORBIT_RUNTIME_DIR || fileURLToPath(new URL('../.runtime/', import.meta.url)), apiUrl = process.env.HERMES_API_URL, apiKey = process.env.HERMES_API_KEY, profiles, profilesJson = process.env.HERMES_PROFILES_JSON, fetchImpl = fetch }) {
+export function createAgentHandler({ token, port, devOrigins, reply, workspaceContext, workspaceRead, runtimeDirectory = process.env.ORBIT_RUNTIME_DIR || fileURLToPath(new URL('../.runtime/', import.meta.url)), apiUrl = process.env.HERMES_API_URL, apiKey = process.env.HERMES_API_KEY, profiles, profilesJson = process.env.HERMES_PROFILES_JSON, fetchImpl = fetch, executionGate }) {
   let configuration;
   try { configuration = createAgentProfiles({profiles,profilesJson,apiUrl,apiKey}); } catch { configuration = null; }
   const endpoint = (profile, route) => `${profile.apiUrl.replace(/\/$/, '')}${route}`;
-  async function upstreamFor(profile, route, body, method) {
+  // Bounded upstream JSON: read the real byte stream with a hard cap, cancel on
+  // overflow, and decode as fatal UTF-8. There is no unbounded r.json() fallback;
+  // a transport that does not expose a byte stream is refused.
+  const MAX_UPSTREAM_JSON_BYTES = 2 * 1024 * 1024;
+  async function readBoundedJson(response, maxBytes = MAX_UPSTREAM_JSON_BYTES) {
+    const stream = response.body;
+    if (!stream || typeof stream.getReader !== 'function') throw Object.assign(Error('Upstream response has no bounded byte stream'), { status: 502, upstreamStatus: 502 });
+    const reader = stream.getReader();
+    const chunks = []; let total = 0;
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = value instanceof Uint8Array ? value : new Uint8Array(value);
+        total += chunk.byteLength;
+        if (total > maxBytes) { try { await reader.cancel(); } catch {} throw Object.assign(Error('Upstream response exceeds the bounded JSON limit'), { status: 502, upstreamStatus: 502, code: 'limit_exceeded' }); }
+        chunks.push(chunk);
+      }
+    } finally { try { reader.releaseLock(); } catch {} }
+    const bytes = Buffer.concat(chunks.map(chunk => Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength)));
+    let text;
+    try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch { throw Object.assign(Error('Upstream response is not valid UTF-8'), { status: 502, upstreamStatus: 502 }); }
+    try { return JSON.parse(text); } catch { throw Object.assign(Error('Upstream response is not valid JSON'), { status: 502, upstreamStatus: 502 }); }
+  }
+  async function upstreamFor(profile, route, body, method, headers = {}) {
     const r = await fetchImpl(endpoint(profile,route), {
       method: method || (body === undefined ? 'GET' : 'POST'),
-      headers: { Authorization: `Bearer ${profile.apiKey}`, 'Content-Type': 'application/json' },
+      headers: { ...headers, Authorization: `Bearer ${profile.apiKey}`, 'Content-Type': 'application/json' },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       signal: AbortSignal.timeout(20000),
       redirect: 'error',
@@ -27,9 +52,11 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
     if (!r.ok) {
       const error = new Error(r.status === 429 ? 'Hermes is busy. Try again shortly.' : r.status === 404 ? 'This run is no longer available. Start a new message.' : r.status === 409 ? 'The run state changed. Refresh its status and try again.' : 'Hermes could not complete the request. Check the server connection.');
       error.status = [404, 409, 429].includes(r.status) ? r.status : 502;
+      error.ambiguous = r.status >= 500 || r.status === 408;
+      error.upstreamStatus = r.status;
       throw error;
     }
-    return r.json();
+    return readBoundedJson(r);
   }
   let buildQueue;
   const shared = createSharedChats(path.join(runtimeDirectory,'shared-chats'));
@@ -40,7 +67,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
     const contains = layout => layout.type === 'pane' ? layout.pane.id === body.pane_id && layout.pane.kind === 'agent' : contains(layout.first) || contains(layout.second);
     if (!record.state.monitors.some(m => contains(m.layout))) throw Object.assign(Error('Chat pane is not open in this workspace'),{status:404});
   }
-  return async function agent(req, res) {
+  const agent = async function agent(req, res) {
     if (req.method !== 'POST' || !allowedRequest(req, port, devOrigins)) return reply(res, 403, { error: 'Origin rejected' });
     const auth = req.headers.authorization || '';
     if (!auth.startsWith('Bearer ') || !tokenMatches(auth.slice(7), token)) return reply(res, 401, { error: 'Use Connect host with the Orbit session token first.' });
@@ -69,6 +96,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
       if (body.pane_id) {
         if (!/^[a-f0-9-]{36}$/.test(body.workspace_id || '') || !/^[a-f0-9-]{36}$/.test(body.pane_id)) return reply(res,400,{error:'Invalid shared pane'});
         validatePane(body);
+        if (['select_session', 'shared_chat', 'start'].includes(body.action) && agent.workbench.panePending(body)) return reply(res,409,{error:'A Workbench context submission is unresolved for this pane. Reconcile it before switching conversations.'});
         const candidateLock = `pane:${body.workspace_id}:${body.pane_id}`;
         if(shared.locks.has(candidateLock)) return reply(res,409,{error:'This pane is busy; retry shortly.'});
         paneLock = candidateLock;
@@ -116,7 +144,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
       }
       if (body.action === 'build_queue') {
         if (profileId !== 'default') return reply(res,409,{error:'Build queue is only available for the default Hermes profile.'});
-        buildQueue ||= createBuildQueue({ directory: path.join(runtimeDirectory,'build-queue'), upstream, context: workspaceContext });
+        buildQueue ||= createBuildQueue({ directory: path.join(runtimeDirectory,'build-queue'), upstream, context: workspaceContext, executionGate });
         try {
           if (body.operation === 'approvals') return reply(res, 200, { approvals: await buildQueue.approvals(body) });
           return reply(res, 200, await buildQueue.action(body));
@@ -192,6 +220,9 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
       }
       if (body.action === 'start') {
         if (typeof body.input !== 'string' || !body.input.trim() || body.input.length > 100000) return reply(res, 400, { error: 'Enter a message of 1–100,000 characters.' });
+        // Do not start an ordinary run while the Workbench agent lane is held or
+        // legacy-unknown. This never claims the lane and never stops an existing run.
+        if (executionGate && typeof executionGate.busy === 'function' && executionGate.busy('agent')) return reply(res, 409, { error: 'The Workbench agent lane is busy or unresolved. Reconcile it before starting a new chat turn.' });
         const lock = `session:${profileId}:${body.session_id}`;
         if(shared.locks.has(lock)) return reply(res,409,{error:'A message is already starting in this conversation.'});
         if(body.pane_id) {
@@ -266,4 +297,6 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
       if(paneLock) shared.locks.delete(paneLock);
     }
   };
+  agent.workbench = createWorkbenchHermes({ configuration, shared, locks: shared.locks, upstreamFor, validatePane, workspaceRead, runtimeDirectory });
+  return agent;
 }

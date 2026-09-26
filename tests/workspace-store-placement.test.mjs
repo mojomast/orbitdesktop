@@ -33,7 +33,7 @@ function save(store,id,placement,base=store.read(id).revision,identity=command(i
 
 test('schema 4 defaults and durable placement saves, no-op receipts, exact replay and CAS',t=>{
   const f=setup(t),{id,placement}=f;
-  assert.equal(f.store.diagnostics().schema_version,5);
+  assert.equal(f.store.diagnostics().schema_version,6);
   assert.deepEqual(f.store.read(id).placement,emptyPlacement());
   assert.equal(f.store.read(id).placement_revision,0);
   const before=f.store.read(id).state,identity=command(id,1,placement);
@@ -123,7 +123,7 @@ test('schema 3 upgrade backfills EMPTY checkpoints and missing record fields, tw
   } finally {db.close();}
   for(let i=0;i<2;i++) {
     f.reopen();
-    assert.equal(f.store.diagnostics().schema_version,5);
+    assert.equal(f.store.diagnostics().schema_version,6);
     assert.deepEqual(f.store.read(id).placement,emptyPlacement());
     assert.equal(f.store.read(id).placement_revision,0);
     for(const entry of f.store.checkpointList(id))assert.deepEqual(f.store.checkpointGet(id,entry.id).placement,emptyPlacement());
@@ -146,7 +146,7 @@ test('SQLite backup/CLI restore and archive-only legacy export preserve placemen
   assert.equal(result.status,0,result.stderr);
   const copy=new SqliteWorkspaceStore(restored);
   try {
-    assert.equal(copy.diagnostics().schema_version,5);
+    assert.equal(copy.diagnostics().schema_version,6);
     assert.deepEqual(copy.read(id).placement,placement);
     assert.equal(copy.read(id).placement_revision,2);
   } finally {copy.close();}

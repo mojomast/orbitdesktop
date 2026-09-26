@@ -55,6 +55,14 @@ Schema 5 adds separate project/resource/surface-binding records. The owner-only
 `/api/workbench` and host-owned Project Inspector use those IDs for confined,
 bounded file observations and private Git materialization. Model disclosure and
 execution are not implied by project registration. See [Project Workbench](PROJECT_WORKBENCH.md).
+Schema 6 adds private task/attempt/context/disclosure/submission/candidate/job/
+evidence/review records through `WorkbenchData`, outside layout and metadata
+events. Dedicated owner-only context and execution routes validate independent
+contracts. A shared gate fences legacy queue uncertainty and serial dispatch.
+Exact prepared Hermes payloads are durable before POST; unknown outcomes are not
+replayed. Candidate checks use approved private copies and recorder results, not
+completion markers. Worktrees and owner-UID processes are not sandboxes; reusable
+runtime tools stay blocked pending authenticated request-scope binding.
 Normal reads use indexed asset versions; startup/admin publication refresh performs
 filesystem scanning. Hash-addressed asset responses verify indexed bytes before serving.
 Retention plans include all saved revisions/checkpoints and are dry-run only.

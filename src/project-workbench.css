@@ -104,6 +104,31 @@
 }
 .project-workbench-dialog .workbench-files { max-height: 22rem; overflow: auto; }
 .project-workbench-dialog summary { cursor: pointer; font-weight: bold; margin: 0.75em 0; }
+
+:is(.workbench-context-dialog,.workbench-activity-dialog) {
+  box-sizing:border-box; width:min(960px,calc(100vw - 32px)); max-height:90vh;
+  overflow:auto; padding:1.25rem; line-height:1.5;
+  color:var(--theme-textColor,#e9edf4); background:var(--theme-panelColor,#17202b);
+  border:1px solid var(--theme-borderColor,#607080); border-radius:0.75rem;
+  font-family:var(--theme-font,system-ui);
+}
+:is(.workbench-context-dialog,.workbench-activity-dialog)::backdrop { background:rgb(0 0 0 / 65%); }
+:is(.workbench-context-dialog,.workbench-activity-dialog) :is(button,input,select,textarea) {
+  box-sizing:border-box; max-width:100%; margin:0.25rem; padding:0.45em 0.65em;
+  font:inherit; color:var(--theme-buttonTextColor,#e9edf4);
+  background:var(--theme-buttonColor,#263546); border:1px solid var(--theme-borderColor,#607080);
+}
+:is(.workbench-context-dialog,.workbench-activity-dialog) :focus-visible {
+  outline:2px solid var(--theme-accentColor,#78baff); outline-offset:2px;
+}
+:is(.workbench-context-dialog,.workbench-activity-dialog) :is(pre,textarea) {
+  width:100%; max-height:24rem; overflow:auto; white-space:pre-wrap;
+  overflow-wrap:anywhere; font-family:ui-monospace,monospace;
+}
+:is(.workbench-context-dialog,.workbench-activity-dialog) p { overflow-wrap:anywhere; }
+.project-workbench-dialog .workbench-execution :is(pre,textarea) {
+  box-sizing:border-box; max-width:100%; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere;
+}
 .project-workbench-dialog [hidden] {
   display: none;
 }

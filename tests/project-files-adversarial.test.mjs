@@ -256,14 +256,14 @@ test('registered root incarnation is re-verified before commit, inspect and file
   await assert.rejects(f.call('file',{project_id:project.id,resource_id:resource.id}),{code:'stale_resource'});
 });
 
-test('workbench binding is metadata-only, projects linked surfaces, and exposes no execution or agent tools',async t=>{
+test('workbench binding is metadata-only and reports an absent execution adapter without granting agent tools',async t=>{
   const f=fixture(t);fs.writeFileSync(path.join(f.projectRoot,'a.js'),'export const a=1;\n');
   const project=await f.register();const before=f.store.read(f.workspace_id);
   const inspect=await f.call('inspect',{project_id:project.id});
-  assert.equal(inspect.execution.state,'not_enabled');assert.deepEqual(inspect.execution.tasks,[]);assert.deepEqual(inspect.execution.jobs,[]);
+  assert.equal(inspect.execution.state,'unavailable');assert.deepEqual(inspect.execution.tasks,[]);assert.deepEqual(inspect.execution.jobs,[]);
   const doctor=await f.call('doctor');
   assert.match(doctor.server_build,/^[a-f0-9]{64}$/);
-  assert.match(doctor.execution,/not enabled/);assert.match(doctor.gateway_compatibility,/agent tools disabled/);
+  assert.match(doctor.execution,/adapter unavailable/);assert.match(doctor.gateway_compatibility,/agent tools disabled/);
   const leaf=node=>node.type==='pane'?node.pane:leaf(node.first);
   const pane=leaf(before.state.monitors[0].layout);
   const linked=await f.call('link_pane',{project_id:project.id,pane_id:pane.id,base_revision:before.revision});
@@ -291,5 +291,5 @@ test('inspect admits at most two concurrent observations and rejects the third w
   assert.equal(settled.filter(result=>result.status==='fulfilled').length,2);
   assert.equal(settled.filter(result=>result.status==='rejected'&&result.reason.code==='busy').length,1);
   const followup=await f.call('inspect',{project_id:project.id});
-  assert.equal(followup.execution.state,'not_enabled');
+  assert.equal(followup.execution.state,'unavailable');
 });

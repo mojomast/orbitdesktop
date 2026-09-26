@@ -79,6 +79,15 @@ jobs:
           /tmp/opencode/orbit-workbench-venv/bin/python tests/runtime-continuity.browser.py --pty --renderer default
           /tmp/opencode/orbit-workbench-venv/bin/python tests/runtime-continuity.browser.py --pty --renderer docking
           /tmp/opencode/orbit-workbench-venv/bin/python tests/recovery-real-server.browser.py
+      - name: Context, execution and joined workflow on both renderers
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
+        run: |
+          for renderer in default docking; do
+            /tmp/opencode/orbit-workbench-venv/bin/python tests/workbench-context.browser.py --renderer "$renderer"
+            /tmp/opencode/orbit-workbench-venv/bin/python tests/workbench-execution.browser.py --renderer "$renderer"
+            /tmp/opencode/orbit-workbench-venv/bin/python tests/workbench-journey.browser.py --renderer "$renderer"
+          done
       - name: Upload sanitized synthetic failure screenshot
         if: failure()
         uses: actions/upload-artifact@v4
@@ -86,8 +95,14 @@ jobs:
           name: workbench-failure-screenshot
           if-no-files-found: ignore
           retention-days: 7
-          # Strict allowlist: only the two fixture-emitted synthetic screenshots
+          # Strict allowlist: only fixture-emitted synthetic screenshots
           # (token masked, readiness errors redacted) under /tmp/opencode.
           path: |
             /tmp/opencode/orbit-project-workbench-default.png
             /tmp/opencode/orbit-project-workbench-docking.png
+            /tmp/opencode/orbit-workbench-context-default.png
+            /tmp/opencode/orbit-workbench-context-docking.png
+            /tmp/opencode/orbit-workbench-execution-default.png
+            /tmp/opencode/orbit-workbench-execution-docking.png
+            /tmp/opencode/orbit-workbench-journey-default.png
+            /tmp/opencode/orbit-workbench-journey-docking.png

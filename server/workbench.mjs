@@ -13,7 +13,7 @@ const panes=state=>{
   const result=[];const visit=(node,window)=>{if(node.type==='pane')result.push({pane_id:node.pane.id,kind:node.pane.kind,window_id:window.id,name:window.name});else{visit(node.first,window);visit(node.second,window);}};
   for(const window of state.monitors)visit(window.layout,window);return result;
 };
-export function createWorkbench({store,token,port,devOrigins,reply,now=Date.now}){
+export function createWorkbench({store,token,port,devOrigins,reply,now=Date.now,services={}}){
   const records=new WorkbenchStore(store),approvals=new Map();
   let inspecting=0;
   const buildHash=createHash('sha256');
@@ -24,7 +24,7 @@ export function createWorkbench({store,token,port,devOrigins,reply,now=Date.now}
   async function dispatch(body){
     if(!validate(body))throw wbError('invalid_request');
     const workspace=store.read(body.workspace_id);
-    if(body.action==='doctor')return {version:1,schema_version:store.db.pragma('user_version',{simple:true}),server_build:identity,frontend_build:fs.existsSync(new URL('../dist/index.html',import.meta.url))?createHash('sha256').update(fs.readFileSync(new URL('../dist/index.html',import.meta.url))).digest('hex'):null,renderer_support:['default','docking (native moveBefore required for continuity)'],gateway_compatibility:'not_probed; reusable workbench agent tools disabled',active_workbench_jobs:0,execution:'not enabled in Slice A; existing serial queue is separate',recovery:'SQLite backup includes workbench records; layout checkpoints do not change them',authority:'owner-only project observation; no model disclosure, process execution or sandbox claim'};
+    if(body.action==='doctor')return {version:1,schema_version:store.db.pragma('user_version',{simple:true}),server_build:identity,frontend_build:fs.existsSync(new URL('../dist/index.html',import.meta.url))?createHash('sha256').update(fs.readFileSync(new URL('../dist/index.html',import.meta.url))).digest('hex'):null,renderer_support:['default','docking (native moveBefore required for continuity)'],gateway_compatibility:'Capabilities checked per configured recipient; real-Hermes acceptance is deployment-specific. Reusable workbench agent tools disabled.',active_workbench_jobs:services.execution?.activeCount?.()??0,execution:services.execution?'Serial, owner-approved candidate checks; trusted host execution, not a sandbox':'Execution adapter unavailable',recovery:'SQLite records persist; pending jobs without proven child ownership become outcome_unknown. No permission, task or disclosure is replayed by layout recovery.',authority:'Owner-authenticated controls; separate one-shot context disclosure, candidate editing and exact check approvals. Acceptance does not integrate or deploy.'};
     if(body.action==='list')return {projects:records.list(body.workspace_id).map(publicProject),revision:workspace.revision,surfaces:panes(workspace.state)};
     if(body.action==='register_preview'){
       if(approvals.size>=32){for(const [id,value] of approvals)if(value.expires_at<=now())approvals.delete(id);if(approvals.size>=32)throw wbError('busy');}
@@ -45,6 +45,8 @@ export function createWorkbench({store,token,port,devOrigins,reply,now=Date.now}
     if(body.action==='unbind')return {bindings:records.unbind(body.workspace_id,project.id,body.binding_id)};
     if(body.action==='revoke_project'){
       const revoked=records.revoke(body.workspace_id,project.id,body.base_generation);
+      services.context?.onRevoke?.(project.id);
+      services.execution?.onRevoke?.(project.id);
       for(const [id,approval] of approvals)if(approval.workspace_id===body.workspace_id&&approval.request.root===project.root)approvals.delete(id);
       return {project:publicProject(revoked)};
     }
@@ -77,7 +79,7 @@ export function createWorkbench({store,token,port,devOrigins,reply,now=Date.now}
       if(records.project(body.workspace_id,project.id).generation!==project.generation)throw wbError('stale_resource');const current=openProjectRoot(project.root,project.identity);current.close();
       return {project:publicProject(project),resources,bindings:records.bindings(body.workspace_id,project.id),repository,
         snapshot:{id:capture.id,hash:capture.hash,captured_at:capture.captured_at,manifest:capture.manifest,exclusions:capture.exclusions,truncated:capture.limited,total_bytes:capture.total_bytes},
-        execution:{tasks:[],jobs:[],artifacts:[],state:'not_enabled',message:'Managed task/job execution and recorded artifacts arrive in Slice C; no job is started by inspection.'}};
+        execution:{tasks:[],jobs:[],artifacts:[],state:services.execution?'available':'unavailable',message:services.execution?'Open managed execution to inspect authoritative task/job/evidence records; inspection starts no job.':'Execution adapter unavailable.'}};
       } finally { inspecting--; }
     }
     throw wbError('unsupported');

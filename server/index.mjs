@@ -1,6 +1,6 @@
 import http from "node:http";
 import os from 'node:os';
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync, renameSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -12,6 +12,13 @@ import { createAgentHandler } from "./agent.mjs";
 import { createWorkspaceService, runtimeRoot } from "./workspace.mjs";
 import { createWorkspaceEvents } from './workspace-events.mjs';
 import { createWorkbench } from './workbench.mjs';
+import {WorkbenchData} from './workbench-data.mjs';
+import {createWorkbenchGate} from './workbench-gate.mjs';
+import {legacyQueueSnapshot} from './workbench-legacy-state.mjs';
+import {workbenchOwnerRoute} from './workbench-owner-route.mjs';
+import {createWorkbenchTerminalSource} from './workbench-terminal-source.mjs';
+import {createWorkbenchContext} from './workbench-context.mjs';
+import {createWorkbenchExecution} from './workbench-execution.mjs';
 const port = Number(process.env.PORT || 4318);
 if (!Number.isInteger(port) || port < 1024 || port > 65535)
   throw Error("PORT must be between 1024 and 65535");
@@ -42,9 +49,22 @@ function reply(res, status, data) {
   res.end(JSON.stringify(data));
 }
 const workspaceService = createWorkspaceService({ token, port, devOrigins, reply });
+// Never put a configured or generated owner credential in routine service logs.
+// A generated bootstrap credential is discoverable only through this private
+// runtime file; atomic rename avoids following an existing destination symlink.
+if(!process.env.ORBIT_TOKEN){
+  const temporary=path.join(runtimeRoot,`.session-token-${randomBytes(12).toString('hex')}`);
+  writeFileSync(temporary,token+'\n',{mode:0o600,flag:'wx'});
+  renameSync(temporary,path.join(runtimeRoot,'session-token'));
+}
 const workspaceEvents = createWorkspaceEvents({store:workspaceService.store,token,port,devOrigins,reply});
-const workbench = createWorkbench({store:workspaceService.store,token,port,devOrigins,reply});
-const agentHandler = createAgentHandler({ token, port, devOrigins, reply, workspaceContext: workspaceService.context, workspaceRead:workspaceService.read, runtimeDirectory:runtimeRoot });
+const workbenchServices={};
+const workbench = createWorkbench({store:workspaceService.store,token,port,devOrigins,reply,services:workbenchServices});
+const workbenchData=new WorkbenchData(workspaceService.store);
+const executionGate=createWorkbenchGate({legacySnapshot:legacyQueueSnapshot(runtimeRoot)});
+const agentHandler = createAgentHandler({ token, port, devOrigins, reply, workspaceContext: workspaceService.context, workspaceRead:workspaceService.read, runtimeDirectory:runtimeRoot,executionGate });
+const execution=createWorkbenchExecution({store:workspaceService.store,records:workbench.records,data:workbenchData,gate:executionGate});
+workbenchServices.execution=execution;
 // Managed terminals: strictly optional. A failure here (no tmux, readonly runtime,
 // unsupported platform) disables the route; it must never block the host server or
 // touch any existing session/server. Attach mode never creates, kills, respawns or
@@ -102,6 +122,12 @@ const managedTerminalHandler = managedTerminals
 // initialization. Continuity cannot be proven for ANY pane, so the legacy
 // attach/create fallback is refused until an owner recovery restores the ledger.
 const managedLedgerLost = existsSync(managedSentinelPath) && !existsSync(managedLedgerPath);
+const contextSharing=createWorkbenchContext({store:workspaceService.store,records:workbench.records,data:workbenchData,hermes:agentHandler.workbench,execution,gate:executionGate,
+  terminalSource:createWorkbenchTerminalSource({store:workspaceService.store,records:workbench.records,broker:managedTerminals?.broker}),
+  retentionMs:process.env.ORBIT_CONTEXT_RETENTION_MS===undefined?undefined:Number(process.env.ORBIT_CONTEXT_RETENTION_MS)});
+workbenchServices.context=contextSharing;
+const contextHandler=workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:body=>contextSharing.dispatch(body)});
+const executionHandler=workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:body=>execution.dispatch(body)});
 const server = http.createServer(async (req, res) => {
   const allowedHosts = new Set([
     `127.0.0.1:${port}`,
@@ -113,6 +139,8 @@ const server = http.createServer(async (req, res) => {
     return reply(res, 403, { error: "Host rejected" });
   const url = new URL(req.url, "http://localhost");
   if(url.pathname==='/api/workbench')return workbench.handle(req,res);
+  if(url.pathname==='/api/workbench/context')return contextHandler(req,res);
+  if(url.pathname==='/api/workbench/execution')return executionHandler(req,res);
   if (url.pathname === "/api/managed-terminals") return managedTerminalHandler(req, res);
   if(url.pathname==='/api/workspace/events')return workspaceEvents(req,res);
   if(url.pathname==='/api/workspace/control/events')return workspaceEvents(req,res,true);
@@ -358,11 +386,13 @@ wss.on("connection", (ws) => {
 });
 server.listen(port, "127.0.0.1", () => {
   console.log(
-    `\nOrbit Desktop\nOpen: http://127.0.0.1:${port}\nSession token: ${token}\n\nBound to loopback. Shells run as your current user.\n`,
+    `\nOrbit Desktop\nOpen: http://127.0.0.1:${port}\nOwner authentication: ${process.env.ORBIT_TOKEN?'configured token (not logged)':'generated token in the private runtime session-token file'}\n\nBound to loopback. Shells run as your current user.\n`,
   );
 });
 for (const signal of ["SIGTERM", "SIGINT"])
   process.on(signal, () => {
+    execution.close();
+    contextSharing.close?.();
     for (const ws of wss.clients) ws.terminate();
     server.close(() => {workspaceService.close();process.exit(0);});
     setTimeout(() => process.exit(0), 2000).unref();
