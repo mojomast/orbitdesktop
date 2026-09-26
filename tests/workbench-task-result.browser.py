@@ -61,6 +61,7 @@ def main():
                             'candidate_id': candidate_id, 'candidate_generation': 1, 'candidate_hash': 'a' * 64,
                             'received_at': 1000, 'retained_until': 9999999999999,
                             'recipient': {'pane_id': pane_id, 'profile_id': 'default', 'session_id': 'fixture'},
+                            'provenance': {'version': 1, 'initiated_by': {'kind': 'native_agent', 'attempt_id': attempt_id, 'grant_id': grant_id, 'run_id': 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'}, 'authorized_by': {'kind': 'owner_grant', 'grant_id': grant_id, 'authority_generation': 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'}, 'recorded_by': {'kind': 'comet_service', 'component': 'workbench-native-result', 'build_id': 'c' * 64}},
                             'model_suggested_references': [{'evidence_id': evidence_id}],
                             'resolved_references': [{'evidence_id': evidence_id, 'job_id': job_id, 'verdict': 'pass'}],
                         }
@@ -70,10 +71,14 @@ def main():
                             if body['action'] == 'list':
                                 route.fulfill(json={'ok': True, 'grants': [{'id': grant_id, 'status': 'completed', 'candidate_id': candidate_id}]})
                             elif body['action'] == 'status':
-                                visible_result = result if mode['result'] == 'available' else ({**result, 'availability': 'explanation_unavailable', 'unavailable_reason': 'missing', 'text': None} if mode['result'] == 'missing' else None)
-                                route.fulfill(json={'ok': True, 'grant': {'id': grant_id, 'status': 'running' if visible_result is None else 'completed'}, 'result': visible_result, 'toolcalls': [], 'health': {'healthy': True}})
+                                visible_result = result if mode['result'] == 'available' else ({**result, 'availability': 'explanation_unavailable', 'unavailable_reason': 'missing', 'text': None} if mode['result'] == 'missing' else ({**result, 'availability': 'pending', 'text': None} if mode['result'] == 'persistence' else None))
+                                grant_status = 'result_pending' if mode['result'] == 'persistence' else 'running' if visible_result is None else 'completed'
+                                route.fulfill(json={'ok': True, 'grant': {'id': grant_id, 'status': grant_status, 'pending_digest': 'b' * 64 if grant_status == 'result_pending' else None}, 'result': visible_result, 'toolcalls': [], 'health': {'healthy': True}})
                             elif body['action'] == 'result_deliver':
                                 route.fulfill(json={'ok': True, 'card': {'id': '99999999-9999-4999-8999-999999999999'}})
+                            elif body['action'] == 'result_retry':
+                                mode['result'] = 'available'
+                                route.fulfill(json={'ok': True, 'result': result, 'replayed': False})
                             else:
                                 route.fulfill(status=400, json={'ok': False, 'code': 'invalid_request'})
                         page.route('**/api/workbench/native', api)
@@ -88,6 +93,8 @@ def main():
                         assert page.locator('.workbench-result-text img').count() == 0
                         expect(page.get_by_text('Recorded checks')).to_be_visible()
                         expect(page.get_by_text('Human review')).to_be_visible()
+                        expect(page.get_by_text(f'Supervised native worker (attempt {attempt_id}; grant {grant_id}; run aaaa')).to_be_visible()
+                        expect(page.get_by_text('Comet service recorder (workbench-native-result)')).to_be_visible()
                         deliver_button = page.get_by_role('button', name='Create a host-authored result card; this does not send content to a model')
                         expect(deliver_button).to_be_enabled()
                         expect(page.get_by_role('button', name=f'Open evidence {evidence_id}')).to_be_disabled()
@@ -96,15 +103,27 @@ def main():
                         delivered = next(call for call in calls if call['action'] == 'result_deliver')
                         assert delivered['result_id'] == result_id
                         assert (delivered['pane_id'], delivered['profile_id'], delivered['session_id']) == (pane_id, 'default', 'fixture')
+                        page.get_by_role('button', name='Create a host-authored result card; this does not send content to a model').click()
+                        deliveries = [call for call in calls if call['action'] == 'result_deliver']
+                        assert len(deliveries) == 2 and deliveries[0]['op_id'] == deliveries[1]['op_id']
                         assert not any(call['action'] in ('send', 'submit', 'chat') for call in calls)
                         mode['result'] = 'missing'
                         page.get_by_role('button', name='Read durable status and result without retrying the native run').click()
                         expect(page.get_by_text('Unavailable (missing)', exact=True)).to_be_visible()
                         expect(page.locator('.workbench-result-text')).to_contain_text('No explanation text was recorded.')
                         expect(page.get_by_role('button', name='Create a host-authored result card; this does not send content to a model')).to_be_disabled()
-                        mode['result'] = 'pending'
+                        mode['result'] = 'none'
                         page.get_by_role('button', name='Read durable status and result without retrying the native run').click()
                         expect(page.get_by_text('No durable result is available yet. Refresh status to read; execution is never retried by refresh.')).to_be_visible()
+                        mode['result'] = 'persistence'
+                        page.get_by_role('button', name='Read durable status and result without retrying the native run').click()
+                        expect(page.get_by_text('Persistence pending', exact=True)).to_be_visible()
+                        retry = page.get_by_role('button', name='Retry database-only finalization for this exact pending receipt')
+                        expect(retry).to_be_enabled()
+                        retry.click()
+                        expect(page.locator('.workbench-result-text')).to_contain_text('<img src=x onerror=alert(1)>')
+                        retried = next(call for call in calls if call['action'] == 'result_retry')
+                        assert retried['result_id'] == result_id and retried['expected_digest'] == 'b' * 64
                         assert not any(call['action'] == 'start' for call in calls)
                         browser.close()
                 finally:
