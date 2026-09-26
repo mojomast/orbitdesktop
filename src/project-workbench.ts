@@ -187,13 +187,14 @@ export function showProjectWorkbench(getToken: () => string): void {
     execution.replaceChildren();executionProject=selectedProject;
     const taskContainer=el('div'),authorityContainer=el('div'),workflowContainer=el('div'),resultContainer=el('div','workbench-task-results-panel');execution.append(taskContainer,authorityContainer,resultContainer,workflowContainer);
     const openReview=button('Open candidate Review view','Create or select one trusted, project-bound review pane',()=>{
+      if(!dialog.open||project?.id!==selectedProject)return;
       openReview.disabled=true;
-      void import('./workbench-review-host').then(({openWorkbenchReview})=>openWorkbenchReview(selectedProject,getToken)).then(()=>{if(current(selectedEpoch))dialog.close();}).catch(error=>{if(current(selectedEpoch))state('error',`Review view unavailable: ${error.message}`);}).finally(()=>{openReview.disabled=false;});
+      void import('./workbench-review-host').then(({openWorkbenchReview})=>openWorkbenchReview(selectedProject,getToken)).then(()=>{if(dialog.open&&project?.id===selectedProject)dialog.close();}).catch(error=>{if(dialog.open&&project?.id===selectedProject)state('error',`Review view unavailable: ${error.message}`);}).finally(()=>{openReview.disabled=false;});
     });
     execution.prepend(openReview);
     const openReviewRequested=(event:Event)=>{
       const detail=(event as CustomEvent).detail;
-      if(current(selectedEpoch)&&project?.id===selectedProject&&detail?.workspace_id===workspaceId&&detail?.project_id===selectedProject)openReview.click();
+      if(dialog.open&&project?.id===selectedProject&&detail?.workspace_id===workspaceId&&detail?.project_id===selectedProject)openReview.click();
     };
     window.addEventListener('orbit-open-workbench-review',openReviewRequested);
     const referenceDialogs=new Set<HTMLDialogElement>();

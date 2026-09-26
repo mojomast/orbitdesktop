@@ -151,7 +151,8 @@ owner action and does not authorize modifying or merging into the original tree.
 | Required check aggregation | Versioned complete set; latest matching structured results for exact candidate/profile; acceptance revision explicitly approved |
 | Integration | Explicit independent private two-commit repository/branch; in-place original integration unavailable |
 | Reviewed patch transfer | Private authenticated Git-compatible diff plus source/candidate/review/check/mode manifest; disposable exact-base round trip and separate frozen artifact checks before publication; unsupported modes, binary changes and profile-bound artifact checks fail explicitly |
-| Investigate / Implement / Review recipes | Explicit role-prioritized window-order preview/apply and revision-checked return; no automatic geometry rewrite |
+| Investigate / Implement recipes | Explicit role-prioritized window-order preview/apply and revision-checked return |
+| Review arrangement | Explicit measured-viewport preview/apply for the project-bound trusted Review window; updates its frame and Docking float placement, preserving unrelated placements; Return restores the prior arrangement only at the exact applied revision |
 | Actual Hermes / simulated model | Pinned runtime/plugin/private bridge/provider journey tested; model-protocol fixture does not establish model reasoning |
 | Real-model and live deployment gates | Product-model evaluation is explicitly **unrun by user choice**; owner deployment remains separately unauthorized |
 
