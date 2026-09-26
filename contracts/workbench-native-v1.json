@@ -240,6 +240,148 @@
         "known_externally_terminated"
       ],
       "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "result_get"
+        },
+        "workspace_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "project_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "result_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        }
+      },
+      "required": [
+        "action",
+        "workspace_id",
+        "project_id",
+        "result_id"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "result_retry"
+        },
+        "workspace_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "project_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "result_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "expected_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "action",
+        "workspace_id",
+        "project_id",
+        "result_id",
+        "expected_digest"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "result_deliver"
+        },
+        "workspace_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "project_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "result_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "pane_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "profile_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "op_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        }
+      },
+      "required": [
+        "action",
+        "workspace_id",
+        "project_id",
+        "result_id",
+        "pane_id",
+        "profile_id",
+        "session_id",
+        "op_id"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "cards_list"
+        },
+        "workspace_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "pane_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "profile_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        }
+      },
+      "required": [
+        "action",
+        "workspace_id",
+        "pane_id",
+        "profile_id",
+        "session_id"
+      ],
+      "additionalProperties": false
     }
   ]
 }

@@ -1,0 +1,120 @@
+{
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "patch_preview"
+        },
+        "workspace_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "project_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "task_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "candidate_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "review_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        }
+      },
+      "required": [
+        "action",
+        "workspace_id",
+        "project_id",
+        "task_id",
+        "candidate_id",
+        "review_id"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "patch_export"
+        },
+        "workspace_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "project_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "task_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "candidate_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "review_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "preview_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "preview_digest": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "op_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        }
+      },
+      "required": [
+        "action",
+        "workspace_id",
+        "project_id",
+        "task_id",
+        "candidate_id",
+        "review_id",
+        "preview_id",
+        "preview_digest",
+        "op_id"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "private_patch_get"
+        },
+        "workspace_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "project_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "artifact_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        }
+      },
+      "required": [
+        "action",
+        "workspace_id",
+        "project_id",
+        "artifact_id"
+      ],
+      "additionalProperties": false
+    }
+  ]
+}

@@ -1,0 +1,224 @@
+{
+  "type": "object",
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+    },
+    "workspace_id": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+    },
+    "project_id": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+    },
+    "task_id": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+    },
+    "attempt_id": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+    },
+    "grant_id": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+    },
+    "project_generation": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "candidate_id": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+    },
+    "candidate_generation": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "candidate_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "recipient": {
+      "type": "object",
+      "properties": {
+        "pane_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+        },
+        "profile_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        }
+      },
+      "required": [
+        "pane_id",
+        "profile_id",
+        "session_id"
+      ],
+      "additionalProperties": false
+    },
+    "availability": {
+      "enum": [
+        "pending",
+        "available",
+        "explanation_unavailable"
+      ]
+    },
+    "unavailable_reason": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "enum": [
+            "missing",
+            "empty",
+            "malformed",
+            "oversized",
+            "duplicate",
+            "conflict",
+            "incomplete",
+            "runtime_failed",
+            "fenced",
+            "persistence_failed",
+            "expired"
+          ]
+        }
+      ]
+    },
+    "text": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "hermes_completed": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        }
+      ]
+    },
+    "frame_hash": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      ]
+    },
+    "received_at": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "integer",
+          "minimum": 0
+        }
+      ]
+    },
+    "retained_until": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "model_suggested_references": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "evidence_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          }
+        },
+        "required": [
+          "evidence_id"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 16
+    },
+    "resolved_references": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "evidence_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "job_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "verdict": {
+            "enum": [
+              "pass",
+              "fail",
+              "inconclusive"
+            ]
+          }
+        },
+        "required": [
+          "evidence_id",
+          "job_id",
+          "verdict"
+        ],
+        "additionalProperties": false
+      },
+      "maxItems": 16
+    }
+  },
+  "required": [
+    "version",
+    "id",
+    "workspace_id",
+    "project_id",
+    "task_id",
+    "attempt_id",
+    "grant_id",
+    "run_id",
+    "project_generation",
+    "candidate_id",
+    "candidate_generation",
+    "candidate_hash",
+    "recipient",
+    "availability",
+    "unavailable_reason",
+    "text",
+    "hermes_completed",
+    "frame_hash",
+    "received_at",
+    "retained_until",
+    "model_suggested_references",
+    "resolved_references"
+  ],
+  "additionalProperties": false
+}
