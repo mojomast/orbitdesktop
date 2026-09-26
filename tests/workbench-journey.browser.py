@@ -67,7 +67,7 @@ def main(renderer):
             (root / name).mkdir()
         env = {"HOME": str(root / "home"), "PATH": os.environ["PATH"],
                "npm_config_cache": str(root / ".npm")}
-        helper.run(shutil.which("npm"), "run", "build", cwd=root, env=env)
+        helper.run(shutil.which("node"), str(ROOT / "scripts/isolated_build.mjs"), "--source", str(root), "--dest", str(root / "dist"), cwd=root, env=env)
         assert (root / "dist/index.html").is_file()
         project = root / "project"
         (project / "math.js").write_text(WRONG)

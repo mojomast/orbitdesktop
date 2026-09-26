@@ -41,7 +41,7 @@ def main(renderer):
         for name in ("runtime", "home", "cwd", "tmux"):
             (root / name).mkdir()
         build_env = {"HOME": str(root / "home"), "PATH": os.environ["PATH"], "npm_config_cache": str(root / ".npm")}
-        build = run(shutil.which("npm"), "run", "build", cwd=root, env=build_env)
+        build = run(shutil.which("node"), str(ROOT / "scripts/isolated_build.mjs"), "--source", str(root), "--dest", str(root / "dist"), cwd=root, env=build_env)
         assert (root / "dist/index.html").is_file(), (build.stdout, build.stderr)
 
         project = root / "project"
