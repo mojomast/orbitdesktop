@@ -11,13 +11,26 @@ import {createWorkbenchGate} from '../server/workbench-gate.mjs';
 import {openProjectRoot} from '../server/project-files.mjs';
 import {createWorkbenchExecution} from '../server/workbench-execution.mjs';
 import {createWorkbenchNative} from '../server/workbench-native.mjs';
-import {createWorkbenchNativeRuntime} from '../server/workbench-native-runtime.mjs';
+import {createWorkbenchNativeRuntime,readNativeApiKeyFile,nativeRuntimeEnvironmentOptions,nativeRuntimeMetadata} from '../server/workbench-native-runtime.mjs';
 import {workbenchOwnerRoute} from '../server/workbench-owner-route.mjs';
 import {validateNative,validateNativeTool,HERMES_NATIVE_CONTRACT} from '../contracts/workbench-native-v1.mjs';
 import {initial} from '../src/model.ts';
 import {commandIdentity} from '../server/command-identity.mjs';
 const WRONG='export const sum = (a,b) => a - b;\n',RIGHT='export const sum = (a,b) => a + b;\n';
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
+test('private native endpoint key file is bounded, identity-bound and never projected',t=>{
+  const root=fs.mkdtempSync('/tmp/opencode/native-key-');t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+  const file=path.join(root,'key'),alias=path.join(root,'alias');fs.writeFileSync(file,'private-endpoint-token\n',{mode:0o600});
+  assert.equal(readNativeApiKeyFile(file),'private-endpoint-token');
+  const options=nativeRuntimeEnvironmentOptions({root,env:{ORBIT_NATIVE_HERMES_SOURCE:'/tmp/source',ORBIT_NATIVE_HERMES_PYTHON:'/tmp/python',ORBIT_NATIVE_HERMES_MODEL_URL:'http://127.0.0.1:3456/v1',ORBIT_NATIVE_HERMES_PROFILE:'fixture',ORBIT_NATIVE_HERMES_API_KEY_FILE:file}});
+  assert.equal(options.apiKeyFile,file);assert.equal(JSON.stringify(options).includes('private-endpoint-token'),false);
+  const a=nativeRuntimeMetadata({source:'/tmp/source',python:'/tmp/python',endpoint:'http://127.0.0.1:3456/v1',profile_id:'fixture',apiKey:readNativeApiKeyFile(file)});
+  const b=nativeRuntimeMetadata({source:'/tmp/source',python:'/tmp/python',endpoint:'http://127.0.0.1:3456/v1',profile_id:'fixture',apiKey:'rotated'});
+  assert.notEqual(a.configuration_hash,b.configuration_hash);assert.equal(JSON.stringify(a).includes('private-endpoint-token'),false);
+  fs.symlinkSync(file,alias);assert.throws(()=>readNativeApiKeyFile(alias));
+  fs.chmodSync(file,0o644);assert.throws(()=>readNativeApiKeyFile(file));
+  fs.chmodSync(file,0o600);fs.writeFileSync(file,'x'.repeat(4097));assert.throws(()=>readNativeApiKeyFile(file));
+});
 function fixture(t,adapter={},now=Date.now){
   const root=fs.mkdtempSync('/tmp/opencode/wn-'),projectRoot=path.join(root,'project');fs.mkdirSync(projectRoot);fs.writeFileSync(path.join(projectRoot,'math.js'),WRONG);
   const store=new SqliteWorkspaceStore(path.join(root,'r')),workspace_id=randomUUID(),pane_id=randomUUID();

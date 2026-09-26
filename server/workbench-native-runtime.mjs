@@ -3,6 +3,7 @@ import path from 'node:path';
 import {spawn,execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
+import {openProjectRoot} from './project-files.mjs';
 import {HERMES_NATIVE_CONTRACT} from '../contracts/workbench-native-v1.mjs';
 import {RESULT_FRAME_MAX_BYTES,RESULT_TEXT_MAX_BYTES,validateResultFrame} from '../contracts/workbench-result-v1.mjs';
 const pluginRoot=fileURLToPath(new URL('../hermes-plugin/',import.meta.url));
@@ -31,15 +32,29 @@ export function nativeRuntimeMetadata({source,python,endpoint,profile_id,model='
   const configuration_hash=createHash('sha256').update(JSON.stringify({source,python,endpoint,profile_id,model,keyHash,commit:HERMES_NATIVE_CONTRACT.commit})).digest('hex');
   return {kind:'local-pinned',commit:HERMES_NATIVE_CONTRACT.commit,model,destination:'loopback configured model endpoint',configuration_hash};
 }
+export function readNativeApiKeyFile(filename){
+  if(typeof filename!=='string'||!path.isAbsolute(filename)||path.resolve(filename)!==filename)throw Error('Native API key file must be an absolute path');
+  const parent=openProjectRoot(path.dirname(filename));let fd;
+  try{
+    fd=fs.openSync(`/proc/self/fd/${parent.fd}/${path.basename(filename)}`,fs.constants.O_RDONLY|fs.constants.O_NOFOLLOW|fs.constants.O_NONBLOCK);
+    const before=fs.fstatSync(fd);
+    if(!before.isFile()||before.dev!==parent.dev||before.nlink!==1||(before.mode&0o077)!==0||before.size<1||before.size>4096||before.uid!==process.getuid())throw Error('Native API key file must be a private regular file');
+    const bytes=Buffer.alloc(before.size+1),count=fs.readSync(fd,bytes,0,bytes.length,0),after=fs.fstatSync(fd);
+    if(count!==before.size||after.dev!==before.dev||after.ino!==before.ino||after.size!==before.size||after.mtimeMs!==before.mtimeMs||after.ctimeMs!==before.ctimeMs)throw Error('Native API key file changed during read');
+    const value=new TextDecoder('utf-8',{fatal:true}).decode(bytes.subarray(0,count)).replace(/\r?\n$/,'');
+    if(!value||value.length>4096||/[\x00-\x1f\x7f]/.test(value))throw Error('Native API key file content is invalid');
+    return value;
+  }finally{if(fd!==undefined)fs.closeSync(fd);parent.close();}
+}
 export function nativeRuntimeEnvironmentOptions({root,gate,config_generation,env=process.env}={}){
   if(!env.ORBIT_NATIVE_HERMES_SOURCE)return null;
-  return {source:env.ORBIT_NATIVE_HERMES_SOURCE,python:env.ORBIT_NATIVE_HERMES_PYTHON,endpoint:env.ORBIT_NATIVE_HERMES_MODEL_URL,profile_id:env.ORBIT_NATIVE_HERMES_PROFILE,model:env.ORBIT_NATIVE_HERMES_MODEL??'orbit-local-fixture',root,gate,config_generation};
+  return {source:env.ORBIT_NATIVE_HERMES_SOURCE,python:env.ORBIT_NATIVE_HERMES_PYTHON,endpoint:env.ORBIT_NATIVE_HERMES_MODEL_URL,profile_id:env.ORBIT_NATIVE_HERMES_PROFILE,model:env.ORBIT_NATIVE_HERMES_MODEL??'orbit-local-fixture',apiKeyFile:env.ORBIT_NATIVE_HERMES_API_KEY_FILE,root,gate,config_generation};
 }
 
 // Host-configured adapter. Never pass request/model-selected executables, paths,
 // endpoint or environment here. No ambient environment is inherited by children.
 // A shared agent lease is mandatory: no independent scheduler exists here.
-export function createWorkbenchNativeRuntime({source,python,root,endpoint,profile_id,config_generation,model='orbit-local-fixture',apiKey='local-fixture',gate}={}){
+export function createWorkbenchNativeRuntime({source,python,root,endpoint,profile_id,config_generation,model='orbit-local-fixture',apiKey='local-fixture',apiKeyFile,gate}={}){
   if(![source,python,root].every(p=>typeof p==='string'&&path.isAbsolute(p))||typeof gate?.claim!=='function')throw Error('Explicit runtime paths and shared gate required');
   if(typeof profile_id!=='string'||!profile_id||config_generation===undefined)throw Error('Explicit local profile ID and configuration generation required');
   const commit=execFileSync('/usr/bin/git',['-C',source,'rev-parse','HEAD'],{encoding:'utf8',env:{PATH:'/usr/bin:/bin'}}).trim();
@@ -47,6 +62,7 @@ export function createWorkbenchNativeRuntime({source,python,root,endpoint,profil
   // This shipped adapter is deliberately local-endpoint-only until a separate
   // owner provider/budget policy authorizes external spending.
   const url=new URL(endpoint);if(url.protocol!=='http:'||!['127.0.0.1','[::1]'].includes(url.hostname)||url.username||url.password||url.search||url.hash)throw Error('Explicit local model endpoint required');
+  if(apiKeyFile!==undefined&&apiKeyFile!==null){if(apiKey!=='local-fixture')throw Error('Native API key source must be unambiguous');apiKey=readNativeApiKeyFile(apiKeyFile);}
   fs.mkdirSync(root,{recursive:true,mode:0o700});const children=new Map(),quarantines=new Map();
   const bindingMetadata=nativeRuntimeMetadata({source,python,endpoint,profile_id,model,apiKey});
   const terminating=new WeakSet();

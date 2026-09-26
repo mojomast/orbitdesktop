@@ -223,7 +223,15 @@ Bootstrap the pinned source using its `uv.lock` with
 `uv sync --frozen --python 3.14 --no-default-groups`. Configure only an isolated
 authorized instance with `ORBIT_NATIVE_HERMES_SOURCE`, `ORBIT_NATIVE_HERMES_PYTHON`,
 `ORBIT_NATIVE_HERMES_MODEL_URL` (numeric-loopback HTTP endpoint),
-`ORBIT_NATIVE_HERMES_PROFILE`, and optional `ORBIT_NATIVE_HERMES_MODEL`.
+`ORBIT_NATIVE_HERMES_PROFILE`, optional `ORBIT_NATIVE_HERMES_MODEL`, and optional
+`ORBIT_NATIVE_HERMES_API_KEY_FILE` for a private endpoint credential. The file
+must be an absolute path to a same-UID regular single-linked file with no
+symlink path component, mode denying all group/other access, and 1–4096 bytes
+of UTF-8 text (one final newline is allowed). The service reads it at startup;
+restart after rotation so consent binds the new secret fingerprint. The secret
+is sent only through the private FD3 runtime input, not arguments, environment,
+consent metadata or logs. Without the file the local fixture key remains the
+default; no real endpoint credential is assumed.
 The selected ordinary pane binding must match that profile/session. The native
 adapter uses a fresh private Hermes database, not that gateway's existing history.
 Its endpoint/model/configuration hash is shown in consent. Only explicitly granted
