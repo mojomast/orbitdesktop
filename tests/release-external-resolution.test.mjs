@@ -73,3 +73,52 @@ test('a release without runtime dependencies needs no external root',t=>{
   const result=resolveExternalDependencies({root:rel,manifest:{dependencies:{external:null}}});
   assert.deepEqual(result.checked,[]);
 });
+
+function linked(base,{metadata}){
+  const real=path.join(base,'real');fs.mkdirSync(real,{mode:0o700});
+  write(path.join(real,'dep-a/index.js'),'module.exports = 1;\n');
+  if(metadata!==null&&metadata!==undefined)write(path.join(real,'dep-a/package.json'),metadata);
+  const rel=release(base);
+  fs.symlinkSync(real,path.join(base,'node_modules'),'dir');
+  return {rel,real};
+}
+const validMetadata=JSON.stringify({name:'dep-a',version:'1.0.0',main:'index.js'});
+
+test('installed dependency metadata must be present, ordinary, bounded and match the lockfile',t=>{
+  const cases=[
+    {name:'missing package.json',metadata:null,code:'external_metadata_missing'},
+    {name:'missing version',metadata:JSON.stringify({name:'dep-a',main:'index.js'}),code:'external_metadata_missing'},
+    {name:'name mismatch',metadata:JSON.stringify({name:'other',version:'1.0.0',main:'index.js'}),code:'external_name_mismatch'},
+  ];
+  for(const variant of cases){
+    const base=scratch();t.after(()=>fs.rmSync(base,{recursive:true,force:true}));
+    const {rel,real}=linked(base,{metadata:variant.metadata});
+    assert.throws(()=>resolveExternalDependencies({root:rel,manifest:manifest(real)}),{code:variant.code},variant.name);
+  }
+});
+
+test('malformed installed metadata fails closed',t=>{
+  const base=scratch();t.after(()=>fs.rmSync(base,{recursive:true,force:true}));
+  const {rel,real}=linked(base,{metadata:'{ not json'});
+  assert.throws(()=>resolveExternalDependencies({root:rel,manifest:manifest(real)}),error=>/^external_/.test(error.code),'malformed metadata must fail closed');
+});
+
+test('a symlinked or oversized installed package.json is refused',t=>{
+  const base=scratch();t.after(()=>fs.rmSync(base,{recursive:true,force:true}));
+  const {rel,real}=linked(base,{metadata:validMetadata});
+  write(path.join(base,'metadata-copy.json'),validMetadata);
+  fs.rmSync(path.join(real,'dep-a/package.json'));
+  fs.symlinkSync(path.join(base,'metadata-copy.json'),path.join(real,'dep-a/package.json'));
+  assert.throws(()=>resolveExternalDependencies({root:rel,manifest:manifest(real)}),{code:'external_metadata_not_regular'});
+
+  const big=scratch();t.after(()=>fs.rmSync(big,{recursive:true,force:true}));
+  const bigLinked=linked(big,{metadata:JSON.stringify({name:'dep-a',version:'1.0.0',main:'index.js',padding:'x'.repeat(300000)})});
+  assert.throws(()=>resolveExternalDependencies({root:bigLinked.rel,manifest:manifest(bigLinked.real)}),{code:'external_metadata_too_large'});
+});
+
+test('a lockfile without a version for an installed dependency is refused',t=>{
+  const base=scratch();t.after(()=>fs.rmSync(base,{recursive:true,force:true}));
+  const {rel,real}=linked(base,{metadata:validMetadata});
+  fs.writeFileSync(path.join(rel,'package-lock.json'),JSON.stringify({lockfileVersion:3,packages:{}}));
+  assert.throws(()=>resolveExternalDependencies({root:rel,manifest:manifest(real)}),{code:'external_lock_metadata_missing'});
+});

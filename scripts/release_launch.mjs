@@ -86,6 +86,24 @@ export function verifyRelease(releaseDir){
   return {root,manifest,verified};
 }
 
+// Installed dependency metadata must be present and match the lockfile before any
+// process is started. Missing/malformed/oversized/non-ordinary package metadata, a
+// name mismatch or a null version all fail closed.
+function readInstalledPackage(declaredRoot,dependency){
+  const directory=path.join(declaredRoot,...dependency.split('/'));
+  const target=path.join(directory,'package.json');
+  let stat;
+  try{stat=fs.lstatSync(target);}catch{throw new PinError('external_metadata_missing',`Installed dependency ${dependency} has no package.json.`,{dependency});}
+  if(stat.isSymbolicLink()||!stat.isFile())throw new PinError('external_metadata_not_regular',`Installed dependency ${dependency} package.json is not an ordinary file.`,{dependency});
+  if(stat.size>262144)throw new PinError('external_metadata_too_large',`Installed dependency ${dependency} package.json is too large.`,{dependency,bytes:stat.size});
+  let pkg;
+  try{pkg=JSON.parse(fs.readFileSync(target,'utf8'));}catch{throw new PinError('external_metadata_malformed',`Installed dependency ${dependency} package.json is not valid JSON.`,{dependency});}
+  if(!pkg||typeof pkg!=='object'||Array.isArray(pkg)||typeof pkg.name!=='string'||!pkg.name.trim())throw new PinError('external_metadata_missing',`Installed dependency ${dependency} package.json has no name.`,{dependency});
+  if(pkg.name!==dependency)throw new PinError('external_name_mismatch',`Installed dependency ${dependency} declares a different name.`,{dependency,name:pkg.name});
+  if(typeof pkg.version!=='string'||!pkg.version.trim())throw new PinError('external_metadata_missing',`Installed dependency ${dependency} package.json has no version.`,{dependency});
+  return {name:pkg.name,version:pkg.version};
+}
+
 // Prove the ACTUAL Node resolution of runtime dependencies from the physical entry
 // lands inside the declared external node_modules root, and that installed versions
 // match the release lockfile. Fails closed before any process is started. No NODE_PATH
@@ -113,12 +131,12 @@ export function resolveExternalDependencies({root,manifest,requireRoot}={}){
     try{resolved=require.resolve(dependency);}catch{throw new PinError('external_dependency_missing',`Cannot resolve runtime dependency ${dependency} from the physical entry.`,{dependency});}
     const canonicalResolved=fs.realpathSync.native(resolved);
     if(canonicalResolved!==declaredRoot&&!canonicalResolved.startsWith(declaredRoot+path.sep))throw new PinError('external_resolution_mismatch',`Runtime dependency ${dependency} resolves outside the declared external root.`,{dependency,resolved:canonicalResolved,declared:declaredRoot});
-    let installedVersion=null;
-    try{installedVersion=JSON.parse(fs.readFileSync(path.join(declaredRoot,dependency,'package.json'),'utf8')).version;}catch{}
+    const installed=readInstalledPackage(declaredRoot,dependency);
     const lockVersion=lock.packages?.[`node_modules/${dependency}`]?.version??null;
-    if(lockVersion&&installedVersion&&lockVersion!==installedVersion)throw new PinError('external_version_mismatch',`Runtime dependency ${dependency} installed version does not match the lockfile.`,{dependency,installed:installedVersion,lock:lockVersion});
+    if(typeof lockVersion!=='string'||!lockVersion)throw new PinError('external_lock_metadata_missing',`The release lockfile has no version for runtime dependency ${dependency}.`,{dependency});
+    if(installed.version!==lockVersion)throw new PinError('external_version_mismatch',`Runtime dependency ${dependency} installed version does not match the lockfile.`,{dependency,installed:installed.version,lock:lockVersion});
     if(external.node_abi&&external.node_abi!==process.versions.modules)throw new PinError('dependency_abi_mismatch','External dependency ABI does not match the running Node.',{expected:external.node_abi,actual:process.versions.modules});
-    checked.push({dependency,resolved:canonicalResolved,version:installedVersion,lock_version:lockVersion});
+    checked.push({dependency,resolved:canonicalResolved,version:installed.version,lock_version:lockVersion});
   }
   return {checked,external,declared_root:declaredRoot};
 }
