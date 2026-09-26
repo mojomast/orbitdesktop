@@ -1,0 +1,97 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import {randomUUID} from 'node:crypto';
+import {parseNativeResult} from '../server/workbench-native-runtime.mjs';
+import {SqliteWorkspaceStore} from '../server/sqlite-workspace-store.mjs';
+import {WorkbenchStore} from '../server/workbench-store.mjs';
+import {WorkbenchData} from '../server/workbench-data.mjs';
+import {createWorkbenchExecution} from '../server/workbench-execution.mjs';
+import {createWorkbenchNative} from '../server/workbench-native.mjs';
+import {openProjectRoot} from '../server/project-files.mjs';
+import {commandIdentity} from '../server/command-identity.mjs';
+import {initial} from '../src/model.ts';
+import {HERMES_NATIVE_CONTRACT} from '../contracts/workbench-native-v1.mjs';
+
+const frame=(text,completed=true)=>Buffer.from(JSON.stringify({version:1,type:'final_response',text,completed})+'\n');
+const settle=()=>new Promise(resolve=>setImmediate(resolve));
+test('FD4 validates UTF-8, byte bounds, framing, duplicates and partial outcomes',()=>{
+  assert.equal(parseNativeResult(frame('🚀 測試')).text,'🚀 測試');
+  assert.equal(parseNativeResult(Buffer.alloc(0)).reason,'missing');
+  assert.equal(parseNativeResult(frame('')).reason,'empty');
+  assert.equal(parseNativeResult(frame(' '.repeat(5))).reason,'empty');
+  assert.equal(parseNativeResult(frame('a'.repeat(65537))).reason,'oversized');
+  assert.equal(parseNativeResult(Buffer.from('{"version":1}\n')).reason,'malformed');
+  assert.equal(parseNativeResult(Buffer.from([0xff,10])).reason,'malformed');
+  assert.equal(parseNativeResult(frame('okay').subarray(0,-1)).reason,'incomplete');
+  assert.equal(parseNativeResult(Buffer.concat([frame('same'),frame('same')])).availability,'available');
+  assert.equal(parseNativeResult(Buffer.concat([frame('a'),frame('b')])).reason,'conflict');
+  assert.equal(parseNativeResult(Buffer.concat([frame('a'),frame('a'),frame('a')])).reason,'duplicate');
+  assert.equal(parseNativeResult(frame('partial',false)).reason,'runtime_failed');
+  assert.equal(parseNativeResult(frame('partial',false)).text,'partial');
+});
+
+function fixture(t){
+  const root=fs.mkdtempSync('/tmp/opencode/sol-result-'),projectRoot=path.join(root,'project');fs.mkdirSync(projectRoot);fs.writeFileSync(path.join(projectRoot,'math.js'),'export const sum=(a,b)=>a-b;\n');
+  const store=new SqliteWorkspaceStore(path.join(root,'runtime')),workspace_id=randomUUID(),pane_id=randomUUID();
+  store.commit(commandIdentity({workspace_id,action:'sync',base_revision:0,state:initial(),operation_id:randomUUID(),intent:'Result fixture'},'owner'),{create:()=>({id:workspace_id,revision:1,state:initial(),capability:randomUUID(),api:'http://127.0.0.1:4321'})});
+  const records=new WorkbenchStore(store),opened=openProjectRoot(projectRoot),project=records.register(workspace_id,{root:projectRoot,name:'Result fixture',identity:opened.identity});opened.close();
+  const data=new WorkbenchData(store),execution=createWorkbenchExecution({store,records,data}),base={workspace_id,project_id:project.id};let finish;
+  const binding={trusted_host:true,sandbox:false,profile_id:'fixture',session_id:'result-session',config_generation:1,binding_revision:1,native_runtime:{kind:'local-pinned',commit:HERMES_NATIVE_CONTRACT.commit,model:'fixture',destination:'loopback configured model endpoint',configuration_hash:'a'.repeat(64)}};
+  const hermes={readBinding:async()=>binding,startNative:async()=>({completion:new Promise(resolve=>finish=resolve)}),stopNative:async()=>({requested:true})};
+  const native=createWorkbenchNative({store,records,data,execution,hermes});
+  const call=(action,fields={})=>execution.dispatch({...base,action,...fields});
+  const owner=(action,fields={})=>native.dispatch({...base,action,...fields});
+  async function start(){
+    const {task}=await call('task_create',{title:'Repair sum',acceptance_statement:'sum must add',check_definition_id:'host-regression',profile_id:'fixture',session_id:'result-session',pane_id});
+    const p=await call('candidate_preview',{task_id:task.id}),{candidate}=await call('candidate_create',{task_id:task.id,preview_id:p.preview_id,preview_digest:p.preview.digest});
+    const {attempt}=await call('attempt_create',{task_id:task.id,candidate_id:candidate.id,profile_id:'fixture',session_id:'result-session',pane_id});
+    const preview=await owner('preview',{attempt_id:attempt.id,context_ids:[],budget:{calls:10,checks:1,duration_ms:90000}});
+    const {grant}=await owner('approve',{preview_id:preview.preview_id,preview_digest:preview.preview_digest});
+    await owner('start',{grant_id:grant.id});return {task,candidate,attempt,grant};
+  }
+  t.after(()=>{native.close();execution.close();store.close();fs.rmSync(root,{recursive:true,force:true});});
+  return {store,records,data,execution,hermes,native,base,pane_id,start,owner,finish:result=>finish({termination_confirmed:true,exit_code:0,result:parseNativeResult(result===null?Buffer.alloc(0):frame(result))})};
+}
+test('durable owner result survives reload, stays distinct from checks, and host card requires explicit delivery',async t=>{
+  const f=fixture(t),{task,candidate,attempt,grant}=await f.start();
+  assert.equal((await f.owner('status',{grant_id:grant.id})).result.availability,'pending');
+  f.finish('Repaired Unicode 🚀; evidence:00000000-0000-0000-0000-000000000001');await settle();
+  const status=await f.owner('status',{grant_id:grant.id});assert.equal(status.grant.status,'completed');
+  const result=status.result;assert.equal(result.availability,'available');assert.equal(result.text.includes('🚀'),true);
+  assert.equal(result.task_id,task.id);assert.equal(result.attempt_id,attempt.id);assert.equal(result.candidate_id,candidate.id);
+  assert.deepEqual(result.model_suggested_references,[{evidence_id:'00000000-0000-0000-0000-000000000001'}]);assert.deepEqual(result.resolved_references,[]);
+  assert.equal((await f.owner('result_get',{result_id:result.id})).result.text,result.text);
+  assert.equal(f.data.list('cards',f.base.workspace_id,f.base.project_id).length,0);
+  const op_id=randomUUID(),delivery=await f.owner('result_deliver',{result_id:result.id,pane_id:f.pane_id,profile_id:'fixture',session_id:'result-session',op_id});
+  assert.equal((await f.owner('result_deliver',{result_id:result.id,pane_id:f.pane_id,profile_id:'fixture',session_id:'result-session',op_id})).card.id,delivery.card.id);
+  const cards=await f.native.dispatch({action:'cards_list',workspace_id:f.base.workspace_id,pane_id:f.pane_id,profile_id:'fixture',session_id:'result-session'});assert.equal(cards.cards[0].text,result.text);
+  assert.equal((await f.native.dispatch({action:'cards_list',workspace_id:f.base.workspace_id,pane_id:randomUUID(),profile_id:'fixture',session_id:'result-session'})).cards.length,0);
+  assert.equal((await f.owner('status',{grant_id:grant.id})).result.id,result.id);
+  const fresh=f.data.get('grants',f.base.workspace_id,f.base.project_id,grant.id);
+  f.data.update('grants',f.base.workspace_id,f.base.project_id,grant.id,fresh.revision,{expires_at:0});
+  assert.equal((await f.owner('result_get',{result_id:result.id})).result.text,result.text);
+});
+test('a zero exit with no FD4 frame is typed unavailable, without inventing explanation',async t=>{
+  const f=fixture(t),{grant}=await f.start();
+  f.finish(null);await settle();
+  const result=(await f.owner('status',{grant_id:grant.id})).result;
+  assert.equal(result.availability,'explanation_unavailable');assert.equal(result.unavailable_reason,'missing');assert.equal(result.text,null);
+});
+test('stop before result fences late explanation and preserves termination independently',async t=>{
+  const f=fixture(t),{grant}=await f.start();await f.owner('stop',{grant_id:grant.id});f.finish('late secret');await settle();
+  const status=await f.owner('status',{grant_id:grant.id});assert.equal(status.grant.status,'stopped');assert.equal(status.grant.runtime_status,'exited');assert.equal(status.result.unavailable_reason,'fenced');assert.equal(status.result.text,null);
+});
+test('result DB failure stages a private receipt and DB-only retry never reruns Hermes',async t=>{
+  const f=fixture(t),{grant}=await f.start(),original=f.data.update.bind(f.data);let failed=false;
+  f.data.update=(kind,...args)=>{if(kind==='results'&&!failed){failed=true;throw Error('injected result write failure');}return original(kind,...args);};
+  f.finish('durable receipt');await settle();
+  const pending=await f.owner('status',{grant_id:grant.id});
+  assert.equal(pending.grant.status,'result_pending');assert.equal(pending.result.availability,'pending');assert.equal(pending.health.healthy,false);
+  f.native.close();const replacement=createWorkbenchNative({store:f.store,records:f.records,data:f.data,execution:f.execution,hermes:f.hermes});t.after(()=>replacement.close());
+  const dispatch=(action,fields={})=>replacement.dispatch({...f.base,action,...fields});
+  const recovered=await dispatch('result_retry',{result_id:pending.result.id,expected_digest:pending.grant.pending_digest});
+  assert.equal(recovered.result.text,'durable receipt');assert.equal((await dispatch('status',{grant_id:grant.id})).grant.status,'completed');
+  await assert.rejects(dispatch('result_retry',{result_id:pending.result.id,expected_digest:pending.grant.pending_digest}),{code:'stale_resource'});
+});

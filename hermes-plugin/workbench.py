@@ -82,7 +82,17 @@ def runtime():
     if set(agent.valid_tool_names) != {TOOL}:
         raise RuntimeError("Hermes native tool allowlist mismatch: " + repr(sorted(agent.valid_tool_names)))
     result = agent.run_conversation(config["input"])
-    if result.get("error"):
+    # FD4 is the sole public terminal-result channel. Never serialize Hermes
+    # messages, tool transcripts, errors, reasoning or ambient process state.
+    text = result.get("final_response")
+    if not isinstance(text, str):
+        text = ""
+    frame = json.dumps({"version": 1, "type": "final_response", "text": text,
+                        "completed": result.get("completed") is True and not result.get("error")},
+                       ensure_ascii=False, separators=(",", ":")).encode("utf-8") + b"\n"
+    with os.fdopen(4, "wb", buffering=0) as output:
+        output.write(frame)
+    if result.get("error") or result.get("completed") is not True:
         raise RuntimeError("Hermes conversation failed")
     print(json.dumps({"native_runtime": "completed", "tools": [TOOL]}))
 

@@ -143,6 +143,9 @@ test('pinned real Hermes -> actual plugin -> authenticated private bridge -> SQL
   const {grant,candidate}=await f.prepare({nativeCall});await nativeCall({...f.base,action:'start',grant_id:grant.id});
   let status;for(let i=0;i<900;i++){status=await nativeCall({...f.base,action:'status',grant_id:grant.id});if(status.grant.status!=='running')break;await wait(100);}
   assert.equal(status.grant.status,'completed',JSON.stringify({status,toolResults}));
+  assert.equal(status.result.availability,'available',JSON.stringify(status.result));
+  assert.equal(status.result.text,'Finished fixture; recorder evidence is authoritative.');
+  assert.equal((await nativeCall({...f.base,action:'result_get',result_id:status.result.id})).result.text,status.result.text);
   const state=await f.call('execution_state');assert.deepEqual(state.evidence.map(e=>e.verdict),['fail','pass']);
   assert.equal(fs.readFileSync(path.join(f.projectRoot,'math.js'),'utf8'),WRONG);
   assert.equal((await f.call('candidate_read',{candidate_id:candidate.id,path:'math.js'})).file.text,RIGHT);

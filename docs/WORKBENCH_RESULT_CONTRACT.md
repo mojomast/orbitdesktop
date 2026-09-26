@@ -34,6 +34,9 @@ attempt_id,grant_id,run_id,project_generation,candidate_id,
 candidate_generation,candidate_hash}`, and original recipient
 `{pane_id,profile_id,session_id}` from authenticated grant/binding, never the
 model frame. `availability` is `pending|available|explanation_unavailable`;
+the frozen result `provenance` records its actual native attempt/run initiator,
+owner grant/authority generation authorizer and source-build service recorder;
+it does not reuse whichever principal later views or delivers the result.
 `unavailable_reason` is null or one of the authoritative enum. `text` is a
 bounded string or null; `hermes_completed` separates actual Hermes completion
 from process exit. `frame_hash` hashes the validated exact frame; `received_at`

@@ -5,11 +5,11 @@ import {wbError} from './workbench-store.mjs';
 // checkpoint, workspace projection, receipt outbox, or public static directory.
 // Typed relationships within each record are validated by its owning service.
 // Project/workspace foreign keys also protect the authoritative storage boundary.
-export const WORKBENCH_RECORD_KINDS=Object.freeze(['tasks','attempts','contexts','disclosures','submissions','candidates','jobs','evidence','reviews','grants','toolcalls','profiles','integrations','annotations']);
-const limits=Object.freeze({tasks:200,attempts:400,contexts:512,disclosures:512,submissions:512,candidates:200,jobs:512,evidence:1024,reviews:512,grants:512,toolcalls:4096,profiles:64,integrations:200,annotations:2048});
+export const WORKBENCH_RECORD_KINDS=Object.freeze(['tasks','attempts','contexts','disclosures','submissions','candidates','jobs','evidence','reviews','grants','toolcalls','profiles','integrations','annotations','results','cards','patches']);
+const limits=Object.freeze({tasks:200,attempts:400,contexts:512,disclosures:512,submissions:512,candidates:200,jobs:512,evidence:1024,reviews:512,grants:512,toolcalls:4096,profiles:64,integrations:200,annotations:2048,results:512,cards:512,patches:200});
 const identifier=/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
 const table=kind=>{if(!WORKBENCH_RECORD_KINDS.includes(kind))throw wbError('invalid_request');return `wb_${kind}`;};
-export const workbenchExecutionSchemaSql=WORKBENCH_RECORD_KINDS.map(kind=>`
+const recordTableSql=kind=>`
 CREATE TABLE IF NOT EXISTS wb_${kind}(
   id TEXT PRIMARY KEY,
   workspace_id TEXT NOT NULL REFERENCES workspaces(id),
@@ -23,7 +23,8 @@ CREATE TABLE IF NOT EXISTS wb_${kind}(
     CHECK(json_extract(record_json,'$.revision')=revision)
 );
 CREATE INDEX IF NOT EXISTS wb_${kind}_project ON wb_${kind}(workspace_id,project_id);
-`).join('\n');
+`;
+export const workbenchExecutionSchemaSql=WORKBENCH_RECORD_KINDS.filter(kind=>!['results','cards','patches'].includes(kind)).map(recordTableSql).join('\n');
 export const workbenchOperationSchemaSql=`
 CREATE UNIQUE INDEX IF NOT EXISTS wb_jobs_operation_identity
 ON wb_jobs(workspace_id,project_id,json_extract(record_json,'$.op_id'))
@@ -31,6 +32,12 @@ WHERE json_extract(record_json,'$.op_id') IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS wb_integrations_operation_identity
 ON wb_integrations(workspace_id,project_id,json_extract(record_json,'$.op_id'))
 WHERE json_extract(record_json,'$.op_id') IS NOT NULL;
+`;
+export const workbenchResultSchemaSql=`
+${['results','cards','patches'].map(recordTableSql).join('\n')}
+CREATE UNIQUE INDEX IF NOT EXISTS wb_results_run ON wb_results(workspace_id,project_id,json_extract(record_json,'$.run_id'));
+CREATE UNIQUE INDEX IF NOT EXISTS wb_cards_operation ON wb_cards(workspace_id,project_id,json_extract(record_json,'$.op_id'));
+CREATE UNIQUE INDEX IF NOT EXISTS wb_patches_operation ON wb_patches(workspace_id,project_id,json_extract(record_json,'$.op_id')) WHERE json_extract(record_json,'$.op_id') IS NOT NULL;
 `;
 
 export class WorkbenchData {

@@ -51,7 +51,7 @@ test('schema 5 additive upgrade retains project identities and leaves source bac
   const target=path.join(f.root,'upgraded');fs.mkdirSync(target);fs.copyFileSync(backup,path.join(target,'workspace.sqlite'));
   const upgraded=new SqliteWorkspaceStore(target);
   try{
-    assert.equal(upgraded.db.pragma('user_version',{simple:true}),7);
+    assert.equal(upgraded.db.pragma('user_version',{simple:true}),8);
     assert.equal(new WorkbenchStore(upgraded).project(f.workspace,f.project.id).id,f.project.id);
     for(const kind of WORKBENCH_RECORD_KINDS)assert.deepEqual(new WorkbenchData(upgraded).list(kind,f.workspace,f.project.id),[]);
   }finally{upgraded.close();}

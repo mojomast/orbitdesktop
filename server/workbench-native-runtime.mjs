@@ -4,7 +4,28 @@ import {spawn,execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
 import {HERMES_NATIVE_CONTRACT} from '../contracts/workbench-native-v1.mjs';
+import {RESULT_FRAME_MAX_BYTES,RESULT_TEXT_MAX_BYTES,validateResultFrame} from '../contracts/workbench-result-v1.mjs';
 const pluginRoot=fileURLToPath(new URL('../hermes-plugin/',import.meta.url));
+export function parseNativeResult(bytes,{overflow=false}={}){
+  if(overflow||bytes.length>RESULT_FRAME_MAX_BYTES)return {availability:'explanation_unavailable',reason:'oversized'};
+  if(!bytes.length)return {availability:'explanation_unavailable',reason:'missing'};
+  if(bytes.at(-1)!==10)return {availability:'explanation_unavailable',reason:'incomplete'};
+  let frames;
+  try{
+    const lines=new TextDecoder('utf-8',{fatal:true}).decode(bytes).slice(0,-1).split('\n');
+    if(lines.some(line=>!line))return {availability:'explanation_unavailable',reason:'malformed'};
+    frames=lines.map(line=>JSON.parse(line));
+  }
+  catch{return {availability:'explanation_unavailable',reason:'malformed'};}
+  if(!frames.length||frames.some(frame=>!validateResultFrame(frame)))return {availability:'explanation_unavailable',reason:'malformed'};
+  if(frames.length>2)return {availability:'explanation_unavailable',reason:'duplicate'};
+  if(frames.length===2&&JSON.stringify(frames[0])!==JSON.stringify(frames[1]))return {availability:'explanation_unavailable',reason:'conflict'};
+  const frame=frames[0],text=frame.text;
+  if(Buffer.byteLength(text,'utf8')>RESULT_TEXT_MAX_BYTES)return {availability:'explanation_unavailable',reason:'oversized'};
+  const frame_hash=createHash('sha256').update(bytes.subarray(0,bytes.indexOf(10)+1)).digest('hex');
+  if(!text.trim())return {availability:'explanation_unavailable',reason:'empty',hermes_completed:frame.completed,frame_hash};
+  return {availability:frame.completed?'available':'explanation_unavailable',reason:frame.completed?null:'runtime_failed',text,hermes_completed:frame.completed,frame_hash};
+}
 export function nativeRuntimeMetadata({source,python,endpoint,profile_id,model='orbit-local-fixture',apiKey='local-fixture'}={}){
   const keyHash=createHash('sha256').update(apiKey).digest('hex');
   const configuration_hash=createHash('sha256').update(JSON.stringify({source,python,endpoint,profile_id,model,keyHash,commit:HERMES_NATIVE_CONTRACT.commit})).digest('hex');
@@ -51,15 +72,18 @@ export function createWorkbenchNativeRuntime({source,python,root,endpoint,profil
       fs.writeFileSync(path.join(hermesHome,'config.yaml'),JSON.stringify({model:{default:model,provider:'custom',base_url:endpoint},plugins:{enabled:['orbit-desktop'],entries:{'orbit-desktop':{enabled:true,settings:{native_channel_file:channelFile}}}},tools:{tool_search:{enabled:'off'}},toolsets:['orbit_workbench'],agent:{max_turns:scope.budget.calls+2},memory:{enabled:false},session_recall:{enabled:false},compression:{enabled:false},checkpoints:{enabled:false},display:{tool_progress:'none'}}),{mode:0o600});
       fs.mkdirSync(path.join(dir,'empty-plugins'));fs.mkdirSync(path.join(dir,'work'));
       await authorize();
-      child=spawn(python,[path.join(pluginRoot,'workbench.py'),'--runtime'],{cwd:path.join(dir,'work'),env:{PATH:'/usr/bin:/bin',HOME:home,HERMES_HOME:hermesHome,PYTHONPATH:source,PYTHONNOUSERSITE:'1',HERMES_BUNDLED_PLUGINS:path.join(dir,'empty-plugins'),HERMES_ENABLE_PROJECT_PLUGINS:'0',HERMES_DISABLE_TELEMETRY:'1'},stdio:['ignore','pipe','pipe','pipe']});
+      child=spawn(python,[path.join(pluginRoot,'workbench.py'),'--runtime'],{cwd:path.join(dir,'work'),env:{PATH:'/usr/bin:/bin',HOME:home,HERMES_HOME:hermesHome,PYTHONPATH:source,PYTHONNOUSERSITE:'1',HERMES_BUNDLED_PLUGINS:path.join(dir,'empty-plugins'),HERMES_ENABLE_PROJECT_PLUGINS:'0',HERMES_DISABLE_TELEMETRY:'1'},stdio:['ignore','pipe','pipe','pipe','pipe']});
       children.set(run_id,child);
       const completion=new Promise((resolve,reject)=>{
         let failed=false;
         child.once('error',()=>{failed=true;});
         child.stdio[3].on('error',()=>{failed=true;terminate(child);});
         let bytes=0;const bound=chunk=>{bytes+=chunk.length;if(bytes>1048576)terminate(child);};child.stdout.on('data',bound);child.stderr.on('data',bound);
+        const frames=[];let frameBytes=0,overflow=false;
+        child.stdio[4].on('data',chunk=>{frameBytes+=chunk.length;if(frameBytes>RESULT_FRAME_MAX_BYTES){overflow=true;terminate(child);}else frames.push(chunk);});
+        child.stdio[4].on('error',()=>{failed=true;terminate(child);});
         const timer=setTimeout(()=>terminate(child),Math.max(1,scope.expires_at-Date.now()));timer.unref();
-        child.once('close',(code,signal)=>{clearTimeout(timer);const outcome={termination_confirmed:true,exit_code:code,signal};code===0&&!failed?resolve({status:'completed',...outcome}):reject(Object.assign(Error('Native runtime terminated'),outcome));});
+        child.once('close',(code,signal)=>{clearTimeout(timer);const result=parseNativeResult(Buffer.concat(frames),{overflow});const outcome={termination_confirmed:true,exit_code:code,signal,result};code===0&&!failed?resolve({status:'completed',...outcome}):reject(Object.assign(Error('Native runtime terminated'),outcome));});
         // FD3 is private runtime input, never model arguments or environment.
         child.stdio[3].end(JSON.stringify({endpoint,model,api_key:apiKey,input,max_iterations:scope.budget.calls+2,session_id:scope.recipient.session_id}));
       }).finally(()=>{children.delete(run_id);release();try{fs.unlinkSync(channelFile);}catch{};try{fs.writeFileSync(path.join(dir,'retention.json'),JSON.stringify({run_id,grant_id:scope.id,ended_at:Date.now(),policy:'Private runtime files retained; channel key removed. Host inventory/manual retention only, never recursive request cleanup.'}),{mode:0o600});}catch{}});

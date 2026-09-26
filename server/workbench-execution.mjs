@@ -6,6 +6,8 @@ import {wbError} from './workbench-store.mjs';
 import {captureProject,openProjectRoot,readProjectFile,literalPreview,repositorySnapshot} from './project-files.mjs';
 import {previewCandidate,createCandidate,readCandidateFile,applyCandidateChanges,candidateHash as providerCandidateHash,removeCandidateWorkspace} from './workbench-candidates.mjs';
 import {CHECK_LIMITS,CHECK_DEFINITIONS,checkDefinition,definitionDigest,checkSpecDigest,discoverTestFiles,runCheck,activeCheckCount,cancelCheck,acknowledgeCheck} from './workbench-checks.mjs';
+import {workbenchBuildIdentity} from './workbench-build-identity.mjs';
+import {validateWorkbenchProvenance} from '../contracts/workbench-result-v1.mjs';
 
 // Slice C — managed task/candidate/check/evidence/review orchestration for the
 // owner-only Comet Project Workbench. WorkbenchData (SQLite) is the authority.
@@ -52,8 +54,10 @@ const stable=value=>{
 };
 const digest=value=>sha(stable(value));
 const publicCandidate=({root,root_history,...candidate})=>candidate;
-const publicJob=({pending_result,...job})=>job;
-const publicEvidence=({log_path,...evidence})=>evidence;
+const legacyProvenance=()=>({version:1,initiated_by:{kind:'legacy_unknown'},authorized_by:{kind:'legacy_unknown'},recorded_by:{kind:'legacy_unknown'}});
+const publicActor=row=>row.provenance?row.provenance.initiated_by.kind==='owner_action'?'owner':row.provenance.initiated_by.kind:'legacy_unknown';
+const publicJob=({pending_result,...job})=>({...job,actor:publicActor(job),provenance:job.provenance??legacyProvenance()});
+const publicEvidence=({log_path,...evidence})=>({...evidence,actor:publicActor(evidence),provenance:evidence.provenance??legacyProvenance()});
 const publicAttempt=({...attempt})=>attempt;
 const publicSubmission=({...submission})=>submission;
 const publicReview=({...review})=>review;
@@ -456,7 +460,7 @@ export function createWorkbenchExecution({store,records,data,gate,environments,n
     const issued=issuePreview({kind:'check',workspace_id,project_id,project_generation:project.generation,task_id:ownerTask.id,candidate_id:candidate.id,candidate_hash:candidate.hash,definition_id,definition_digest,required_check:required,acceptance_version:ownerTask.acceptance_version,acceptance_digest:ownerTask.acceptance_digest,digest:spec_digest});
     return {task_id:ownerTask.id,preview:{spec_digest,candidate_id:candidate.id,candidate_hash:candidate.hash,acceptance_version:ownerTask.acceptance_version,required_test_files:required.required_test_files,required_check:required,execution_profile_id:required.execution_profile_id,execution_profile:required.execution_profile,definition_id,definition_digest,definition_hash:definition_digest,executable:definition.executable,args:[...definition.args],script:definition_id==='host-regression'?'<host-owned immutable verify script>':null,limits:CHECK_LIMITS,policy:CHECK_POLICY},preview_id:issued.preview_id,expires_at:issued.expires_at};
   }
-  function admitCheck({workspace_id,project_id,candidate_id,preview_id,preview_digest,op_id}){
+  function admitCheck({workspace_id,project_id,candidate_id,preview_id,preview_digest,op_id},principal={kind:'owner'}){
     const project=requireActive(workspace_id,project_id);
     if(mutatingCandidates.has(candidate_id))throw wbError('busy');
     const candidate=candidateRecord(workspace_id,project_id,candidate_id);
@@ -489,10 +493,20 @@ export function createWorkbenchExecution({store,records,data,gate,environments,n
     if(issued.candidate_hash!==candidate.hash||issued.acceptance_version!==ownerTask.acceptance_version||issued.acceptance_digest!==ownerTask.acceptance_digest||issued.definition_id!==definition.id||digest(issued.required_check)!==digest(required))throw wbError('stale_resource');
     const request_identity={version:2,workspace_id,project_id,project_generation:project.generation,candidate_id,candidate_generation:candidate.generation,candidate_hash:candidate.hash,task_id:ownerTask.id,acceptance_digest:ownerTask.acceptance_digest,acceptance_version:ownerTask.acceptance_version,definition_digest:definitionDigest(definition),execution_inputs:required,preview_digest};
     const request_fingerprint=digest(request_identity);
+    let initiated_by={kind:'owner_action'},authorized_by={kind:'owner_approval',preview_id};
+    if(principal.kind==='native_agent'){
+      const grant=data.get('grants',workspace_id,project_id,principal.grant_id);
+      const call=data.get('toolcalls',workspace_id,project_id,op_id);
+      if(grant.status!=='running'||grant.authority_generation!==principal.authority_generation||grant.run_id!==principal.run_id||grant.candidate_id!==candidate_id||call.id!==op_id||call.grant_id!==grant.id||call.attempt_id!==grant.attempt_id||call.action!=='job_start'||call.status!=='started')throw wbError('permission_denied');
+      initiated_by={kind:'native_agent',attempt_id:grant.attempt_id,grant_id:grant.id,run_id:grant.run_id,tool_call_id:call.id};
+      authorized_by={kind:'owner_grant',grant_id:grant.id,authority_generation:grant.authority_generation};
+    }else if(principal.kind!=='owner')throw wbError('permission_denied');
+    const provenance={version:1,initiated_by,authorized_by,recorded_by:{kind:'comet_service',component:'workbench-check-recorder',build_id:workbenchBuildIdentity(),verifier_id:definition.id,verifier_hash:definitionDigest(definition)}};
+    if(!validateWorkbenchProvenance(provenance))throw wbError('invalid_request');
     const release=serial.claim('job',op_id);
     let job;
     try{
-      job=data.create('jobs',{workspace_id,project_id,project_generation:project.generation,request_fingerprint,request_identity,execution_profile_id:required.execution_profile_id,execution_profile:required.execution_profile,required_check:required,candidate_generation:candidate.generation,task_id:ownerTask.id,candidate_id:candidate.id,candidate_hash:candidate.hash,acceptance_version:ownerTask.acceptance_version,acceptance_digest:ownerTask.acceptance_digest,definition_id:definition.id,definition_digest:definitionDigest(definition),definition_hash:definitionDigest(definition),spec_digest:spec,op_id,status:'starting',pid:null,pgid:null,process_start:null,started_at:null,ended_at:null,outcome_note:null,acknowledged:true,limits:CHECK_LIMITS,actor:'owner'});
+       job=data.create('jobs',{workspace_id,project_id,project_generation:project.generation,request_fingerprint,request_identity,execution_profile_id:required.execution_profile_id,execution_profile:required.execution_profile,required_check:required,candidate_generation:candidate.generation,task_id:ownerTask.id,candidate_id:candidate.id,candidate_hash:candidate.hash,acceptance_version:ownerTask.acceptance_version,acceptance_digest:ownerTask.acceptance_digest,definition_id:definition.id,definition_digest:definitionDigest(definition),definition_hash:definitionDigest(definition),spec_digest:spec,op_id,status:'starting',pid:null,pgid:null,process_start:null,started_at:null,ended_at:null,outcome_note:null,acknowledged:true,limits:CHECK_LIMITS,actor:principal.kind==='native_agent'?'native_agent':'owner',provenance});
     }catch(error){release();throw error;}
     inFlight.add(job.id);
     return {job,candidate,ownerTask,definition,required,release};
@@ -506,13 +520,13 @@ export function createWorkbenchExecution({store,records,data,gate,environments,n
     work.then(()=>workers.delete(job.id),()=>workers.delete(job.id));
     return work;
   }
-  async function checkRun(body){
-    const admitted=admitCheck(body);
+  async function checkRun(body,principal){
+    const admitted=admitCheck(body,principal);
     if(admitted.idempotent)return admitted;
     return launchCheck(admitted);
   }
-  function startApprovedCheck(body){
-    const admitted=admitCheck(body);
+  function startApprovedCheck(body,principal){
+    const admitted=admitCheck(body,principal);
     if(admitted.idempotent)return {...admitted,accepted:true};
     launchCheck(admitted,{defer:true}).catch(()=>{}); // executeAdmitted persists every failure.
     return {job:publicJob(admitted.job),evidence:null,accepted:true};
@@ -602,7 +616,7 @@ export function createWorkbenchExecution({store,records,data,gate,environments,n
     let revokedNow=fenced===true;
     try{revokedNow=revokedNow||records.project(workspace_id,project_id).generation!==job.project_generation;}catch{revokedNow=true;}
     const verdict=revokedNow?'inconclusive':raw.verdict;
-    const evidence=data.create('evidence',{workspace_id,project_id,project_generation:job.project_generation,acceptance_digest:job.acceptance_digest,execution_profile_id:job.execution_profile_id,execution_profile:job.execution_profile,environment:raw.environment??null,execution_observation:raw.execution_observation??null,job_id:job.id,candidate_id:candidate.id,task_id:ownerTask.id,verdict,test_results:raw.test_results??null,exit_code:Number.isInteger(raw.exit_code)?raw.exit_code:null,signal:raw.signal??null,timed_out:raw.timed_out===true,spawn_error:raw.spawn_error??null,recording_error:raw.recording_error??null,process_survival_unknown:raw.process_survival_unknown===true,started_at:raw.started_at,ended_at:raw.ended_at,candidate_hash_before:raw.candidate_hash_before,candidate_hash_after:raw.candidate_hash_after,definition_id:raw.definition_id,definition_digest:raw.definition_digest,definition_hash:raw.definition_hash,artifact_hash:raw.artifact_hash,log_hash:raw.log_hash,log_bytes:raw.log_bytes,env_fingerprint:raw.env_fingerprint,supervisor:raw.supervisor,command:raw.command,stdout_preview:raw.stdout_preview,stderr_preview:raw.stderr_preview,limits:raw.limits,superseded:false,revoked:revokedNow,actor:'owner'});
+     const evidence=data.create('evidence',{workspace_id,project_id,project_generation:job.project_generation,acceptance_digest:job.acceptance_digest,execution_profile_id:job.execution_profile_id,execution_profile:job.execution_profile,environment:raw.environment??null,execution_observation:raw.execution_observation??null,job_id:job.id,candidate_id:candidate.id,task_id:ownerTask.id,verdict,test_results:raw.test_results??null,exit_code:Number.isInteger(raw.exit_code)?raw.exit_code:null,signal:raw.signal??null,timed_out:raw.timed_out===true,spawn_error:raw.spawn_error??null,recording_error:raw.recording_error??null,process_survival_unknown:raw.process_survival_unknown===true,started_at:raw.started_at,ended_at:raw.ended_at,candidate_hash_before:raw.candidate_hash_before,candidate_hash_after:raw.candidate_hash_after,definition_id:raw.definition_id,definition_digest:raw.definition_digest,definition_hash:raw.definition_hash,artifact_hash:raw.artifact_hash,log_hash:raw.log_hash,log_bytes:raw.log_bytes,env_fingerprint:raw.env_fingerprint,supervisor:raw.supervisor,command:raw.command,stdout_preview:raw.stdout_preview,stderr_preview:raw.stderr_preview,limits:raw.limits,superseded:false,revoked:revokedNow,actor:job.provenance?.initiated_by.kind==='native_agent'?'native_agent':job.provenance?'owner':'legacy_unknown',provenance:job.provenance??{version:1,initiated_by:{kind:'legacy_unknown'},authorized_by:{kind:'legacy_unknown'},recorded_by:{kind:'legacy_unknown'}}});
     const computed=verdict==='pass'?'completed':verdict==='fail'?'failed':raw.timed_out?'cancelled':'inconclusive';
     const currentJob=data.get('jobs',workspace_id,project_id,job.id);
     const cancelled=raw.cancelled||currentJob.status==='cancel_requested'||currentJob.status==='cancelled'||raw.spawn_error;
@@ -746,8 +760,8 @@ export function createWorkbenchExecution({store,records,data,gate,environments,n
       case 'submission_create':return submissionCreate(body);
       case 'attempt_create':return attemptCreate(body);
       case 'check_preview':return checkPreview(body);
-      case 'check_run':return checkRun(body);
-      case 'check_start':return startApprovedCheck(body);
+       case 'check_run':return checkRun(body,principal);
+       case 'check_start':return startApprovedCheck(body,principal);
       case 'check_cancel':return checkCancel(body);
       case 'job_acknowledge':return jobAcknowledge(body);
       case 'job_finalize_retry':return recoverFinalization(body);

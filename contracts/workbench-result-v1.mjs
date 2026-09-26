@@ -23,6 +23,12 @@ export const resultUnavailableReasons=Object.freeze([
 ]);
 const resultReference=strict({evidence_id:resultUuid});
 const resolvedReference=strict({evidence_id:resultUuid,job_id:resultUuid,verdict:{enum:['pass','fail','inconclusive']}});
+export const resultProvenanceSchema=strict({
+  version:{const:1},
+  initiated_by:strict({kind:{const:'native_agent'},attempt_id:resultUuid,grant_id:resultUuid,run_id:resultUuid}),
+  authorized_by:strict({kind:{const:'owner_grant'},grant_id:resultUuid,authority_generation:resultUuid}),
+  recorded_by:strict({kind:{const:'comet_service'},component:{const:'workbench-native-result'},build_id:resultHash}),
+});
 export const resultReceiptSchema=strict({
   version:{const:1},id:resultUuid,...scope,task_id:resultUuid,attempt_id:resultUuid,
   grant_id:resultUuid,run_id:resultUuid,project_generation:{type:'integer',minimum:1},
@@ -32,6 +38,7 @@ export const resultReceiptSchema=strict({
   text:{anyOf:[{type:'null'},{type:'string'}]},hermes_completed:{anyOf:[{type:'null'},{type:'boolean'}]},
   frame_hash:{anyOf:[{type:'null'},resultHash]},received_at:{anyOf:[{type:'null'},{type:'integer',minimum:0}]},
   retained_until:{type:'integer',minimum:0},
+  provenance:resultProvenanceSchema,
   model_suggested_references:{type:'array',items:resultReference,maxItems:RESULT_MAX_SUGGESTED_REFERENCES},
   resolved_references:{type:'array',items:resolvedReference,maxItems:RESULT_MAX_SUGGESTED_REFERENCES},
 });

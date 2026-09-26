@@ -4,10 +4,12 @@ import http from 'node:http';
 import {createHash,createHmac,randomBytes,randomUUID,timingSafeEqual} from 'node:crypto';
 import {nativeSchema,nativeRequests,validateNative,validateNativeTool,HERMES_NATIVE_CONTRACT} from '../contracts/workbench-native-v1.mjs';
 import {wbError} from './workbench-store.mjs';
+import {validateResultReceipt,RESULT_MAX_SUGGESTED_REFERENCES} from '../contracts/workbench-result-v1.mjs';
+import {workbenchBuildIdentity} from './workbench-build-identity.mjs';
 export {nativeSchema,nativeRequests};
 const digest=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const clone=value=>structuredClone(value);
-const publicGrant=g=>({...g}); // Secrets exist only in the process-local channel map.
+const publicGrant=({pending_result,...g})=>g; // Result content is a separate private record.
 const closedAttempt=a=>['closed','stopped','cancelled','completed','revoked','failed','accepted','rejected'].includes(a.status);
 const unknownDigest=g=>digest({id:g.id,run_id:g.run_id,status:g.status,authority_generation:g.authority_generation,candidate_id:g.candidate_id,project_generation:g.project_generation,calls_used:g.calls_used,checks_used:g.checks_used});
 export const NATIVE_UNKNOWN_POLICY='This native runtime outcome is unknown. Confirm only after independently establishing that the old runtime is terminated. Acknowledgement records your risk decision and releases quarantine; it never replays a run or reverses effects.';
@@ -17,13 +19,70 @@ export const NATIVE_UNKNOWN_POLICY='This native runtime outcome is unknown. Conf
 // startNative and stopNative; it must share the lead's agent dispatch lease.
 export function createWorkbenchNative({store,records,data,execution,hermes,now=Date.now}={}){
   if(!store||!records||!data||!execution)throw Error('Native Workbench dependencies required');
-  const previews=new Map(),channels=new Map(),running=new Map(),quarantineFailures=new Set();let closed=false,server,socketDir,listenPromise;
+  const previews=new Map(),channels=new Map(),running=new Map(),quarantineFailures=new Set(),resultFailures=new Set();let closed=false,server,socketDir,listenPromise;
   const get=(kind,s,id)=>data.get(kind,s.workspace_id,s.project_id,id);
   const update=(kind,s,id,patch)=>{const row=get(kind,s,id);return data.update(kind,s.workspace_id,s.project_id,id,row.revision,patch);};
+  const receiptPatch=({id,version,revision,workspace_id,project_id,created_at,updated_at,...fields})=>fields;
   const requireScope=s=>{if(closed)throw wbError('unavailable');store.read(s.workspace_id);return records.project(s.workspace_id,s.project_id);};
+  const resultsFor=g=>data.list('results',g.workspace_id,g.project_id).filter(r=>r.grant_id===g.id);
+  const rawResult=g=>resultsFor(g).at(-1)??null;
+  function projectResult(r){
+    if(!r)return null;
+    const project=requireScope(r);
+    if(project.generation!==r.project_generation)throw wbError('expired');
+    if(now()>=r.retained_until){
+      if(r.text!==null)return update('results',r,r.id,{text:null,availability:'explanation_unavailable',unavailable_reason:'expired',resolved_references:[]});
+      return {...r,availability:'explanation_unavailable',unavailable_reason:'expired',resolved_references:[]};
+    }
+    return r;
+  }
+  function resultGet(body){const r=get('results',body,body.result_id);return {result:projectResult(r)};}
+  function resolvedReferences(g,frame,candidate,task_id){
+    const ids=[...new Set([...frame.text.matchAll(/\bevidence:([a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})\b/g)].map(match=>match[1]))].slice(0,RESULT_MAX_SUGGESTED_REFERENCES);
+    const jobs=data.list('jobs',g.workspace_id,g.project_id);
+    const evidence=data.list('evidence',g.workspace_id,g.project_id);
+    return {model_suggested_references:ids.map(evidence_id=>({evidence_id})),resolved_references:ids.flatMap(id=>{
+      const e=evidence.find(row=>row.id===id),job=e&&jobs.find(row=>row.id===e.job_id);
+      return e&&job&&e.project_generation===g.project_generation&&e.task_id===task_id&&e.candidate_id===candidate.id&&e.candidate_hash_after===candidate.hash&&job.candidate_generation===candidate.generation&&job.candidate_hash===candidate.hash&&!e.revoked&&!e.superseded&&job.provenance?.initiated_by.kind==='native_agent'&&job.provenance.initiated_by.grant_id===g.id&&job.provenance.initiated_by.attempt_id===g.attempt_id?[{evidence_id:id,job_id:job.id,verdict:e.verdict}]:[];
+    })};
+  }
+  function resultJournal(r){const root=path.join(store.root,'native-result-journal');fs.mkdirSync(root,{recursive:true,mode:0o700});return path.join(root,`${r.id}.json`);}
+  function retryResult(body){
+    const r=get('results',body,body.result_id),g=get('grants',r,r.grant_id);
+    if(g.result_status!=='result_pending'||g.pending_digest!==body.expected_digest)throw wbError('stale_resource');
+    const filename=resultJournal(r),saved=JSON.parse(fs.readFileSync(filename,'utf8'));
+    if(digest(saved)!==body.expected_digest||saved.id!==r.id||saved.run_id!==r.run_id)throw wbError('stale_resource');
+    data.db.transaction(()=>{update('results',r,r.id,receiptPatch(saved));update('grants',g,g.id,{status:g.final_status??'failed',final_status:null,result_status:'finalized',pending_digest:null});}).immediate();
+    fs.unlinkSync(filename);resultFailures.delete(r.id);
+    return {result:projectResult(get('results',r,r.id)),replayed:false};
+  }
+  async function deliverResult(body){
+    const r=get('results',body,body.result_id),visible=projectResult(r);
+    if(visible.availability!=='available'||!visible.text||r.recipient.pane_id!==body.pane_id||r.recipient.profile_id!==body.profile_id||r.recipient.session_id!==body.session_id)throw wbError('permission_denied');
+    const attempt=get('attempts',r,r.attempt_id);
+    if(digest(await binding(attempt,r))!==digest(get('grants',r,r.grant_id).recipient))throw wbError('stale_resource');
+    const matching=data.list('cards',r.workspace_id,r.project_id).find(c=>c.op_id===body.op_id);
+    if(matching){if(matching.result_id!==r.id||matching.pane_id!==body.pane_id)throw wbError('stale_resource');return {card:matching,idempotent:true};}
+    const card=data.create('cards',{workspace_id:r.workspace_id,project_id:r.project_id,project_generation:r.project_generation,op_id:body.op_id,result_id:r.id,task_id:r.task_id,attempt_id:r.attempt_id,pane_id:body.pane_id,profile_id:body.profile_id,session_id:body.session_id,recipient_digest:digest(get('grants',r,r.grant_id).recipient)});
+    return {card,idempotent:false};
+  }
+  async function cardsList(body){
+    store.read(body.workspace_id);
+    const cards=[];
+    for(const p of records.list(body.workspace_id)){
+      let active;try{active=requireScope({workspace_id:body.workspace_id,project_id:p.id});}catch{continue;}
+      for(const card of data.list('cards',body.workspace_id,p.id)){
+        if(card.project_generation!==active.generation||card.pane_id!==body.pane_id||card.profile_id!==body.profile_id||card.session_id!==body.session_id)continue;
+        const r=get('results',card,card.result_id),g=get('grants',r,r.grant_id),a=get('attempts',r,r.attempt_id);
+        if(digest(await binding(a,r))!==card.recipient_digest)continue;
+        const v=projectResult(r);if(v.availability==='available')cards.push({...card,text:v.text,availability:v.availability,provenance:v.provenance});
+      }
+    }
+    return {cards:cards.slice(-64)};
+  }
   function quarantine(g){try{if(typeof hermes?.quarantineNative!=='function')throw wbError('unavailable');hermes.quarantineNative({grant_id:g.id});quarantineFailures.delete(g.id);}catch{quarantineFailures.add(g.id);}}
   function markUnknown(g){quarantine(g);return update('grants',g,g.id,{status:'dispatch_unknown',runtime_status:'unknown'});}
-  function health(){const unknown=data.db.prepare("SELECT id FROM wb_grants WHERE json_extract(record_json,'$.status')='dispatch_unknown'").all();return {supported:typeof hermes?.startNative==='function',healthy:typeof hermes?.startNative==='function'&&unknown.length===0,cause:unknown.length?'native_dispatch_unknown':typeof hermes?.startNative==='function'?null:'native_runtime_unconfigured',unknown_runs:unknown.length,shared_quarantine:quarantineFailures.size===0,policy:NATIVE_UNKNOWN_POLICY};}
+  function health(){const unknown=data.db.prepare("SELECT id FROM wb_grants WHERE json_extract(record_json,'$.status')='dispatch_unknown' OR json_extract(record_json,'$.result_status')='result_pending'").all();return {supported:typeof hermes?.startNative==='function',healthy:typeof hermes?.startNative==='function'&&unknown.length===0&&resultFailures.size===0,cause:resultFailures.size?'native_result_persistence_failed':unknown.length?'native_dispatch_or_result_unknown':typeof hermes?.startNative==='function'?null:'native_runtime_unconfigured',unknown_runs:unknown.length,shared_quarantine:quarantineFailures.size===0,policy:NATIVE_UNKNOWN_POLICY};}
   async function binding(attempt,s){
     if(!attempt.recipient?.pane_id||typeof hermes?.readBinding!=='function')throw wbError('unavailable');
     const b=await hermes.readBinding({workspace_id:s.workspace_id,pane_id:attempt.recipient.pane_id});
@@ -48,8 +107,12 @@ export function createWorkbenchNative({store,records,data,execution,hermes,now=D
     return {workspace_id:body.workspace_id,project_id:body.project_id,attempt_id:attempt.id,candidate_id:candidate.id,candidate_hash:candidate.hash,project_generation:project.generation,acceptance_digest:task.acceptance_digest,definition_id:task.check_definition_id,required_checks:task.acceptance.required_checks,recipient,contexts,budget:clone(body.budget),authority_generation:randomUUID()};
   }
   async function dispatch(body){
-    if(validateNative(body)&&body.action==='list'){store.read(body.workspace_id);return {grants:data.list('grants',body.workspace_id,body.project_id).map(publicGrant),health:health()};}
     if(!validateNative(body))throw wbError('invalid_request');
+    if(body.action==='cards_list')return cardsList(body);
+    if(body.action==='result_get')return resultGet(body);
+    if(body.action==='result_retry')return retryResult(body);
+    if(body.action==='result_deliver')return deliverResult(body);
+    if(validateNative(body)&&body.action==='list'){store.read(body.workspace_id);return {grants:data.list('grants',body.workspace_id,body.project_id).map(publicGrant),health:health()};}
     if(closed)throw wbError('unavailable');
     if(body.action==='preview'){
       for(const [id,p] of previews)if(p.expires_at<=now())previews.delete(id);
@@ -69,7 +132,7 @@ export function createWorkbenchNative({store,records,data,execution,hermes,now=D
       return {grant:publicGrant(data.create('grants',{...scope,status:'approved',expires_at:now()+p.budget.duration_ms,calls_used:0,checks_used:0,run_id:null}))};
     }
     const g=get('grants',body,body.grant_id);
-    if(body.action==='status')return {grant:publicGrant(g),toolcalls:data.list('toolcalls',body.workspace_id,body.project_id).filter(c=>c.grant_id===g.id),health:health(),...(g.status==='dispatch_unknown'?{unknown_digest:unknownDigest(g),unknown_policy:NATIVE_UNKNOWN_POLICY}:{})};
+    if(body.action==='status')return {grant:publicGrant(g),result:projectResult(rawResult(g)),toolcalls:data.list('toolcalls',body.workspace_id,body.project_id).filter(c=>c.grant_id===g.id),health:health(),...(g.status==='dispatch_unknown'?{unknown_digest:unknownDigest(g),unknown_policy:NATIVE_UNKNOWN_POLICY}:{})};
     if(body.action==='acknowledge_unknown'){
       if(g.status!=='dispatch_unknown'||body.expected_digest!==unknownDigest(g)||running.has(g.id))throw wbError('stale_resource');
       if(typeof hermes?.acknowledgeNativeUnknown!=='function')throw wbError('unavailable');
@@ -87,14 +150,18 @@ export function createWorkbenchNative({store,records,data,execution,hermes,now=D
     const authorized=await authorize(g);
     if(authorized.status!=='approved'||typeof hermes?.startNative!=='function')throw wbError('unavailable');
     if(get('candidates',g,g.candidate_id).hash!==g.candidate_hash)throw wbError('stale_resource');
-    if(data.db.prepare("SELECT 1 FROM wb_grants WHERE json_extract(record_json,'$.status')='dispatch_unknown' LIMIT 1").get())throw wbError('outcome_unknown');
+    if(!health().healthy)throw wbError('outcome_unknown');
     if(data.list('grants',g.workspace_id,g.project_id).some(x=>x.id!==g.id&&x.attempt_id===g.attempt_id&&['running','dispatch_unknown'].includes(x.status)))throw wbError('busy');
     data.update('grants',g.workspace_id,g.project_id,g.id,authorized.revision,{status:'starting'});
     let socket;try{socket=await listen();}catch(e){update('grants',g,g.id,{status:'failed'});throw e;}
     if(get('grants',g,g.id).status!=='starting')throw wbError('expired');
     const secret=randomBytes(32).toString('hex'),run_id=randomUUID();
+    const a=get('attempts',g,g.attempt_id),c=get('candidates',g,g.candidate_id);
+    try{data.db.transaction(()=>{
+      data.create('results',{workspace_id:g.workspace_id,project_id:g.project_id,task_id:a.task_id,attempt_id:g.attempt_id,grant_id:g.id,run_id,project_generation:g.project_generation,candidate_id:c.id,candidate_generation:c.generation,candidate_hash:c.hash,recipient:{pane_id:g.recipient.pane_id,profile_id:g.recipient.profile_id,session_id:g.recipient.session_id},availability:'pending',unavailable_reason:null,text:null,hermes_completed:null,frame_hash:null,received_at:null,retained_until:now()+86400000,provenance:{version:1,initiated_by:{kind:'native_agent',attempt_id:g.attempt_id,grant_id:g.id,run_id},authorized_by:{kind:'owner_grant',grant_id:g.id,authority_generation:g.authority_generation},recorded_by:{kind:'comet_service',component:'workbench-native-result',build_id:workbenchBuildIdentity()}},model_suggested_references:[],resolved_references:[]});
+      update('grants',g,g.id,{status:'running',runtime_status:'running',run_id,result_status:'pending'});
+    }).immediate();}catch(error){try{update('grants',g,g.id,{status:'failed',runtime_status:'not_started'});}catch{markUnknown(g);}throw error;}
     channels.set(g.id,{secret,sequence:0,busy:false,scope:clone(g)});
-    update('grants',g,g.id,{status:'running',runtime_status:'running',run_id});
     try{
       const handle=await hermes.startNative({scope:clone(g),run_id,channel:{socket,secret,grant_id:g.id},input:'Work only on the approved candidate. Inspect the task and context, make bounded candidate changes, and use recorded check evidence. Completion text is not verification.',authorize:()=>authorize(g,{active:true})});
       if(!handle?.completion||typeof handle.completion.then!=='function')throw wbError('unavailable');
@@ -115,7 +182,21 @@ export function createWorkbenchNative({store,records,data,execution,hermes,now=D
     current=get('grants',g,g.id);
     if(current.status==='stop_requested')status='stopped';
     else if(current.status!=='running')status=current.status;
-    update('grants',g,g.id,{status,runtime_status:'exited',termination_confirmed:true,exit_code:Number.isInteger(outcome.exit_code)?outcome.exit_code:null,ended_at:now()});
+    const receipt=rawResult(g),candidate=get('candidates',g,g.candidate_id),a=get('attempts',g,g.attempt_id);
+    const parsed=outcome.result??{availability:'explanation_unavailable',reason:'missing'};
+    const published=status==='completed'&&success&&parsed.availability==='available';
+    const fenced=!['completed','failed'].includes(status);
+    const references=published?resolvedReferences(g,parsed,candidate,a.task_id):{model_suggested_references:[],resolved_references:[]};
+    const next={...receipt,candidate_generation:candidate.generation,candidate_hash:candidate.hash,availability:published?'available':'explanation_unavailable',unavailable_reason:published?null:fenced?'fenced':parsed.reason??(!success?'runtime_failed':'missing'),text:published?parsed.text:null,hermes_completed:parsed.hermes_completed??null,frame_hash:parsed.frame_hash??null,received_at:now(),...references};
+    const {revision,created_at,updated_at,...contractReceipt}=next;
+    if(!validateResultReceipt(contractReceipt))throw wbError('invalid_request');
+    try{data.db.transaction(()=>{update('results',receipt,receipt.id,receiptPatch(next));update('grants',g,g.id,{status,runtime_status:'exited',termination_confirmed:true,exit_code:Number.isInteger(outcome.exit_code)?outcome.exit_code:null,ended_at:now(),result_status:'finalized'});}).immediate();}
+    catch{
+      resultFailures.add(receipt.id);
+      try{const filename=resultJournal(receipt);fs.writeFileSync(filename,JSON.stringify(next),{flag:'wx',mode:0o600});
+        update('grants',g,g.id,{status:'result_pending',final_status:status,runtime_status:'exited',termination_confirmed:true,exit_code:Number.isInteger(outcome.exit_code)?outcome.exit_code:null,result_status:'result_pending',pending_digest:digest(next),ended_at:now()});}
+      catch{quarantine(g);try{update('grants',g,g.id,{status:'dispatch_unknown',runtime_status:'unknown'});}catch{}}
+    }
   }
   function pauseBudget(g){channels.delete(g.id);update('grants',g,g.id,{status:'paused_budget',reason:'calls_exhausted',authority_generation:randomUUID()});Promise.resolve(hermes.stopNative?.({run_id:get('grants',g,g.id).run_id,grant_id:g.id})).catch(()=>{});}
   async function tool(g,args){
@@ -134,7 +215,7 @@ export function createWorkbenchNative({store,records,data,execution,hermes,now=D
         case 'read_context':if(!g.contexts.some(c=>c.id===args.context_id))throw wbError('permission_denied');result={snapshot:get('contexts',g,args.context_id).snapshot};break;
         case 'candidate_read':result=await execution.dispatch({action:'candidate_read',...candidate,path:args.path});break;
         case 'candidate_patch':result=await execution.dispatch({action:'candidate_apply',...candidate,changes:args.changes,expected_candidate_hash:args.expected_candidate_hash},{kind:'native_agent',grant_id:g.id});break;
-        case 'job_start': {const definition_id=args.definition_id??g.definition_id;if(!(g.required_checks??[{definition_id:g.definition_id}]).some(check=>check.definition_id===definition_id))throw wbError('permission_denied');const p=await execution.dispatch({action:'check_preview',...candidate,definition_id});await authorize(g,{active:true});result=await execution.dispatch({action:'check_run',...candidate,preview_id:p.preview_id,preview_digest:p.preview.spec_digest,op_id:call.id});break;}
+        case 'job_start': {const definition_id=args.definition_id??g.definition_id;if(!(g.required_checks??[{definition_id:g.definition_id}]).some(check=>check.definition_id===definition_id))throw wbError('permission_denied');const p=await execution.dispatch({action:'check_preview',...candidate,definition_id});const scope=await authorize(g,{active:true});result=await execution.dispatch({action:'check_run',...candidate,preview_id:p.preview_id,preview_digest:p.preview.spec_digest,op_id:call.id},{kind:'native_agent',grant_id:g.id,run_id:scope.run_id,authority_generation:scope.authority_generation});break;}
         case 'job_status':case 'evidence': {const j=get('jobs',g,args.job_id);if(j.candidate_id!==g.candidate_id||!data.list('toolcalls',g.workspace_id,g.project_id).some(c=>c.grant_id===g.id&&c.id===j.op_id))throw wbError('permission_denied');result=await execution.dispatch({action:'job_get',...base,job_id:j.id});break;}
       }
       await authorize(g,{active:true});
