@@ -25,10 +25,11 @@ counted separately.
 
 - `GATE2_FINAL`: `exported.verification.status === 'verified'` with a structured pass
   and exact artifact hash per required check, preview must not execute checks, and a
-  post-reload `patch_list` + `private_patch_get` must return the SAME artifact bytes
-  with no new check spawn. The fixture asserts these when `GATE2_FINAL=1`; enable that
-  step after Luna's helper integration. Until then the base journey runs and reports
-  `gate2_final:false` (not a pass).
+  post-reload `patch_list` (must return 200/ok) must contain the exported artifact;
+  the id is chosen **from that list** and `private_patch_get` must return the SAME
+  bytes with no new check spawn. There is deliberately **no fallback** to a cached
+  artifact id: the block stays RED until Luna wires the `patch_list` contract and the
+  verify action. Enable the `GATE2_FINAL=1` step only after that merge.
 - Persisted-receipt discovery: the result panel must rediscover a durable receipt
   after reload rather than an in-memory artifact (Luna implementing).
 - Real representative project: the Gate 2 journey must run against the actual
