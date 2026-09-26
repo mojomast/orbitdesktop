@@ -380,7 +380,8 @@ def main(renderer):
                         assert not page_errors, page_errors
                     finally:
                         if page_errors:
-                            page.screenshot(path="/tmp/opencode/comet-results-%s-error.png" % renderer, full_page=True)
+                            page.screenshot(path="/tmp/opencode/comet-results-%s-error.png" % renderer, full_page=True,
+                                            mask=[page.get_by_role("textbox", name="Host session token")])
                     log(json.dumps({"renderer": renderer, "renderer_actual": (renderer_info or {}).get("renderer", "default"), "result_delivered": True, "card_persisted": True,
                                     "model_requests": len(model.requests), "chat_messages": before_messages,
                                     "provenance": job_provenance, "page_errors": len(page_errors)}))

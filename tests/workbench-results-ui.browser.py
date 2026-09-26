@@ -435,7 +435,8 @@ def main(renderer):
                                         "page_errors": len(page_errors), "admitted_live_model_trials": 0}))
                     finally:
                         if page_errors:
-                            page.screenshot(path="/tmp/opencode/comet-results-ui-%s-error.png" % renderer, full_page=True)
+                            page.screenshot(path="/tmp/opencode/comet-results-ui-%s-error.png" % renderer, full_page=True,
+                                            mask=[page.get_by_role("textbox", name="Host session token")])
         finally:
             if server and server.poll() is None:
                 server.terminate()

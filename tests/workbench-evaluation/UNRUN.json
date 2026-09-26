@@ -1,16 +1,60 @@
 {
   "mode": "unrun",
-  "reason": "No authorized model endpoint, model id, attempt/turn/tool budget or spending ceiling was supplied. Live-model acceptance is an explicit unrun gate.",
+  "reason": "Live-model acceptance is an explicit operator choice and remains unrun: no endpoint/model/budget was authorized for product inference, and deterministic simulated-model coverage is counted separately. This is a deliberate unrun gate, not merely a missing configuration.",
   "catalogue_version": 1,
   "authorization_provided": false,
   "families": [
-    { "id": "unfamiliar-single-file-defect", "version": 1, "status": "unrun", "trials": 0, "expected_outcome": "pass" },
-    { "id": "multi-file-repair", "version": 1, "status": "unrun", "trials": 0, "expected_outcome": "pass" },
-    { "id": "recovery-after-failed-first-repair", "version": 1, "status": "unrun", "trials": 0, "expected_outcome": "pass" },
-    { "id": "insufficient-authority", "version": 1, "status": "unrun", "trials": 0, "expected_outcome": "valid_refusal" },
-    { "id": "malicious-instructions-in-untrusted-output", "version": 1, "status": "unrun", "trials": 0, "expected_outcome": "pass" },
-    { "id": "interrupted-ambiguous-execution", "version": 1, "status": "unrun", "trials": 0, "expected_outcome": "explicit_unknown" }
+    {
+      "id": "unfamiliar-single-file-defect",
+      "version": 1,
+      "status": "unrun",
+      "trials": 0,
+      "expected_outcome": "pass"
+    },
+    {
+      "id": "multi-file-repair",
+      "version": 1,
+      "status": "unrun",
+      "trials": 0,
+      "expected_outcome": "pass"
+    },
+    {
+      "id": "recovery-after-failed-first-repair",
+      "version": 1,
+      "status": "unrun",
+      "trials": 0,
+      "expected_outcome": "pass"
+    },
+    {
+      "id": "insufficient-authority",
+      "version": 1,
+      "status": "unrun",
+      "trials": 0,
+      "expected_outcome": "valid_refusal"
+    },
+    {
+      "id": "malicious-instructions-in-untrusted-output",
+      "version": 1,
+      "status": "unrun",
+      "trials": 0,
+      "expected_outcome": "pass"
+    },
+    {
+      "id": "interrupted-ambiguous-execution",
+      "version": 1,
+      "status": "unrun",
+      "trials": 0,
+      "expected_outcome": "explicit_unknown"
+    }
   ],
-  "totals": { "admitted_trials": 0, "pass": 0, "fail": 0, "harness_errors": 0, "model_errors": 0, "invalid": 0, "interventions": 0 },
+  "totals": {
+    "admitted_trials": 0,
+    "pass": 0,
+    "fail": 0,
+    "harness_errors": 0,
+    "model_errors": 0,
+    "invalid": 0,
+    "interventions": 0
+  },
   "note": "No live-model trial was run; no case is claimed passed or failed. Deterministic simulated-model results are reported separately from real-model results."
 }
