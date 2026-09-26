@@ -68,7 +68,7 @@ function fixture(t,{retentionMs='default',gate=true}={}){
 
 test('schema export is strict and rejects unknown fields and forged payloads',async t=>{
   const f=fixture(t);
-  assert.equal(contextSchema.oneOf.length,8);
+  assert.equal(contextSchema.oneOf.length,9);
   await assert.rejects(f.call({action:'capture',project_id:f.project.id,source:{kind:'file',resource_id:f.resource.id,start_line:1,end_line:1,expected_hash:f.fileHash,text:'forged'}}),{code:'invalid_request'});
   await assert.rejects(f.call({action:'capture',project_id:f.project.id,source:{kind:'terminal',resource_id:f.resource.id,lease_id:randomUUID(),text:'forged'}}),{code:'invalid_request'});
   await assert.rejects(f.call({action:'nope',project_id:f.project.id}),{code:'invalid_request'});
@@ -157,6 +157,21 @@ test('terminal references never include the observe lease id',async t=>{
   const previewed=await f.preview(captured.context.id);
   assert.equal(previewed.references.source_kind,'terminal');
   assert.ok(!JSON.stringify(previewed.references).includes(lease));
+});
+
+test('packet freezes a separate owner question and deduplicated bounded source bytes without rereading',async t=>{
+  const f=fixture(t),one=await f.callFile(),two=await f.callFile({start_line:3,end_line:3});
+  const packet=await f.call({action:'packet',project_id:f.project.id,question:'Repair the failure; explain the change.',context_ids:[one.context.id,one.context.id,two.context.id]});
+  fs.writeFileSync(path.join(f.projectRoot,'app.py'),'changed after capture');
+  const preview=await f.preview(packet.context.id),payload=JSON.parse(preview.text);
+  assert.equal(payload.owner_request.question,'Repair the failure; explain the change.');assert.equal(payload.untrusted_sources.length,2);
+  assert.equal(payload.untrusted_sources[0].text,'line one\nline two');assert.equal(payload.untrusted_sources[1].text,'line three');
+  assert.equal(preview.hash,sha256(preview.text));
+  const approval=await f.approve(preview.preview_id);await f.share(preview.preview_id,approval.approval_id);
+  assert.ok(f.hermes.lastDispatched.input.endsWith(preview.text));
+  const other=await f.call({action:'capture',project_id:f.second.id,source:{kind:'file',resource_id:f.otherResource.id,start_line:1,end_line:1,expected_hash:sha256('other\n')}});
+  await assert.rejects(f.call({action:'packet',project_id:f.project.id,question:'wrong scope',context_ids:[other.context.id]}),{code:'permission_denied'});
+  await assert.rejects(f.call({action:'packet',project_id:f.project.id,question:'nested packets',context_ids:[packet.context.id]}),{code:'invalid_request'});
 });
 
 test('hostile captured data can never become commands and is framed as untrusted data',async t=>{
@@ -576,7 +591,7 @@ test('hermes adapter reuses the shared binding, marks the run, and fences a chan
   assert.equal(f.shared.locks.size,0);
 });
 
-test('hermes adapter honors verified capabilities and omits replayed history only for native continuation',async t=>{
+test('hermes adapter recognizes source-derived capabilities without claiming installation verification',async t=>{
   // Booleans without a version contract must be ignored (legacy, non-replay-safe).
   const unsupported=hermesFixture(t);
   unsupported.respond.capabilities={features:{session_continuation:true,idempotent_submit:true}};
@@ -593,7 +608,8 @@ test('hermes adapter honors verified capabilities and omits replayed history onl
   // Idempotency additionally requires the documented header and a positive bounded
   // retention window; a bare boolean must not imply replay safety.
   const native=hermesFixture(t);
-  native.respond.capabilities={version:'1',features:{session_continuation:true,idempotent_submit:true}};
+  const actual=JSON.parse(fs.readFileSync(new URL('../contracts/hermes-runtime-contract.json',import.meta.url),'utf8')).capabilities_selected_literal_fields;
+  native.respond.capabilities=structuredClone(actual);
   const bare=await native.api.probe({workspace_id:native.workspace_id,pane_id:native.pane_id});
   assert.equal(bare.native_continuation,true);
   assert.equal(bare.idempotent_submit,false);
@@ -604,7 +620,7 @@ test('hermes adapter honors verified capabilities and omits replayed history onl
   assert.equal(nativeRun.headers['Idempotency-Key'],undefined);
 
   const documented=hermesFixture(t);
-  documented.respond.capabilities={version:'1',features:{session_continuation:true,idempotent_submit:true,idempotency_key_header:'Idempotency-Key',idempotency_retention_ms:86400000}};
+  documented.respond.capabilities={...actual,features:{...actual.features,runs_idempotency:{supported:true,durable:true,retention_seconds:86400}}};
   const documentedCaps=await documented.api.probe({workspace_id:documented.workspace_id,pane_id:documented.pane_id});
   assert.equal(documentedCaps.version_supported,true);
   assert.equal(documentedCaps.installation_verified,false);

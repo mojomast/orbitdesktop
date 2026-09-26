@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { createSharedChats } from './shared-chats.mjs';
 import { createWorkbenchHermes } from './workbench-hermes.mjs';
 import { automation } from './automation.mjs';
@@ -60,6 +60,38 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
   }
   let buildQueue;
   const shared = createSharedChats(path.join(runtimeDirectory,'shared-chats'));
+  // Private, bounded intent/receipt journal. Nothing here is workspace layout or
+  // project data; credentials are represented only by the adapter's opaque digest.
+  const journalDirectory = path.join(runtimeDirectory, 'ordinary-submissions');
+  fs.mkdirSync(journalDirectory, { recursive: true, mode: 0o700 });
+  fs.chmodSync(journalDirectory, 0o700);
+  const receiptPattern = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
+  const journalLimit = 1024 * 1024;
+  function saveSubmission(record) {
+    const bytes = JSON.stringify(record);
+    if (Buffer.byteLength(bytes) > journalLimit) throw Object.assign(Error('Submission exceeds the private journal limit.'), { status: 413 });
+    const dest = path.join(journalDirectory, `${record.receipt_id}.json`);
+    const temp = path.join(journalDirectory, randomUUID());
+    const fd = fs.openSync(temp, 'wx', 0o600);
+    try { fs.writeFileSync(fd, bytes); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    try {
+      fs.renameSync(temp, dest);
+      const dir = fs.openSync(journalDirectory, 'r');
+      try { fs.fsyncSync(dir); } finally { fs.closeSync(dir); }
+    } finally { try { fs.unlinkSync(temp); } catch {} }
+  }
+  function readSubmission(body, linked = shared.read(body.workspace_id, body.pane_id)) {
+    const id = linked?.ordinary_submission_id;
+    if (!id) return null;
+    if (!receiptPattern.test(id)) throw Object.assign(Error('Submission receipt unavailable; investigation required.'), { status: 409 });
+    const file = path.join(journalDirectory, `${id}.json`);
+    if (fs.statSync(file).size > journalLimit) throw Object.assign(Error('Submission receipt exceeds its limit.'), { status: 409 });
+    const record = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (record.receipt_id !== id || record.workspace_id !== body.workspace_id || record.recipient.pane_id !== body.pane_id) throw Object.assign(Error('Submission receipt does not match this pane.'), { status: 409 });
+    return record;
+  }
+  const originalArgs = record => ({ workspace_id: record.workspace_id, ...record.recipient, expected_binding_revision: record.recipient.binding_revision, expected_config_generation: record.recipient.config_generation, submission_id: record.receipt_id, run_id: record.run_id });
+  const publicReceipt = record => ({ receipt_id: record.receipt_id, payload_hash: record.payload_hash, submission_state: record.state, ...(record.run_id ? { run_id: record.run_id } : {}), note: 'Never resend an unresolved submission. Inspect the original upstream before acknowledging an unknown outcome.' });
   function validatePane(body) {
     if(!workspaceRead)throw Object.assign(Error('Authoritative workspace access unavailable'),{status:503});
     let record;
@@ -85,6 +117,10 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
       let body;
       try { body = JSON.parse(raw); } catch { return reply(res, 400, { error: 'Invalid JSON' }); }
       if (!body || typeof body !== 'object') return reply(res,400,{error:'Invalid request.'});
+      if (body.pane_id && ['start', 'submission_status', 'acknowledge_submission_unknown'].includes(body.action)) {
+        const fields = new Set(['action','workspace_id','pane_id','session_id','profile_id','expected_binding_revision', ...(body.action === 'start' ? ['input'] : body.action === 'acknowledge_submission_unknown' ? ['payload_hash','upstream_investigated'] : [])]);
+        if (Object.keys(body).some(key => !fields.has(key))) return reply(res,400,{error:'Unexpected submission request field.'});
+      }
       if (body.action === 'profiles') return reply(res,200,{profiles:configuration.list,default_profile_id:'default'});
       const profileId = body.profile_id === undefined ? 'default' : body.profile_id;
       const profile = configuration.get(profileId);
@@ -96,7 +132,10 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
       if (body.pane_id) {
         if (!/^[a-f0-9-]{36}$/.test(body.workspace_id || '') || !/^[a-f0-9-]{36}$/.test(body.pane_id)) return reply(res,400,{error:'Invalid shared pane'});
         validatePane(body);
-        if (['select_session', 'shared_chat', 'start'].includes(body.action) && agent.workbench.panePending(body)) return reply(res,409,{error:'A Workbench context submission is unresolved for this pane. Reconcile it before switching conversations.'});
+        if (['select_session', 'shared_chat', 'start'].includes(body.action) && agent.workbench.panePending(body)) {
+          const receipt = readSubmission(body);
+          if (!receipt || body.action !== 'shared_chat') return reply(res,409,{error: receipt ? 'This chat submission is unresolved. Use submission_status; do not resend.' : 'A Workbench context submission is unresolved for this pane. Reconcile it before switching conversations.', ...(receipt ? publicReceipt(receipt) : {})});
+        }
         const candidateLock = `pane:${body.workspace_id}:${body.pane_id}`;
         if(shared.locks.has(candidateLock)) return reply(res,409,{error:'This pane is busy; retry shortly.'});
         paneLock = candidateLock;
@@ -141,6 +180,36 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
           return reply(res,200,{state});
         }
         if(linked.session !== body.session_id || linked.profile_id !== profileId || revision !== linked.binding_revision) return reply(res,409,{error:'This pane is linked to another conversation. Wait for synchronization.'});
+        const receipt = readSubmission(body, linked);
+        if (linked.workbench_pending && receipt && ['status','stop','steer','approval','events'].includes(body.action) && (!receipt.run_id || body.run_id !== receipt.run_id)) return reply(res,409,{error:'Use submission_status to inspect this pane’s original submission.',...publicReceipt(receipt)});
+        if (['submission_status', 'acknowledge_submission_unknown'].includes(body.action)) {
+          if (!receipt) return reply(res,404,{error:'No ordinary submission receipt for this pane.'});
+          if (body.action === 'acknowledge_submission_unknown') {
+            if (receipt.run_id || !['prepared','dispatching','submission_unknown'].includes(receipt.state) || body.payload_hash !== receipt.payload_hash || body.upstream_investigated !== true) return reply(res,409,{error:'Acknowledge the exact digest only after investigating the original upstream and confirming no run remains active.'});
+            agent.workbench.acknowledgeUnknown(originalArgs(receipt));
+            receipt.state = 'denied'; receipt.owner_acknowledged = true;
+            saveSubmission(receipt);
+            return reply(res,200,publicReceipt(receipt));
+          }
+          if (!receipt.run_id) return reply(res,200,publicReceipt(receipt));
+          const result = await agent.workbench.status(originalArgs(receipt));
+          return reply(res,200,{...publicReceipt(receipt),...result});
+        }
+        // Fence every ordinary control request against credential/endpoint changes,
+        // before a stored run identifier can be sent to a different gateway.
+        if (receipt?.run_id && receipt.run_id === body.run_id) {
+          const recipient = await agent.workbench.readBinding(body);
+          if (recipient.config_generation !== receipt.recipient.config_generation) return reply(res,409,{error:'The original Hermes configuration changed. Restore it before inspecting this run.'});
+          if (body.action === 'status') {
+            const result = await agent.workbench.status(originalArgs(receipt));
+            let approvals = [];
+            if (result.status === 'waiting_for_approval') {
+              const pending = await upstream(`/v1/approvals/pending?session_id=${encodeURIComponent(receipt.run_id)}`);
+              approvals = (pending.approvals || []).map(a => ({command:String(a.command || a.description || a.tool_name || 'Tool execution requires approval').slice(0,4000),reason:String(a.reason || '').slice(0,1000)}));
+            }
+            return reply(res,200,{...result,approvals});
+          }
+        }
       }
       if (body.action === 'build_queue') {
         if (profileId !== 'default') return reply(res,409,{error:'Build queue is only available for the default Hermes profile.'});
@@ -220,9 +289,48 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
       }
       if (body.action === 'start') {
         if (typeof body.input !== 'string' || !body.input.trim() || body.input.length > 100000) return reply(res, 400, { error: 'Enter a message of 1–100,000 characters.' });
-        // Do not start an ordinary run while the Workbench agent lane is held or
-        // legacy-unknown. This never claims the lane and never stops an existing run.
+        // Do not start while the shared agent lane is held or legacy-unknown.
+        // Pane-backed submissions claim it through preparation and dispatch below.
         if (executionGate && typeof executionGate.busy === 'function' && executionGate.busy('agent')) return reply(res, 409, { error: 'The Workbench agent lane is busy or unresolved. Reconcile it before starting a new chat turn.' });
+        if (body.pane_id) {
+          const receiptId = randomUUID();
+          const release = executionGate?.claim('agent', receiptId);
+          let record;
+          try {
+            if (fs.readdirSync(journalDirectory).length >= 1024) return reply(res,409,{error:'Private submission journal is full; archive resolved receipts before continuing.'});
+            let context = '';
+            try { if (workspaceContext) context = workspaceContext(body.workspace_id); }
+            catch { return reply(res,409,{error:'Workspace has not synced yet. Wait for workspace connection and retry.'}); }
+            const recipient = await agent.workbench.readBinding(body);
+            const args = {workspace_id:body.workspace_id,pane_id:body.pane_id,profile_id:profileId,session_id:body.session_id,input:body.input.trim(),expected_binding_revision:body.expected_binding_revision,expected_config_generation:recipient.config_generation};
+            const prepared = await agent.workbench.prepareSubmission(args, instructions + context);
+            record = {receipt_id:receiptId,workspace_id:body.workspace_id,recipient:prepared.recipient,payload:prepared.payload,payload_hash:createHash('sha256').update(JSON.stringify(prepared.payload)).digest('hex'),state:'prepared',created_at:new Date().toISOString()};
+            saveSubmission(record);
+            const current = shared.read(body.workspace_id,body.pane_id);
+            shared.write(body.workspace_id,body.pane_id,{...current,ordinary_submission_id:receiptId,workbench_pending:receiptId});
+            for (const file of [path.join(runtimeDirectory,'shared-chats',`${body.workspace_id}.${body.pane_id}.json`),path.join(runtimeDirectory,'shared-chats')]) {
+              const fd = fs.openSync(file, 'r');
+              try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+            }
+            record.state = 'dispatching'; saveSubmission(record);
+            // dispatchExact owns the pane/session locks. Do not take the legacy
+            // session lock or carry the request's pane lock into that adapter.
+            shared.locks.delete(paneLock); paneLock = undefined;
+            const data = await agent.workbench.dispatchExact({...args,payload:record.payload,submission_id:receiptId,preservePending:true,idempotency_key:prepared.caps.idempotent_submit ? receiptId : undefined,onAccepted: data => {
+              record.run_id = data.run_id; record.state = 'accepted'; saveSubmission(record);
+            }});
+            return reply(res,202,{...data,...publicReceipt(record)});
+          } catch (error) {
+            if (!record) throw error;
+            record.state = error.ambiguous || record.run_id ? 'submission_unknown' : 'denied';
+            try { saveSubmission(record); } catch { record.state = 'submission_unknown'; }
+            if (record.state === 'denied') {
+              const current = shared.read(body.workspace_id,body.pane_id);
+              if (current?.workbench_pending === receiptId) shared.write(body.workspace_id,body.pane_id,{...current,workbench_pending:undefined});
+            }
+            return reply(res,409,{error:record.state === 'submission_unknown' ? 'Submission outcome is unknown. Inspect submission_status; do not resend.' : 'Submission was not dispatched or was rejected.',...publicReceipt(record)});
+          } finally { release?.(); }
+        }
         const lock = `session:${profileId}:${body.session_id}`;
         if(shared.locks.has(lock)) return reply(res,409,{error:'A message is already starting in this conversation.'});
         if(body.pane_id) {
@@ -262,22 +370,22 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
         } finally {shared.locks.delete(lock);}
       }
       if (!['status', 'stop', 'approval', 'steer'].includes(body.action) || !runPattern.test(body.run_id || '')) return reply(res, 400, { error: 'Invalid agent action.' });
-      const path = `/v1/runs/${body.run_id}`;
-      const run = await upstream(path);
+      const runPath = `/v1/runs/${body.run_id}`;
+      const run = await upstream(runPath);
       // Never let Orbit operate on another dashboard's sessions/runs.
       if (run.session_id !== body.session_id) return reply(res, 404, { error: 'Run not found in this Orbit conversation.' });
       if (body.action === 'steer') {
         if (typeof body.input !== 'string' || !body.input.trim() || body.input.length > 100000) return reply(res, 400, { error: 'Guidance must contain 1–100,000 characters.' });
-        const data = await upstream(`${path}/steer`, { input: body.input.trim() });
+        const data = await upstream(`${runPath}/steer`, { input: body.input.trim() });
         return reply(res, 200, { accepted: data.accepted === true });
       }
       if (body.action === 'stop') {
-        await upstream(`${path}/stop`, {});
+        await upstream(`${runPath}/stop`, {});
         return reply(res, 200, { status: 'stopping' });
       }
       if (body.action === 'approval') {
         if (!['once', 'deny'].includes(body.choice)) return reply(res, 400, { error: 'Only allow-once or deny is supported.' });
-        const data = await upstream(`${path}/approval`, { choice: body.choice });
+        const data = await upstream(`${runPath}/approval`, { choice: body.choice });
         return reply(res, 200, { status: 'running', resolved: data.resolved });
       }
       let approvals = [];
@@ -292,6 +400,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
       return reply(res, 200, { run_id: run.run_id, status: run.status, output: typeof run.output === 'string' ? run.output : '', error: run.error ? 'Hermes reported a run failure. Try again or check the Hermes dashboard.' : undefined, last_event: run.last_event, approvals });
     } catch (error) {
       if (res.headersSent) { res.end(); return; }
+      if (!error.status && ['stale_resource','busy','permission_denied','invalid_request','limit_exceeded','unavailable'].includes(error.code)) return reply(res,error.code === 'invalid_request' ? 400 : error.code === 'unavailable' ? 503 : 409,{error:error.code === 'stale_resource' ? 'The original Hermes configuration or binding changed. Restore it before inspecting this submission.' : 'Submission cannot proceed; inspect the original receipt before retrying.',code:error.code});
       return reply(res, error.status || 502, { error: error.status ? error.message : 'Cannot reach Hermes right now. Your run may still be active; retry status before sending again.' });
     } finally {
       if(paneLock) shared.locks.delete(paneLock);

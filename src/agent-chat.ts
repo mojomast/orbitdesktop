@@ -244,6 +244,11 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     finally { steer.disabled = false; }
   }, 'small-button');
   controls.append(stop, resume, steer);
+  const recovery=el('details','agent-submission-recovery'),receiptView=el('pre'),investigated=el('input');
+  investigated.type='checkbox';investigated.setAttribute('aria-label','I investigated the original upstream and confirmed no run remains active');
+  let receiptHash='';
+  const recoveryLabel=el('label','','I investigated the original upstream and confirmed no run remains active');recoveryLabel.append(investigated);
+  recovery.append(el('summary','','Submission receipt and recovery'),button('Inspect submission receipt','Read the durable submission receipt without resending',async()=>{try{const result=await api({action:'submission_status'});receiptHash=typeof result.payload_hash==='string'?result.payload_hash:'';receiptView.textContent=JSON.stringify(result,null,2);}catch(error){showError(error);}}),receiptView,recoveryLabel,button('Acknowledge unknown submission','Clear only the exact investigated unknown submission; never replay it',async()=>{if(!receiptHash||!investigated.checked)return;try{receiptView.textContent=JSON.stringify(await api({action:'acknowledge_submission_unknown',payload_hash:receiptHash,upstream_investigated:true}),null,2);receiptHash='';investigated.checked=false;}catch(error){showError(error);}}));
   const form = el('form', 'chat-form');
   const input = el('textarea');
   input.placeholder = 'Ask Hermes… (up to 100,000 characters)'; input.rows = 2; input.maxLength = 100000;
@@ -462,7 +467,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   form.append(input, tools, send);
   form.onsubmit = e => { e.preventDefault(); void submit(); };
   input.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); void submit(); } };
-  body.append(badge, bindingControls, strip, notice, messages, progress, approvals, controls, queueList, form);
+  body.append(badge, bindingControls, strip, notice, messages, progress, approvals, controls,recovery, queueList, form);
   if (toolbar) {
     toolbar.classList.add('agent-pane-head');
     badge.classList.add('agent-toolbar-meta');
