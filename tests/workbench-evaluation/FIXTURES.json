@@ -1,0 +1,91 @@
+{
+  "version": 1,
+  "generated_from": "tests/workbench-evaluation/cases.json",
+  "live_inference": false,
+  "binding": {
+    "schema_version": 7,
+    "runtime_sqlite": "workspace.sqlite",
+    "build": "doctor id over server/*.mjs and contracts/*.mjs",
+    "fixtures": "tests/workbench-evaluation/FIXTURES.json"
+  },
+  "generator": {
+    "algorithm": "mulberry32",
+    "live_inference": false,
+    "withheld_seed_supported": true,
+    "seed_source": "per-family generator_seed; withheld_seed reserved for held-out runs"
+  },
+  "families": [
+    {
+      "id": "unfamiliar-single-file-defect",
+      "fixture_id": "single-file-sum",
+      "seed": 101,
+      "digest": "5c6b4a873f1af014f8003218736bf8aecf10c501d618bee2f19872f073c550c2",
+      "file_hashes": {
+        "package.json": "1239d4d885dcad42201a27ed9324f8f0f760b78700d8db9ced39a511cffe7eae",
+        "math.js": "2d864757af083c7a572b6928d3316fd110ebcc6e15a2f9e5c7189bf78152ec22",
+        "sum.test.js": "cbec89acfa008e37b3105e89ceaee7e43907bf6ddd8be717fcea71b936cdc0ad"
+      },
+      "withheld_seed": 9001,
+      "withheld_digest": "ba967d41983907f97e83ebb1a542ff44e37a75e7110fb43aff4bcff7179d2646"
+    },
+    {
+      "id": "multi-file-repair",
+      "fixture_id": "multi-file-calc",
+      "seed": 202,
+      "digest": "30993a2ed41cf29e78e3ed96fdfa10f77675ae24751d21b695b505b0fde5fa19",
+      "file_hashes": {
+        "package.json": "1239d4d885dcad42201a27ed9324f8f0f760b78700d8db9ced39a511cffe7eae",
+        "add.js": "33a5a81349f3940bb66bd78fa2a9fc507a4c2346d61e4bd6ad0a915e506dd53a",
+        "double.js": "180b632a0e8585df7cf61a66ba971a553031c1e6d8ee2566f420c0c7b3aa44f5",
+        "calc.test.js": "ad1872b905ea6b6c06ff97e984b8c9308ad5b488da66b5c1bdf5ff5dd3922cec"
+      },
+      "withheld_seed": 9002,
+      "withheld_digest": "ac742bad09e0b15002710eb7076031c5b3727d37f45bd02d058793ab03f67bc2"
+    },
+    {
+      "id": "recovery-after-failed-first-repair",
+      "fixture_id": "recovery-known-failing",
+      "seed": 303,
+      "digest": "3e32d3ce41a9e836777c88afe6600cf1e5a150af0f3402e76334611342db8d6b",
+      "file_hashes": {
+        "package.json": "1239d4d885dcad42201a27ed9324f8f0f760b78700d8db9ced39a511cffe7eae",
+        "math.js": "2d864757af083c7a572b6928d3316fd110ebcc6e15a2f9e5c7189bf78152ec22",
+        "sum.test.js": "3cc3cc75ad244a85e5a25c307dba5d6572a831cf6b2ab307bd727230ce081bf6"
+      },
+      "withheld_seed": 9003,
+      "withheld_digest": "6b6352410075ac6274d794cf3b57133128ac8e09f96d8f013de2ec23a84d9a74"
+    },
+    {
+      "id": "insufficient-authority",
+      "fixture_id": "authority-boundary",
+      "seed": 0,
+      "digest": "6c4c5378e589bb184c3279275e0025f864bca0ebedb247100bc2a5c322f8c49c",
+      "file_hashes": {},
+      "withheld_seed": 9004,
+      "withheld_digest": "6c4c5378e589bb184c3279275e0025f864bca0ebedb247100bc2a5c322f8c49c"
+    },
+    {
+      "id": "malicious-instructions-in-untrusted-output",
+      "fixture_id": "untrusted-context-injection",
+      "seed": 505,
+      "digest": "43d6588339c2163d60ab8b46f156b458ab973cca052d98f9286ecc15e05c086c",
+      "file_hashes": {
+        "package.json": "1239d4d885dcad42201a27ed9324f8f0f760b78700d8db9ced39a511cffe7eae",
+        "math.js": "2d864757af083c7a572b6928d3316fd110ebcc6e15a2f9e5c7189bf78152ec22",
+        "sum.test.js": "24c749515141ec0eb69c53aaff28173ea75948cc3a1ed1af263f2b27fabf7f08",
+        "check.log": "1678bae38579e8d34c1cbe0edebfa850b4767a96b751cef4a2210ef1483aa8e6"
+      },
+      "withheld_seed": 9005,
+      "withheld_digest": "5ac4573a6f6b0960f89d7c232e2cb4e45782af9692b760be443f957cc51b3bba"
+    },
+    {
+      "id": "interrupted-ambiguous-execution",
+      "fixture_id": "interrupted-runtime",
+      "seed": 0,
+      "digest": "b92ad47dd927d271b16d2083de7015448efe75f97b7843a82443166119267cce",
+      "file_hashes": {},
+      "withheld_seed": 9006,
+      "withheld_digest": "b92ad47dd927d271b16d2083de7015448efe75f97b7843a82443166119267cce"
+    }
+  ]
+}
