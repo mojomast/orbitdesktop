@@ -285,8 +285,8 @@ def main(renderer, linked=False):
                         assert inspection['execution']['state']=='available'
                         expect(dialog.get_by_role("button", name="Ask agent about this", exact=True)).to_be_enabled()
                         dialog.get_by_role("button", name="Open doctor").click()
-                        expect(dialog.locator(".workbench-doctor")).to_contain_text("schema_version: 7")
-                        assert result_for(responses, "doctor")["schema_version"] == 7
+                        expect(dialog.locator(".workbench-doctor")).to_contain_text("schema_version: 8")
+                        assert result_for(responses, "doctor")["schema_version"] == 8
                         assert token not in dialog.inner_text() and "do-not-read" not in dialog.inner_text()
 
                         status, denied = api(origin, token, {"action": "register_preview", "root": str(project / "linkdir"), "name": "denied"})
