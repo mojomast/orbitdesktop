@@ -275,23 +275,28 @@ def main(renderer):
                         pane.get_by_label("Native agent recipient").select_option(index=0)
                         attempt = click_text(pane, "Create bound attempt", "attempt_create")["attempt"]
 
-                        step = "assert handoff is visible before approval"
-                        expect(pane).to_contain_text(task["title"])
-                        expect(pane).to_contain_text(candidate["id"])
-                        expect(pane).to_contain_text("default")
-
-                        step = "native consent preview shows attempt and budgets before approval"
+                        step = "supervised worker handoff visible before approval"
                         click_plain(pane, "Refresh task authority")
                         pane.get_by_label("Native task attempt").first.select_option(value=attempt["id"])
                         consent = click_text(pane, "Preview native task consent", "preview", NATIVE_ROUTE)
                         assert consent["preview"]["attempt_id"] == attempt["id"], consent
                         budget = consent["preview"]["budget"]
-                        assert set(budget) >= {"calls", "checks", "duration_ms"}, budget
-                        assert budget["calls"] >= 1 and budget["checks"] >= 1, budget
+                        assert budget["calls"] >= 1 and budget["checks"] >= 1 and budget["duration_ms"] >= 1000, budget
+                        handoff = pane.locator(".workbench-worker-handoff")
+                        expect(handoff).to_be_visible(timeout=15000)
+                        expect(handoff).to_contain_text("Supervised worker handoff")
+                        expect(handoff).to_contain_text("Start a supervised worker for this task. It receives the approved task packet, not the whole conversation.")
+                        expect(handoff).to_contain_text(task["title"])
+                        expect(handoff).to_contain_text(candidate["id"])
+                        expect(handoff).to_contain_text("Recipient and model policy")
+                        expect(handoff).to_contain_text("profile default")
+                        expect(handoff).to_contain_text("Budget:")
+                        expect(handoff).to_contain_text("Required check definitions: host-regression")
 
                         step = "native consent approve/start via UI"
                         approve = click_text(pane, "Approve native task consent", "approve", NATIVE_ROUTE)
                         assert approve["grant"]["status"] == "approved", approve
+                        grant_id = approve["grant"]["id"]
                         with page.expect_response(lambda r: r.url.split("?")[0] == origin + NATIVE_ROUTE
                                                   and post_json(r.request).get("action") == "start"):
                             pane.locator("button").filter(has_text=re.compile("^Start native Hermes attempt$")).first.click()
@@ -312,17 +317,21 @@ def main(renderer):
                         assert state_body.get("ok") is True, state_body
                         assert any(entry["verdict"] == "pass" for entry in state_body["evidence"]), state_body["evidence"]
 
-                        step = "normal-UI result panel and handoff (RED until L1)"
+                        step = "normal-UI result panel: refresh then select the issued grant"
                         panel = pane.locator(".workbench-task-results-panel")
                         expect(panel).to_be_visible(timeout=20000)
-                        panel.get_by_label("Result native attempt").first.select_option(label="Result native attempt")
                         click_plain(panel, "Refresh task result")
+                        grants = panel.get_by_label("Result native attempt")
+                        expect(grants.locator('option[value="%s"]' % grant_id)).to_have_count(1, timeout=30000)
+                        grants.select_option(value=grant_id)
                         expect(panel.get_by_role("heading", name="Agent explanation")).to_be_visible(timeout=20000)
-                        expect(panel.locator(".workbench-result-text")).to_contain_text(ANSWER_TOKEN, timeout=20000)
+                        expect(panel.locator(".workbench-result-text").first).to_contain_text(ANSWER_TOKEN, timeout=20000)
                         expect(panel).to_contain_text("Recorded checks")
                         expect(panel).to_contain_text("Human review")
-                        expect(panel.get_by_role("button", name="Return result")).to_be_visible()
-                        click_plain(panel, "Return result")
+                        expect(panel).to_contain_text("Supervised native worker")
+                        expect(panel).to_contain_text("Check initiated by")
+                        click_plain(panel, "Return result to originating conversation")
+                        expect(panel).to_contain_text("Host-authored result card recorded")
                         card = page.locator('.pane[data-pane-id="%s"] section.agent-task-results details[data-result-id]' % helper.PANE)
                         expect(card.first).to_be_visible(timeout=20000)
                         assert not page_errors, page_errors

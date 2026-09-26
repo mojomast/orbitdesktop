@@ -115,6 +115,13 @@ jobs:
           for renderer in default docking; do
             /tmp/opencode/orbit-workbench-venv/bin/python tests/workbench-results.browser.py --renderer "$renderer"
           done
+      - name: Gate 1 normal-UI supervised worker handoff and result review on both renderers
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
+        run: |
+          for renderer in default docking; do
+            HERMES_NATIVE_SOURCE=/tmp/opencode/orbit-hermes-native /tmp/opencode/orbit-workbench-venv/bin/python tests/workbench-results-ui.browser.py --renderer "$renderer"
+          done
       - name: Upload sanitized synthetic failure screenshot
         if: failure()
         uses: actions/upload-artifact@v4
@@ -135,3 +142,5 @@ jobs:
             /tmp/opencode/orbit-workbench-journey-docking.png
             /tmp/opencode/comet-results-default-error.png
             /tmp/opencode/comet-results-docking-error.png
+            /tmp/opencode/comet-results-ui-default-error.png
+            /tmp/opencode/comet-results-ui-docking-error.png
