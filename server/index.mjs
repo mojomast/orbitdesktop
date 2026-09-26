@@ -45,6 +45,7 @@ const securityHeaders = {
   "Content-Security-Policy":
     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-src https: http:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
 };
+const releaseIdentity = await (await import('./release-identity.mjs')).pinnedReleaseIdentity();
 function reply(res, status, data) {
   res.writeHead(status, {
     "Content-Type": "application/json",
@@ -197,6 +198,7 @@ const server = http.createServer(async (req, res) => {
       protocol: 1,
       host: "local",
       sessions: sessions.size,
+      ...(releaseIdentity ?? {}),
     });
   if (url.pathname === "/api/auth") {
     if (req.method !== "POST" || !allowedRequest(req, port, devOrigins))

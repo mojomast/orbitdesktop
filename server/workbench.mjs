@@ -7,6 +7,7 @@ import {WorkbenchStore,wbError} from './workbench-store.mjs';
 import {openProjectRoot,captureProject,readProjectFile,literalPreview,repositorySnapshot,PROJECT_LIMITS} from './project-files.mjs';
 import {allowedRequest,tokenMatches} from './security.mjs';
 import {previewWorktree,revalidateWorktree} from './workbench-worktrees.mjs';
+import {workbenchBuildIdentity} from './workbench-build-identity.mjs';
 const validate=new Ajv({strict:true}).compile(workbenchSchema);
 const publicProject=({identity,...project})=>project;
 const publicResource=({identity,...resource})=>resource;
@@ -17,11 +18,7 @@ const panes=state=>{
 export function createWorkbench({store,token,port,devOrigins,reply,now=Date.now,services={}}){
   const records=new WorkbenchStore(store),approvals=new Map();
   let inspecting=0;
-  const buildHash=createHash('sha256');
-  for(const directory of ['./','../contracts/'])for(const name of fs.readdirSync(new URL(directory,import.meta.url)).filter(name=>name.endsWith('.mjs')&&name!=='mobile-proxy.mjs').sort()){
-    buildHash.update(directory+name+'\0');buildHash.update(fs.readFileSync(new URL(directory+name,import.meta.url)));
-  }
-  const identity=buildHash.digest('hex');
+  const identity=workbenchBuildIdentity();
   async function dispatch(body){
     if(!validate(body))throw wbError('invalid_request');
     const workspace=store.read(body.workspace_id);

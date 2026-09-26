@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 4173",
-    "build": "tsc --noEmit && vite build",
+    "build": "node scripts/isolated_build.mjs",
     "start": "node --experimental-strip-types server/index.mjs",
     "test": "node --experimental-strip-types --test tests/*.test.mjs",
     "check": "node scripts/generate-workspace-contract.mjs --check && node --experimental-strip-types scripts/generate-workbench-contract.mjs --check && npm run build && npm test",

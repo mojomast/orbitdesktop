@@ -148,6 +148,91 @@
       "type": "integer",
       "minimum": 0
     },
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "initiated_by": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "native_agent"
+            },
+            "attempt_id": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+            },
+            "grant_id": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+            },
+            "run_id": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+            }
+          },
+          "required": [
+            "kind",
+            "attempt_id",
+            "grant_id",
+            "run_id"
+          ],
+          "additionalProperties": false
+        },
+        "authorized_by": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "owner_grant"
+            },
+            "grant_id": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+            },
+            "authority_generation": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+            }
+          },
+          "required": [
+            "kind",
+            "grant_id",
+            "authority_generation"
+          ],
+          "additionalProperties": false
+        },
+        "recorded_by": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "comet_service"
+            },
+            "component": {
+              "const": "workbench-native-result"
+            },
+            "build_id": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "kind",
+            "component",
+            "build_id"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "version",
+        "initiated_by",
+        "authorized_by",
+        "recorded_by"
+      ],
+      "additionalProperties": false
+    },
     "model_suggested_references": {
       "type": "array",
       "items": {
@@ -217,6 +302,7 @@
     "frame_hash",
     "received_at",
     "retained_until",
+    "provenance",
     "model_suggested_references",
     "resolved_references"
   ],
