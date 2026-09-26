@@ -166,7 +166,10 @@ export function createWorkbenchWorkflow({store,records,data,execution,now=Date.n
     const key=`${body.workspace_id}:${body.project_id}`;
     const saved=previousArrangements.get(key);
     if(body.recipe==='return'&&(!saved||saved.applied_revision!==workspace.revision||saved.ids.length!==ids.length||saved.ids.some(id=>!ids.includes(id))))stale();
-    const roles={investigate:['primary_agent','project_files','active_terminal','preview'],implement:['primary_agent','candidate_diff','job_output','project_files'],review:['candidate_diff','job_output','project_files','primary_agent'],project_focus:[]};
+    // Only relationships the current owner API can bind are prioritized. There
+    // is no job_output pane binding yet; do not imply that a generic window
+    // contains recorder output merely because a role name exists in a contract.
+    const roles={investigate:['primary_agent','project_files','active_terminal','preview'],implement:['primary_agent','candidate_diff','project_files'],review:['candidate_diff','project_files','primary_agent'],project_focus:[]};
     const priorities=roles[body.recipe]??[];
     const priority=id=>{const monitor=workspace.state.monitors.find(m=>m.id===id);const panes=new Set();const visit=node=>node.type==='pane'?panes.add(node.pane.id):(visit(node.first),visit(node.second));visit(monitor.layout);return Math.min(99,...bindings.filter(b=>panes.has(b.pane_id)).map(b=>{const index=priorities.indexOf(b.role);return index<0?99:index;}));};
     const next=body.recipe==='return'?saved.ids:[...ids.filter(id=>monitorIds.has(id)).sort((a,b)=>priority(a)-priority(b)),...ids.filter(id=>!monitorIds.has(id))];

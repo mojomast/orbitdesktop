@@ -105,3 +105,23 @@ test('project focus preserves pane identities and return requires an unchanged w
   assert.deepEqual(restored.workspace.state.monitors.map(m=>m.id),before.state.monitors.map(m=>m.id));
   await assert.rejects(f.flow('recipe_preview',{recipe:'return'}),{code:'stale_resource'});
 });
+
+test('Review placement previews and commits the real bound review window order, then CAS-returns the same window/pane identities',async t=>{
+  const f=fixture(t),before=f.store.read(f.workspace_id),ids=before.state.monitors.map(window=>window.id),panesByWindow=new Map(before.state.monitors.map(window=>[window.id,JSON.stringify(window.layout)]));
+  const pane=window=>{const visit=node=>node.type==='pane'?node.pane.id:visit(node.first);return visit(window.layout);};
+  const file=f.records.resource(f.project.id,'review-diff.js',{kind:'file',hash:'1'.repeat(64),identity:'review-diff',state:'available'});
+  const agent=f.records.resource(f.project.id,'review-agent',{kind:'conversation',hash:'2'.repeat(64),identity:'review-agent',state:'available'});
+  f.records.bind({workspace_id:f.workspace_id,project_id:f.project.id,resource_id:file.id,pane_id:pane(before.state.monitors[1]),base_revision:before.revision,role:'candidate_diff'});
+  f.records.bind({workspace_id:f.workspace_id,project_id:f.project.id,resource_id:agent.id,pane_id:pane(before.state.monitors[0]),base_revision:before.revision,role:'primary_agent'});
+  const preview=await f.flow('recipe_preview',{recipe:'review'}),operation=preview.operations[0];
+  assert.equal(operation.action,'reorder_windows');assert.deepEqual(operation.window_ids,[ids[1],ids[0],ids[2]]);
+  assert.deepEqual(f.store.read(f.workspace_id).state.monitors.map(window=>window.id),ids,'preview does not mutate user placement');
+  const applied=await f.flow('recipe_apply',{recipe:'review',preview_id:preview.preview_id,preview_digest:preview.preview_digest,op_id:randomUUID()});
+  assert.deepEqual(applied.workspace.state.monitors.map(window=>window.id),[ids[1],ids[0],ids[2]]);
+  for(const window of applied.workspace.state.monitors)assert.equal(JSON.stringify(window.layout),panesByWindow.get(window.id));
+  const returning=await f.flow('recipe_preview',{recipe:'return'});
+  const restored=await f.flow('recipe_apply',{recipe:'return',preview_id:returning.preview_id,preview_digest:returning.preview_digest,op_id:randomUUID()});
+  assert.deepEqual(restored.workspace.state.monitors.map(window=>window.id),ids);
+  for(const window of restored.workspace.state.monitors)assert.equal(JSON.stringify(window.layout),panesByWindow.get(window.id));
+  await assert.rejects(f.flow('recipe_preview',{recipe:'return'}),{code:'stale_resource'});
+});
