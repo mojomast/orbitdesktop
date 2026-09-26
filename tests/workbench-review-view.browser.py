@@ -22,6 +22,7 @@ EVIDENCE_HOST = '22222222-2222-4222-8222-222222222222'
 JOB_NODE = '33333333-3333-4333-8333-333333333333'
 JOB_HOST = '44444444-4444-4444-8444-444444444444'
 GRANT = '55555555-5555-4555-8555-555555555555'
+ATTEMPT = '77777777-7777-4777-8777-777777777777'
 HASH = 'a' * 64
 ACCEPTANCE = 'b' * 64
 
@@ -74,8 +75,8 @@ def main():
                             elif route.request.url.endswith('/workflow'):
                                 route.fulfill(json={'ok': True, 'preview_id': '66666666-6666-4666-8666-666666666666', 'preview_digest': 'e' * 64, 'candidate_hash': HASH, 'candidate_generation': 4, 'source': {'manifest_hash': 'f' * 64}, 'review': {'required_check_state': {'complete': True, 'acceptance_digest': ACCEPTANCE, 'required_checks_digest': 'f' * 64}}, 'patch_text': '--- a/math.js\n+++ b/math.js\n-export const sum=(a,b)=>a-b;\n+export const sum=(a,b)=>a+b;\n<script>must remain literal</script>'})
                             elif route.request.url.endswith('/native'):
-                                if action == 'list': route.fulfill(json={'ok': True, 'grants': [{'id': GRANT, 'candidate_id': CANDIDATE, 'task_id': TASK, 'created_at': 1}]})
-                                elif action == 'status': route.fulfill(json={'ok': True, 'grant': {'id': GRANT}, 'result': {'availability': 'available', 'text': 'Literal worker explanation <img src=x onerror=alert(1)>'}})
+                                if action == 'list': route.fulfill(json={'ok': True, 'grants': [{'id': GRANT, 'candidate_id': CANDIDATE, 'attempt_id': ATTEMPT, 'project_generation': 2, 'created_at': 1}]})
+                                elif action == 'status': route.fulfill(json={'ok': True, 'grant': {'id': GRANT, 'attempt_id': ATTEMPT}, 'result': {'attempt_id': ATTEMPT, 'task_id': TASK, 'candidate_id': CANDIDATE, 'candidate_hash': HASH, 'candidate_generation': 4, 'project_generation': 2, 'availability': 'available', 'text': 'Literal worker explanation <img src=x onerror=alert(1)>'}})
                                 else: route.fulfill(status=400, json={'ok': False, 'code': 'invalid_request'})
 
                         page.route('**/api/workbench/execution', api)
@@ -108,6 +109,7 @@ def main():
                         first_diff_line = page.locator('.workbench-review-diff-text').evaluate("node => { const walker=document.createTreeWalker(node,NodeFilter.SHOW_TEXT); let text; while(text=walker.nextNode()){const at=text.textContent.indexOf('--- a/math.js'); if(at>=0){const range=document.createRange();range.setStart(text,at);range.setEnd(text,at+12);return range.getBoundingClientRect().toJSON();}} return null; }")
                         assert first_diff_line and clip['y'] <= first_diff_line['y'] < clip['y'] + clip['height'], (clip, first_diff_line)
                         page.get_by_text('Expand literal Hermes explanation').click()
+                        expect(page.locator('.workbench-review-explanation-text')).to_contain_text('Literal worker explanation')
                         expect(page.locator('.workbench-review-explanation-text')).to_contain_text('<img src=x onerror=alert(1)>')
                         assert page.locator('.workbench-review-explanation-text img').count() == 0
                         left = page.locator('.workbench-review-diff').bounding_box(); right = page.locator('.workbench-review-checks').bounding_box()

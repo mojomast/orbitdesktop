@@ -143,6 +143,9 @@ export function createWorkbenchPatchExport({store,records,data,execution,inspect
     if(!isVerifiedPatch(record))throw wbError('unavailable');
     if(!sameRequest(record,body))throw wbError('conflict');
   }
+  function assertCurrentProjectGeneration(record,project){
+    if(record.project_generation!==project.generation)throw wbError('stale_resource');
+  }
   function artifactBytes(record){
     if(path.resolve(record.private_root)!==record.private_root||path.dirname(record.private_root)!==root||! /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\.patch$/.test(path.basename(record.private_root)))throw wbError('permission_denied');
     const fd=fs.openSync(record.private_root,C.O_RDONLY|C.O_NOFOLLOW);try{const stat=fs.fstatSync(fd),bytes=fs.readFileSync(fd);if(!stat.isFile()||stat.nlink!==1||(stat.mode&0o077)!==0||stat.size!==record.bytes||sha(bytes)!==record.artifact_hash||bytes.length!==record.bytes)throw wbError('stale_resource');return bytes;}finally{fs.closeSync(fd);}
@@ -158,9 +161,9 @@ export function createWorkbenchPatchExport({store,records,data,execution,inspect
     return data.update('patches',body.workspace_id,body.project_id,current.id,current.revision,{status:'available'});
   }
   async function exportPatch(body){
-    scope(body);
+    const project=scope(body);
     const prior=matchingReplay(body);
-    if(prior){if(!sameRequest(prior,body))throw wbError('conflict');if(prior.status==='verified')return {patch:publicPatch(await promoteVerified(body,prior)),idempotent:true};return {patch:publicPatch(prior),idempotent:true};}
+    if(prior){if(!sameRequest(prior,body))throw wbError('conflict');assertCurrentProjectGeneration(prior,project);if(prior.status==='verified')return {patch:publicPatch(await promoteVerified(body,prior)),idempotent:true};return {patch:publicPatch(prior),idempotent:true};}
     const issued=previews.get(body.preview_id);if(!issued||issued.expires_at<=now())throw wbError('expired');
     if(issued.preview_digest!==body.preview_digest||issued.state.candidate_id!==body.candidate_id||issued.state.review_id!==body.review_id||issued.state.task_id!==body.task_id)throw wbError('stale_resource');
     const current=await inspect(body),candidate=current.candidate,review=current.review;
@@ -169,7 +172,7 @@ export function createWorkbenchPatchExport({store,records,data,execution,inspect
     previews.delete(body.preview_id);
     let intent;
     try{
-      intent=data.create('patches',{workspace_id:body.workspace_id,project_id:body.project_id,task_id:body.task_id,candidate_id:body.candidate_id,candidate_hash:issued.state.candidate_hash,candidate_generation:issued.state.candidate_generation,review_id:body.review_id,review_identity:issued.state.review_identity,preview_id:body.preview_id,preview_digest:body.preview_digest,op_id:body.op_id,status:'preparing',artifact_hash:sha(issued.patch),bytes:issued.patch.length,format:'git-unified-diff',source:issued.state.source,candidate:issued.state.candidate,review:issued.state.review,changes:issued.state.changes,exclusions:issued.state.exclusions,unsupported:[],roundtrip:issued.state.roundtrip,private_root:path.join(root,`${randomUUID()}.patch`)});
+      intent=data.create('patches',{workspace_id:body.workspace_id,project_id:body.project_id,project_generation:project.generation,task_id:body.task_id,candidate_id:body.candidate_id,candidate_hash:issued.state.candidate_hash,candidate_generation:issued.state.candidate_generation,review_id:body.review_id,review_identity:issued.state.review_identity,preview_id:body.preview_id,preview_digest:body.preview_digest,op_id:body.op_id,status:'preparing',artifact_hash:sha(issued.patch),bytes:issued.patch.length,format:'git-unified-diff',source:issued.state.source,candidate:issued.state.candidate,review:issued.state.review,changes:issued.state.changes,exclusions:issued.state.exclusions,unsupported:[],roundtrip:issued.state.roundtrip,private_root:path.join(root,`${randomUUID()}.patch`)});
       const fd=fs.openSync(intent.private_root,C.O_WRONLY|C.O_CREAT|C.O_EXCL|C.O_NOFOLLOW,0o600);try{fs.writeFileSync(fd,issued.patch);fs.fsyncSync(fd);}finally{fs.closeSync(fd);}const dir=fs.openSync(root,C.O_RDONLY|C.O_DIRECTORY|C.O_NOFOLLOW);try{fs.fsyncSync(dir);}finally{fs.closeSync(dir);}
       if(typeof execution.verifyPatchArtifact!=='function')throw wbError('unavailable');
       const checkedResult=await execution.verifyPatchArtifact({workspace_id:body.workspace_id,project_id:body.project_id,artifact_id:intent.id,stage_root:path.join(checked[ROUNDTRIP],'roundtrip')});
@@ -189,8 +192,9 @@ export function createWorkbenchPatchExport({store,records,data,execution,inspect
     }finally{rm(checked[ROUNDTRIP]);}
   }
   function getPatch(body){
-    scope(body);const record=data.list('patches',body.workspace_id,body.project_id).find(item=>item.id===body.artifact_id);
+    const project=scope(body),record=data.list('patches',body.workspace_id,body.project_id).find(item=>item.id===body.artifact_id);
     if(!record||record.status!=='available'||!isVerifiedPatch(record))throw wbError('permission_denied');
+    assertCurrentProjectGeneration(record,project);
     if(path.resolve(record.private_root)!==record.private_root||path.dirname(record.private_root)!==root||! /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\.patch$/.test(path.basename(record.private_root)))throw wbError('permission_denied');
     const stat=fs.lstatSync(record.private_root);if(!stat.isFile()||stat.isSymbolicLink()||stat.nlink!==1||(stat.mode&0o077)!==0||stat.size!==record.bytes)throw wbError('stale_resource');
     const patch=fs.readFileSync(record.private_root);if(sha(patch)!==record.artifact_hash||patch.length!==record.bytes)throw wbError('stale_resource');
@@ -225,6 +229,7 @@ export function createWorkbenchPatchExport({store,records,data,execution,inspect
   }
   async function retryFinalization(body){
     const project=recoveryScope(body),before=data.get('patches',body.workspace_id,body.project_id,body.artifact_id);
+    if(project.active!==false)assertCurrentProjectGeneration(before,project);
     // A retry whose commit succeeded but whose HTTP reply was lost is replayed by
     // the verifier from its exact CAS-persisted recovery digest, before consulting
     // the now-terminal recovery digest. The provider rejects wrong/missing digests.
