@@ -39,6 +39,22 @@ function fixture(t,{controlHeavy=false}={}){
   const flow=(action,fields={})=>workflow.dispatch({action,workspace_id,project_id:project.id,...fields});
   return {root,projectRoot,store,workspace_id,project,records,data,execution,call,flow};
 }
+function emulateProcessedRecoveryReplay(f){
+  const retry=f.execution.retryPatchArtifact.bind(f.execution);
+  f.execution.retryPatchArtifact=args=>{
+    const before=f.data.get('patches',args.workspace_id,args.project_id,args.artifact_id);
+    if(['verified','available','verification_failed'].includes(before.status)&&before.verification?.processed_recovery_digest===args.expected_digest)
+      return {verification:before.verification,replayed:true,idempotent:true};
+    const result=retry(args);
+    const after=f.data.get('patches',args.workspace_id,args.project_id,args.artifact_id);
+    if(result?.verification&&['verified','available','verification_failed'].includes(after.status)&&!result.idempotent){
+      const updated=f.data.update('patches',args.workspace_id,args.project_id,args.artifact_id,after.revision,{verification:{...after.verification,processed_recovery_digest:args.expected_digest}});
+      return {...result,verification:updated.verification,idempotent:false};
+    }
+    return result;
+  };
+  return ()=>{f.execution.retryPatchArtifact=retry;};
+}
 
 async function reviewedCandidate(f,{executableAddition=false,executableDeletion=false}={}){
   if(executableDeletion){fs.writeFileSync(path.join(f.projectRoot,'tool.sh'),'#!/bin/sh\necho owner\n',{mode:0o700});fs.chmodSync(path.join(f.projectRoot,'tool.sh'),0o700);}
@@ -118,8 +134,13 @@ test('unknown artifact-check outcomes remain durable and cannot be converted to 
     await assert.rejects(f.flow('private_patch_get',{artifact_id:response.patch.id}),{code:'permission_denied'});
     f.records.revoke(f.workspace_id,f.project.id,f.project.generation);
     const pending=(await f.flow('patch_list')).patches[0];assert.equal(pending.recovery.recoverable,false);
+    const cancel=f.execution.cancelPatchArtifact;f.execution.cancelPatchArtifact=({artifact_id})=>({requested:true,confirmed:false,artifact_id});
+    const canceled=await f.flow('patch_check_cancel',{artifact_id:pending.artifact_id});assert.equal(canceled.patch.status,'verifying');assert.equal(canceled.cancellation.requested,true);
+    for(const key of ['source','candidate','review','changes','exclusions','private_root','op_id','patch_text'])assert.equal(Object.hasOwn(canceled.patch,key),false);
+    f.execution.cancelPatchArtifact=cancel;
     const acknowledged=await f.flow('patch_acknowledge_unknown',{artifact_id:pending.artifact_id,expected_digest:pending.recovery.recovery_digest,known_externally_terminated:true});
-    assert.equal(acknowledged.patch.status,'verification_failed');assert.equal(acknowledged.patch.verification.status,'acknowledged_unknown');
+    assert.equal(acknowledged.patch.status,'verification_failed');assert.equal(acknowledged.patch.verification_status,'acknowledged_unknown');
+    for(const key of ['source','candidate','review','changes','exclusions','private_root','op_id','patch_text'])assert.equal(Object.hasOwn(acknowledged.patch,key),false);
   }finally{f.execution.verifyPatchArtifact=verify;}
 });
 
@@ -128,12 +149,17 @@ test('revoked project retains owner receipt recovery without publishing observed
   const preview=await f.flow('patch_preview',selection),request={...selection,preview_id:preview.preview_id,preview_digest:preview.preview_digest,op_id:randomUUID()},update=f.data.update.bind(f.data);
   f.data.update=(kind,...args)=>{if(kind==='patches'&&args[4]?.status==='verified')throw Error('simulated receipt commit fault');return update(kind,...args);};
   await assert.rejects(f.flow('patch_export',request));f.data.update=update;
+  const restoreReplay=emulateProcessedRecoveryReplay(f);
   f.records.revoke(f.workspace_id,f.project.id,f.project.generation);
   const listed=await f.flow('patch_list');assert.equal(listed.patches.length,1);const patch=listed.patches[0];
   assert.equal(patch.status,'verification_pending');assert.equal(patch.recovery.recoverable,true);
   const recovered=await f.flow('patch_finalize_retry',{artifact_id:patch.artifact_id,expected_digest:patch.recovery.recovery_digest});
-  assert.equal(recovered.patch.status,'verification_failed');assert.equal(recovered.patch.verification.status,'inconclusive');
+  assert.equal(recovered.patch.status,'verification_failed');assert.equal(recovered.patch.verification_status,'inconclusive');
+  for(const key of ['source','candidate','review','changes','exclusions','private_root','op_id','patch_text'])assert.equal(Object.hasOwn(recovered.patch,key),false);
+  const replay=await f.flow('patch_finalize_retry',{artifact_id:patch.artifact_id,expected_digest:patch.recovery.recovery_digest});assert.equal(replay.idempotent,true);assert.deepEqual(replay.patch,recovered.patch);
+  await assert.rejects(f.flow('patch_finalize_retry',{artifact_id:patch.artifact_id,expected_digest:'0'.repeat(64)}),{code:'stale_resource'});
   await assert.rejects(f.flow('private_patch_get',{artifact_id:patch.artifact_id}),{code:'permission_denied'});
+  restoreReplay();
 });
 
 test('recorded artifact-check journals finalize after reload without launching checks again',async t=>{
@@ -145,11 +171,15 @@ test('recorded artifact-check journals finalize after reload without launching c
   let listed=await f.flow('patch_list');assert.equal(listed.patches.length,1);let patch=listed.patches[0];
   assert.equal(patch.status,'verification_pending');assert.equal(patch.recovery.recoverable,true);assert.equal(patch.recovery.process_owned,false);
   const jobsBefore=f.data.list('jobs',f.workspace_id,f.project.id).length,verificationId=f.data.get('patches',f.workspace_id,f.project.id,patch.artifact_id).verification.id;
+  const restoreReplay=emulateProcessedRecoveryReplay(f);
   const recovered=await f.flow('patch_finalize_retry',{artifact_id:patch.artifact_id,expected_digest:patch.recovery.recovery_digest});
   assert.equal(recovered.patch.status,'available');assert.equal(recovered.patch.verification.id,verificationId);
   assert.equal(f.data.list('jobs',f.workspace_id,f.project.id).length,jobsBefore);
+  const replay=await f.flow('patch_finalize_retry',{artifact_id:patch.artifact_id,expected_digest:patch.recovery.recovery_digest});assert.equal(replay.idempotent,true);assert.deepEqual(replay.patch,recovered.patch);
+  await assert.rejects(f.flow('patch_finalize_retry',{artifact_id:patch.artifact_id,expected_digest:'0'.repeat(64)}),{code:'stale_resource'});
   listed=await f.flow('patch_list');patch=listed.patches[0];assert.equal(patch.status,'available');
   assert.equal((await f.flow('private_patch_get',{artifact_id:patch.artifact_id})).receipt.verification.status,'verified');
+  restoreReplay();
 });
 
 test('JSON-escaped private patch responses over the route cap are refused before artifact creation',async t=>{

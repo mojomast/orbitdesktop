@@ -225,23 +225,36 @@ export function createWorkbenchPatchExport({store,records,data,execution,inspect
   }
   async function retryFinalization(body){
     const project=recoveryScope(body),before=data.get('patches',body.workspace_id,body.project_id,body.artifact_id);
+    // A retry whose commit succeeded but whose HTTP reply was lost is replayed by
+    // the verifier from its exact CAS-persisted recovery digest, before consulting
+    // the now-terminal recovery digest. The provider rejects wrong/missing digests.
+    if(['verified','available','verification_failed'].includes(before.status)&&typeof before.verification?.processed_recovery_digest==='string'){
+      const replay=execution.retryPatchArtifact({workspace_id:body.workspace_id,project_id:body.project_id,artifact_id:body.artifact_id,expected_digest:body.expected_digest});
+      if(replay?.idempotent!==true)throw wbError('stale_resource');
+      let current=data.get('patches',body.workspace_id,body.project_id,body.artifact_id);
+      if(project.active!==false&&current.status==='verified')current=await promoteVerified({workspace_id:body.workspace_id,project_id:body.project_id,task_id:before.task_id,candidate_id:before.candidate_id,review_id:before.review_id,preview_id:before.preview_id,preview_digest:before.preview_digest,op_id:before.op_id},current);
+      return {patch:project.active===false?publicPatchSummary(current):publicPatch(current),recovery:recoveryView(body,current),idempotent:true};
+    }
     const recovery=execution.patchArtifactRecovery({workspace_id:body.workspace_id,project_id:body.project_id,artifact_id:body.artifact_id});
     if(recovery.recovery_digest!==body.expected_digest)throw wbError('stale_resource');
     let current=before;
+    let idempotent=false;
     if(before.status==='verified'&&project.active!==false)current=await promoteVerified({workspace_id:body.workspace_id,project_id:body.project_id,task_id:before.task_id,candidate_id:before.candidate_id,review_id:before.review_id,preview_id:before.preview_id,preview_digest:before.preview_digest,op_id:before.op_id},before);
     else{
       const result=execution.retryPatchArtifact({workspace_id:body.workspace_id,project_id:body.project_id,artifact_id:body.artifact_id,expected_digest:body.expected_digest});
+      idempotent=result?.idempotent===true;
       current=data.get('patches',body.workspace_id,body.project_id,body.artifact_id);
       if(project.active!==false&&result.verification?.status==='verified'&&current.status==='verified')current=await promoteVerified({workspace_id:body.workspace_id,project_id:body.project_id,task_id:before.task_id,candidate_id:before.candidate_id,review_id:before.review_id,preview_id:before.preview_id,preview_digest:before.preview_digest,op_id:before.op_id},current);
     }
-    return {patch:publicPatch(current),recovery:recoveryView(body,current),idempotent:false};
+    const projected=project.active===false?publicPatchSummary(current):publicPatch(current);
+    return {patch:projected,recovery:recoveryView(body,current),idempotent};
   }
   function acknowledgeUnknown(body){
-    recoveryScope(body);execution.acknowledgePatchArtifactUnknown({workspace_id:body.workspace_id,project_id:body.project_id,artifact_id:body.artifact_id,expected_digest:body.expected_digest,known_externally_terminated:body.known_externally_terminated});
-    const patch=data.get('patches',body.workspace_id,body.project_id,body.artifact_id);return {patch:publicPatch(patch),recovery:recoveryView(body,patch)};
+    const project=recoveryScope(body);execution.acknowledgePatchArtifactUnknown({workspace_id:body.workspace_id,project_id:body.project_id,artifact_id:body.artifact_id,expected_digest:body.expected_digest,known_externally_terminated:body.known_externally_terminated});
+    const patch=data.get('patches',body.workspace_id,body.project_id,body.artifact_id);return {patch:project.active===false?publicPatchSummary(patch):publicPatch(patch),recovery:recoveryView(body,patch)};
   }
   function cancelCheck(body){
-    recoveryScope(body);const result=execution.cancelPatchArtifact({workspace_id:body.workspace_id,project_id:body.project_id,artifact_id:body.artifact_id}),patch=data.get('patches',body.workspace_id,body.project_id,body.artifact_id);return {patch:publicPatch(patch),recovery:recoveryView(body,patch),cancellation:result};
+    const project=recoveryScope(body),result=execution.cancelPatchArtifact({workspace_id:body.workspace_id,project_id:body.project_id,artifact_id:body.artifact_id}),patch=data.get('patches',body.workspace_id,body.project_id,body.artifact_id);return {patch:project.active===false?publicPatchSummary(patch):publicPatch(patch),recovery:recoveryView(body,patch),cancellation:result};
   }
   async function dispatch(body){
     if(!validatePatchRequest(body))return null;

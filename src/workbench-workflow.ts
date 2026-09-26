@@ -11,6 +11,7 @@ export function mountWorkbenchWorkflow(args:{container:HTMLElement;token:string|
   const previewView=el('div'),patchView=el('div'),recipeView=el('div'),patchInventory=el('div','workbench-patch-inventory');
   let integrationPreview:Preview|null=null,recipePreview:Preview|null=null,recipeName:'project_focus'|'investigate'|'implement'|'review'|'return'='project_focus';
   let patchPreview:PatchPreview|null=null,patchArtifactId='',patchRecords:Reply[]=[],patchAfterId:string|null=null,patchBefore:(string|null)[]=[],patchList:Reply={};
+  let historicalView=false;
   const savedPatch=el('select');savedPatch.setAttribute('aria-label','Saved private patch artifact');
   const terminated=el('input');terminated.type='checkbox';terminated.setAttribute('aria-label','I independently confirmed the patch verifier has terminated');
   let integrationOperation='';
@@ -118,12 +119,13 @@ export function mountWorkbenchWorkflow(args:{container:HTMLElement;token:string|
   }
   terminated.addEventListener('change',showSelectedPatch);
   savedPatch.addEventListener('change',showSelectedPatch);
-  function installPatchList(reply:Reply,preferArtifactId?:string){
+  function installPatchList(reply:Reply,preferArtifactId?:string,historical=historicalView){
+    historicalView=historical;
     patchList=reply;patchRecords=(reply.patches??[]) as Reply[];const selected=preferArtifactId??savedPatch.value;savedPatch.replaceChildren();
     for(const record of patchRecords){const id=String(record.artifact_id??record.id),option=el('option','',`${record.created_at??''} · ${record.task_id} · ${record.status} · ${id}`);option.value=id;savedPatch.append(option);}
     if(patchRecords.some((record:Reply)=>String(record.artifact_id??record.id)===selected))savedPatch.value=selected;else if(patchRecords.length)savedPatch.selectedIndex=0;
     olderPatchPage.disabled=reply.truncated!==true||typeof reply.next_after_id!=='string';newerPatchPage.disabled=!patchBefore.length;
-    const listNotice=el('p','',reply.truncated===true?`Showing ${patchRecords.length} receipts from ${reply.total_count} total; older receipts are available on the next page.`:`Showing ${patchRecords.length} receipts on this page.`);
+    const listNotice=el('p','',`${historical?'Historical recovery view · project access is unavailable; candidate, integration, and export controls are disabled. ':''}${reply.truncated===true?`Showing ${patchRecords.length} receipts from ${reply.total_count} total; older receipts are available on the next page.`:`Showing ${patchRecords.length} receipts on this page.`}`);
     const terminationLabel=el('label');terminationLabel.append(el('span','','I independently confirmed the patch verifier has terminated '),terminated);
     showSelectedPatch();patchInventory.replaceChildren(el('h4','','Persisted private patch receipts'),listNotice,refreshPatchReceipts,newerPatchPage,olderPatchPage,savedPatch,downloadPatch,finalizePatch,cancelPatchCheck,terminationLabel,acknowledgePatchUnknown,patchView);
   }
@@ -172,7 +174,16 @@ export function mountWorkbenchWorkflow(args:{container:HTMLElement;token:string|
     const [state,inventory,patches]=await Promise.all([
       requestIndependent({action:'integration_list'}),requestIndependent({action:'retention_plan'}),requestIndependent({action:'patch_list',...(patchAfterId?{after_id:patchAfterId}:{})}),
     ]);
-    if(!state||!inventory||!patches||closed||ticket!==refreshGeneration)return;
+    if(closed||ticket!==refreshGeneration)return;
+    if(patches)installPatchList(patches,undefined,!state||!inventory);
+    if(!state||!inventory){
+      integrationPreview=null;patchPreview=null;candidateSelect.replaceChildren();candidateSelect.disabled=true;
+      previewIntegration.disabled=true;confirmIntegration.disabled=true;previewPatch.disabled=true;confirmPatch.disabled=true;downloadPatch.disabled=true;
+      previewView.replaceChildren();patchView.replaceChildren();retention.replaceChildren(el('h3','','Retention inventory'),el('p','','Active project details are unavailable. Only scoped historical patch receipt recovery is shown.'));
+      status.textContent='Project access unavailable · historical patch recovery only.';return;
+    }
+    if(!patches)return;
+    candidateSelect.disabled=false;previewIntegration.disabled=true;previewPatch.disabled=true;
     const bearer=typeof args.token==='function'?args.token():args.token,controller=new AbortController();controllers.add(controller);let executionState:Reply|null=null;
     try{const response=await fetch('/api/workbench/execution',{method:'POST',headers:{Authorization:`Bearer ${bearer}`,'Content-Type':'application/json'},body:JSON.stringify({action:'execution_state',workspace_id:args.workspace_id,project_id:args.project_id}),signal:controller.signal});const value=await response.json() as Reply;if(response.ok&&bearer===(typeof args.token==='function'?args.token():args.token))executionState=value;}catch{}finally{controllers.delete(controller);}
     if(closed||ticket!==refreshGeneration)return;
@@ -182,9 +193,8 @@ export function mountWorkbenchWorkflow(args:{container:HTMLElement;token:string|
     for(const review of reviews??[])if(review.decision==='approved'){const option=el('option','',`${review.candidate_id} · review ${review.id}`);option.value=`${review.candidate_id}:${review.id}:${review.task_id}`;candidateSelect.append(option);}
     const preferred=args.candidate?.();candidateSelect.value=selected||`${preferred?.id??''}:${preferred?.review_id??''}`;
      if(!candidateSelect.value&&candidateSelect.options.length)candidateSelect.selectedIndex=0;
-     previewIntegration.disabled=!candidateSelect.value;
-    installPatchList(patches);
-     retention.replaceChildren(el('h3','','Retention inventory'),field('Private record counts',inventory.counts),field('Private integration artifacts',state.integrations),field('Cleanup plan',inventory.reason),field('Deletions',inventory.deletions));
+      previewIntegration.disabled=!candidateSelect.value;previewPatch.disabled=!candidateSelect.value;
+      retention.replaceChildren(el('h3','','Retention inventory'),field('Private record counts',inventory.counts),field('Private integration artifacts',state.integrations),field('Cleanup plan',inventory.reason),field('Deletions',inventory.deletions));
     if(!busy)status.textContent='Workflow ready. Actions require explicit preview and confirmation.';
   }
   void refresh();

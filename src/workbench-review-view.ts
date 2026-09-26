@@ -63,7 +63,7 @@ export function mountWorkbenchReviewView(body:HTMLElement,args:Args):{refresh():
     else explanation.append(el('p','','No recorded worker explanation is available for this candidate. Explanations and model claims never substitute for check evidence.'));
     const human=el('section','workbench-review-owner');human.append(el('h4','','Human review'),textField('Decision',review.decision),textField('Review identity',review.review_identity),textField('Reviewed evidence IDs',review.evidence_ids??[]),textField('Freshness',complete?'Approved identity and all current required checks match.':'Review/evidence must be refreshed before relying on this view.'));
     view.replaceChildren(summary,left,right,explanation,human);
-    status.textContent=`Exact review loaded · candidate ${candidate.id} generation ${candidate.generation} · required checks ${complete?'complete':'incomplete'} · artifact verifier ${artifactChecksSupported?'available':'unsupported for profile-bound checks'}.`;
+    status.textContent=`Review ready · ${passed}/${checks.length} required checks pass · artifact verification ${artifactChecksSupported?'supported':'unsupported for profile-bound checks'}.`;
   }
   async function refresh(){
     if(closed)return;const {ticket}=next();error.textContent='';status.textContent='Loading exact candidate reviews…';
@@ -71,7 +71,7 @@ export function mountWorkbenchReviewView(body:HTMLElement,args:Args):{refresh():
       executionState=await api('execution',{action:'execution_state'},ticket);if(!current(ticket))return;
       const approved=(executionState.reviews??[]).filter((review:Data)=>review.decision==='approved').map((review:Data)=>({review,candidate:(executionState.candidates??[]).find((entry:Data)=>entry.id===review.candidate_id&&entry.hash===review.candidate_hash)})).filter((pair:{review:Data;candidate:Data|undefined}):pair is {review:Data;candidate:Data}=>!!pair.candidate);
       const previous=selectedKey;candidates.replaceChildren();
-      for(const pair of approved){const task=(executionState.tasks??[]).find((item:Data)=>item.id===pair.candidate.task_id),value=JSON.stringify({candidate_id:pair.candidate.id,review_id:pair.review.id,task_id:pair.candidate.task_id}),option=el('option','',`${task?.title??'Task'} · candidate ${pair.candidate.id} · generation ${pair.candidate.generation} · review ${pair.review.id}`);option.value=value;candidates.append(option);}
+      for(const pair of approved){const task=(executionState.tasks??[]).find((item:Data)=>item.id===pair.candidate.task_id),value=JSON.stringify({candidate_id:pair.candidate.id,review_id:pair.review.id,task_id:pair.candidate.task_id}),option=el('option','',`${task?.title??'Task'} · gen ${pair.candidate.generation}`);option.title=`Candidate ${pair.candidate.id} · review ${pair.review.id}`;option.value=value;candidates.append(option);}
       if(Array.from(candidates.options).some(option=>option.value===previous))candidates.value=previous;selectedKey=candidates.value;
       if(!selectedKey){view.replaceChildren(el('p','','No approved candidate/review pair matches a current candidate version.'));status.textContent='No current approved candidate review.';return;}
       await renderSelected(ticket);
@@ -79,7 +79,8 @@ export function mountWorkbenchReviewView(body:HTMLElement,args:Args):{refresh():
   }
   candidates.addEventListener('change',()=>{selectedKey=candidates.value;void refresh();});
   const refreshButton=button('Refresh exact candidate review','Revalidate candidate, frozen checks, review, and worker explanation',()=>void refresh());
-  body.replaceChildren(el('h3','','Candidate review'),status,error,candidates,refreshButton,view);
+  const panel=el('div','workbench-review-panel');panel.append(el('h3','','Candidate review'),status,error,candidates,refreshButton,view);
+  body.replaceChildren(panel);
   void refresh();
   return {refresh,dispose(){closed=true;generation++;controller?.abort();controller=null;view.replaceChildren();body.replaceChildren();}};
 }

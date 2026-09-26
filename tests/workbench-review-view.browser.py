@@ -81,13 +81,18 @@ def main():
                         page.route('**/api/workbench/execution', api)
                         page.route('**/api/workbench/workflow', api)
                         page.route('**/api/workbench/native', api)
-                        page.goto(origin)
+                        page.goto(origin + '/?renderer=docking')
                         page.evaluate("""async () => {
                           const {mountWorkbenchReviewView}=await import('/src/workbench-review-view.ts');
-                          const container=document.createElement('main');container.style.cssText='width:560px;height:320px;overflow:hidden;border:1px solid #888';document.body.replaceChildren(container);
-                          window.reviewPanel=mountWorkbenchReviewView(container,{paneId:'review-pane-fixture',getToken:()=> 'fixture-owner-token',workspace_id:""" + repr(WORKSPACE) + """,project_id:""" + repr(PROJECT) + """});
+                          const container=document.createElement('main');container.style.cssText='width:630px;height:510px;overflow:hidden';
+                          const monitor=document.createElement('section');monitor.className='monitor';monitor.style.cssText='display:flex;width:622px;height:504px;font-size:19px';
+                          const content=document.createElement('div');content.className='monitor-content';
+                          const pane=document.createElement('div');pane.className='pane';
+                          const head=document.createElement('div');head.className='pane-head';head.style.height='40px';
+                          const body=document.createElement('div');body.className='pane-body';pane.append(head,body);content.append(pane);monitor.append(content);container.append(monitor);document.body.replaceChildren(container);
+                          window.reviewPanel=mountWorkbenchReviewView(body,{paneId:'review-pane-fixture',getToken:()=> 'fixture-owner-token',workspace_id:""" + repr(WORKSPACE) + """,project_id:""" + repr(PROJECT) + """});
                         }""")
-                        expect(page.locator('.workbench-review-status')).to_contain_text('required checks complete')
+                        expect(page.locator('.workbench-review-status')).to_contain_text('2/2 required checks pass')
                         expect(page.get_by_role('heading', name='Exact candidate diff')).to_be_visible()
                         expect(page.get_by_role('heading', name='Required checks and evidence')).to_be_visible()
                         expect(page.get_by_text('node-test', exact=True)).to_be_visible()
@@ -96,7 +101,7 @@ def main():
                         assert page.locator('.workbench-review-diff-text script').count() == 0
                         expect(page.locator('.workbench-review-summary')).to_contain_text('Repair sum')
                         expect(page.locator('.workbench-review-verdict').filter(has_text='PASS').first).to_be_visible()
-                        clip = page.locator('main').bounding_box()
+                        clip = page.locator('.pane-body').bounding_box()
                         for selector in ('.workbench-review-diff-text', '.workbench-review-verdict'):
                             box = page.locator(selector).first.bounding_box()
                             assert clip['y'] <= box['y'] < clip['y'] + clip['height'], (selector, clip, box)
@@ -111,16 +116,17 @@ def main():
                         assert not any(call['action'] in ('patch_export', 'patch_finalize_retry', 'patch_check_cancel', 'patch_acknowledge_unknown') for _, call in seen)
                         page.evaluate('window.reviewPanel.dispose()')
                         page.evaluate("""async () => {
-                          window.workflowRequests=[];window.exportStartedResolve=null;window.reviewEventDetail=null;
+                          window.workflowRequests=[];window.exportStartedResolve=null;window.reviewEventDetail=null;window.revokedMode=false;
                           window.addEventListener('orbit-open-workbench-review',event=>window.reviewEventDetail=event.detail);
                           window.exportStarted=new Promise(resolve=>window.exportStartedResolve=resolve);
                           const respond=value=>Promise.resolve(new Response(JSON.stringify({ok:true,...value}),{status:200,headers:{'Content-Type':'application/json'}}));
                           window.fetch=(url,init={})=>{
                             const body=JSON.parse(init.body||'{}'),action=body.action;window.workflowRequests.push(action);
+                            if(window.revokedMode&&['integration_list','retention_plan'].includes(action))return Promise.resolve(new Response(JSON.stringify({ok:false,code:'permission_denied'}),{status:403,headers:{'Content-Type':'application/json'}}));
                             if(url.endsWith('/execution'))return respond({reviews:[{id:REVIEW,candidate_id:CANDIDATE,task_id:TASK,decision:'approved'}]});
                             if(action==='integration_list')return respond({integrations:[]});
                             if(action==='retention_plan')return respond({counts:{},integrations:[],deletions:[],reason:'No deletion'});
-                            if(action==='patch_list')return respond(body.op_id||window.exportResolve?{patches:[{artifact_id:'99999999-9999-4999-8999-999999999999',task_id:TASK,candidate_id:CANDIDATE,candidate_hash:HASH,candidate_generation:4,review_id:REVIEW,status:'verifying',artifact_hash:HASH,bytes:1,created_at:1,verification_status:'pending',recovery:{recovery_digest:HASH,recoverable:false,process_owned:true}}],total_count:1,truncated:false,next_after_id:null}:{patches:[],total_count:0,truncated:false,next_after_id:null});
+                            if(action==='patch_list')return respond(window.revokedMode?{patches:[{artifact_id:'99999999-9999-4999-8999-999999999999',task_id:TASK,candidate_id:CANDIDATE,candidate_hash:HASH,candidate_generation:4,review_id:REVIEW,status:'verification_pending',artifact_hash:HASH,bytes:1,created_at:1,verification_status:'verified',recovery:{recovery_digest:HASH,recoverable:true,process_owned:false}}],total_count:1,truncated:false,next_after_id:null}:body.op_id||window.exportResolve?{patches:[{artifact_id:'99999999-9999-4999-8999-999999999999',task_id:TASK,candidate_id:CANDIDATE,candidate_hash:HASH,candidate_generation:4,review_id:REVIEW,status:'verifying',artifact_hash:HASH,bytes:1,created_at:1,verification_status:'pending',recovery:{recovery_digest:HASH,recoverable:false,process_owned:true}}],total_count:1,truncated:false,next_after_id:null}:{patches:[],total_count:0,truncated:false,next_after_id:null});
                             if(action==='patch_preview')return respond({preview_id:'66666666-6666-4666-8666-666666666666',preview_digest:'e'.repeat(64),expires_at:Date.now()+60000,patch_text:'--- a/math.js\\n+++ b/math.js\\n-old\\n+new',format:'git-unified-diff',source:{manifest_hash:HASH},candidate:{hash:HASH},review:{},changes:[],exclusions:[],unsupported:[],roundtrip:{verified:true},bytes:30,artifact_hash:HASH});
                             if(action==='patch_export'){window.exportStartedResolve();return new Promise(resolve=>window.exportResolve=()=>resolve(new Response(JSON.stringify({ok:true,patch:{artifact_id:'99999999-9999-4999-8999-999999999999',status:'available',artifact_hash:HASH,bytes:1,roundtrip:{verified:true},verification:{status:'verified'},changes:[]}}),{status:200,headers:{'Content-Type':'application/json'}})));}
                             if(action==='patch_check_cancel')return respond({cancellation:{requested:true},patch:{status:'verifying'},recovery:{process_owned:true}});
@@ -140,6 +146,19 @@ def main():
                         page.wait_for_function("window.workflowRequests.includes('patch_check_cancel')")
                         assert page.evaluate("window.workflowRequests.indexOf('patch_check_cancel') > window.workflowRequests.indexOf('patch_export')")
                         page.evaluate('window.exportResolve()')
+                        page.evaluate('window.workflowPanel.dispose()')
+                        page.evaluate("""async () => {
+                          window.workflowRequests=[];window.revokedMode=true;
+                          const {mountWorkbenchWorkflow}=await import('/src/workbench-workflow.ts');
+                          window.workflowPanel=mountWorkbenchWorkflow({container:document.querySelector('main'),token:()=> 'fixture-owner-token',workspace_id:WORKSPACE,project_id:PROJECT});
+                        }""".replace('WORKSPACE',repr(WORKSPACE)).replace('PROJECT',repr(PROJECT)))
+                        expect(page.locator('.workbench-patch-inventory')).to_contain_text('Historical recovery view')
+                        expect(page.locator('.workbench-patch-inventory option')).to_have_count(1)
+                        expect(page.locator('button', has_text='Finalize recorded patch checks')).to_be_enabled()
+                        expect(page.locator('button', has_text='Preview private integration')).to_be_disabled()
+                        assert 'execution_state' not in page.evaluate('window.workflowRequests')
+                        page.locator('button', has_text='Finalize recorded patch checks').click()
+                        page.wait_for_function("window.workflowRequests.includes('patch_finalize_retry')")
                         page.evaluate('window.workflowPanel.dispose()')
                         browser.close()
                 finally:

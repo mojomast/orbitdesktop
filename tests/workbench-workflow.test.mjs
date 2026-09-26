@@ -110,6 +110,7 @@ test('project focus preserves pane identities and return requires an unchanged w
   assert.equal(focused.workspace.state.monitors[0].id,before.state.monitors[1].id);
   assert.deepEqual(focused.workspace.state.monitors.map(m=>m.layout.pane.id).sort(),before.state.monitors.map(m=>m.layout.pane.id).sort());
   const returning=await f.flow('recipe_preview',{recipe:'return'});
+  assert.match(returning.warning,/Restores the exact workspace state and Docking placement/);
   const restored=await f.flow('recipe_apply',{recipe:'return',preview_id:returning.preview_id,preview_digest:returning.preview_digest,op_id:randomUUID()});
   assert.deepEqual(restored.workspace.state.monitors.map(m=>m.id),before.state.monitors.map(m=>m.id));
   await assert.rejects(f.flow('recipe_preview',{recipe:'return'}),{code:'stale_resource'});
@@ -122,6 +123,8 @@ test('Review targets only the bound trusted window, floats it beside the agent, 
   f.store.commit(commandIdentity({workspace_id:f.workspace_id,action:'apply',operations:[],base_revision:first.revision,operation_id:randomUUID()},'owner'),{apply:value=>{const state=structuredClone(value.state);const visit=node=>node.type==='pane'?(node.pane.id===reviewPane?Object.assign(node.pane,{kind:'browser',url:'orbit://workbench-review'}):undefined):(visit(node.first),visit(node.second));visit(state.monitors.find(item=>item.id===ids[1]).layout);state.monitors[0].frame={x:80,y:60,width:480,height:360,z:2};state.monitors[1].frame={x:12,y:20,width:450,height:300,z:1};return state;}});
   await ownerSavePlacement(f,{version:1,layout:{type:'group',windows:[ids[0],ids[1]]},floats:[{windows:[ids[2]],frame:{x:700,y:40,width:320,height:240},active:ids[2]}],active:ids[0]});
   const before=f.store.read(f.workspace_id),priorState=structuredClone(before.state),priorPlacement=structuredClone(before.placement);
+  const genericDiff=f.records.resource(f.project.id,'generic-diff.js',{kind:'file',hash:'3'.repeat(64),identity:'generic-diff',state:'available'});
+  f.records.bind({workspace_id:f.workspace_id,project_id:f.project.id,resource_id:genericDiff.id,pane_id:pane(before.state.monitors[0]),base_revision:before.revision,role:'candidate_diff'});
   const file=f.records.resource(f.project.id,'review-diff.js',{kind:'file',hash:'1'.repeat(64),identity:'review-diff',state:'available'});
   const agent=f.records.resource(f.project.id,'review-agent',{kind:'conversation',hash:'2'.repeat(64),identity:'review-agent',state:'available'});
   f.records.bind({workspace_id:f.workspace_id,project_id:f.project.id,resource_id:file.id,pane_id:pane(before.state.monitors[1]),base_revision:before.revision,role:'candidate_diff'});
@@ -140,10 +143,25 @@ test('Review targets only the bound trusted window, floats it beside the agent, 
   assert.deepEqual(applied.workspace.placement.floats.find(item=>item.windows.includes(ids[2])),priorPlacement.floats[0],'unrelated owner float remains exact');
   assert.ok(applied.workspace.placement.layout.windows.includes(ids[0]));assert.ok(!applied.workspace.placement.layout.windows.includes(ids[1]));
   const returning=await f.flow('recipe_preview',{recipe:'return'});
+  assert.match(returning.warning,/Restores the exact workspace state and Docking placement/);assert.equal(returning.operations[0].action,'restore_review_arrangement');
   const restored=await f.flow('recipe_apply',{recipe:'return',preview_id:returning.preview_id,preview_digest:returning.preview_digest,op_id:randomUUID()});
   assert.deepEqual(restored.workspace.state,priorState);assert.deepEqual(restored.workspace.placement,priorPlacement);
   await assert.rejects(f.flow('recipe_preview',{recipe:'return'}),{code:'stale_resource'});
   const current=f.store.read(f.workspace_id),wrongUrl=structuredClone(current.state);const alter=node=>node.type==='pane'?(node.pane.id===reviewPane?node.pane.url='orbit://generic-browser':undefined):(alter(node.first),alter(node.second));alter(wrongUrl.monitors.find(item=>item.id===ids[1]).layout);
   f.store.commit(commandIdentity({workspace_id:f.workspace_id,action:'apply',operations:[],base_revision:current.revision,operation_id:randomUUID()},'owner'),{apply:()=>wrongUrl});
   await assert.rejects(f.flow('recipe_preview',{recipe:'review',width:1400,height:900}),{code:'unsupported'});
+});
+
+test('Review arrangement refuses multiple exact trusted Review bindings instead of choosing the first',async t=>{
+  const f=fixture(t),before=f.store.read(f.workspace_id),windows=before.state.monitors;
+  const paneIds=windows.map(window=>{const visit=node=>node.type==='pane'?node.pane.id:visit(node.first);return visit(window.layout);});
+  f.store.commit(commandIdentity({workspace_id:f.workspace_id,action:'apply',operations:[],base_revision:before.revision,operation_id:randomUUID()},'owner'),{apply:value=>{const state=structuredClone(value.state);for(const window of state.monitors.slice(0,2)){const pane=window.layout.pane;pane.kind='browser';pane.url='orbit://workbench-review';}return state;}});
+  const state=f.store.read(f.workspace_id);
+  for(let index=0;index<2;index++){
+    const resource=f.records.resource(f.project.id,`trusted-review-${index}`,{kind:'file',hash:String(index+4).repeat(64),identity:`trusted-${index}`,state:'available'});
+    f.records.bind({workspace_id:f.workspace_id,project_id:f.project.id,resource_id:resource.id,pane_id:paneIds[index],base_revision:state.revision,role:'candidate_diff'});
+  }
+  const agent=f.records.resource(f.project.id,'agent-anchor',{kind:'conversation',hash:'9'.repeat(64),identity:'agent-anchor',state:'available'});
+  f.records.bind({workspace_id:f.workspace_id,project_id:f.project.id,resource_id:agent.id,pane_id:paneIds[2],base_revision:state.revision,role:'primary_agent'});
+  await assert.rejects(f.flow('recipe_preview',{recipe:'review',width:1200,height:800}),{code:'conflict'});
 });

@@ -178,12 +178,14 @@ export function createWorkbenchWorkflow({store,records,data,execution,now=Date.n
     if(body.recipe==='return'){
       operations=[{action:'set_workspace',state:saved.state}];nextPlacement=saved.placement;
     }else if(body.recipe==='review'){
-      const boundPane=(role,urlRequired=false)=>{
-        const binding=bindings.find(item=>item.role===role);if(!binding)return null;
-        for(const monitor of workspace.state.monitors){let found=null;const visit=node=>{if(node.type==='pane'){if(node.pane.id===binding.pane_id)found=node.pane;}else{visit(node.first);visit(node.second);}};visit(monitor.layout);if(found&&(!urlRequired||found.kind==='browser'&&found.url==='orbit://workbench-review'))return {monitor,pane:found};}
-        return null;
-      };
-      const review=boundPane('candidate_diff',true),anchor=boundPane('primary_agent');
+      const boundPanes=(role,predicate=()=>true)=>bindings.filter(item=>item.role===role).flatMap(binding=>{
+        for(const monitor of workspace.state.monitors){let found=null;const visit=node=>{if(node.type==='pane'){if(node.pane.id===binding.pane_id)found=node.pane;}else{visit(node.first);visit(node.second);}};visit(monitor.layout);if(found&&predicate(found))return [{monitor,pane:found,binding}];}
+        return [];
+      });
+      const trustedReviews=boundPanes('candidate_diff',pane=>pane.kind==='browser'&&pane.url==='orbit://workbench-review');
+      const anchors=boundPanes('primary_agent');
+      if(trustedReviews.length>1||anchors.length>1)throw wbError('conflict');
+      const review=trustedReviews[0]??null,anchor=anchors[0]??null;
       if(!review||!anchor||review.monitor.id===anchor.monitor.id)throw wbError('unsupported');
       const target=review.monitor,origin=anchor.monitor;
       const anchorFrame=origin.frame??{x:24,y:18,width:Math.min(740,body.width-60),height:Math.min(510,body.height-90),z:0};
@@ -205,7 +207,12 @@ export function createWorkbenchWorkflow({store,records,data,execution,now=Date.n
     const preview_id=randomUUID(),preview_digest=digest(identity),expires_at=now()+TTL;
     previews.set(preview_id,{identity,preview_digest,expires_at});
     const previewOperations=body.recipe==='return'?[{action:'restore_review_arrangement',revision:saved.applied_revision}]:operations;
-    return {preview_id,preview_digest,expires_at,base_revision:workspace.revision,operations:previewOperations,changed:JSON.stringify(state)!==JSON.stringify(workspace.state)||JSON.stringify(nextPlacement)!==JSON.stringify(placement),warning:body.recipe==='review'?'Targets only the bound orbit://workbench-review window, positioning it beside primary_agent when measured space permits. The Docking float placement is updated without changing other placements. Return restores the exact previous workspace frame/view/selection and Docking placement under revision CAS.': 'Explicit workspace revision CAS. Reorders existing windows only; pane IDs and contents stay the same. Browser continuity depends on native moveBefore support.'};
+    const warning=body.recipe==='review'
+      ?'Targets only the uniquely bound orbit://workbench-review window, positioning it beside primary_agent when measured space permits. The Docking float placement is updated without changing other placements. Return restores the exact previous workspace frame/view/selection and Docking placement under revision CAS.'
+      :body.recipe==='return'
+        ?'Restores the exact workspace state and Docking placement saved before the previous arrangement under revision CAS. Any intervening workspace revision prevents return.'
+        :'Explicit workspace revision CAS. Reorders existing windows only; pane IDs and contents stay the same. Browser continuity depends on native moveBefore support.';
+    return {preview_id,preview_digest,expires_at,base_revision:workspace.revision,operations:previewOperations,changed:JSON.stringify(state)!==JSON.stringify(workspace.state)||JSON.stringify(nextPlacement)!==JSON.stringify(placement),warning};
   }
   function recipeApply(body){
     const issued=previews.get(body.preview_id);if(!issued||issued.expires_at<=now())throw wbError('expired');
