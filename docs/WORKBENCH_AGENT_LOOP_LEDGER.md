@@ -110,6 +110,13 @@ linked roots, prepared profiles, reviewed branches and recipe controls. The
 portable archive includes the native plugin and generated model-tool schema.
 GitHub CI for the final published release commit is tracked separately below.
 
+Final integration review found one additional cross-tab seam: Git observation
+awaits subprocesses, so a new check could be admitted after the initial review
+validation. The commit path now rechecks the complete latest evidence set and
+in-flight jobs after that await. The deterministic real-Git regression admits a
+second check during review and requires refusal; **19/19** workflow/loop tests
+pass (`/tmp/opencode/comet-review-race-check.log`).
+
 - No authorized paid/real model or live deployment was exercised. No credentials
   were borrowed, service restarted, owner runtime migrated or tokens rotated.
 - The isolated model toolset denies host-tool fallback, but candidate test code

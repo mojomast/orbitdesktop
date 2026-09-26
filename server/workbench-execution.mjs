@@ -666,6 +666,11 @@ export function createWorkbenchExecution({store,records,data,gate,environments,n
       if(observation.state!=='available')throw wbError('unsupported');
       source_repository={head:observation.head,head_reference:observation.head_reference};
       if(requireActive(workspace_id,project_id).generation!==project.generation||candidateRecord(workspace_id,project_id,candidate_id).hash!==candidate.hash||task(workspace_id,project_id,ownerTask.id).acceptance_digest!==ownerTask.acceptance_digest||rehashCandidate(candidate).hash!==candidate.hash||targetChanged(captureSource(workspace_id,project_id),candidate))throw wbError('stale_resource');
+      // Repository observation awaits bounded subprocesses. Another tab may have
+      // admitted a newer check meanwhile; revalidate the entire verdict at commit.
+      const latest=latestAcceptanceEvidence(workspace_id,project_id,candidate,ownerTask);
+      if(latest.some(entry=>!entry)||latest.length!==chosen.length||latest.some(entry=>!chosen.some(selected=>selected.id===entry.id)))throw wbError('stale_resource');
+      if(data.list('jobs',workspace_id,project_id).some(job=>job.candidate_id===candidate.id&&(inFlight.has(job.id)||job.status==='finalization_pending'||job.status==='outcome_unknown'&&!job.acknowledged)))throw wbError('busy');
     }
     const existing=data.list('reviews',workspace_id,project_id).find(entry=>entry.review_identity===identity&&entry.decision===decision&&digest(entry.source_repository??null)===digest(source_repository));
     if(existing)return {review:publicReview(existing),idempotent:true};

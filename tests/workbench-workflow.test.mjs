@@ -71,6 +71,11 @@ test('a branch change at the same HEAD after review requires fresh review before
   assert.match(review.source_repository.head_reference,/^ref: refs\/heads\//);
   git(f.projectRoot,'checkout','-b','other-reviewed-target');assert.equal(git(f.projectRoot,'rev-parse','HEAD'),review.source_repository.head);
   await assert.rejects(f.flow('integration_preview',{candidate_id:candidate.id,review_id:review.id}),{code:'stale_resource'});
+  const next=await f.call('check_preview',{candidate_id:candidate.id,definition_id:'host-regression'});
+  const reviewing=f.call('review_decide',{candidate_id:candidate.id,evidence_ids:[run.evidence.id],decision:'approved',expected_identity:current.review_identity});
+  const fenced=assert.rejects(reviewing,error=>['stale_resource','busy'].includes(error.code));
+  await f.call('check_run',{candidate_id:candidate.id,preview_id:next.preview_id,preview_digest:next.preview.spec_digest,op_id:randomUUID()});
+  await fenced;
 });
 
 test('source drift and strict unknown fields refuse integration without touching original',async t=>{
