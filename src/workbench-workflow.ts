@@ -5,10 +5,11 @@ type Preview = {preview_id:string;preview_digest:string;expires_at:number};
 export function mountWorkbenchWorkflow(args:{container:HTMLElement;token:string|(()=>string);workspace_id:string;project_id:string;candidate?:()=>{id:string;review_id:string}|null;onError?:(message:string)=>void}):{refresh():Promise<void>;dispose():void}{
   const status=el('p','','Workflow: loading…');status.setAttribute('role','status');
   const error=el('p');error.setAttribute('role','alert');
-  const integration=el('section'),recipes=el('section'),retention=el('section');
+  const integration=el('section'),patch=el('section'),recipes=el('section'),retention=el('section');
   const candidateSelect=el('select');candidateSelect.setAttribute('aria-label','Approved candidate and review');
-  const previewView=el('div'),recipeView=el('div');
+  const previewView=el('div'),patchView=el('div'),recipeView=el('div');
   let integrationPreview:Preview|null=null,recipePreview:Preview|null=null,recipeName:'project_focus'|'investigate'|'implement'|'review'|'return'='project_focus';
+  let patchPreview:Preview|null=null,patchArtifactId='';
   let integrationOperation='';
   let closed=false,busy=false,epoch=0;const controllers=new Set<AbortController>();
   const field=(name:string,value:unknown)=>el('p','',`${name}: ${typeof value==='string'?value:JSON.stringify(value??null)}`);
@@ -50,6 +51,28 @@ export function mountWorkbenchWorkflow(args:{container:HTMLElement;token:string|
       void refresh();
     });
   });confirmIntegration.disabled=true;
+  const previewPatch=button('Preview reviewed patch','Build and verify an exact private patch for this reviewed candidate',()=>{
+    const [candidate_id,review_id,task_id]=candidateSelect.value.split(':');if(!candidate_id||!review_id||!task_id)return;
+    void act('Reviewed patch preview',{action:'patch_preview',task_id,candidate_id,review_id},reply=>{
+      patchPreview=reply as Preview;patchArtifactId='';
+      patchView.replaceChildren(field('Format',reply.format),field('Source identity',reply.source),field('Candidate identity',reply.candidate),field('Reviewed checks and evidence',reply.review),field('Exact changes',reply.changes),field('Exclusions (not deletions)',reply.exclusions),field('Unsupported changes',reply.unsupported),field('Round-trip verification',reply.roundtrip),field('Patch bytes / SHA-256',`${reply.bytes} / ${reply.artifact_hash}`),field('Preview digest',reply.preview_digest));
+      confirmPatch.disabled=false;
+    });
+  });
+  const confirmPatch=button('Create private verified patch','Persist the exact previewed patch in the private authenticated artifact store',()=>{
+    if(!patchPreview)return;const [candidate_id,review_id,task_id]=candidateSelect.value.split(':');if(!candidate_id||!review_id||!task_id)return;
+    void act('Exporting verified patch',{action:'patch_export',task_id,candidate_id,review_id,preview_id:patchPreview.preview_id,preview_digest:patchPreview.preview_digest,op_id:crypto.randomUUID()},reply=>{
+      const record=reply.patch as Reply;patchArtifactId=String(record.artifact_id??record.id??'');patchPreview=null;confirmPatch.disabled=true;
+      patchView.replaceChildren(field('Status',record.status),field('Private artifact ID',patchArtifactId),field('SHA-256 / bytes',`${record.artifact_hash} / ${record.bytes}`),field('Round-trip verification',record.roundtrip),field('File changes',record.changes));downloadPatch.disabled=!patchArtifactId||record.status!=='available';
+    });
+  });confirmPatch.disabled=true;
+  const downloadPatch=button('Retrieve private patch','Fetch only this verified artifact through owner-authenticated Workbench API',()=>{
+    if(!patchArtifactId)return;void act('Retrieving verified patch',{action:'private_patch_get',artifact_id:patchArtifactId},reply=>{
+      const content=typeof reply.patch==='string'?reply.patch:'';
+      if(!content){report('Private patch is unavailable; no partial file was downloaded.');return;}
+      const url=URL.createObjectURL(new Blob([content],{type:'text/x-diff;charset=utf-8'})),anchor=el('a','','Download verified patch');anchor.href=url;anchor.download=`workbench-${patchArtifactId}.patch`;anchor.click();setTimeout(()=>URL.revokeObjectURL(url),0);status.textContent='Downloaded the exact verified private patch. Original files were not changed.';
+    });
+  });downloadPatch.disabled=true;
   function previewRecipe(recipe:'project_focus'|'investigate'|'implement'|'review'|'return'){
     void act('Recipe preview',{action:'recipe_preview',recipe},reply=>{
       recipeName=recipe;recipePreview=reply as Preview;
@@ -62,11 +85,12 @@ export function mountWorkbenchWorkflow(args:{container:HTMLElement;token:string|
       recipePreview=null;applyRecipe.disabled=true;recipeView.replaceChildren(field('Committed workspace revision',(reply.workspace as Reply)?.revision),field('Browser acknowledgement','Pending; inspect connected workspace before claiming visibility.'));
     });
   });applyRecipe.disabled=true;
-  candidateSelect.addEventListener('change',()=>{integrationPreview=null;confirmIntegration.disabled=true;previewView.replaceChildren();});
+  candidateSelect.addEventListener('change',()=>{integrationPreview=null;confirmIntegration.disabled=true;previewView.replaceChildren();patchPreview=null;patchArtifactId='';confirmPatch.disabled=true;downloadPatch.disabled=true;patchView.replaceChildren();});
   integration.append(el('h3','','Private Git integration'),candidateSelect,previewIntegration,previewView,confirmIntegration);
+  patch.append(el('h3','','Verified patch handoff'),el('p','','Exports only the reviewed captured source-to-candidate change. Excluded paths are never inferred as deletions. A disposable exact-base round trip is required; unsupported or oversized artifacts are refused.'),previewPatch,patchView,confirmPatch,downloadPatch);
   recipes.append(el('h3','','Workspace arrangements'),button('Preview Investigate','Preview Investigate arrangement',()=>previewRecipe('investigate')),button('Preview Implement','Preview Implement arrangement',()=>previewRecipe('implement')),button('Preview Review','Preview Review arrangement',()=>previewRecipe('review')),button('Preview return','Restore the previously saved window order',()=>previewRecipe('return')),recipeView,applyRecipe);
   retention.append(el('h3','','Retention inventory'));
-  args.container.replaceChildren(el('h2','','Workflow'),status,error,integration,recipes,retention);
+  args.container.replaceChildren(el('h2','','Workflow'),status,error,integration,patch,recipes,retention);
   async function refresh(){
     if(closed||busy)return;
     const ticket=++epoch;
@@ -75,11 +99,11 @@ export function mountWorkbenchWorkflow(args:{container:HTMLElement;token:string|
     const reviews=(await (async()=>{
       const controller=new AbortController();controllers.add(controller);
       try{const response=await fetch('/api/workbench/execution',{method:'POST',headers:{Authorization:`Bearer ${typeof args.token==='function'?args.token():args.token}`,'Content-Type':'application/json'},body:JSON.stringify({action:'execution_state',workspace_id:args.workspace_id,project_id:args.project_id}),signal:controller.signal});return response.ok?await response.json() as Reply:null;}catch{return null;}finally{controllers.delete(controller);}
-    })())?.reviews as {id:string;candidate_id:string;decision:string}[]|undefined;
+    })())?.reviews as {id:string;candidate_id:string;task_id:string;decision:string}[]|undefined;
     if(closed||ticket!==epoch)return;
     const selected=candidateSelect.value;
     candidateSelect.replaceChildren();
-    for(const review of reviews??[])if(review.decision==='approved'){const option=el('option','',`${review.candidate_id} · review ${review.id}`);option.value=`${review.candidate_id}:${review.id}`;candidateSelect.append(option);}
+    for(const review of reviews??[])if(review.decision==='approved'){const option=el('option','',`${review.candidate_id} · review ${review.id}`);option.value=`${review.candidate_id}:${review.id}:${review.task_id}`;candidateSelect.append(option);}
     const preferred=args.candidate?.();candidateSelect.value=selected||`${preferred?.id??''}:${preferred?.review_id??''}`;
     if(!candidateSelect.value&&candidateSelect.options.length)candidateSelect.selectedIndex=0;
     previewIntegration.disabled=!candidateSelect.value;

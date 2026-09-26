@@ -9,6 +9,8 @@ import {readCandidateFile} from './workbench-candidates.mjs';
 import {applyOperation} from '../src/workspace-ops.ts';
 import {validate} from '../src/model.ts';
 import {commandIdentity} from './command-identity.mjs';
+import {patchRequests,validatePatchRequest} from '../contracts/workbench-result-v1.mjs';
+import {createWorkbenchPatchExport} from './workbench-patch-export.mjs';
 
 const uuid={type:'string',pattern:'^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$'};
 const hash={type:'string',pattern:'^[a-f0-9]{64}$'};
@@ -20,6 +22,7 @@ export const workflowSchema={$schema:'http://json-schema.org/draft-07/schema#',o
   request('integration_list'),request('retention_inventory'),request('retention_plan'),
   request('recipe_preview',{recipe:{enum:['project_focus','investigate','implement','review','return']}}),
   request('recipe_apply',{recipe:{enum:['project_focus','investigate','implement','review','return']},preview_id:uuid,preview_digest:hash,op_id:uuid}),
+  ...Object.values(patchRequests),
 ]};
 const valid=new Ajv({strict:true}).compile(workflowSchema);
 const sha=bytes=>createHash('sha256').update(bytes).digest('hex');
@@ -34,6 +37,7 @@ export function createWorkbenchWorkflow({store,records,data,execution,now=Date.n
   const root=path.join(store.root,'workbench-integration');
   fs.mkdirSync(root,{recursive:true,mode:0o700});
   const previews=new Map(),previousArrangements=new Map();
+  const patchExport=createWorkbenchPatchExport({store,records,data,execution,inspect:actual,now});
   const scope=body=>{store.read(body.workspace_id);return records.project(body.workspace_id,body.project_id);};
   const stale=()=>{throw wbError('stale_resource');};
   async function actual(body){
@@ -173,6 +177,7 @@ export function createWorkbenchWorkflow({store,records,data,execution,now=Date.n
     return {counts,integrations,metrics,policy:'Inventory only. Candidate trees, evidence, receipts, source files, active jobs and unknown records are never removed by this endpoint.'};
   }
   async function dispatch(body){
+    if(validatePatchRequest(body))return patchExport.dispatch(body);
     if(!valid(body))throw wbError('invalid_request');
     switch(body.action){
       case 'integration_preview':return integrationPreview(body);

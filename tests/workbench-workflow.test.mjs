@@ -30,7 +30,7 @@ const git=(folder,...args)=>execFileSync('/usr/bin/git',['-C',folder,...args],{e
 
 test('real approved candidate creates a separate private two-commit Git branch, with durable retry receipt',async t=>{
   const f=fixture(t);
-  assert.equal(workflowSchema.oneOf.length,7);
+  assert.equal(workflowSchema.oneOf.length,10);
   const {task}=await f.call('task_create',{title:'Repair sum',acceptance_statement:'sum returns arithmetic addition',check_definition_id:'host-regression',profile_id:'default',session_id:'fixture'});
   const issued=await f.call('candidate_preview',{task_id:task.id});
   const {candidate}=await f.call('candidate_create',{task_id:task.id,preview_id:issued.preview_id,preview_digest:issued.preview.digest});
