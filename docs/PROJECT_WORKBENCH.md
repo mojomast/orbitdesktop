@@ -244,9 +244,14 @@ The shipped adapter pins Hermes commit
 Bootstrap the pinned source using its `uv.lock` with
 `uv sync --frozen --python 3.14 --no-default-groups`. Configure only an isolated
 authorized instance with `ORBIT_NATIVE_HERMES_SOURCE`, `ORBIT_NATIVE_HERMES_PYTHON`,
-`ORBIT_NATIVE_HERMES_MODEL_URL` (numeric-loopback HTTP endpoint),
+`ORBIT_NATIVE_HERMES_MODEL_URL` (numeric-loopback HTTP endpoint, or exactly
+`https://api.deepseek.com/v1` for explicitly authorized hosted inference),
 `ORBIT_NATIVE_HERMES_PROFILE`, optional `ORBIT_NATIVE_HERMES_MODEL`, and optional
-`ORBIT_NATIVE_HERMES_API_KEY_FILE` for a private endpoint credential. The file
+`ORBIT_NATIVE_HERMES_API_KEY_FILE` for a private endpoint credential. Hosted
+DeepSeek requires that file and explicit model `deepseek-flash`; fixture defaults
+cannot authorize remote inference. Consent identifies the hosted destination and
+binds the credential fingerprint. Provider charges and packet/tool-result
+disclosure require owner authorization; task budgets are not monetary caps. The file
 must be an absolute path to a same-UID regular single-linked file with no
 symlink path component, mode denying all group/other access, and 1–4096 bytes
 of UTF-8 text (one final newline is allowed). The service snapshots it once at

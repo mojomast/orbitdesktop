@@ -1,5 +1,16 @@
 # Testing candidate deployment and rollback
 
+## Authorized DeepSeek native inference
+
+The native adapter permits the exact HTTPS base `https://api.deepseek.com/v1`
+with explicit model `deepseek-flash` and a private
+`ORBIT_NATIVE_HERMES_API_KEY_FILE`. This is hosted, potentially billable inference.
+Obtain owner authorization for disclosure and usage; task call/check/duration
+budgets are not token or monetary caps. Other remote endpoints remain rejected.
+Keep the pinned Hermes runtime and use the isolated release procedure; never edit
+a packaged release. Configuration and credentials are snapshotted at startup.
+Obtain fresh task consent after the target-only restart. No schema change is needed.
+
 ## Result-delivery increment (schema 8; not deployed)
 
 ### Recreating the native acceptance environment

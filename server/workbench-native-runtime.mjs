@@ -27,10 +27,20 @@ export function parseNativeResult(bytes,{overflow=false}={}){
   if(!text.trim())return {availability:'explanation_unavailable',reason:'empty',hermes_completed:frame.completed,frame_hash};
   return {availability:frame.completed?'available':'explanation_unavailable',reason:frame.completed?null:'runtime_failed',text,hermes_completed:frame.completed,frame_hash};
 }
+export function validateNativeEndpoint({endpoint,model,apiKey}={}){
+  const url=new URL(endpoint);
+  if(endpoint==='https://api.deepseek.com/v1'){
+    if(model!=='deepseek-flash'||typeof apiKey!=='string'||!apiKey||apiKey==='local-fixture')throw Error('DeepSeek requires explicit deepseek-flash model and private endpoint credential');
+    return 'DeepSeek hosted inference: https://api.deepseek.com/v1';
+  }
+  if(url.protocol!=='http:'||!['127.0.0.1','[::1]'].includes(url.hostname)||url.username||url.password||url.search||url.hash)throw Error('Explicit local model endpoint or approved DeepSeek endpoint required');
+  return 'loopback configured model endpoint';
+}
 export function nativeRuntimeMetadata({source,python,endpoint,profile_id,model='orbit-local-fixture',apiKey='local-fixture'}={}){
+  const destination=validateNativeEndpoint({endpoint,model,apiKey});
   const keyHash=createHash('sha256').update(apiKey).digest('hex');
   const configuration_hash=createHash('sha256').update(JSON.stringify({source,python,endpoint,profile_id,model,keyHash,commit:HERMES_NATIVE_CONTRACT.commit})).digest('hex');
-  return {kind:'local-pinned',commit:HERMES_NATIVE_CONTRACT.commit,model,destination:'loopback configured model endpoint',configuration_hash};
+  return {kind:'local-pinned',commit:HERMES_NATIVE_CONTRACT.commit,model,destination,configuration_hash};
 }
 export function readNativeApiKeyFile(filename){
   if(typeof filename!=='string'||!path.isAbsolute(filename)||path.resolve(filename)!==filename)throw Error('Native API key file must be an absolute path');
@@ -51,6 +61,7 @@ export function nativeRuntimeEnvironmentOptions({root,gate,config_generation,env
   // Internal host-only object. Read once at service startup so consent metadata
   // and its lazily constructed runtime receive identical credential bytes.
   const apiKey=env.ORBIT_NATIVE_HERMES_API_KEY_FILE===undefined?'local-fixture':readNativeApiKeyFile(env.ORBIT_NATIVE_HERMES_API_KEY_FILE);
+  validateNativeEndpoint({endpoint:env.ORBIT_NATIVE_HERMES_MODEL_URL,model:env.ORBIT_NATIVE_HERMES_MODEL,apiKey});
   return {source:env.ORBIT_NATIVE_HERMES_SOURCE,python:env.ORBIT_NATIVE_HERMES_PYTHON,endpoint:env.ORBIT_NATIVE_HERMES_MODEL_URL,profile_id:env.ORBIT_NATIVE_HERMES_PROFILE,model:env.ORBIT_NATIVE_HERMES_MODEL??'orbit-local-fixture',apiKey,root,gate,config_generation};
 }
 
@@ -62,9 +73,7 @@ export function createWorkbenchNativeRuntime({source,python,root,endpoint,profil
   if(typeof profile_id!=='string'||!profile_id||config_generation===undefined)throw Error('Explicit local profile ID and configuration generation required');
   const commit=execFileSync('/usr/bin/git',['-C',source,'rev-parse','HEAD'],{encoding:'utf8',env:{PATH:'/usr/bin:/bin'}}).trim();
   if(commit!==HERMES_NATIVE_CONTRACT.commit)throw Error('Unsupported Hermes source commit');
-  // This shipped adapter is deliberately local-endpoint-only until a separate
-  // owner provider/budget policy authorizes external spending.
-  const url=new URL(endpoint);if(url.protocol!=='http:'||!['127.0.0.1','[::1]'].includes(url.hostname)||url.username||url.password||url.search||url.hash)throw Error('Explicit local model endpoint required');
+  // Remote inference is restricted to the explicitly approved provider/model.
   if(apiKeyFile!==undefined&&apiKeyFile!==null){if(apiKey!=='local-fixture')throw Error('Native API key source must be unambiguous');apiKey=readNativeApiKeyFile(apiKeyFile);}
   fs.mkdirSync(root,{recursive:true,mode:0o700});const children=new Map(),quarantines=new Map();
   const bindingMetadata=nativeRuntimeMetadata({source,python,endpoint,profile_id,model,apiKey});

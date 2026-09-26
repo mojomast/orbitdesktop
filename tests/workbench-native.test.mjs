@@ -11,7 +11,19 @@ import {createWorkbenchGate} from '../server/workbench-gate.mjs';
 import {openProjectRoot} from '../server/project-files.mjs';
 import {createWorkbenchExecution} from '../server/workbench-execution.mjs';
 import {createWorkbenchNative} from '../server/workbench-native.mjs';
-import {createWorkbenchNativeRuntime,readNativeApiKeyFile,nativeRuntimeEnvironmentOptions,nativeRuntimeMetadata} from '../server/workbench-native-runtime.mjs';
+import {createWorkbenchNativeRuntime,readNativeApiKeyFile,nativeRuntimeEnvironmentOptions,nativeRuntimeMetadata,validateNativeEndpoint} from '../server/workbench-native-runtime.mjs';
+
+test('hosted native inference admits only the exact approved DeepSeek destination and explicit model/credential',()=>{
+  const approved={endpoint:'https://api.deepseek.com/v1',model:'deepseek-flash',apiKey:'synthetic-test-key'};
+  assert.match(validateNativeEndpoint(approved),/DeepSeek hosted/);
+  for(const endpoint of ['http://api.deepseek.com/v1','https://api.deepseek.com.evil.test/v1','https://api.deepseek.com/v1?redirect=x','https://user@api.deepseek.com/v1','https://api.deepseek.com:444/v1','https://api.deepseek.com/v1/','https://other.test/v1'])assert.throws(()=>validateNativeEndpoint({...approved,endpoint}));
+  for(const apiKey of [undefined,'','local-fixture'])assert.throws(()=>validateNativeEndpoint({...approved,apiKey}));
+  for(const model of [undefined,'orbit-local-fixture','other'])assert.throws(()=>validateNativeEndpoint({...approved,model}));
+  const metadata=nativeRuntimeMetadata({...approved,source:'/source',python:'/python',profile_id:'default'});
+  assert.match(metadata.destination,/https:\/\/api.deepseek.com\/v1/);
+  assert.equal(JSON.stringify(metadata).includes(approved.apiKey),false);
+  assert.notEqual(metadata.configuration_hash,nativeRuntimeMetadata({...approved,source:'/source',python:'/python',profile_id:'default',apiKey:'rotated'}).configuration_hash);
+});
 import {workbenchOwnerRoute} from '../server/workbench-owner-route.mjs';
 import {validateNative,validateNativeTool,HERMES_NATIVE_CONTRACT} from '../contracts/workbench-native-v1.mjs';
 import {initial} from '../src/model.ts';
