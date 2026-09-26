@@ -216,7 +216,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
       const data = await response.json();
       if (!current(requested) || getToken() !== token) return;
       const cards = Array.isArray(data.cards) ? data.cards.slice(0, 100) : [];
-      const digest = JSON.stringify(cards);
+      const digest = JSON.stringify({cards,truncated:data.truncated===true});
       if (digest === cardsDigest) return;
       cardsDigest = digest;
       taskCards.replaceChildren();
@@ -234,6 +234,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
         item.append(el('p', '', 'The worker’s explanation is untrusted text. Consult Recorded checks and Human review in Project Workbench for verification and acceptance.'));
         taskCards.append(item);
       }
+      if(data.truncated===true)taskCards.append(el('p','','Showing a bounded page of retained task results. Open Project Workbench to select another task result.'));
     } catch {
       if (current(requested)) { taskCards.replaceChildren(); taskCards.hidden = true; cardsDigest = ''; }
     } finally { cardsLoading = false; }

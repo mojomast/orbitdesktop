@@ -152,6 +152,11 @@ Parent copied installed dependencies locally into distinct
 install/network) and atomically repointed each worktree's dependency symlink.
 Future fixture/cache writes are lane-local. Owner caches were preserved, not
 deleted. This supersedes the initial shared-tooling setup.
+Each private dependency path resolves to its own
+`comet-next-<lane>-dependency-root/node_modules` directory, preserving Node and
+TypeScript sibling-package resolution. An initial copy-root naming error caused
+one TypeScript module-resolution failure; the directory layout was corrected and
+TypeScript passed without changing package bytes or source declarations.
 
 ### Renderer evidence correction
 

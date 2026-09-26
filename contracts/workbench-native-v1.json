@@ -372,6 +372,10 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 300
+        },
+        "after_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
         }
       },
       "required": [
