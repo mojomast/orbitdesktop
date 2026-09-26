@@ -198,28 +198,46 @@ def main(renderer):
                         assert verifying, ("export did not reach a verifying receipt", export_request, listed)
                         pane.locator("button").filter(has_text=re.compile("^Refresh patch receipts$")).first.click()
                         time.sleep(0.5)
-                        after_cancel_deadline = time.time() + 30
-                        cancelled = False
-                        while time.time() < after_cancel_deadline:
+                        # Real cancel: capture the patch_check_cancel HTTP status/body while export is pending.
+                        cancel_button = pane.locator("button").filter(has_text=re.compile("^Request patch-check cancellation$")).first
+                        expect(cancel_button).to_be_enabled(timeout=20000)
+                        with page.expect_response(lambda r: r.url.split("?")[0] == origin + "/api/workbench/workflow" and (r.request.post_data_json or {}).get("action") == "patch_check_cancel", timeout=30000) as cancel_wait:
+                            cancel_button.click()
+                        cancel_response = cancel_wait.value
+                        cancel_body = cancel_response.json()
+                        assert cancel_response.status == 200 and cancel_body.get("ok") is True, (cancel_response.status, cancel_body)
+                        cancelled = True
+                        # The verifier must reach a recorded terminal failure; the sentinel stays
+                        # until we confirm (do not release it early or the check would pass).
+                        terminal = None
+                        observed_status = None
+                        deadline = time.time() + 60
+                        while time.time() < deadline:
                             listed = api("/api/workbench/workflow", {"action": "patch_list", "project_id": project_id})
                             item = next((entry for entry in listed["patches"] if (entry.get("artifact_id") or entry.get("id")) == artifact_id), None)
-                            if item and item.get("status") not in ("available",):
-                                cancel_button = pane.locator("button").filter(has_text=re.compile("^Request patch-check cancellation$")).first
-                                if cancel_button.count() and not cancel_button.is_disabled():
-                                    cancel_button.click()
-                                    cancelled = True
+                            observed_status = item.get("status") if item else None
+                            if item and item.get("status") == "verification_failed":
+                                terminal = item
+                                break
+                            if item and item.get("status") == "available":
                                 break
                             time.sleep(0.25)
-                        time.sleep(1.0)
-                        final_list = api("/api/workbench/workflow", {"action": "patch_list", "project_id": project_id})
-                        final_item = next((entry for entry in final_list["patches"] if (entry.get("artifact_id") or entry.get("id")) == artifact_id), None)
-                        assert final_item and final_item.get("status") != "available", ("artifact became available despite cancel", final_item)
+                        assert observed_status != "available", "the artifact became available despite the cancellation request"
+                        assert cancelled is True, "the owner cancel control must actually be exercised"
+                        assert terminal is not None, ("artifact check did not reach a confirmed failed terminal state", observed_status)
+                        assert terminal["status"] == "verification_failed", terminal
+                        assert terminal.get("verification_status") in ("failed", "inconclusive"), terminal
+                        assert terminal.get("verification_status") != "verified", terminal
+                        final_item = terminal
                         forbidden = helper.api(origin, token, "/api/workbench/workflow", {"action": "private_patch_get", "artifact_id": artifact_id, "project_id": project_id})
                         assert forbidden[0] != 200 or forbidden[1].get("ok") is not True, forbidden
                         assert not page_errors, page_errors
                         log(json.dumps({"renderer": renderer, "artifact_preview_verified": True,
-                                        "artifact_verifying_observed": True, "artifact_cancel_requested": cancelled,
+                                        "artifact_verifying_observed": True, "artifact_cancel_http": cancel_response.status,
+                                        "artifact_cancel_requested": cancelled, "artifact_terminal_status": final_item["status"],
+                                        "artifact_terminal_verification": final_item.get("verification_status"),
                                         "artifact_not_available_after_cancel": True, "private_get_forbidden": True,
+                                        "export_op_id": export_request.get("op_id"),
                                         "page_errors": len(page_errors), "admitted_live_model_trials": 0}))
                         sentinel_path.unlink(missing_ok=True)
                     finally:
