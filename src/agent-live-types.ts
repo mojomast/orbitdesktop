@@ -13,6 +13,7 @@ export type LiveItem = {
   version: 1;
   id: string;
   sequence?: number;
+  /** Unix timestamp in milliseconds, or null when the source has no time. */
   at: number | null;
   authority: LiveAuthority;
   category: LiveCategory;

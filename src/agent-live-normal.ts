@@ -3,10 +3,14 @@ import type { createLiveTimeline } from './agent-live-timeline';
 
 type Timeline = ReturnType<typeof createLiveTimeline>;
 const text = (value: unknown, limit=120): string => typeof value === 'string' ? value.replace(/[\u0000-\u001f\u007f]/g,' ').replace(/\s+/g,' ').trim().slice(0,limit) : '';
-const timestamp = (value: unknown): number | null => typeof value === 'number' && Number.isFinite(value) ? (value > 1e12 ? value/1000 : value) : null;
+const timestamp = (value: unknown): number | null => {
+  if(typeof value==='number'&&Number.isFinite(value)&&value>=0)return Math.round(value<1e12?value*1000:value);
+  if(typeof value==='string'&&value.length<=40){const parsed=Date.parse(value);if(Number.isFinite(parsed))return parsed;}
+  return null;
+};
 const asRecord = (v: unknown): Record<string, unknown> => v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string,unknown> : {};
 const eventName = (raw: Record<string,unknown>) => text(raw.event || raw.type,80).toLowerCase();
-const toolStatus = (name: string): LiveStatus => /fail|error|denied/.test(name) ? 'failed' : /start|running|call/.test(name) ? 'running' : /complet|result|output/.test(name) ? 'completed' : 'unknown';
+const toolStatus = (name: string): LiveStatus => /denied/.test(name) ? 'denied' : /fail|error/.test(name) ? 'failed' : /start|running|call/.test(name) ? 'running' : /complet|result|output/.test(name) ? 'completed' : 'unknown';
 const categoryFor = (name: string): 'files'|'tools' => /file|read|write|directory|search/.test(name.toLowerCase()) ? 'files' : 'tools';
 const safeId = (value: unknown): string => text(value,100).replace(/[^\w:.-]/g,'').slice(0,100);
 
@@ -38,7 +42,7 @@ export function createNormalLiveAdapter(timeline: Timeline) {
       const status=text(value.status,100); if(!status)return;
       const key=`status:${binding}:${safeId(value.run)||'current'}`;
       const waiting=/approval|wait|attention/i.test(status), failed=/fail|error/i.test(status), done=/completed|finished/i.test(status);
-      const item:LiveItem={version:1,id:key,at:timestamp(value.at)??Date.now()/1000,authority:'agent',category:failed||waiting?'warnings':'agent',kind:'Run status',summary:status,status:failed?'failed':waiting?'waiting':done?'completed':'info'};
+      const item:LiveItem={version:1,id:key,at:timestamp(value.at)??Date.now(),authority:'agent',category:failed||waiting?'warnings':'agent',kind:'Run status',summary:status,status:failed?'failed':waiting?'waiting':done?'completed':'info'};
       observed.set(key,item);trim();emit();
     },
     reset(nextBinding: string) { binding=text(nextBinding,200); serial=0; observed.clear(); timeline.reset(); },

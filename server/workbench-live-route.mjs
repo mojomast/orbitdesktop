@@ -31,6 +31,7 @@ export function createWorkbenchLiveHandler({token,port,devOrigins,live,reply,hea
 
     try{
       const result=body.action==='detail'?await live.detail(body):await live.dispatch(body);
+      if(body.action==='page'&&live.projectionErrors?.()>0)result.projection_incomplete=true;
       const serialized=JSON.stringify(result??{});
       if(Buffer.byteLength(serialized)>LIVE_LIMITS.bufferBytes)return deny(res,413,'limit_exceeded');
       return reply(res,200,{...JSON.parse(serialized),ok:true});
@@ -88,13 +89,14 @@ export function createWorkbenchLiveHandler({token,port,devOrigins,live,reply,hea
             if(dirty){
               dirty=false;
               const next=page??live.page({...body,after_sequence:cursor});page=null;
+              if(live.projectionErrors?.()>0)next.projection_incomplete=true;
               if(next.project_generation!==generation){await endFenced();return;}
               if(!await write(pageFrame(next)))return;
               cursor=next.after_sequence;
               if(next.has_more)dirty=true;
             }else{
               heartbeat=false;
-              if(!await write(heartbeatFrame({version:1,lane:live.lane(),project_generation:generation,after_sequence:cursor,snapshot:live.snapshot(body)})))return;
+              if(!await write(heartbeatFrame({version:1,lane:live.lane(),project_generation:generation,after_sequence:cursor,snapshot:live.snapshot(body),projection_incomplete:live.projectionErrors?.()>0})))return;
             }
           }
         }catch{cleanup();try{res.end();}catch{}}

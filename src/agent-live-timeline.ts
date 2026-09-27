@@ -65,9 +65,9 @@ export function createLiveTimeline(options:{storageKey:string;onOpenReference?:(
     state.node.dataset.status=item.status;state.node.dataset.authority=item.authority;state.badge.className=`alt-authority alt-${item.authority}`;state.badge.textContent=authorityLabel[item.authority];
     state.icon.textContent=statusIcon[item.status];state.status.textContent=item.status;state.kind.textContent=item.kind;state.summary.textContent=item.summary;
     state.target.textContent=item.target||'';state.target.hidden=!item.target;
-    const parts:string[]=[];if(item.at!==null)parts.push(new Date(item.at*1000).toLocaleTimeString());
+    const parts:string[]=[];if(item.at!==null)parts.push(new Date(item.at).toLocaleTimeString());
     if(item.duration_ms!==undefined)parts.push(`${(item.duration_ms/1000).toFixed(1)}s`);
-    else if(item.status==='running'&&item.at!==null)parts.push(`${Math.max(0,(Date.now()/1000-item.at)).toFixed(1)}s elapsed`);
+    else if(item.status==='running'&&item.at!==null)parts.push(`${Math.max(0,(Date.now()-item.at)/1000).toFixed(1)}s elapsed`);
     state.meta.textContent=parts.join(' · ');state.meta.hidden=!parts.length;
     state.fields.replaceChildren();for(const f of item.fields||[]){const p=document.createElement('p');p.className='alt-field';p.textContent=`${f.label}: ${f.value}`;state.fields.append(p);}state.fields.hidden=density!=='detailed'||!item.fields?.length;
     state.copy.setAttribute('aria-label',`Copy safe ID ${item.id}`);state.copy.onclick=()=>void navigator.clipboard?.writeText(items.get(item.id)?.id||item.id);

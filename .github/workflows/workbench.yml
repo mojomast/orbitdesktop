@@ -117,6 +117,15 @@ jobs:
           /tmp/opencode/orbit-workbench-venv/bin/python tests/runtime-continuity.browser.py --pty --renderer default
           /tmp/opencode/orbit-workbench-venv/bin/python tests/runtime-continuity.browser.py --pty --renderer docking
           /tmp/opencode/orbit-workbench-venv/bin/python tests/recovery-real-server.browser.py
+      - name: Shared live timeline and persistent Hermes mode switching
+        if: ${{ !cancelled() && steps.browser_tools.outcome == 'success' }}
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
+        run: |
+          /tmp/opencode/orbit-workbench-venv/bin/python tests/agent-live-timeline.browser.py
+          for renderer in default docking; do
+            /tmp/opencode/orbit-workbench-venv/bin/python tests/pane-workbench-mode.browser.py --renderer "$renderer"
+          done
       - name: Context, execution and joined workflow on both renderers
         if: ${{ !cancelled() && steps.browser_tools.outcome == 'success' }}
         env:

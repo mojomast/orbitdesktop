@@ -3,6 +3,7 @@ import type { LiveConnection, LiveItem, LiveReference } from './agent-live-types
 export type WorkbenchLivePage = {
   version: 1; events: LiveItem[]; after_sequence: number; reset_required: boolean;
   has_more: boolean; project_generation: number;
+  projection_incomplete?: boolean;
   snapshot?: Record<string, unknown>;
   lane?: { agent_busy: boolean; job_busy: boolean; unknown: boolean };
 };
@@ -29,6 +30,7 @@ export function watchWorkbenchLive(options: Options) {
     const rows=page.events.filter(item=>item?.version===1&&typeof item.id==='string'&&item.id.length<=160&&Number.isSafeInteger(item.sequence)&&item.sequence!>cursor&&item.sequence!<=page.after_sequence);
     if(rows.length!==page.events.length)throw Error('Invalid private activity sequence');
     cursor=page.after_sequence;options.onPage({...page,events:rows});
+    if(page.projection_incomplete)options.onConnection('unavailable','Some activity observations could not be retained. Inspect authoritative task records; execution will not be replayed.');
     if(page.lane)options.onLane?.(page.lane);
   }
   async function request(action:'page'|'detail'|'tail',fields:Record<string,unknown>={},signal?:AbortSignal) {
@@ -72,7 +74,10 @@ export function watchWorkbenchLive(options: Options) {
           if(!data.length)continue;
           const value=JSON.parse(data.join('\n'));
           if(type==='page')acceptPage(value);
-          else if(type==='heartbeat'&&value.lane)options.onLane?.(value.lane);
+          else if(type==='heartbeat'){
+            if(value.lane)options.onLane?.(value.lane);
+            if(value.projection_incomplete)options.onConnection('unavailable','Some activity observations could not be retained. Inspect authoritative task records; execution will not be replayed.');
+          }
           else if(type==='fenced'){fenced=true;options.onConnection('closed','Authority revoked or changed. Execution will not be replayed automatically.');own.abort();return;}
         }
       }
