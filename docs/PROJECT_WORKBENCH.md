@@ -350,3 +350,14 @@ new writers must not run concurrently. See [DEPLOYMENT.md](DEPLOYMENT.md).
 No owner runtime was migrated as part of development. A newly built frontend needs
 a reload at its separately authorized test origin; source changes alone are not
 deployment acceptance.
+## Hermes pane live view
+
+Hermes panes expose persistent Normal / Workbench view selection. Workbench mode
+supervises a separate restricted Hermes runtime; it does not turn the ordinary
+conversation into that worker. Context disclosure, native authority, review and
+artifact verification retain their independent approvals and identities.
+
+See [Hermes live view](HERMES_LIVE_VIEW.md) for the authority labels, explicit
+conversation snapshots, private replay transport, detail boundaries and recovery
+semantics. Visual mode and selected durable IDs are browser presentation state,
+not a grant or a replacement for server freshness checks.

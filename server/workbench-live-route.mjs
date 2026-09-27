@@ -41,6 +41,8 @@ export function createWorkbenchLiveHandler({token,port,devOrigins,live,reply,hea
     }
 
     async function stream(req,res,body){
+      // Keep one replay frame below the wire buffer even at maximum item size.
+      body={...body,limit:Math.min(body.limit??LIVE_LIMITS.page,32)};
       let page;
       try{page=live.page(body);}
       catch(error){
@@ -55,7 +57,7 @@ export function createWorkbenchLiveHandler({token,port,devOrigins,live,reply,hea
         'X-Accel-Buffering':'no',
         'X-Content-Type-Options':'nosniff',
       });
-      let closed=false,unsubscribe=null,timer=null;
+      let closed=false,unsubscribe=null,timer=null,writing=false,dirty=true,heartbeat=false;
       const generation=page.project_generation;
       let cursor=page.after_sequence;
       const scopeAttempt=typeof body.attempt_id==='string'&&body.attempt_id?body.attempt_id:null;
@@ -69,40 +71,51 @@ export function createWorkbenchLiveHandler({token,port,devOrigins,live,reply,hea
       res.on('error',cleanup);
       const write=async text=>{
         if(closed)return false;
+        if(Buffer.byteLength(text)>LIVE_LIMITS.bufferBytes)throw Error('frame bound');
         if(res.write(text))return true;
-        await new Promise(resolve=>{res.once('drain',resolve);res.once('close',resolve);});
+        await new Promise(resolve=>{const done=()=>{res.removeListener('drain',done);res.removeListener('close',done);res.removeListener('error',done);resolve();};res.once('drain',done);res.once('close',done);res.once('error',done);});
         return !closed;
       };
       const fenceOk=()=>{try{return live.records.project(body.workspace_id,body.project_id).generation===generation;}catch{return false;}};
       const endFenced=async()=>{if(closed)return;await write(FENCED_FRAME);cleanup();try{res.end();}catch{}};
-      const incremental=event=>({version:1,events:[event],after_sequence:event.sequence,reset_required:false,has_more:false,project_generation:generation,snapshot:live.snapshot({workspace_id:body.workspace_id,project_id:body.project_id}),lane:live.lane()});
+      // Notifications only mark the durable cursor dirty. They never accumulate
+      // event payloads or start parallel writes for a slow browser.
+      const pump=async()=>{
+        if(writing||closed)return;writing=true;
+        try{
+          while(!closed&&(dirty||heartbeat)){
+            if(!fenceOk()){await endFenced();return;}
+            if(dirty){
+              dirty=false;
+              const next=page??live.page({...body,after_sequence:cursor});page=null;
+              if(next.project_generation!==generation){await endFenced();return;}
+              if(!await write(pageFrame(next)))return;
+              cursor=next.after_sequence;
+              if(next.has_more)dirty=true;
+            }else{
+              heartbeat=false;
+              if(!await write(heartbeatFrame({version:1,lane:live.lane(),project_generation:generation,after_sequence:cursor,snapshot:live.snapshot(body)})))return;
+            }
+          }
+        }catch{cleanup();try{res.end();}catch{}}
+        finally{writing=false;}
+      };
       try{
-        if(!await write(pageFrame(page))){cleanup();return;}
-        // Subscribing is synchronous with the page read on this event loop, so
-        // no append can slip between the replay page and the subscription.
+        // Subscribe before the first asynchronous write: committed notifications
+        // during backpressure must trigger another durable page read.
         unsubscribe=live.subscribe(notification=>{
           if(closed)return;
           if(notification.workspace_id!==body.workspace_id||notification.project_id!==body.project_id)return;
           if(scopeAttempt&&notification.attempt_id!==scopeAttempt)return;
           if(notification.sequence<=cursor)return;
-          cursor=notification.sequence;
-          void (async()=>{
-            try{
-              if(!fenceOk())return endFenced();
-              if(!await write(pageFrame(incremental(notification.event))))cleanup();
-            }catch{await endFenced();}
-          })();
+          dirty=true;void pump();
         });
         timer=setInterval(()=>{
           if(closed)return;
-          void (async()=>{
-            try{
-              if(!fenceOk())return endFenced();
-              await write(heartbeatFrame({version:1,lane:live.lane(),project_generation:generation,after_sequence:cursor,snapshot:live.snapshot({workspace_id:body.workspace_id,project_id:body.project_id})}));
-            }catch{await endFenced();}
-          })();
+          heartbeat=true;void pump();
         },heartbeatMs);
         timer.unref?.();
+        void pump();
       }catch{cleanup();try{res.end();}catch{}}
     }
   };

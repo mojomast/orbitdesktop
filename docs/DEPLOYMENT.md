@@ -298,3 +298,20 @@ observed-revision evidence. Acknowledgement alone is not visual correctness.
 The owner requested Hermes Orbit to perform the optional tailnet acceptance.
 Until its evidence is received, that deployment-specific gate remains **pending**.
 No command in this document authorizes migration/restart of an owner runtime.
+## Private Hermes live-activity projection
+
+The owner-only `POST /api/workbench/live` route supports authenticated fetch-SSE
+and bounded read-only replay/detail/tail requests. Reverse proxies must allow
+streaming responses without buffering; bearer/origin checks and `no-store`
+remain required. No token is placed in a query string.
+
+`workbench-live.sqlite` and its SQLite sidecars belong in the private runtime,
+alongside but separate from the authoritative workspace database. Do not publish
+them, live output, or conversation snapshots in `/apps`, release archives or Git.
+Projection startup failure degrades live activity rather than preventing worker
+recovery. Rebuilding a projection restores honest current-state snapshots, not
+missing historical transitions, and never restarts execution.
+
+See [Hermes live view](HERMES_LIVE_VIEW.md) for durable versus live-only records,
+privacy, replay limits and the Normal stream's lack of exact replay. Deploy and
+test in a separate runtime before changing a service with live terminals.
