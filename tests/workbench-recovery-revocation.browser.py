@@ -126,8 +126,15 @@ def main(renderer):
                         expect(page.locator('.pane[data-pane-id="%s"]' % helper.PANE)).to_be_visible(timeout=20000)
                         page.get_by_role("button", name="Connect local host", exact=True).click()
                         page.get_by_role("textbox", name="Host session token").fill(token)
-                        page.get_by_role("button", name="Unlock local host", exact=True).click()
-                        expect(page.locator(".saved")).to_contain_text("Workspace connected", timeout=15000)
+                        # Docking's local save can replace the transient status text.
+                        # Require the browser's authenticated workspace acknowledgement.
+                        with page.expect_response(lambda r: r.url.split("?")[0] == origin + "/api/workspace"
+                                                  and r.status == 200
+                                                  and (r.request.post_data_json or {}).get("workspace_id") == helper.WORKSPACE,
+                                                  timeout=15000) as connected:
+                            page.get_by_role("button", name="Unlock local host", exact=True).click()
+                        acknowledged = connected.value.json()
+                        assert acknowledged.get("state") and isinstance(acknowledged.get("revision"), int), acknowledged
                         page.get_by_role("button", name="Open orbit menu").click()
                         page.get_by_role("button", name="Project Workbench", exact=True).click()
                         workbench = page.locator("dialog.project-workbench-dialog")

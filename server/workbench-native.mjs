@@ -150,6 +150,8 @@ export function createWorkbenchNative({store,records,data,execution,hermes,now=D
     const project=requireScope(body),attempt=get('attempts',body,body.attempt_id),candidate=get('candidates',body,attempt.candidate_id),task=get('tasks',body,attempt.task_id);
     if(closedAttempt(attempt)||[attempt.project_generation,candidate.project_generation,task.project_generation].some(value=>value!==project.generation)||candidate.task_id!==task.id||task.candidate_id!==candidate.id)throw wbError('stale_resource');
     const recipient=await binding(attempt,body);
+    const current=await execution.dispatch({action:'candidate_get',workspace_id:body.workspace_id,project_id:body.project_id,candidate_id:candidate.id});
+    if(!current.readiness?.ready)throw Object.assign(wbError('stale_resource'),{reason:current.readiness?.reason??'acceptance_stale'});
     const contexts=body.context_ids.map(id=>{const c=get('contexts',body,id);if(c.attempt_id!==attempt.id||c.purged_at||!Number.isFinite(c.retention_until)||c.retention_until<=now()||typeof c.snapshot?.text!=='string'||createHash('sha256').update(c.snapshot.text).digest('hex')!==c.snapshot.hash||(c.snapshot.provenance?.project_generation!==undefined&&c.snapshot.provenance.project_generation!==project.generation))throw wbError('permission_denied');return {id,hash:c.snapshot.hash,text_digest:digest(c.snapshot.text)};});
     return {workspace_id:body.workspace_id,project_id:body.project_id,attempt_id:attempt.id,candidate_id:candidate.id,candidate_hash:candidate.hash,project_generation:project.generation,acceptance_digest:task.acceptance_digest,definition_id:task.check_definition_id,required_checks:task.acceptance.required_checks,recipient,contexts,budget:clone(body.budget),authority_generation:randomUUID()};
   }

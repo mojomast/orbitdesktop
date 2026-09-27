@@ -343,7 +343,7 @@ export function createWorkbenchExecution({store,records,data,gate,environments,n
     const ownerTask=task(workspace_id,project_id,candidate.task_id);
     const source=captureSource(workspace_id,project_id);
     const latest=latestAcceptanceEvidence(workspace_id,project_id,candidate,ownerTask),acceptance_complete=latest.length>0&&latest.every(Boolean);
-    return {candidate:publicCandidate(candidate),review_identity:reviewIdentityFor(workspace_id,project_id,candidate,ownerTask),review_evidence_ids:acceptance_complete?latest.map(entry=>entry.id):[],acceptance_complete,target_changed:targetChanged(source,candidate),current_source_hash:source.hash};
+    return {candidate:publicCandidate(candidate),readiness:acceptanceReadiness(ownerTask,candidate,source.project),review_identity:reviewIdentityFor(workspace_id,project_id,candidate,ownerTask),review_evidence_ids:acceptance_complete?latest.map(entry=>entry.id):[],acceptance_complete,target_changed:targetChanged(source,candidate),current_source_hash:source.hash};
   }
   function candidateRead({workspace_id,project_id,candidate_id,path:relative}){
     requireActive(workspace_id,project_id);
@@ -459,17 +459,30 @@ export function createWorkbenchExecution({store,records,data,gate,environments,n
     return {attempt:publicAttempt(attempt)};
   }
   function specFor(ownerTask,candidate,definition,required){return checkSpecDigest({definition_id:definition.id,definition_digest:definitionDigest(definition),project_generation:candidate.project_generation,candidate_id:candidate.id,candidate_generation:candidate.generation,candidate_hash:candidate.hash,acceptance_version:ownerTask.acceptance_version,acceptance_digest:ownerTask.acceptance_digest,required_check:required});}
+  function acceptanceReadiness(ownerTask,candidate,project){
+    const fail=(reason,message)=>({ready:false,reason,message});
+    const ready={ready:true,reason:null,message:'Approved acceptance and execution profile are current.'};
+    const checks=requirements(ownerTask).map(required=>{
+      let state=ready;
+      try{
+        if(required.definition_digest!==definitionDigest(checkDefinition(required.definition_id)))state=fail('check_definition_changed','The required check definition changed. Review and approve a fresh acceptance contract.');
+        else if(required.definition_id==='node-test'&&(!Array.isArray(required.required_test_files)||!required.required_test_files.length||JSON.stringify(discoverTestFiles(candidate.files))!==JSON.stringify(required.required_test_files)))state=fail('acceptance_stale','Required test discovery changed. Review and approve a fresh acceptance contract.');
+        else {
+          const args={workspace_id:candidate.workspace_id,project_id:candidate.project_id,candidate_id:candidate.id,profile_id:required.execution_profile_id};
+          const support=required.execution_profile_id&&environments?.profileReadiness?environments.profileReadiness(args):null;
+          if(support&&!support.ready)state=fail(support.reason,support.message);
+          else if(digest(profileIdentity(args.workspace_id,args.project_id,args.candidate_id,args.profile_id))!==digest(required.execution_profile??null))state=fail('execution_profile_stale','The execution profile changed. Prepare and approve a fresh execution environment and acceptance contract.');
+        }
+      }catch{state=fail(required.execution_profile_id?'execution_profile_stale':'acceptance_stale','The approved check contract is unavailable or stale. Review and approve a fresh acceptance contract.');}
+      return {definition_id:required.definition_id,execution_profile_id:required.execution_profile_id??null,...state};
+    });
+    let state=checks.find(check=>!check.ready)??ready;
+    if(!project||candidate.project_generation!==project.generation||ownerTask.project_generation!==project.generation||ownerTask.acceptance_digest!==digest(ownerTask.acceptance)||!checks.length||digest(requirements(ownerTask))!==ownerTask.acceptance.required_checks_digest)state=fail('acceptance_stale','Task acceptance is stale. Review and approve a fresh acceptance contract.');
+    return {ready:state.ready,reason:state.reason,message:state.message,candidate_hash:candidate.hash,candidate_generation:candidate.generation,acceptance_digest:ownerTask.acceptance_digest,required_checks:checks};
+  }
   function validatePinned(ownerTask,candidate,project){
-    if(candidate.project_generation!==project.generation||ownerTask.project_generation!==project.generation)throw wbError('stale_resource');
-    if(!requirements(ownerTask).length||digest(requirements(ownerTask))!==ownerTask.acceptance.required_checks_digest)throw wbError('stale_resource');
-    for(const required of requirements(ownerTask)){
-      if(required.definition_digest!==definitionDigest(checkDefinition(required.definition_id)))throw wbError('stale_resource');
-      if(required.definition_id==='node-test'){
-        const pinned=required.required_test_files;
-        if(!Array.isArray(pinned)||!pinned.length||JSON.stringify(discoverTestFiles(candidate.files))!==JSON.stringify(pinned))throw wbError('stale_resource');
-      }
-      if(digest(profileIdentity(candidate.workspace_id,candidate.project_id,candidate.id,required.execution_profile_id))!==digest(required.execution_profile??null))throw wbError('stale_resource');
-    }
+    const readiness=acceptanceReadiness(ownerTask,candidate,project);
+    if(!readiness.ready)throw Object.assign(wbError('stale_resource'),{reason:readiness.reason});
   }
   function checkPreview({workspace_id,project_id,candidate_id,definition_id,execution_profile_id}){
     const project=requireActive(workspace_id,project_id);
@@ -827,7 +840,7 @@ export function createWorkbenchExecution({store,records,data,gate,environments,n
     owned.clear();inFlight.clear();
   }
   recoverAll();
-  const {verifyPatchArtifact,retryPatchArtifact,acknowledgePatchArtifactUnknown,cancelPatchArtifact,patchArtifactRecovery}=createArtifactVerifier({store,records,data,gate:serial,now,verifyCurrent:({workspace_id,project_id,patch,candidate,task,review,project})=>{
+  const {verifyPatchArtifact,retryPatchArtifact,acknowledgePatchArtifactUnknown,cancelPatchArtifact,patchArtifactRecovery}=createArtifactVerifier({store,records,data,environments,gate:serial,now,verifyCurrent:({workspace_id,project_id,patch,candidate,task,review,project})=>{
     const active=records.project(workspace_id,project_id);
     if(active.generation!==project.generation)throw wbError('stale_resource');
     if(closed||!health().healthy||unknownJobs(workspace_id,project_id).length||candidate.project_generation!==project.generation||task.acceptance_digest!==digest(task.acceptance)||review.candidate_id!==candidate.id||review.candidate_hash!==candidate.hash||review.review_identity!==patch.review_identity)throw wbError('stale_resource');

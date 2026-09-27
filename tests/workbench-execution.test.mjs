@@ -51,6 +51,26 @@ async function runCheck(f,candidate_id,definition_id){
 }
 const privateCandidate=(f,id)=>f.data.get('candidates',f.workspace_id,f.project.id,id);
 
+test('read-only readiness explains old check contracts without migrating history',async t=>{
+  const f=fixture(t),{candidate,task}=await prepare(f);
+  const before=await f.call('candidate_get',{candidate_id:candidate.id});
+  assert.equal(before.readiness.ready,true);
+  assert.equal(before.readiness.candidate_hash,candidate.hash);
+  const row=f.data.get('tasks',f.workspace_id,f.project.id,task.id);
+  const stable=value=>Array.isArray(value)?`[${value.map(stable).join(',')}]`:value&&typeof value==='object'?`{${Object.keys(value).sort().map(key=>`${JSON.stringify(key)}:${stable(value[key])}`).join(',')}}`:JSON.stringify(value);
+  const acceptance=structuredClone(row.acceptance);
+  acceptance.required_checks[0].definition_digest='0'.repeat(64);
+  acceptance.required_checks_digest=sha(stable(acceptance.required_checks));
+  const changed=f.data.update('tasks',f.workspace_id,f.project.id,row.id,row.revision,{acceptance,acceptance_digest:sha(stable(acceptance))});
+  const observed=await f.call('candidate_get',{candidate_id:candidate.id});
+  assert.equal(observed.readiness.ready,false);
+  assert.equal(observed.readiness.reason,'check_definition_changed');
+  assert.match(observed.readiness.message,/approve a fresh acceptance/);
+  await assert.rejects(issueSpec(f,candidate.id,'host-regression'),{code:'stale_resource',reason:'check_definition_changed'});
+  assert.equal(f.data.get('tasks',f.workspace_id,f.project.id,task.id).revision,changed.revision);
+  assert.equal(f.data.list('jobs',f.workspace_id,f.project.id).length,0);
+});
+
 test('real wrong-sum defect: recorder fail -> exact repair -> pass -> human review (accept is not merge)',async t=>{
   const f=fixture(t);const {candidate}=await prepare(f);
   const read=await f.call('candidate_read',{candidate_id:candidate.id,path:'math.js'});
