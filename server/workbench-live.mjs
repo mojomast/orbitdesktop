@@ -132,6 +132,24 @@ function durationFor(record){
   return undefined;
 }
 
+// Bounded recorder test totals from the actual parseTestResults shape:
+// {tests,passed,failed,skipped,todo,required_files:[],covered_files:[],complete,valid,success}.
+// Arrays are reduced to lengths; any model text is never consulted.
+function recorderCounts(testResults){
+  if(!testResults||typeof testResults!=='object')return null;
+  const source=(testResults.test_summary&&typeof testResults.test_summary==='object')?testResults.test_summary:testResults;
+  const num=value=>Number.isFinite(value)?value:undefined;
+  const len=value=>Array.isArray(value)?value.length:undefined;
+  const counts={
+    passed:num(source.passed),tests:num(source.tests),
+    covered_files:len(source.covered_files),required_files:len(source.required_files),
+    failed:num(source.failed),skipped:num(source.skipped),todo:num(source.todo),
+    complete:source.complete===true?1:undefined,
+  };
+  return Object.values(counts).some(value=>value!==undefined)?counts:null;
+}
+const recorderFieldOrder=Object.freeze(['passed','tests','covered_files','required_files','failed','skipped','todo','complete']);
+
 // Whitelisted scalar facts only. Never raw source, tool arguments/results,
 // context snapshots, log paths, prompts, credentials or hidden reasoning.
 function safeFields(kind,record){
@@ -145,19 +163,43 @@ function safeFields(kind,record){
     case 'tasks':push('acceptance_version',record.acceptance_version);push('status',short(record.status,80));break;
     case 'attempts':push('acceptance_version',record.acceptance_version);push('status',short(record.status,80));break;
     case 'grants':push('calls_used',record.calls_used);push('checks_used',record.checks_used);push('repairs_used',record.repairs_used);push('runtime_status',short(record.runtime_status,80));break;
-    case 'toolcalls':push('action',short(record.action,80));push('status',short(record.status,80));push('attempt_id',record.attempt_id);push('grant_id',record.grant_id);break;
+    case 'toolcalls':{
+      push('action',short(record.action,80));push('status',short(record.status,80));push('attempt_id',record.attempt_id);push('grant_id',record.grant_id);
+      // Completed candidate patch: bounded changed-file count plus the first
+      // file's old/new hashes. Never source content or raw arguments.
+      const changes=Array.isArray(record.result_changes)?record.result_changes:[];
+      if(changes.length){
+        push('changed_files',changes.length);
+        const first=changes[0];
+        if(first&&typeof first.path==='string')push('first_path',first.path);
+        if(typeof first?.old_hash==='string')push('first_old',first.old_hash);
+        if(typeof first?.new_hash==='string')push('first_new',first.new_hash);
+      }
+      break;
+    }
     case 'candidates':push('generation',record.generation);push('total_bytes',record.total_bytes);push('files',Array.isArray(record.files)?record.files.length:undefined);push('limited',record.limited===true?1:0);break;
     case 'jobs':push('exit_code',record.exit_code);push('log_bytes',record.log_bytes);push('definition_id',short(record.definition_id,80));push('timed_out',record.timed_out===true?1:0);push('process_survival_unknown',record.process_survival_unknown===true?1:0);break;
     case 'evidence':{
+      // Recorder counts first, in a fixed order; technical fields after.
+      const counts=recorderCounts(record.test_results);
+      if(counts)for(const label of recorderFieldOrder)push(label,counts[label]);
       push('exit_code',record.exit_code);push('log_bytes',record.log_bytes);push('timed_out',record.timed_out===true?1:0);
-      const t=record.test_results;
-      if(t&&typeof t==='object'){const s=(t.test_summary&&typeof t.test_summary==='object')?t.test_summary:t;push('tests',s.tests);push('passed',s.passed);push('failed',s.failed);push('skipped',s.skipped);push('complete',s.complete===true?1:0);}
       break;
     }
     case 'reviews':push('decision',short(record.decision,80));push('evidence_count',Array.isArray(record.evidence_ids)?record.evidence_ids.length:undefined);break;
     case 'results':push('availability',short(record.availability,80));push('hermes_completed',record.hermes_completed===true?1:0);break;
     case 'contexts':push('bytes',typeof record.snapshot?.bytes==='number'?record.snapshot.bytes:undefined);break;
-    case 'patches':push('status',short(record.status,80));push('artifact_bytes',record.bytes);break;
+    case 'patches':{
+      push('status',short(record.status,80));push('artifact_bytes',record.bytes);
+      // Verified artifact: recorder-aggregated totals over its per-check results.
+      const verification=record.verification&&typeof record.verification==='object'?record.verification:null;
+      const results=Array.isArray(verification?.results)?verification.results:[];
+      if(verification?.status==='verified')push('verified_checks',results.length);
+      const totals={tests:0,passed:0,failed:0,skipped:0,todo:0};let seen=false;
+      for(const item of results){const counts=recorderCounts(item?.test_results);if(!counts)continue;seen=true;for(const key of Object.keys(totals))if(Number.isFinite(counts[key]))totals[key]+=counts[key];}
+      if(seen){push('passed',totals.passed);push('tests',totals.tests);push('failed',totals.failed);push('skipped',totals.skipped);push('todo',totals.todo>0?totals.todo:undefined);}
+      break;
+    }
     case 'annotations':push('annotation',short(record.kind,80));break;
     default:push('status',short(record.status,80));
   }
@@ -165,7 +207,16 @@ function safeFields(kind,record){
 }
 function referenceFor(kind,record){
   switch(kind){
-    case 'toolcalls':return {kind:'toolcall',id:record.id};
+    case 'toolcalls':{
+      const reference={kind:'toolcall',id:record.id};
+      const applied=record.result_candidate;
+      if(applied&&typeof applied.id==='string'){
+        reference.candidate_id=applied.id;
+        if(Number.isSafeInteger(applied.generation))reference.generation=applied.generation;
+        if(typeof applied.hash==='string')reference.hash=applied.hash;
+      }
+      return reference;
+    }
     case 'candidates':return {kind:'candidate',id:record.id,candidate_id:record.id,generation:record.generation,hash:record.hash};
     case 'jobs':return {kind:'job',id:record.id};
     case 'evidence':return {kind:'evidence',id:record.id,candidate_id:record.candidate_id,hash:record.candidate_hash_after};
@@ -485,12 +536,17 @@ export function createWorkbenchLive({store,records,data,gate,execution,native,no
     const filter=scopeFilter(attempt);
     const params=[workspace_id,project_id,...(attempt?[attempt]:[])];
     const latest=db.prepare(`SELECT seq FROM live_events WHERE workspace_id=? AND project_id=?${filter} ORDER BY seq DESC LIMIT 1`).get(...params)?.seq??0;
-    // Reset for a future cursor or when the cursor is below any bucket floor
-    // that could hold rows this scope would otherwise miss.
-    const reset_required=after>latest||after<retainedFloor(workspace_id,project_id,attempt);
-    // On reset, replay from the oldest retained row in this exact scope, not
-    // from the floor, so other buckets' earlier rows are not skipped.
     const oldestRetained=db.prepare(`SELECT seq FROM live_events WHERE workspace_id=? AND project_id=?${filter} ORDER BY seq ASC LIMIT 1`).get(...params)?.seq??0;
+    // Cursor-presence semantics (no schema token): a cursor at or after the
+    // oldest retained row in this exact scope is a valid retained position and
+    // continues paging, even when a different bucket has a higher pruned floor.
+    // Reset only a forward cursor, or one below the oldest retained row that is
+    // also below this scope's own pruned floor (rows the scope actually lost).
+    // A non-matching prefix in a filtered scope is not a gap.
+    const scopeFloor=retainedFloor(workspace_id,project_id,attempt);
+    const forward=after>latest;
+    const stale=oldestRetained>0&&after<oldestRetained-1&&after<scopeFloor;
+    const reset_required=forward||stale;
     const start=reset_required?(oldestRetained>0?oldestRetained-1:0):after;
     const rows=db.prepare(`SELECT * FROM live_events WHERE workspace_id=? AND project_id=?${filter} AND seq>? ORDER BY seq LIMIT ?`).all(...params,start,size+1);
     const events=rows.slice(0,size).map(row=>({...JSON.parse(row.event_json),sequence:row.seq}));
@@ -499,9 +555,10 @@ export function createWorkbenchLive({store,records,data,gate,execution,native,no
       events,
       after_sequence:events.at(-1)?.sequence??(reset_required?start:after),
       reset_required,
-      // A reset means retained rows were pruned or the cursor was ahead; the
-      // client should treat the projection as incomplete.
-      projection_incomplete:reset_required,
+      // True whenever a retained-floor gap exists for this scope (a pruned
+      // bucket above the current start), so an old retained cursor never claims
+      // an exact/complete history.
+      projection_incomplete:reset_required||scopeFloor>start,
       has_more:rows.length>size,
       project_generation:project.generation,
       snapshot:snapshot({workspace_id,project_id,attempt_id:attempt}),
@@ -538,36 +595,48 @@ export function createWorkbenchLive({store,records,data,gate,execution,native,no
         case 'toolcall':{
           const row=data.get('toolcalls',workspace_id,project_id,ref.id);
           assertAttemptScope('toolcalls',row,attempt,project);
-          return {reference:{kind:'toolcall',id:row.id},mode:'metadata',not_diff:true,verified:true,project_generation:project.generation,
-            fields:{action:short(row.action,80),status:short(row.status,80),args_digest:row.args_digest??null,result_digest:row.result_digest??null,error:short(row.error,120)??null,created_at:row.created_at,updated_at:row.updated_at}};
+          const changes=(Array.isArray(row.result_changes)?row.result_changes:[]).slice(0,32).map(change=>({path:short(change.path,512),op:short(change.op,16),old_hash:change.old_hash??null,new_hash:change.new_hash??null}));
+          const applied=row.result_candidate&&typeof row.result_candidate.id==='string'?{id:row.result_candidate.id,generation:row.result_candidate.generation??null,hash:row.result_candidate.hash??null}:null;
+          // A recorded tool call is metadata, not verification.
+          return {reference:{kind:'toolcall',id:row.id},mode:'metadata',not_diff:true,verified:false,project_generation:project.generation,
+            fields:{action:short(row.action,80),status:short(row.status,80),args_digest:row.args_digest??null,result_digest:row.result_digest??null,error:short(row.error,120)??null,changed_files:changes.length,created_at:row.created_at,updated_at:row.updated_at},
+            ...(applied?{result_candidate:applied}:{}),...(changes.length?{changes}:{})};
         }
         case 'job':{
           if(!execution||typeof execution.dispatch!=='function')throw wbError('unavailable');
           const result=await execution.dispatch({action:'job_get',workspace_id,project_id,job_id:ref.id});
           const job=result.job;
           assertAttemptScope('jobs',job,attempt,project);
-          return {reference:{kind:'job',id:job.id},mode:'job_record',not_diff:true,verified:true,project_generation:project.generation,
+          // A running/finished check record is observed metadata, not verification.
+          return {reference:{kind:'job',id:job.id},mode:'job_record',not_diff:true,verified:false,project_generation:project.generation,
             fields:{status:short(job.status,80),definition_id:short(job.definition_id,80),exit_code:job.exit_code??null,acknowledged:job.acknowledged===true,started_at:job.started_at??null,ended_at:job.ended_at??null,outcome_note:short(job.outcome_note,512)??null},
-            checks:(result.evidence??[]).map(entry=>({id:entry.id,verdict:short(entry.verdict,80),exit_code:entry.exit_code??null,timed_out:entry.timed_out===true,artifact_hash:entry.artifact_hash??null,log_bytes:entry.log_bytes??null,test_results:entry.test_results??null}))};
+            checks:(result.evidence??[]).map(entry=>({id:entry.id,verdict:short(entry.verdict,80),exit_code:entry.exit_code??null,timed_out:entry.timed_out===true,artifact_hash:entry.artifact_hash??null,log_bytes:entry.log_bytes??null,test_results:recorderCounts(entry.test_results)}))};
         }
         case 'evidence':{
           const entry=data.list('evidence',workspace_id,project_id).find(row=>row.id===ref.id);
           if(!entry)throw wbError('unavailable');
           assertAttemptScope('evidence',entry,attempt,project);
           return {reference:{kind:'evidence',id:entry.id},mode:'evidence_record',not_diff:true,verified:true,project_generation:project.generation,
-            fields:{verdict:short(entry.verdict,80),exit_code:entry.exit_code??null,timed_out:entry.timed_out===true,artifact_hash:entry.artifact_hash??null,log_bytes:entry.log_bytes??null,log_hash:entry.log_hash??null,candidate_id:entry.candidate_id??null,candidate_hash:entry.candidate_hash_after??null,test_results:entry.test_results??null}};
+            fields:{verdict:short(entry.verdict,80),exit_code:entry.exit_code??null,timed_out:entry.timed_out===true,artifact_hash:entry.artifact_hash??null,log_bytes:entry.log_bytes??null,log_hash:entry.log_hash??null,candidate_id:entry.candidate_id??null,candidate_hash:entry.candidate_hash_after??null},
+            test_results:recorderCounts(entry.test_results)};
         }
         case 'review':{
           const row=data.get('reviews',workspace_id,project_id,ref.id);
           assertAttemptScope('reviews',row,attempt,project);
-          return {reference:{kind:'review',id:row.id},mode:'review_record',not_diff:true,verified:true,project_generation:project.generation,
+          return {reference:{kind:'review',id:row.id},mode:'review_record',not_diff:true,verified:false,project_generation:project.generation,
             fields:{decision:short(row.decision,80),evidence_count:Array.isArray(row.evidence_ids)?row.evidence_ids.length:0,created_at:row.created_at,updated_at:row.updated_at}};
         }
         case 'artifact':{
           const row=data.get('patches',workspace_id,project_id,ref.id);
           assertAttemptScope('patches',row,attempt,project);
-          return {reference:{kind:'artifact',id:row.id},mode:'artifact_receipt',not_diff:true,verified:false,project_generation:project.generation,
-            fields:{status:short(row.status,80),format:short(row.format,80),artifact_hash:row.artifact_hash??null,bytes:row.bytes??null},note:'Private patch receipt metadata only; no artifact bytes are returned here.'};
+          const verification=row.verification&&typeof row.verification==='object'?row.verification:null;
+          const results=Array.isArray(verification?.results)?verification.results:[];
+          // Only a recorder-verified artifact is verified; per-check counts are
+          // bounded recorder totals, never source or model text.
+          return {reference:{kind:'artifact',id:row.id},mode:'artifact_receipt',not_diff:true,verified:verification?.status==='verified',project_generation:project.generation,
+            fields:{status:short(row.status,80),format:short(row.format,80),artifact_hash:row.artifact_hash??null,bytes:row.bytes??null,verification_status:verification?short(verification.status,80):null,verified_checks:verification?.status==='verified'?results.length:null},
+            checks:results.slice(0,8).map(item=>({definition_id:short(item.definition_id,64),verdict:short(item.verdict,40),test_results:recorderCounts(item.test_results)})),
+            note:'Private patch receipt metadata only; no artifact bytes are returned here.'};
         }
         case 'candidate':{
           const candidate_id=UUID.test(ref.candidate_id??'')?ref.candidate_id:ref.id;
@@ -595,7 +664,8 @@ export function createWorkbenchLive({store,records,data,gate,execution,native,no
           if(!native||typeof native.dispatch!=='function')throw wbError('unavailable');
           const result=(await native.dispatch({action:'result_get',workspace_id,project_id,result_id:ref.id})).result;
           assertAttemptScope('results',result,attempt,project);
-          return {reference:{kind:'result',id:result.id},mode:'result_receipt',not_diff:true,verified:true,project_generation:project.generation,
+          // A host-recorded result receipt is not a check verification.
+          return {reference:{kind:'result',id:result.id},mode:'result_receipt',not_diff:true,verified:false,project_generation:project.generation,
             fields:{availability:short(result.availability,80),hermes_completed:result.hermes_completed===true?1:0,frame_hash:result.frame_hash??null,received_at:result.received_at??null,retained_until:result.retained_until??null,candidate_id:result.candidate_id??null,candidate_generation:result.candidate_generation??null,candidate_hash:result.candidate_hash??null},
             provenance:result.provenance??null,
             note:'Receipt metadata only. The explanation text is not returned through the live surface.'};

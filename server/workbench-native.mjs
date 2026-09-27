@@ -40,7 +40,16 @@ export function createWorkbenchNative({store,records,data,execution,hermes,now=D
     if(args?.action!=='candidate_patch')return null;
     const candidate=result?.candidate;
     if(!candidate||typeof candidate.id!=='string'||!Number.isSafeInteger(candidate.generation)||typeof candidate.hash!=='string')return null;
-    return {id:candidate.id,generation:candidate.generation,hash:candidate.hash};
+    // Only after a successful apply: whitelisted per-file path/op/old(expected,
+    // already validated authoritative)/new hashes. No source content or raw args.
+    const nextHashes=new Map((Array.isArray(candidate.files)?candidate.files:[]).map(file=>[file?.path,typeof file?.hash==='string'?file.hash:null]));
+    const result_changes=[];
+    for(const change of Array.isArray(args.changes)?args.changes:[]){
+      if(result_changes.length>=32)break;
+      if(!change||typeof change.path!=='string')continue;
+      result_changes.push({path:change.path.slice(0,512),op:typeof change.op==='string'?change.op.slice(0,16):null,old_hash:typeof change.expected_hash==='string'?change.expected_hash:null,new_hash:nextHashes.has(change.path)?nextHashes.get(change.path):null});
+    }
+    return {result_candidate:{id:candidate.id,generation:candidate.generation,hash:candidate.hash},...(result_changes.length?{result_changes}:{})};
   };
   const receiptPatch=({id,version,revision,workspace_id,project_id,created_at,updated_at,...fields})=>fields;
   const requireScope=s=>{if(closed)throw wbError('unavailable');store.read(s.workspace_id);return records.project(s.workspace_id,s.project_id);};
@@ -329,8 +338,8 @@ export function createWorkbenchNative({store,records,data,execution,hermes,now=D
       }
       await authorize(g,{active:true});
       if(Buffer.byteLength(JSON.stringify(result))>524288)throw wbError('limit_exceeded');
-      const resultCandidate=safeToolResult(args,result);
-      update('toolcalls',g,call.id,{status:'completed',result_digest:digest(result),...(resultCandidate?{result_candidate:resultCandidate}:{})});
+      const resultMeta=safeToolResult(args,result);
+      update('toolcalls',g,call.id,{status:'completed',result_digest:digest(result),...(resultMeta??{})});
       if(get('grants',g,g.id).calls_used>=g.budget.calls)pauseBudget(g);
       return result;
     }catch(e){update('toolcalls',g,call.id,{status:'failed',error:e?.code??'unavailable'});const latest=get('grants',g,g.id);if(latest.status==='running'&&latest.calls_used>=g.budget.calls)pauseBudget(g);throw e;}

@@ -208,17 +208,59 @@ test('reconcile backfills missing projection keys as observed current-state snap
   }finally{rows.close();}
 });
 
-test('project-scope reset reflects attempt-bucket floors and replays from the oldest retained row',t=>{
+test('a retained project cursor continues while a sibling attempt-bucket gap is advertised incomplete',t=>{
   const f=fixture(t),scope={workspace_id:f.workspace,project_id:f.project.id};
   for(let i=0;i<5;i++)f.data.create('annotations',{...scope,kind:`n${i}`});
-  assert.equal(f.live.page(scope).events.length,5);
+  assert.equal(f.live.page({...scope,after_sequence:0,limit:2}).projection_incomplete,false);
   // Simulate a pruned attempt bucket without 2000 rows of churn.
   const writer=new Database(f.live.filename);
   try{writer.prepare('INSERT INTO live_floors(workspace_id,project_id,attempt_key,floor) VALUES(?,?,?,?) ON CONFLICT(workspace_id,project_id,attempt_key) DO UPDATE SET floor=excluded.floor').run(f.workspace,f.project.id,'attempt-x',3);}finally{writer.close();}
-  const page=f.live.page({...scope,after_sequence:2});
-  assert.equal(page.reset_required,true,'a project page must see a sibling attempt bucket truncation');
-  assert.equal(page.projection_incomplete,true);
-  assert.equal(page.events[0].sequence,1,'project reset replays from the oldest retained row overall, not the bucket floor');
+  const page=f.live.page({...scope,after_sequence:0,limit:2});
+  assert.equal(page.reset_required,false,'a retained cursor must not reset because another bucket pruned');
+  assert.equal(page.projection_incomplete,true,'the sibling bucket gap is still advertised');
+  assert.equal(page.events[0].sequence,1);
+});
+
+test('mixed-bucket project pages drain with strictly increasing cursors and no repeated reset',t=>{
+  const f=fixture(t),scope={workspace_id:f.workspace,project_id:f.project.id};
+  for(let i=0;i<100;i++)f.data.create('annotations',{...scope,kind:`n${i}`});
+  const writer=new Database(f.live.filename);
+  try{
+    const template=writer.prepare('SELECT event_json FROM live_events WHERE workspace_id=? AND project_id=? ORDER BY seq LIMIT 1').get(f.workspace,f.project.id).event_json;
+    const insert=writer.prepare('INSERT INTO live_events(seq,workspace_id,project_id,attempt_id,kind,record_id,revision,phase,project_generation,at,event_json) VALUES(?,?,?,?,?,?,?,?,?,?,?)');
+    for(let i=0;i<10;i++)insert.run(5001+i,f.workspace,f.project.id,'attempt-x','annotations',randomUUID(),1,'snapshot',null,1,template);
+    writer.prepare('INSERT INTO live_floors(workspace_id,project_id,attempt_key,floor) VALUES(?,?,?,?)').run(f.workspace,f.project.id,'attempt-x',5000);
+  }finally{writer.close();}
+  let cursor=0,resets=0,seen=0,guard=0;const seqs=[];
+  for(;;){
+    const page=f.live.page({...scope,after_sequence:cursor,limit:2});
+    if(page.reset_required)resets++;
+    assert.ok(page.after_sequence>=cursor,'cursor never moves backwards');
+    for(const event of page.events)seqs.push(event.sequence);
+    cursor=page.after_sequence;seen+=page.events.length;
+    if(!page.has_more)break;
+    if(++guard>500)throw new Error('paging did not terminate');
+  }
+  assert.equal(resets,0,'retained cursors must not reset repeatedly on a sibling-bucket floor');
+  assert.equal(seen,110);
+  assert.equal(new Set(seqs).size,110,'no page replays already-delivered rows');
+  for(let i=1;i<seqs.length;i++)assert.ok(seqs[i]>seqs[i-1],'ordered, strictly increasing sequence');
+  assert.equal(f.live.page({...scope,after_sequence:0,limit:2}).projection_incomplete,true,'gap advertised while below the pruned floor');
+  assert.equal(f.live.page({...scope,after_sequence:5001,limit:2}).projection_incomplete,false,'past the floor the scope is complete again');
+});
+
+test('a stale project cursor below the oldest retained row resets exactly once then continues',t=>{
+  const f=fixture(t),scope={workspace_id:f.workspace,project_id:f.project.id};
+  for(let i=0;i<100;i++)f.data.create('annotations',{...scope,kind:`n${i}`});
+  const writer=new Database(f.live.filename);
+  try{writer.prepare('DELETE FROM live_events WHERE workspace_id=? AND project_id=? AND seq<=50').run(f.workspace,f.project.id);writer.prepare('INSERT INTO live_floors(workspace_id,project_id,attempt_key,floor) VALUES(?,?,?,?)').run(f.workspace,f.project.id,'',50);}finally{writer.close();}
+  const first=f.live.page({...scope,after_sequence:0,limit:2});
+  assert.equal(first.reset_required,true);
+  assert.equal(first.projection_incomplete,true);
+  assert.equal(first.events[0].sequence,51,'reset replays from the oldest retained row');
+  const second=f.live.page({...scope,after_sequence:first.after_sequence,limit:2});
+  assert.equal(second.reset_required,false,'the retained cursor continues without resetting again');
+  assert.equal(second.events[0].sequence,first.after_sequence+1);
 });
 
 test('fresh filtered scope with a non-matching project prefix does not reset',t=>{
@@ -384,12 +426,14 @@ test('detail returns whitelisted metadata only and an exact-generation candidate
   const tool=await f.live.detail({workspace_id:f.workspace,project_id:f.project.id,attempt_id:attempt.id,reference:{kind:'toolcall',id:toolcall.id}});
   assert.equal(tool.mode,'metadata');
   assert.equal(tool.not_diff,true);
+  assert.equal(tool.verified,false,'a recorded tool call is metadata, not verification');
   assert.ok(!JSON.stringify(tool).includes('SENTINEL_ARGS'));
   assert.equal(tool.fields.args_digest,'1'.repeat(64));
 
   const evidence=f.data.create('evidence',{...scope,verdict:'pass',exit_code:0,log_path:'/private/secret/output.log',log_bytes:10,log_hash:'3'.repeat(64),artifact_hash:'4'.repeat(64),candidate_id:candidateId,candidate_hash_after:'b'.repeat(64)});
   const observed=await f.live.detail({workspace_id:f.workspace,project_id:f.project.id,attempt_id:attempt.id,reference:{kind:'evidence',id:evidence.id}});
   assert.equal(observed.mode,'evidence_record');
+  assert.equal(observed.verified,true,'structured evidence is recorder-authoritative');
   assert.ok(!JSON.stringify(observed).includes('/private/secret'));
 
   // Exact retained-generation comparison, sourced from the committed candidate.
@@ -418,6 +462,7 @@ test('detail returns whitelisted metadata only and an exact-generation candidate
 
   const result=await f.live.detail({workspace_id:f.workspace,project_id:f.project.id,attempt_id:attempt.id,reference:{kind:'result',id:resultId}});
   assert.equal(result.mode,'result_receipt');
+  assert.equal(result.verified,false,'a host-recorded receipt is not a check verification');
   assert.ok(!JSON.stringify(result).includes('SECRET_REASONING'));
   assert.equal(result.fields.availability,'available');
 
@@ -657,11 +702,64 @@ test('a real native candidate_patch records safe target/result and attributes th
   assert.equal(call.result_candidate.id,candidate.id);
   assert.equal(call.result_candidate.generation,2);
   assert.ok(call.result_candidate.hash&&call.result_candidate.hash!==candidate.hash);
+  const updatedCandidate=f.data.get('candidates',f.base.workspace_id,f.base.project_id,candidate.id);
+  const newFileHash=updatedCandidate.files.find(file=>file.path==='math.js').hash;
+  assert.deepEqual(call.result_changes,[{path:'math.js',op:'change',old_hash:fileHash,new_hash:newFileHash}]);
   assert.ok(!JSON.stringify(call).includes('a + b'),'no raw source content in the toolcall record');
   const page=f.live.page({...f.base,attempt_id:attempt.id});
   const mutation=page.events.find(event=>event.kind==='candidate'&&event.reference?.generation===2);
   assert.ok(mutation,'committed candidate generation is attributed to its attempt');
   assert.equal(mutation.authority,'observed');
-  assert.ok(page.events.some(event=>event.kind==='toolcall'&&event.target&&/math\.js/.test(event.target)),'toolcall event exposes only the safe target');
+  const toolEvent=page.events.find(event=>event.kind==='toolcall'&&event.reference?.candidate_id);
+  assert.ok(toolEvent,'completed toolcall is projected');
+  assert.equal(toolEvent.reference.candidate_id,candidate.id,'toolcall references the exact applied candidate generation');
+  assert.equal(toolEvent.reference.generation,2);
+  assert.equal(toolEvent.reference.hash,call.result_candidate.hash);
+  assert.equal(toolEvent.fields.find(field=>field.label==='changed_files').value,1);
+  assert.equal(toolEvent.fields.find(field=>field.label==='first_path').value,'math.js');
+  assert.equal(toolEvent.fields.find(field=>field.label==='first_old').value,fileHash);
+  assert.ok(toolEvent.target&&/math\.js/.test(toolEvent.target),'toolcall event exposes only the safe target');
   assert.ok(!JSON.stringify(page.events).includes('a + b'),'no source bytes in durable live events');
+  const detail=await f.live.detail({...f.base,attempt_id:attempt.id,reference:{kind:'toolcall',id:call.id}});
+  assert.equal(detail.verified,false);
+  assert.equal(detail.changes[0].path,'math.js');
+  assert.equal(detail.changes[0].old_hash,fileHash);
+  assert.equal(detail.changes[0].new_hash,newFileHash);
+  assert.equal(detail.result_candidate.generation,2);
+  assert.ok(!JSON.stringify(detail).includes('a + b'),'per-file detail carries hashes only, never source');
+});
+
+test('recorder evidence counts are bounded and ordered, and raw output/args/model text never enter events',t=>{
+  const f=fixture(t),scope={workspace_id:f.workspace,project_id:f.project.id};
+  const candidate=f.data.create('candidates',{...scope,generation:1,hash:'a'.repeat(64),files:[],total_bytes:0,status:'approved'});
+  const attempt=f.data.create('attempts',{...scope,status:'created',candidate_id:candidate.id,candidate_hash:candidate.hash});
+  const job=f.data.create('jobs',{...scope,status:'completed',definition_id:'node-test',candidate_id:candidate.id,provenance:{version:1,initiated_by:{kind:'native_agent',attempt_id:attempt.id,grant_id:randomUUID()},authorized_by:{kind:'owner_grant'},recorded_by:{kind:'comet_service'}}});
+  const files=Array.from({length:3},(_,index)=>`t${index}.test.mjs`);
+  const evidence=f.data.create('evidence',{...scope,verdict:'pass',job_id:job.id,candidate_id:candidate.id,candidate_hash_after:candidate.hash,stdout_preview:'MODEL_CLAIM_59_OF_59',stderr_preview:'RAW_STDERR',command:{executable:'/usr/bin/node',args:['SECRET_ARG']},test_results:{version:1,valid:true,success:true,tests:60,passed:60,failed:0,skipped:0,todo:0,suites:0,required_files:files,covered_files:files,complete:true}});
+  const event=f.live.page({...scope,attempt_id:attempt.id}).events.find(entry=>entry.reference?.id===evidence.id);
+  assert.ok(event);
+  assert.equal(event.authority,'recorder');
+  assert.deepEqual(event.fields.slice(0,8).map(field=>field.label),['passed','tests','covered_files','required_files','failed','skipped','todo','complete']);
+  const value=label=>event.fields.find(field=>field.label===label)?.value;
+  assert.equal(value('passed'),60);assert.equal(value('tests'),60);assert.equal(value('covered_files'),3);assert.equal(value('required_files'),3);assert.equal(value('failed'),0);assert.equal(value('todo'),0);assert.equal(value('complete'),1);
+  const json=JSON.stringify(f.live.page({...scope,attempt_id:attempt.id}));
+  assert.ok(!json.includes('MODEL_CLAIM_59_OF_59')&&!json.includes('RAW_STDERR')&&!json.includes('SECRET_ARG'),'no raw output, args or model text in events');
+});
+
+test('a recorder-verified artifact is recorder-authoritative with bounded per-check counts',async t=>{
+  const f=fixture(t),scope={workspace_id:f.workspace,project_id:f.project.id};
+  const candidate=f.data.create('candidates',{...scope,generation:2,hash:'b'.repeat(64),files:[],total_bytes:0,status:'approved'});
+  const attempt=f.data.create('attempts',{...scope,status:'created',candidate_id:candidate.id,candidate_hash:'b'.repeat(64)});
+  const patch=f.data.create('patches',{...scope,status:'available',candidate_id:candidate.id,candidate_hash:candidate.hash,candidate_generation:2,artifact_hash:'c'.repeat(64),bytes:123,format:'git-unified-diff',verification:{version:1,id:randomUUID(),status:'verified',artifact_id:randomUUID(),candidate_id:candidate.id,candidate_hash:candidate.hash,candidate_generation:2,results:[{definition_id:'node-test',verdict:'pass',test_results:{version:1,tests:60,passed:60,failed:0,skipped:0,todo:0,required_files:['a'],covered_files:['a'],complete:true}}]}});
+  const event=f.live.page({...scope,attempt_id:attempt.id}).events.find(entry=>entry.reference?.id===patch.id);
+  assert.ok(event);
+  assert.equal(event.authority,'recorder');
+  const value=label=>event.fields.find(field=>field.label===label)?.value;
+  assert.equal(value('verified_checks'),1);assert.equal(value('passed'),60);assert.equal(value('tests'),60);
+  const detail=await f.live.detail({...scope,attempt_id:attempt.id,reference:{kind:'artifact',id:patch.id}});
+  assert.equal(detail.verified,true);
+  assert.equal(detail.fields.verification_status,'verified');
+  assert.equal(detail.fields.verified_checks,1);
+  assert.equal(detail.checks[0].test_results.passed,60);
+  assert.equal(detail.checks[0].test_results.covered_files,1);
 });
