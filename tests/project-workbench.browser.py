@@ -348,7 +348,21 @@ def main(renderer, linked=False):
                         page.on("dialog", accept_reload_dialog)
                         reload_started = time.time()
                         page.evaluate("() => window.setTimeout(() => window.location.reload(), 0)")
-                        page.wait_for_function("document.readyState === 'complete' && performance.getEntriesByType('navigation')[0]?.type === 'reload'", timeout=60000)
+                        # wait_for_function installs an eval-based predicate that
+                        # can race the replacement document's strict CSP. Direct
+                        # DevTools evaluation avoids introducing that page error.
+                        reload_deadline = time.monotonic() + 60
+                        while True:
+                            try:
+                                reload_ready = page.evaluate("() => document.readyState === 'complete' && performance.getEntriesByType('navigation')[0]?.type === 'reload'")
+                            except Exception as navigation_error:
+                                if 'Execution context was destroyed' not in str(navigation_error):
+                                    raise
+                                reload_ready = False
+                            if reload_ready:
+                                break
+                            assert time.monotonic() < reload_deadline, 'Replacement document did not complete its reload'
+                            page.wait_for_timeout(100)
                         reload_ms = round((time.time() - reload_started) * 1000)
                         reload_navigation = page.evaluate("""() => {
                             const entry = performance.getEntriesByType('navigation')[0];
