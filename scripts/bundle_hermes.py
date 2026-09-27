@@ -18,7 +18,13 @@ def build():
                 continue
             # The optional, owner-specific mobile proxy has hard-coded private
             # deployment bindings and is not imported by the portable server.
-            if name.startswith('docs/images/') or name in ('scripts/bundle_hermes.py', 'server/mobile-proxy.mjs'):
+            if name.startswith('docs/images/') or name in (
+                'scripts/bundle_hermes.py', 'server/mobile-proxy.mjs',
+                # Historical operator evidence contains deployment-specific
+                # endpoints and paths; preserve it in Git, not portable installs.
+                'docs/REAL_PROJECT_EVALUATION.md',
+                'docs/REAL_PROJECT_EVALUATION_PREFLIGHT.md',
+            ):
                 continue
             path = ROOT / name
             if path.is_symlink() or not path.is_file():

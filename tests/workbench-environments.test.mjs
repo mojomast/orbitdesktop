@@ -60,7 +60,7 @@ test('offline locked file tarball dependency prepares privately and executes a t
       assert.throws(()=>env.verifyProfile({...base,profile_id:approved.id,candidate_id}));
     }finally{data.update('profiles',workspace_id,project_id,approved.id,changed.revision,Object.fromEntries(Object.keys(fields).map(key=>[key,original[key]])));}
   };
-  for(const [key,value] of [['profile_id',randomUUID()],['profile_version',2],['lock_hash','0'.repeat(64)],['toolchain_hash','0'.repeat(64)],['node_path','/usr/bin/false'],['source_hash','0'.repeat(64)],['network_policy','online'],['lifecycle_policy','scripts'],['dependency_root',project],['environment_identity','0'.repeat(64)]]){
+  for(const [key,value] of [['profile_id',randomUUID()],['profile_version',2],['lock_hash','0'.repeat(64)],['toolchain_hash','0'.repeat(64)],['node_path','/usr/bin/false'],['source_hash','invalid'],['network_policy','online'],['lifecycle_policy','scripts'],['dependency_root',project],['environment_identity','0'.repeat(64)]]){
     const profile=data.get('profiles',workspace_id,project_id,approved.id);
     changeProfile({prepared:{...profile.prepared,[key]:value}},'execution_profile_stale');
   }

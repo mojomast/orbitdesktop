@@ -1,5 +1,34 @@
 # Real Project Trial + Reliability Evaluation
 
+## Follow-up: dependency-aware artifact verification (in progress)
+
+The original blocked result below remains historical. Its failed export receipt
+has not been changed or retried by development tooling.
+
+The exact `orbit-68b6a3b` modules were reproduced in a disposable runtime with a
+real offline RouteTok profile: candidate checks passed 293/293 across 60 files,
+review and round-trip preview succeeded, and export returned `unsupported` with
+an inaccessible `preparation_failed` receipt. The reproduction is retained in
+`tests/workbench-dependency-export-real.test.mjs`.
+
+The follow-up implementation executes dependency-backed artifact checks against
+fresh patch-applied source views. Initial isolated integration tests pass for
+independent export, downloaded patch hashing, application, idempotent/concurrent
+export and stale dependency/profile/source/acceptance refusals. These deterministic
+fixtures are development evidence, **not a new real-model RouteTok acceptance**.
+Local `npm run check` passed: **579 passed, 0 failed, 2 gated skips** out of 581
+tests, with the actual pinned Hermes runtime and real RouteTok cache enabled.
+The portable RouteTok fixture passed independent artifact verification,
+download/hash validation, fresh-base application and **293/293** retest. The two
+skips were the separately gated release-launch test and historical exact-release
+failure reproduction (already observed separately). The release-launch test then
+passed with `RELEASE_INSTANCE=1`. Both-renderer Gate 2 browser
+journeys, focused readiness/recorder UI tests, Python/plugin tests and portable
+archive parity passed. Final GitHub CI and the separately authorized isolated
+real-model trial remain pending.
+
+## Original evaluation
+
 Date: **2026-09-26**. **Overall: incomplete — real repair verified, private
 verified export BLOCKED.** Do not score this milestone as an end-to-end success.
 The initial dependency refusal is preserved in

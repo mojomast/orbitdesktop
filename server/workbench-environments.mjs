@@ -150,7 +150,9 @@ export function createWorkbenchEnvironments({store,records,data,now=Date.now,gat
   function preparedContract(p){
     const prepared=p.prepared,dir=path.dirname(path.dirname(prepared.dependency_root??''));
     if(path.dirname(dir)!==root||!uuidMatch.test(path.basename(dir))||prepared.dependency_root!==path.join(dir,'source','node_modules'))throw wbError('stale_resource');
-    if(prepared.profile_id!==p.id||prepared.profile_version!==p.profile_version||prepared.lock_hash!==p.lock_hash||prepared.toolchain_hash!==p.toolchain_hash||prepared.node_path!==p.toolchain.node||prepared.source_hash!==p.source_hash||prepared.network_policy!==p.network_policy||prepared.lifecycle_policy!==p.lifecycle_policy||prepared.environment_identity!==digest([p.id,p.lock_hash,p.toolchain_hash,prepared.dependency_hash,dir])||!hexMatch.test(prepared.dependency_hash))throw wbError('stale_resource');
+    // Source may advance between profile approval and preparation when all
+    // required dependency inputs remain identical; its hash is historical.
+    if(prepared.profile_id!==p.id||prepared.profile_version!==p.profile_version||prepared.lock_hash!==p.lock_hash||prepared.toolchain_hash!==p.toolchain_hash||prepared.node_path!==p.toolchain.node||!hexMatch.test(prepared.source_hash)||prepared.network_policy!==p.network_policy||prepared.lifecycle_policy!==p.lifecycle_policy||prepared.environment_identity!==digest([p.id,p.lock_hash,p.toolchain_hash,prepared.dependency_hash,dir])||!hexMatch.test(prepared.dependency_hash))throw wbError('stale_resource');
   }
   function readyProfile(body){
     const project=scope(body),p=profile(body);

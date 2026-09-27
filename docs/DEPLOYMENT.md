@@ -24,6 +24,29 @@ profile preview/approval/preparation, acceptance binding, the real managed
 recorder, all 59 TypeScript test files, and dependency executable-mode tampering.
 CI provisions that public pinned checkout explicitly. No inference is involved.
 
+## Dependency-backed verified patch checks
+
+Artifact export reuses an already prepared and approved execution profile; it
+does not provision dependencies, run npm, or fetch missing artifacts. Keep its
+private prepared environment until artifact verification and any journal-only
+finalization have completed. A stale lock, toolchain, profile, or dependency tree
+requires explicit preparation and approval of a fresh contract.
+
+The verifier applies the exported bytes to the exact source base, checks the
+result against the reviewed candidate (including file modes), and copies that
+round-trip source into a fresh dependency-backed view. Artifact checks produce
+separate recorder evidence. Candidate test success is not export proof.
+
+This is independent verifier execution under the approved **trusted-host
+profile**, not an OS sandbox. Offline preparation and ignored lifecycle scripts
+do not provide general network or filesystem isolation for test code.
+
+After a restart, inspect artifact recovery status. Finalization of a complete
+journal must not rerun checks; unknown process ownership requires explicit
+identity-bound recovery. A browser reconnect does not authorize another export.
+Use a fresh disposable runtime and separately authorized activation for release
+acceptance; preserve previous failed receipts and live evaluation evidence.
+
 ## Authorized DeepSeek native inference
 
 The native adapter permits the exact HTTPS base `https://api.deepseek.com/v1`
