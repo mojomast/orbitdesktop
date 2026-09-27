@@ -51,7 +51,25 @@ test('offline locked file tarball dependency prepares privately and executes a t
   const ready=await env.dispatch({...base,action:'environment_prepare',profile_id:approved.id});
   assert.equal(ready.status,'ready');assert.equal(ready.prepared.network_policy,'offline_only');
   assert.deepEqual(env.profileReadiness({...base,profile_id:approved.id,candidate_id}).identity,env.verifyProfile({...base,profile_id:approved.id,candidate_id}));
-  assert.equal(env.profileReadiness({...base,profile_id:randomUUID(),candidate_id}).reason,'missing');
+  assert.equal(env.profileReadiness({...base,profile_id:randomUUID(),candidate_id}).reason,'execution_profile_missing');
+  const changeProfile=(fields,expected)=>{
+    const original=data.get('profiles',workspace_id,project_id,approved.id);
+    const changed=data.update('profiles',workspace_id,project_id,approved.id,original.revision,fields);
+    try{
+      assert.equal(env.profileReadiness({...base,profile_id:approved.id,candidate_id}).reason,expected);
+      assert.throws(()=>env.verifyProfile({...base,profile_id:approved.id,candidate_id}));
+    }finally{data.update('profiles',workspace_id,project_id,approved.id,changed.revision,Object.fromEntries(Object.keys(fields).map(key=>[key,original[key]])));}
+  };
+  for(const [key,value] of [['profile_id',randomUUID()],['profile_version',2],['lock_hash','0'.repeat(64)],['toolchain_hash','0'.repeat(64)],['node_path','/usr/bin/false'],['source_hash','0'.repeat(64)],['network_policy','online'],['lifecycle_policy','scripts'],['dependency_root',project],['environment_identity','0'.repeat(64)]]){
+    const profile=data.get('profiles',workspace_id,project_id,approved.id);
+    changeProfile({prepared:{...profile.prepared,[key]:value}},'execution_profile_stale');
+  }
+  changeProfile({profile_version:2},'unsupported_profile_kind');
+  changeProfile({registry:{kind:'unknown-profile'}},'unsupported_profile_kind');
+  changeProfile({network_policy:'online'},'unsupported_profile_kind');
+  changeProfile({lifecycle_policy:'run_scripts'},'unsupported_profile_kind');
+  changeProfile({command:['/usr/bin/false']},'unsupported_profile_kind');
+  changeProfile({toolchain:{node:'/usr/bin/false'}},'toolchain_changed');
   assert.equal(fs.existsSync(path.join(project,'node_modules')),false);
   const view=env.createExecutionView({...base,profile_id:approved.id,candidate_id});
   try{
@@ -77,6 +95,11 @@ test('offline locked file tarball dependency prepares privately and executes a t
   const staged_source={root:stage,files:edited.candidate.files.map(file=>({...file,mode:'100644'})),hash:edited.candidate.hash};
   const staged=env.createExecutionView({...base,profile_id:approved.id,candidate_id,staged_source});
   assert.equal(fs.readFileSync(path.join(staged.root,'fixture.test.cjs'),'utf8'),fs.readFileSync(path.join(stage,'fixture.test.cjs'),'utf8'));
+  assert.equal(staged.verify().source_hash,edited.candidate.hash);
+  const originalProfile=data.get('profiles',workspace_id,project_id,approved.id);
+  const altered=data.update('profiles',workspace_id,project_id,approved.id,originalProfile.revision,{prepared:{...originalProfile.prepared,profile_version:2}});
+  try{assert.throws(()=>staged.verify(),{code:'stale_resource'},'view rechecks the durable prepared profile after construction');}
+  finally{data.update('profiles',workspace_id,project_id,approved.id,altered.revision,{prepared:originalProfile.prepared});}
   assert.equal(staged.verify().source_hash,edited.candidate.hash);
   const acceptance=await call('task_acceptance_preview',{task_id:task.id,candidate_id,expected_acceptance_digest:task.acceptance_digest,required_checks:[{definition_id:'node-test',execution_profile_id:approved.id}]});
   await call('task_acceptance_approve',{task_id:task.id,candidate_id,preview_id:acceptance.preview_id,preview_digest:acceptance.preview.digest});
@@ -134,9 +157,9 @@ test('offline locked file tarball dependency prepares privately and executes a t
   data.update('profiles',workspace_id,project_id,approved.id,changed.revision,{toolchain_hash:beforeProfile.toolchain_hash});
   const installed=path.join(ready.prepared.dependency_root,'fixture-lib','index.js');
   fs.writeFileSync(installed,'module.exports = 0;\n');
-  assert.equal(env.profileReadiness({...base,profile_id:approved.id,candidate_id}).reason,'stale');
+  assert.equal(env.profileReadiness({...base,profile_id:approved.id,candidate_id}).reason,'execution_profile_stale');
   assert.throws(()=>env.createExecutionView({...base,profile_id:approved.id,candidate_id}),{code:'stale_resource'});
   fs.rmSync(ready.prepared.dependency_root,{recursive:true});
-  assert.equal(env.profileReadiness({...base,profile_id:approved.id,candidate_id}).reason,'artifact_missing');
+  assert.equal(env.profileReadiness({...base,profile_id:approved.id,candidate_id}).reason,'dependency_artifact_missing');
   await assert.rejects(env.dispatch({...base,action:'environment_prepare',profile_id:approved.id}),{code:'busy'});
 });

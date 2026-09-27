@@ -10,6 +10,7 @@ import {registryTypeScriptProfile,privateCacheRoot} from './workbench-registry-p
 const uuid={type:'string',pattern:'^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$'};
 const uuidMatch=new RegExp(uuid.pattern);
 const hex={type:'string',pattern:'^[a-f0-9]{64}$'};
+const hexMatch=new RegExp(hex.pattern);
 const base={action:{type:'string'},workspace_id:uuid,project_id:uuid};
 const strict=(properties,required=Object.keys(properties))=>({type:'object',properties,required,additionalProperties:false});
 export const environmentRequests=Object.freeze({
@@ -134,12 +135,27 @@ export function createWorkbenchEnvironments({store,records,data,now=Date.now,gat
   function current(body,p){
     const candidate=data.get('candidates',body.workspace_id,body.project_id,p.candidate_id);
     const observed=inspect(candidate,p.required_inputs);
-    if(candidate.project_generation!==p.project_generation||observed.lock_hash!==p.lock_hash||toolchain().hash!==p.toolchain_hash||p.required_inputs.some(item=>observed.selected.find(file=>file.path===item)?.hash!==p.input_hashes[item]))throw wbError('stale_resource');
+    if(stable(observed.registry??null)!==stable(p.registry??null))throw Object.assign(wbError('unsupported'),{reason:'unsupported_profile_kind'});
+    if(toolchain().hash!==p.toolchain_hash)throw Object.assign(wbError('stale_resource'),{reason:'toolchain_changed'});
+    if(candidate.project_generation!==p.project_generation||observed.lock_hash!==p.lock_hash||p.required_inputs.some(item=>observed.selected.find(file=>file.path===item)?.hash!==p.input_hashes[item]))throw wbError('stale_resource');
     return {candidate,observed};
+  }
+  function profileContract(p){
+    if(p.profile_version!==1||p.source_selection_policy!=='candidate_generation_may_change_if_dependency_inputs_remain_identical'||p.network_policy!=='offline_only'||p.lifecycle_policy!=='ignore_scripts'||p.registry&&p.registry.kind!=='locked-typescript-cache-v1')throw Object.assign(wbError('unsupported'),{reason:'unsupported_profile_kind'});
+    let chain;try{chain=toolchain();}catch{throw Object.assign(wbError('stale_resource'),{reason:'toolchain_changed'});}
+    if(p.toolchain_hash!==chain.hash||p.toolchain?.node!==chain.node||p.toolchain?.npm!==chain.npm||p.toolchain?.version!==chain.version)throw Object.assign(wbError('stale_resource'),{reason:'toolchain_changed'});
+    const expected=['/usr/bin/timeout','--kill-after=5s','60s',chain.node,chain.npm,'ci','--ignore-scripts','--offline','--no-audit','--no-fund',p.registry?'--include=dev':'--omit=dev','--no-package-lock=false'];
+    if(stable(p.command)!==stable(expected))throw Object.assign(wbError('unsupported'),{reason:'unsupported_profile_kind'});
+  }
+  function preparedContract(p){
+    const prepared=p.prepared,dir=path.dirname(path.dirname(prepared.dependency_root??''));
+    if(path.dirname(dir)!==root||!uuidMatch.test(path.basename(dir))||prepared.dependency_root!==path.join(dir,'source','node_modules'))throw wbError('stale_resource');
+    if(prepared.profile_id!==p.id||prepared.profile_version!==p.profile_version||prepared.lock_hash!==p.lock_hash||prepared.toolchain_hash!==p.toolchain_hash||prepared.node_path!==p.toolchain.node||prepared.source_hash!==p.source_hash||prepared.network_policy!==p.network_policy||prepared.lifecycle_policy!==p.lifecycle_policy||prepared.environment_identity!==digest([p.id,p.lock_hash,p.toolchain_hash,prepared.dependency_hash,dir])||!hexMatch.test(prepared.dependency_hash))throw wbError('stale_resource');
   }
   function readyProfile(body){
     const project=scope(body),p=profile(body);
     if(p.project_generation!==project.generation||p.status!=='ready'||!p.prepared||body.candidate_id&&p.candidate_id!==body.candidate_id)throw wbError('stale_resource');
+    profileContract(p);preparedContract(p);
     const {candidate}=current(body,p);
     if(treeHash(p.prepared.dependency_root,!!p.registry)!==p.prepared.dependency_hash)throw wbError('stale_resource');
     return {p,candidate,identity:{profile_id:p.id,profile_version:p.profile_version,project_generation:p.project_generation,lock_hash:p.lock_hash,toolchain_hash:p.toolchain_hash,dependency_hash:p.prepared.dependency_hash,environment_identity:p.prepared.environment_identity,network_policy:p.network_policy,lifecycle_policy:p.lifecycle_policy}};
@@ -149,17 +165,15 @@ export function createWorkbenchEnvironments({store,records,data,now=Date.now,gat
     // The caller must already be authenticated; no private filesystem paths leak.
     scope(body);
     let p;
-    try{p=profile(body);}catch(error){if(error.code==='permission_denied')return {ready:false,reason:'missing',message:'Execution profile was not found.'};throw error;}
-    if(p.status!=='ready'||!p.prepared)return {ready:false,reason:'missing',message:'Execution profile is not prepared and ready.'};
-    if(p.project_generation!==scope(body).generation||body.candidate_id&&p.candidate_id!==body.candidate_id)return {ready:false,reason:'stale',message:'Execution profile no longer matches the project or candidate.'};
-    try{
-      if(toolchain().hash!==p.toolchain_hash)return {ready:false,reason:'toolchain_changed',message:'The approved Node/npm toolchain changed.'};
-    }catch{return {ready:false,reason:'toolchain_changed',message:'The approved Node/npm toolchain is unavailable.'};}
+    try{p=profile(body);}catch(error){if(error.code==='permission_denied')return {ready:false,reason:'execution_profile_missing',message:'Select and approve an execution profile, then prepare its dependencies.'};throw error;}
+    if(p.project_generation!==scope(body).generation||body.candidate_id&&p.candidate_id!==body.candidate_id)return {ready:false,reason:'execution_profile_stale',message:'Project or candidate changed; approve and prepare a fresh execution profile.'};
+    if(p.status!=='ready'||!p.prepared)return {ready:false,reason:'execution_profile_missing',message:'Prepare the approved execution profile before running required checks or exporting.'};
     try{return {ready:true,reason:null,message:'Execution profile is ready.',identity:readyProfile(body).identity};}
     catch(error){
-      if(error.code==='unsupported')return {ready:false,reason:'unsupported',message:'The candidate no longer satisfies the approved dependency policy.'};
-      if(['ENOENT','ENOTDIR','unavailable'].includes(error.code))return {ready:false,reason:'artifact_missing',message:'The prepared dependency artifact is unavailable.'};
-      if(error.code==='stale_resource')return {ready:false,reason:'stale',message:'The approved source or prepared dependencies changed.'};
+      if(error.reason==='toolchain_changed')return {ready:false,reason:'toolchain_changed',message:'Node/npm changed; approve and prepare a profile for the current toolchain.'};
+      if(error.code==='unsupported')return {ready:false,reason:'unsupported_profile_kind',message:'This dependency profile is unsupported; approve and prepare a supported profile.'};
+      if(['ENOENT','ENOTDIR','unavailable'].includes(error.code))return {ready:false,reason:'dependency_artifact_missing',message:'Prepared dependencies are missing; prepare the approved profile again.'};
+      if(error.code==='stale_resource')return {ready:false,reason:'execution_profile_stale',message:'Approved inputs or prepared dependencies changed; approve and prepare a fresh profile.'};
       throw error;
     }
   }
@@ -218,7 +232,7 @@ export function createWorkbenchEnvironments({store,records,data,now=Date.now,gat
   }
   function createExecutionView({workspace_id,project_id,profile_id,candidate_id,staged_source}){
     const body={workspace_id,project_id,profile_id,candidate_id};
-    const {candidate,p}=readyProfile(body);
+    const {candidate,p,identity:profileIdentity}=readyProfile(body);
     const patchRoot=path.join(store.root,'workbench-patches');
     let stageIdentity;
     if(staged_source){
@@ -248,12 +262,13 @@ export function createWorkbenchEnvironments({store,records,data,now=Date.now,gat
       fs.mkdirSync(path.join(source,'node_modules'),{mode:0o700});
       if(traverse(p.prepared.dependency_root,path.join(source,'node_modules'),{largeFiles:!!p.registry})!==p.prepared.dependency_hash)throw wbError('stale_resource');
       if(treeHash(path.join(source,'node_modules'),!!p.registry)!==p.prepared.dependency_hash||treeHash(p.prepared.dependency_root,!!p.registry)!==p.prepared.dependency_hash)throw wbError('stale_resource');
-      if(scope(body).generation!==p.project_generation)throw wbError('stale_resource');
-      current(body,p);
+      const copied=readyProfile(body);
+      if(copied.candidate.hash!==candidate.hash||stable(copied.identity)!==stable(profileIdentity))throw wbError('stale_resource');
       const opened=openProjectRoot(source),sourceIdentity=opened.identity;opened.close();
       const prepared={...p.prepared,source_hash:candidate.hash,environment_identity:digest([p.prepared.environment_identity,candidate.hash])};
       const verify=()=>{
-        if(readyProfile(body).candidate.hash!==candidate.hash)throw wbError('stale_resource');
+        const current=readyProfile(body);
+        if(current.candidate.hash!==candidate.hash||stable(current.identity)!==stable(profileIdentity))throw wbError('stale_resource');
         sourceFiles();
         const capture=captureProject({root:source,identity:sourceIdentity});
         const observed=capture.files.map(file=>({path:file.path,hash:file.hash,bytes:file.bytes.length})).sort((a,b)=>a.path.localeCompare(b.path));
