@@ -23,6 +23,25 @@ export function createWorkbenchNative({store,records,data,execution,hermes,now=D
   const previews=new Map(),channels=new Map(),running=new Map(),heldNativeReleases=new Map(),quarantineFailures=new Set(),resultFailures=new Set();let closed=false,server,socketDir,listenPromise;
   const get=(kind,s,id)=>data.get(kind,s.workspace_id,s.project_id,id);
   const update=(kind,s,id,patch)=>{const row=get(kind,s,id);return data.update(kind,s.workspace_id,s.project_id,id,row.revision,patch);};
+  // Safe request/completion metadata only. Never raw tool arguments or results:
+  // paths/ids are already schema-whitelisted, everything else stays out.
+  const safePathList=paths=>[...new Set(paths.filter(entry=>typeof entry==='string'))].sort().join(', ').slice(0,512);
+  const safeToolTarget=args=>{
+    switch(args?.action){
+      case 'read_context':return typeof args.context_id==='string'?args.context_id.slice(0,128):null;
+      case 'candidate_read':return typeof args.path==='string'?args.path.slice(0,512):null;
+      case 'candidate_patch':return Array.isArray(args.changes)?safePathList(args.changes.map(change=>change?.path)):null;
+      case 'job_start':return typeof args.definition_id==='string'?args.definition_id.slice(0,64):'default';
+      case 'job_status':case 'evidence':return typeof args.job_id==='string'?args.job_id:null;
+      default:return null;
+    }
+  };
+  const safeToolResult=(args,result)=>{
+    if(args?.action!=='candidate_patch')return null;
+    const candidate=result?.candidate;
+    if(!candidate||typeof candidate.id!=='string'||!Number.isSafeInteger(candidate.generation)||typeof candidate.hash!=='string')return null;
+    return {id:candidate.id,generation:candidate.generation,hash:candidate.hash};
+  };
   const receiptPatch=({id,version,revision,workspace_id,project_id,created_at,updated_at,...fields})=>fields;
   const requireScope=s=>{if(closed)throw wbError('unavailable');store.read(s.workspace_id);return records.project(s.workspace_id,s.project_id);};
   const historicalScope=s=>{if(closed)throw wbError('unavailable');const project=records.list(s.workspace_id).find(p=>p.id===s.project_id);if(!project)throw wbError('permission_denied');return project;};
@@ -296,7 +315,7 @@ export function createWorkbenchNative({store,records,data,execution,hermes,now=D
     if(args.action==='job_start'&&current.checks_used>=g.budget.checks)throw wbError('limit_exceeded');
     if(args.action==='candidate_patch'&&(current.repairs_used??0)>=(g.budget.repair_iterations??3)){update('grants',g,g.id,{status:'paused_budget',reason:'repair_iterations_exhausted'});channels.delete(g.id);throw wbError('limit_exceeded');}
     update('grants',g,g.id,{calls_used:current.calls_used+1,checks_used:current.checks_used+(args.action==='job_start'?1:0),repairs_used:(current.repairs_used??0)+(args.action==='candidate_patch'?1:0)});
-    const call=data.create('toolcalls',{workspace_id:g.workspace_id,project_id:g.project_id,grant_id:g.id,attempt_id:g.attempt_id,action:args.action,args_digest:digest(args),status:'started'});
+    const call=data.create('toolcalls',{workspace_id:g.workspace_id,project_id:g.project_id,grant_id:g.id,attempt_id:g.attempt_id,candidate_id:g.candidate_id,action:args.action,args_digest:digest(args),safe_target:safeToolTarget(args),status:'started'});
     const base={workspace_id:g.workspace_id,project_id:g.project_id},candidate={...base,candidate_id:g.candidate_id};
     try{
       let result;
@@ -310,7 +329,8 @@ export function createWorkbenchNative({store,records,data,execution,hermes,now=D
       }
       await authorize(g,{active:true});
       if(Buffer.byteLength(JSON.stringify(result))>524288)throw wbError('limit_exceeded');
-      update('toolcalls',g,call.id,{status:'completed',result_digest:digest(result)});
+      const resultCandidate=safeToolResult(args,result);
+      update('toolcalls',g,call.id,{status:'completed',result_digest:digest(result),...(resultCandidate?{result_candidate:resultCandidate}:{})});
       if(get('grants',g,g.id).calls_used>=g.budget.calls)pauseBudget(g);
       return result;
     }catch(e){update('toolcalls',g,call.id,{status:'failed',error:e?.code??'unavailable'});const latest=get('grants',g,g.id);if(latest.status==='running'&&latest.calls_used>=g.budget.calls)pauseBudget(g);throw e;}
