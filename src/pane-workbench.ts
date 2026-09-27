@@ -48,6 +48,7 @@ export interface PaneWorkbenchDeps {
   onLane: (lane: { agent_busy: boolean; job_busy: boolean; unknown: boolean; observed?: boolean }) => void;
   timeline: LiveTimeline;
   onError?: (message: string) => void;
+  onOpenNormal?: () => void;
 }
 
 const EXCERPT_MAX_COUNT = 8;
@@ -101,6 +102,7 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
   const root = el('section', 'pane-workbench');
   root.setAttribute('aria-label', 'Pane Workbench');
   const head = el('div', 'pane-workbench-head');
+  if (deps.onOpenNormal) head.append(button('Open Normal chat window', 'Open or focus the separate Normal chat window', deps.onOpenNormal, 'small-button'));
   const status = el('p', 'pane-workbench-status', 'Workbench: connect host to read projects.');
   status.setAttribute('role', 'status');
   const error = el('p', 'pane-workbench-error');

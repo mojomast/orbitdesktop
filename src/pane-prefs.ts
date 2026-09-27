@@ -19,6 +19,8 @@ export interface PaneWorkbenchPrefs {
   grantId: string | null;
   resultId: string | null;
   reviewId: string | null;
+  /** Opaque id of the paired Normal/Workbench pane in this workspace, or null. */
+  pairedPaneId: string | null;
 }
 
 const KEY_PREFIX = 'orbit-pane-prefs:';
@@ -48,6 +50,7 @@ export function defaultPanePrefs(): PaneWorkbenchPrefs {
     grantId: null,
     resultId: null,
     reviewId: null,
+    pairedPaneId: null,
   };
 }
 
@@ -99,6 +102,7 @@ export function readPanePrefs(
     grantId: normalizeDurableId(value.grantId),
     resultId: normalizeDurableId(value.resultId),
     reviewId: normalizeDurableId(value.reviewId),
+    pairedPaneId: normalizeDurableId(value.pairedPaneId),
   };
 }
 
@@ -122,6 +126,7 @@ export function writePanePrefs(
     grantId: pick('grantId') as string | null,
     resultId: pick('resultId') as string | null,
     reviewId: pick('reviewId') as string | null,
+    pairedPaneId: pick('pairedPaneId') as string | null,
   };
   if (store) {
     const payload = JSON.stringify({ version: STORAGE_VERSION, ...next });

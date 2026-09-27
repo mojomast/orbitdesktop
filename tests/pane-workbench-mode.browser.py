@@ -610,6 +610,40 @@ def main(renderer):
                     expect(send_button).to_be_disabled()
                     expect(pane_locator.locator(".agent-mode-control")).to_have_attribute("data-lane", "unknown")
 
+                    # Separate windows use distinct pane/session identities. Opening
+                    # Workbench leaves the original Normal composer and draft alone.
+                    lane_signal["unknown"] = False
+                    normal_input = pane_locator.get_by_label("Message to Hermes", exact=True)
+                    normal_input.fill("NORMAL-ONLY separate window draft")
+                    page.evaluate("id => { const root=document.querySelector(`[data-pane-id=\"${id}\"]`); window.__separateNormalNodes={input:root.querySelector('textarea'),messages:root.querySelector('.chat-messages')}; }", pane)
+                    before_starts = agent_requests.count("start")
+                    before_captures = context_requests.count("capture")
+                    pane_locator.get_by_role("button", name="Open a separate Workbench window beside this chat; nothing is copied or sent", exact=True).click()
+                    page.wait_for_function("() => JSON.parse(localStorage.getItem('orbit.workspace.v1')).monitors.some(m=>m.name==='Workbench')")
+                    new_pane = page.evaluate("() => JSON.parse(localStorage.getItem('orbit.workspace.v1')).monitors.find(m=>m.name==='Workbench').layout.pane.id")
+                    assert new_pane != pane
+                    separate = page.locator(f'[data-pane-id="{new_pane}"]')
+                    expect(separate.locator('.pane-workbench')).to_be_visible(timeout=15000)
+                    expect(pane_locator.locator('.agent-chat-normal')).to_be_visible()
+                    expect(normal_input).to_have_value("NORMAL-ONLY separate window draft")
+                    assert page.evaluate("id => {const root=document.querySelector(`[data-pane-id=\"${id}\"]`);return window.__separateNormalNodes.input===root.querySelector('textarea') && window.__separateNormalNodes.messages===root.querySelector('.chat-messages');}",pane)
+                    sessions = page.evaluate("ids => ids.map(id=>JSON.parse(sessionStorage.getItem('orbit-hermes-chat:'+id)).session)",[pane,new_pane])
+                    assert sessions[0] != sessions[1]
+                    expect(separate.get_by_label('Task or question excerpt',exact=True)).to_have_value('')
+                    separate.get_by_role('button',name='Open or focus the separate Normal chat window',exact=True).click()
+                    pane_locator.get_by_role("button", name="Open a separate Workbench window beside this chat; nothing is copied or sent", exact=True).click()
+                    assert page.evaluate("() => JSON.parse(localStorage.getItem('orbit.workspace.v1')).monitors.filter(m=>m.name==='Workbench').length") == 1
+                    assert agent_requests.count('start') == before_starts
+                    assert context_requests.count('capture') == before_captures
+                    page.reload(wait_until='domcontentloaded')
+                    page.get_by_role('button',name='Connect local host',exact=True).click()
+                    page.get_by_role('textbox',name='Host session token').fill(token)
+                    page.get_by_role('button',name='Unlock local host',exact=True).click()
+                    expect(page.locator('.saved')).to_contain_text('Workspace connected',timeout=15000)
+                    expect(page.locator(f'[data-pane-id="{new_pane}"] .pane-workbench')).to_be_visible()
+                    expect(page.locator(f'[data-pane-id="{pane}"]').get_by_label('Message to Hermes',exact=True)).to_have_value('NORMAL-ONLY separate window draft')
+                    assert page.evaluate("ids => ids.map(id=>JSON.parse(sessionStorage.getItem('orbit-hermes-chat:'+id)).session)",[pane,new_pane]) == sessions
+
                     assert not errors, errors
                     page.screenshot(path=f"/tmp/opencode/orbit-pane-workbench-{renderer}.png")
                     print(

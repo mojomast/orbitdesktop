@@ -15,6 +15,7 @@ import { xpraApps } from './xpra-apps';
 import { installDesktopIcons } from './desktop-icons';
 import { showConnectionPasswords } from './connection-passwords';
 import { workspaceId, ensureWorkspaceSynced } from './workspace-sync';
+import { readPanePrefs, writePanePrefs } from './pane-prefs';
 import { workspaceFetch } from './workspace-client';
 import { installMinimize } from './minimize';
 import { el, button, select } from "./dom";
@@ -70,6 +71,16 @@ window.addEventListener('orbit-focus-agent', event => {
   const paneId=(event as CustomEvent<string>).detail;
   const monitor=state.monitors.find(m=>leaves(m.layout).some(p=>p.id===paneId));
   if(monitor) {if(focused) unfocus(); choose(monitor.id);}
+});
+// Separate-window launchers. Both create genuine, independent agent panes (no
+// new pane kind or schema); nothing is copied between them.
+window.addEventListener('orbit-open-workbench-window', event => {
+  const detail = (event as CustomEvent<{ paneId?: string }>).detail ?? {};
+  openWorkbenchWindow(detail.paneId);
+});
+window.addEventListener('orbit-open-normal-window', event => {
+  const detail = (event as CustomEvent<{ fromPaneId?: string }>).detail ?? {};
+  openNormalWindow(detail.fromPaneId);
 });
 let saveTimer: ReturnType<typeof setTimeout>;
 let layoutSwitcher: ReturnType<typeof installLayoutSwitcher> | undefined;
@@ -142,6 +153,7 @@ installStart(navigation, () => [
   { title: 'Getting started', detail: 'Tour Orbit: controls, layouts, ask Hermes and build apps', run: showOnboarding },
   ...state.monitors.map(m => ({ title: m.name, detail: 'Open window', run: () => { if (focused) focus(m.id); else choose(m.id); } })),
   { title: 'New agent chat', detail: 'Talk to Hermes', run: () => addMonitor('agent') },
+  { title: 'New Workbench window', detail: 'Separate Workbench beside Hermes', run: () => openWorkbenchWindow() },
   { title: 'New terminal', detail: 'Open a host terminal pane', run: () => addMonitor('terminal') },
   { title: 'New browser', detail: 'Open an app or website', run: () => addMonitor('browser') },
   { title: 'Windows view', detail: 'Movable desktop windows', run: () => setView('windows') },
@@ -303,6 +315,7 @@ function orbitMenuSections(): OrbitMenuSection[] {
     ] },
     { id: 'hermes', title: 'Hermes', detail: 'Hermes runtime tools and conversations, reachable without opening a chat pane.', items: [
       { id: 'hermes-chat', label: 'New Hermes chat', icon: '✧', button: button('New Hermes chat', 'New Hermes chat', () => addMonitor('agent')) },
+      { id: 'hermes-workbench-window', label: 'New Workbench window', icon: '◧', button: button('New Workbench window', 'New Workbench window', () => openWorkbenchWindow()) },
       { id: 'hermes-tools', label: 'Tools & conversations', icon: '⋯', button: button('Tools & conversations', 'Tools & conversations', () => openHermesTools()) },
       ...hermesMenuItems,
     ] },
@@ -1047,6 +1060,61 @@ async function launchDesktopPlugin(id:string) {
 function addMonitor(kind: PaneKind = 'terminal') {
 
   const m = monitor(state.monitors.length + 1, kind);
+  state.monitors.push(m);
+  state.selected = m.id;
+  renderMonitor(m);
+  renderInspector();
+  renderTabs();
+  save();
+}
+function paneExists(paneId: string): boolean {
+  return state.monitors.some(m => leaves(m.layout).some(p => p.id === paneId && p.kind === 'agent'));
+}
+function focusPane(paneId: string): boolean {
+  const target = state.monitors.find(m => leaves(m.layout).some(p => p.id === paneId));
+  if (!target) return false;
+  if (focused) unfocus();
+  choose(target.id);
+  return true;
+}
+// Opens (or re-focuses) a dedicated Workbench agent pane beside the Normal one.
+// The new pane's mode is persisted before its first render and it starts its own
+// fresh conversation; no chat, draft, context, grant or candidate is copied.
+function openWorkbenchWindow(normalPaneId?: string) {
+  if (normalPaneId && !paneExists(normalPaneId)) return;
+  if (normalPaneId) {
+    const paired = readPanePrefs(workspaceId, normalPaneId).pairedPaneId;
+    if (paired && paneExists(paired)) { focusPane(paired); return; }
+  }
+  const m = monitor(state.monitors.length + 1, 'agent');
+  m.name = 'Workbench';
+  const workbenchPane = leaves(m.layout)[0];
+  writePanePrefs(workspaceId, workbenchPane.id, { mode: 'workbench', pairedPaneId: normalPaneId ?? null });
+  if (normalPaneId) writePanePrefs(workspaceId, normalPaneId, { pairedPaneId: workbenchPane.id });
+  if (focused) unfocus();
+  state.monitors.push(m);
+  state.selected = m.id;
+  renderMonitor(m);
+  renderInspector();
+  renderTabs();
+  save();
+}
+// Opens (or re-focuses) the Normal chat paired with a Workbench pane. It never
+// silently replaces the original; the opaque pair id is used.
+function openNormalWindow(workbenchPaneId?: string) {
+  if (workbenchPaneId && !paneExists(workbenchPaneId)) return;
+  if (workbenchPaneId) {
+    const paired = readPanePrefs(workspaceId, workbenchPaneId).pairedPaneId;
+    if (paired && paneExists(paired)) { focusPane(paired); return; }
+  }
+  const m = monitor(state.monitors.length + 1, 'agent');
+  m.name = 'Normal chat';
+  const normalPane = leaves(m.layout)[0];
+  if (workbenchPaneId) {
+    writePanePrefs(workspaceId, normalPane.id, { pairedPaneId: workbenchPaneId });
+    writePanePrefs(workspaceId, workbenchPaneId, { pairedPaneId: normalPane.id });
+  }
+  if (focused) unfocus();
   state.monitors.push(m);
   state.selected = m.id;
   renderMonitor(m);

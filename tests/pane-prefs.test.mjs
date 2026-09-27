@@ -54,7 +54,7 @@ test('stored values never include conversation text or unknown fields', () => {
   writePanePrefs(WS, PANE, { mode: 'workbench', projectId: 'proj-1' }, store);
   const raw = store.raw.get(panePrefsKey(WS, PANE));
   const value = JSON.parse(raw);
-  assert.deepEqual(Object.keys(value).sort(), ['attemptId', 'candidateId', 'grantId', 'mode', 'projectId', 'resultId', 'reviewId', 'taskId', 'version'].sort());
+  assert.deepEqual(Object.keys(value).sort(), ['attemptId', 'candidateId', 'grantId', 'mode', 'pairedPaneId', 'projectId', 'resultId', 'reviewId', 'taskId', 'version'].sort());
   assert.equal(Object.hasOwn(value, 'messages'), false);
   assert.equal(Object.hasOwn(value, 'excerpts'), false);
   assert.equal(JSON.stringify(value).includes('proj-1'), true);

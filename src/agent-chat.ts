@@ -582,6 +582,11 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
         recomputeLane();
       },
       timeline: workbenchTimeline,
+      onOpenNormal: () => {
+        // Focus the paired Normal chat, or create one explicitly from here; never
+        // silently replace the original.
+        window.dispatchEvent(new CustomEvent('orbit-open-normal-window', { detail: { fromPaneId: paneId } }));
+      },
       onError: showError,
     });
     return workbench;
@@ -742,7 +747,12 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     ensureWorkbench()?.openHandoff({ statement });
   }, 'small-button');
   workbenchTask.setAttribute('aria-label', 'Create Workbench task');
-  form.append(input, tools, workbenchTask, send);
+  // Prominent separate-window action: creates/focuses a dedicated Workbench pane
+  // in its own window without changing this pane, its draft or its conversation.
+  const openWorkbenchWindow = button('Open Workbench window', 'Open a separate Workbench window beside this chat; nothing is copied or sent', () => {
+    window.dispatchEvent(new CustomEvent('orbit-open-workbench-window', { detail: { paneId } }));
+  }, 'small-button');
+  form.append(input, tools, workbenchTask, openWorkbenchWindow, send);
   form.onsubmit = e => { e.preventDefault(); void submit(); };
   input.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); void submit(); } };
   chatNormal.append(badge, bindingControls, strip, notice, messages, taskCards, normalTimelineHost, progress, approvals, controls,recovery, queueList, form);
