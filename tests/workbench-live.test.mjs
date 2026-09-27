@@ -173,7 +173,10 @@ test('attempt scope filters before limiting and cursor progresses across interle
   const all=f.live.page({workspace_id:f.workspace,project_id:f.project.id,limit:100});
   assert.ok(all.events.length>=6);
   const attemptPage=f.live.page({workspace_id:f.workspace,project_id:f.project.id,attempt_id:attempt.id});
-  assert.deepEqual(attemptPage.events.map(event=>event.kind),['attempt','grant','grant','toolcall','toolcall']);
+  // The candidate is candidate-bound to this attempt and appears, but stays
+  // observed (never attributed to the agent from an owner write).
+  assert.deepEqual(attemptPage.events.map(event=>event.kind),['candidate','attempt','grant','grant','toolcall','toolcall']);
+  assert.equal(attemptPage.events.find(event=>event.kind==='candidate').authority,'observed');
   const firstHalf=f.live.page({workspace_id:f.workspace,project_id:f.project.id,attempt_id:attempt.id,limit:2});
   assert.equal(firstHalf.events.length,2);
   assert.equal(firstHalf.has_more,true);
@@ -219,33 +222,132 @@ test('retention floor and future cursors set reset_required',t=>{
   const page=f.live.page({...scope,after_sequence:5});
   assert.equal(page.events.length,LIVE_LIMITS.page);
   assert.equal(page.events[0].sequence,6,'oldest five rows are pruned');
+  // A stale cursor replays the oldest retained page (not an empty page) so the
+  // retained timeline can still be reconstructed, then paginates normally.
   const floorReset=f.live.page({...scope,after_sequence:3});
   assert.equal(floorReset.reset_required,true);
-  assert.equal(floorReset.after_sequence,LIVE_LIMITS.retainedPerAttempt+5);
-  assert.deepEqual(floorReset.events,[]);
+  assert.equal(floorReset.events[0].sequence,6);
+  assert.equal(floorReset.events.length,LIVE_LIMITS.page);
+  assert.equal(floorReset.after_sequence,6+LIVE_LIMITS.page-1);
+  assert.equal(floorReset.has_more,true);
   const resume=f.live.page({...scope,after_sequence:LIVE_LIMITS.retainedPerAttempt+4});
   assert.equal(resume.reset_required,false);
   assert.deepEqual(resume.events.map(event=>event.sequence),[LIVE_LIMITS.retainedPerAttempt+5]);
   const future=f.live.page({...scope,after_sequence:99999});
   assert.equal(future.reset_required,true);
-  assert.equal(future.after_sequence,LIVE_LIMITS.retainedPerAttempt+5);
+  assert.equal(future.events[0].sequence,6);
 });
 
-test('detail returns whitelisted metadata only and never mislabels a candidate snapshot as a diff',async t=>{
-  const otherId=randomUUID(),resultId=randomUUID();let attemptId=null;
+test('authority distinguishes producers and confirmation state',()=>{
+  const base={id:randomUUID(),revision:1,version:1};
+  const auth=(kind,record,phase='update')=>projectWorkbenchEvent(kind,{...base,...record},{phase}).authority;
+  assert.equal(auth('evidence',{verdict:'pass'}),'recorder','structured evidence is recorder-produced');
+  assert.equal(auth('evidence',{verdict:'pass'},'snapshot'),'recorder','bootstrapped evidence stays recorder-authoritative');
+  assert.equal(auth('jobs',{status:'running'}),'observed','a running check is observed, not asserted by the recorder');
+  assert.equal(auth('jobs',{status:'completed'},'snapshot'),'observed');
+  assert.equal(auth('toolcalls',{status:'started'}),'agent','the agent requested the tool');
+  assert.equal(auth('toolcalls',{status:'completed'}),'observed','tool completion is observed');
+  assert.equal(auth('toolcalls',{status:'failed'}),'observed');
+  assert.equal(auth('grants',{status:'approved'}),'human');
+  assert.equal(auth('grants',{status:'stop_requested'}),'human','a stop request is a human request');
+  assert.equal(auth('grants',{status:'stopped'}),'observed','a confirmed stop is observed');
+  assert.equal(auth('results',{availability:'available'}),'observed');
+  assert.equal(auth('patches',{status:'verified'}),'recorder');
+  assert.equal(auth('patches',{status:'verifying'}),'observed');
+  // Snapshot labelling is explicit for current-state observations.
+  const snap=projectWorkbenchEvent('jobs',{...base,status:'running'},{phase:'snapshot'});
+  assert.ok(snap.fields.some(field=>field.label==='observed'&&field.value==='reconciled_snapshot'));
+  assert.equal(projectWorkbenchEvent('tasks',{...base,status:'open'},{phase:'update'}).status,'ready');
+  assert.equal(projectWorkbenchEvent('grants',{...base,status:'cancel_requested'},{phase:'update'}).status,'waiting','a cancel request is not a confirmed cancel');
+  const revoked=projectWorkbenchEvent('evidence',{...base,verdict:'inconclusive',revoked:true},{phase:'update'});
+  assert.equal(revoked.category,'warnings');
+  assert.equal(revoked.status,'unknown');
+});
+
+test('native provenance and candidate binding place jobs, evidence and candidates in the selected attempt',t=>{
+  const f=fixture(t),scope={workspace_id:f.workspace,project_id:f.project.id};
+  const candidate=f.data.create('candidates',{...scope,generation:1,hash:'a'.repeat(64),files:[],total_bytes:0,status:'approved'});
+  const attempt=f.data.create('attempts',{...scope,status:'created',candidate_id:candidate.id,candidate_hash:candidate.hash});
+  const grantId=randomUUID();
+  const provenance={version:1,initiated_by:{kind:'native_agent',attempt_id:attempt.id,grant_id:grantId,run_id:randomUUID(),tool_call_id:randomUUID()},authorized_by:{kind:'owner_grant',grant_id:grantId,authority_generation:randomUUID()},recorded_by:{kind:'comet_service',component:'workbench-check-recorder'}};
+  const job=f.data.create('jobs',{...scope,status:'running',definition_id:'node-test',candidate_id:candidate.id,provenance});
+  assert.equal(f.data.get('jobs',f.workspace,f.project.id,job.id).attempt_id,undefined,'job has no direct attempt_id');
+  const attemptEvents=f.live.page({...scope,attempt_id:attempt.id}).events;
+  assert.ok(attemptEvents.some(event=>event.id===`jobs:${job.id}:1`),'native job joins the attempt timeline via provenance');
+  assert.ok(attemptEvents.some(event=>event.kind==='candidate'),'candidate-bound record appears in the attempt timeline');
+  assert.ok(attemptEvents.every(event=>event.kind==='candidate'?event.authority==='observed':true));
+});
+
+test('attempt scope validates existence and current generation',async t=>{
+  const f=fixture(t),scope={workspace_id:f.workspace,project_id:f.project.id};
+  const candidate=f.data.create('candidates',{...scope,generation:1,hash:'a'.repeat(64),files:[],total_bytes:0,status:'approved'});
+  const attempt=f.data.create('attempts',{...scope,status:'created',project_generation:f.project.generation,candidate_id:candidate.id,candidate_hash:candidate.hash});
+  assert.throws(()=>f.live.page({...scope,attempt_id:randomUUID()}),{code:'permission_denied'});
+  assert.deepEqual(f.live.authorize({...scope,attempt_id:attempt.id}),{project_generation:f.project.generation,attempt_id:attempt.id,attempt_generation:f.project.generation});
+  f.records.revoke(f.workspace,f.project.id,f.project.generation);
+  f.records.register(f.workspace,{root:path.join(f.root,'project'),name:'Synthetic',identity:'synthetic'});
+  assert.throws(()=>f.live.page({...scope,attempt_id:attempt.id}),{code:'stale_resource'});
+  assert.throws(()=>f.live.authorize({...scope,attempt_id:attempt.id}),{code:'stale_resource'});
+});
+
+test('attempt snapshot reports only its own candidate, never another task candidate',t=>{
+  const f=fixture(t),scope={workspace_id:f.workspace,project_id:f.project.id};
+  const candA=f.data.create('candidates',{...scope,generation:1,hash:'a'.repeat(64),files:[{path:'a.js',hash:'1'.repeat(64),bytes:1,state:'modified'}],total_bytes:1,status:'approved'});
+  const candB=f.data.create('candidates',{...scope,generation:1,hash:'b'.repeat(64),files:[{path:'b.js',hash:'2'.repeat(64),bytes:1,state:'modified'}],total_bytes:1,status:'approved'});
+  const attemptA=f.data.create('attempts',{...scope,status:'created',candidate_id:candA.id,candidate_hash:candA.hash});
+  f.data.create('attempts',{...scope,status:'created',candidate_id:candB.id,candidate_hash:candB.hash});
+  const jobA=f.data.create('jobs',{...scope,status:'running',definition_id:'node-test',candidate_id:candA.id});
+  f.data.create('jobs',{...scope,status:'running',definition_id:'host-regression',candidate_id:candB.id});
+  const snap=f.live.snapshot({...scope,attempt_id:attemptA.id});
+  assert.equal(snap.scope,'attempt');
+  assert.equal(snap.candidate.id,candA.id);
+  assert.equal(snap.job.candidate_id,candA.id);
+  assert.equal(snap.latest_candidate,undefined,'attempt snapshot does not report a project-wide latest candidate');
+  assert.equal(snap.candidate.files,1);
+  const projectSnap=f.live.snapshot(scope);
+  assert.equal(projectSnap.scope,'project');
+  assert.equal(projectSnap.latest_candidate.id,candB.id);
+});
+
+test('projection database and sidecars are private regular files that reject links',t=>{
+  const f=fixture(t),scope={workspace_id:f.workspace,project_id:f.project.id};
+  f.data.create('tasks',{...scope,title:'Private',status:'open'});
+  assert.equal(fs.statSync(f.live.filename).mode&0o777,0o600);
+  for(const sidecar of [`${f.live.filename}-wal`,`${f.live.filename}-shm`])if(fs.existsSync(sidecar))assert.equal(fs.statSync(sidecar).mode&0o777,0o600,sidecar);
+
+  // A symlinked or hardlinked projection path is refused rather than followed.
+  const linked=fixture(t,{withLive:false});
+  const target=path.join(linked.root,'elsewhere.sqlite');fs.writeFileSync(target,'');
+  fs.symlinkSync(target,path.join(linked.root,'workbench-live.sqlite'));
+  assert.throws(()=>createWorkbenchLive({store:linked.store,records:linked.records,data:linked.data}),{code:'permission_denied'});
+
+  const hard=fixture(t,{withLive:false});
+  const hardTarget=path.join(hard.root,'hard.sqlite');fs.writeFileSync(hardTarget,'');
+  fs.linkSync(hardTarget,path.join(hard.root,'workbench-live.sqlite'));
+  assert.throws(()=>createWorkbenchLive({store:hard.store,records:hard.records,data:hard.data}),{code:'permission_denied'});
+});
+
+test('detail returns whitelisted metadata only and an exact-generation candidate diff, never a substituted snapshot',async t=>{
+  const otherId=randomUUID(),resultId=randomUUID();let attemptId=null,candidateId=null;
+  const gen1Files=[{path:'math.js',hash:'1'.repeat(64),bytes:12,state:'modified'}];
+  const gen2Files=[{path:'math.js',hash:'1'.repeat(64),bytes:12,state:'modified'},{path:'sum.js',hash:'2'.repeat(64),bytes:5,state:'created'}];
   const execution={dispatch:async body=>{
     if(body.action==='candidate_version_get'){
-      if(body.generation===1&&body.candidate_hash==='a'.repeat(64))return {candidate:{id:body.candidate_id,generation:1,hash:body.candidate_hash,files:[{path:'math.js',hash:'b'.repeat(64),bytes:12,state:'modified',text:'SECRET_SOURCE'}],total_bytes:12,limited:false}};
+      if(body.generation===1&&body.candidate_hash==='a'.repeat(64))return {candidate:{id:body.candidate_id,generation:1,hash:body.candidate_hash,files:gen1Files,total_bytes:12,limited:false}};
+      if(body.generation===2&&body.candidate_hash==='b'.repeat(64))return {candidate:{id:body.candidate_id,generation:2,hash:body.candidate_hash,files:gen2Files,total_bytes:17,limited:false}};
       throw Object.assign(Error('stale_resource'),{code:'stale_resource'});
     }
-    if(body.action==='candidate_get')return {candidate:{id:body.candidate_id,generation:2,hash:'c'.repeat(64),files:[{path:'sum.js',hash:'d'.repeat(64),bytes:5,state:'modified',text:'SECRET_SOURCE'}],total_bytes:5,limited:false}};
+    if(body.action==='candidate_version_read'){
+      if(body.generation===2&&body.path==='sum.js')return {file:{path:'sum.js',hash:'2'.repeat(64),bytes:5,binary:false,text:'export const sum=(a,b)=>a+b;'}};
+      throw Object.assign(Error('stale_resource'),{code:'stale_resource'});
+    }
     throw Object.assign(Error('unsupported'),{code:'unsupported'});
   }};
-  const native={dispatch:async body=>{if(body.action==='result_get')return {result:{id:body.result_id,attempt_id:attemptId,availability:'available',hermes_completed:true,frame_hash:'e'.repeat(64),received_at:1,retained_until:2,candidate_id:candidateId,candidate_generation:2,candidate_hash:'f'.repeat(64),provenance:{version:1},text:'SECRET_REASONING'}};throw Object.assign(Error('unsupported'),{code:'unsupported'});}};
+  const native={dispatch:async body=>{if(body.action==='result_get')return {result:{id:body.result_id,attempt_id:attemptId,availability:'available',hermes_completed:true,frame_hash:'e'.repeat(64),received_at:1,retained_until:2,candidate_id:candidateId,candidate_generation:2,candidate_hash:'b'.repeat(64),provenance:{version:1},text:'SECRET_REASONING'}};throw Object.assign(Error('unsupported'),{code:'unsupported'});}};
   const f=fixture(t,{execution,native}),scope={workspace_id:f.workspace,project_id:f.project.id};
-  const candidate=f.data.create('candidates',{...scope,generation:1,hash:'a'.repeat(64),files:[{path:'math.js',hash:'b'.repeat(64),bytes:12,state:'modified'}],total_bytes:12,status:'approved'});
-  const candidateId=candidate.id;
-  const attempt=f.data.create('attempts',{...scope,status:'created',candidate_id:candidateId,candidate_hash:'a'.repeat(64)});
+  const candidate=f.data.create('candidates',{...scope,generation:2,hash:'b'.repeat(64),files:gen2Files,root_history:[{root:'/private/retained/gen1',generation:1,hash:'a'.repeat(64)}],total_bytes:17,status:'approved'});
+  candidateId=candidate.id;
+  const attempt=f.data.create('attempts',{...scope,status:'created',candidate_id:candidateId,candidate_hash:'b'.repeat(64)});
   attemptId=attempt.id;
 
   const toolcall=f.data.create('toolcalls',{...scope,attempt_id:attempt.id,grant_id:randomUUID(),action:'job_start',status:'completed',args_digest:'1'.repeat(64),result_digest:'2'.repeat(64),args:{secret:'SENTINEL_ARGS'}});
@@ -255,23 +357,31 @@ test('detail returns whitelisted metadata only and never mislabels a candidate s
   assert.ok(!JSON.stringify(tool).includes('SENTINEL_ARGS'));
   assert.equal(tool.fields.args_digest,'1'.repeat(64));
 
-  const evidence=f.data.create('evidence',{...scope,verdict:'pass',exit_code:0,log_path:'/private/secret/output.log',log_bytes:10,log_hash:'3'.repeat(64),artifact_hash:'4'.repeat(64),candidate_id:candidateId,candidate_hash_after:'a'.repeat(64)});
+  const evidence=f.data.create('evidence',{...scope,verdict:'pass',exit_code:0,log_path:'/private/secret/output.log',log_bytes:10,log_hash:'3'.repeat(64),artifact_hash:'4'.repeat(64),candidate_id:candidateId,candidate_hash_after:'b'.repeat(64)});
   const observed=await f.live.detail({workspace_id:f.workspace,project_id:f.project.id,attempt_id:attempt.id,reference:{kind:'evidence',id:evidence.id}});
   assert.equal(observed.mode,'evidence_record');
   assert.ok(!JSON.stringify(observed).includes('/private/secret'));
 
-  const version=await f.live.detail({workspace_id:f.workspace,project_id:f.project.id,attempt_id:attempt.id,reference:{kind:'candidate',id:candidateId,candidate_id:candidateId,generation:1,hash:'a'.repeat(64)}});
-  assert.equal(version.mode,'candidate_snapshot');
-  assert.equal(version.not_diff,true);
-  assert.equal(version.available,true);
-  assert.equal(version.files[0].path,'math.js');
-  assert.ok(!JSON.stringify(version).includes('SECRET_SOURCE'));
-  assert.equal(version.files[0].text,undefined);
+  // Exact retained-generation comparison, sourced from the committed candidate.
+  const diff=await f.live.detail({workspace_id:f.workspace,project_id:f.project.id,attempt_id:attempt.id,reference:{kind:'candidate',id:candidateId,candidate_id:candidateId,generation:2,hash:'b'.repeat(64)}});
+  assert.equal(diff.mode,'candidate_generation_diff');
+  assert.equal(diff.available,true);
+  assert.equal(diff.not_diff,false);
+  assert.equal(diff.changed_files,1);
+  assert.equal(diff.files[0].path,'sum.js');
+  assert.equal(diff.files[0].new_hash,'2'.repeat(64));
+  assert.equal(diff.files[0].new_text,'export const sum=(a,b)=>a+b;');
 
-  const missing=await f.live.detail({workspace_id:f.workspace,project_id:f.project.id,reference:{kind:'candidate',id:candidateId,candidate_id:candidateId,generation:9,hash:'9'.repeat(64)}});
+  // Absent exact generation/hash: refuse; current content is never substituted.
+  const absent=await f.live.detail({workspace_id:f.workspace,project_id:f.project.id,attempt_id:attempt.id,reference:{kind:'candidate',id:candidateId,candidate_id:candidateId}});
+  assert.equal(absent.available,false);
+  assert.equal(absent.reason,'exact_generation_required');
+  assert.equal(absent.not_diff,true);
+
+  // A requested generation with no retained prior is a typed unavailability.
+  const missing=await f.live.detail({workspace_id:f.workspace,project_id:f.project.id,attempt_id:attempt.id,reference:{kind:'candidate',id:candidateId,candidate_id:candidateId,generation:9,hash:'9'.repeat(64)}});
   assert.equal(missing.available,false);
-  assert.equal(missing.reason,'stale_or_missing_historical');
-  assert.equal(missing.mode,'candidate_snapshot');
+  assert.equal(missing.reason,'historical_diff_unavailable');
   assert.equal(missing.not_diff,true);
 
   const result=await f.live.detail({workspace_id:f.workspace,project_id:f.project.id,attempt_id:attempt.id,reference:{kind:'result',id:resultId}});
@@ -282,6 +392,9 @@ test('detail returns whitelisted metadata only and never mislabels a candidate s
   // A reference that belongs to the project but not this attempt must fail closed.
   const foreign=f.data.create('toolcalls',{...scope,attempt_id:otherId,grant_id:randomUUID(),action:'inspect',status:'completed'});
   await assert.rejects(()=>f.live.detail({workspace_id:f.workspace,project_id:f.project.id,attempt_id:attempt.id,reference:{kind:'toolcall',id:foreign.id}}),{code:'permission_denied'});
+
+  // No source bytes ever enter durable/page events.
+  assert.ok(!JSON.stringify(f.live.page({...scope,attempt_id:attempt.id}).events).includes('a+b'));
 });
 
 test('revoked project and superseded generation hard-fence reads and streams',async t=>{
