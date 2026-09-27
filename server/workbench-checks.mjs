@@ -141,11 +141,15 @@ async function executeCheck({definition_id,candidate_root,workspace_id,project_i
   const temp=fs.mkdtempSync(path.join(directory,'private-'));fs.chmodSync(temp,0o700);
   const log_path=path.join(directory,'output.log');
   const fd=fs.openSync(log_path,fs.constants.O_WRONLY|fs.constants.O_CREAT|fs.constants.O_EXCL|fs.constants.O_NOFOLLOW,0o600);
-  // Lifecycle hook: publish the exact private artifact location immediately
-  // after the exclusive output.log creation, before any child is spawned, so a
-  // trusted tail never has to guess an artifact path. Purely additive: a
-  // rejected or throwing callback never changes the recorder result.
-  if(typeof artifact_record==='function')try{artifact_record({log_path,artifact_dir:directory,definition_id,workspace_id,project_id,job_id,created_at:Date.now()});}catch{}
+  // Lifecycle hook: publish the exact private artifact location and its trusted
+  // kernel identity immediately after the exclusive output.log creation, before
+  // any child is spawned, so a trusted tail anchors to the recorded inode rather
+  // than re-resolving a replaceable path. Purely additive: a rejected or
+  // throwing callback never changes the recorder result.
+  if(typeof artifact_record==='function')try{
+    const logStat=fs.fstatSync(fd),dirStat=fs.statSync(directory),rootStat=fs.statSync(artifact_root);
+    artifact_record({log_path,artifact_dir:directory,artifact_log_identity:{path:log_path,dev:logStat.dev,ino:logStat.ino,dir_dev:dirStat.dev,dir_ino:dirStat.ino,root_dev:rootStat.dev,root_ino:rootStat.ino},definition_id,workspace_id,project_id,job_id,created_at:Date.now()});
+  }catch{}
   const env={PATH:'/usr/bin:/bin',HOME:temp,LANG:'C.UTF-8',LC_ALL:'C.UTF-8',NODE_OPTIONS:'',TMPDIR:temp,TSX_DISABLE_CACHE:'1'};
   const env_fingerprint=digest(JSON.stringify(env));
   let args=definition.args;

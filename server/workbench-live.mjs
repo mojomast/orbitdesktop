@@ -97,7 +97,9 @@ function authorityFor(kind,record,phase){
     // Running checks and artifact observations are the service observing a
     // process; only a verified artifact is a recorder-produced final fact.
     case 'jobs':return 'observed';
-    case 'patches':return record.status==='verified'?'recorder':'observed';
+    // A patch receipt is verified only when its recorder verification says so;
+    // the receipt status itself is an availability state.
+    case 'patches':return record.verification?.status==='verified'?'recorder':'observed';
     case 'reviews':case 'cards':return 'human';
     // A native tool request is the agent acting; its completion is observed.
     case 'toolcalls':return record.status==='started'?'agent':'observed';
@@ -112,25 +114,17 @@ function authorityFor(kind,record,phase){
       return 'observed';
   }
 }
-// Attempt correlation for records that do not carry a direct attempt_id. Native
-// jobs/evidence carry the authenticated attempt in their provenance; candidate
-// records are linked only through their attempt/grant binding and are never
-// attributed to the agent from an unproven owner write.
-function directAttemptId(kind,record,resolveGrant,resolveCandidateAttempts){
-  if(kind==='attempts')return record.id;
-  if(typeof record.attempt_id==='string'&&record.attempt_id)return record.attempt_id;
-  const initiated=record?.provenance?.initiated_by;
-  if(initiated&&typeof initiated.attempt_id==='string'&&initiated.attempt_id)return initiated.attempt_id;
-  if(initiated&&typeof initiated.grant_id==='string'&&initiated.grant_id){
-    const grant=resolveGrant?.(initiated.grant_id);
-    if(grant&&typeof grant.attempt_id==='string'&&grant.attempt_id)return grant.attempt_id;
+// Exact candidate identity carried by a record, used only to match a retained
+// candidate generation to one attempt. Never substitutes a newer generation.
+function candidateRefFor(kind,record){
+  switch(kind){
+    case 'candidates':return {candidate_id:record.id,generation:Number.isSafeInteger(record.generation)?record.generation:null,hash:record.hash};
+    case 'reviews':return {candidate_id:record.candidate_id,generation:null,hash:record.candidate_hash};
+    case 'patches':return {candidate_id:record.candidate_id,generation:Number.isSafeInteger(record.candidate_generation)?record.candidate_generation:null,hash:record.candidate_hash};
+    case 'jobs':return {candidate_id:record.candidate_id,generation:Number.isSafeInteger(record.candidate_generation)?record.candidate_generation:null,hash:record.candidate_hash};
+    case 'evidence':return {candidate_id:record.candidate_id,generation:null,hash:record.candidate_hash_after??record.candidate_hash_before};
+    default:return null;
   }
-  if(kind==='candidates'){
-    const bound=resolveCandidateAttempts?.(record.id)??[];
-    const distinct=[...new Set(bound.filter(Boolean))];
-    if(distinct.length===1)return distinct[0];
-  }
-  return null;
 }
 function durationFor(record){
   const start=record.started_at??record.created_at,end=record.ended_at??record.updated_at;
@@ -157,7 +151,7 @@ function safeFields(kind,record){
     case 'evidence':{
       push('exit_code',record.exit_code);push('log_bytes',record.log_bytes);push('timed_out',record.timed_out===true?1:0);
       const t=record.test_results;
-      if(t&&typeof t==='object'){push('tests',t.tests);push('passed',t.passed);push('failed',t.failed);push('skipped',t.skipped);push('complete',t.complete===true?1:0);}
+      if(t&&typeof t==='object'){const s=(t.test_summary&&typeof t.test_summary==='object')?t.test_summary:t;push('tests',s.tests);push('passed',s.passed);push('failed',s.failed);push('skipped',s.skipped);push('complete',s.complete===true?1:0);}
       break;
     }
     case 'reviews':push('decision',short(record.decision,80));push('evidence_count',Array.isArray(record.evidence_ids)?record.evidence_ids.length:undefined);break;
@@ -204,7 +198,7 @@ function summaryFor(kind,record){
 /** Pure projection of one authoritative record revision into the lead-owned
  * LiveItem contract. No sequence: the durable row's global sequence is attached
  * on read. Never contains raw content. */
-export function projectWorkbenchEvent(kind,record,{phase='update',at=record.updated_at??record.created_at??null}={}){
+export function projectWorkbenchEvent(kind,record,{phase='update',at=record.updated_at??record.created_at??null,related=false}={}){
   if(!WORKBENCH_RECORD_KINDS.includes(kind))throw wbError('invalid_request');
   const rawStatus=kind==='evidence'?record.verdict:kind==='reviews'?record.decision:kind==='results'?record.availability:record.status;
   let category=CATEGORY[kind]??'agent';
@@ -222,12 +216,17 @@ export function projectWorkbenchEvent(kind,record,{phase='update',at=record.upda
   };
   const duration=durationFor(record);
   if(duration!==undefined)event.duration_ms=duration;
+  // Safe request target for a tool call (whitelisted path/id, never arguments).
+  if(kind==='toolcalls'&&typeof record.safe_target==='string'&&record.safe_target)event.target=short(record.safe_target,512);
   const reference=referenceFor(kind,record);
   if(reference)event.reference=reference;
   const fields=safeFields(kind,record);
   // A reconciled snapshot is a current-state observation, made explicit without
   // changing the record's producer authority below.
   if(phase==='snapshot')fields.push({label:'observed',value:'reconciled_snapshot'});
+  // Candidate/review/patch lifecycle whose owning attempt cannot be proven is a
+  // related snapshot, not an attributed mutation.
+  if(related)fields.push({label:'origin',value:'related_snapshot'});
   if(fields.length>12)fields.length=12;
   if(fields.length)event.fields=fields;
   if(JSON.stringify(event).length>LIVE_LIMITS.eventBytes){
@@ -289,54 +288,82 @@ export function createWorkbenchLive({store,records,data,gate,execution,native,no
     db.prepare('INSERT INTO live_floors(workspace_id,project_id,attempt_key,floor) VALUES(?,?,?,?) ON CONFLICT(workspace_id,project_id,attempt_key) DO UPDATE SET floor=excluded.floor').run(workspaceId,projectId,key,floor);
   };
   const floorFor=(workspaceId,projectId,attemptId)=>db.prepare('SELECT floor FROM live_floors WHERE workspace_id=? AND project_id=? AND attempt_key=?').get(workspaceId,projectId,attemptId??'')?.floor??0;
-  const resolveGrant=(workspace_id,project_id,grantId,attemptByGrant)=>{
-    if(attemptByGrant.has(grantId))return attemptByGrant.get(grantId);
-    let value=null;
-    try{value=data.get('grants',workspace_id,project_id,grantId)?.attempt_id??null;}catch{value=null;}
-    attemptByGrant.set(grantId,value);
-    return value;
+  // A project-scope page can be missing rows pruned from any attempt bucket, so
+  // its floor is the maximum bucket floor. An attempt page uses its own floor.
+  const retainedFloor=(workspaceId,projectId,attemptId)=>attemptId?floorFor(workspaceId,projectId,attemptId):db.prepare('SELECT MAX(floor) AS floor FROM live_floors WHERE workspace_id=? AND project_id=?').get(workspaceId,projectId)?.floor??0;
+  // Resolve one attempt from an authenticated grant id. The stored value is the
+  // attempt id string, not a grant object.
+  const grantAttempt=(workspace_id,project_id,grantId)=>{
+    if(typeof grantId!=='string'||!grantId)return null;
+    try{const value=data.get('grants',workspace_id,project_id,grantId)?.attempt_id;return typeof value==='string'&&value?value:null;}catch{return null;}
   };
-  const resolveCandidateAttempts=(workspace_id,project_id,candidateId,cache)=>{
-    const key=`${workspace_id}:${project_id}:${candidateId}`;
-    if(cache.has(key))return cache.get(key);
-    const ids=[];
-    try{for(const attempt of data.list('attempts',workspace_id,project_id))if(attempt.candidate_id===candidateId)ids.push(attempt.id);}catch{}
-    try{for(const grant of data.list('grants',workspace_id,project_id))if(grant.candidate_id===candidateId&&grant.attempt_id)ids.push(grant.attempt_id);}catch{}
-    cache.set(key,ids);
-    return ids;
+  // Exact candidate-generation attribution. A record is attributed only when a
+  // single attempt is provably responsible:
+  //   1. a completed native candidate_patch result naming this exact candidate
+  //      generation/hash;
+  //   2. an in-flight native candidate_patch for this candidate (the mutation is
+  //      happening now, native lane is serial);
+  //   3. a unique attempt whose candidate_hash matches the referenced hash.
+  // Anything ambiguous returns null and is never attributed to a newest attempt.
+  const resolveCandidateAttempt=(workspace_id,project_id,ref)=>{
+    if(!ref||typeof ref.candidate_id!=='string'||!ref.candidate_id)return null;
+    let calls=[],attempts=[];
+    try{calls=data.list('toolcalls',workspace_id,project_id);}catch{}
+    try{attempts=data.list('attempts',workspace_id,project_id);}catch{}
+    const completed=new Set(),started=new Set();
+    for(const call of calls){
+      if(call.action!=='candidate_patch'||typeof call.attempt_id!=='string'||!call.attempt_id)continue;
+      if(call.status==='completed'&&call.result_candidate){
+        const result=call.result_candidate;
+        if(result.id!==ref.candidate_id)continue;
+        if(ref.generation!==null&&result.generation!==ref.generation)continue;
+        if(ref.hash&&result.hash!==ref.hash)continue;
+        completed.add(call.attempt_id);
+      }else if(call.status==='started'&&call.candidate_id===ref.candidate_id){
+        started.add(call.attempt_id);
+      }
+    }
+    if(completed.size===1)return [...completed][0];
+    if(completed.size>1)return null;
+    if(started.size===1)return [...started][0];
+    if(started.size>1)return null;
+    const bound=[...new Set(attempts.filter(attempt=>attempt.candidate_id===ref.candidate_id&&(!ref.hash||attempt.candidate_hash===ref.hash)).map(attempt=>attempt.id))];
+    return bound.length===1?bound[0]:null;
   };
-  let attemptByGrant=new Map(),candidateAttemptCache=new Map(),resolverEpoch=0;
-  const epochOf=value=>Math.floor((Number.isFinite(value)?value:now())/1000);
   const attemptIdFor=(kind,record)=>{
-    const epoch=epochOf(record.updated_at??record.created_at);
-    if(epoch!==resolverEpoch){resolverEpoch=epoch;attemptByGrant=new Map();candidateAttemptCache=new Map();}
-    return directAttemptId(kind,record,
-      grantId=>resolveGrant(record.workspace_id,record.project_id,grantId,attemptByGrant),
-      candidateId=>resolveCandidateAttempts(record.workspace_id,record.project_id,candidateId,candidateAttemptCache));
+    if(kind==='attempts')return record.id;
+    if(typeof record.attempt_id==='string'&&record.attempt_id)return record.attempt_id;
+    const initiated=record?.provenance?.initiated_by;
+    if(initiated&&typeof initiated.attempt_id==='string'&&initiated.attempt_id)return initiated.attempt_id;
+    if(initiated&&initiated.grant_id){const resolved=grantAttempt(record.workspace_id,record.project_id,initiated.grant_id);if(resolved)return resolved;}
+    const ref=candidateRefFor(kind,record);
+    if(ref)return resolveCandidateAttempt(record.workspace_id,record.project_id,ref);
+    return null;
   };
   const append=({phase,kind,record})=>{
     if(closed)return null;
-    let event;
-    try{event=projectWorkbenchEvent(kind,record,{phase,at:record.updated_at??record.created_at??now()});}
-    catch{projectionErrors++;return null;}
     const workspace_id=record.workspace_id,project_id=record.project_id;
     if(!UUID.test(workspace_id??'')||!UUID.test(project_id??''))return null;
+    let attemptId;
+    try{attemptId=attemptIdFor(kind,record);}catch{attemptId=null;}
+    // A candidate/review/patch whose origin cannot be proven is labelled a
+    // related snapshot rather than silently claimed by an attempt.
+    const related=attemptId===null&&['candidates','reviews','patches'].includes(kind);
+    let event;
+    try{event=projectWorkbenchEvent(kind,record,{phase,at:record.updated_at??record.created_at??now(),related});}
+    catch{projectionErrors++;return null;}
     try{
       // Durable high-water: never re-project a revision below one already seen,
       // even after its event row was pruned. Prevents reconcile churn.
       const seen=db.prepare('SELECT revision FROM live_projected WHERE workspace_id=? AND project_id=? AND kind=? AND record_id=?').get(workspace_id,project_id,kind,record.id);
       if(seen&&Number.isSafeInteger(seen.revision)&&seen.revision>=record.revision)return null;
-      const attemptId=attemptIdFor(kind,record);
+      // Replay scope is fixed when a row is written; existing rows are never
+      // re-attributed retroactively.
       const info=db.prepare(`INSERT OR IGNORE INTO live_events(workspace_id,project_id,attempt_id,kind,record_id,revision,phase,project_generation,at,event_json)
         VALUES(?,?,?,?,?,?,?,?,?,?)`).run(workspace_id,project_id,attemptId,kind,record.id,record.revision,phase,Number.isSafeInteger(record.project_generation)?record.project_generation:null,event.at??now(),JSON.stringify(event));
       db.prepare(`INSERT INTO live_projected(workspace_id,project_id,kind,record_id,revision,projected_at) VALUES(?,?,?,?,?,?)
         ON CONFLICT(workspace_id,project_id,kind,record_id) DO UPDATE SET revision=excluded.revision,projected_at=excluded.projected_at WHERE excluded.revision>live_projected.revision`).run(workspace_id,project_id,kind,record.id,record.revision,now());
       if(info.changes!==1)return null;
-      // A candidate event projected before its attempt existed is re-scoped now
-      // that an authoritative attempt/grant binding names the candidate. This
-      // is a projection-only backfill; the authoritative record is untouched.
-      if(kind==='attempts'&&record.candidate_id)db.prepare("UPDATE live_events SET attempt_id=? WHERE workspace_id=? AND project_id=? AND kind='candidates' AND attempt_id IS NULL AND record_id=?").run(record.id,workspace_id,project_id,record.candidate_id);
-      if(kind==='grants'&&record.candidate_id&&record.attempt_id)db.prepare("UPDATE live_events SET attempt_id=? WHERE workspace_id=? AND project_id=? AND kind='candidates' AND attempt_id IS NULL AND record_id=?").run(record.attempt_id,workspace_id,project_id,record.candidate_id);
       prune(workspace_id,project_id,attemptId);
       lockDown();
       const row=db.prepare('SELECT * FROM live_events WHERE seq=?').get(info.lastInsertRowid);
@@ -458,12 +485,13 @@ export function createWorkbenchLive({store,records,data,gate,execution,native,no
     const filter=scopeFilter(attempt);
     const params=[workspace_id,project_id,...(attempt?[attempt]:[])];
     const latest=db.prepare(`SELECT seq FROM live_events WHERE workspace_id=? AND project_id=?${filter} ORDER BY seq DESC LIMIT 1`).get(...params)?.seq??0;
-    // Reset only for a future cursor or a cursor below the retained floor of
-    // this exact scope. A non-matching prefix in a filtered scope is not a gap.
-    const reset_required=after>latest||after<floorFor(workspace_id,project_id,attempt);
-    // On reset, replay the oldest retained page instead of returning nothing so
-    // the client can reconstruct the retained timeline, then continue paging.
-    const start=reset_required?floorFor(workspace_id,project_id,attempt):after;
+    // Reset for a future cursor or when the cursor is below any bucket floor
+    // that could hold rows this scope would otherwise miss.
+    const reset_required=after>latest||after<retainedFloor(workspace_id,project_id,attempt);
+    // On reset, replay from the oldest retained row in this exact scope, not
+    // from the floor, so other buckets' earlier rows are not skipped.
+    const oldestRetained=db.prepare(`SELECT seq FROM live_events WHERE workspace_id=? AND project_id=?${filter} ORDER BY seq ASC LIMIT 1`).get(...params)?.seq??0;
+    const start=reset_required?(oldestRetained>0?oldestRetained-1:0):after;
     const rows=db.prepare(`SELECT * FROM live_events WHERE workspace_id=? AND project_id=?${filter} AND seq>? ORDER BY seq LIMIT ?`).all(...params,start,size+1);
     const events=rows.slice(0,size).map(row=>({...JSON.parse(row.event_json),sequence:row.seq}));
     return {
@@ -471,6 +499,9 @@ export function createWorkbenchLive({store,records,data,gate,execution,native,no
       events,
       after_sequence:events.at(-1)?.sequence??(reset_required?start:after),
       reset_required,
+      // A reset means retained rows were pruned or the cursor was ahead; the
+      // client should treat the projection as incomplete.
+      projection_incomplete:reset_required,
       has_more:rows.length>size,
       project_generation:project.generation,
       snapshot:snapshot({workspace_id,project_id,attempt_id:attempt}),
@@ -491,14 +522,9 @@ export function createWorkbenchLive({store,records,data,gate,execution,native,no
     const recordGeneration=Number.isSafeInteger(record.project_generation)?record.project_generation:null;
     if(recordGeneration!==null&&recordGeneration!==project.generation)throw wbError('stale_resource');
     if(!attempt)return;
-    let linked=null;
-    switch(kind){
-      case 'toolcalls':case 'results':linked=record.attempt_id??null;break;
-      case 'candidates':linked=attempt.candidate_id===record.id?attempt.id:null;break;
-      case 'jobs':case 'evidence':case 'reviews':linked=attempt.candidate_id&&record.candidate_id===attempt.candidate_id?attempt.id:null;break;
-      case 'patches':linked=attempt.candidate_id&&((record.candidate_id??record.candidate?.id)===attempt.candidate_id)?attempt.id:null;break;
-      default:linked=null;
-    }
+    // Exact, ambiguity-free attribution only. An unprovable or shared candidate
+    // generation fails closed rather than borrowing another attempt's scope.
+    const linked=attemptIdFor(kind,record);
     if(linked!==attempt.id)throw wbError('permission_denied');
   };
 
@@ -561,9 +587,9 @@ export function createWorkbenchLive({store,records,data,gate,execution,native,no
             if(['stale_resource','unavailable','permission_denied'].includes(error?.code))throw error;
             throw wbError('unavailable');
           }
-          // A diff is shown only between two exact retained generations; every
-          // unavailable outcome is explicitly not a diff.
-          return {...outcome,mode:'candidate_generation_diff',not_diff:outcome.available!==true,verified:outcome.available===true,reference,project_generation:project.generation};
+          // A comparison is exact when both retained generations were read, but
+          // it is never recorder evidence: exact true, verified always false.
+          return {...outcome,mode:'candidate_generation_diff',not_diff:outcome.available!==true,exact:outcome.available===true,verified:false,reference,project_generation:project.generation};
         }
         case 'result':{
           if(!native||typeof native.dispatch!=='function')throw wbError('unavailable');
@@ -582,31 +608,43 @@ export function createWorkbenchLive({store,records,data,gate,execution,native,no
     }
   };
 
-  // The only admitted source is the private reference the recorder persisted on
-  // the job itself. There is no descriptor scan, directory search or
-  // request-supplied path: a job can only ever tail the artifact it created.
-  const safeTail=candidate=>{
-    if(typeof candidate!=='string'||!candidate)return {available:false,reason:'untrusted_path'};
-    const resolved=path.resolve(candidate);
-    if(resolved!==candidate)return {available:false,reason:'untrusted_path'};
+  // Descriptor-anchored tail: the only admitted source is the private identity
+  // the recorder persisted on the job at output.log creation. Artifact root and
+  // check directory are opened O_DIRECTORY|O_NOFOLLOW through process-owned
+  // descriptors (no fd scan, no directory search, no request path), and the log
+  // inode must equal the recorded dev/ino, so a replaced log or a symlinked
+  // parent can never redirect the read.
+  const safeTail=identity=>{
+    if(!identity||typeof identity.path!=='string'||!identity.path)return {available:false,reason:'untrusted_path'};
+    const resolved=path.resolve(identity.path);
+    if(resolved!==identity.path)return {available:false,reason:'untrusted_path'};
     if(!resolved.startsWith(`${artifactRoot}${path.sep}`))return {available:false,reason:'outside_artifact_root'};
     if(path.basename(resolved)!=='output.log')return {available:false,reason:'unexpected_artifact'};
     const dir=path.dirname(resolved);
-    if(!path.basename(dir).startsWith('check-')||path.dirname(dir)!==artifactRoot)return {available:false,reason:'unexpected_artifact'};
-    let fd;
-    try{fd=fs.openSync(resolved,fs.constants.O_RDONLY|fs.constants.O_NOFOLLOW);}catch{return {available:false,reason:'unreadable'};}
+    if(path.dirname(dir)!==artifactRoot||!path.basename(dir).startsWith('check-'))return {available:false,reason:'unexpected_artifact'};
+    if(!Number.isSafeInteger(identity.dev)||!Number.isSafeInteger(identity.ino))return {available:false,reason:'untrusted_identity'};
+    let rootFd,directoryFd,fd;
     try{
+      rootFd=fs.openSync(artifactRoot,fs.constants.O_RDONLY|fs.constants.O_DIRECTORY|fs.constants.O_NOFOLLOW);
+      const rootStat=fs.fstatSync(rootFd);
+      if(Number.isSafeInteger(identity.root_ino)&&(rootStat.dev!==identity.root_dev||rootStat.ino!==identity.root_ino))return {available:false,reason:'artifact_root_replaced'};
+      directoryFd=fs.openSync(`/proc/self/fd/${rootFd}/${path.basename(dir)}`,fs.constants.O_RDONLY|fs.constants.O_DIRECTORY|fs.constants.O_NOFOLLOW);
+      const dirStat=fs.fstatSync(directoryFd);
+      if(Number.isSafeInteger(identity.dir_ino)&&(dirStat.dev!==identity.dir_dev||dirStat.ino!==identity.dir_ino))return {available:false,reason:'artifact_dir_replaced'};
+      fd=fs.openSync(`/proc/self/fd/${directoryFd}/output.log`,fs.constants.O_RDONLY|fs.constants.O_NOFOLLOW);
       const before=fs.fstatSync(fd);
       if(!before.isFile())return {available:false,reason:'not_a_regular_file'};
+      if(before.dev!==identity.dev||before.ino!==identity.ino)return {available:false,reason:'replaced_log'};
       const length=Math.min(LIVE_LIMITS.tailBytes,before.size);
       const buffer=Buffer.alloc(length);
       let read=0;
       while(read<length){const count=fs.readSync(fd,buffer,read,length-read,before.size-length+read);if(!count)break;read+=count;}
       const after=fs.fstatSync(fd);
-      if(before.dev!==after.dev||before.ino!==after.ino)return {available:false,reason:'replaced_during_read'};
+      if(after.dev!==identity.dev||after.ino!==identity.ino||after.dev!==before.dev||after.ino!==before.ino)return {available:false,reason:'replaced_during_read'};
       const bytes=buffer.subarray(0,read);
       return {available:true,bytes:before.size,tail_bytes:bytes.length,truncated:before.size>bytes.length,sha256:createHash('sha256').update(bytes).digest('hex'),text:new TextDecoder('utf-8',{fatal:false}).decode(bytes)};
-    }finally{try{fs.closeSync(fd);}catch{}}
+    }catch{return {available:false,reason:'unreadable'};}
+    finally{for(const handle of [fd,directoryFd,rootFd])if(handle!==undefined)try{fs.closeSync(handle);}catch{}}
   };
   const tail=({workspace_id,project_id,attempt_id,job_id}={})=>{
     const project=records.project(workspace_id,project_id); // revoked project hard-fences here
@@ -615,10 +653,10 @@ export function createWorkbenchLive({store,records,data,gate,execution,native,no
     const attempt=typeof attempt_id==='string'&&attempt_id?data.get('attempts',workspace_id,project_id,attempt_id):null;
     if(attempt&&Number.isSafeInteger(attempt.project_generation)&&attempt.project_generation!==project.generation)throw wbError('stale_resource');
     assertAttemptScope('jobs',job,attempt,project);
-    const recorded=typeof job.artifact_log_path==='string'&&job.artifact_log_path?job.artifact_log_path:null;
+    const identity=job.artifact_log_identity&&typeof job.artifact_log_identity==='object'?job.artifact_log_identity:null;
     const base={job_id:job.id,status:short(job.status,80),verified:false,cap_bytes:LIVE_LIMITS.tailBytes,log_bytes:Number.isFinite(job.log_bytes)?job.log_bytes:null};
-    if(!recorded)return {...base,available:false,reason:'unresolved',note:'No recorded private artifact reference exists for this job. Request-supplied paths and directory searches are never used.'};
-    const result=safeTail(recorded);
+    if(!identity)return {...base,available:false,reason:'unresolved',note:'No recorded private artifact identity exists for this job. Request-supplied paths and directory searches are never used.'};
+    const result=safeTail(identity);
     if(!result.available)return {...base,available:false,reason:result.reason,note:'The trusted log artifact could not be read safely; no partial content is shown.'};
     return {...base,available:true,bytes:result.bytes,truncated:result.truncated,sha256:result.sha256,text:result.text,at:now(),
       note:'Unverified tail of the private log artifact recorded by this job. Ordering and completeness are not guaranteed and this is never a progress, pass or failure signal.'};

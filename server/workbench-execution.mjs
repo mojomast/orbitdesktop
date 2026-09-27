@@ -57,8 +57,8 @@ const digest=value=>sha(stable(value));
 const publicCandidate=({root,root_history,...candidate})=>candidate;
 const legacyProvenance=()=>({version:1,initiated_by:{kind:'legacy_unknown'},authorized_by:{kind:'legacy_unknown'},recorded_by:{kind:'legacy_unknown'}});
 const publicActor=row=>row.provenance?row.provenance.initiated_by.kind==='owner_action'?'owner':row.provenance.initiated_by.kind:'legacy_unknown';
-// Private tail coordinates never enter a public job projection.
-const publicJob=({pending_result,artifact_log_path,artifact_dir,...job})=>({...job,actor:publicActor(job),provenance:job.provenance??legacyProvenance()});
+// Private tail coordinates and their kernel identity never enter a public job projection.
+const publicJob=({pending_result,artifact_log_path,artifact_dir,artifact_log_identity,...job})=>({...job,actor:publicActor(job),provenance:job.provenance??legacyProvenance()});
 const publicEvidence=({log_path,...evidence})=>({...evidence,actor:publicActor(evidence),provenance:evidence.provenance??legacyProvenance()});
 const publicAttempt=({...attempt})=>attempt;
 const publicSubmission=({...submission})=>submission;
@@ -589,7 +589,7 @@ export function createWorkbenchExecution({store,records,data,gate,environments,n
         // Trusted private artifact reference, recorded before spawn. It never
         // enters evidence and is stripped from every public job projection; the
         // live tail resolves exclusively through it.
-        artifact_record:record=>{try{job=revise('jobs',workspace_id,project_id,job.id,{artifact_log_path:record.log_path,artifact_dir:record.artifact_dir});}catch{}},
+        artifact_record:record=>{try{job=revise('jobs',workspace_id,project_id,job.id,{artifact_log_path:record.log_path,artifact_dir:record.artifact_dir,artifact_log_identity:record.artifact_log_identity});}catch{}},
         spawn_record:record=>{
         owned.set(job.id,{pid:record.pid,process_start:String(record.started_at),workspace_id,project_id});
         job=revise('jobs',workspace_id,project_id,job.id,{status:'running',pid:record.pid,pgid:record.pgid,process_start:String(record.started_at),started_at:now(),supervisor:record.supervisor,command:record.command??null});

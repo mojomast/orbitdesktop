@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-import {randomUUID,createHash} from 'node:crypto';
+import {randomUUID,createHash,createHmac} from 'node:crypto';
 import Database from 'better-sqlite3';
 import {SqliteWorkspaceStore} from '../server/sqlite-workspace-store.mjs';
 import {WorkbenchStore} from '../server/workbench-store.mjs';
@@ -12,6 +12,9 @@ import {createWorkbenchLive,projectWorkbenchEvent} from '../server/workbench-liv
 import {createWorkbenchLiveHandler} from '../server/workbench-live-route.mjs';
 import {createWorkbenchExecution} from '../server/workbench-execution.mjs';
 import {createWorkbenchGate} from '../server/workbench-gate.mjs';
+import {createWorkbenchNative} from '../server/workbench-native.mjs';
+import {openProjectRoot} from '../server/project-files.mjs';
+import {HERMES_NATIVE_CONTRACT} from '../contracts/workbench-native-v1.mjs';
 import {validateLiveItem,validateWorkbenchLive,LIVE_LIMITS} from '../contracts/workbench-live-v1.mjs';
 import {commandIdentity} from '../server/command-identity.mjs';
 import {initial} from '../src/model.ts';
@@ -173,10 +176,9 @@ test('attempt scope filters before limiting and cursor progresses across interle
   const all=f.live.page({workspace_id:f.workspace,project_id:f.project.id,limit:100});
   assert.ok(all.events.length>=6);
   const attemptPage=f.live.page({workspace_id:f.workspace,project_id:f.project.id,attempt_id:attempt.id});
-  // The candidate is candidate-bound to this attempt and appears, but stays
-  // observed (never attributed to the agent from an owner write).
-  assert.deepEqual(attemptPage.events.map(event=>event.kind),['candidate','attempt','grant','grant','toolcall','toolcall']);
-  assert.equal(attemptPage.events.find(event=>event.kind==='candidate').authority,'observed');
+  // The owner candidate create predates the attempt and cannot be proven to it,
+  // so it stays project-scoped rather than being borrowed by the attempt.
+  assert.deepEqual(attemptPage.events.map(event=>event.kind),['attempt','grant','grant','toolcall','toolcall']);
   const firstHalf=f.live.page({workspace_id:f.workspace,project_id:f.project.id,attempt_id:attempt.id,limit:2});
   assert.equal(firstHalf.events.length,2);
   assert.equal(firstHalf.has_more,true);
@@ -206,6 +208,19 @@ test('reconcile backfills missing projection keys as observed current-state snap
   }finally{rows.close();}
 });
 
+test('project-scope reset reflects attempt-bucket floors and replays from the oldest retained row',t=>{
+  const f=fixture(t),scope={workspace_id:f.workspace,project_id:f.project.id};
+  for(let i=0;i<5;i++)f.data.create('annotations',{...scope,kind:`n${i}`});
+  assert.equal(f.live.page(scope).events.length,5);
+  // Simulate a pruned attempt bucket without 2000 rows of churn.
+  const writer=new Database(f.live.filename);
+  try{writer.prepare('INSERT INTO live_floors(workspace_id,project_id,attempt_key,floor) VALUES(?,?,?,?) ON CONFLICT(workspace_id,project_id,attempt_key) DO UPDATE SET floor=excluded.floor').run(f.workspace,f.project.id,'attempt-x',3);}finally{writer.close();}
+  const page=f.live.page({...scope,after_sequence:2});
+  assert.equal(page.reset_required,true,'a project page must see a sibling attempt bucket truncation');
+  assert.equal(page.projection_incomplete,true);
+  assert.equal(page.events[0].sequence,1,'project reset replays from the oldest retained row overall, not the bucket floor');
+});
+
 test('fresh filtered scope with a non-matching project prefix does not reset',t=>{
   const f=fixture(t),scope={workspace_id:f.workspace,project_id:f.project.id};
   const candidate=f.data.create('candidates',{...scope,generation:1,hash:'a'.repeat(64),files:[],total_bytes:0,status:'approved'});
@@ -226,6 +241,7 @@ test('retention floor and future cursors set reset_required',t=>{
   // retained timeline can still be reconstructed, then paginates normally.
   const floorReset=f.live.page({...scope,after_sequence:3});
   assert.equal(floorReset.reset_required,true);
+  assert.equal(floorReset.projection_incomplete,true);
   assert.equal(floorReset.events[0].sequence,6);
   assert.equal(floorReset.events.length,LIVE_LIMITS.page);
   assert.equal(floorReset.after_sequence,6+LIVE_LIMITS.page-1);
@@ -252,8 +268,9 @@ test('authority distinguishes producers and confirmation state',()=>{
   assert.equal(auth('grants',{status:'stop_requested'}),'human','a stop request is a human request');
   assert.equal(auth('grants',{status:'stopped'}),'observed','a confirmed stop is observed');
   assert.equal(auth('results',{availability:'available'}),'observed');
-  assert.equal(auth('patches',{status:'verified'}),'recorder');
-  assert.equal(auth('patches',{status:'verifying'}),'observed');
+  assert.equal(auth('patches',{status:'available',verification:{status:'verified'}}),'recorder','verified artifact is recorder-authoritative');
+  assert.equal(auth('patches',{status:'available',verification:{status:'verifying'}}),'observed');
+  assert.equal(auth('patches',{status:'preparing'}),'observed');
   // Snapshot labelling is explicit for current-state observations.
   const snap=projectWorkbenchEvent('jobs',{...base,status:'running'},{phase:'snapshot'});
   assert.ok(snap.fields.some(field=>field.label==='observed'&&field.value==='reconciled_snapshot'));
@@ -274,8 +291,21 @@ test('native provenance and candidate binding place jobs, evidence and candidate
   assert.equal(f.data.get('jobs',f.workspace,f.project.id,job.id).attempt_id,undefined,'job has no direct attempt_id');
   const attemptEvents=f.live.page({...scope,attempt_id:attempt.id}).events;
   assert.ok(attemptEvents.some(event=>event.id===`jobs:${job.id}:1`),'native job joins the attempt timeline via provenance');
-  assert.ok(attemptEvents.some(event=>event.kind==='candidate'),'candidate-bound record appears in the attempt timeline');
-  assert.ok(attemptEvents.every(event=>event.kind==='candidate'?event.authority==='observed':true));
+  // An owner candidate create with no proven native mutation stays related and
+  // is not borrowed into the attempt timeline.
+  const candidateEvent=f.live.page(scope).events.find(event=>event.kind==='candidate');
+  assert.ok(candidateEvent.fields.some(field=>field.label==='origin'&&field.value==='related_snapshot'));
+});
+
+test('an unproven or shared candidate generation is never attributed to an attempt and fails closed in detail',async t=>{
+  const f=fixture(t),scope={workspace_id:f.workspace,project_id:f.project.id};
+  const candidate=f.data.create('candidates',{...scope,generation:1,hash:'a'.repeat(64),files:[],total_bytes:0,status:'approved'});
+  const attemptA=f.data.create('attempts',{...scope,status:'created',candidate_id:candidate.id,candidate_hash:candidate.hash});
+  f.data.create('attempts',{...scope,status:'created',candidate_id:candidate.id,candidate_hash:candidate.hash});
+  const review=f.data.create('reviews',{...scope,candidate_id:candidate.id,candidate_hash:candidate.hash,decision:'approved',evidence_ids:[]});
+  const attemptEvents=f.live.page({...scope,attempt_id:attemptA.id}).events;
+  assert.ok(!attemptEvents.some(event=>event.reference?.id===review.id),'shared candidate review is not attributed to one attempt');
+  await assert.rejects(()=>f.live.detail({...scope,attempt_id:attemptA.id,reference:{kind:'review',id:review.id}}),{code:'permission_denied'});
 });
 
 test('attempt scope validates existence and current generation',async t=>{
@@ -367,6 +397,8 @@ test('detail returns whitelisted metadata only and an exact-generation candidate
   assert.equal(diff.mode,'candidate_generation_diff');
   assert.equal(diff.available,true);
   assert.equal(diff.not_diff,false);
+  assert.equal(diff.exact,true);
+  assert.equal(diff.verified,false,'an exact comparison is not recorder evidence');
   assert.equal(diff.changed_files,1);
   assert.equal(diff.files[0].path,'sum.js');
   assert.equal(diff.files[0].new_hash,'2'.repeat(64));
@@ -411,28 +443,24 @@ test('revoked project and superseded generation hard-fence reads and streams',as
   await assert.rejects(()=>f.live.detail({...scope,attempt_id:attempt.id,reference:{kind:'candidate',id:candidate.id}}),{code:'stale_resource'});
 });
 
-test('tail resolves only the job recorded artifact reference and never cross-discloses',t=>{
+test('tail anchors to the recorded log identity and never cross-discloses',t=>{
   const f=fixture(t),scope={workspace_id:f.workspace,project_id:f.project.id};
+  const mk=(name,body)=>{const dir=path.join(f.live.artifactRoot,name);fs.mkdirSync(dir,{recursive:true,mode:0o700});const log=path.join(dir,'output.log');fs.writeFileSync(log,body,{mode:0o600});return {dir,log,identity:identityFor(log)};};
   const candA=f.data.create('candidates',{...scope,generation:1,hash:'a'.repeat(64),files:[],total_bytes:0,status:'approved'});
   const candB=f.data.create('candidates',{...scope,generation:1,hash:'b'.repeat(64),files:[],total_bytes:0,status:'approved'});
   const attemptA=f.data.create('attempts',{...scope,status:'created',candidate_id:candA.id,candidate_hash:candA.hash});
   const attemptB=f.data.create('attempts',{...scope,status:'created',candidate_id:candB.id,candidate_hash:candB.hash});
   const jobA=f.data.create('jobs',{...scope,status:'running',definition_id:'node-test',candidate_id:candA.id});
   const jobB=f.data.create('jobs',{...scope,status:'running',definition_id:'node-test',candidate_id:candB.id});
-  // Missing private reference fails closed; nothing is scanned or guessed.
+  // Missing private identity fails closed; nothing is scanned or guessed.
   const unresolved=f.live.tail({...scope,job_id:jobA.id});
   assert.equal(unresolved.available,false);
   assert.equal(unresolved.reason,'unresolved');
   assert.equal(unresolved.verified,false);
 
-  const dirA=path.join(f.live.artifactRoot,'check-alpha');fs.mkdirSync(dirA,{recursive:true,mode:0o700});
-  const dirB=path.join(f.live.artifactRoot,'check-bravo');fs.mkdirSync(dirB,{recursive:true,mode:0o700});
-  const decoy=path.join(f.live.artifactRoot,'check-decoy');fs.mkdirSync(decoy,{recursive:true,mode:0o700});
-  fs.writeFileSync(path.join(dirA,'output.log'),'ALPHA_ONLY',{mode:0o600});
-  fs.writeFileSync(path.join(dirB,'output.log'),'BRAVO_ONLY',{mode:0o600});
-  fs.writeFileSync(path.join(decoy,'output.log'),'DECOY_SENTINEL',{mode:0o600});
-  f.data.update('jobs',f.workspace,f.project.id,jobA.id,1,{artifact_log_path:path.join(dirA,'output.log'),artifact_dir:dirA});
-  f.data.update('jobs',f.workspace,f.project.id,jobB.id,1,{artifact_log_path:path.join(dirB,'output.log'),artifact_dir:dirB});
+  const a0=mk('check-alpha','ALPHA_ONLY'),b0=mk('check-bravo','BRAVO_ONLY'),decoy=mk('check-decoy','DECOY_SENTINEL');
+  f.data.update('jobs',f.workspace,f.project.id,jobA.id,1,{artifact_log_path:a0.log,artifact_dir:a0.dir,artifact_log_identity:a0.identity});
+  f.data.update('jobs',f.workspace,f.project.id,jobB.id,1,{artifact_log_path:b0.log,artifact_dir:b0.dir,artifact_log_identity:b0.identity});
 
   const a=f.live.tail({...scope,attempt_id:attemptA.id,job_id:jobA.id});
   assert.equal(a.available,true);
@@ -444,43 +472,88 @@ test('tail resolves only the job recorded artifact reference and never cross-dis
   // A job may not be tailed through another attempt even in the same project.
   assert.throws(()=>f.live.tail({...scope,attempt_id:attemptA.id,job_id:jobB.id}),{code:'permission_denied'});
 
-  // A recorded path outside the trusted artifact root is refused, not escaped.
+  // Path substitution: identity path pointing at another check dir while the
+  // recorded parent inode is not that dir is refused, never read.
+  const substituted=f.data.create('jobs',{...scope,status:'running',definition_id:'node-test',candidate_id:candA.id});
+  f.data.update('jobs',f.workspace,f.project.id,substituted.id,1,{artifact_log_path:b0.log,artifact_dir:b0.dir,artifact_log_identity:{...a0.identity,path:b0.log}});
+  const substitutedTail=f.live.tail({...scope,job_id:substituted.id});
+  assert.equal(substitutedTail.available,false);
+  assert.match(substitutedTail.reason,/artifact_dir_replaced|replaced_log|unreadable/);
+  assert.ok(!JSON.stringify(substitutedTail).includes('BRAVO_ONLY'));
+
+  // Outside the trusted artifact root.
   const outside=path.join(f.root,'outside','output.log');fs.mkdirSync(path.dirname(outside),{recursive:true});fs.writeFileSync(outside,'ESCAPE_SENTINEL');
   const escaped=f.data.create('jobs',{...scope,status:'running',definition_id:'node-test',candidate_id:candA.id});
-  f.data.update('jobs',f.workspace,f.project.id,escaped.id,1,{artifact_log_path:outside,artifact_dir:path.dirname(outside)});
+  f.data.update('jobs',f.workspace,f.project.id,escaped.id,1,{artifact_log_path:outside,artifact_dir:path.dirname(outside),artifact_log_identity:{...a0.identity,path:outside}});
   const refused=f.live.tail({...scope,job_id:escaped.id});
   assert.equal(refused.available,false);
   assert.equal(refused.reason,'outside_artifact_root');
   assert.ok(!JSON.stringify(refused).includes('ESCAPE_SENTINEL'));
 
+  // Replaced log inode is refused.
+  const replaced=mk('check-replaced','ORIGINAL_BYTES');
+  const replacedJob=f.data.create('jobs',{...scope,status:'running',definition_id:'node-test',candidate_id:candA.id});
+  f.data.update('jobs',f.workspace,f.project.id,replacedJob.id,1,{artifact_log_path:replaced.log,artifact_dir:replaced.dir,artifact_log_identity:replaced.identity});
+  fs.unlinkSync(replaced.log);fs.writeFileSync(replaced.log,'REPLACEMENT_BYTES',{mode:0o600});
+  const replacedTail=f.live.tail({...scope,job_id:replacedJob.id});
+  assert.equal(replacedTail.available,false);
+  assert.match(replacedTail.reason,/replaced_log|unreadable/);
+  assert.ok(!JSON.stringify(replacedTail).includes('REPLACEMENT_BYTES'));
+
+  // Symlinked log is refused by O_NOFOLLOW.
+  const linked=mk('check-linked','LINK_TARGET_BYTES');
+  const linkedJob=f.data.create('jobs',{...scope,status:'running',definition_id:'node-test',candidate_id:candA.id});
+  f.data.update('jobs',f.workspace,f.project.id,linkedJob.id,1,{artifact_log_path:linked.log,artifact_dir:linked.dir,artifact_log_identity:linked.identity});
+  const target=mk('check-target-dir','TARGET_SECRET');
+  fs.unlinkSync(linked.log);fs.symlinkSync(target.log,linked.log);
+  const linkedTail=f.live.tail({...scope,job_id:linkedJob.id});
+  assert.equal(linkedTail.available,false);
+  assert.ok(!JSON.stringify(linkedTail).includes('TARGET_SECRET'));
+
+  // Symlinked parent directory is refused (O_DIRECTORY|O_NOFOLLOW anchor).
+  const parent=mk('check-parent','PARENT_SECRET');
+  const parentJob=f.data.create('jobs',{...scope,status:'running',definition_id:'node-test',candidate_id:candA.id});
+  f.data.update('jobs',f.workspace,f.project.id,parentJob.id,1,{artifact_log_path:parent.log,artifact_dir:parent.dir,artifact_log_identity:parent.identity});
+  const elsewhere=mk('check-elsewhere','ELSEWHERE_SECRET');
+  fs.rmSync(parent.dir,{recursive:true});fs.symlinkSync(elsewhere.dir,parent.dir);
+  const parentTail=f.live.tail({...scope,job_id:parentJob.id});
+  assert.equal(parentTail.available,false);
+  assert.ok(!JSON.stringify(parentTail).includes('ELSEWHERE_SECRET'));
+
   // Cap and unverified labelling.
-  const dirCap=path.join(f.live.artifactRoot,'check-cap');fs.mkdirSync(dirCap,{recursive:true,mode:0o700});
-  fs.writeFileSync(path.join(dirCap,'output.log'),'x'.repeat(20000),{mode:0o600});
+  const cap=mk('check-cap','x'.repeat(20000));
   const capJob=f.data.create('jobs',{...scope,status:'running',definition_id:'node-test',candidate_id:candA.id});
-  f.data.update('jobs',f.workspace,f.project.id,capJob.id,1,{artifact_log_path:path.join(dirCap,'output.log'),artifact_dir:dirCap});
-  const cap=f.live.tail({...scope,job_id:capJob.id});
-  assert.equal(cap.cap_bytes,LIVE_LIMITS.tailBytes);
-  assert.equal(Buffer.byteLength(cap.text),LIVE_LIMITS.tailBytes);
-  assert.equal(cap.truncated,true);
-  assert.equal(cap.verified,false);
-  assert.match(cap.note,/Unverified tail/);
+  f.data.update('jobs',f.workspace,f.project.id,capJob.id,1,{artifact_log_path:cap.log,artifact_dir:cap.dir,artifact_log_identity:cap.identity});
+  const capTail=f.live.tail({...scope,job_id:capJob.id});
+  assert.equal(capTail.cap_bytes,LIVE_LIMITS.tailBytes);
+  assert.equal(Buffer.byteLength(capTail.text),LIVE_LIMITS.tailBytes);
+  assert.equal(capTail.truncated,true);
+  assert.equal(capTail.verified,false);
+  assert.match(capTail.note,/Unverified tail/);
   assert.throws(()=>f.live.tail({...scope,job_id:f.workspace}),{code:'permission_denied'});
 });
 
 test('public job projections never expose private artifact coordinates',async t=>{
   const f=fixture(t),scope={workspace_id:f.workspace,project_id:f.project.id};
   const dir=path.join(f.live.artifactRoot,'check-private');fs.mkdirSync(dir,{recursive:true,mode:0o700});
-  fs.writeFileSync(path.join(dir,'output.log'),'PRIVATE_BYTES',{mode:0o600});
+  const log=path.join(dir,'output.log');fs.writeFileSync(log,'PRIVATE_BYTES',{mode:0o600});
   const job=f.data.create('jobs',{...scope,status:'running',definition_id:'node-test',candidate_id:randomUUID()});
-  f.data.update('jobs',f.workspace,f.project.id,job.id,1,{artifact_log_path:path.join(dir,'output.log'),artifact_dir:dir});
+  f.data.update('jobs',f.workspace,f.project.id,job.id,1,{artifact_log_path:log,artifact_dir:dir,artifact_log_identity:identityFor(log)});
   const execution=createWorkbenchExecution({store:f.store,records:f.records,data:f.data,gate:createWorkbenchGate()});
   t.after(()=>execution.close());
   const fetched=await execution.dispatch({action:'job_get',workspace_id:f.workspace,project_id:f.project.id,job_id:job.id});
   assert.equal(fetched.job.artifact_log_path,undefined);
   assert.equal(fetched.job.artifact_dir,undefined);
+  assert.equal(fetched.job.artifact_log_identity,undefined);
   const state=await execution.dispatch({action:'execution_state',workspace_id:f.workspace,project_id:f.project.id});
-  assert.ok(!JSON.stringify(state).includes('artifact_log_path')&&!JSON.stringify(state).includes('check-private'));
+  assert.ok(!JSON.stringify(state).includes('artifact_log_identity')&&!JSON.stringify(state).includes('check-private'));
 });
+
+// Trusted kernel identity for a private check log, as the recorder records it.
+function identityFor(logPath){
+  const stat=fs.statSync(logPath),dir=path.dirname(logPath),dirStat=fs.statSync(dir),rootStat=fs.statSync(path.dirname(dir));
+  return {path:logPath,dev:stat.dev,ino:stat.ino,dir_dev:dirStat.dev,dir_ino:dirStat.ino,root_dev:rootStat.dev,root_ino:rootStat.ino};
+}
 
 async function startRoute(t,{live,heartbeatMs=40,token='owner-secret-token'}={}){
   let handler;
@@ -540,4 +613,55 @@ test('stream emits page/heartbeat frames and a contentless fenced frame on revoc
   const fenced=frames.find(frame=>frameName(frame)==='fenced');
   assert.ok(fenced);
   assert.equal(fenced.includes('data: {}'),true,'fenced frame carries no contents');
+});
+
+const WRONG_SUM='export const sum = (a,b) => a - b;\n';
+const RIGHT_SUM='export const sum = (a,b) => a + b;\n';
+function privateCall(channel,args,sequence=1,secret=channel.secret){
+  const raw=JSON.stringify(args),mac=createHmac('sha256',secret).update(`${sequence}\n${raw}`).digest('hex');
+  return new Promise((resolve,reject)=>{const req=http.request({socketPath:channel.socket,path:'/tool',method:'POST',headers:{'content-type':'application/json','x-orbit-grant':channel.grant_id,'x-orbit-sequence':String(sequence),'x-orbit-mac':mac}},res=>{let text='';res.on('data',c=>text+=c);res.on('end',()=>resolve({status:res.statusCode,...JSON.parse(text)}));});req.on('error',reject);req.end(raw);});
+}
+function nativeFixture(t){
+  const root=fs.mkdtempSync('/tmp/opencode/workbench-live-native-');
+  const projectRoot=path.join(root,'project');fs.mkdirSync(projectRoot);fs.writeFileSync(path.join(projectRoot,'math.js'),WRONG_SUM);
+  const store=new SqliteWorkspaceStore(path.join(root,'runtime')),workspace_id=randomUUID(),pane_id=randomUUID();
+  store.commit(commandIdentity({workspace_id,action:'sync',base_revision:0,state:initial(),operation_id:randomUUID(),intent:'Live native fixture'},'owner'),{create:()=>({id:workspace_id,revision:1,state:initial(),capability:randomUUID(),api:'http://127.0.0.1:4318'})});
+  const data=new WorkbenchData(store),records=new WorkbenchStore(store);
+  const opened=openProjectRoot(projectRoot),project=records.register(workspace_id,{root:projectRoot,name:'Live native',identity:opened.identity});opened.close();
+  const gate=createWorkbenchGate(),execution=createWorkbenchExecution({store,records,data,gate});
+  const base={workspace_id,project_id:project.id};
+  let channel=null;
+  const hermes={quarantineNative:()=>true,acknowledgeNativeUnknown:()=>true,readBinding:async()=>({trusted_host:true,sandbox:false,profile_id:'fixture',session_id:'native-fixture',config_generation:1,binding_revision:1,native_runtime:{kind:'local-pinned',commit:HERMES_NATIVE_CONTRACT.commit,model:'fixture',destination:'loopback configured model endpoint',configuration_hash:'0'.repeat(64)}}),startNative:async config=>{await config.authorize();channel=config.channel;return {completion:new Promise(()=>{})};},stopNative:async()=>({requested:true})};
+  const native=createWorkbenchNative({store,records,data,execution,hermes});
+  const live=createWorkbenchLive({store,records,data,gate,execution,native});
+  t.after(()=>{live.close();native.close();execution.close();store.close();fs.rmSync(root,{recursive:true,force:true});});
+  return {root,store,data,records,execution,native,live,base,getChannel:()=>channel,pane_id};
+}
+test('a real native candidate_patch records safe target/result and attributes the committed generation to its attempt',async t=>{
+  const f=nativeFixture(t);
+  const {task}=await f.execution.dispatch({...f.base,action:'task_create',title:'Repair a sum',acceptance_statement:'sum adds',check_definition_id:'host-regression',profile_id:'fixture',session_id:'native-fixture',pane_id:f.pane_id});
+  const preview=await f.execution.dispatch({...f.base,action:'candidate_preview',task_id:task.id});
+  const {candidate}=await f.execution.dispatch({...f.base,action:'candidate_create',task_id:task.id,preview_id:preview.preview_id,preview_digest:preview.preview.digest});
+  const {attempt}=await f.execution.dispatch({...f.base,action:'attempt_create',task_id:task.id,candidate_id:candidate.id,profile_id:'fixture',session_id:'native-fixture',pane_id:f.pane_id});
+  const grantPreview=await f.native.dispatch({...f.base,action:'preview',attempt_id:attempt.id,context_ids:[],budget:{calls:15,checks:1,duration_ms:90000}});
+  const {grant}=await f.native.dispatch({...f.base,action:'approve',preview_id:grantPreview.preview_id,preview_digest:grantPreview.preview_digest});
+  await f.native.dispatch({...f.base,action:'start',grant_id:grant.id});
+  const channel=f.getChannel();
+  assert.ok(channel,'native start handed the private channel');
+  const fileHash=candidate.files.find(file=>file.path==='math.js').hash;
+  const patched=await privateCall(channel,{action:'candidate_patch',expected_candidate_hash:candidate.hash,changes:[{op:'change',path:'math.js',expected_hash:fileHash,content:RIGHT_SUM}]});
+  assert.equal(patched.ok,true,JSON.stringify(patched));
+  const call=f.data.list('toolcalls',f.base.workspace_id,f.base.project_id).find(entry=>entry.action==='candidate_patch');
+  assert.equal(call.status,'completed');
+  assert.match(call.safe_target,/math\.js/,'safe request target is the whitelisted path, not raw arguments');
+  assert.equal(call.result_candidate.id,candidate.id);
+  assert.equal(call.result_candidate.generation,2);
+  assert.ok(call.result_candidate.hash&&call.result_candidate.hash!==candidate.hash);
+  assert.ok(!JSON.stringify(call).includes('a + b'),'no raw source content in the toolcall record');
+  const page=f.live.page({...f.base,attempt_id:attempt.id});
+  const mutation=page.events.find(event=>event.kind==='candidate'&&event.reference?.generation===2);
+  assert.ok(mutation,'committed candidate generation is attributed to its attempt');
+  assert.equal(mutation.authority,'observed');
+  assert.ok(page.events.some(event=>event.kind==='toolcall'&&event.target&&/math\.js/.test(event.target)),'toolcall event exposes only the safe target');
+  assert.ok(!JSON.stringify(page.events).includes('a + b'),'no source bytes in durable live events');
 });
