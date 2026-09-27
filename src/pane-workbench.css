@@ -18,15 +18,66 @@
   overflow: auto;
 }
 
-.agent-mode-badge {
-  font-size: 0.72em;
-  padding: 0 0.3rem;
-  border-radius: 0.5rem;
-  background: color-mix(in srgb, var(--accent, #b5f268) 30%, transparent);
+.agent-mode-control {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  min-width: 0;
 }
 
-.agent-mode-badge[hidden] {
-  display: none;
+.agent-mode-button {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.05rem;
+  min-width: 4.5rem;
+  max-width: 9rem;
+  white-space: normal;
+  line-height: 1.1;
+  padding: 0.15rem 0.4rem;
+}
+
+/* Win over the generic `#app .agent-pane-head button` toolbar rule so the
+   stacked label/status can wrap instead of forcing a single wide line. */
+#app .agent-pane-head .agent-mode-control {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+#app .agent-pane-head .agent-mode-button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 4.5rem;
+  max-width: 9rem;
+  white-space: normal;
+  line-height: 1.1;
+  padding: 3px 5px;
+}
+
+.agent-mode-button-label {
+  font-weight: 600;
+}
+
+.agent-mode-button-status {
+  font-size: 0.72em;
+  opacity: 0.82;
+  overflow-wrap: anywhere;
+}
+
+.agent-mode-button[aria-pressed='true'] {
+  border-color: var(--accent-color, var(--accent, #b5f268));
+  background: color-mix(in srgb, var(--accent, #b5f268) 20%, transparent);
+}
+
+.agent-mode-button[data-badge]:not([data-badge='0'])::after {
+  content: ' · ' attr(data-badge);
+  font-size: 0.72em;
+  opacity: 0.8;
 }
 
 .agent-workbench-host[hidden],
@@ -207,6 +258,91 @@
 
 .pane-workbench-detail .workbench-result-text {
   max-height: 40vh;
+}
+
+.pane-workbench-detail-body {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.pane-workbench-setup > summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 0.35rem 0;
+  border-top: 1px solid var(--border-color, #555);
+}
+
+.pane-workbench-diff {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.pane-workbench-diff-head,
+.pane-workbench-diff-source,
+.pane-workbench-diff-unavailable,
+.pane-workbench-detail-note {
+  margin: 0.1rem 0;
+  font-size: 0.82em;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.pane-workbench-diff-source {
+  opacity: 0.8;
+}
+
+.pane-workbench-diff-unavailable {
+  color: var(--warning-color, #d9a441);
+}
+
+.pane-workbench-diff-file {
+  border: 1px solid var(--border-color, #555);
+  border-radius: 0.35rem;
+  padding: 0.35rem 0.5rem;
+  min-width: 0;
+}
+
+.pane-workbench-diff-file > summary {
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.pane-workbench-diff-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.pane-workbench-diff-col {
+  min-width: 0;
+}
+
+.pane-workbench-diff-col h5 {
+  margin: 0.2rem 0;
+  font-size: 0.78em;
+  opacity: 0.8;
+}
+
+.pane-workbench-diff-text {
+  margin: 0;
+  max-height: 24rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 0.4rem;
+  background: var(--panel-background, #111);
+  border: 1px solid var(--border-color, #555);
+  border-radius: 0.3rem;
+  font-size: 0.8em;
+}
+
+@media (max-width: 560px) {
+  .pane-workbench-diff-cols {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 @media (min-width: 900px) {

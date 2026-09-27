@@ -75,9 +75,16 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   let panePrefs: PaneWorkbenchPrefs = readPanePrefs(workspaceId, paneId);
   let paneMode: PaneMode = panePrefs.mode;
   let workbenchStatus = '';
-  let workbenchLaneActive = false;
   let workbenchBadge: PaneWorkbenchBadge = { mode: 'workbench', pending: 0, results: 0, laneBusy: false, status: 'Idle' };
   let workbench: ReturnType<typeof mountPaneWorkbench> | undefined;
+  // Shared-lane signals are tracked per source so a fresh read from one source
+  // never clears another source's unknown state. The Workbench pane live lane and
+  // the shared_chat execution_lane are independent read-only observations.
+  let wbLane = { agent_busy: false, job_busy: false, unknown: false };
+  let sharedLane = { agent_busy: false, job_busy: false, unknown: false };
+  let sharedLanePresent = false;
+  let workbenchLaneActive = false;
+  let laneUnknown = false;
   const badge = el('div', 'agent-meta');
   const status = el('span', 'agent-status', 'READY');
   status.setAttribute('role', 'status');
@@ -135,20 +142,43 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     dialog.append(form); dialog.addEventListener('close', () => dialog.remove());
     document.body.append(dialog); dialog.showModal(); name.focus(); name.select();
   }, 'small-button');
-  // The Normal/Workbench selector lives in the pane header, so it stays visible
-  // in both modes. Changing it never dispatches work; it only changes the view.
-  const modeSelect = el('select', 'agent-mode-select');
-  modeSelect.setAttribute('aria-label', 'Pane view');
-  for (const [value, label] of [['normal', 'Normal'], ['workbench', 'Workbench']] as const) {
-    const option = el('option', '', label);
-    option.value = value;
-    modeSelect.append(option);
+  // Segmented Normal/Workbench control in the pane header. Both buttons stay
+  // visible with their own live status text; the inactive mode's status keeps
+  // updating. Changing the view never dispatches work. Stable accessible names
+  // ("Normal Hermes mode" / "Workbench Hermes mode") are used by tests.
+  // A span (not a div): compact-window styling hides direct div children of
+  // .agent-meta, which previously collapsed this control.
+  const modeControl = el('span', 'agent-mode-control');
+  modeControl.setAttribute('role', 'group');
+  modeControl.setAttribute('aria-label', 'Pane mode');
+  const modeOrder: PaneMode[] = ['normal', 'workbench'];
+  const modeButtons = new Map<PaneMode, { button: HTMLButtonElement; status: HTMLElement }>();
+  function roveMode(event: KeyboardEvent, mode: PaneMode) {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const index = modeOrder.indexOf(mode);
+    const nextIndex = event.key === 'Home' ? 0
+      : event.key === 'End' ? modeOrder.length - 1
+      : event.key === 'ArrowRight' ? (index + 1) % modeOrder.length
+      : (index - 1 + modeOrder.length) % modeOrder.length;
+    const next = modeOrder[nextIndex];
+    modeButtons.get(next)?.button.focus();
+    setMode(next);
   }
-  modeSelect.value = paneMode;
-  modeSelect.addEventListener('change', () => setMode(modeSelect.value === 'workbench' ? 'workbench' : 'normal'));
-  const modeBadge = el('span', 'agent-mode-badge');
-  modeBadge.setAttribute('aria-hidden', 'true');
-  badge.append(el('span', 'agent-avatar', '✳'), titleInput, colorInput, rename, status, newChat, notificationButton, modeSelect, modeBadge);
+  for (const mode of modeOrder) {
+    const control = button('', `${mode === 'normal' ? 'Normal' : 'Workbench'} Hermes mode`, () => setMode(mode), 'agent-mode-button');
+    control.dataset.mode = mode;
+    control.setAttribute('aria-label', `${mode === 'normal' ? 'Normal' : 'Workbench'} Hermes mode`);
+    control.setAttribute('aria-pressed', String(mode === paneMode));
+    const label = el('span', 'agent-mode-button-label', mode === 'normal' ? 'Normal' : 'Workbench');
+    const statusText = el('span', 'agent-mode-button-status', mode === 'normal' ? 'READY' : 'Idle');
+    statusText.setAttribute('aria-live', 'polite');
+    control.replaceChildren(label, statusText);
+    control.addEventListener('keydown', (event) => roveMode(event, mode));
+    modeButtons.set(mode, { button: control, status: statusText });
+    modeControl.append(control);
+  }
+  badge.append(el('span', 'agent-avatar', '✳'), titleInput, colorInput, rename, status, newChat, notificationButton, modeControl);
   const bindingControls = el('div', 'agent-binding-controls');
   const profileSelect = el('select'); profileSelect.setAttribute('aria-label', 'Profile');
   const sessionSelect = el('select'); sessionSelect.setAttribute('aria-label', 'Session');
@@ -221,9 +251,11 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   const queueList = el('div', 'agent-queue');
   const drainButton = button('Send next queued', 'Resume sending queued messages', () => { void drainQueue(); }, 'small-button');
   async function drainQueue() {
-    // The native/runtime lane is server-authoritative and single. While a
-    // Workbench submission or attempt occupies it, never auto-send queued chat.
-    if (disposed || busy || state.run || workbenchLaneActive || !state.queue?.length) return;
+    // The native/runtime lane is server-authoritative and single. While another
+    // pane's Workbench task occupies it (or its outcome is unknown) never send,
+    // even on an explicit drain. Otherwise this is the explicit user send that
+    // releases the held queue.
+    if (disposed || busy || state.run || laneBlocked() || !state.queue?.length) return;
     queuePaused = false;
     await submit(state.queue[0]);
   }
@@ -274,17 +306,21 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
       if (current(requested)) { taskCards.replaceChildren(); taskCards.hidden = true; cardsDigest = ''; }
     } finally { cardsLoading = false; }
   }
-  // Shared live timeline: one element, one instance, reused by both modes. The
-  // Normal adapter consumes the existing tool-feed events and saved metadata and
-  // never replaces the original inline tool controls.
+  // Two independent renderer instances, never one shared history. The Normal
+  // instance is bound to this chat/session (tool-feed + saved metadata); the
+  // Workbench instance is bound to the selected project/attempt. Reconnecting or
+  // resetting one never clears or changes the other.
   const timeline = createLiveTimeline({
-    storageKey: `orbit-live-timeline:${workspaceId}:${paneId}`,
+    storageKey: `orbit-live-timeline:${workspaceId}:${paneId}:normal`,
     onOpenReference: (item: LiveItem) => {
-      if (item.reference?.kind === 'normal-tool') { inlineTools.show(); return; }
-      workbench?.openLiveReference(item);
+      if (item.reference?.kind === 'normal-tool') inlineTools.show();
     },
   });
   normalTimelineHost.append(timeline.element);
+  const workbenchTimeline = createLiveTimeline({
+    storageKey: `orbit-live-timeline:${workspaceId}:${paneId}:workbench`,
+    onOpenReference: (item: LiveItem) => workbench?.openLiveReference(item),
+  });
   const normalLive = createNormalLiveAdapter(timeline);
   normalLive.reset(chatBindingKey(state));
   normalLive.connection(getToken() ? 'connecting' : 'unavailable', getToken() ? undefined : 'Unlock the local host to inspect activity');
@@ -436,28 +472,64 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   window.addEventListener('orbit-open-hermes-tools', onOpenTools);
   const send = button('↑', 'Send message to Hermes', () => { void submit(); });
   function update() {
-    send.disabled = busy || switching || sharing; newChat.disabled = switchBlocked();
+    // The single native/runtime lane is global: while it is held by another
+    // pane's Workbench task (or its outcome is unknown) this pane must not send
+    // or drain, unless this pane's own normal run owns the current state.
+    const blocked = laneBlocked();
+    send.disabled = busy || switching || sharing || blocked; newChat.disabled = switchBlocked();
     profileSelect.disabled = switchBlocked() || !getToken() || !metadataReady;
     sessionSelect.disabled = switchBlocked() || !getToken() || !sessionsReady;
     applyBinding.disabled = switchBlocked() || !getToken() || !metadataReady || !sessionsReady;
     refreshBindings.disabled = switchBlocked() || !getToken();
     refreshBindings.title = getToken() ? 'Load available Hermes profiles and sessions' : 'Connect host first to load profiles';
     send.textContent = state.run ? 'Queue' : '↑';
-    send.title = state.run ? 'Queue message after the current turn' : 'Send message to Hermes';
+    send.title = blocked ? laneReason() || 'Shared agent lane is busy.' : state.run ? 'Queue message after the current turn' : 'Send message to Hermes';
+    drainButton.disabled = blocked;
     stop.hidden = !state.run; resume.hidden = !state.run; steer.hidden = !state.run;
     // Allow composing the next message while Hermes works; Send remains disabled.
     input.disabled = false;
   }
+  function laneBlocked() {
+    // The shared native lane is global; when it is held by another pane's
+    // Workbench task (or its outcome is unknown) this pane must not send, unless
+    // this pane's own normal run actually owns the current state.
+    return (workbenchLaneActive || laneUnknown) && !state.run;
+  }
+  function laneReason() {
+    if (laneUnknown) return 'Execution outcome unknown · the shared agent lane is fenced until the owner reconciles it.';
+    if (workbenchLaneActive) return 'Shared agent lane is busy.';
+    return '';
+  }
+  function recomputeLane() {
+    const agentBusy = wbLane.agent_busy || (sharedLanePresent && sharedLane.agent_busy);
+    const jobBusy = wbLane.job_busy || (sharedLanePresent && sharedLane.job_busy);
+    laneUnknown = wbLane.unknown || (sharedLanePresent && sharedLane.unknown);
+    workbenchLaneActive = (agentBusy && !state.run) || jobBusy;
+    // The queue is held, never auto-drained, until the owner sends explicitly.
+    if (workbenchLaneActive || laneUnknown) queuePaused = true;
+    updateModeBadge();
+    update();
+  }
   function updateModeBadge() {
+    // Both statuses stay visible; the hidden mode's status keeps updating.
+    const normalStatusText = status.textContent || 'READY';
+    const workbenchLabel = workbenchBadge.laneBusy || workbenchLaneActive || laneUnknown
+      ? (laneUnknown ? 'Execution outcome unknown' : 'Lane busy')
+      : (workbenchBadge.status || 'Idle');
     const count = workbenchBadge.pending + workbenchBadge.results;
-    modeBadge.textContent = paneMode === 'normal'
-      ? (count || workbenchBadge.laneBusy ? `WB ${count || '•'}` : '')
-      : 'N';
-    modeBadge.hidden = !modeBadge.textContent;
-    const workbenchLabel = workbenchBadge.laneBusy ? 'lane busy' : workbenchBadge.status || 'idle';
-    modeSelect.title = `Normal: ${status.textContent || 'READY'} · Workbench: ${workbenchLabel}`
+    const normal = modeButtons.get('normal');
+    const workbench = modeButtons.get('workbench');
+    if (normal) normal.status.textContent = normalStatusText;
+    if (workbench) workbench.status.textContent = workbenchLabel;
+    for (const [mode, entry] of modeButtons) entry.button.setAttribute('aria-pressed', String(mode === paneMode));
+    modeControl.title = `Normal: ${normalStatusText} · Workbench: ${workbenchLabel}`
       + (workbenchBadge.pending ? ` · ${workbenchBadge.pending} pending` : '')
-      + (workbenchBadge.results ? ` · ${workbenchBadge.results} result(s)` : '');
+      + (workbenchBadge.results ? ` · ${workbenchBadge.results} result(s)` : '')
+      + (laneBlocked() ? ` · ${laneReason()}` : '');
+    modeControl.dataset.lane = laneUnknown ? 'unknown' : workbenchLaneActive ? 'busy' : 'idle';
+    // Cross-mode hidden badge: annotate the inactive button with pending counts.
+    const inactive = modeButtons.get(paneMode === 'normal' ? 'workbench' : 'normal');
+    if (inactive) inactive.button.dataset.badge = String(count);
   }
   function ensureWorkbench() {
     if (workbench || disposed) return workbench;
@@ -472,14 +544,18 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
       onPrefs: (patch) => { panePrefs = writePanePrefs(workspaceId, paneId, patch); },
       onBadge: (next) => {
         workbenchBadge = next;
-        workbenchLaneActive = next.laneBusy;
         workbenchStatus = next.status;
         updateModeBadge();
         refreshActivity();
         update();
       },
-      onLaneBusy: (laneBusy) => { workbenchLaneActive = laneBusy; update(); },
-      timeline,
+      // The Workbench pane's own live lane observation. Combined with (but never
+      // overriding) the shared_chat execution_lane signal.
+      onLane: (lane) => {
+        wbLane = { agent_busy: lane.agent_busy === true, job_busy: lane.job_busy === true, unknown: lane.unknown === true };
+        recomputeLane();
+      },
+      timeline: workbenchTimeline,
       onError: showError,
     });
     return workbench;
@@ -492,16 +568,11 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     if (persist) panePrefs = writePanePrefs(workspaceId, paneId, { mode: next });
     chatNormal.hidden = next !== 'normal';
     workbenchHost.hidden = next !== 'workbench';
-    modeSelect.value = next;
-    if (next === 'workbench') {
-      const mounted = ensureWorkbench();
-      mounted?.setVisible(true);
-      // Move the single shared timeline node into the Live tab; feeds stay live.
-      mounted?.liveSlot().append(timeline.element);
-    } else {
-      workbench?.setVisible(false);
-      normalTimelineHost.append(timeline.element);
-    }
+    for (const [mode, entry] of modeButtons) entry.button.setAttribute('aria-pressed', String(mode === next));
+    // Two persistent, independent timeline hosts. Switching only toggles
+    // `hidden`; neither instance is moved, rebuilt, reset or reconnected.
+    if (next === 'workbench') ensureWorkbench()?.setVisible(true);
+    else workbench?.setVisible(false);
     updateModeBadge();
     update();
   }
@@ -587,8 +658,10 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
         const finishedRun = state.run;
         state.run = undefined; save(); render(); progress.textContent = '';
         notifyReply(finishedRun, data.status === 'completed');
-        // Never auto-drain while the shared native lane is occupied by Workbench.
-        if (data.status === 'completed' && !queuePaused && !workbenchLaneActive) void drainQueue();
+        // Ordinary normal-run completion may auto-drain only when the shared lane
+        // is idle and not unknown. A Workbench-held queue stays held until the
+        // owner sends explicitly.
+        if (data.status === 'completed' && !queuePaused && !workbenchLaneActive && !laneUnknown) void drainQueue();
         return;
       }
       progress.textContent = data.status === 'waiting_for_approval' ? 'Hermes needs your permission before continuing.' : 'Hermes is working. You can stop the run. Replies appear when the turn completes.';
@@ -610,6 +683,9 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   async function submit(queuedText?: string) {
     const text = queuedText ?? input.value.trim();
     if (!text || busy || disposed || switching || sharing) return;
+    // Explicit guard before any queue or draft mutation: the Enter path must not
+    // dispatch into a shared lane held by another pane's Workbench task.
+    if (laneBlocked()) { showError(new Error(laneReason() || 'Shared agent lane is busy.')); return; }
     const requested = scope();
     if (state.run) {
       if (queuedText) return;
@@ -653,6 +729,19 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
       await ensureWorkspaceSynced();
       const data = await api({action:'shared_chat', ...(document.documentElement.dataset.mobile === 'true' ? {} : {initial:state})}, requested);
       if (disposed || busy || polling) return;
+      // Optional global lane signal carried by the existing shared_chat read.
+      // No extra polling loop and no upstream call: an absent field (older
+      // backend or test mock) is not treated as idle-confirmation and does not
+      // globally disable sending; the authenticated backend fence stays authoritative.
+      if (data?.execution_lane && typeof data.execution_lane === 'object') {
+        sharedLane = {
+          agent_busy: data.execution_lane.agent_busy === true,
+          job_busy: data.execution_lane.job_busy === true,
+          unknown: data.execution_lane.unknown === true,
+        };
+        sharedLanePresent = true;
+        recomputeLane();
+      }
       if (!data.state) { progress.textContent = 'Open this chat on the desktop and reload once to link its existing conversation.'; return; }
       if (validChat(data.state)) {
         const next = data.state as ChatState;
@@ -702,11 +791,18 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   }
   const sharedTimer = setInterval(() => {void syncShared(); void refreshTaskCards();}, 1800);
   void syncShared();
-  const onUnlock = () => { void syncShared(); if (state.run) void poll(); if (getToken()) normalLive.connection('connecting', 'Connecting to activity stream'); };
+  const onUnlock = () => {
+    void syncShared();
+    if (state.run) void poll();
+    if (getToken()) normalLive.connection('connecting', 'Connecting to activity stream');
+    // A remembered Workbench project/attempt reconnects read-only lane/badge
+    // monitoring while Normal is selected, without mounting execution controls.
+    if (getToken() && panePrefs.projectId) ensureWorkbench()?.setVisible(paneMode === 'workbench');
+  };
   window.addEventListener('orbit-host-connected', onUnlock);
   if (state.run) {
     progress.textContent = 'A saved run may still be active. Connect host to check its status. Closing the pane does not stop Hermes.';
     if (getToken()) void poll();
   }
-  return () => { saveDraft(); disposed = true; generation++; statusObserver.disconnect(); activity.dispose(); clearInterval(sharedTimer); stopToolFeed(); inlineTools.dispose(); workbench?.dispose(); timeline.dispose(); toolsDialog?.close(); liveController?.abort(); clearTimeout(timer); controller.abort(); window.removeEventListener('orbit-host-connected', onUnlock); window.removeEventListener('orbit-open-hermes-tools', onOpenTools); };
+  return () => { saveDraft(); disposed = true; generation++; statusObserver.disconnect(); activity.dispose(); clearInterval(sharedTimer); stopToolFeed(); inlineTools.dispose(); workbench?.dispose(); timeline.dispose(); workbenchTimeline.dispose(); toolsDialog?.close(); liveController?.abort(); clearTimeout(timer); controller.abort(); window.removeEventListener('orbit-host-connected', onUnlock); window.removeEventListener('orbit-open-hermes-tools', onOpenTools); };
 }

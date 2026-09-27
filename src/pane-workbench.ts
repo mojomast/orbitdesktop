@@ -45,7 +45,7 @@ export interface PaneWorkbenchDeps {
   prefs: PaneWorkbenchPrefs;
   onPrefs: (patch: Partial<PaneWorkbenchPrefs>) => void;
   onBadge: (badge: PaneWorkbenchBadge) => void;
-  onLaneBusy: (busy: boolean) => void;
+  onLane: (lane: { agent_busy: boolean; job_busy: boolean; unknown: boolean }) => void;
   timeline: LiveTimeline;
   onError?: (message: string) => void;
 }
@@ -88,7 +88,6 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
   let projectId: string | null = prefs.projectId;
   let applyingScope = false;
   let latestSnapshot: Data | null = null;
-  let headerGrant: Data | null = null;
   let laneNote = '';
   type Panel = { refresh?(): void | Promise<void>; dispose(): void; setScope?(scope: Data): void };
   let authorityMount: Panel | null = null;
@@ -166,6 +165,9 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
   };
   const liveNote = el('p', 'pane-workbench-live-note', 'Private durable Workbench activity. Connecting…');
   const liveSlotEl = el('div', 'pane-workbench-live-slot');
+  // The Workbench owns its own renderer instance, independent of the Normal feed.
+  deps.timeline.element.classList.add('pane-workbench-live-timeline');
+  liveSlotEl.append(deps.timeline.element);
   panels.live.append(liveNote, liveSlotEl);
   const executionPanel = panels.checks;
   const changesPanel = panels.changes;
@@ -214,6 +216,25 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
   const refreshHandoff = button('Refresh excerpts', 'Rebuild the excerpt checklist from the current conversation', () => renderHandoff(), 'small-button');
   const previewButton = button('Preview exact bytes', 'Preview the bounded payload without capturing anything', () => void renderPreview(), 'small-button');
   handoff.append(handoffList, composer, excerptCount, previewButton, preview, capture, refreshHandoff, boundNote, previewBytes);
+
+  // Create/select the actual task (not capture-only). Uses the existing
+  // task_create contract with an explicit owner-chosen acceptance statement and
+  // allowlisted check definition. Preview first; nothing is created until then.
+  const taskTitle = el('input', 'pane-workbench-task-title');
+  taskTitle.setAttribute('aria-label', 'Task title (handoff)');
+  taskTitle.placeholder = 'Task title';
+  taskTitle.maxLength = 240;
+  const taskAcceptance = el('textarea', 'pane-workbench-task-acceptance');
+  taskAcceptance.setAttribute('aria-label', 'Acceptance statement (handoff)');
+  taskAcceptance.rows = 2;
+  taskAcceptance.maxLength = 4000;
+  taskAcceptance.value = 'The requested change is applied and the recorded check passes.';
+  const definitionSelect = el('select', 'pane-workbench-task-definition');
+  definitionSelect.setAttribute('aria-label', 'Task check definition (handoff)');
+  const taskPreview = el('pre', 'pane-workbench-task-preview', 'Preview the exact task_create request before creating anything.');
+  const previewTask = button('Preview task', 'Preview the exact task_create fields without creating a task', () => renderTaskPreview(), 'small-button');
+  const createTask = button('Create task', 'Create the task with the previewed acceptance and check definition', () => void createTaskNow(), 'small-button');
+  handoff.append(labelled('Task title', taskTitle), labelled('Acceptance statement', taskAcceptance), labelled('Check definition', definitionSelect), previewTask, createTask, taskPreview);
   const contextUi = button('Open file / diff / job context…', 'Use the existing context review to add a file, diff or job snapshot', () => {
     if (!projectId) { fail(new Error('Choose a project first.')); return; }
     void import('./workbench-context')
@@ -223,9 +244,15 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
   handoff.append(contextUi);
   const advanced = el('details', 'pane-workbench-advanced');
   advanced.append(el('summary', '', 'Handoff is data, never approval: capturing context does not start a worker.'));
-  advanced.append(el('p', '', 'Approval and execution happen only in the authority and Checks controls below, against the exact previewed snapshot.'));
+  advanced.append(el('p', '', 'Approval and execution happen only in the authority and Checks controls, against the exact previewed snapshot.'));
 
-  root.append(head, header, status, error, staleNote, authority, tabBar, panels.live, panels.changes, panels.checks, panels.result, handoff, advanced);
+  // Live is dominant: tabs and the live panel come first; task creation, consent
+  // and context handoff live in one collapsed advanced setup section.
+  const setup = el('details', 'pane-workbench-setup');
+  setup.append(el('summary', '', 'Advanced setup · task, consent, context handoff'));
+  setup.append(authority, handoff, advanced);
+
+  root.append(head, header, status, error, staleNote, tabBar, panels.live, panels.changes, panels.checks, panels.result, setup);
   deps.body.replaceChildren(root);
   showTab('live');
 
@@ -302,29 +329,29 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
   }
   let candidateCache: Data[] = [];
   let grantCache: Data[] = [];
+  let definitions: Data[] = [];
+  let projectName: string | null = null;
 
   function renderHeader() {
     const project = projectName || projectId || 'unknown';
-    scopeLine.textContent = `Scope · Project ${project} · Task ${unknown(prefs.taskId)} · Attempt ${unknown(prefs.attemptId)} · ${prefs.attemptId ? 'attempt-scoped live' : 'project-scoped live'}`;
-    const candidate = selectedCandidate();
+    const snapshot = latestSnapshot;
+    const attemptId = snapshot?.attempt_id ?? prefs.attemptId;
+    scopeLine.textContent = `Scope · Project ${project} · Task ${unknown(prefs.taskId)} · Attempt ${unknown(attemptId)} · ${snapshot?.scope === 'attempt' ? 'attempt-scoped live' : 'project-scoped live'}`;
+    const candidate = snapshot?.candidate ?? selectedCandidate();
     candidateLine.textContent = candidate
       ? `Candidate ${candidate.id} · generation ${unknown(candidate.generation)} · sha256 ${unknown(candidate.hash)} · status ${unknown(candidate.status)}`
       : 'Candidate unknown (no explicit candidate selected)';
-    const grantId = prefs.grantId || (grantCache.find((grant) => grant.attempt_id === prefs.attemptId)?.id ?? null);
-    const snapshotGrant = latestSnapshot?.latest_grant && latestSnapshot.latest_grant.id === grantId ? latestSnapshot.latest_grant : null;
-    const grant = headerGrant && headerGrant.id === grantId ? headerGrant : null;
-    const budget = grant?.budget ?? {};
-    const calls = grant ? `${unknown(grant.calls_used, 'unknown')}/${unknown(budget.calls, 'unknown')}` : 'unknown';
-    const checks = grant ? `${unknown(grant.checks_used, 'unknown')}/${unknown(budget.checks, 'unknown')}` : 'unknown';
-    const repairs = grant ? `${unknown(grant.repairs_used, 'unknown')}/${unknown(budget.repair_iterations, 'unknown')}` : 'unknown';
-    const started = grant?.started_at ?? grant?.created_at;
-    const elapsed = grant?.started_at ? formatRelative(started) : 'unknown';
-    const expiry = grant?.expires_at ? formatRelative(grant.expires_at) : 'unknown';
-    const state = snapshotGrant?.status ?? grant?.status ?? 'unknown';
-    grantLine.textContent = `Grant ${unknown(grantId)} · status ${state} · calls ${calls} · checks ${checks} · repairs ${repairs} · elapsed ${elapsed} · expires ${expiry}`
-      + (laneNote ? ` · lane ${laneNote}` : '');
+    // Header metrics come only from the durable page snapshot, never a repeated
+    // native status read. Anything the snapshot does not expose stays "unknown".
+    const grant = snapshot?.grant ?? null;
+    const job = snapshot?.job ?? null;
+    grantLine.textContent = grant
+      ? `Grant ${unknown(grant.id)} · status ${unknown(grant.status)} · calls used ${unknown(grant.calls_used)} (budget unknown) · checks used ${unknown(grant.checks_used)} (budget unknown) · repairs unknown · elapsed ${grant.started_at ? formatRelative(grant.started_at) : 'unknown'} · expires ${grant.expires_at ? formatRelative(grant.expires_at) : 'unknown'}`
+        + (job ? ` · job ${unknown(job.status)}` : '')
+        + (laneNote ? ` · lane ${laneNote}` : '')
+      : `Grant unknown (no attempt-scoped grant) · elapsed unknown · expires unknown`
+        + (laneNote ? ` · lane ${laneNote}` : '');
   }
-  let projectName: string | null = null;
 
   function emitBadge() {
     const snapshot = latestSnapshot;
@@ -333,15 +360,19 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
       : grantCache.filter((grant) => ['approved', 'running', 'prepared', 'dispatching', 'submission_unknown', 'result_pending', 'dispatch_unknown'].includes(String(grant.status))).length;
     const results = snapshot ? Number(snapshot.results) || 0 : cardCache.length;
     const laneBusy = laneState.agent_busy || laneState.job_busy;
-    const badge: PaneWorkbenchBadge = {
-      mode: 'workbench',
-      pending,
-      results,
-      laneBusy,
-      status: `${pending} pending · ${results} result(s)` + (laneState.unknown ? ' · lane unknown' : ''),
-    };
+    // Visible, literal state — stop/waiting/unknown/failed each get their own
+    // label rather than a bare count.
+    const grantStatus = String(latestSnapshot?.grant?.status ?? '');
+    const jobStatus = String(latestSnapshot?.job?.status ?? '');
+    const stateLabel = laneState.unknown ? 'Execution outcome unknown'
+      : laneBusy ? 'Lane busy'
+      : /fail|error/.test(grantStatus) || /fail/.test(jobStatus) ? 'Failed'
+      : /stop|cancel/.test(grantStatus) || /cancel/.test(jobStatus) ? 'Stopped'
+      : /wait|pending|prepared|dispatching|approved|starting/.test(grantStatus) || /pending|running|in_progress/.test(jobStatus) ? 'Waiting'
+      : `${pending} pending · ${results} result(s)`;
+    const badge: PaneWorkbenchBadge = { mode: 'workbench', pending, results, laneBusy, status: stateLabel };
     deps.onBadge(badge);
-    deps.onLaneBusy(laneBusy);
+    deps.onLane({ agent_busy: laneState.agent_busy, job_busy: laneState.job_busy, unknown: laneState.unknown });
   }
   let cardCache: Data[] = [];
   let laneState: { agent_busy: boolean; job_busy: boolean; unknown: boolean } = { agent_busy: false, job_busy: false, unknown: true };
@@ -393,19 +424,6 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
     });
   }
 
-  async function loadGrantHeader() {
-    headerGrant = null;
-    const grant = grantCache.find((entry) => entry.id === prefs.grantId) ?? grantCache.find((entry) => entry.attempt_id === prefs.attemptId) ?? null;
-    if (!grant || !projectId || !deps.getToken()) { renderHeader(); return; }
-    try {
-      const data = await owner('/api/workbench/native', { action: 'status', workspace_id: deps.workspaceId, project_id: projectId, grant_id: grant.id });
-      headerGrant = (data.grant as Data) ?? null;
-    } catch {
-      headerGrant = null; // Absent or denied reads stay explicitly unknown.
-    }
-    renderHeader();
-  }
-
   // ---- project/task/candidate selectors -----------------------------------
   async function load() {
     if (disposed || busy) return;
@@ -448,6 +466,7 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
         if (disposed || ticket !== epoch) return;
         tasks = Array.isArray(execution.tasks) ? execution.tasks : [];
         candidates = Array.isArray(execution.candidates) ? execution.candidates : [];
+        definitions = Array.isArray(execution.definitions) ? execution.definitions : [];
         attempts = Array.isArray(context.attempts) ? context.attempts : [];
         grantCache = Array.isArray(native.grants) ? native.grants : [];
         cardCache = Array.isArray(cardPage.cards) ? cardPage.cards : [];
@@ -468,12 +487,15 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
       options(candidateSelect, projectId ? 'Choose candidate…' : 'Choose project first', (projectId ? candidates : []).map((candidate) => ({ id: String(candidate.id), label: `${candidate.id} · gen ${candidate.generation ?? '?'} · ${candidate.status ?? ''}` })), prefs.candidateId);
       options(attemptSelect, projectId ? 'Choose attempt…' : 'Choose project first', (projectId ? attempts : []).map((attempt) => ({ id: String(attempt.id), label: `${attempt.id} · ${attempt.task_id ?? ''}` })), prefs.attemptId);
       options(resultSelect, projectId ? 'Choose result…' : 'Choose project first', (projectId ? cardCache : []).map((card) => ({ id: String(card.result_id), label: `${card.result_id} · ${card.availability ?? ''}` })), prefs.resultId);
+      options(definitionSelect, projectId ? 'Choose check definition…' : 'Choose project first', (projectId ? definitions : []).map((definition) => ({ id: String(definition.id), label: `${definition.id}${definition.executable ? ` · ${definition.executable}` : ''}` })), definitionSelect.value || null);
+      if (projectId && !definitionSelect.value && definitions.length) definitionSelect.value = String(definitions[0].id);
       renderHeader();
       emitBadge();
-      if (projectId && projectId !== mountedFor) await mountPanels(projectId, ticket);
+      // Hidden (Normal-selected) mode monitors read-only: it never mounts the
+      // authority/execution controls until the Workbench view is actually shown.
+      if (projectId && projectId !== mountedFor && visible) await mountPanels(projectId, ticket);
       if (disposed || ticket !== epoch) return;
       pushScope();
-      void loadGrantHeader();
       if (liveAttempt !== (prefs.attemptId ?? null)) startLive();
       status.textContent = projectId
         ? `Workbench: ${projects.length} project(s) · ${grantCache.length} attempt(s) · ${cardCache.length} result(s). Read-only until you approve.`
@@ -510,7 +532,7 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
         deps.onPrefs({ candidateId: next.candidateId, attemptId: next.attemptId });
         syncTopSelects();
         renderHeader();
-        if (attemptChanged) { void loadGrantHeader(); startLive(); }
+        if (attemptChanged) startLive();
       },
     });
     executionMount = mountWorkbenchExecution({ container: executionPanel, token: deps.getToken, workspace_id: deps.workspaceId, project_id: projectIdValue, onError: (message) => { error.textContent = message; } });
@@ -527,7 +549,6 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
         prefs = { ...prefs, grantId: next.grantId, resultId: next.resultId };
         deps.onPrefs({ grantId: next.grantId, resultId: next.resultId });
         syncTopSelects();
-        void loadGrantHeader();
       },
       onOpenEvidence: (reference) => openReference('Exact recorded check evidence', { action: 'job_get', job_id: reference.job_id }, reference.evidence_id),
       onOpenCandidate: (reference) => openReference('Exact recorded candidate version', { action: 'candidate_version_get', ...reference }),
@@ -580,7 +601,8 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
     if (!reference) return;
     const dialog = el('dialog', 'hermes-tools-dialog pane-workbench-detail');
     dialog.setAttribute('aria-label', `Focused detail · ${item.summary}`);
-    const content = el('pre', 'workbench-result-text');
+    const content = el('div', 'pane-workbench-detail-body');
+    content.setAttribute('role', 'region');
     content.textContent = 'Reading the exact recorded detail…';
     const actions = el('div', 'pane-workbench-detail-actions');
     const tailButton = reference.kind === 'job'
@@ -592,28 +614,63 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
     document.body.append(dialog);
     dialog.showModal();
     void (async () => {
-      if (!liveClient) { content.textContent = 'Private activity scope is not connected. No content is substituted.'; return; }
+      if (!liveClient) { content.replaceChildren(el('p', '', 'Private activity scope is not connected. No content is substituted.')); return; }
       try {
         const detail = await liveClient.detail(reference as never);
-        content.textContent = renderDetail(detail);
+        content.replaceChildren(renderDetail(detail));
       } catch (reason) {
-        content.textContent = `Focused detail unavailable: ${reason instanceof Error ? reason.message : 'unavailable'}. No current content is substituted for the historical reference.`;
+        content.replaceChildren(el('p', '', `Focused detail unavailable: ${reason instanceof Error ? reason.message : 'unavailable'}. No current content is substituted for the historical reference.`));
       }
     })();
   }
 
-  function renderDetail(detail: Data): string {
-    const lines: string[] = [];
-    lines.push(`mode: ${unknown(detail.mode)}`);
-    lines.push(`verified: ${detail.verified === true ? 'true' : 'false'}`);
-    lines.push(`diff: ${detail.not_diff === true ? 'metadata only (not a diff)' : unknown(detail.not_diff)}`);
-    if (detail.mode === 'candidate_snapshot') {
-      lines.push(detail.available === true
-        ? 'This is an exact recorded candidate snapshot/metadata for the referenced generation and hash, not a diff against the current candidate.'
-        : `The exact historical candidate snapshot is not currently verifiable (${unknown(detail.reason ?? detail.note, 'unavailable')}). No newer or substituted content is presented as this version.`);
+  function renderDetail(detail: Data): HTMLElement {
+    if (detail.mode === 'candidate_generation_diff') return renderCandidateDiff(detail);
+    const wrap = el('div', 'pane-workbench-detail-meta');
+    wrap.append(el('p', 'pane-workbench-detail-note', `mode ${unknown(detail.mode)} · recorder evidence: none (exact metadata only, not verification)`));
+    const pre = el('pre', 'workbench-result-text');
+    pre.textContent = JSON.stringify(detail, null, 2);
+    wrap.append(pre);
+    return wrap;
+  }
+
+  // Exact old/new source drawer for the actual server candidate-generation diff.
+  // This is a private read-only comparison, never recorder evidence, and an
+  // unavailable historical diff is never replaced by current source.
+  function renderCandidateDiff(detail: Data): HTMLElement {
+    const wrap = el('section', 'pane-workbench-diff');
+    const from = detail.from ?? {};
+    const to = detail.to ?? {};
+    wrap.append(el('p', 'pane-workbench-diff-head',
+      `Exact retained candidate generations ${unknown(from.generation)}→${unknown(to.generation)} · ${unknown(detail.changed_files)} changed files · ${detail.truncated === true ? 'truncated' : 'complete'} · recorder evidence: none (exact source comparison, not verification)`));
+    wrap.append(el('p', 'pane-workbench-diff-source', 'Source text below is private owner-scope content, read-only, and is not verification.'));
+    if (detail.available !== true) {
+      wrap.append(el('p', 'pane-workbench-diff-unavailable',
+        `Exact historical diff unavailable (${unknown(detail.reason ?? detail.note, 'unavailable')}). Current content is never substituted for the requested generation.`));
+      return wrap;
     }
-    lines.push(JSON.stringify(detail, null, 2));
-    return lines.join('\n');
+    const files: Data[] = Array.isArray(detail.files) ? detail.files : [];
+    if (!files.length) wrap.append(el('p', '', 'No file content changed between these generations.'));
+    for (const file of files) {
+      const row = el('details', 'pane-workbench-diff-file');
+      row.append(el('summary', '', `${unknown(file.path)} · ${unknown(file.old_mode)}→${unknown(file.new_mode)}`));
+      row.append(el('p', '', `old sha256 ${unknown(file.old_hash)} · new sha256 ${unknown(file.new_hash)}`));
+      if (file.text_available === true) {
+        const cols = el('div', 'pane-workbench-diff-cols');
+        for (const [label, text] of [['old', file.old_text], ['new', file.new_text]] as const) {
+          const col = el('section', 'pane-workbench-diff-col');
+          const pre = el('pre', 'pane-workbench-diff-text');
+          pre.textContent = typeof text === 'string' ? text : '(absent on this side)';
+          col.append(el('h5', '', `${label} · private read-only`), pre);
+          cols.append(col);
+        }
+        row.append(cols);
+      } else {
+        row.append(el('p', 'pane-workbench-diff-unavailable', `Text unavailable (${unknown(file.reason, 'not text')}).`));
+      }
+      wrap.append(row);
+    }
+    return wrap;
   }
 
   async function readTail(jobId: string, content: HTMLElement) {
@@ -621,11 +678,14 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
     try {
       const tail = await liveClient.tail(jobId);
       const banner = `Unverified bounded tail · cap ${unknown(tail.cap_bytes)} bytes · returned ${unknown(tail.tail_bytes ?? tail.bytes)} bytes · ${tail.truncated === true ? 'truncated' : 'not truncated'} · sha256 ${unknown(tail.sha256)} · never a progress, pass or failure signal.`;
-      content.textContent = tail.available === false
-        ? `${banner}\n${JSON.stringify(tail, null, 2)}`
-        : `${banner}\n\n${String(tail.text ?? '')}`;
+      content.replaceChildren(el('p', 'pane-workbench-tail-banner', banner));
+      if (tail.available !== false) {
+        const pre = el('pre', 'workbench-result-text');
+        pre.textContent = String(tail.text ?? '');
+        content.append(pre);
+      }
     } catch (reason) {
-      content.textContent = `Tail unavailable: ${reason instanceof Error ? reason.message : 'unavailable'}. No pass or failure is inferred.`;
+      content.replaceChildren(el('p', '', `Tail unavailable: ${reason instanceof Error ? reason.message : 'unavailable'}. No pass or failure is inferred.`));
     }
   }
 
@@ -739,12 +799,62 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
     }
   }
 
+  // ---- actual task creation (explicit preview first) ----------------------
+  function taskPayload(): Data {
+    if (!projectId) throw Error('Choose a project first.');
+    const binding = deps.binding();
+    const title = taskTitle.value.trim() || ((chosen()[0]?.text ?? 'Conversation handoff').replace(/\s+/g, ' ').slice(0, 120));
+    const acceptance_statement = taskAcceptance.value.trim();
+    const check_definition_id = definitionSelect.value;
+    if (!title) throw Error('Enter a task title.');
+    if (!acceptance_statement) throw Error('Enter an acceptance statement.');
+    if (!check_definition_id) throw Error('Select an allowlisted check definition.');
+    return {
+      action: 'task_create',
+      workspace_id: deps.workspaceId,
+      project_id: projectId,
+      pane_id: deps.paneId,
+      title,
+      acceptance_statement,
+      check_definition_id,
+      profile_id: binding.profileId,
+      session_id: binding.sessionId,
+    };
+  }
+
+  function renderTaskPreview() {
+    error.textContent = '';
+    try {
+      taskPreview.textContent = JSON.stringify(taskPayload(), null, 2);
+    } catch (reason) {
+      taskPreview.textContent = reason instanceof Error ? reason.message : 'unavailable';
+    }
+  }
+
+  async function createTaskNow() {
+    error.textContent = '';
+    status.textContent = 'Creating the previewed task…';
+    try {
+      const payload = taskPayload();
+      const result = await owner('/api/workbench/execution', payload);
+      const task = (result.task ?? {}) as Data;
+      status.textContent = `Created task ${task.id ?? '(recorded)'} with the previewed acceptance and check definition. Capture excerpts, then bind the packet/candidate in Task authority.`;
+      // Refresh selectors and remount-dependent controls without starting work.
+      await load();
+    } catch (reason) {
+      status.textContent = 'Task creation unavailable.';
+      fail(reason);
+    }
+  }
+
   projectSelect.addEventListener('change', () => {
     const next = projectSelect.value || null;
     deps.onPrefs({ projectId: next, taskId: null, candidateId: null, attemptId: null, grantId: null, resultId: null, reviewId: null });
     prefs = { ...prefs, projectId: next, taskId: null, candidateId: null, attemptId: null, grantId: null, resultId: null, reviewId: null };
-    headerGrant = null;
     latestSnapshot = null;
+    // The Workbench instance is bound to the selected project/attempt, so a
+    // deliberate scope change clears only this instance's history.
+    deps.timeline.reset();
     stopLive();
     disposePanels();
     void load();
@@ -766,7 +876,7 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
     deps.onPrefs({ attemptId: prefs.attemptId });
     pushScope();
     renderHeader();
-    void loadGrantHeader();
+    deps.timeline.reset(); // Bound to the attempt; clear only this instance.
     startLive(); // Deliberate scope change, not a per-event reload.
   });
   resultSelect.addEventListener('change', () => {
@@ -775,7 +885,10 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
     pushScope();
   });
 
-  const onConnected = () => { if (!disposed && visible) void load(); };
+  // Authenticated acknowledgement re-reads state even while Normal is selected,
+  // so a remembered Workbench scope reconnects its read-only lane/badge without
+  // mounting execution controls.
+  const onConnected = () => { if (!disposed) void load(); };
   window.addEventListener('orbit-host-connected', onConnected);
 
   renderHandoff();
@@ -784,15 +897,16 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
     refresh: () => load(),
     setVisible(next: boolean) {
       visible = next;
-      // Hidden mode stays live: never unsubscribe on a view toggle.
-      if (visible && !disposed) void load();
+      // Hidden mode stays live: never unsubscribe on a view toggle, and the
+      // read-only monitor keeps running without mounting execution controls.
+      if (!disposed) void load();
     },
     invalidateBinding() {
       epoch++;
       disposePanels();
       stopLive();
       latestSnapshot = null;
-      headerGrant = null;
+      deps.timeline.reset();
       renderHandoff();
       void load();
     },
