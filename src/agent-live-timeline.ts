@@ -20,7 +20,7 @@ function validItem(value: unknown): LiveItem | null {
   const ref=record(value.reference) && referenceSet.has(String(value.reference.kind)) && typeof value.reference.id==='string'
     ? {kind:value.reference.kind as LiveItem['reference'] extends infer R ? R extends {kind:infer K}?K:never:never,id:cap(value.reference.id,200),...(typeof value.reference.candidate_id==='string'?{candidate_id:cap(value.reference.candidate_id,200)}:{}),...(Number.isSafeInteger(value.reference.generation)?{generation:value.reference.generation as number}:{}),...(typeof value.reference.hash==='string'?{hash:cap(value.reference.hash,128)}:{})}
     : undefined;
-  const fields=Array.isArray(value.fields) ? value.fields.slice(0,4).filter(record).map(f=>({label:cap(f.label,32),value:typeof f.value==='number'&&Number.isFinite(f.value)?f.value:cap(f.value,80)})) : undefined;
+  const fields=Array.isArray(value.fields) ? value.fields.slice(0,12).filter(record).map(f=>({label:cap(f.label,32),value:typeof f.value==='number'&&Number.isFinite(f.value)?f.value:cap(f.value,80)})) : undefined;
   return {version:1,id:cap(value.id,200)||'event',...(Number.isSafeInteger(value.sequence)?{sequence:value.sequence as number}:{}),at:typeof value.at==='number'&&Number.isFinite(value.at)?value.at:null,authority:value.authority as LiveItem['authority'],category:value.category as LiveItem['category'],kind:cap(value.kind,48)||'event',summary:cap(value.summary,240),status:value.status as LiveItem['status'],...(value.target?{target:cap(value.target,160)}:{}),...(typeof value.duration_ms==='number'&&Number.isFinite(value.duration_ms)?{duration_ms:Math.max(0,Math.min(value.duration_ms,86400000))}:{}),...(fields?{fields}:{}),...(ref?{reference:ref}:{})};
 }
 const failureLike = (item: LiveItem) => item.status==='failed'||item.status==='denied'||item.status==='unknown';
@@ -72,6 +72,15 @@ export function createLiveTimeline(options:{storageKey:string;onOpenReference?:(
   function updateRow(state:RowState,item:LiveItem){
     state.node.dataset.status=item.status;state.node.dataset.authority=item.authority;state.badge.className=`alt-authority alt-${item.authority}`;state.badge.textContent=authorityLabel[item.authority];
     state.icon.textContent=statusIcon[item.status];state.status.textContent=item.status;state.kind.textContent=item.kind;state.summary.textContent=item.summary;
+    if(item.authority==='recorder'){
+      const number=(name:string)=>item.fields?.find(field=>field.label===name&&typeof field.value==='number')?.value;
+      const tests=number('tests'),passed=number('passed'),required=number('required_files'),covered=number('covered_files'),skipped=number('skipped');
+      const counts:string[]=[];
+      if(tests!==undefined&&passed!==undefined)counts.push(`${passed}/${tests} tests passed`);
+      if(required!==undefined&&covered!==undefined)counts.push(`${covered}/${required} required files covered`);
+      if(skipped!==undefined)counts.push(`${skipped} skipped`);
+      if(counts.length)state.summary.textContent+=` · ${counts.join(' · ')}`;
+    }
     state.target.textContent=item.target||'';state.target.hidden=!item.target;
     updateTime(state,item);
     state.fields.replaceChildren();for(const f of item.fields||[]){const p=document.createElement('p');p.className='alt-field';p.textContent=`${f.label}: ${f.value}`;state.fields.append(p);}state.fields.hidden=density!=='detailed'||!item.fields?.length;

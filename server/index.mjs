@@ -436,6 +436,7 @@ for (const signal of ["SIGTERM", "SIGINT"])
     execution.close();
     contextSharing.close?.();
     native.close();
+    liveHandler.close?.();
     workbenchLive?.close();
     for (const ws of wss.clients) ws.terminate();
     server.close(() => {workspaceService.close();process.exit(0);});

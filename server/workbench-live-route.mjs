@@ -14,7 +14,8 @@ const FENCED_FRAME='event: fenced\ndata: {}\n\n';
 export function createWorkbenchLiveHandler({token,port,devOrigins,live,reply,heartbeatMs=HEARTBEAT_MS}={}){
   if(!live||typeof live.page!=='function'||typeof live.subscribe!=='function'||typeof live.dispatch!=='function')throw Error('createWorkbenchLiveHandler requires createWorkbenchLive');
   const deny=(res,status,code)=>reply(res,status,{ok:false,code,error:code});
-  return async function handle(req,res){
+  const streams=new Set();
+  const handler=async function handle(req,res){
     res.setHeader('Cache-Control','no-store');
     if(req.method!=='POST')return deny(res,405,'invalid_request');
     const auth=req.headers.authorization??'';
@@ -64,12 +65,14 @@ export function createWorkbenchLiveHandler({token,port,devOrigins,live,reply,hea
       const scopeAttempt=typeof body.attempt_id==='string'&&body.attempt_id?body.attempt_id:null;
       const cleanup=()=>{
         if(closed)return;closed=true;
+        streams.delete(res);
         if(timer)clearInterval(timer);timer=null;
         try{unsubscribe?.();}catch{}
         unsubscribe=null;
       };
       res.on('close',cleanup);
       res.on('error',cleanup);
+      streams.add(res);
       const write=async text=>{
         if(closed)return false;
         if(Buffer.byteLength(text)>LIVE_LIMITS.bufferBytes)throw Error('frame bound');
@@ -121,4 +124,6 @@ export function createWorkbenchLiveHandler({token,port,devOrigins,live,reply,hea
       }catch{cleanup();try{res.end();}catch{}}
     }
   };
+  handler.close=()=>{for(const res of streams){try{res.end();res.destroy();}catch{}}streams.clear();};
+  return handler;
 }

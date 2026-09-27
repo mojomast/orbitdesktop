@@ -57,12 +57,13 @@ with tempfile.TemporaryDirectory(prefix='orbit-live-timeline-') as temp:
               assert(!txt.includes('Events may be missed'),'warning only shown on reconnect');
               normal.connection('disconnected');assert(t.element.textContent.includes('Events may be missed; exact replay unavailable'),'precise reconnect warning');
               normal.connection('connected');
-              const fail={version:1,id:'fail-id',at:1,authority:'recorder',category:'checks',kind:'Recorded check',summary:'Check failed <img src=x onerror=alert(1)>',status:'failed',target:'test-suite'};
+               const fail={version:1,id:'fail-id',at:1,authority:'recorder',category:'checks',kind:'Recorded check',summary:'Check failed <img src=x onerror=alert(1)>',status:'failed',target:'test-suite',fields:[{label:'passed',value:289},{label:'tests',value:293},{label:'covered_files',value:60},{label:'required_files',value:60},{label:'skipped',value:0}]};
               const complete={version:1,id:'complete-id',at:2,authority:'human',category:'evidence',kind:'Review',summary:'Reviewed safely',status:'completed',reference:{kind:'review',id:'safe-ref'}};
               t.upsert([fail,complete,{...complete,id:'invalid-authority',authority:'agent evil'}]);
               assert(!t.element.textContent.includes('agent evil'),'invalid runtime authority is rejected');
               assert(!t.element.querySelector('img'),'all content is rendered as text');
-              assert(t.element.textContent.includes('RECORDER')&&t.element.textContent.includes('YOU'),'authority labels render');
+               assert(t.element.textContent.includes('RECORDER')&&t.element.textContent.includes('YOU'),'authority labels render');
+               assert(t.element.querySelector('[data-authority=recorder] .alt-summary').textContent.includes('289/293 tests passed')&&t.element.querySelector('[data-authority=recorder] .alt-summary').textContent.includes('60/60 required files covered'),'recorder counts visible even at compact density');
               const checks=[...t.element.querySelectorAll('.alt-filters button')].find(b=>b.textContent==='Checks');checks.click();
               assert(t.element.querySelectorAll('.alt-row:not([hidden])').length===1&&t.element.textContent.includes('Check failed'),'category filter');
               assert(JSON.parse(localStorage.getItem('timeline-browser-fixture')).filter==='checks','filter preference persists');

@@ -14,6 +14,7 @@ test('slow stream replays every page and catches commits during first write with
   };
   const res=new EventEmitter();let blocked=true;const writes=[];
   res.setHeader=()=>{};res.writeHead=()=>{};res.end=()=>res.emit('close');
+  res.destroy=()=>res.emit('close');
   res.write=text=>{writes.push(text);if(blocked){assert.ok(listener,'subscription installed before potentially blocking first write');latest=75;listener({workspace_id,project_id,sequence:75});return false;}return true;};
   const req=Readable.from([JSON.stringify({action:'stream',workspace_id,project_id})]);req.method='POST';req.headers={authorization:'Bearer owner',host:'127.0.0.1:54321',origin:'http://127.0.0.1:54321'};
   const handler=createWorkbenchLiveHandler({live,token:'owner',port:54321,devOrigins:[],reply(){throw Error('Unexpected refusal');},heartbeatMs:60000});
@@ -24,5 +25,5 @@ test('slow stream replays every page and catches commits during first write with
   const events=writes.flatMap(text=>JSON.parse(text.split('data: ')[1]).events);
   assert.deepEqual(events.map(item=>item.sequence),Array.from({length:75},(_,i)=>i+1));
   assert.equal(res.listenerCount('drain'),0);assert.equal(res.listenerCount('close'),1);
-  res.emit('close');assert.equal(unsubscribed,1);assert.equal(listener,null);
+  handler.close();assert.equal(unsubscribed,1);assert.equal(listener,null);
 });
