@@ -296,7 +296,9 @@ test('real RouteTok export independently verifies 293 tests and retrieved diff p
   assert.ok(state.run.evidence.test_results.required_files.every(file=>fs.existsSync(path.join(fresh,file))));
   const npm=path.resolve(path.dirname(process.execPath),'../lib/node_modules/npm/bin/npm-cli.js');
   const freshCache=path.join(root,'fresh-cache');fs.mkdirSync(freshCache);fs.cpSync(path.join(cache,'_cacache'),path.join(freshCache,'_cacache'),{recursive:true});
-  const installed=spawnSync('/usr/bin/timeout',['--kill-after=5s','60s',process.execPath,npm,'ci','--include=dev','--ignore-scripts','--offline','--no-audit','--no-fund'],{cwd:fresh,encoding:'utf8',env:{PATH:'/usr/bin:/bin',HOME:root,NPM_CONFIG_CACHE:freshCache,NPM_CONFIG_REGISTRY:'http://127.0.0.1:9/',NPM_CONFIG_USERCONFIG:'/dev/null',NPM_CONFIG_GLOBALCONFIG:'/dev/null',NPM_CONFIG_UPDATE_NOTIFIER:'false'}});
+  const userconfig=path.join(root,'fresh-user.npmrc'),globalconfig=path.join(root,'fresh-global.npmrc');
+  fs.writeFileSync(userconfig,'',{mode:0o600});fs.writeFileSync(globalconfig,'',{mode:0o600});
+  const installed=spawnSync('/usr/bin/timeout',['--kill-after=5s','60s',process.execPath,npm,'ci','--include=dev','--ignore-scripts','--offline','--no-audit','--no-fund'],{cwd:fresh,encoding:'utf8',env:{PATH:'/usr/bin:/bin',HOME:root,NPM_CONFIG_CACHE:freshCache,NPM_CONFIG_REGISTRY:'http://127.0.0.1:9/',NPM_CONFIG_USERCONFIG:userconfig,NPM_CONFIG_GLOBALCONFIG:globalconfig,NPM_CONFIG_UPDATE_NOTIFIER:'false'}});
   assert.equal(installed.status,0,installed.stderr);
   const retest=spawnSync('/usr/bin/timeout',['--kill-after=5s','90s',process.execPath,'--import',path.join(fresh,'node_modules','tsx','dist','loader.mjs'),'--test',...state.run.evidence.test_results.required_files],{cwd:fresh,encoding:'utf8',timeout:100000,maxBuffer:2*1024*1024,env:{PATH:'/usr/bin:/bin',HOME:root,TMPDIR:root,NODE_OPTIONS:'',TSX_DISABLE_CACHE:'1'}});
   assert.equal(retest.status,0,retest.stderr.slice(-4000));
