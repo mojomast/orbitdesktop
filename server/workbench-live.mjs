@@ -497,12 +497,14 @@ export function createWorkbenchLive({store,records,data,gate,execution,native,no
     const attempt=data.get('attempts',workspace_id,project_id,attempt_id);
     const candidate=attempt?.candidate_id?data.get('candidates',workspace_id,project_id,attempt.candidate_id):null;
     const candidateId=candidate?.id??null;
+    const ownWork=" AND (json_extract(record_json,'$.attempt_id')=? OR json_extract(record_json,'$.provenance.initiated_by.attempt_id')=? OR json_extract(record_json,'$.provenance.initiated_by.grant_id') IN (SELECT id FROM wb_grants WHERE workspace_id=? AND project_id=? AND json_extract(record_json,'$.attempt_id')=?))";
+    const ownParams=[workspace_id,project_id,attempt_id,attempt_id,workspace_id,project_id,attempt_id];
     const granted=countRows('wb_grants'," AND json_extract(record_json,'$.attempt_id')=?",[workspace_id,project_id,attempt_id]);
-    const jobCount=candidateId?countRows('wb_jobs'," AND json_extract(record_json,'$.candidate_id')=?",[workspace_id,project_id,candidateId]):0;
+    const jobCount=candidateId?countRows('wb_jobs',ownWork,ownParams):0;
     const resultCount=countRows('wb_results'," AND json_extract(record_json,'$.attempt_id')=?",[workspace_id,project_id,attempt_id]);
     const latestGrant=newestRow('grants'," AND json_extract(record_json,'$.attempt_id')=?",[workspace_id,project_id,attempt_id]);
-    const latestJob=candidateId?newestRow('jobs'," AND json_extract(record_json,'$.candidate_id')=?",[workspace_id,project_id,candidateId]):null;
-    const latestEvidence=candidateId?newestRow('evidence'," AND json_extract(record_json,'$.candidate_id')=?",[workspace_id,project_id,candidateId]):null;
+    const latestJob=candidateId?newestRow('jobs',ownWork,ownParams):null;
+    const latestEvidence=candidateId?newestRow('evidence',ownWork,ownParams):null;
     const latestResult=newestRow('results'," AND json_extract(record_json,'$.attempt_id')=?",[workspace_id,project_id,attempt_id]);
     return {
       scope:'attempt',attempt_id,...metrics,
@@ -511,7 +513,7 @@ export function createWorkbenchLive({store,records,data,gate,execution,native,no
       attempt_granted:granted,attempt_jobs:jobCount,attempt_results:resultCount,
       attempt:{id:attempt.id,status:short(attempt.status,80),task_id:attempt.task_id??null,candidate_id:attempt.candidate_id??null,candidate_hash:attempt.candidate_hash??null,acceptance_version:attempt.acceptance_version??null,project_generation:attempt.project_generation??null},
       candidate:candidate?{id:candidate.id,generation:candidate.generation,hash:candidate.hash??null,status:short(candidate.status,80),total_bytes:candidate.total_bytes??null,files:Array.isArray(candidate.files)?candidate.files.length:null,limited:candidate.limited===true?1:0}:null,
-      grant:latestGrant?{id:latestGrant.id,status:short(latestGrant.status,80),runtime_status:short(latestGrant.runtime_status,80)??null,result_status:short(latestGrant.result_status,80)??null,calls_used:latestGrant.calls_used??null,checks_used:latestGrant.checks_used??null,expires_at:latestGrant.expires_at??null,started_at:latestGrant.started_at??null,ended_at:latestGrant.ended_at??null}:null,
+      grant:latestGrant?{id:latestGrant.id,status:short(latestGrant.status,80),runtime_status:short(latestGrant.runtime_status,80)??null,result_status:short(latestGrant.result_status,80)??null,calls_used:latestGrant.calls_used??null,checks_used:latestGrant.checks_used??null,repairs_used:latestGrant.repairs_used??0,budget:latestGrant.budget?{calls:latestGrant.budget.calls,checks:latestGrant.budget.checks,duration_ms:latestGrant.budget.duration_ms,repair_iterations:latestGrant.budget.repair_iterations??3}:null,model:short(latestGrant.recipient?.native_runtime?.model,100)??null,expires_at:latestGrant.expires_at??null,started_at:latestGrant.started_at??null,ended_at:latestGrant.ended_at??null}:null,
       job:latestJob?{id:latestJob.id,status:short(latestJob.status,80),definition_id:short(latestJob.definition_id,80),candidate_id:latestJob.candidate_id??null,started_at:latestJob.started_at??null,ended_at:latestJob.ended_at??null}:null,
       evidence:latestEvidence?{id:latestEvidence.id,verdict:short(latestEvidence.verdict,80),candidate_id:latestEvidence.candidate_id??null,job_id:latestEvidence.job_id??null}:null,
       result:latestResult?{id:latestResult.id,availability:short(latestResult.availability,80),candidate_id:latestResult.candidate_id??null,candidate_generation:latestResult.candidate_generation??null,candidate_hash:latestResult.candidate_hash??null}:null,

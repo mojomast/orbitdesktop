@@ -63,15 +63,6 @@ async function sha256Hex(text: string): Promise<string> {
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-function formatRelative(at: unknown): string {
-  if (typeof at !== 'number' || !Number.isFinite(at)) return 'unknown';
-  const epoch = at > 1e12 ? at : at * 1000;
-  const delta = epoch - Date.now();
-  const seconds = Math.round(Math.abs(delta) / 1000);
-  const label = seconds < 60 ? `${seconds}s` : seconds < 3600 ? `${Math.round(seconds / 60)}m` : `${(seconds / 3600).toFixed(1)}h`;
-  return delta >= 0 ? `in ${label}` : `${label} ago`;
-}
-
 export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
   refresh(): Promise<void>;
   setVisible(visible: boolean): void;
@@ -105,6 +96,7 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
   let mountedFor: string | null = null;
   let liveClient: ReturnType<typeof watchWorkbenchLive> | null = null;
   let liveAttempt: string | null = null;
+  const detailDialogs = new Set<HTMLDialogElement>();
 
   const root = el('section', 'pane-workbench');
   root.setAttribute('aria-label', 'Pane Workbench');
@@ -365,9 +357,12 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
     // native status read. Anything the snapshot does not expose stays "unknown".
     const grant = snapshot?.grant ?? null;
     const job = snapshot?.job ?? null;
+    const duration = (ms: number) => `${String(Math.floor(Math.max(0, ms) / 60000)).padStart(2, '0')}:${String(Math.floor(Math.max(0, ms) / 1000) % 60).padStart(2, '0')}`;
+    const elapsed = grant?.started_at ? duration((grant.ended_at ?? Date.now()) - grant.started_at) : 'unknown';
+    const expires = grant?.expires_at ? (grant.expires_at <= Date.now() ? 'expired' : `in ${duration(grant.expires_at - Date.now())}`) : 'unknown';
     grantLine.textContent = grant
-      ? `Grant ${unknown(grant.id)} · status ${unknown(grant.status)} · calls used ${unknown(grant.calls_used)} (budget unknown) · checks used ${unknown(grant.checks_used)} (budget unknown) · repairs unknown · elapsed ${grant.started_at ? formatRelative(grant.started_at) : 'unknown'} · expires ${grant.expires_at ? formatRelative(grant.expires_at) : 'unknown'}`
-        + (job ? ` · job ${unknown(job.status)}` : '')
+      ? `${unknown(grant.model)} · supervised Hermes · ${unknown(grant.status)} · calls ${unknown(grant.calls_used)}/${unknown(grant.budget?.calls)} · checks ${unknown(grant.checks_used)}/${unknown(grant.budget?.checks)} · repairs ${unknown(grant.repairs_used)}/${unknown(grant.budget?.repair_iterations)} · elapsed ${elapsed} · authority ${expires} · grant ${unknown(grant.id)}`
+        + (job ? ` · ${unknown(job.definition_id)} ${unknown(job.status)}${job.started_at ? ` · ${duration((job.ended_at ?? Date.now()) - job.started_at)}` : ''}` : '')
         + (laneNote ? ` · lane ${laneNote}` : '')
       : `Grant unknown (no attempt-scoped grant) · elapsed unknown · expires unknown`
         + (laneNote ? ` · lane ${laneNote}` : '');
@@ -407,6 +402,7 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
 
   // ---- live client --------------------------------------------------------
   function stopLive() {
+    for (const dialog of detailDialogs) dialog.close();
     liveClient?.dispose();
     liveClient = null;
     liveAttempt = null;
@@ -629,21 +625,46 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
     content.setAttribute('role', 'region');
     content.textContent = 'Reading the exact recorded detail…';
     const actions = el('div', 'pane-workbench-detail-actions');
+    const source = liveClient, requestController = new AbortController();
+    let tailActive = false, tailTimer: ReturnType<typeof setTimeout> | undefined;
+    const stopTail = () => { tailActive = false; if (tailTimer !== undefined) clearTimeout(tailTimer); };
+    const updateTail = async () => {
+      if (!source || source !== liveClient || !dialog.open || !tailActive) { stopTail(); return; }
+      try {
+        const tail = await source.tail(reference.id, requestController.signal);
+        if (!dialog.open || !tailActive) return;
+        content.replaceChildren(el('p', 'pane-workbench-tail-banner', `LIVE OUTPUT · UNVERIFIED · bounded ${unknown(tail.cap_bytes)}-byte tail · ${tail.truncated === true ? 'truncated' : 'not truncated'}. No progress or pass count is inferred from output.`));
+        if (tail.available) {
+          const pre = el('pre', 'workbench-result-text'); pre.textContent = String(tail.text ?? ''); content.append(pre);
+        } else content.append(el('p', '', `Output unavailable: ${unknown(tail.reason)}.`));
+        if (['completed', 'failed', 'cancelled', 'inconclusive', 'outcome_unknown'].includes(tail.status)) {
+          stopTail(); content.append(el('p', '', 'Output observation ended. Inspect the separate recorder event for the final structured result.'));
+          if (tailButton) tailButton.textContent = 'Read retained output (unverified)';
+        } else tailTimer = setTimeout(() => void updateTail(), 1000);
+      } catch (reason) {
+        stopTail(); if (dialog.open) content.replaceChildren(el('p', '', `Output disconnected: ${reason instanceof Error ? reason.message : 'unavailable'}. No execution is retried.`));
+        if (tailButton) tailButton.textContent = 'Retry output read (unverified)';
+      }
+    };
     const tailButton = reference.kind === 'job'
-      ? button('Tail retained log (unverified)', 'Read a bounded unverified tail of the retained job log', () => void readTail(reference.id, content), 'small-button')
+      ? button('Show live output (unverified)', 'Read a bounded unverified tail of the retained job log', () => {
+        if (tailActive) { stopTail(); tailButton!.textContent = 'Resume live output (unverified)'; }
+        else { tailActive = true; tailButton!.textContent = 'Pause live output'; void updateTail(); }
+      }, 'small-button')
       : null;
     actions.append(...(tailButton ? [tailButton] : []), button('Close', 'Close focused detail', () => dialog.close(), 'small-button'));
     dialog.append(el('h3', '', `Focused detail · ${item.summary}`), actions, content);
-    dialog.addEventListener('close', () => dialog.remove(), { once: true });
+    detailDialogs.add(dialog);
+    dialog.addEventListener('close', () => { stopTail(); requestController.abort(); detailDialogs.delete(dialog); dialog.remove(); }, { once: true });
     document.body.append(dialog);
     dialog.showModal();
     void (async () => {
-      if (!liveClient) { content.replaceChildren(el('p', '', 'Private activity scope is not connected. No content is substituted.')); return; }
+      if (!source) { content.replaceChildren(el('p', '', 'Private activity scope is not connected. No content is substituted.')); return; }
       try {
-        const detail = await liveClient.detail(reference as never);
-        content.replaceChildren(renderDetail(detail));
+        const detail = await source.detail(reference, requestController.signal);
+        if (dialog.open && !tailActive) content.replaceChildren(renderDetail(detail));
       } catch (reason) {
-        content.replaceChildren(el('p', '', `Focused detail unavailable: ${reason instanceof Error ? reason.message : 'unavailable'}. No current content is substituted for the historical reference.`));
+        if (dialog.open && !tailActive) content.replaceChildren(el('p', '', `Focused detail unavailable: ${reason instanceof Error ? reason.message : 'unavailable'}. No current content is substituted for the historical reference.`));
       }
     })();
   }
@@ -651,7 +672,7 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
   function renderDetail(detail: Data): HTMLElement {
     if (detail.mode === 'candidate_generation_diff') return renderCandidateDiff(detail);
     const wrap = el('div', 'pane-workbench-detail-meta');
-    wrap.append(el('p', 'pane-workbench-detail-note', `mode ${unknown(detail.mode)} · recorder evidence: none (exact metadata only, not verification)`));
+    wrap.append(el('p', 'pane-workbench-detail-note', `Private ${unknown(detail.mode)} · ${detail.mode === 'evidence_record' ? 'RECORDER · structured result for the recorded identity; inspect verdict and completeness' : detail.mode === 'artifact_receipt' && detail.verified === true ? 'RECORDER · independently verified artifact' : 'OBSERVED · metadata only, not verification'}`));
     const pre = el('pre', 'workbench-result-text');
     pre.textContent = JSON.stringify(detail, null, 2);
     wrap.append(pre);
@@ -695,22 +716,6 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
       wrap.append(row);
     }
     return wrap;
-  }
-
-  async function readTail(jobId: string, content: HTMLElement) {
-    if (!liveClient) return;
-    try {
-      const tail = await liveClient.tail(jobId);
-      const banner = `Unverified bounded tail · cap ${unknown(tail.cap_bytes)} bytes · returned ${unknown(tail.tail_bytes ?? tail.bytes)} bytes · ${tail.truncated === true ? 'truncated' : 'not truncated'} · sha256 ${unknown(tail.sha256)} · never a progress, pass or failure signal.`;
-      content.replaceChildren(el('p', 'pane-workbench-tail-banner', banner));
-      if (tail.available !== false) {
-        const pre = el('pre', 'workbench-result-text');
-        pre.textContent = String(tail.text ?? '');
-        content.append(pre);
-      }
-    } catch (reason) {
-      content.replaceChildren(el('p', '', `Tail unavailable: ${reason instanceof Error ? reason.message : 'unavailable'}. No pass or failure is inferred.`));
-    }
   }
 
   // ---- explicit excerpt handoff -------------------------------------------
@@ -981,6 +986,7 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
   renderHandoff();
   updateActionGating();
 
+  const headerClock = setInterval(() => { if (!disposed && visible && deps.body.isConnected) renderHeader(); }, 1000);
   return {
     refresh: () => load(),
     setVisible(next: boolean) {
@@ -1030,6 +1036,8 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
     },
     dispose() {
       disposed = true;
+      clearInterval(headerClock);
+      for (const dialog of detailDialogs) dialog.close();
       epoch++;
       window.removeEventListener('orbit-host-connected', onConnected);
       stopLive();

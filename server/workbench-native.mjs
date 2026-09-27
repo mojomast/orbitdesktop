@@ -254,7 +254,7 @@ export function createWorkbenchNative({store,records,data,execution,hermes,now=D
     const a=get('attempts',g,g.attempt_id),c=get('candidates',g,g.candidate_id);
     try{data.db.transaction(()=>{
       data.create('results',{workspace_id:g.workspace_id,project_id:g.project_id,task_id:a.task_id,attempt_id:g.attempt_id,grant_id:g.id,run_id,project_generation:g.project_generation,candidate_id:c.id,candidate_generation:c.generation,candidate_hash:c.hash,recipient:{pane_id:g.recipient.pane_id,profile_id:g.recipient.profile_id,session_id:g.recipient.session_id},availability:'pending',unavailable_reason:null,text:null,hermes_completed:null,frame_hash:null,received_at:null,retained_until:now()+86400000,provenance:{version:1,initiated_by:{kind:'native_agent',attempt_id:g.attempt_id,grant_id:g.id,run_id},authorized_by:{kind:'owner_grant',grant_id:g.id,authority_generation:g.authority_generation},recorded_by:{kind:'comet_service',component:'workbench-native-result',build_id:workbenchBuildIdentity()}},model_suggested_references:[],resolved_references:[]});
-      update('grants',g,g.id,{status:'running',runtime_status:'running',run_id,result_status:'pending'});
+      update('grants',g,g.id,{status:'running',runtime_status:'running',run_id,result_status:'pending',started_at:now()});
     }).immediate();}catch(error){try{update('grants',g,g.id,{status:'failed',runtime_status:'not_started'});}catch{markUnknown(g);}throw error;}
     channels.set(g.id,{secret,sequence:0,busy:false,scope:clone(g)});
     try{
