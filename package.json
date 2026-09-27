@@ -19,7 +19,9 @@
     "@xterm/xterm": "^5.5.0",
     "ajv": "8.20.0",
     "better-sqlite3": "12.11.1",
+    "diff": "9.0.0",
     "dockview-core": "8.3.1",
+    "highlight.js": "11.12.0",
     "node-pty": "^1.1.0",
     "three": "^0.180.0",
     "ws": "^8.18.3"

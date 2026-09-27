@@ -48,7 +48,7 @@ export function openProjectRoot(root,expected){
     return {fd,identity:key,dev:stat.dev,close:()=>fs.closeSync(fd)};
   }catch(error){fs.closeSync(fd);throw failure(error);}
 }
-function bytesAt(fd,maxBytes){
+function bytesAt(fd,maxBytes,includeMode=false){
   const before=fs.fstatSync(fd);
   if(!before.isFile()||before.nlink!==1)throw wbError('unsupported');
   if(before.size>maxBytes)throw wbError('limit_exceeded');
@@ -57,7 +57,7 @@ function bytesAt(fd,maxBytes){
   while(length<bytes.length&&(count=fs.readSync(fd,bytes,length,bytes.length-length,length)))length+=count;
   const after=fs.fstatSync(fd);
   if(length!==before.size||before.size!==after.size||before.mtimeMs!==after.mtimeMs||before.ctimeMs!==after.ctimeMs)throw wbError('stale_resource');
-  return {bytes:bytes.subarray(0,length),identity:identity(after)};
+  return {bytes:bytes.subarray(0,length),identity:identity(after),...(includeMode?{mode:(after.mode&0o111)?'100755':'100644'}:{})};
 }
 // A repository-relative path is only ever used after it has been proven to be a
 // plain, non-excluded descendant name. It is never passed to a shell.
@@ -79,7 +79,7 @@ export function readProjectFile(project,relative){
     return {...data,hash:hash(data.bytes)};
   }catch(error){throw failure(error);}finally{for(const value of opened.reverse())fs.closeSync(value);root.close();}
 }
-export function captureProject(project){
+export function captureProject(project,{includeModes=false}={}){
   const root=openProjectRoot(project.root,project.identity),files=[],exclusions=[];let total=0,limited=false,entries=0,directories=0;
   const walk=(fd,prefix,depth)=>{
     if(++directories>PROJECT_LIMITS.directories||entries>=PROJECT_LIMITS.entries){limited=true;exclusions.push({path:prefix,reason:'traversal_budget'});return;}
@@ -97,7 +97,7 @@ export function captureProject(project){
         if(stat.dev!==root.dev)throw Object.assign(Error('cross_device'),{code:'cross_device'});
         if(stat.isDirectory())walk(current,relative,depth+1);
         else if(stat.isFile()){
-          const data=bytesAt(current,PROJECT_LIMITS.fileBytes);
+          const data=bytesAt(current,PROJECT_LIMITS.fileBytes,includeModes);
           if(total+data.bytes.length>PROJECT_LIMITS.totalBytes){limited=true;break;}
           total+=data.bytes.length;files.push({path:relative,...data,hash:hash(data.bytes)});
         }else exclusions.push({path:relative,reason:'unsupported_special_file'});

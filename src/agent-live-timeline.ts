@@ -86,7 +86,7 @@ export function createLiveTimeline(options:{storageKey:string;onOpenReference?:(
     updateTime(state,item);
     state.fields.replaceChildren();for(const f of item.fields||[]){const p=document.createElement('p');p.className='alt-field';p.textContent=`${f.label}: ${f.value}`;state.fields.append(p);}state.fields.hidden=density!=='detailed'||!item.fields?.length;
     state.copy.setAttribute('aria-label',`Copy safe ID ${item.id}`);state.copy.onclick=()=>void navigator.clipboard?.writeText(items.get(item.id)?.id||item.id);
-    if(item.reference&&options.onOpenReference){if(!state.open){state.open=document.createElement('button');state.open.type='button';state.open.textContent='Open details';state.node.querySelector('.alt-actions')?.append(state.open);}state.open.onclick=()=>{const current=items.get(item.id);if(current)options.onOpenReference?.(current);};}
+    if(item.reference&&options.onOpenReference){if(!state.open){state.open=document.createElement('button');state.open.type='button';state.node.querySelector('.alt-actions')?.append(state.open);}state.open.textContent=item.reference.kind==='candidate'||(item.reference.kind==='toolcall'&&item.reference.candidate_id&&item.reference.generation&&item.reference.hash)?'View diff':'Open details';state.open.onclick=()=>{const current=items.get(item.id);if(current)options.onOpenReference?.(current);};}
     else{state.open?.remove();state.open=undefined;}
   }
   function render(){

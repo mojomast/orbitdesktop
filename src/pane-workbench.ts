@@ -14,6 +14,8 @@ import { button, el } from './dom';
 import type { LiveItem } from './agent-live-types';
 import type { createLiveTimeline } from './agent-live-timeline';
 import { watchWorkbenchLive, type WorkbenchLivePage } from './workbench-live-client';
+import { candidateDiffFromDetail } from './candidate-diff-adapter';
+import type { CandidateDiffData } from './candidate-diff-types';
 import type { PaneMode, PaneWorkbenchPrefs } from './pane-prefs';
 import './pane-workbench.css';
 
@@ -97,6 +99,10 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
   let mountedFor: string | null = null;
   let liveClient: ReturnType<typeof watchWorkbenchLive> | null = null;
   let liveAttempt: string | null = null;
+  let changesController: AbortController | null = null;
+  let changesViewer: { element: HTMLElement; dispose(): void } | null = null;
+  let changesKey = '';
+  let changesTicket = 0;
   const detailDialogs = new Set<HTMLDialogElement>();
 
   const root = el('section', 'pane-workbench');
@@ -177,6 +183,21 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
   panels.live.append(liveNote, liveSlotEl);
   const executionPanel = panels.checks;
   const changesPanel = panels.changes;
+  const changesNote = el('p', 'pane-workbench-changes-note', 'Select a candidate to inspect its exact retained generation transition.');
+  const comparisonSelect = el('select', 'pane-workbench-comparison');
+  comparisonSelect.setAttribute('aria-label', 'Candidate comparison');
+  for (const [value, label] of [['initial', 'Overall candidate · generation 1 → selected'], ['previous', 'Latest transition · preceding → selected']] as const) {
+    const option = el('option', '', label); option.value = value; comparisonSelect.append(option);
+  }
+  const changesDiff = el('div', 'pane-workbench-changes-diff');
+  const detailPath = el('input'); detailPath.placeholder = 'Exact changed file path'; detailPath.setAttribute('aria-label', 'Inspect one exact changed file');
+  const fileReadControls = el('div', 'pane-workbench-file-read');
+  fileReadControls.hidden = true;
+  fileReadControls.append(detailPath, button('Inspect file', 'Read one changed file from these exact generations within the private source bound', () => { clearChanges(); void refreshChanges(); }, 'small-button'), button('All changed files', 'Restore bounded comparison of all changed files', () => { detailPath.value = ''; clearChanges(); void refreshChanges(); }, 'small-button'));
+  fileReadControls.append(el('small', '', 'For partial comparisons, inspect a specific changed path. The same exact identities and 64 KiB limit apply.'));
+  const workflowContainer = el('div', 'pane-workbench-workflow');
+  changesPanel.append(labelled('Compare', comparisonSelect), changesNote, fileReadControls, changesDiff, workflowContainer);
+  comparisonSelect.addEventListener('change', () => { clearChanges(); void refreshChanges(); });
   const resultPanel = panels.result;
   const tabButtons = new Map<string, HTMLButtonElement>();
   function showTab(name: string) {
@@ -188,6 +209,7 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
         tab.classList.toggle('active', key === name);
       }
     }
+    if (name === 'changes') void refreshChanges();
   }
   for (const [key, label] of [['live', 'Live'], ['changes', 'Changes'], ['checks', 'Checks'], ['result', 'Result']] as const) {
     const tab = button(label, `${label} workbench view`, () => showTab(key), 'pane-workbench-tab');
@@ -205,6 +227,44 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
       .finally(() => { openReview.disabled = false; });
   }, 'small-button');
   changesPanel.append(openReview);
+
+  function clearChanges() {
+    changesController?.abort(); changesController = null;
+    changesViewer?.dispose(); changesViewer = null;
+    changesDiff.replaceChildren(); changesKey = ''; changesTicket++;
+  }
+  async function refreshChanges() {
+    if (panels.changes.hidden || disposed) return;
+    const candidate = selectedCandidate();
+    if (!projectId || !candidate || !Number.isSafeInteger(candidate.generation) || typeof candidate.hash !== 'string') {
+      clearChanges(); changesNote.textContent = 'Select a current candidate to inspect an exact generation transition.'; return;
+    }
+    const comparison = comparisonSelect.value as 'initial' | 'previous';
+    const requestedPath = detailPath.value;
+    const key = JSON.stringify([projectId,candidate.id,candidate.generation,candidate.hash,comparison,requestedPath]);
+    if (key === changesKey) return;
+    clearChanges(); changesKey = key;
+    const ticket = changesTicket;
+    const source = liveClient;
+    changesController = new AbortController();
+    changesNote.textContent = `Reading exact candidate ${candidate.id} generation ${candidate.generation}…`;
+    if (!source) { changesNote.textContent = 'Private activity scope is not connected. Refresh the selected scope.'; changesKey = ''; return; }
+    try {
+      const detail = await source.detail({ kind: 'candidate', id: candidate.id, generation: candidate.generation, hash: candidate.hash }, changesController.signal, comparison, requestedPath || undefined);
+      const data = candidateDiffFromDetail(detail, { candidate_id: candidate.id, generation: candidate.generation, candidate_hash: candidate.hash });
+      if (disposed || ticket !== changesTicket || source !== liveClient) return;
+      const { createCandidateDiffViewer } = await import('./candidate-diff-viewer');
+      if (disposed || ticket !== changesTicket) return;
+      changesViewer = createCandidateDiffViewer(data, { title: comparison === 'initial' ? `Initial candidate generation 1 → generation ${candidate.generation}` : `Latest transition → generation ${candidate.generation}` });
+      fileReadControls.hidden = !(requestedPath || data.truncated || (data.changed_files ?? 0) > (data.files?.length ?? 0));
+      changesDiff.replaceChildren(changesViewer.element);
+      changesNote.textContent = data.available ? 'Private read-only candidate-generation comparison · not the Git base or recorder verification.' : `Exact comparison unavailable: ${data.reason ?? 'unavailable'}. No newer content substituted.`;
+    } catch (reason) {
+      if (disposed || ticket !== changesTicket) return;
+      changesKey = '';
+      changesNote.textContent = `Exact transition unavailable: ${reason instanceof Error ? reason.message : 'unavailable'}. No newer content substituted.`;
+    }
+  }
 
   const handoff = el('details', 'pane-workbench-handoff');
   handoff.append(el('summary', '', 'Create supervised task / hand off selected context'));
@@ -444,6 +504,7 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
 
   // ---- live client --------------------------------------------------------
   function stopLive() {
+    clearChanges();
     for (const dialog of detailDialogs) dialog.close();
     liveClient?.dispose();
     liveClient = null;
@@ -492,6 +553,7 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
       onLane: (lane) => { if (!disposed) reflectLane(lane); },
       onSnapshot: (snapshot) => { if (!disposed) { applyLiveSnapshot(snapshot); emitBadge(); renderHeader(); } },
     });
+    void refreshChanges();
   }
 
   function applyLiveSnapshot(snapshot: Data | null) {
@@ -501,6 +563,11 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
       staleNote.textContent = `Candidate changed to generation ${unknown(after.generation)}. Refresh setup before acting; review and consent must bind the current identity.`;
     }
     latestSnapshot = snapshot;
+    if (!panels.changes.hidden && after?.id === prefs.candidateId && (before?.hash !== after?.hash || before?.generation !== after?.generation)) {
+      // The top selector still names its last explicit selection. A newer live
+      // snapshot must not silently replace it; request an explicit refresh.
+      changesNote.textContent = 'A newer generation was observed. Refresh setup to choose the new identity explicitly.';
+    }
   }
 
   // ---- project/task/candidate selectors -----------------------------------
@@ -576,7 +643,8 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
       if (disposed || ticket !== epoch) return;
       pushScope();
       pushLane();
-      if (liveAttempt !== (prefs.attemptId ?? null)) startLive();
+      if (projectId && (!liveClient || liveAttempt !== (prefs.attemptId ?? null))) startLive();
+      void refreshChanges();
       status.textContent = projectId
         ? `Workbench: ${projects.length} project(s) · ${grantCache.length} attempt(s) · ${cardCache.length} result(s). Read-only until you approve.`
         : `Workbench: ${projects.length} project(s). Choose one explicitly (no automatic selection).`;
@@ -620,7 +688,7 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
       },
     });
     executionMount = mountWorkbenchExecution({ container: executionPanel, token: deps.getToken, workspace_id: deps.workspaceId, project_id: projectIdValue, onError: (message) => { error.textContent = message; } });
-    workflowMount = mountWorkbenchWorkflow({ container: changesPanel, token: deps.getToken, workspace_id: deps.workspaceId, project_id: projectIdValue, onError: (message) => { error.textContent = message; } });
+    workflowMount = mountWorkbenchWorkflow({ container: workflowContainer, token: deps.getToken, workspace_id: deps.workspaceId, project_id: projectIdValue, onError: (message) => { error.textContent = message; } });
     resultMount = mountWorkbenchTaskResult({
       container: resultPanel,
       token: deps.getToken,
@@ -681,7 +749,10 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
   // Focused durable detail for a timeline reference. Only called on an explicit
   // "Open details" click, never for each event.
   function openLiveReference(item: LiveItem) {
-    const reference = item.reference;
+    const recordedReference = item.reference;
+    const reference = recordedReference?.kind === 'toolcall' && recordedReference.candidate_id && typeof recordedReference.generation === 'number' && typeof recordedReference.hash === 'string'
+      ? { ...recordedReference, kind: 'candidate' as const, id: recordedReference.candidate_id }
+      : recordedReference;
     if (!reference) return;
     const dialog = el('dialog', 'hermes-tools-dialog pane-workbench-detail');
     dialog.setAttribute('aria-label', `Focused detail · ${item.summary}`);
@@ -690,6 +761,7 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
     content.textContent = 'Reading the exact recorded detail…';
     const actions = el('div', 'pane-workbench-detail-actions');
     const source = liveClient, requestController = new AbortController();
+    let diffViewer: { element: HTMLElement; dispose(): void } | null = null;
     let tailActive = false, tailTimer: ReturnType<typeof setTimeout> | undefined;
     const stopTail = () => { tailActive = false; if (tailTimer !== undefined) clearTimeout(tailTimer); };
     const updateTail = async () => {
@@ -719,14 +791,23 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
     actions.append(...(tailButton ? [tailButton] : []), button('Close', 'Close focused detail', () => dialog.close(), 'small-button'));
     dialog.append(el('h3', '', `Focused detail · ${item.summary}`), actions, content);
     detailDialogs.add(dialog);
-    dialog.addEventListener('close', () => { stopTail(); requestController.abort(); detailDialogs.delete(dialog); dialog.remove(); }, { once: true });
+    dialog.addEventListener('close', () => { stopTail(); requestController.abort(); diffViewer?.dispose(); detailDialogs.delete(dialog); dialog.remove(); }, { once: true });
     document.body.append(dialog);
     dialog.showModal();
     void (async () => {
       if (!source) { content.replaceChildren(el('p', '', 'Private activity scope is not connected. No content is substituted.')); return; }
       try {
         const detail = await source.detail(reference, requestController.signal);
-        if (dialog.open && !tailActive) content.replaceChildren(renderDetail(detail));
+        if (dialog.open && !tailActive) {
+          if (detail.mode === 'candidate_generation_diff') {
+            const data = candidateDiffFromDetail(detail, reference.kind === 'candidate' && typeof reference.generation === 'number' && typeof reference.hash === 'string'
+              ? { candidate_id: reference.id, generation: reference.generation, candidate_hash: reference.hash } : undefined);
+            const { createCandidateDiffViewer } = await import('./candidate-diff-viewer');
+            if (!dialog.open) return;
+            diffViewer = createCandidateDiffViewer(data, { title: 'Exact historical candidate transition', selectedPath: item.target });
+            content.replaceChildren(diffViewer.element);
+          } else content.replaceChildren(renderDetail(detail));
+        }
       } catch (reason) {
         if (dialog.open && !tailActive) content.replaceChildren(el('p', '', `Focused detail unavailable: ${reason instanceof Error ? reason.message : 'unavailable'}. No current content is substituted for the historical reference.`));
       }
@@ -734,51 +815,11 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
   }
 
   function renderDetail(detail: Data): HTMLElement {
-    if (detail.mode === 'candidate_generation_diff') return renderCandidateDiff(detail);
     const wrap = el('div', 'pane-workbench-detail-meta');
     wrap.append(el('p', 'pane-workbench-detail-note', `Private ${unknown(detail.mode)} · ${detail.mode === 'evidence_record' ? 'RECORDER · structured result for the recorded identity; inspect verdict and completeness' : detail.mode === 'artifact_receipt' && detail.verified === true ? 'RECORDER · independently verified artifact' : 'OBSERVED · metadata only, not verification'}`));
     const pre = el('pre', 'workbench-result-text');
     pre.textContent = JSON.stringify(detail, null, 2);
     wrap.append(pre);
-    return wrap;
-  }
-
-  // Exact old/new source drawer for the actual server candidate-generation diff.
-  // This is a private read-only comparison, never recorder evidence, and an
-  // unavailable historical diff is never replaced by current source.
-  function renderCandidateDiff(detail: Data): HTMLElement {
-    const wrap = el('section', 'pane-workbench-diff');
-    const from = detail.from ?? {};
-    const to = detail.to ?? {};
-    wrap.append(el('p', 'pane-workbench-diff-head',
-      `Exact retained candidate generations ${unknown(from.generation)}→${unknown(to.generation)} · ${unknown(detail.changed_files)} changed files · ${detail.truncated === true ? 'truncated' : 'complete'} · recorder evidence: none (exact source comparison, not verification)`));
-    wrap.append(el('p', 'pane-workbench-diff-source', 'Source text below is private owner-scope content, read-only, and is not verification.'));
-    if (detail.available !== true) {
-      wrap.append(el('p', 'pane-workbench-diff-unavailable',
-        `Exact historical diff unavailable (${unknown(detail.reason ?? detail.note, 'unavailable')}). Current content is never substituted for the requested generation.`));
-      return wrap;
-    }
-    const files: Data[] = Array.isArray(detail.files) ? detail.files : [];
-    if (!files.length) wrap.append(el('p', '', 'No file content changed between these generations.'));
-    for (const file of files) {
-      const row = el('details', 'pane-workbench-diff-file');
-      row.append(el('summary', '', `${unknown(file.path)} · ${unknown(file.old_mode)}→${unknown(file.new_mode)}`));
-      row.append(el('p', '', `old sha256 ${unknown(file.old_hash)} · new sha256 ${unknown(file.new_hash)}`));
-      if (file.text_available === true) {
-        const cols = el('div', 'pane-workbench-diff-cols');
-        for (const [label, text] of [['old', file.old_text], ['new', file.new_text]] as const) {
-          const col = el('section', 'pane-workbench-diff-col');
-          const pre = el('pre', 'pane-workbench-diff-text');
-          pre.textContent = typeof text === 'string' ? text : '(absent on this side)';
-          col.append(el('h5', '', `${label} · private read-only`), pre);
-          cols.append(col);
-        }
-        row.append(cols);
-      } else {
-        row.append(el('p', 'pane-workbench-diff-unavailable', `Text unavailable (${unknown(file.reason, 'not text')}).`));
-      }
-      wrap.append(row);
-    }
     return wrap;
   }
 
@@ -1037,10 +1078,12 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
     renderHeader();
   });
   candidateSelect.addEventListener('change', () => {
+    detailPath.value = ''; fileReadControls.hidden = true;
     prefs = { ...prefs, candidateId: candidateSelect.value || null };
     deps.onPrefs({ candidateId: prefs.candidateId });
     pushScope();
     renderHeader();
+    void refreshChanges();
   });
   attemptSelect.addEventListener('change', () => {
     prefs = { ...prefs, attemptId: attemptSelect.value || null };

@@ -10,7 +10,7 @@ export const liveReferenceSchema=strict({kind:{enum:['toolcall','candidate','job
 export const workbenchLiveRequests=Object.freeze({
   stream:strict({action:{const:'stream'},...scope,after_sequence:cursor,limit:{type:'integer',minimum:1,maximum:LIVE_LIMITS.page}},['action','workspace_id','project_id']),
   page:strict({action:{const:'page'},...scope,after_sequence:cursor,limit:{type:'integer',minimum:1,maximum:LIVE_LIMITS.page}},['action','workspace_id','project_id']),
-  detail:strict({action:{const:'detail'},...scope,reference:liveReferenceSchema},['action','workspace_id','project_id','reference']),
+  detail:strict({action:{const:'detail'},...scope,reference:liveReferenceSchema,comparison:{enum:['previous','initial']},file_path:{type:'string',minLength:1,maxLength:4096}},['action','workspace_id','project_id','reference']),
   tail:strict({action:{const:'tail'},...scope,job_id:uuid},['action','workspace_id','project_id','job_id']),
 });
 export const workbenchLiveSchema={$schema:'http://json-schema.org/draft-07/schema#',oneOf:Object.values(workbenchLiveRequests)};

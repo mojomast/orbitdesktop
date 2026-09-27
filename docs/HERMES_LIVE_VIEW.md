@@ -25,6 +25,12 @@ handoff remains explicit. Existing in-pane mode controls remain available.
 
 ## What the timeline means
 
+Candidate change details use the shared trusted [candidate diff review
+surface](CANDIDATE_DIFF_REVIEW.md). Historical Live references retain their exact
+generation transition; cumulative review explicitly compares against the initial
+retained candidate generation. Rendered diffs and raw/copy conveniences are
+observed changes, not recorder evidence or verified patch artifacts.
+
 | Label | Meaning | Verification? |
 | --- | --- | --- |
 | AGENT | Public agent-reported status or explanation | No |

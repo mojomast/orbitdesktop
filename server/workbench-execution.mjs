@@ -185,11 +185,11 @@ export function createWorkbenchExecution({store,records,data,gate,environments,n
   }
   // The candidate identity is the full confined tree: files + exclusions + limits.
   const treeHash=(candidate,{files,exclusions,limited})=>digest({version:1,generation:candidate.generation,base_hash:candidate.base_hash,files:[...files].map(file=>({path:file.path,hash:file.hash,bytes:file.bytes})).sort((a,b)=>order(a.path,b.path)),exclusions:[...exclusions].map(entry=>({path:entry.path,reason:entry.reason})).sort((a,b)=>order(a.path,b.path)||order(a.reason,b.reason)),limited:limited===true});
-  const rehashCandidate=candidate=>{
+  const rehashCandidate=(candidate,{includeModes=false}={})=>{
     const opened=openProjectRoot(candidate.root);
     let capture;
-    try{capture=captureProject({root:candidate.root,identity:opened.identity});}finally{opened.close();}
-    const files=capture.files.map(file=>({path:file.path,hash:file.hash,bytes:file.bytes.length,state:candidate.files.find(entry=>entry.path===file.path)?.state??'unexpected'}));
+    try{capture=captureProject({root:candidate.root,identity:opened.identity},{includeModes});}finally{opened.close();}
+    const files=capture.files.map(file=>({path:file.path,hash:file.hash,bytes:file.bytes.length,state:candidate.files.find(entry=>entry.path===file.path)?.state??'unexpected',...(includeModes?{mode:file.mode}:{})}));
     return {hash:treeHash(candidate,{files,exclusions:capture.exclusions,limited:capture.limited}),files,exclusions:capture.exclusions,limited:capture.limited};
   };
   // Any job that was `starting`/`running` when this process lost the child is an
@@ -360,7 +360,7 @@ export function createWorkbenchExecution({store,records,data,gate,environments,n
     if(!version)throw wbError('stale_resource');
     const historical={...candidate,root:version.root,generation,hash:candidate_hash,files:version===candidate?candidate.files:[]};
     let observed;
-    try{observed=rehashCandidate(historical);}catch(error){throw wbError(error?.code==='stale_resource'?'stale_resource':'unavailable');}
+    try{observed=rehashCandidate(historical,{includeModes:true});}catch(error){throw wbError(error?.code==='stale_resource'?'stale_resource':'unavailable');}
     if(observed.hash!==candidate_hash)throw wbError('stale_resource');
     return {...historical,files:observed.files,exclusions:observed.exclusions,limited:observed.limited};
   }

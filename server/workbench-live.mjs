@@ -587,7 +587,7 @@ export function createWorkbenchLive({store,records,data,gate,execution,native,no
     if(linked!==attempt.id)throw wbError('permission_denied');
   };
 
-  const detail=async({workspace_id,project_id,attempt_id,reference}={})=>{
+  const detail=async({workspace_id,project_id,attempt_id,reference,comparison='previous',file_path}={})=>{
     const ref=requireReference(reference);
     const project=records.project(workspace_id,project_id); // revoked project hard-fences here
     const attempt=typeof attempt_id==='string'&&attempt_id?data.get('attempts',workspace_id,project_id,attempt_id):null;
@@ -625,7 +625,16 @@ export function createWorkbenchLive({store,records,data,gate,execution,native,no
         case 'review':{
           const row=data.get('reviews',workspace_id,project_id,ref.id);
           assertAttemptScope('reviews',row,attempt,project);
+          let candidate_reference;
+          try{
+            const candidate=data.get('candidates',workspace_id,project_id,row.candidate_id);
+            if(candidate.project_generation===project.generation){
+              const retained=candidate.hash===row.candidate_hash?candidate:(candidate.root_history??[]).find(entry=>entry.hash===row.candidate_hash);
+              if(retained)candidate_reference={kind:'candidate',id:candidate.id,generation:retained.generation,hash:row.candidate_hash};
+            }
+          }catch{/* Missing history remains unavailable, never a current-version fallback. */}
           return {reference:{kind:'review',id:row.id},mode:'review_record',not_diff:true,verified:false,project_generation:project.generation,
+            ...(candidate_reference?{candidate_reference}:{}),
             fields:{decision:short(row.decision,80),evidence_count:Array.isArray(row.evidence_ids)?row.evidence_ids.length:0,created_at:row.created_at,updated_at:row.updated_at}};
         }
         case 'artifact':{
@@ -646,7 +655,7 @@ export function createWorkbenchLive({store,records,data,gate,execution,native,no
           if(attempt&&attempt.candidate_id!==candidate_id)throw wbError('permission_denied');
           if(Number.isSafeInteger(ref.generation)&&typeof ref.hash==='string'&&candidateRecord.project_generation!==undefined&&candidateRecord.project_generation!==project.generation)throw wbError('stale_resource');
           const retained=ref.generation===candidateRecord.generation&&ref.hash===candidateRecord.hash||(candidateRecord.root_history??[]).some(entry=>entry.generation===ref.generation&&entry.hash===ref.hash);
-          if(Number.isSafeInteger(ref.generation)&&typeof ref.hash==='string'&&!retained)return {mode:'candidate_generation_diff',available:false,not_diff:true,verified:false,reason:'historical_diff_unavailable',current_generation:candidateRecord.generation};
+          if(Number.isSafeInteger(ref.generation)&&typeof ref.hash==='string'&&!retained)return {mode:'candidate_generation_diff',available:false,not_diff:true,verified:false,reason:'historical_diff_unavailable',current_generation:candidateRecord.generation,to:{candidate_id,generation:ref.generation,candidate_hash:ref.hash},reference:{kind:'candidate',id:candidate_id,generation:ref.generation,hash:ref.hash}};
           // Scope the requested retained identity, not a later generation now
           // owned by another attempt. The detail reader independently rehashes
           // both exact trees before any source bytes are returned.
@@ -661,7 +670,7 @@ export function createWorkbenchLive({store,records,data,gate,execution,native,no
           }
           if(!execution||typeof execution.dispatch!=='function')throw wbError('unavailable');
           let outcome;
-          try{outcome=await readLiveCandidateDiff({execution,candidate:candidateRecord,workspace_id,project_id,reference:{...reference,candidate_id}});}
+          try{outcome=await readLiveCandidateDiff({execution,candidate:candidateRecord,workspace_id,project_id,reference:{...reference,candidate_id},comparison,file_path});}
           catch(error){
             if(['stale_resource','unavailable','permission_denied'].includes(error?.code))throw error;
             throw wbError('unavailable');

@@ -58,6 +58,7 @@ def main():
                     review = {'id': REVIEW, 'candidate_id': CANDIDATE, 'candidate_hash': HASH, 'review_identity': 'review-exact', 'decision': 'approved', 'evidence_ids': [EVIDENCE_NODE, EVIDENCE_HOST]}
                     state = {'ok': True, 'tasks': [{'id': TASK, 'title': 'Repair sum', 'acceptance_digest': ACCEPTANCE, 'acceptance': acceptance}], 'candidates': [candidate], 'reviews': [review], 'jobs': [{'id': JOB_NODE}, {'id': JOB_HOST}], 'evidence': evidence}
                     seen = []
+                    artifact_mode = {'value': 'verified'}
                     with sync_playwright() as playwright:
                         browser = playwright.chromium.launch(headless=True, args=['--no-sandbox'])
                         page = browser.new_page(viewport={'width': 1280, 'height': 900})
@@ -73,15 +74,23 @@ def main():
                                     route.fulfill(json={'ok': True, 'job': {'id': job_id, 'status': 'completed'}, 'evidence': [row]})
                                 else: route.fulfill(status=400, json={'ok': False, 'code': 'invalid_request'})
                             elif route.request.url.endswith('/workflow'):
-                                route.fulfill(json={'ok': True, 'preview_id': '66666666-6666-4666-8666-666666666666', 'preview_digest': 'e' * 64, 'candidate_hash': HASH, 'candidate_generation': 4, 'source': {'manifest_hash': 'f' * 64}, 'review': {'required_check_state': {'complete': True, 'acceptance_digest': ACCEPTANCE, 'required_checks_digest': 'f' * 64}}, 'verification_support': {'ready': True, 'reason': None, 'message': 'Prepared profile supported for this exact preview', 'candidate_hash': HASH, 'candidate_generation': 4, 'acceptance_digest': ACCEPTANCE, 'required_checks': []}, 'patch_text': '--- a/math.js\n+++ b/math.js\n-export const sum=(a,b)=>a-b;\n+export const sum=(a,b)=>a+b;\n<script>must remain literal</script>'})
+                                if action == 'patch_list': route.fulfill(json={'ok': True, 'patches': [{'artifact_id': '99999999-9999-4999-8999-999999999999', 'review_id': REVIEW, 'candidate_id': CANDIDATE, 'candidate_hash': HASH, 'candidate_generation': 4, 'artifact_hash': '9' * 64, 'status': 'available', 'verification_status': 'verified'}]})
+                                elif action == 'private_patch_get':
+                                    verified = artifact_mode['value'] == 'verified'
+                                    route.fulfill(json={'ok': True, 'receipt': {'artifact_id': '99999999-9999-4999-8999-999999999999', 'candidate_id': CANDIDATE, 'candidate_hash': HASH, 'candidate_generation': 4, 'review_id': REVIEW, 'review_identity': 'review-exact', 'artifact_hash': '9' * 64, 'verification': {'status': 'verified' if verified else 'pending', 'artifact_hash': '9' * 64, 'candidate_id': CANDIDATE, 'candidate_hash': HASH, 'candidate_generation': 4, 'review_id': REVIEW, 'review_identity': 'review-exact'}, 'roundtrip': {'verified': True, 'unrelated_unchanged': True, 'base_identity': 'f' * 64, 'result_identity': HASH}}})
+                                else: route.fulfill(json={'ok': True, 'preview_id': '66666666-6666-4666-8666-666666666666', 'preview_digest': 'e' * 64, 'candidate_hash': HASH, 'candidate_generation': 4, 'source': {'manifest_hash': 'f' * 64}, 'review': {'required_check_state': {'complete': True, 'acceptance_digest': ACCEPTANCE, 'required_checks_digest': 'f' * 64}}, 'verification_support': {'ready': True, 'reason': None, 'message': 'Prepared profile supported for this exact preview', 'candidate_hash': HASH, 'candidate_generation': 4, 'acceptance_digest': ACCEPTANCE, 'required_checks': []}, 'patch_text': '--- a/math.js\n+++ b/math.js\n-export const sum=(a,b)=>a-b;\n+export const sum=(a,b)=>a+b;\n<script>must remain literal</script>'})
                             elif route.request.url.endswith('/native'):
                                 if action == 'list': route.fulfill(json={'ok': True, 'grants': [{'id': GRANT, 'candidate_id': CANDIDATE, 'attempt_id': ATTEMPT, 'project_generation': 2, 'created_at': 1}]})
                                 elif action == 'status': route.fulfill(json={'ok': True, 'grant': {'id': GRANT, 'attempt_id': ATTEMPT}, 'result': {'attempt_id': ATTEMPT, 'task_id': TASK, 'candidate_id': CANDIDATE, 'candidate_hash': HASH, 'candidate_generation': 4, 'project_generation': 2, 'availability': 'available', 'text': 'Literal worker explanation <img src=x onerror=alert(1)> claims 999/999 tests and 60/60 files'}})
                                 else: route.fulfill(status=400, json={'ok': False, 'code': 'invalid_request'})
+                            elif route.request.url.endswith('/live'):
+                                assert body['reference'] == {'kind': 'candidate', 'id': CANDIDATE, 'generation': 4, 'hash': HASH} and body['comparison'] == 'initial'
+                                route.fulfill(json={'ok': True, 'mode': 'candidate_generation_diff', 'comparison': 'initial', 'available': True, 'from': {'candidate_id': CANDIDATE, 'generation': 1, 'candidate_hash': 'd' * 64}, 'to': {'candidate_id': CANDIDATE, 'generation': 4, 'candidate_hash': HASH}, 'changed_files': 1, 'files': [{'path': 'math.js', 'old_hash': 'd' * 64, 'new_hash': HASH, 'old_mode': '100644', 'new_mode': '100644', 'text_available': True, 'old_text': 'export const sum=(a,b)=>a-b;\n', 'new_text': 'export const sum=(a,b)=>a+b;\n<script>must remain literal</script>\n'}], 'truncated': False})
 
                         page.route('**/api/workbench/execution', api)
                         page.route('**/api/workbench/workflow', api)
                         page.route('**/api/workbench/native', api)
+                        page.route('**/api/workbench/live', api)
                         page.goto(origin + '/?renderer=docking')
                         page.evaluate("""async () => {
                           const {mountWorkbenchReviewView}=await import('/src/workbench-review-view.ts');
@@ -95,6 +104,13 @@ def main():
                         }""")
                         expect(page.locator('.workbench-review-status')).to_contain_text('2/2 required checks pass')
                         expect(page.locator('.workbench-review-status')).to_contain_text('artifact verification supported')
+                        expect(page.locator('.workbench-review-verified-patch')).to_contain_text('identities match, no manifest difference')
+                        artifact_mode['value'] = 'pending'
+                        page.get_by_role('button', name='Revalidate candidate, frozen checks, review, and worker explanation').click()
+                        expect(page.locator('.workbench-review-verified-patch')).to_contain_text('inconsistent')
+                        assert 'no manifest difference' not in page.locator('.workbench-review-verified-patch').inner_text()
+                        artifact_mode['value'] = 'verified'
+                        page.get_by_role('button', name='Revalidate candidate, frozen checks, review, and worker explanation').click()
                         expect(page.locator('.workbench-review-recorder-counts')).to_have_text('Service-recorded checks · 293/293 tests passed · 2/2 required files covered')
                         assert '999' not in page.locator('.workbench-review-recorder-counts').inner_text()
                         page.locator('.workbench-review-metadata summary').click()
@@ -104,16 +120,16 @@ def main():
                         expect(page.get_by_role('heading', name='Required checks and evidence')).to_be_visible()
                         expect(page.get_by_text('node-test', exact=True)).to_be_visible()
                         expect(page.get_by_text('host-regression', exact=True)).to_be_visible()
-                        expect(page.locator('.workbench-review-diff-text')).to_contain_text('<script>must remain literal</script>')
-                        assert page.locator('.workbench-review-diff-text script').count() == 0
+                        expect(page.locator('.workbench-review-diff')).to_contain_text('<script>must remain literal</script>')
+                        assert page.locator('.workbench-review-diff script').count() == 0
                         expect(page.locator('.workbench-review-summary')).to_contain_text('Repair sum')
                         expect(page.locator('.workbench-review-verdict').filter(has_text='PASS').first).to_be_visible()
                         clip = page.locator('.pane-body').bounding_box()
-                        for selector in ('.workbench-review-diff-text', '.workbench-review-verdict'):
+                        for selector in ('.workbench-review-diff', '.workbench-review-verdict'):
                             box = page.locator(selector).first.bounding_box()
                             assert clip['y'] <= box['y'] < clip['y'] + clip['height'], (selector, clip, box)
-                        first_diff_line = page.locator('.workbench-review-diff-text').evaluate("node => { const walker=document.createTreeWalker(node,NodeFilter.SHOW_TEXT); let text; while(text=walker.nextNode()){const at=text.textContent.indexOf('--- a/math.js'); if(at>=0){const range=document.createRange();range.setStart(text,at);range.setEnd(text,at+12);return range.getBoundingClientRect().toJSON();}} return null; }")
-                        assert first_diff_line and clip['y'] <= first_diff_line['y'] < clip['y'] + clip['height'], (clip, first_diff_line)
+                        page.locator('.workbench-review-diff .candidate-diff-viewer').scroll_into_view_if_needed()
+                        expect(page.locator('.workbench-review-diff .candidate-diff-viewer')).to_be_visible()
                         page.get_by_text('Expand literal Hermes explanation').click()
                         expect(page.locator('.workbench-review-explanation-text')).to_contain_text('Literal worker explanation')
                         expect(page.locator('.workbench-review-explanation-text')).to_contain_text('999/999 tests and 60/60 files')

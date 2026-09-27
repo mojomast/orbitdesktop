@@ -94,7 +94,7 @@ export function watchWorkbenchLive(options: Options) {
   }
   void connect();
   return {
-    detail:(reference:LiveReference,signal?:AbortSignal)=>request('detail',{reference},signal),
+    detail:(reference:LiveReference,signal?:AbortSignal,comparison?:'previous'|'initial',filePath?:string)=>request('detail',{reference,...(comparison?{comparison}:{}),...(filePath?{file_path:filePath}:{})},signal),
     tail:(jobId:string,signal?:AbortSignal)=>request('tail',{job_id:jobId},signal),
     getCursor:()=>cursor,
     dispose(){disposed=true;controller?.abort();if(timer!==undefined)clearTimeout(timer);},

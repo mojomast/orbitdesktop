@@ -44,6 +44,19 @@ test('contract request schema is strict over the four read-only actions',()=>{
   assert.equal(validateWorkbenchLive({action:'detail',...base,reference:{kind:'normal-tool',id:randomUUID()}}),false,'normal-tool is not a workbench live reference');
 });
 
+test('historical review detail resolves only its recorded hash in server-retained history',async t=>{
+  const f=fixture(t),scope={workspace_id:f.workspace,project_id:f.project.id};
+  const candidate=f.data.create('candidates',{...scope,project_generation:f.project.generation,generation:3,hash:'c'.repeat(64),root_history:[{generation:1,hash:'a'.repeat(64)},{generation:2,hash:'b'.repeat(64)}]});
+  const review=f.data.create('reviews',{...scope,project_generation:f.project.generation,candidate_id:candidate.id,candidate_hash:'b'.repeat(64),decision:'approved',evidence_ids:[]});
+  const request={...scope,reference:{kind:'review',id:review.id}};
+  const result=await f.live.detail(request);
+  assert.deepEqual(result.candidate_reference,{kind:'candidate',id:candidate.id,generation:2,hash:'b'.repeat(64)});
+  f.data.update('candidates',f.workspace,f.project.id,candidate.id,candidate.revision,{root_history:[]});
+  const missing=await f.live.detail(request);
+  assert.equal(missing.candidate_reference,undefined,'never resolve to current generation 3');
+  assert.equal(missing.verified,false);
+});
+
 test('observer projects committed create/update revisions and items satisfy the live contract',t=>{
   const f=fixture(t),scope={workspace_id:f.workspace,project_id:f.project.id};
   f.live.subscribe(()=>{throw Error('observer must not fail authoritative work');});
