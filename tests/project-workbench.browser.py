@@ -331,12 +331,27 @@ def main(renderer, linked=False):
                         for entry in responses:
                             if not isinstance(entry[2], dict):
                                 entry[2] = entry[2].json()
-                        # CI rendered the replacement document while Playwright's
-                        # reload lifecycle wait remained pending. Require the
-                        # committed navigation, new fixture document and actual
-                        # workspace acknowledgement instead of that lifecycle event.
-                        page.reload(wait_until="commit")
+                        # Chromium can commit and render the replacement document
+                        # while Playwright's Page.reload lifecycle promise remains
+                        # pending on workspace activity. Schedule reload outside
+                        # the evaluate task and verify the navigation by observable
+                        # document state and the authenticated workspace handshake.
+                        reload_dialogs = []
+
+                        def accept_reload_dialog(browser_dialog):
+                            reload_dialogs.append(browser_dialog.type)
+                            browser_dialog.accept()
+
+                        page.on("dialog", accept_reload_dialog)
+                        page.evaluate("() => window.setTimeout(() => window.location.reload(), 0)")
                         expect(frame.locator('#document-nonce')).not_to_have_text(nonce)
+                        reload_navigation = page.evaluate("""() => {
+                            const entry = performance.getEntriesByType('navigation')[0];
+                            return {type: entry?.type, readyState: document.readyState};
+                        }""")
+                        assert reload_navigation == {"type": "reload", "readyState": "complete"}, reload_navigation
+                        assert not reload_dialogs, f"Unexpected dialog interrupted full document reload: {reload_dialogs}"
+                        page.remove_listener("dialog", accept_reload_dialog)
                         connected(page, token)
                         dialog = open_workbench(page)
                         expect(dialog.get_by_role("button", name="Open project synthetic-project")).to_be_visible()
