@@ -58,6 +58,31 @@ cannot reconstruct missing intermediate transitions. A truncated cursor resets
 the visible retained history and refreshes current durable summary state.
 Heartbeats and live output tails are live-only, not persisted timeline events.
 
+The v1 presentation contract uses `kind` plus `status`, rather than pretending
+that every suggested event name has a durable source:
+
+| Record family | Projection | Authority |
+| --- | --- | --- |
+| `grant` | Approved, starting/running, stop requested, confirmed exit, unknown/finalization states; bounded counters | Human approval/stop request; host-observed lifecycle |
+| `toolcall` | Requested/started and completed/failed native calls, safe target and exact mutation references | Agent request; host-observed completion |
+| `candidate` | Recorded generation/hash and retained-version reference | Host-observed; source bytes loaded separately |
+| `job` | Managed-check admission, process lifecycle, cancellation/unknown states | Host-observed, not verification |
+| `evidence` | Exact structured recorder verdict and test/file totals | Recorder |
+| `result` | Receipt availability/finalization metadata | Host-observed; explanation remains separately agent-authored |
+| `review` | Recorded review decision | Human |
+| `patch` | Preparation/verification/availability or failure | Observed lifecycle; recorder for verified artifact results |
+
+These families are durable/replayable within retention. A context/consent preview
+that has no durable record is not fabricated as a replayable event. Late snapshot
+reconciliation is labelled as such. Partial projection history remains visibly
+incomplete even while retained pages continue from a valid cursor.
+
+Expanded live output uses a focused bounded `tail` read once per second while
+the user has enabled it in the private job drawer. It pauses on demand and stops
+on terminal status, drawer closure, scope change or pane disposal. This is a
+live-only observation path; it does not refetch all tasks or persist stdout in
+the projection. Event metadata itself uses the fetch stream.
+
 ## Privacy and references
 
 Timeline rows contain whitelisted bounded metadata, not source files, full tool

@@ -126,6 +126,15 @@ jobs:
           for renderer in default docking; do
             /tmp/opencode/orbit-workbench-venv/bin/python tests/pane-workbench-mode.browser.py --renderer "$renderer"
           done
+      - name: Real-backend cross-mode live journey on both renderers
+        if: ${{ !cancelled() && steps.browser_tools.outcome == 'success' }}
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
+          HERMES_NATIVE_SOURCE: /tmp/opencode/orbit-hermes-native
+        run: |
+          for renderer in default docking; do
+            /tmp/opencode/orbit-workbench-venv/bin/python tests/workbench-live-journey.browser.py --renderer "$renderer"
+          done
       - name: Context, execution and joined workflow on both renderers
         if: ${{ !cancelled() && steps.browser_tools.outcome == 'success' }}
         env:

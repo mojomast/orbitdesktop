@@ -92,7 +92,7 @@ export function createLiveTimeline(options:{storageKey:string;onOpenReference?:(
     prefs();let visible=0;const all=[...items.values()].sort((a,b)=>a.sequence!==undefined&&b.sequence!==undefined?a.sequence-b.sequence:(a.at??0)-(b.at??0));
     const retained=new Set(items.keys());for(const [id,state] of rowNodes)if(!retained.has(id)){state.node.remove();rowNodes.delete(id);}
     for(const item of all){let state=rowNodes.get(item.id);if(!state){state=makeRow(item);rowNodes.set(item.id,state);}updateRow(state,item);
-      const match=(selected==='all'||item.category===selected)&&!(collapseCompleted&&item.status==='completed')&&(!query||`${item.summary} ${item.target||''} ${item.kind}`.toLowerCase().includes(query));
+      const match=(selected==='all'||item.category===selected||(selected==='warnings'&&failureLike(item)))&&!(collapseCompleted&&item.status==='completed')&&(!query||`${item.summary} ${item.target||''} ${item.kind}`.toLowerCase().includes(query));
       state.node.hidden=!match;if(match)visible++;
     }
     // Reconcile positions without moving nodes already in the correct slot.
