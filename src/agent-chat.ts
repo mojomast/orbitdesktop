@@ -707,7 +707,16 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     } catch (error) { showError(error); }
     finally { busy = false; if (!disposed) render(); }
   }
-  form.append(input, tools, send);
+  // Visible Normal-mode entry point into the Workbench handoff. It copies the
+  // current draft in memory to the handoff preview and switches the view only;
+  // the Normal composer is untouched and nothing is captured, queued or created.
+  const workbenchTask = button('Create Workbench task', 'Open the Workbench handoff preview with your current draft; nothing is created until you confirm', () => {
+    const statement = input.value;
+    setMode('workbench');
+    ensureWorkbench()?.openHandoff({ statement });
+  }, 'small-button');
+  workbenchTask.setAttribute('aria-label', 'Create Workbench task');
+  form.append(input, tools, workbenchTask, send);
   form.onsubmit = e => { e.preventDefault(); void submit(); };
   input.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); void submit(); } };
   chatNormal.append(badge, bindingControls, strip, notice, messages, taskCards, normalTimelineHost, progress, approvals, controls,recovery, queueList, form);

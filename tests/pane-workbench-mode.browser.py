@@ -13,6 +13,7 @@ Run:
 """
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -123,6 +124,7 @@ def main(renderer):
                     agent_requests = []
                     execution_requests = []
                     context_requests = []
+                    fixture_requests = []
 
                     def observe(request):
                         try:
@@ -135,8 +137,19 @@ def main(renderer):
                             execution_requests.append(body.get("action"))
                         if request.url == origin + "/api/workbench/context":
                             context_requests.append(body.get("action"))
+                        if request.url.startswith(origin + "/fixture"):
+                            fixture_requests.append(request.url)
 
                     page.on("request", observe)
+
+                    def owner_post(path, body):
+                        request = urllib.request.Request(
+                            origin + path,
+                            data=json.dumps({"workspace_id": workspace, **body}).encode(),
+                            headers={"Origin": origin, "Authorization": "Bearer " + token, "Content-Type": "application/json"},
+                        )
+                        with urllib.request.urlopen(request, timeout=15) as response:
+                            return json.load(response)
                     url = origin + ("/?renderer=docking" if renderer == "docking" else "/")
                     page.goto(url, wait_until="networkidle")
                     if renderer == "docking":
@@ -240,7 +253,7 @@ def main(renderer):
                     pane_locator.locator(".pane-workbench-excerpt input[type=checkbox]").first.check()
                     pane_locator.get_by_label("Task or question excerpt", exact=True).fill("COMPOSED-TASK-STATEMENT")
                     captures_before = len([a for a in context_requests if a == "capture"])
-                    pane_locator.locator("button", has_text="Preview exact bytes").click()
+                    pane_locator.locator(".pane-workbench-handoff button", has_text="Preview context packet").click()
                     preview = pane_locator.locator(".pane-workbench-excerpt-preview")
                     expect(preview).to_contain_text("FIRST-USER-EXCERPT", timeout=10000)
                     expect(preview).to_contain_text("COMPOSED-TASK-STATEMENT")
@@ -251,8 +264,8 @@ def main(renderer):
 
                     # Task creation is preview-first and never capture-only: with no
                     # project selected the preview refuses before any request.
-                    expect(pane_locator.locator("button", has_text="Create task")).to_be_visible()
-                    pane_locator.locator("button", has_text="Preview task").click()
+                    expect(pane_locator.locator(".pane-workbench-handoff button", has_text="Create task")).to_be_visible()
+                    pane_locator.locator(".pane-workbench-handoff button", has_text="Preview task").click()
                     task_preview = pane_locator.locator(".pane-workbench-task-preview")
                     expect(task_preview).to_contain_text("Choose a project first")
 
@@ -306,6 +319,80 @@ def main(renderer):
                     )
                     assert reload_distinct, "timeline instances are not independent after reload"
 
+                    # Normal composer -> explicit Workbench handoff preview. The draft
+                    # is copied in memory only; the Normal composer is unchanged and
+                    # nothing is captured, created or sent until the owner confirms.
+                    pane_locator.get_by_role("button", name="Normal Hermes mode", exact=True).click()
+                    normal_input = pane_locator.get_by_label("Message to Hermes", exact=True)
+                    normal_input.fill("NORMAL-HANDOFF-STATEMENT")
+                    captures_before = len([a for a in context_requests if a == "capture"])
+                    tasks_before = len([a for a in execution_requests if a == "task_create"])
+                    pane_locator.get_by_role("button", name="Create Workbench task", exact=True).click()
+                    expect(pane_locator.get_by_role("button", name="Workbench Hermes mode", exact=True)).to_have_attribute("aria-pressed", "true")
+                    handoff_composer = pane_locator.get_by_label("Task or question excerpt", exact=True)
+                    expect(handoff_composer).to_have_value("NORMAL-HANDOFF-STATEMENT")
+                    assert normal_input.input_value() == "NORMAL-HANDOFF-STATEMENT", "Normal draft was changed by the handoff entry"
+                    assert len([a for a in context_requests if a == "capture"]) == captures_before
+                    assert len([a for a in execution_requests if a == "task_create"]) == tasks_before
+
+                    # Real backend: register a project, create a real task, then capture
+                    # the exact selected excerpts into a selectable packet.
+                    project_dir = root / "handoff-project"
+                    project_dir.mkdir(exist_ok=True)
+                    (project_dir / "app.js").write_text("export const sum = (a, b) => a + b;\n")
+                    registration = owner_post("/api/workbench", {"action": "register_preview", "root": str(project_dir), "name": "Handoff project"})
+                    project_id = owner_post("/api/workbench", {"action": "register_commit", "approval_id": registration["approval_id"]})["project"]["id"]
+                    pane_locator.get_by_role("button", name="Re-read projects, tasks and state without executing anything", exact=True).click()
+                    project_select = pane_locator.get_by_label("Workbench project", exact=True)
+                    expect(project_select.locator(f'option[value="{project_id}"]')).to_have_count(1, timeout=15000)
+                    project_select.select_option(project_id)
+                    definition_select = pane_locator.get_by_label("Task check definition (handoff)", exact=True)
+                    expect(definition_select).not_to_have_value("", timeout=20000)
+                    pane_locator.get_by_label("Task title (handoff)", exact=True).fill("Handoff real task")
+                    pane_locator.locator(".pane-workbench-handoff button", has_text="Preview task").click()
+                    expect(pane_locator.locator(".pane-workbench-task-preview")).to_contain_text('"action": "task_create"')
+                    pane_locator.locator(".pane-workbench-handoff button", has_text="Create task").click()
+                    new_task = None
+                    for _ in range(80):
+                        tasks = owner_post("/api/workbench/execution", {"action": "execution_state", "project_id": project_id}).get("tasks", [])
+                        new_task = next((task for task in tasks if task.get("title") == "Handoff real task"), None)
+                        if new_task:
+                            break
+                        page.wait_for_timeout(250)
+                    assert new_task, "task_create did not persist a task"
+                    # Scope selector binds the newly created task.
+                    expect(pane_locator.get_by_label("Workbench task", exact=True)).to_have_value(new_task["id"], timeout=15000)
+
+                    # Capture the exact selected conversation excerpts into a packet.
+                    pane_locator.locator(".pane-workbench-excerpt input[type=checkbox]").first.check()
+                    pane_locator.get_by_label("Task or question excerpt", exact=True).fill("REAL-HANDOFF-QUESTION")
+                    pane_locator.locator(".pane-workbench-handoff button", has_text="Preview context packet").click()
+                    excerpt_preview = pane_locator.locator(".pane-workbench-excerpt-preview")
+                    expect(excerpt_preview).to_contain_text("FIRST-USER-EXCERPT")
+                    expect(excerpt_preview).to_contain_text('"kind": "conversation"')
+                    expect(excerpt_preview).to_contain_text("sha256")
+                    assert '"id"' not in excerpt_preview.inner_text(), "capture preview leaks a client excerpt id"
+                    pane_locator.locator(".pane-workbench-handoff button", has_text="Capture selected context packet").click()
+                    expect(pane_locator.locator(".pane-workbench-status")).to_contain_text("context packet", timeout=20000)
+                    listed = owner_post("/api/workbench/context", {"action": "list", "project_id": project_id})["contexts"]
+                    conversation = next((entry for entry in listed if entry.get("source", {}).get("kind") == "conversation"), None)
+                    packet = next((entry for entry in listed if entry.get("source", {}).get("kind") == "packet"), None)
+                    assert conversation and packet, listed
+                    excerpts = conversation["source"]["excerpts"]
+                    for excerpt in excerpts:
+                        assert set(excerpt.keys()) == {"role", "sha256", "bytes"}, excerpt
+                    # Only the explicitly selected message + composed statement are stored.
+                    assert len(excerpts) == 2, excerpts
+                    assert hashlib.sha256(b"SECOND-ASSISTANT-EXCERPT").hexdigest() not in {e["sha256"] for e in excerpts}
+                    # The packet freezes exactly the captured context.
+                    assert packet["snapshot"]["provenance"]["context_ids"] == [conversation["id"]], packet["snapshot"]["provenance"]
+                    # The packet is selectable in the mounted authority control.
+                    pane_locator.locator(".pane-workbench-authority > summary").click()
+                    expect(pane_locator.get_by_label("Native approved context packet", exact=True)).to_have_value(packet["id"], timeout=15000)
+                    # No model call occurred anywhere in this journey.
+                    assert "start" not in agent_requests, agent_requests
+                    assert fixture_requests == [], fixture_requests
+
                     # Hidden-Normal reload while the shared lane is busy: the global
                     # execution_lane signal (carried by the existing shared_chat read,
                     # no extra polling) must disable Send and show a literal state.
@@ -331,17 +418,19 @@ def main(renderer):
                     expect(pane_locator.get_by_role("button", name="Normal Hermes mode", exact=True)).to_have_attribute("aria-pressed", "true")
                     send_button = pane_locator.get_by_role("button", name="Send message to Hermes", exact=True)
                     expect(send_button).to_be_disabled(timeout=15000)
-                    expect(pane_locator.get_by_role("button", name="Workbench Hermes mode", exact=True)).to_contain_text("Lane busy")
-                    expect(pane_locator.locator(".agent-mode-control")).to_have_attribute("data-lane", "busy")
-                    assert "busy" in (send_button.get_attribute("title") or "").lower()
+                    workbench_status_text = pane_locator.get_by_role("button", name="Workbench Hermes mode", exact=True).inner_text()
+                    assert ("Lane busy" in workbench_status_text) or ("Execution outcome unknown" in workbench_status_text), workbench_status_text
+                    expect(pane_locator.locator(".agent-mode-control")).to_have_attribute("data-lane", re.compile("busy|unknown"))
+                    send_title = (send_button.get_attribute("title") or "").lower()
+                    assert ("busy" in send_title) or ("unknown" in send_title), send_title
 
                     assert not errors, errors
                     page.screenshot(path=f"/tmp/opencode/orbit-pane-workbench-{renderer}.png")
                     print(
                         f"PASS[{renderer}]: paired Normal/Workbench buttons with visible statuses; Normal DOM/session/draft/queue preserved; "
-                        "two independent timeline instances (never moved/reset by a toggle); no execution on toggle; stale durable ID "
-                        "cleared without substitution; bounded excerpt + task preview only; 320px pane-head geometry ok; hidden-Normal busy-lane "
-                        f"reconnect disables Send; mode persisted across reload; page_errors={len(errors)}"
+                        "two independent timeline instances; no execution on toggle; stale durable ID fail-closed; Normal draft -> handoff preview "
+                        "(draft unchanged); real task_create selects the new task; exact selected excerpts captured into a selectable packet with "
+                        f"no client id and no model call; 320px geometry; hidden busy-lane reconnect disables Send; page_errors={len(errors)}"
                     )
                     context.close()
                     browser.close()

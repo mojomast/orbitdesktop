@@ -2,10 +2,11 @@ import {button,el} from './dom';
 import {validChat} from './chat-storage';
 type Data=Record<string,any>;
 type Readiness={ready:boolean;reason:string|null;message:string;candidate_hash:string;candidate_generation:number;acceptance_digest:string;required_checks:{definition_id:string;execution_profile_id:string|null;ready:boolean;reason:string|null;message:string}[]};
-export type WorkbenchAuthorityScope={taskId?:string|null;candidateId?:string|null;attemptId?:string|null};
-export function mountWorkbenchTaskAuthority(args:{container:HTMLElement;token:()=>string;workspace_id:string;project_id:string;scope?:WorkbenchAuthorityScope;onScopeChange?:(scope:{candidateId:string|null;attemptId:string|null})=>void}){
+export type WorkbenchAuthorityScope={taskId?:string|null;candidateId?:string|null;attemptId?:string|null;contextId?:string|null;paneId?:string|null};
+export function mountWorkbenchTaskAuthority(args:{container:HTMLElement;token:()=>string;workspace_id:string;project_id:string;scope?:WorkbenchAuthorityScope;onScopeChange?:(scope:{candidateId:string|null;attemptId:string|null;contextId:string|null})=>void;lane?:{busy:boolean;unknown:boolean}}){
   let disposed=false,busy=false,grantId='',nativePreview:Data|null=null,environmentPreview:Data|null=null,profileId='',handoffEpoch=0,nativePreviewKey='';
   const scope:WorkbenchAuthorityScope={...args.scope};
+  let lane={busy:args.lane?.busy===true,unknown:args.lane?.unknown===true};
   const status=el('p','','Task authority: loading…'),candidates=el('select'),recipients=el('select'),contexts=el('select'),attempts=el('select'),detail=el('pre');
   const handoff=el('section','workbench-worker-handoff');
   let contextRecords:Data[]=[],allContextRecords:Data[]=[],freshness:Data|null=null,packetPreview:Data|null=null;
@@ -24,14 +25,34 @@ export function mountWorkbenchTaskAuthority(args:{container:HTMLElement;token:()
   async function api(endpoint:string,body:Data){const response=await fetch(`/api/workbench/${endpoint}`,{method:'POST',headers:{Authorization:`Bearer ${args.token()}`,'Content-Type':'application/json'},body:JSON.stringify({workspace_id:args.workspace_id,project_id:args.project_id,...body})});const data=await response.json();if(!response.ok||data.ok!==true)throw Error(`${data.code??'unavailable'}${data.reason?`: ${data.reason}`:''}`);return data;}
   async function act(label:string,work:()=>Promise<void>,intervention=false){if(disposed||busy&&!intervention)return;if(!intervention)busy=true;status.textContent=label;try{await work();if(!disposed)status.textContent=`${label}: complete. Refresh status to inspect current records.`;}catch(error){if(!disposed)status.textContent=`${label}: ${error instanceof Error?error.message:'unavailable'}. No automatic execution retry.`;}finally{if(!intervention)busy=false;}}
   function choices(select:HTMLSelectElement,values:{id:string;label:string}[]){const old=select.value;select.replaceChildren();for(const value of values){const option=el('option','',value.label);option.value=value.id;select.append(option);}if(values.some(v=>v.id===old))select.value=old;}
+  function ensureBlank(select:HTMLSelectElement,label:string){if(!Array.from(select.options).some(o=>o.value==='')){const option=el('option','',label);option.value='';select.prepend(option);}}
   const time=(value:unknown)=>{if(typeof value!=='number'||!Number.isFinite(value))return 'unknown';const age=Math.max(0,Date.now()-value),relative=age<60000?`${Math.floor(age/1000)} seconds ago`:age<3600000?`${Math.floor(age/60000)} minutes ago`:age<86400000?`${Math.floor(age/3600000)} hours ago`:`${Math.floor(age/86400000)} days ago`;return `${new Date(value).toISOString()} (${relative})`;};
   const selectedRecipient=()=>{try{return JSON.parse(recipients.value) as Data;}catch{return null;}};
   const selectionKey=()=>JSON.stringify([candidates.value,recipients.value,attempts.value,contexts.value,budgetCalls.value,budgetChecks.value,budgetSeconds.value,requireNode.checked,requireHost.checked]);
-  // Bind an external pane selection to the mounted controls without changing the
-  // full-panel default (first record) when no scope is supplied.
+  // Start is disabled immediately while the shared lane is held by another pane
+  // (Normal or Workbench). This is presentation only; the backend stays
+  // authoritative. Stop and status reads are never disabled.
+  function refreshStartState(){
+    const blocked=lane.busy||lane.unknown;
+    start.disabled=!grantId||blocked;
+    start.title=blocked?'Shared agent lane is occupied (Normal/shared agent lane run in progress). Stop and status remain available; retry when the lane is idle.':!grantId?'Approve a native task consent first.':'Start Hermes with only the approved Workbench tools';
+  }
+  // Bind an external pane selection to the mounted controls. When a scope is
+  // supplied, a missing/stale id clears to an explicit blank instead of silently
+  // falling back to the first (possibly unrelated) record. With no scope the full
+  // panel keeps its original first-record default.
   function applyScope(){
-    if(scope.candidateId&&Array.from(candidates.options).some(o=>o.value===scope.candidateId))candidates.value=scope.candidateId;
-    if(scope.attemptId&&Array.from(attempts.options).some(o=>o.value===scope.attemptId))attempts.value=scope.attemptId;
+    const scoped=args.scope!==undefined;
+    if(scoped){ensureBlank(candidates,'Choose candidate…');ensureBlank(attempts,'Choose attempt…');ensureBlank(recipients,'Choose this pane’s conversation…');}
+    const has=(select:HTMLSelectElement,value:string|null|undefined)=>!!value&&Array.from(select.options).some(o=>o.value===value);
+    candidates.value=has(candidates,scope.candidateId)?(scope.candidateId as string):(scoped?'':candidates.value);
+    attempts.value=has(attempts,scope.attemptId)?(scope.attemptId as string):(scoped?'':attempts.value);
+    if(has(contexts,scope.contextId))contexts.value=scope.contextId as string;
+    if(scoped){
+      const match=scope.paneId?Array.from(recipients.options).find(o=>{try{return JSON.parse(o.value)?.pane_id===scope.paneId;}catch{return false;}}):undefined;
+      recipients.value=match?match.value:'';
+    }
+    refreshStartState();
   }
   function renderHandoff(){
     const candidate=(state.candidates??[]).find((c:Data)=>c.id===candidates.value),task=(state.tasks??[]).find((t:Data)=>t.id===candidate?.task_id),recipient=selectedRecipient(),context=contextRecords.find((c:Data)=>c.id===contexts.value),packet=context?.snapshot??{},approved=nativePreview?.preview??null;
@@ -74,18 +95,19 @@ export function mountWorkbenchTaskAuthority(args:{container:HTMLElement;token:()
     const [execution,context]=await Promise.all([api('execution',{action:'execution_state'}),api('context',{action:'list'})]);if(disposed)return;state=execution;
     const candidateRows=(execution.candidates??[]).filter((c:Data)=>!scope.taskId||c.task_id===scope.taskId);
     choices(candidates,candidateRows.map((c:Data)=>({id:c.id,label:`${c.id} · generation ${c.generation}`})));
-    choices(attempts,(context.attempts??[]).map((a:Data)=>({id:a.id,label:`${a.id} · ${a.task_id}`})));
+    choices(attempts,(context.attempts??[]).filter((a:Data)=>!scope.taskId||a.task_id===scope.taskId).map((a:Data)=>({id:a.id,label:`${a.id} · ${a.task_id}`})));
     applyScope();
     allContextRecords=context.contexts??[];contextRecords=allContextRecords.filter((c:Data)=>c.source?.kind==='packet');choices(contexts,[{id:'',label:'No context read grant'},...contextRecords.map((c:Data)=>({id:c.id,label:`Packet ${c.id} · ${c.snapshot?.bytes} bytes · ${c.snapshot?.hash}`}))]);
-    const native=await api('native',{action:'list'});if(disposed)return;choices(grants,(native.grants??[]).map((g:Data)=>({id:g.id,label:`${g.id} · ${g.status}`})));grantId=grants.value;
+    const native=await api('native',{action:'list'});if(disposed)return;choices(grants,(native.grants??[]).map((g:Data)=>({id:g.id,label:`${g.id} · ${g.status}`})));grantId=grants.value;refreshStartState();
     const response=await fetch('/api/workbench',{method:'POST',headers:{Authorization:`Bearer ${args.token()}`,'Content-Type':'application/json'},body:JSON.stringify({action:'list',workspace_id:args.workspace_id})});const list=await response.json();if(disposed)return;
     const values=[];for(const pane of list.surfaces??[]){if(pane.kind!=='agent')continue;try{const saved=JSON.parse(sessionStorage.getItem(`orbit-hermes-chat:${pane.pane_id}`)||'null');if(validChat(saved))values.push({id:JSON.stringify({pane_id:pane.pane_id,profile_id:saved.profile_id??'default',session_id:saved.session}),label:`${pane.name} · ${saved.profile_id??'default'} · ${saved.session}`});}catch{}}
     choices(recipients,values);
+    applyScope();
     renderHandoff();
   });}
   const bind=button('Create bound attempt','Bind selected candidate to the selected agent conversation',()=>void act('Creating bound attempt',async()=>{const candidate=(state.candidates??[]).find((c:Data)=>c.id===candidates.value);if(!candidate||!recipients.value)throw Error('Choose a candidate and bound agent conversation');const result=await api('execution',{action:'attempt_create',candidate_id:candidate.id,task_id:candidate.task_id,...JSON.parse(recipients.value)});choices(attempts,[{id:result.attempt.id,label:result.attempt.id}]);detail.textContent=JSON.stringify(result,null,2);}));
    const previewNative=button('Preview native task consent','Preview candidate read/edit and approved check authority',()=>void act('Previewing native task consent',async()=>{const ticket=handoffEpoch,key=selectionKey(),candidate=(state.candidates??[]).find((c:Data)=>c.id===candidates.value),recipient=selectedRecipient();if(!candidate||!attempts.value||!recipient)throw Error('Choose a candidate, bound attempt, and originating conversation');const observed=await api('execution',{action:'candidate_get',candidate_id:candidate.id});freshness={...observed,candidate_id:candidate.id};if(disposed||ticket!==handoffEpoch||key!==selectionKey())throw Error('stale_resource');renderHandoff();const readiness=observed.readiness as Readiness|undefined;if(observed.target_changed||!readiness?.ready||readiness.candidate_hash!==candidate.hash||readiness.candidate_generation!==candidate.generation||readiness.acceptance_digest!==state.tasks?.find((task:Data)=>task.id===candidate.task_id)?.acceptance_digest)throw Error(readiness?.message??'stale_resource');if(contexts.value){const selected=contextRecords.find((item:Data)=>item.id===contexts.value),preview=await api('context',{action:'preview',context_id:contexts.value,recipient});if(!selected||preview.context_id!==selected.id||preview.hash!==selected.snapshot?.hash||typeof preview.text!=='string'||preview.recipient?.pane_id!==recipient.pane_id||preview.recipient?.profile_id!==recipient.profile_id||preview.recipient?.session_id!==recipient.session_id)throw Error('stale_resource');packetPreview=preview;}else packetPreview=null;if(disposed||ticket!==handoffEpoch||key!==selectionKey())throw Error('stale_resource');const preview=await api('native',{action:'preview',attempt_id:attempts.value,context_ids:contexts.value?[contexts.value]:[],budget:{calls:budgetCalls.valueAsNumber,checks:budgetChecks.valueAsNumber,duration_ms:budgetSeconds.valueAsNumber*1000}});if(disposed||ticket!==handoffEpoch||key!==selectionKey())throw Error('stale_resource');nativePreview=preview;nativePreviewKey=key;renderHandoff();detail.textContent=JSON.stringify(nativePreview,null,2);}));
-  const approveNative=button('Approve native task consent','Approve exactly the previewed bounded task authority',()=>void act('Approving native task consent',async()=>{if(!nativePreview||nativePreviewKey!==selectionKey())throw Error('Preview task consent again');const result=await api('native',{action:'approve',preview_id:nativePreview.preview_id,preview_digest:nativePreview.preview_digest});grantId=result.grant.id;nativePreview=null;nativePreviewKey='';renderHandoff();detail.textContent=JSON.stringify(result,null,2);}));approveNative.disabled=true;
+  const approveNative=button('Approve native task consent','Approve exactly the previewed bounded task authority',()=>void act('Approving native task consent',async()=>{if(!nativePreview||nativePreviewKey!==selectionKey())throw Error('Preview task consent again');const result=await api('native',{action:'approve',preview_id:nativePreview.preview_id,preview_digest:nativePreview.preview_digest});grantId=result.grant.id;nativePreview=null;nativePreviewKey='';refreshStartState();renderHandoff();detail.textContent=JSON.stringify(result,null,2);}));approveNative.disabled=true;
   const start=button('Start native Hermes attempt','Start Hermes with only the approved Workbench tools',()=>void act('Starting native Hermes',async()=>{const result=await api('native',{action:'start',grant_id:grantId});detail.textContent=JSON.stringify(result,null,2);}));
   const check=button('Read native attempt status','Read status without retrying execution',()=>void act('Reading native status',async()=>{const result=await api('native',{action:'status',grant_id:grantId});unknownDigest=result.unknown_digest??'';detail.textContent=JSON.stringify(result,null,2);},true));
   const stop=button('Stop native attempt','Revoke native tools and request agent stop; jobs require separate cancellation',()=>void act('Stopping native attempt',async()=>{detail.textContent=JSON.stringify(await api('native',{action:'stop',grant_id:grantId}),null,2);},true));
@@ -101,7 +123,9 @@ export function mountWorkbenchTaskAuthority(args:{container:HTMLElement;token:()
   args.container.append(el('h4','','Required checks'),row('Node test suite',requireNode),row('Host-owned sum regression fixture',requireHost),previewAcceptance,approveAcceptance);
   const invalidateHandoff=()=>{handoffEpoch++;nativePreview=null;nativePreviewKey='';environmentPreview=null;freshness=null;packetPreview=null;renderHandoff();};
   for(const select of [attempts,contexts,candidates,recipients])select.addEventListener('change',invalidateHandoff);
-  for(const select of [attempts,candidates])select.addEventListener('change',()=>{scope.candidateId=candidates.value||null;scope.attemptId=attempts.value||null;args.onScopeChange?.({candidateId:scope.candidateId,attemptId:scope.attemptId});});
+  for(const select of [attempts,candidates])select.addEventListener('change',()=>{scope.candidateId=candidates.value||null;scope.attemptId=attempts.value||null;args.onScopeChange?.({candidateId:scope.candidateId,attemptId:scope.attemptId,contextId:contexts.value||null});});
+  contexts.addEventListener('change',()=>{scope.contextId=contexts.value||null;args.onScopeChange?.({candidateId:candidates.value||null,attemptId:attempts.value||null,contextId:scope.contextId});});
   for(const input of [budgetCalls,budgetChecks,budgetSeconds,requireNode,requireHost])input.addEventListener(input.type==='checkbox'?'change':'input',invalidateHandoff);
-  void refresh();return {refresh,setScope(next:WorkbenchAuthorityScope){Object.assign(scope,next);applyScope();renderHandoff();},dispose(){disposed=true;args.container.replaceChildren();}};
+  refreshStartState();
+  void refresh();return {refresh,setScope(next:WorkbenchAuthorityScope){Object.assign(scope,next);applyScope();renderHandoff();},setLane(next:{busy:boolean;unknown:boolean}){lane={busy:next.busy===true,unknown:next.unknown===true};refreshStartState();},dispose(){disposed=true;args.container.replaceChildren();}};
 }

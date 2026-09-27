@@ -78,6 +78,7 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
   invalidateBinding(): void;
   liveSlot(): HTMLElement;
   openLiveReference(item: LiveItem): void;
+  openHandoff(options?: { statement?: string; messageIds?: readonly string[] }): void;
   dispose(): void;
 } {
   let disposed = false;
@@ -89,7 +90,14 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
   let applyingScope = false;
   let latestSnapshot: Data | null = null;
   let laneNote = '';
-  type Panel = { refresh?(): void | Promise<void>; dispose(): void; setScope?(scope: Data): void };
+  // Immutable previews. Capture/create submit only the exact previewed payload;
+  // any input, project or binding change invalidates them. No whole-conversation
+  // text is ever cached — only the explicitly selected excerpts.
+  let excerptPreview: { capture: Data; key: string } | null = null;
+  let taskPreviewCache: { payload: Data; key: string } | null = null;
+  let taskCreatePending = false; // ambiguous create outcome: manual reconcile only
+  let pendingPacketId: string | null = null;
+  type Panel = { refresh?(): void | Promise<void>; dispose(): void; setScope?(scope: Data): void; setLane?(lane: { busy: boolean; unknown: boolean }): void };
   let authorityMount: Panel | null = null;
   let executionMount: Panel | null = null;
   let workflowMount: Panel | null = null;
@@ -132,6 +140,9 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
   const openFull = button('Full Project Workbench', 'Open the complete Project Workbench for registration, files and Doctor', () => {
     void import('./project-workbench').then((m) => m.showProjectWorkbench(deps.getToken)).catch(fail);
   }, 'small-button');
+  // Read-only re-read. Also the explicit manual step that clears an ambiguous
+  // task-creation outcome (which is never auto-retried).
+  const refreshAll = button('Refresh', 'Re-read projects, tasks and state without executing anything', () => { taskCreatePending = false; void load(); }, 'small-button');
   head.append(
     labelled('Project', projectSelect),
     labelled('Task', taskSelect),
@@ -139,6 +150,7 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
     labelled('Attempt', attemptSelect),
     labelled('Result', resultSelect),
     newTask,
+    refreshAll,
     openFull,
   );
 
@@ -211,10 +223,10 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
   const excerptCount = el('p', 'pane-workbench-excerpt-count');
   const preview = el('pre', 'pane-workbench-excerpt-preview', 'Select excerpts or compose a task to preview the exact bytes that would be captured.');
   const previewBytes = el('p', 'pane-workbench-excerpt-bytes');
-  const boundNote = el('p', 'pane-workbench-excerpt-bound', 'Selected excerpts are captured to the project context; bind them to the task/attempt in Task authority. The whole conversation is never inherited.');
-  const capture = button('Capture conversation excerpts', 'Create one immutable context snapshot from the checked excerpts only', () => void captureExcerpts(), 'small-button');
-  const refreshHandoff = button('Refresh excerpts', 'Rebuild the excerpt checklist from the current conversation', () => renderHandoff(), 'small-button');
-  const previewButton = button('Preview exact bytes', 'Preview the bounded payload without capturing anything', () => void renderPreview(), 'small-button');
+  const boundNote = el('p', 'pane-workbench-excerpt-bound', 'Selected excerpts are captured into a selectable context packet; the packet is not disclosure or approval. The whole conversation is never inherited.');
+  const capture = button('Capture selected context packet', 'Freeze exactly the previewed selected excerpts into a packet selectable in Task authority', () => void captureExcerpts(), 'small-button');
+  const refreshHandoff = button('Refresh excerpts', 'Rebuild the excerpt checklist from the current conversation', () => { invalidateExcerptPreview(); renderHandoff(); }, 'small-button');
+  const previewButton = button('Preview context packet', 'Preview the exact capture and packet request without sending anything', () => void renderPreview(), 'small-button');
   handoff.append(handoffList, composer, excerptCount, previewButton, preview, capture, refreshHandoff, boundNote, previewBytes);
 
   // Create/select the actual task (not capture-only). Uses the existing
@@ -273,7 +285,12 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
       signal: AbortSignal.timeout(20000),
     });
     const data = (await response.json()) as Data;
-    if (!response.ok || data.ok !== true) throw Error(typeof data.code === 'string' ? data.code : 'unavailable');
+    if (!response.ok || data.ok !== true) {
+      const code = typeof data.code === 'string' ? data.code : 'unavailable';
+      // A typed code is an authoritative outcome; a thrown fetch/parse error
+      // (no code) is an ambiguous network outcome.
+      throw Object.assign(Error(code), { code });
+    }
     return data;
   }
 
@@ -298,9 +315,12 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
 
   function pushScope() {
     applyingScope = true;
-    authorityMount?.setScope?.({ taskId: prefs.taskId, candidateId: prefs.candidateId, attemptId: prefs.attemptId });
+    authorityMount?.setScope?.({ taskId: prefs.taskId, candidateId: prefs.candidateId, attemptId: prefs.attemptId, contextId: pendingPacketId, paneId: deps.paneId });
     resultMount?.setScope?.({ grantId: prefs.grantId, resultId: prefs.resultId });
     applyingScope = false;
+  }
+  function pushLane() {
+    authorityMount?.setLane?.({ busy: laneState.agent_busy || laneState.job_busy, unknown: laneState.unknown });
   }
 
   function reconcile(present: { projects: Set<string>; tasks: Set<string>; candidates: Set<string>; attempts: Set<string>; grants: Set<string>; results: Set<string> }) {
@@ -381,6 +401,7 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
     laneState = { agent_busy: lane.agent_busy === true, job_busy: lane.job_busy === true, unknown: lane.unknown === true };
     laneNote = laneState.unknown ? 'unknown' : laneState.agent_busy || laneState.job_busy ? 'busy' : 'idle';
     emitBadge();
+    pushLane();
     renderHeader();
   }
 
@@ -496,6 +517,7 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
       if (projectId && projectId !== mountedFor && visible) await mountPanels(projectId, ticket);
       if (disposed || ticket !== epoch) return;
       pushScope();
+      pushLane();
       if (liveAttempt !== (prefs.attemptId ?? null)) startLive();
       status.textContent = projectId
         ? `Workbench: ${projects.length} project(s) · ${grantCache.length} attempt(s) · ${cardCache.length} result(s). Read-only until you approve.`
@@ -524,10 +546,12 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
       token: deps.getToken,
       workspace_id: deps.workspaceId,
       project_id: projectIdValue,
-      scope: { taskId: prefs.taskId, candidateId: prefs.candidateId, attemptId: prefs.attemptId },
+      scope: { taskId: prefs.taskId, candidateId: prefs.candidateId, attemptId: prefs.attemptId, contextId: pendingPacketId, paneId: deps.paneId },
+      lane: { busy: laneState.agent_busy || laneState.job_busy, unknown: laneState.unknown },
       onScopeChange: (next) => {
         if (applyingScope || disposed) return;
         const attemptChanged = (next.attemptId ?? null) !== (prefs.attemptId ?? null);
+        pendingPacketId = next.contextId ?? pendingPacketId;
         prefs = { ...prefs, candidateId: next.candidateId, attemptId: next.attemptId };
         deps.onPrefs({ candidateId: next.candidateId, attemptId: next.attemptId });
         syncTopSelects();
@@ -701,12 +725,14 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
       const row = el('label', 'pane-workbench-excerpt');
       const checkbox = el('input');
       checkbox.type = 'checkbox';
+      checkbox.dataset.messageId = message.id;
       checkbox.setAttribute('aria-label', `Include ${message.role} excerpt`);
       const text = el('span', 'pane-workbench-excerpt-text', short(message.text.replace(/\s+/g, ' ')));
       const size = el('small', '', `${message.role} · ${bytesOf(message.text)} bytes`);
       checkbox.addEventListener('change', () => {
         if (checkbox.checked) selected.add(message.id);
         else selected.delete(message.id);
+        invalidateExcerptPreview();
         updateExcerptCount();
       });
       row.append(checkbox, text, size);
@@ -750,14 +776,28 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
     }
   }
 
-  async function buildPayload() {
+  function updateActionGating() {
+    // Capture requires the exact previewed packet; create task requires the exact
+    // previewed task payload and no unresolved ambiguous create outcome.
+    capture.disabled = !excerptPreview;
+    createTask.disabled = !taskPreviewCache || taskCreatePending;
+  }
+  function invalidateExcerptPreview() { excerptPreview = null; updateActionGating(); }
+  function invalidateTaskPreview() { taskPreviewCache = null; updateActionGating(); }
+  const excerptKey = (capture: Data, question: string) => JSON.stringify({ capture, question });
+
+  // Exact wire payload. The strict conversation source allows only
+  // {role,text,sha256} per excerpt — no client-side id or extra field.
+  async function buildCapturePayload(): Promise<Data> {
     const list = boundedExcerpts();
     if (!list.length) throw Error('Select at least one excerpt or compose a task.');
-    const excerpts: ConversationExcerpt[] = [];
-    for (const item of list) excerpts.push({ id: item.id, role: item.role, text: item.text, sha256: await sha256Hex(item.text) });
+    const question = composer.value.trim();
+    if (!question) throw Error('Enter the task or question statement.');
+    const excerpts: { role: 'user' | 'assistant'; text: string; sha256: string }[] = [];
+    for (const item of list) excerpts.push({ role: item.role, text: item.text, sha256: await sha256Hex(item.text) });
     const binding = deps.binding();
     return {
-      kind: 'conversation' as const,
+      kind: 'conversation',
       pane_id: deps.paneId,
       profile_id: binding.profileId,
       session_id: binding.sessionId,
@@ -768,33 +808,47 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
 
   async function renderPreview() {
     error.textContent = '';
+    invalidateExcerptPreview();
     try {
-      const payload = await buildPayload();
-      preview.textContent = JSON.stringify(payload, null, 2);
-      previewBytes.textContent = `${bytesOf(JSON.stringify(payload))} bytes · hashes computed client-side; no capture performed.`;
+      const capture = await buildCapturePayload();
+      const question = composer.value.trim();
+      excerptPreview = { capture, key: excerptKey(capture, question) };
+      const packet = { action: 'packet', workspace_id: deps.workspaceId, project_id: projectId, context_ids: ['<captured context id>'], question };
+      preview.textContent = `${JSON.stringify(capture, null, 2)}\n\n// packet request (context id filled from the just-captured snapshot)\n${JSON.stringify(packet, null, 2)}`;
+      previewBytes.textContent = `${bytesOf(JSON.stringify(capture))} bytes · hashes computed client-side; the reviewed bytes are frozen until an input, project or binding changes.`;
     } catch (reason) {
       preview.textContent = 'Preview unavailable.';
       previewBytes.textContent = '';
       error.textContent = reason instanceof Error ? reason.message : 'unavailable';
     }
+    updateActionGating();
   }
 
   async function captureExcerpts() {
     error.textContent = '';
-    status.textContent = 'Capturing the exact previewed conversation excerpts…';
+    if (!excerptPreview) { error.textContent = 'Preview the selected context packet first.'; return; }
+    status.textContent = 'Capturing the exact previewed selected excerpts…';
     try {
-      const payload = await buildPayload();
-      // Exact lead-owned contract: source.kind='conversation' with the live
-      // binding revalidated and each excerpt re-hashed server-side. This never
-      // inherits the whole conversation and never starts a worker.
-      const snapshot = await owner('/api/workbench/context', { action: 'capture', workspace_id: deps.workspaceId, project_id: projectId, source: payload });
-      const context = (snapshot.context ?? {}) as Data;
-      status.textContent = `Captured conversation snapshot ${context.id ?? '(recorded)'} · ${context.snapshot?.hash ?? ''}. Select it in Task authority and bind it to a task/attempt; nothing was sent to a model.`;
-      // Surface the new packet in the mounted authority controls (read-only refresh).
+      const current = await buildCapturePayload();
+      if (excerptKey(current, composer.value.trim()) !== excerptPreview.key) { invalidateExcerptPreview(); throw Error('Selection changed; preview again before capturing.'); }
+      const capturePayload = excerptPreview.capture;
+      // 1) Exact conversation snapshot (strict {role,text,sha256} excerpts only;
+      //    never the whole conversation, no model request).
+      const captured = ((await owner('/api/workbench/context', { action: 'capture', workspace_id: deps.workspaceId, project_id: projectId, source: capturePayload })).context ?? {}) as Data;
+      const capturedId = typeof captured.id === 'string' ? captured.id : '';
+      if (!capturedId) throw Error('unavailable');
+      // 2) Freeze the captured snapshot into a packet selectable in Task authority.
+      const packetReply = await owner('/api/workbench/context', { action: 'packet', workspace_id: deps.workspaceId, project_id: projectId, context_ids: [capturedId], question: composer.value.trim() });
+      const packet = (packetReply.context ?? {}) as Data;
+      pendingPacketId = typeof packet.id === 'string' ? packet.id : null;
+      pushScope();
       await authorityMount?.refresh?.();
-      renderPreview();
+      status.textContent = `Captured context packet ${pendingPacketId ?? '(recorded)'} from ${(capturePayload.excerpts as unknown[]).length} selected excerpt(s). It is selectable in Task authority; the task is not yet bound and nothing was sent to a model.`;
+      // Require a fresh preview before another capture (never silently duplicate).
+      invalidateExcerptPreview();
+      renderHandoff();
     } catch (reason) {
-      status.textContent = 'Conversation context capture unavailable.';
+      status.textContent = 'Context packet capture unavailable.';
       fail(reason);
     }
   }
@@ -824,27 +878,52 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
 
   function renderTaskPreview() {
     error.textContent = '';
+    invalidateTaskPreview();
     try {
-      taskPreview.textContent = JSON.stringify(taskPayload(), null, 2);
+      const payload = taskPayload();
+      taskPreviewCache = { payload, key: JSON.stringify(payload) };
+      taskPreview.textContent = JSON.stringify(payload, null, 2);
     } catch (reason) {
       taskPreview.textContent = reason instanceof Error ? reason.message : 'unavailable';
     }
+    updateActionGating();
   }
 
   async function createTaskNow() {
     error.textContent = '';
+    if (!taskPreviewCache) { error.textContent = 'Preview the task (title, acceptance, check definition) first.'; return; }
+    if (taskCreatePending) { error.textContent = 'A previous task creation outcome is unknown. Refresh and select the existing task; do not resend.'; return; }
+    const payload = taskPayload();
+    if (JSON.stringify(payload) !== taskPreviewCache.key) { invalidateTaskPreview(); error.textContent = 'Task fields changed; preview again before creating.'; return; }
     status.textContent = 'Creating the previewed task…';
     try {
-      const payload = taskPayload();
-      const result = await owner('/api/workbench/execution', payload);
+      const result = await owner('/api/workbench/execution', taskPreviewCache.payload);
       const task = (result.task ?? {}) as Data;
-      status.textContent = `Created task ${task.id ?? '(recorded)'} with the previewed acceptance and check definition. Capture excerpts, then bind the packet/candidate in Task authority.`;
-      // Refresh selectors and remount-dependent controls without starting work.
+      if (typeof task.id === 'string' && task.id) {
+        prefs = { ...prefs, taskId: task.id };
+        deps.onPrefs({ taskId: task.id });
+        syncTopSelects();
+        pushScope();
+      }
+      invalidateTaskPreview();
+      status.textContent = `Created task ${task.id ?? '(recorded)'} with the previewed acceptance and check definition. Select it and capture its context packet.`;
       await load();
+      syncTopSelects();
     } catch (reason) {
-      status.textContent = 'Task creation unavailable.';
-      fail(reason);
+      const code = (reason as { code?: string } | undefined)?.code;
+      if (!code) {
+        // Ambiguous network outcome; task_create has no operation id. Never
+        // auto-retry — require an explicit refresh and selection of the task.
+        taskCreatePending = true;
+        invalidateTaskPreview();
+        error.textContent = 'Ambiguous task creation outcome — manual reconciliation required.';
+        status.textContent = 'Task creation outcome unknown. Refresh and select the existing task explicitly; do not resend.';
+      } else {
+        status.textContent = 'Task creation refused.';
+        fail(reason);
+      }
     }
+    updateActionGating();
   }
 
   projectSelect.addEventListener('change', () => {
@@ -852,6 +931,9 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
     deps.onPrefs({ projectId: next, taskId: null, candidateId: null, attemptId: null, grantId: null, resultId: null, reviewId: null });
     prefs = { ...prefs, projectId: next, taskId: null, candidateId: null, attemptId: null, grantId: null, resultId: null, reviewId: null };
     latestSnapshot = null;
+    pendingPacketId = null;
+    invalidateExcerptPreview();
+    invalidateTaskPreview();
     // The Workbench instance is bound to the selected project/attempt, so a
     // deliberate scope change clears only this instance's history.
     deps.timeline.reset();
@@ -891,7 +973,13 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
   const onConnected = () => { if (!disposed) void load(); };
   window.addEventListener('orbit-host-connected', onConnected);
 
+  composer.addEventListener('input', () => { invalidateExcerptPreview(); updateExcerptCount(); });
+  taskTitle.addEventListener('input', invalidateTaskPreview);
+  taskAcceptance.addEventListener('input', invalidateTaskPreview);
+  definitionSelect.addEventListener('change', invalidateTaskPreview);
+
   renderHandoff();
+  updateActionGating();
 
   return {
     refresh: () => load(),
@@ -906,12 +994,40 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
       disposePanels();
       stopLive();
       latestSnapshot = null;
+      pendingPacketId = null;
+      invalidateExcerptPreview();
+      invalidateTaskPreview();
       deps.timeline.reset();
       renderHandoff();
       void load();
     },
     liveSlot: () => liveSlotEl,
     openLiveReference,
+    // Read-only entry from Normal mode: open and focus the handoff preview. It
+    // copies the supplied statement in memory and may pre-check selected messages,
+    // but never captures or creates anything; the owner must preview and confirm.
+    openHandoff(options?: { statement?: string; messageIds?: readonly string[] }) {
+      if (disposed) return;
+      setup.open = true;
+      handoff.open = true;
+      if (typeof options?.statement === 'string') {
+        composer.value = options.statement.slice(0, 8000);
+        invalidateExcerptPreview();
+      }
+      if (Array.isArray(options?.messageIds) && options.messageIds.length) {
+        renderHandoff();
+        const wanted = new Set(options.messageIds);
+        for (const node of Array.from(handoffList.querySelectorAll<HTMLInputElement>('input[type=checkbox][data-message-id]'))) {
+          if (wanted.has(node.dataset.messageId ?? '')) {
+            node.checked = true;
+            selected.add(node.dataset.messageId ?? '');
+          }
+        }
+      }
+      updateExcerptCount();
+      handoff.scrollIntoView({ block: 'nearest' });
+      composer.focus();
+    },
     dispose() {
       disposed = true;
       epoch++;
