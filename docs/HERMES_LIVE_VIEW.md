@@ -9,6 +9,20 @@ context snapshot and separately approved native grant. The pane provides two
 views of those independent contexts. Selecting a view neither authorizes nor
 starts execution, and does not merge worker messages into Normal ChatState.
 
+## Separate Normal and Workbench windows
+
+Use **Open Workbench window** beside the Normal composer to create an independent
+Workbench window while keeping Normal chat open. The windows have distinct pane
+and conversation identities; opening one copies no messages, draft, context,
+candidate or grant and starts no inference. Repeating the action focuses the
+paired window. **Open Normal chat window** in Workbench returns to the paired
+Normal window, or creates a fresh one if it no longer exists.
+
+The Start menu and Hermes menu also offer **New Workbench window**. Window layout
+uses normal workspace persistence; mode and opaque pairing IDs are browser-local
+preferences. The two windows still respect the shared execution lane, and context
+handoff remains explicit. Existing in-pane mode controls remain available.
+
 ## What the timeline means
 
 | Label | Meaning | Verification? |
