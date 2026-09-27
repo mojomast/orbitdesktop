@@ -72,6 +72,7 @@ export function createLiveTimeline(options:{storageKey:string;onOpenReference?:(
   function updateRow(state:RowState,item:LiveItem){
     state.node.dataset.status=item.status;state.node.dataset.authority=item.authority;state.badge.className=`alt-authority alt-${item.authority}`;state.badge.textContent=authorityLabel[item.authority];
     state.icon.textContent=statusIcon[item.status];state.status.textContent=item.status;state.kind.textContent=item.kind;state.summary.textContent=item.summary;
+    if(item.sequence!==undefined&&item.status==='unknown')state.summary.textContent+=' · Execution will not be replayed automatically';
     if(item.authority==='recorder'){
       const number=(name:string)=>item.fields?.find(field=>field.label===name&&typeof field.value==='number')?.value;
       const tests=number('tests'),passed=number('passed'),required=number('required_files'),covered=number('covered_files'),skipped=number('skipped');

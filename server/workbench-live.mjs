@@ -233,13 +233,13 @@ function summaryFor(kind,record){
     case 'grants':return `Native grant ${short(record.status,80)||'unknown'}`;
     case 'toolcalls':return `Tool ${short(record.action,80)||'call'}`;
     case 'candidates':return `Candidate generation ${record.generation??'?'}`;
-    case 'jobs':return `Check ${short(record.definition_id,80)||record.id}`;
+    case 'jobs':return `Check ${short(record.definition_id,80)||record.id} · ${String(short(record.status,80)||'unknown').replaceAll('_',' ')}`;
     case 'evidence':return `Recorded evidence ${short(record.verdict,80)||'unknown'}`;
     case 'reviews':return `Human review ${short(record.decision,80)||'recorded'}`;
     case 'results':return `Task result ${short(record.availability,80)||'pending'}`;
     case 'cards':return `Conversation card ${record.id}`;
     case 'contexts':return `Captured context ${record.id}`;
-    case 'patches':return `Private patch ${short(record.status,80)||'recorded'}`;
+    case 'patches':return `Private patch ${short(record.status,80)||'recorded'}${record.verification?.status?` · verification ${short(record.verification.status,80)}`:''}`;
     case 'integrations':return `Integration ${short(record.status,80)||'recorded'}`;
     case 'annotations':return `Annotation ${short(record.kind,80)||'recorded'}`;
     default:return `${KIND_LABEL[kind]??kind} ${short(record.status,80)||record.id}`;
