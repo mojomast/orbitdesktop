@@ -84,7 +84,7 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
   // Immutable previews. Capture/create submit only the exact previewed payload;
   // any input, project or binding change invalidates them. No whole-conversation
   // text is ever cached — only the explicitly selected excerpts.
-  let excerptPreview: { capture: Data; key: string } | null = null;
+  let excerptPreview: { request: Data; question: string; key: string } | null = null;
   let taskPreviewCache: { payload: Data; key: string } | null = null;
   let taskCreatePending = false; // ambiguous create outcome: manual reconcile only
   let pendingPacketId: string | null = null;
@@ -565,6 +565,8 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
         pendingPacketId = next.contextId ?? pendingPacketId;
         prefs = { ...prefs, candidateId: next.candidateId, attemptId: next.attemptId };
         deps.onPrefs({ candidateId: next.candidateId, attemptId: next.attemptId });
+        // A capture preview is bound to one attempt; changing it clears the preview.
+        if (attemptChanged) invalidateExcerptPreview();
         syncTopSelects();
         renderHeader();
         if (attemptChanged) startLive();
@@ -797,45 +799,62 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
   }
 
   function updateActionGating() {
-    // Capture requires the exact previewed packet; create task requires the exact
-    // previewed task payload and no unresolved ambiguous create outcome.
-    capture.disabled = !excerptPreview;
+    // Capture requires an explicitly selected bound attempt AND the exact
+    // previewed packet (which itself freezes that attempt id). Task creation only
+    // needs the previewed task payload.
+    capture.disabled = !excerptPreview || !prefs.attemptId;
+    capture.title = !prefs.attemptId
+      ? 'Create and select a bound attempt in Task authority before capturing the context packet.'
+      : 'Freeze exactly the previewed selected excerpts into a packet selectable in Task Authority';
     createTask.disabled = !taskPreviewCache || taskCreatePending;
   }
   function invalidateExcerptPreview() { excerptPreview = null; updateActionGating(); }
   function invalidateTaskPreview() { taskPreviewCache = null; updateActionGating(); }
-  const excerptKey = (capture: Data, question: string) => JSON.stringify({ capture, question });
+  const excerptKey = (request: Data, question: string) => JSON.stringify({ request, question });
 
-  // Exact wire payload. The strict conversation source allows only
-  // {role,text,sha256} per excerpt — no client-side id or extra field.
-  async function buildCapturePayload(): Promise<Data> {
+  // Exact wire requests. The strict conversation source allows only
+  // {role,text,sha256} per excerpt (no client id); the bound attempt id travels as
+  // the top-level capture/packet field so the server can require
+  // context.attempt_id === attempt.id. A bound attempt is mandatory.
+  async function buildCaptureRequest(requireAttempt: boolean): Promise<{ request: Data; question: string; attemptId: string | null }> {
     const list = boundedExcerpts();
     if (!list.length) throw Error('Select at least one excerpt or compose a task.');
     const question = composer.value.trim();
     if (!question) throw Error('Enter the task or question statement.');
+    const attemptId = prefs.attemptId;
+    if (requireAttempt && !attemptId) throw Error('Create and select a bound attempt in Task Authority before capturing the context packet.');
     const excerpts: { role: 'user' | 'assistant'; text: string; sha256: string }[] = [];
     for (const item of list) excerpts.push({ role: item.role, text: item.text, sha256: await sha256Hex(item.text) });
     const binding = deps.binding();
-    return {
-      kind: 'conversation',
-      pane_id: deps.paneId,
-      profile_id: binding.profileId,
-      session_id: binding.sessionId,
-      expected_binding_revision: binding.bindingRevision,
-      excerpts,
+    // Preview is allowed before an attempt exists, but the capture request only
+    // carries attempt_id once a bound attempt is explicitly selected; the server
+    // then requires context.attempt_id === attempt.id.
+    const request: Data = {
+      action: 'capture',
+      workspace_id: deps.workspaceId,
+      project_id: projectId,
+      ...(attemptId ? { attempt_id: attemptId } : {}),
+      source: {
+        kind: 'conversation',
+        pane_id: deps.paneId,
+        profile_id: binding.profileId,
+        session_id: binding.sessionId,
+        expected_binding_revision: binding.bindingRevision,
+        excerpts,
+      },
     };
+    return { request, question, attemptId: attemptId ?? null };
   }
 
   async function renderPreview() {
     error.textContent = '';
     invalidateExcerptPreview();
     try {
-      const capture = await buildCapturePayload();
-      const question = composer.value.trim();
-      excerptPreview = { capture, key: excerptKey(capture, question) };
-      const packet = { action: 'packet', workspace_id: deps.workspaceId, project_id: projectId, context_ids: ['<captured context id>'], question };
-      preview.textContent = `${JSON.stringify(capture, null, 2)}\n\n// packet request (context id filled from the just-captured snapshot)\n${JSON.stringify(packet, null, 2)}`;
-      previewBytes.textContent = `${bytesOf(JSON.stringify(capture))} bytes · hashes computed client-side; the reviewed bytes are frozen until an input, project or binding changes.`;
+      const built = await buildCaptureRequest(false);
+      excerptPreview = { request: built.request, question: built.question, key: excerptKey(built.request, built.question) };
+      const packet = { action: 'packet', workspace_id: deps.workspaceId, project_id: projectId, context_ids: ['<captured context id>'], question: built.question, ...(built.attemptId ? { attempt_id: built.attemptId } : { attempt_id: '<create and select a bound attempt before capture>' }) };
+      preview.textContent = `${JSON.stringify(built.request, null, 2)}\n\n// packet request (context id filled from the just-captured snapshot)\n${JSON.stringify(packet, null, 2)}`;
+      previewBytes.textContent = `${bytesOf(JSON.stringify(built.request))} bytes · ${built.attemptId ? `bound attempt ${built.attemptId}` : 'no bound attempt selected: capture stays disabled until you create and select one'} · hashes computed client-side; the reviewed bytes are frozen until an input, attempt, project or binding changes.`;
     } catch (reason) {
       preview.textContent = 'Preview unavailable.';
       previewBytes.textContent = '';
@@ -846,24 +865,27 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
 
   async function captureExcerpts() {
     error.textContent = '';
+    if (!prefs.attemptId) { error.textContent = 'Create and select a bound attempt in Task Authority before capturing the context packet.'; renderHandoff(); return; }
     if (!excerptPreview) { error.textContent = 'Preview the selected context packet first.'; return; }
     status.textContent = 'Capturing the exact previewed selected excerpts…';
     try {
-      const current = await buildCapturePayload();
-      if (excerptKey(current, composer.value.trim()) !== excerptPreview.key) { invalidateExcerptPreview(); throw Error('Selection changed; preview again before capturing.'); }
-      const capturePayload = excerptPreview.capture;
-      // 1) Exact conversation snapshot (strict {role,text,sha256} excerpts only;
-      //    never the whole conversation, no model request).
-      const captured = ((await owner('/api/workbench/context', { action: 'capture', workspace_id: deps.workspaceId, project_id: projectId, source: capturePayload })).context ?? {}) as Data;
+      const current = await buildCaptureRequest(true);
+      if (excerptKey(current.request, current.question) !== excerptPreview.key) { invalidateExcerptPreview(); throw Error('Selection, attempt or binding changed; preview again before capturing.'); }
+      const request = excerptPreview.request;
+      const attemptId = String(request.attempt_id);
+      // 1) Exact conversation snapshot (strict {role,text,sha256}; bound to the
+      //    selected attempt; never the whole conversation, no model request).
+      const captured = ((await owner('/api/workbench/context', request)).context ?? {}) as Data;
       const capturedId = typeof captured.id === 'string' ? captured.id : '';
       if (!capturedId) throw Error('unavailable');
-      // 2) Freeze the captured snapshot into a packet selectable in Task authority.
-      const packetReply = await owner('/api/workbench/context', { action: 'packet', workspace_id: deps.workspaceId, project_id: projectId, context_ids: [capturedId], question: composer.value.trim() });
+      // 2) Freeze it into a packet bound to the same attempt, selectable in Task
+      //    Authority. The server validates context.attempt_id === attempt.id.
+      const packetReply = await owner('/api/workbench/context', { action: 'packet', workspace_id: deps.workspaceId, project_id: projectId, context_ids: [capturedId], question: excerptPreview.question, attempt_id: attemptId });
       const packet = (packetReply.context ?? {}) as Data;
       pendingPacketId = typeof packet.id === 'string' ? packet.id : null;
       pushScope();
       await authorityMount?.refresh?.();
-      status.textContent = `Captured context packet ${pendingPacketId ?? '(recorded)'} from ${(capturePayload.excerpts as unknown[]).length} selected excerpt(s). It is selectable in Task authority; the task is not yet bound and nothing was sent to a model.`;
+      status.textContent = `Captured context packet ${pendingPacketId ?? '(recorded)'} bound to attempt ${attemptId} from ${((request.source as Data).excerpts as unknown[]).length} selected excerpt(s). Nothing was sent to a model.`;
       // Require a fresh preview before another capture (never silently duplicate).
       invalidateExcerptPreview();
       renderHandoff();
@@ -976,6 +998,9 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
   attemptSelect.addEventListener('change', () => {
     prefs = { ...prefs, attemptId: attemptSelect.value || null };
     deps.onPrefs({ attemptId: prefs.attemptId });
+    // The immutable capture preview is bound to one attempt: any attempt change
+    // invalidates it so a packet can never be captured against another attempt.
+    invalidateExcerptPreview();
     pushScope();
     renderHeader();
     deps.timeline.reset(); // Bound to the attempt; clear only this instance.
