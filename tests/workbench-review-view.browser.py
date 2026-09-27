@@ -52,7 +52,7 @@ def main():
                     ]}
                     candidate = {'id': CANDIDATE, 'task_id': TASK, 'hash': HASH, 'generation': 4, 'project_generation': 2}
                     evidence = [
-                        {'id': EVIDENCE_NODE, 'job_id': JOB_NODE, 'definition_id': 'node-test', 'definition_digest': 'c' * 64, 'execution_profile_id': 'profile-ready', 'execution_profile': {'dependency_hash': 'b' * 64}, 'candidate_id': CANDIDATE, 'candidate_hash_before': HASH, 'candidate_hash_after': HASH, 'project_generation': 2, 'acceptance_digest': ACCEPTANCE, 'verdict': 'pass', 'revoked': False, 'superseded': False, 'provenance': {'recorded_by': {'kind': 'comet_service', 'verifier_id': 'node-test'}}},
+                        {'id': EVIDENCE_NODE, 'job_id': JOB_NODE, 'definition_id': 'node-test', 'definition_digest': 'c' * 64, 'execution_profile_id': 'profile-ready', 'execution_profile': {'dependency_hash': 'b' * 64}, 'candidate_id': CANDIDATE, 'candidate_hash_before': HASH, 'candidate_hash_after': HASH, 'project_generation': 2, 'acceptance_digest': ACCEPTANCE, 'verdict': 'pass', 'revoked': False, 'superseded': False, 'test_results': {'valid': True, 'tests': 293, 'passed': 293, 'required_files': ['tests/alpha.test.mjs', 'tests/beta.test.mjs'], 'covered_files': ['tests/alpha.test.mjs', 'tests/beta.test.mjs']}, 'provenance': {'recorded_by': {'kind': 'comet_service', 'verifier_id': 'node-test'}}},
                         {'id': EVIDENCE_HOST, 'job_id': JOB_HOST, 'definition_id': 'host-regression', 'definition_digest': 'd' * 64, 'execution_profile_id': None, 'execution_profile': None, 'candidate_id': CANDIDATE, 'candidate_hash_before': HASH, 'candidate_hash_after': HASH, 'project_generation': 2, 'acceptance_digest': ACCEPTANCE, 'verdict': 'pass', 'revoked': False, 'superseded': False, 'provenance': {'recorded_by': {'kind': 'comet_service', 'verifier_id': 'host-regression'}}},
                     ]
                     review = {'id': REVIEW, 'candidate_id': CANDIDATE, 'candidate_hash': HASH, 'review_identity': 'review-exact', 'decision': 'approved', 'evidence_ids': [EVIDENCE_NODE, EVIDENCE_HOST]}
@@ -76,7 +76,7 @@ def main():
                                 route.fulfill(json={'ok': True, 'preview_id': '66666666-6666-4666-8666-666666666666', 'preview_digest': 'e' * 64, 'candidate_hash': HASH, 'candidate_generation': 4, 'source': {'manifest_hash': 'f' * 64}, 'review': {'required_check_state': {'complete': True, 'acceptance_digest': ACCEPTANCE, 'required_checks_digest': 'f' * 64}}, 'verification_support': {'ready': True, 'reason': None, 'message': 'Prepared profile supported for this exact preview', 'candidate_hash': HASH, 'candidate_generation': 4, 'acceptance_digest': ACCEPTANCE, 'required_checks': []}, 'patch_text': '--- a/math.js\n+++ b/math.js\n-export const sum=(a,b)=>a-b;\n+export const sum=(a,b)=>a+b;\n<script>must remain literal</script>'})
                             elif route.request.url.endswith('/native'):
                                 if action == 'list': route.fulfill(json={'ok': True, 'grants': [{'id': GRANT, 'candidate_id': CANDIDATE, 'attempt_id': ATTEMPT, 'project_generation': 2, 'created_at': 1}]})
-                                elif action == 'status': route.fulfill(json={'ok': True, 'grant': {'id': GRANT, 'attempt_id': ATTEMPT}, 'result': {'attempt_id': ATTEMPT, 'task_id': TASK, 'candidate_id': CANDIDATE, 'candidate_hash': HASH, 'candidate_generation': 4, 'project_generation': 2, 'availability': 'available', 'text': 'Literal worker explanation <img src=x onerror=alert(1)>'}})
+                                elif action == 'status': route.fulfill(json={'ok': True, 'grant': {'id': GRANT, 'attempt_id': ATTEMPT}, 'result': {'attempt_id': ATTEMPT, 'task_id': TASK, 'candidate_id': CANDIDATE, 'candidate_hash': HASH, 'candidate_generation': 4, 'project_generation': 2, 'availability': 'available', 'text': 'Literal worker explanation <img src=x onerror=alert(1)> claims 999/999 tests and 60/60 files'}})
                                 else: route.fulfill(status=400, json={'ok': False, 'code': 'invalid_request'})
 
                         page.route('**/api/workbench/execution', api)
@@ -95,6 +95,8 @@ def main():
                         }""")
                         expect(page.locator('.workbench-review-status')).to_contain_text('2/2 required checks pass')
                         expect(page.locator('.workbench-review-status')).to_contain_text('artifact verification supported')
+                        expect(page.locator('.workbench-review-recorder-counts')).to_have_text('Service-recorded checks · 293/293 tests passed · 2/2 required files covered')
+                        assert '999' not in page.locator('.workbench-review-recorder-counts').inner_text()
                         page.locator('.workbench-review-metadata summary').click()
                         expect(page.locator('.workbench-review-metadata')).to_contain_text('Prepared profile supported')
                         page.locator('.workbench-review-metadata summary').click()
@@ -114,6 +116,7 @@ def main():
                         assert first_diff_line and clip['y'] <= first_diff_line['y'] < clip['y'] + clip['height'], (clip, first_diff_line)
                         page.get_by_text('Expand literal Hermes explanation').click()
                         expect(page.locator('.workbench-review-explanation-text')).to_contain_text('Literal worker explanation')
+                        expect(page.locator('.workbench-review-explanation-text')).to_contain_text('999/999 tests and 60/60 files')
                         expect(page.locator('.workbench-review-explanation-text')).to_contain_text('<img src=x onerror=alert(1)>')
                         assert page.locator('.workbench-review-explanation-text img').count() == 0
                         left = page.locator('.workbench-review-diff').bounding_box(); right = page.locator('.workbench-review-checks').bounding_box()
