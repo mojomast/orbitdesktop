@@ -162,15 +162,15 @@ jobs:
           for renderer in default docking; do
             /tmp/opencode/orbit-workbench-venv/bin/python tests/workbench-artifact-cancel.browser.py --renderer "$renderer"
           done
-      - name: Upload sanitized synthetic failure screenshot
+      - name: Upload sanitized synthetic failure diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: workbench-failure-screenshot
           if-no-files-found: ignore
           retention-days: 7
-          # Strict allowlist: only fixture-emitted synthetic screenshots
-          # (token masked, readiness errors redacted) under /tmp/opencode.
+          # Strict allowlist: fixture-emitted synthetic screenshots (token
+          # masked) and native fixture logs (safe() redacts secrets).
           path: |
             /tmp/opencode/orbit-project-workbench-default.png
             /tmp/opencode/orbit-project-workbench-docking.png
@@ -182,6 +182,8 @@ jobs:
             /tmp/opencode/orbit-workbench-journey-docking.png
             /tmp/opencode/comet-results-default-error.png
             /tmp/opencode/comet-results-docking-error.png
+            /tmp/opencode/comet-native-browser-default.log
+            /tmp/opencode/comet-native-browser-docking.log
             /tmp/opencode/comet-results-ui-default-error.png
             /tmp/opencode/comet-results-ui-docking-error.png
             /tmp/opencode/comet-recovery-revocation-default-error.png

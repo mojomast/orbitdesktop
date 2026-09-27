@@ -514,7 +514,7 @@ def main(renderer):
                         expect(edit).to_have_value(WRONG)
 
                         step = "prepare offline Node environment via UI"
-                        click_plain(pane, "Refresh task authority")
+                        refresh_authority(pane)
                         expect(pane.get_by_label("Authority candidate").locator("option")).not_to_have_count(0)
                         pane.get_by_label("Authority candidate").select_option(value=candidate["id"])
                         environment_preview = click_text(pane, "Preview offline Node environment", "profile_preview", ENV_ROUTE)
@@ -563,7 +563,7 @@ def main(renderer):
                         expect(pane.locator(".workbench-execution-jobs")).to_contain_text(failed["id"])
 
                         step = "task authority bound attempt via UI"
-                        click_plain(pane, "Refresh task authority")
+                        refresh_authority(pane)
                         expect(pane.get_by_label("Authority candidate").locator("option")).not_to_have_count(0)
                         pane.get_by_label("Authority candidate").select_option(value=candidate["id"])
                         expect(pane.get_by_label("Native agent recipient").locator("option")).not_to_have_count(0)
@@ -613,7 +613,7 @@ def main(renderer):
                         assert last("approve", CONTEXT_ROUTE) is None and last("share", CONTEXT_ROUTE) is None
 
                         step = "native consent via UI and real pinned Hermes run"
-                        click_plain(pane, "Refresh task authority")
+                        refresh_authority(pane)
                         expect(pane.get_by_label("Native task attempt").locator("option")).not_to_have_count(0)
                         pane.get_by_label("Native task attempt").select_option(value=attempt["id"])
                         expect(pane.get_by_label("Native approved context packet").locator("option")).not_to_have_count(0)
