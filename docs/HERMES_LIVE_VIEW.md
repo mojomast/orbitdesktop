@@ -119,3 +119,41 @@ it must not change an authoritative operation's outcome.
 
 Workbench remains **trusted-host execution**, not a filesystem or network
 sandbox. The live view adds observability, not stronger execution isolation.
+
+## Isolated real-provider observation (2026-09-27)
+
+Release `orbit-live-96fede4` was packaged from
+`96fede4cea54bde48ba1ce1748c62d5fbd52c76f` after both CI workflows passed:
+[plugin gate](https://github.com/mojomast/orbitdesktop/actions/runs/36330034644)
+and [Workbench gate](https://github.com/mojomast/orbitdesktop/actions/runs/36330034665).
+The owner separately authorized one DeepSeek `deepseek-flash` attempt, limited
+to 24 calls, 3 checks and 180 seconds, on a disposable RouteTok regression clone
+with a private runtime, copied offline dependency cache and isolated browser.
+
+The one grant completed in **108.837 seconds**, using **7 calls and 1 check**:
+`inspect`, `read_context`, three `candidate_read` calls, `candidate_patch`, and
+`job_start`. Only `src/net-address.ts` changed (candidate generation 2).
+The recorder independently reported **293/293 passed**, **60/60 required files
+covered**, zero skipped tests, and a `pass` verdict. The literal model explanation
+incorrectly claimed 59 required files; it remains separate from recorder truth.
+No measured provider token or cost totals were available.
+
+The acceptance driver switched to Normal during the running grant and verified
+the Normal DOM/session/draft continuity, but stopped on a misleading Workbench
+badge: “1 pending · 1 result(s)” instead of explicit running status. Thus this
+run is **successful task execution, but not a complete live-UI acceptance pass**.
+The subsequent UI correction derives the badge from the selected grant, excludes
+pending receipts from completed-result counts, and keeps conflicting Normal
+dispatch blocked during an unresolved execution. Deterministic tests exercise
+running, requested stop, unknown outcome and completion despite a stale idle lane
+snapshot. These tests do not retroactively turn the real run into a UI pass.
+No replacement model run was dispatched. Subsequent read-only browser inspection
+confirmed durable event replay, visible 293/293 and 60/60 recorder totals, exact
+generation comparison, an available unverified retained tail, separate result
+presentation, and reload with one grant and unchanged call count. A continuously
+observed running-output drawer and real-provider verified export were not
+established by this run; those flows have separate deterministic coverage.
+
+Private evidence and screenshots remain outside Git. Existing owner deployments
+were not changed. The earlier consent-refused setup had zero grants and zero
+worker starts; it did not consume the single real-model authorization.

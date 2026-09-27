@@ -385,10 +385,13 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
     // stale global lane snapshot.
     const running = grantStatus === 'running' || /^(running|started|in_progress|starting)$/.test(runtimeStatus);
     const failed = /fail|error/.test(grantStatus) || /fail/.test(runtimeStatus);
-    const stopped = /stop|cancel|revok|denied|expired/.test(grantStatus);
+    const stopRequested = grantStatus === 'stop_requested';
+    const outcomeUnknown = /^(dispatch_unknown|submission_unknown|outcome_unknown)$/.test(grantStatus);
+    const stopped = /^(stopped|cancelled|revoked|denied|expired)$/.test(grantStatus);
     const waiting = /approved|prepared|dispatching|paused_budget|stop_requested|submission_unknown|dispatch_unknown/.test(grantStatus);
     const globalLaneBusy = laneState.agent_busy || laneState.job_busy;
-    const laneBusy = globalLaneBusy || running || waiting;
+    const executionUnresolved = running || stopRequested || outcomeUnknown || grantStatus === 'starting';
+    const laneBusy = globalLaneBusy || executionUnresolved;
     // A pending receipt is NOT a completed result. Count available results only
     // for the selected scope; fall back to the server count solely when the scope
     // exposes no result record.
@@ -403,7 +406,8 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
     const pending = running ? 1
       : waiting ? Math.max(1, activeGrants + activeJobs)
       : (snapshot ? activeGrants + activeJobs : cachedPending) + (resultAvailability === 'pending' ? 1 : 0);
-    const stateLabel = laneState.unknown ? 'Execution outcome unknown'
+    const stateLabel = laneState.unknown || outcomeUnknown ? 'Execution outcome unknown'
+      : stopRequested ? 'Stop requested'
       : failed ? 'Failed'
       : stopped ? 'Stopped'
       : running ? 'Running'
@@ -416,7 +420,7 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
     // Report a busy lane while this pane's selected grant is live so a hidden
     // Normal view never enables Send against a real run even if the global lane
     // snapshot is momentarily stale.
-    deps.onLane({ agent_busy: laneState.agent_busy || running || waiting, job_busy: laneState.job_busy, unknown: laneState.unknown });
+    deps.onLane({ agent_busy: laneState.agent_busy || executionUnresolved, job_busy: laneState.job_busy, unknown: laneState.unknown || outcomeUnknown });
   }
   let cardCache: Data[] = [];
   let laneState: { agent_busy: boolean; job_busy: boolean; unknown: boolean } = { agent_busy: false, job_busy: false, unknown: true };

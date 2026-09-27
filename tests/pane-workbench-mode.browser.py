@@ -523,6 +523,15 @@ def main(renderer):
                     send_while_running = pane_locator.get_by_role("button", name="Send message to Hermes", exact=True)
                     expect(send_while_running).to_be_disabled(timeout=15000)
 
+                    live_state.update({"grant_status": "stop_requested", "runtime_status": "running"})
+                    expect(wb_button).to_contain_text("Stop requested", timeout=20000)
+                    assert "Stopped" not in wb_button.inner_text()
+                    expect(send_while_running).to_be_disabled()
+
+                    live_state.update({"grant_status": "dispatch_unknown", "runtime_status": "unknown"})
+                    expect(wb_button).to_contain_text("Execution outcome unknown", timeout=20000)
+                    expect(send_while_running).to_be_disabled()
+
                     live_state.update({"grant_status": "completed", "runtime_status": "exited", "availability": "available"})
                     expect(wb_button).to_contain_text("result", timeout=20000)
                     assert "Running" not in wb_button.inner_text(), wb_button.inner_text()

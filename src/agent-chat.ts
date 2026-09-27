@@ -516,7 +516,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     // Prefer the explicit Workbench state (Running/Waiting/Failed/Stopped/
     // Result pending/counts). Only fall back to the lane wording when no specific
     // state is known, so a live run is never shown as a generic "Lane busy".
-    const definiteWorkbench = ['Running', 'Waiting', 'Failed', 'Stopped', 'Result pending', 'Execution outcome unknown'];
+    const definiteWorkbench = ['Running', 'Waiting', 'Failed', 'Stop requested', 'Stopped', 'Result pending', 'Execution outcome unknown'];
     const explicitWorkbench = definiteWorkbench.includes(workbenchBadge.status) ? workbenchBadge.status : '';
     const workbenchLabel = explicitWorkbench
       || (laneUnknown ? 'Execution outcome unknown' : (workbenchBadge.laneBusy || workbenchLaneActive ? 'Lane busy' : (workbenchBadge.status || 'Idle')));
