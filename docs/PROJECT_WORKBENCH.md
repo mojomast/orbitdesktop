@@ -175,11 +175,16 @@ owner action and does not authorize modifying or merging into the original tree.
 | Native worker explanation | Bounded public Hermes `final_response` over a separate versioned channel; durable owner-scoped receipt, typed unavailable states, DB-only recovery; never inferred from stdout or a completion marker |
 | Check provenance | Authenticated initiator, approval authority and service recorder are distinct; legacy uncertainty remains explicit; explanation claims cannot change recorded verdicts |
 | Conversation result delivery | Explicit owner action creates a host-authored, recipient-bound card outside chat history; no model request; retained cards survive reload subject to current scope and retention |
+| Per-pane Normal / Workbench views | Persistent presentation preference in both renderers; independent conversation and supervised-worker timelines; view switches preserve DOM/session/draft and grant identity without dispatching inference |
+| Conversation task handoff | Explicit frozen preview of selected excerpts and task statement; private snapshot and selectable context packet; binding/hash revalidation; no automatic whole-conversation disclosure |
+| Private live activity | Owner-authenticated fetch-SSE, bounded sidecar projection, monotonic cursors and retained replay; incomplete history labelled; observability never authorizes execution |
+| Live output and exact references | Focused inode-pinned bounded job tail is unverified; retained generation/hash comparisons, structured recorder counts, human review and artifact verification remain distinct |
+| Shared lane and hidden activity | Server-derived busy/unknown state blocks conflicting immediate dispatch; drafts and read-only inspection remain available; no automatic cross-mode queue or replay |
 | Recorded result references | Only same-scope, server-resolved evidence links; exact retained candidate versions are read by generation/hash, with no substitution of newer content |
 | Context tray / model disclosure | One-shot recipient-bound review/approval, durable immutable requests and receipts; terminal observe leases are not model-sharing consent |
 | Candidate patches / managed jobs / evidence / review | Owner-approved private candidate, expected-hash edits, serial tracked checks, recorder evidence, exact-candidate human decision |
 | Linked worktrees | Explicit owner-reviewed visible root, worktree Git directory and common directory; relationships revalidated; private read-only metadata copy |
-| Native agent tools | Dedicated pinned Hermes process, private authenticated attempt channel, existing candidate/check providers; local model endpoint configuration required |
+| Native agent tools | Dedicated pinned Hermes process, private authenticated attempt channel and existing candidate/check providers; validated local endpoint or the specifically authorized DeepSeek endpoint/model, never arbitrary providers |
 | Dependency-bearing Node projects | Approved offline lockfile-v3/local-tarball preparation, lifecycle scripts disabled, private copied dependencies; no arbitrary package command or online install |
 | Required check aggregation | Versioned complete set; latest matching structured results for exact candidate/profile; acceptance revision explicitly approved |
 | Integration | Explicit independent private two-commit repository/branch; in-place original integration unavailable |
@@ -189,7 +194,7 @@ owner action and does not authorize modifying or merging into the original tree.
 | Investigate / Implement recipes | Explicit role-prioritized window-order preview/apply and revision-checked return |
 | Review arrangement | Explicit measured-viewport preview/apply for the project-bound trusted Review window; updates its frame and Docking float placement, preserving unrelated placements; Return restores the prior arrangement only at the exact applied revision |
 | Actual Hermes / simulated model | Pinned runtime/plugin/private bridge/provider journey tested; model-protocol fixture does not establish model reasoning |
-| Real-model and live deployment gates | Product-model evaluation is explicitly **unrun by user choice**; owner deployment remains separately unauthorized |
+| Real-model and live deployment gates | The separately authorized isolated RouteTok repair/export passed; live-view acceptance is a separate exact-release gate. Existing owner deployments are not implicitly upgraded. See [real-project evidence](REAL_PROJECT_EVALUATION.md) |
 
 Current verification, remaining scope limits and release gates are tracked in
 [WORKBENCH_AGENT_LOOP_LEDGER.md](WORKBENCH_AGENT_LOOP_LEDGER.md). Source completion,
