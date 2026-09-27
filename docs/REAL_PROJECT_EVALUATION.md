@@ -1,6 +1,10 @@
 # Real Project Trial + Reliability Evaluation
 
-## Follow-up: dependency-aware artifact verification (in progress)
+## Follow-up: dependency-aware artifact verification — PASS
+
+Acceptance completed **2026-09-27 UTC**. The dependency-bearing workflow now
+passes end to end, including a **new real DeepSeek repair**, independent artifact
+verification, authenticated patch download and fresh-base application/retest.
 
 The original blocked result below remains historical. Its failed export receipt
 has not been changed or retried by development tooling.
@@ -24,8 +28,11 @@ skips were the separately gated release-launch test and historical exact-release
 failure reproduction (already observed separately). The release-launch test then
 passed with `RELEASE_INSTANCE=1`. Both-renderer Gate 2 browser
 journeys, focused readiness/recorder UI tests, Python/plugin tests and portable
-archive parity passed. Final GitHub CI and the separately authorized isolated
-real-model trial remain pending.
+archive parity passed. Both workflows concluded success for implementation commit
+`2a1b06a426596f144d1cfb4157760ff2e8ca6072` before its separately authorized
+isolated deployment:
+[Workbench/browser CI](https://github.com/mojomast/orbitdesktop/actions/runs/36289960658)
+and [Plugin CI](https://github.com/mojomast/orbitdesktop/actions/runs/36289960768).
 
 The first follow-up CI candidate (`6bff09b`) passed plugin CI and the new
 dependency-export regression, but its older RouteTok profile regression timed out
@@ -33,6 +40,104 @@ with exit 124 and incomplete structured results under concurrent test-file
 execution. That failure remains recorded in run `36288109665`. Node test files
 are now serialized to avoid competing heavyweight RouteTok suites; production
 check deadlines and acceptance semantics were not relaxed.
+
+The next candidate (`6ef4b1b`) passed the Node gate but exposed a native browser
+fixture race: it clicked Create bound attempt while authority refresh was still
+busy. Waiting for the existing explicit refresh completion fixed it; both native
+renderer journeys passed locally. The final Workbench run initially hit a
+30-second linked-worktree Docking page-reload timeout. The same fixture passed
+locally and the unchanged-commit CI rerun passed. These failures were not treated
+as passing results or erased. Sanitized native fixture logs are now retained on
+CI failure.
+
+### New isolated real-model acceptance
+
+The existing `orbitdesktop-docking-test.service` was not stopped, reconfigured or
+updated. The owner separately authorized a new disposable deployment and reuse
+of the configured DeepSeek credential after the gates passed.
+
+| Item | Observed |
+| --- | --- |
+| Release | `orbit-export-2a1b06a` |
+| Instance | `orbit-export-acceptance.service`, loopback `http://127.0.0.1:57447/` |
+| Runtime | `/tmp/opencode/orbit-export-acceptance/runtime`, fresh schema 8 |
+| Manifest | `c86f42271a2951a6edd978b5dab547efdf2dd33f0431e9941770787afd17014b` |
+| Build | `d1dd3ac521b0cdbf8629effa756c8bd9ce127c56d89a5ba3f62204fdd4c6795b` |
+| Repository base | Same disposable regression base `7e3a1fb024d62fcb0e2bfc994b7db3185bd41fac`, cloned without hardlinks |
+| Task | `d49f7ae9-73ea-4647-9f3f-7ae0c3caf2ca` |
+| Native attempt | `32b132ea-21c1-4d58-9dca-b1c35317b7ad` |
+| Grant | `266e6372-9639-4a05-9e91-f3a58805b662` |
+| Candidate | `83a82241-9280-4495-bb82-d33a5f5ff4f6` |
+| Review | `c643b2e3-2baa-43bb-97ed-709ca2205ddb` |
+| Patch artifact | `4c04fcfb-551b-483e-af61-ad2ac55b63d2` |
+| Artifact verification | `9a915378-a8ee-4aa1-9b74-69198d1d499b` |
+| Execution profile | `b8586888-6c00-4811-b506-fcd257fbb138`, version 1 |
+
+The normal UI registered the project, created the candidate, approved/prepared
+the offline environment, froze required checks and recorded the failing baseline.
+It then previewed/approved fresh native consent and started one actual pinned
+Hermes worker using hosted `deepseek-flash`. No deterministic repair fixture or
+manual repair was supplied to this attempt.
+
+| Stage | Recorder/independent result |
+| --- | --- |
+| Baseline | 293 tests: 289 pass, 4 fail, zero skips |
+| Model repair | 11 tool calls, 1 edit, 1 managed check; approximately 100 seconds from grant creation to completion |
+| Candidate verification | 293/293 pass, 60/60 required files, zero failed/skipped/todo |
+| Review and preview | Source inspected; explicit UI approval; server verification support Ready |
+| Fresh artifact verification | 293/293 pass, 60/60 required files, zero failed/skipped/todo |
+| Download | Patch bytes SHA-256 equals available receipt SHA-256 |
+| Fresh exact-base application | Git apply succeeded; every source file hash and executable mode equals the reviewed manifest |
+| Independent retest | Offline locked install with scripts disabled, then normal `npm test`: 293/293 pass |
+| Reload | Same jobs/reviews and native tool-call records; no replay |
+
+Only `src/net-address.ts` changed. Final reviewed candidate SHA-256:
+`f0b6a8991c0a56ade4ba528becf7de985f7c52ccdebd000cc895a57d1bd971ea`.
+Downloaded patch SHA-256:
+`88b071eb3734b4ed39b4706d0463584ef4b6897992594b1c5517a66b878d7a39`.
+Approved dependency tree SHA-256:
+`80ffa5a973b6b93bb7695e01c43a4ce394e7b45c0420f66942b183e9521408b5`.
+Toolchain identity:
+`1fb7cc8577bcbed61fdd5d18d885e108633c1c70908df5679680e6ff33c9e861`.
+The lock remains `2072045378d8d279ba288daeb183061b6bfa3a7eb667d1d22866110a76b4eef1`.
+
+Artifact evidence records the exact pinned profile separately from candidate-job
+evidence. Its acceptance digest matches the reviewed candidate evidence; its
+before/after source hashes equal the reviewed candidate and its dependency
+observations equal the approved dependency identity. Artifact execution creates
+no candidate job: the runtime retains only the failed baseline and passing
+candidate jobs plus the distinct artifact-verification receipt.
+
+The model correctly described the defect and its one-file repair, but again
+claimed **59** covered files. The recorder says **60**. The literal explanation
+was retained unchanged; the trusted Review pane's service-recorded test/file
+summary makes that discrepancy visible. No separate type-check was run or
+implied. Tokens, provider request totals and monetary costs remain unknown.
+
+### Setup friction and retained boundaries
+
+Before the model ran, the new instance initially lacked the link needed to
+resolve its declared external Orbit runtime dependencies; activation rolled back
+and the first launch failed closed. The link was supplied and pointer selection
+was explicitly verified before launch. Context preview then refused access
+because the new service configuration omitted the existing Hermes gateway
+authentication. This was corrected in the **new instance only**, while no native
+grants existed; no ambiguous worker was replayed. Private UI-driver indentation
+errors were also corrected before those drivers executed their actions. These
+are operator setup failures, not failed model repairs or successful acceptance
+steps. There were no interventions during the model repair.
+
+The owner checkout, historical disposable RouteTok clone, and newly registered
+source base retain their original HEADs and clean working trees. No repaired
+project was merged, pushed or deployed. The new service was left idle with no
+running/unknown grant or job. Private evidence and downloaded patch are under
+`/tmp/opencode/orbit-export-acceptance/evidence/`; raw transcripts and credentials
+are not in Git. The earlier blocked receipt remains historical and untouched.
+
+This closes the dependency-aware patch handoff milestone. It remains independent
+verifier execution under an approved **trusted-host profile**, not an OS sandbox
+or proof of broad model reliability. The earlier bounded reliability matrix is
+not silently rescored as a new live crash/revocation evaluation.
 
 ## Original evaluation
 
