@@ -1,11 +1,12 @@
 import {button,el} from './dom';
 
 type Json=Record<string,any>;
-type Args={container:HTMLElement;token:string|(()=>string);workspace_id:string;project_id:string;onChanged?:()=>void;onOpenEvidence?:(reference:{evidence_id:string;job_id:string})=>void;onOpenCandidate?:(reference:{candidate_id:string;candidate_hash:string;generation:number})=>void};
+type Args={container:HTMLElement;token:string|(()=>string);workspace_id:string;project_id:string;onChanged?:()=>void;onOpenEvidence?:(reference:{evidence_id:string;job_id:string})=>void;onOpenCandidate?:(reference:{candidate_id:string;candidate_hash:string;generation:number})=>void;scope?:{grantId?:string|null;resultId?:string|null};onScopeChange?:(scope:{grantId:string|null;resultId:string|null})=>void};
 
 /** Owner-facing view of the durable native result; explanation is always literal text. */
-export function mountWorkbenchTaskResult(args:Args):{refresh():Promise<void>;dispose():void}{
+export function mountWorkbenchTaskResult(args:Args):{refresh():Promise<void>;setScope(next:{grantId?:string|null;resultId?:string|null}):void;dispose():void}{
   let disposed=false,busy=false,selectedGrant='',selectedResult='',generation=0,activeRequest:AbortController|null=null;
+  const scope={...(args.scope||{})};
   let knownToken=readToken();
   const deliveryOps=new Map<string,string>();
   const status=el('p','workbench-result-status','Task results: loading…');status.setAttribute('role','status');
@@ -47,6 +48,7 @@ export function mountWorkbenchTaskResult(args:Args):{refresh():Promise<void>;dis
       const old=grants.value;grants.replaceChildren();
       for(const grant of data.grants??[]){const option=el('option','',`${grant.id} · ${grant.status} · candidate ${grant.candidate_id}`);option.value=grant.id;grants.append(option);}
       if((data.grants??[]).some((g:Json)=>g.id===old))grants.value=old;
+      if(scope.grantId&&(data.grants??[]).some((g:Json)=>g.id===scope.grantId))grants.value=scope.grantId;
       selectedGrant=grants.value;if(!selectedGrant){view.replaceChildren(el('p','','No native task attempts are recorded for this project.'));status.textContent='Task results ready.';return;}
       const grantId=selectedGrant,response=await api('native',{action:'status',grant_id:grantId},token,requestController.signal);if(!isCurrent(ticket,token,grantId))return;
       const result=response.result as Json|null;
@@ -116,10 +118,10 @@ export function mountWorkbenchTaskResult(args:Args):{refresh():Promise<void>;dis
     catch(reason){if(isCurrent(ticket,auth.token,auth.grantId,result.id)&&!(reason instanceof Error&&reason.name==='AbortError')){clearPrivateView();error.textContent=`Result was not delivered: ${reason instanceof Error?reason.message:'unavailable'}. Refresh and review the current recipient binding.`;status.textContent='Result delivery unavailable.';}}
     finally{if(activeRequest===requestController)activeRequest=null;busy=false;}
   }
-  grants.addEventListener('change',()=>{checkToken();invalidate();selectedGrant=grants.value;clearPrivateView();void refresh();});
+  grants.addEventListener('change',()=>{checkToken();invalidate();selectedGrant=grants.value;scope.grantId=grants.value||null;args.onScopeChange?.({grantId:scope.grantId,resultId:selectedResult||null});clearPrivateView();void refresh();});
   const refreshButton=button('Refresh task result','Read durable status and result without retrying the native run',()=>void refresh());
   args.container.replaceChildren(el('h3','','Task result'),status,error,grants,refreshButton,results,view);
   const tokenWatcher=setInterval(()=>{if(!disposed)checkToken();},1000);
   void refresh();
-  return {refresh,dispose(){disposed=true;clearInterval(tokenWatcher);invalidate();clearPrivateView();args.container.replaceChildren();}};
+  return {refresh,setScope(next:{grantId?:string|null;resultId?:string|null}){Object.assign(scope,next);void refresh();},dispose(){disposed=true;clearInterval(tokenWatcher);invalidate();clearPrivateView();args.container.replaceChildren();}};
 }

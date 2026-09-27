@@ -174,6 +174,7 @@ def main(renderer):
                     input_box = pane_locator.get_by_label("Message to Hermes", exact=True)
                     expect(messages).to_contain_text("FIRST-USER-EXCERPT")
                     expect(pane_locator.locator(".agent-queue")).to_contain_text("QUEUED-NORMAL-MESSAGE")
+                    expect(pane_locator.locator(".agent-chat-normal .agent-live-timeline")).to_be_visible()
                     input_box.fill("DRAFT-KEEP-ME")
                     page.evaluate(
                         """(pane) => {
@@ -182,6 +183,7 @@ def main(renderer):
                             messages: root.querySelector('.chat-messages'),
                             input: root.querySelector('textarea[aria-label="Message to Hermes"]'),
                             queue: root.querySelector('.agent-queue'),
+                            timeline: root.querySelector('.agent-live-timeline'),
                           };
                         }""",
                         pane,
@@ -204,6 +206,16 @@ def main(renderer):
                         pane,
                     )
                     assert same, "Normal DOM nodes were rebuilt by the view toggle"
+                    timeline_moved = page.evaluate(
+                        """(pane) => {
+                          const root = document.querySelector(`.pane[data-pane-id="${pane}"]`);
+                          const node = window.__paneNodes.timeline;
+                          return !!node && node === root.querySelector('.pane-workbench-live-slot .agent-live-timeline')
+                            && node.parentElement.classList.contains('pane-workbench-live-slot');
+                        }""",
+                        pane,
+                    )
+                    assert timeline_moved, "shared timeline node did not move into the Workbench Live tab"
                     assert input_box.input_value() == "DRAFT-KEEP-ME"
                     assert {a for a in agent_requests if a == "start"} == starts_before, "view toggle started an agent run"
                     assert len(execution_requests) == execution_before, "view toggle posted an execution action"
@@ -227,6 +239,7 @@ def main(renderer):
                     selector.select_option("normal")
                     assert input_box.input_value() == "DRAFT-KEEP-ME"
                     expect(pane_locator.locator(".agent-queue")).to_contain_text("QUEUED-NORMAL-MESSAGE")
+                    expect(pane_locator.locator(".agent-chat-normal .agent-live-timeline")).to_be_visible()
 
                     # Persist the Workbench view and confirm it survives reload.
                     selector.select_option("workbench")

@@ -2,8 +2,10 @@ import {button,el} from './dom';
 import {validChat} from './chat-storage';
 type Data=Record<string,any>;
 type Readiness={ready:boolean;reason:string|null;message:string;candidate_hash:string;candidate_generation:number;acceptance_digest:string;required_checks:{definition_id:string;execution_profile_id:string|null;ready:boolean;reason:string|null;message:string}[]};
-export function mountWorkbenchTaskAuthority(args:{container:HTMLElement;token:()=>string;workspace_id:string;project_id:string}){
+export type WorkbenchAuthorityScope={taskId?:string|null;candidateId?:string|null;attemptId?:string|null};
+export function mountWorkbenchTaskAuthority(args:{container:HTMLElement;token:()=>string;workspace_id:string;project_id:string;scope?:WorkbenchAuthorityScope;onScopeChange?:(scope:{candidateId:string|null;attemptId:string|null})=>void}){
   let disposed=false,busy=false,grantId='',nativePreview:Data|null=null,environmentPreview:Data|null=null,profileId='',handoffEpoch=0,nativePreviewKey='';
+  const scope:WorkbenchAuthorityScope={...args.scope};
   const status=el('p','','Task authority: loading…'),candidates=el('select'),recipients=el('select'),contexts=el('select'),attempts=el('select'),detail=el('pre');
   const handoff=el('section','workbench-worker-handoff');
   let contextRecords:Data[]=[],allContextRecords:Data[]=[],freshness:Data|null=null,packetPreview:Data|null=null;
@@ -25,6 +27,12 @@ export function mountWorkbenchTaskAuthority(args:{container:HTMLElement;token:()
   const time=(value:unknown)=>{if(typeof value!=='number'||!Number.isFinite(value))return 'unknown';const age=Math.max(0,Date.now()-value),relative=age<60000?`${Math.floor(age/1000)} seconds ago`:age<3600000?`${Math.floor(age/60000)} minutes ago`:age<86400000?`${Math.floor(age/3600000)} hours ago`:`${Math.floor(age/86400000)} days ago`;return `${new Date(value).toISOString()} (${relative})`;};
   const selectedRecipient=()=>{try{return JSON.parse(recipients.value) as Data;}catch{return null;}};
   const selectionKey=()=>JSON.stringify([candidates.value,recipients.value,attempts.value,contexts.value,budgetCalls.value,budgetChecks.value,budgetSeconds.value,requireNode.checked,requireHost.checked]);
+  // Bind an external pane selection to the mounted controls without changing the
+  // full-panel default (first record) when no scope is supplied.
+  function applyScope(){
+    if(scope.candidateId&&Array.from(candidates.options).some(o=>o.value===scope.candidateId))candidates.value=scope.candidateId;
+    if(scope.attemptId&&Array.from(attempts.options).some(o=>o.value===scope.attemptId))attempts.value=scope.attemptId;
+  }
   function renderHandoff(){
     const candidate=(state.candidates??[]).find((c:Data)=>c.id===candidates.value),task=(state.tasks??[]).find((t:Data)=>t.id===candidate?.task_id),recipient=selectedRecipient(),context=contextRecords.find((c:Data)=>c.id===contexts.value),packet=context?.snapshot??{},approved=nativePreview?.preview??null;
     handoff.replaceChildren(el('h4','','Supervised worker handoff'),el('p','','Start a supervised worker for this task. It receives the approved task packet, not the whole conversation.'));
@@ -64,8 +72,10 @@ export function mountWorkbenchTaskAuthority(args:{container:HTMLElement;token:()
   }
   async function refresh(){await act('Loading task authority',async()=>{
     const [execution,context]=await Promise.all([api('execution',{action:'execution_state'}),api('context',{action:'list'})]);if(disposed)return;state=execution;
-    choices(candidates,(execution.candidates??[]).map((c:Data)=>({id:c.id,label:`${c.id} · generation ${c.generation}`})));
+    const candidateRows=(execution.candidates??[]).filter((c:Data)=>!scope.taskId||c.task_id===scope.taskId);
+    choices(candidates,candidateRows.map((c:Data)=>({id:c.id,label:`${c.id} · generation ${c.generation}`})));
     choices(attempts,(context.attempts??[]).map((a:Data)=>({id:a.id,label:`${a.id} · ${a.task_id}`})));
+    applyScope();
     allContextRecords=context.contexts??[];contextRecords=allContextRecords.filter((c:Data)=>c.source?.kind==='packet');choices(contexts,[{id:'',label:'No context read grant'},...contextRecords.map((c:Data)=>({id:c.id,label:`Packet ${c.id} · ${c.snapshot?.bytes} bytes · ${c.snapshot?.hash}`}))]);
     const native=await api('native',{action:'list'});if(disposed)return;choices(grants,(native.grants??[]).map((g:Data)=>({id:g.id,label:`${g.id} · ${g.status}`})));grantId=grants.value;
     const response=await fetch('/api/workbench',{method:'POST',headers:{Authorization:`Bearer ${args.token()}`,'Content-Type':'application/json'},body:JSON.stringify({action:'list',workspace_id:args.workspace_id})});const list=await response.json();if(disposed)return;
@@ -91,6 +101,7 @@ export function mountWorkbenchTaskAuthority(args:{container:HTMLElement;token:()
   args.container.append(el('h4','','Required checks'),row('Node test suite',requireNode),row('Host-owned sum regression fixture',requireHost),previewAcceptance,approveAcceptance);
   const invalidateHandoff=()=>{handoffEpoch++;nativePreview=null;nativePreviewKey='';environmentPreview=null;freshness=null;packetPreview=null;renderHandoff();};
   for(const select of [attempts,contexts,candidates,recipients])select.addEventListener('change',invalidateHandoff);
+  for(const select of [attempts,candidates])select.addEventListener('change',()=>{scope.candidateId=candidates.value||null;scope.attemptId=attempts.value||null;args.onScopeChange?.({candidateId:scope.candidateId,attemptId:scope.attemptId});});
   for(const input of [budgetCalls,budgetChecks,budgetSeconds,requireNode,requireHost])input.addEventListener(input.type==='checkbox'?'change':'input',invalidateHandoff);
-  void refresh();return {refresh,dispose(){disposed=true;args.container.replaceChildren();}};
+  void refresh();return {refresh,setScope(next:WorkbenchAuthorityScope){Object.assign(scope,next);applyScope();renderHandoff();},dispose(){disposed=true;args.container.replaceChildren();}};
 }

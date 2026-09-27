@@ -8,6 +8,9 @@ import { el, button } from './dom';
 import { workspaceId, ensureWorkspaceSynced } from './workspace-sync';
 import { readPanePrefs, writePanePrefs, type PaneMode, type PaneWorkbenchPrefs } from './pane-prefs';
 import { mountPaneWorkbench, type PaneWorkbenchBadge } from './pane-workbench';
+import { createLiveTimeline } from './agent-live-timeline';
+import { createNormalLiveAdapter } from './agent-live-normal';
+import type { LiveItem } from './agent-live-types';
 
 import { archiveChat, validChat, transcript, chatProfileId, chatBindingKey, type ChatState } from './chat-storage';
 export function createAgentChat(body: HTMLElement, paneId: string, getToken: () => string, toolbar?: HTMLElement) {
@@ -66,6 +69,9 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   const chatNormal = el('div', 'agent-chat-normal');
   const workbenchHost = el('div', 'agent-workbench-host');
   workbenchHost.hidden = true;
+  // One shared live timeline element lives in Normal mode and moves (same node)
+  // into the Workbench Live tab; the feeds keep running while either is hidden.
+  const normalTimelineHost = el('div', 'agent-live-host');
   let panePrefs: PaneWorkbenchPrefs = readPanePrefs(workspaceId, paneId);
   let paneMode: PaneMode = panePrefs.mode;
   let workbenchStatus = '';
@@ -268,18 +274,28 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
       if (current(requested)) { taskCards.replaceChildren(); taskCards.hidden = true; cardsDigest = ''; }
     } finally { cardsLoading = false; }
   }
-  const inlineTools = createInlineTools(paneId, messages, () => api({action:'activity'}));
+  // Shared live timeline: one element, one instance, reused by both modes. The
+  // Normal adapter consumes the existing tool-feed events and saved metadata and
+  // never replaces the original inline tool controls.
+  const timeline = createLiveTimeline({
+    storageKey: `orbit-live-timeline:${workspaceId}:${paneId}`,
+    onOpenReference: (item: LiveItem) => {
+      if (item.reference?.kind === 'normal-tool') { inlineTools.show(); return; }
+      workbench?.openLiveReference(item);
+    },
+  });
+  normalTimelineHost.append(timeline.element);
+  const normalLive = createNormalLiveAdapter(timeline);
+  normalLive.reset(chatBindingKey(state));
+  normalLive.connection(getToken() ? 'connecting' : 'unavailable', getToken() ? undefined : 'Unlock the local host to inspect activity');
+  const inlineTools = createInlineTools(paneId, messages, async () => {
+    const data = await api({action:'activity'});
+    normalLive.saved(Array.isArray(data.activity) ? data.activity : []);
+    return data;
+  });
   badge.append(inlineTools.toggle);
-  // Cross-mode status plumbing. The lead-owned activity registry gains optional
-  // mode/normalStatus/workbenchStatus fields and a focusMode registration option;
-  // the compatibility cast keeps this compiling before and after that change.
-  type ActivityPatch = { title?: string; task?: string; status?: string; mode?: PaneMode; normalStatus?: string; workbenchStatus?: string };
-  const registerActivityCompat = registerActivity as unknown as (
-    id: string,
-    focus: () => void,
-    options?: { focusMode?: (mode: PaneMode) => void },
-  ) => { update(patch: ActivityPatch): void; dispose(): void };
-  const activity = registerActivityCompat(paneId, () => {
+  // Cross-mode status plumbing; the activity registry now carries these fields.
+  const activity = registerActivity(paneId, () => {
     window.dispatchEvent(new CustomEvent('orbit-focus-agent', {detail:paneId}));
     body.scrollIntoView({block:'nearest'});
     if (paneMode !== 'normal') setMode('normal');
@@ -294,14 +310,20 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     const label = !getToken() ? 'Host disconnected' : runStatus === 'ATTENTION' ? 'Needs attention · check status' : runStatus === 'WAITING FOR APPROVAL' ? 'Waiting for you' : state.run ? (streamStatus || toolStatus || 'Working · awaiting tool events') : runStatus === 'COMPLETED' ? 'Finished' : runStatus === 'FAILED' ? 'Failed' : runStatus === 'CANCELLED' ? 'Cancelled' : 'Ready';
     activityButton.textContent = label;
     activity.update({title:state.title || 'Hermes',task:state.messages.filter(m=>m.role==='user').at(-1)?.text.slice(0,200) || 'No task yet',status:label,mode:paneMode,normalStatus:label,workbenchStatus});
+    normalLive.status({ status: label, run: state.run, at: Date.now() });
     updateModeBadge();
   }
   const statusObserver = new MutationObserver(refreshActivity);
   statusObserver.observe(status,{childList:true,characterData:true,subtree:true});
   const stopToolFeed = watchToolFeed(paneId, () => state, getToken, {
     enabled:()=>true,
-    event(raw,run) { inlineTools.event(raw,run); streamStatus=''; toolStatus=inlineTools.summary(); refreshActivity(); },
-    status(text) { inlineTools.status(text); streamStatus=/unavailable|ended/.test(text) ? 'Tool stream disconnected · status polling continues' : /Connecting/.test(text) ? 'Connecting to activity stream' : ''; refreshActivity(); }
+    event(raw,run) { inlineTools.event(raw,run); normalLive.event(raw); streamStatus=''; toolStatus=inlineTools.summary(); refreshActivity(); },
+    status(text) {
+      inlineTools.status(text);
+      normalLive.connection(/unavailable|ended|disconnect/i.test(text) ? 'disconnected' : /connect/i.test(text) ? 'connecting' : 'connected', text);
+      streamStatus=/unavailable|ended/.test(text) ? 'Tool stream disconnected · status polling continues' : /Connecting/.test(text) ? 'Connecting to activity stream' : '';
+      refreshActivity();
+    }
   }, workspaceId);
   messages.setAttribute('role', 'log');
   messages.setAttribute('aria-label', 'Hermes conversation');
@@ -457,6 +479,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
         update();
       },
       onLaneBusy: (laneBusy) => { workbenchLaneActive = laneBusy; update(); },
+      timeline,
       onError: showError,
     });
     return workbench;
@@ -470,8 +493,15 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     chatNormal.hidden = next !== 'normal';
     workbenchHost.hidden = next !== 'workbench';
     modeSelect.value = next;
-    if (next === 'workbench') ensureWorkbench()?.setVisible(true);
-    else workbench?.setVisible(false);
+    if (next === 'workbench') {
+      const mounted = ensureWorkbench();
+      mounted?.setVisible(true);
+      // Move the single shared timeline node into the Live tab; feeds stay live.
+      mounted?.liveSlot().append(timeline.element);
+    } else {
+      workbench?.setVisible(false);
+      normalTimelineHost.append(timeline.element);
+    }
     updateModeBadge();
     update();
   }
@@ -604,7 +634,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   form.append(input, tools, send);
   form.onsubmit = e => { e.preventDefault(); void submit(); };
   input.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); void submit(); } };
-  chatNormal.append(badge, bindingControls, strip, notice, messages, taskCards, progress, approvals, controls,recovery, queueList, form);
+  chatNormal.append(badge, bindingControls, strip, notice, messages, taskCards, normalTimelineHost, progress, approvals, controls,recovery, queueList, form);
   body.append(chatNormal, workbenchHost);
   if (toolbar) {
     toolbar.classList.add('agent-pane-head');
@@ -651,7 +681,11 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
       workbench?.invalidateBinding();
     }
     state = next;
-    if (changed) { loadDraft(); resetBindingControls(); status.textContent = state.run ? 'WORKING' : 'READY'; progress.textContent = ''; }
+    if (changed) {
+      loadDraft(); resetBindingControls(); status.textContent = state.run ? 'WORKING' : 'READY'; progress.textContent = '';
+      // A binding change resets the shared timeline (Normal feed and idle Workbench scope).
+      normalLive.reset(chatBindingKey(state));
+    }
     save(); render();
   }
   async function switchConversation(targetProfile: string, targetSession?: string) {
@@ -668,11 +702,11 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   }
   const sharedTimer = setInterval(() => {void syncShared(); void refreshTaskCards();}, 1800);
   void syncShared();
-  const onUnlock = () => { void syncShared(); if (state.run) void poll(); };
+  const onUnlock = () => { void syncShared(); if (state.run) void poll(); if (getToken()) normalLive.connection('connecting', 'Connecting to activity stream'); };
   window.addEventListener('orbit-host-connected', onUnlock);
   if (state.run) {
     progress.textContent = 'A saved run may still be active. Connect host to check its status. Closing the pane does not stop Hermes.';
     if (getToken()) void poll();
   }
-  return () => { saveDraft(); disposed = true; generation++; statusObserver.disconnect(); activity.dispose(); clearInterval(sharedTimer); stopToolFeed(); inlineTools.dispose(); workbench?.dispose(); toolsDialog?.close(); liveController?.abort(); clearTimeout(timer); controller.abort(); window.removeEventListener('orbit-host-connected', onUnlock); window.removeEventListener('orbit-open-hermes-tools', onOpenTools); };
+  return () => { saveDraft(); disposed = true; generation++; statusObserver.disconnect(); activity.dispose(); clearInterval(sharedTimer); stopToolFeed(); inlineTools.dispose(); workbench?.dispose(); timeline.dispose(); toolsDialog?.close(); liveController?.abort(); clearTimeout(timer); controller.abort(); window.removeEventListener('orbit-host-connected', onUnlock); window.removeEventListener('orbit-open-hermes-tools', onOpenTools); };
 }

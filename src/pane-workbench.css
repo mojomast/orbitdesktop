@@ -169,6 +169,46 @@
   border-radius: 0.35rem;
 }
 
+.agent-live-host {
+  margin: 0.35rem 0;
+  min-width: 0;
+}
+
+.pane-workbench-scope {
+  display: grid;
+  gap: 0.1rem;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--border-color, #555);
+  border-radius: 0.35rem;
+  font-size: 0.8em;
+  line-height: 1.35;
+}
+
+.pane-workbench-scope-line,
+.pane-workbench-candidate-line,
+.pane-workbench-grant-line {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.pane-workbench-grant-line {
+  opacity: 0.9;
+}
+
+.pane-workbench-live-slot {
+  min-width: 0;
+}
+
+.pane-workbench-detail-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.pane-workbench-detail .workbench-result-text {
+  max-height: 40vh;
+}
+
 @media (min-width: 900px) {
   .pane-workbench-head {
     align-items: end;
