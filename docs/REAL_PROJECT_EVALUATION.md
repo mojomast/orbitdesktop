@@ -50,6 +50,12 @@ locally and the unchanged-commit CI rerun passed. These failures were not treate
 as passing results or erased. Sanitized native fixture logs are now retained on
 CI failure.
 
+The post-acceptance report commit's CI (`36292747711`) found the same missing
+authority-refresh wait in the separate Docking result-review fixture. That
+fixture was updated to require refresh completion before consent preview. The
+real-model acceptance recorded in this addendum was not rerun or substituted by
+this CI repair.
+
 ### New isolated real-model acceptance
 
 The existing `orbitdesktop-docking-test.service` was not stopped, reconfigured or

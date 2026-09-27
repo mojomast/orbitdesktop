@@ -246,6 +246,8 @@ def main(renderer):
 
                         def click_plain(scope, label):
                             scope.locator("button").filter(has_text=re.compile("^" + re.escape(label) + "$")).first.click()
+                            if label == "Refresh task authority":
+                                expect(scope).to_contain_text("Loading task authority: complete.", timeout=30000)
 
                         step = "unlock and connect"
                         page.goto(origin + ("?renderer=docking" if renderer == "docking" else ""))
