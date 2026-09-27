@@ -446,6 +446,21 @@ def main(renderer):
                     assert packet["snapshot"]["provenance"]["context_ids"] == [conversation["id"]], packet["snapshot"]["provenance"]
                     expect(pane_locator.get_by_label("Native approved context packet", exact=True)).to_have_value(packet["id"], timeout=15000)
 
+                    # Revising the acceptance AFTER the attempt exists is the ordering
+                    # the full journey uses. Approval must keep the mounted control's
+                    # cached task current so the next native preview compares the same
+                    # acceptance digest instead of false-failing on a stale one.
+                    require_node = pane_locator.get_by_label("Require Node test suite", exact=True)
+                    require_host = pane_locator.get_by_label("Require host-owned sum regression fixture", exact=True)
+                    if require_node.is_checked():
+                        require_node.uncheck()
+                    if not require_host.is_checked():
+                        require_host.check()
+                    status, _accept_preview = click_expect(pane_locator, "Preview required checks", "task_acceptance_preview", "/api/workbench/execution")
+                    assert status == 200 and _accept_preview.get("ok"), _accept_preview
+                    status, _accept = click_expect(pane_locator, "Approve required checks", "task_acceptance_approve", "/api/workbench/execution")
+                    assert status == 200 and _accept.get("ok"), _accept
+
                     # Native consent preview must pass the binding gate: the unbound
                     # packet previously returned 403 permission_denied here.
                     pane_locator.get_by_label("Native task attempt", exact=True).select_option(attempt["id"])
