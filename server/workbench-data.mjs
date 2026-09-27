@@ -41,7 +41,42 @@ CREATE UNIQUE INDEX IF NOT EXISTS wb_patches_operation ON wb_patches(workspace_i
 `;
 
 export class WorkbenchData {
+  // Optional read-only observers. They are notified only after an authoritative
+  // create/update is durably committed, and a throwing observer must never fail
+  // or replay that authoritative operation. Notifications carry no authority.
+  #observers=new Set();
+  #pending=[];
+  #flushScheduled=false;
   constructor(store,{now=Date.now}={}){this.store=store;this.db=store.db;this.now=now;}
+  subscribe(observer){
+    if(typeof observer!=='function')throw wbError('invalid_request');
+    this.#observers.add(observer);
+    return ()=>{this.#observers.delete(observer);};
+  }
+  // Durability guard: a nested `data.update` inside another `db.transaction`
+  // returns from a savepoint, not a commit. Those changes are deferred to a
+  // microtask and re-verified against the authoritative row before notifying,
+  // so a rolled-back transaction can never surface as a fabricated transition.
+  #notifyAfterCommit(kind,record,phase){
+    const change={phase,kind,record};
+    if(this.db.inTransaction){
+      this.#pending.push(change);
+      if(!this.#flushScheduled){
+        this.#flushScheduled=true;
+        queueMicrotask(()=>{this.#flushScheduled=false;for(const item of this.#pending.splice(0))this.#emitVerified(item);});
+      }
+      return;
+    }
+    this.#emitVerified(change);
+  }
+  #emitVerified(change){
+    if(!this.#observers.size)return;
+    try{
+      const current=this.get(change.kind,change.record.workspace_id,change.record.project_id,change.record.id);
+      if(!current||!Number.isSafeInteger(current.revision)||current.revision<change.record.revision)return;
+    }catch{return;}
+    for(const observer of [...this.#observers]){try{observer(change);}catch{}}
+  }
   #scope(workspaceId,projectId){
     if(!identifier.test(workspaceId||'')||!identifier.test(projectId||''))throw wbError('invalid_request');
     if(!this.db.prepare('SELECT id FROM wb_projects WHERE id=? AND workspace_id=?').get(projectId,workspaceId))throw wbError('permission_denied');
@@ -57,13 +92,15 @@ export class WorkbenchData {
     if(!fields||typeof fields!=='object'||Array.isArray(fields))throw wbError('invalid_request');
     const {workspace_id,project_id}=fields;this.#scope(workspace_id,project_id);
     for(const key of ['id','version','revision','created_at','updated_at'])if(Object.hasOwn(fields,key))throw wbError('invalid_request');
-    return this.db.transaction(()=>{
+    const value=this.db.transaction(()=>{
       if(this.db.prepare(`SELECT count(*) AS n FROM ${name} WHERE workspace_id=? AND project_id=?`).get(workspace_id,project_id).n>=limits[kind])throw wbError('limit_exceeded');
       const time=this.now();
       const value={...structuredClone(fields),id:randomUUID(),version:1,revision:1,created_at:time,updated_at:time};
       this.db.prepare(`INSERT INTO ${name} VALUES (?,?,?,?,?)`).run(value.id,workspace_id,project_id,1,this.#encode(kind,value));
       return value;
     }).immediate();
+    this.#notifyAfterCommit(kind,value,'create');
+    return value;
   }
   get(kind,workspaceId,projectId,id){
     const name=table(kind);this.#scope(workspaceId,projectId);
@@ -79,12 +116,14 @@ export class WorkbenchData {
     const name=table(kind);
     if(!Number.isSafeInteger(expectedRevision)||expectedRevision<1||!patch||typeof patch!=='object'||Array.isArray(patch))throw wbError('invalid_request');
     for(const key of ['id','version','revision','workspace_id','project_id','created_at','updated_at'])if(Object.hasOwn(patch,key))throw wbError('invalid_request');
-    return this.db.transaction(()=>{
+    const next=this.db.transaction(()=>{
       const current=this.get(kind,workspaceId,projectId,id);
       if(current.revision!==expectedRevision)throw wbError('stale_resource');
       const next={...current,...structuredClone(patch),revision:expectedRevision+1,updated_at:this.now()};
       if(this.db.prepare(`UPDATE ${name} SET revision=?,record_json=? WHERE id=? AND revision=?`).run(next.revision,this.#encode(kind,next),id,expectedRevision).changes!==1)throw wbError('stale_resource');
       return next;
     }).immediate();
+    this.#notifyAfterCommit(kind,next,'update');
+    return next;
   }
 }
