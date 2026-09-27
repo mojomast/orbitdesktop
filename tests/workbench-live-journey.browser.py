@@ -672,7 +672,7 @@ def main(renderer):
                             dialog, "Preview for selected recipient", "packet", "preview", CONTEXT_ROUTE)
                         assert packet_response.status == 200 and packet_response.json()["ok"] is True, packet_response.json()
                         assert preview_response.status == 200 and preview_response.json()["ok"] is True, preview_response.json()
-                        packet_id = packet_response.json()["context"]["id"]
+                        modal_packet_id = packet_response.json()["context"]["id"]
                         preview = preview_response.json()
                         text = dialog.get_by_role("textbox", name="Exact context preview text (read-only)")
                         expect(text).to_have_value(preview["text"])
@@ -683,7 +683,7 @@ def main(renderer):
                         assert "import { add } from 'fixture-add'" in reviewed, reviewed
                         assert "verdict=fail" in reviewed, reviewed
                         assert '"kind":"job"' in reviewed and '"kind":"file"' in reviewed, reviewed
-                        assert preview["context_id"] == packet_id, (preview["context_id"], packet_id)
+                        assert preview["context_id"] == modal_packet_id, (preview["context_id"], modal_packet_id)
                         assert preview["recipient"]["session_id"] == session
                         dialog.get_by_text("Close", exact=True).click()
                         expect(dialog).not_to_be_visible()
@@ -691,44 +691,126 @@ def main(renderer):
                         # server-retained packet, not a one-shot disclosure.
                         assert last("approve", CONTEXT_ROUTE) is None and last("share", CONTEXT_ROUTE) is None
 
-                        step = "native consent via UI and real pinned Hermes run"
-                        refresh_authority(pane)
-                        expect(pane.get_by_label("Native task attempt").locator("option")).not_to_have_count(0)
-                        pane.get_by_label("Native task attempt").select_option(value=attempt["id"])
-                        expect(pane.get_by_label("Native approved context packet").locator("option")).not_to_have_count(0)
-                        pane.get_by_label("Native approved context packet").select_option(value=packet_id)
-                        consent = click_text(pane, "Preview native task consent", "preview", NATIVE_ROUTE)
-                        assert consent["preview"]["attempt_id"] == attempt["id"], consent
-                        assert [item["id"] for item in consent["preview"]["contexts"]] == [packet_id], consent
-                        assert consent["preview"]["budget"] == {"calls": 20, "checks": 3, "duration_ms": 180000}
-                        approve = click_text(pane, "Approve native task consent", "approve", NATIVE_ROUTE)
-                        grant_id = approve["grant"]["id"]
-                        assert approve["grant"]["status"] == "approved", approve
-
-                        with page.expect_response(lambda response: response.url.split("?")[0] == origin + NATIVE_ROUTE
-                                                  and post_json(response.request).get("action") == "start"):
-                            pane.locator("button").filter(has_text=re.compile("^Start native Hermes attempt$")).first.click()
-                        started = result("start", NATIVE_ROUTE)
-                        assert started["grant"]["status"] == "running", started
-                        assert model.request_entered.wait(20), "native Hermes did not reach the deterministic model fixture"
-                        step = "cross-mode live projection while native worker is still running"
-                        workbench_dialog = page.locator("dialog.project-workbench-dialog")
-                        if workbench_dialog.is_visible():
-                            workbench_dialog.get_by_role("button", name="Close project workbench", exact=True).click()
+                        step = "capture a selected Normal conversation excerpt into a bound pane packet"
+                        if workbench.is_visible():
+                            workbench.get_by_role("button", name="Close project workbench", exact=True).click()
+                            expect(workbench).not_to_be_visible()
                         agent_pane = page.locator('[data-pane-id="%s"]' % helper.PANE)
                         normal_mode = agent_pane.get_by_role("button", name="Normal Hermes mode", exact=True)
                         workbench_mode = agent_pane.get_by_role("button", name="Workbench Hermes mode", exact=True)
                         normal_draft = agent_pane.get_by_label("Message to Hermes", exact=True)
-                        normal_draft.fill("LIVE-JOURNEY-DRAFT-MUST-SURVIVE")
-                        model_requests_before_toggle = len(model.requests)
                         workbench_mode.click()
                         expect(workbench_mode).to_have_attribute("aria-pressed", "true")
                         wb_project = agent_pane.get_by_label("Workbench project", exact=True)
                         expect(wb_project.locator('option[value="%s"]' % project_id)).to_have_count(1, timeout=30000)
                         wb_project.select_option(value=project_id)
+                        wb_task = agent_pane.get_by_label("Workbench task", exact=True)
+                        expect(wb_task.locator('option[value="%s"]' % task["id"])).to_have_count(1, timeout=30000)
+                        wb_task.select_option(value=task["id"])
+                        wb_candidate = agent_pane.get_by_label("Workbench candidate", exact=True)
+                        expect(wb_candidate.locator('option[value="%s"]' % candidate["id"])).to_have_count(1, timeout=30000)
+                        wb_candidate.select_option(value=candidate["id"])
                         wb_attempt = agent_pane.get_by_label("Workbench attempt", exact=True)
                         expect(wb_attempt.locator('option[value="%s"]' % attempt["id"])).to_have_count(1, timeout=30000)
                         wb_attempt.select_option(value=attempt["id"])
+                        setup_details = agent_pane.locator(".pane-workbench-setup")
+                        if not setup_details.get_attribute("open"):
+                            setup_details.locator(":scope > summary").click()
+                        handoff = agent_pane.locator(".pane-workbench-handoff")
+                        if not handoff.get_attribute("open"):
+                            handoff.locator(":scope > summary").click()
+                        excerpt_check = handoff.get_by_label("Include user excerpt", exact=True).first
+                        expect(excerpt_check).to_be_visible(timeout=15000)
+                        excerpt_check.check()
+                        handoff.get_by_label("Task or question excerpt", exact=True).fill(QUESTION)
+                        handoff.locator("button").filter(has_text=re.compile("^Preview context packet$")).click()
+                        excerpt_preview = handoff.locator(".pane-workbench-excerpt-preview")
+                        expect(excerpt_preview).to_contain_text('"attempt_id"')
+                        expect(excerpt_preview).to_contain_text(attempt["id"])
+                        expect(excerpt_preview).to_contain_text("deterministic normal SSE fixture request")
+                        capture_packet_button = handoff.locator("button").filter(
+                            has_text=re.compile("^Capture selected context packet$"))
+                        expect(capture_packet_button).to_be_enabled()
+                        capture_response, packet_response = click_pair(
+                            handoff, "Capture selected context packet", "capture", "packet", CONTEXT_ROUTE)
+                        assert capture_response.status == 200 and capture_response.json().get("ok") is True, capture_response.json()
+                        assert packet_response.status == 200 and packet_response.json().get("ok") is True, packet_response.json()
+                        assert post_json(capture_response.request).get("attempt_id") == attempt["id"], post_json(capture_response.request)
+                        assert post_json(packet_response.request).get("attempt_id") == attempt["id"], post_json(packet_response.request)
+                        conversation_context = capture_response.json()["context"]
+                        packet_context = packet_response.json()["context"]
+                        packet_id = packet_context["id"]
+                        assert conversation_context["attempt_id"] == attempt["id"], conversation_context
+                        assert packet_context["attempt_id"] == attempt["id"], packet_context
+                        assert packet_context["source"]["kind"] == "packet", packet_context
+                        packet_snapshot_hash = packet_context["snapshot"]["hash"]
+                        expect(agent_pane.locator(".pane-workbench-status")).to_contain_text(
+                            "bound to attempt %s" % attempt["id"], timeout=30000)
+
+                        step = "preview and approve native consent through pane authority using that packet"
+                        pane_authority = agent_pane.locator(".pane-workbench-authority")
+                        if not pane_authority.get_attribute("open"):
+                            pane_authority.locator(":scope > summary").click()
+                        refresh_authority(pane_authority)
+                        pane_authority.get_by_label("Authority candidate", exact=True).select_option(value=candidate["id"])
+                        pane_authority.get_by_label("Native task attempt", exact=True).select_option(value=attempt["id"])
+                        pane_recipient = pane_authority.get_by_label("Native agent recipient", exact=True)
+                        recipient_options = pane_recipient.locator("option").evaluate_all(
+                            "options => options.map(option => ({value: option.value, label: option.textContent}))")
+                        recipient_value = next((option["value"] for option in recipient_options
+                                                if option["value"] and
+                                                json.loads(option["value"]).get("session_id") == session), None)
+                        assert recipient_value, (session, recipient_options)
+                        pane_recipient.select_option(value=recipient_value)
+                        approved_packet = pane_authority.get_by_label("Native approved context packet", exact=True)
+                        expect(approved_packet.locator('option[value="%s"]' % packet_id)).to_have_count(1, timeout=30000)
+                        approved_packet.select_option(value=packet_id)
+                        readiness_code, readiness = helper.api(origin, token, EXEC_ROUTE, {
+                            "action": "candidate_get", "workspace_id": helper.WORKSPACE,
+                            "project_id": project_id, "candidate_id": candidate["id"]})
+                        assert readiness_code == 200 and readiness.get("ok") is True, readiness
+                        actual_readiness = readiness.get("readiness", {})
+                        assert actual_readiness.get("ready") is True, {
+                            "candidate_id": candidate["id"], "candidate_generation": candidate.get("generation"),
+                            "readiness": actual_readiness,
+                            "task_acceptance": readiness.get("task", {}).get("acceptance"),
+                            "profile_id": environment_profile,
+                        }
+                        consent = click_text(pane_authority, "Preview native task consent", "preview", NATIVE_ROUTE)
+                        native_preview_response = next(response for request, _, response in reversed(responses)
+                            if request.url.split("?")[0] == origin + NATIVE_ROUTE
+                            and post_json(request).get("action") == "preview")
+                        assert native_preview_response.status == 200, native_preview_response.json()
+                        assert consent["preview"]["attempt_id"] == attempt["id"], consent
+                        assert [item["id"] for item in consent["preview"]["contexts"]] == [packet_id], consent
+                        native_preview_request = next(post_json(request) for request, _, _ in reversed(responses)
+                            if request.url.split("?")[0] == origin + NATIVE_ROUTE and post_json(request).get("action") == "preview")
+                        assert native_preview_request.get("attempt_id") == attempt["id"]
+                        assert native_preview_request.get("context_ids") == [packet_id], native_preview_request
+                        assert consent["preview"]["budget"] == {"calls": 20, "checks": 3, "duration_ms": 180000}
+                        approve = click_text(pane_authority, "Approve native task consent", "approve", NATIVE_ROUTE)
+                        native_approve_response = next(response for request, _, response in reversed(responses)
+                            if request.url.split("?")[0] == origin + NATIVE_ROUTE
+                            and post_json(request).get("action") == "approve")
+                        assert native_approve_response.status == 200, native_approve_response.json()
+                        grant_id = approve["grant"]["id"]
+                        assert approve["grant"]["status"] == "approved", approve
+
+                        step = "start the approved native Hermes attempt through pane authority"
+                        with page.expect_response(lambda response: response.url.split("?")[0] == origin + NATIVE_ROUTE
+                                                  and post_json(response.request).get("action") == "start"):
+                            pane_authority.locator("button").filter(has_text=re.compile("^Start native Hermes attempt$")).first.click()
+                        started = result("start", NATIVE_ROUTE)
+                        assert started["grant"]["status"] == "running", started
+                        assert model.request_entered.wait(20), "native Hermes did not reach the deterministic model fixture"
+                        step = "cross-mode live projection while native worker is still running"
+                        expect(workbench_mode).to_have_attribute("aria-pressed", "true")
+                        normal_mode.click()
+                        expect(normal_mode).to_have_attribute("aria-pressed", "true")
+                        normal_draft.fill("LIVE-JOURNEY-DRAFT-MUST-SURVIVE")
+                        model_requests_before_toggle = len(model.requests)
+                        workbench_mode.click()
+                        expect(workbench_mode).to_have_attribute("aria-pressed", "true")
                         wb_timeline = agent_pane.locator(".pane-workbench-live-slot .agent-live-timeline")
                         expect(wb_timeline).to_be_visible(timeout=30000)
                         expect(wb_timeline).to_contain_text("grant", timeout=30000)
@@ -843,7 +925,7 @@ def main(renderer):
                         assert final[0]["result"]["contexts"][0]["id"] == packet_id, final[0]["result"]["contexts"]
                         assert final[0]["result"]["candidate"]["id"] == candidate["id"], "foreign candidate in scope"
                         assert final[0]["result"]["task"]["title"] == task["title"], "foreign task in scope"
-                        assert final[1]["result"]["snapshot"]["hash"] == preview["hash"], "read_context mismatch"
+                        assert final[1]["result"]["snapshot"]["hash"] == packet_snapshot_hash, "read_context must consume the captured attempt-bound pane packet"
                         assert final[2]["result"]["file"]["text"] == WRONG
                         assert final[3]["result"]["candidate"]["hash"] != candidate["hash"]
                         passing_evidence = final[5]["result"]["evidence"]
