@@ -17,8 +17,13 @@ def main():
         sock.bind(('127.0.0.1', 0))
         port = sock.getsockname()[1]
     with tempfile.TemporaryDirectory(prefix='orbit-diff-presentation-', dir='/tmp/opencode') as scratch:
+        # This fixture injects a viewer after navigation, so a dependency-discovery
+        # HMR reload would erase the harness. Use an isolated cold cache, discover
+        # both entrypoints up front, and disable application reloads explicitly.
+        config = Path(scratch) / 'vite.config.mjs'
+        config.write_text('export default ' + json.dumps({'root': str(ROOT), 'cacheDir': str(Path(scratch) / 'vite-cache'), 'server': {'hmr': False}, 'optimizeDeps': {'entries': [str(ROOT / 'src/candidate-diff-viewer.ts'), str(ROOT / 'src/candidate-diff-worker.ts')]}}))
         with open(Path(scratch) / 'vite.log', 'w') as log:
-            server = subprocess.Popen([str(ROOT / 'node_modules/.bin/vite'), '--host', '127.0.0.1', '--port', str(port), '--strictPort'], cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
+            server = subprocess.Popen([str(ROOT / 'node_modules/.bin/vite'), '--config', str(config), '--host', '127.0.0.1', '--port', str(port), '--strictPort'], cwd=ROOT, stdout=log, stderr=subprocess.STDOUT)
             try:
                 origin = f'http://127.0.0.1:{port}'
                 for _ in range(100):
@@ -56,7 +61,7 @@ def main():
                     page.wait_for_function("document.querySelectorAll('.cdv-word').length > 0")
                     expect(viewer.locator('.cdv-table')).to_have_class('cdv-table cdv-split')
                     assert viewer.locator('.cdv-row').count() < 30
-                    assert viewer.locator('[class*="hljs-"]').count() > 0
+                    expect(viewer.locator('[class*="hljs-"]').first).to_be_attached()
                     page.wait_for_function("!document.querySelector('.cdv-header').textContent.includes('partial')")
                     expect(viewer.locator('.cdv-header')).to_contain_text('+3 −3')
                     expect(viewer.locator('.cdv-identity-strip')).to_contain_text('g1')
