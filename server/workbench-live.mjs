@@ -691,9 +691,14 @@ export function createWorkbenchLive({store,records,data,gate,execution,native,no
   // Descriptor-anchored tail: the only admitted source is the private identity
   // the recorder persisted on the job at output.log creation. Artifact root and
   // check directory are opened O_DIRECTORY|O_NOFOLLOW through process-owned
-  // descriptors (no fd scan, no directory search, no request path), and the log
-  // inode must equal the recorded dev/ino, so a replaced log or a symlinked
-  // parent can never redirect the read.
+  // descriptors (no fd scan, no directory search, no request path). Inode
+  // numbers alone are not an immutable identity: after delete+create Linux can
+  // reuse dev/ino. The recorded creation identity therefore pins birthtimeNs
+  // (nanosecond Linux statx) for the log and both parent directories, so a
+  // replaced file or a symlinked/reused parent can never redirect the read.
+  // A negative/absent birthtime (unsupported filesystem or a pre-birthtime
+  // historical job) fails closed as untrusted_identity.
+  const asPositiveBigInt=value=>{try{if(value===null||value===undefined||value==='')return null;const parsed=BigInt(value);return parsed>0n?parsed:null;}catch{return null;}};
   const safeTail=identity=>{
     if(!identity||typeof identity.path!=='string'||!identity.path)return {available:false,reason:'untrusted_path'};
     const resolved=path.resolve(identity.path);
@@ -702,27 +707,31 @@ export function createWorkbenchLive({store,records,data,gate,execution,native,no
     if(path.basename(resolved)!=='output.log')return {available:false,reason:'unexpected_artifact'};
     const dir=path.dirname(resolved);
     if(path.dirname(dir)!==artifactRoot||!path.basename(dir).startsWith('check-'))return {available:false,reason:'unexpected_artifact'};
-    if(!Number.isSafeInteger(identity.dev)||!Number.isSafeInteger(identity.ino))return {available:false,reason:'untrusted_identity'};
+    const dev=asPositiveBigInt(identity.dev),ino=asPositiveBigInt(identity.ino),birthtimeNs=asPositiveBigInt(identity.birthtime_ns);
+    const dirDev=asPositiveBigInt(identity.dir_dev),dirIno=asPositiveBigInt(identity.dir_ino),dirBirthtimeNs=asPositiveBigInt(identity.dir_birthtime_ns);
+    const rootDev=asPositiveBigInt(identity.root_dev),rootIno=asPositiveBigInt(identity.root_ino),rootBirthtimeNs=asPositiveBigInt(identity.root_birthtime_ns);
+    if([dev,ino,birthtimeNs,dirDev,dirIno,dirBirthtimeNs,rootDev,rootIno,rootBirthtimeNs].some(value=>value===null))return {available:false,reason:'untrusted_identity'};
     let rootFd,directoryFd,fd;
     try{
       rootFd=fs.openSync(artifactRoot,fs.constants.O_RDONLY|fs.constants.O_DIRECTORY|fs.constants.O_NOFOLLOW);
-      const rootStat=fs.fstatSync(rootFd);
-      if(Number.isSafeInteger(identity.root_ino)&&(rootStat.dev!==identity.root_dev||rootStat.ino!==identity.root_ino))return {available:false,reason:'artifact_root_replaced'};
+      const rootStat=fs.fstatSync(rootFd,{bigint:true});
+      if(rootStat.dev!==rootDev||rootStat.ino!==rootIno||rootStat.birthtimeNs!==rootBirthtimeNs)return {available:false,reason:'artifact_root_replaced'};
       directoryFd=fs.openSync(`/proc/self/fd/${rootFd}/${path.basename(dir)}`,fs.constants.O_RDONLY|fs.constants.O_DIRECTORY|fs.constants.O_NOFOLLOW);
-      const dirStat=fs.fstatSync(directoryFd);
-      if(Number.isSafeInteger(identity.dir_ino)&&(dirStat.dev!==identity.dir_dev||dirStat.ino!==identity.dir_ino))return {available:false,reason:'artifact_dir_replaced'};
+      const dirStat=fs.fstatSync(directoryFd,{bigint:true});
+      if(dirStat.dev!==dirDev||dirStat.ino!==dirIno||dirStat.birthtimeNs!==dirBirthtimeNs)return {available:false,reason:'artifact_dir_replaced'};
       fd=fs.openSync(`/proc/self/fd/${directoryFd}/output.log`,fs.constants.O_RDONLY|fs.constants.O_NOFOLLOW);
-      const before=fs.fstatSync(fd);
+      const before=fs.fstatSync(fd,{bigint:true});
       if(!before.isFile())return {available:false,reason:'not_a_regular_file'};
-      if(before.dev!==identity.dev||before.ino!==identity.ino)return {available:false,reason:'replaced_log'};
-      const length=Math.min(LIVE_LIMITS.tailBytes,before.size);
+      if(before.dev!==dev||before.ino!==ino||before.birthtimeNs!==birthtimeNs)return {available:false,reason:'replaced_log'};
+      const size=Number(before.size);
+      const length=Math.min(LIVE_LIMITS.tailBytes,size);
       const buffer=Buffer.alloc(length);
       let read=0;
-      while(read<length){const count=fs.readSync(fd,buffer,read,length-read,before.size-length+read);if(!count)break;read+=count;}
-      const after=fs.fstatSync(fd);
-      if(after.dev!==identity.dev||after.ino!==identity.ino||after.dev!==before.dev||after.ino!==before.ino)return {available:false,reason:'replaced_during_read'};
+      while(read<length){const count=fs.readSync(fd,buffer,read,length-read,size-length+read);if(!count)break;read+=count;}
+      const after=fs.fstatSync(fd,{bigint:true});
+      if(after.dev!==dev||after.ino!==ino||after.birthtimeNs!==birthtimeNs||after.dev!==before.dev||after.ino!==before.ino||after.birthtimeNs!==before.birthtimeNs)return {available:false,reason:'replaced_during_read'};
       const bytes=buffer.subarray(0,read);
-      return {available:true,bytes:before.size,tail_bytes:bytes.length,truncated:before.size>bytes.length,sha256:createHash('sha256').update(bytes).digest('hex'),text:new TextDecoder('utf-8',{fatal:false}).decode(bytes)};
+      return {available:true,bytes:size,tail_bytes:bytes.length,truncated:size>bytes.length,sha256:createHash('sha256').update(bytes).digest('hex'),text:new TextDecoder('utf-8',{fatal:false}).decode(bytes)};
     }catch{return {available:false,reason:'unreadable'};}
     finally{for(const handle of [fd,directoryFd,rootFd])if(handle!==undefined)try{fs.closeSync(handle);}catch{}}
   };

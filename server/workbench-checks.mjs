@@ -147,8 +147,10 @@ async function executeCheck({definition_id,candidate_root,workspace_id,project_i
   // than re-resolving a replaceable path. Purely additive: a rejected or
   // throwing callback never changes the recorder result.
   if(typeof artifact_record==='function')try{
-    const logStat=fs.fstatSync(fd),dirStat=fs.statSync(directory),rootStat=fs.statSync(artifact_root);
-    artifact_record({log_path,artifact_dir:directory,artifact_log_identity:{path:log_path,dev:logStat.dev,ino:logStat.ino,dir_dev:dirStat.dev,dir_ino:dirStat.ino,root_dev:rootStat.dev,root_ino:rootStat.ino},definition_id,workspace_id,project_id,job_id,created_at:Date.now()});
+    // BigInt stats give birthtimeNs, the immutable Linux creation identity that
+    // survives dev/ino reuse after delete+create. Serialized as decimal strings.
+    const logStat=fs.fstatSync(fd,{bigint:true}),dirStat=fs.statSync(directory,{bigint:true}),rootStat=fs.statSync(artifact_root,{bigint:true});
+    artifact_record({log_path,artifact_dir:directory,artifact_log_identity:{path:log_path,dev:String(logStat.dev),ino:String(logStat.ino),birthtime_ns:String(logStat.birthtimeNs),dir_dev:String(dirStat.dev),dir_ino:String(dirStat.ino),dir_birthtime_ns:String(dirStat.birthtimeNs),root_dev:String(rootStat.dev),root_ino:String(rootStat.ino),root_birthtime_ns:String(rootStat.birthtimeNs)},definition_id,workspace_id,project_id,job_id,created_at:Date.now()});
   }catch{}
   const env={PATH:'/usr/bin:/bin',HOME:temp,LANG:'C.UTF-8',LC_ALL:'C.UTF-8',NODE_OPTIONS:'',TMPDIR:temp,TSX_DISABLE_CACHE:'1'};
   const env_fingerprint=digest(JSON.stringify(env));

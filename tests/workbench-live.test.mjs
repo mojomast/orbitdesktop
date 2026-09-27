@@ -504,7 +504,8 @@ test('revoked project and superseded generation hard-fence reads and streams',as
   await assert.rejects(()=>f.live.detail({...scope,attempt_id:attempt.id,reference:{kind:'candidate',id:candidate.id}}),{code:'stale_resource'});
 });
 
-test('tail anchors to the recorded log identity and never cross-discloses',t=>{
+const tick=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+test('tail anchors to the recorded log identity and never cross-discloses',async t=>{
   const f=fixture(t),scope={workspace_id:f.workspace,project_id:f.project.id};
   const mk=(name,body)=>{const dir=path.join(f.live.artifactRoot,name);fs.mkdirSync(dir,{recursive:true,mode:0o700});const log=path.join(dir,'output.log');fs.writeFileSync(log,body,{mode:0o600});return {dir,log,identity:identityFor(log)};};
   const candA=f.data.create('candidates',{...scope,generation:1,hash:'a'.repeat(64),files:[],total_bytes:0,status:'approved'});
@@ -551,15 +552,43 @@ test('tail anchors to the recorded log identity and never cross-discloses',t=>{
   assert.equal(refused.reason,'outside_artifact_root');
   assert.ok(!JSON.stringify(refused).includes('ESCAPE_SENTINEL'));
 
-  // Replaced log inode is refused.
+  // Deterministic replacement: preserve the original inode by renaming it away,
+  // then recreate the recorded path. CI runners can reuse the freed inode, so
+  // identity is pinned to the immutable creation identity (birthtimeNs), not
+  // dev/ino alone.
   const replaced=mk('check-replaced','ORIGINAL_BYTES');
   const replacedJob=f.data.create('jobs',{...scope,status:'running',definition_id:'node-test',candidate_id:candA.id});
   f.data.update('jobs',f.workspace,f.project.id,replacedJob.id,1,{artifact_log_path:replaced.log,artifact_dir:replaced.dir,artifact_log_identity:replaced.identity});
-  fs.unlinkSync(replaced.log);fs.writeFileSync(replaced.log,'REPLACEMENT_BYTES',{mode:0o600});
+  const originalBirth=fs.statSync(replaced.log,{bigint:true}).birthtimeNs;
+  fs.renameSync(replaced.log,`${replaced.log}.original`);
+  fs.writeFileSync(replaced.log,'REPLACEMENT_BYTES',{mode:0o600});
+  let replacementBirth=fs.statSync(replaced.log,{bigint:true}).birthtimeNs;
+  for(let attempt=0;attempt<20&&replacementBirth===originalBirth;attempt++){await tick(5);fs.rmSync(replaced.log);fs.writeFileSync(replaced.log,'REPLACEMENT_BYTES',{mode:0o600});replacementBirth=fs.statSync(replaced.log,{bigint:true}).birthtimeNs;}
+  assert.notEqual(replacementBirth,originalBirth,'recreated file must have a distinct creation identity');
   const replacedTail=f.live.tail({...scope,job_id:replacedJob.id});
   assert.equal(replacedTail.available,false);
-  assert.match(replacedTail.reason,/replaced_log|unreadable/);
+  assert.match(replacedTail.reason,/replaced_log|replaced_during_read|unreadable/);
   assert.ok(!JSON.stringify(replacedTail).includes('REPLACEMENT_BYTES'));
+
+  // Same dev/ino with a different creation identity is refused: proves
+  // birthtime pinning even when the kernel reuses the inode.
+  const pinned=mk('check-pinned','PINNED_BYTES');
+  const pinnedJob=f.data.create('jobs',{...scope,status:'running',definition_id:'node-test',candidate_id:candA.id});
+  const forgedBirth={...pinned.identity,birthtime_ns:String(BigInt(pinned.identity.birthtime_ns)+1n)};
+  f.data.update('jobs',f.workspace,f.project.id,pinnedJob.id,1,{artifact_log_path:pinned.log,artifact_dir:pinned.dir,artifact_log_identity:forgedBirth});
+  const forgedTail=f.live.tail({...scope,job_id:pinnedJob.id});
+  assert.equal(forgedTail.available,false);
+  assert.equal(forgedTail.reason,'replaced_log');
+  assert.ok(!JSON.stringify(forgedTail).includes('PINNED_BYTES'));
+
+  // A historical identity without birthtime fails closed and is never read.
+  const legacyJob=f.data.create('jobs',{...scope,status:'running',definition_id:'node-test',candidate_id:candA.id});
+  const legacyIdentity={path:pinned.log,dev:pinned.identity.dev,ino:pinned.identity.ino,dir_dev:pinned.identity.dir_dev,dir_ino:pinned.identity.dir_ino,root_dev:pinned.identity.root_dev,root_ino:pinned.identity.root_ino};
+  f.data.update('jobs',f.workspace,f.project.id,legacyJob.id,1,{artifact_log_path:pinned.log,artifact_dir:pinned.dir,artifact_log_identity:legacyIdentity});
+  const legacyTail=f.live.tail({...scope,job_id:legacyJob.id});
+  assert.equal(legacyTail.available,false);
+  assert.equal(legacyTail.reason,'untrusted_identity');
+  assert.ok(!JSON.stringify(legacyTail).includes('PINNED_BYTES'));
 
   // Symlinked log is refused by O_NOFOLLOW.
   const linked=mk('check-linked','LINK_TARGET_BYTES');
@@ -610,10 +639,12 @@ test('public job projections never expose private artifact coordinates',async t=
   assert.ok(!JSON.stringify(state).includes('artifact_log_identity')&&!JSON.stringify(state).includes('check-private'));
 });
 
-// Trusted kernel identity for a private check log, as the recorder records it.
+// Trusted kernel identity for a private check log, as the recorder records it:
+// dev/ino plus the immutable Linux creation identity (birthtimeNs) for the log
+// and both parent directories, serialized as decimal strings.
 function identityFor(logPath){
-  const stat=fs.statSync(logPath),dir=path.dirname(logPath),dirStat=fs.statSync(dir),rootStat=fs.statSync(path.dirname(dir));
-  return {path:logPath,dev:stat.dev,ino:stat.ino,dir_dev:dirStat.dev,dir_ino:dirStat.ino,root_dev:rootStat.dev,root_ino:rootStat.ino};
+  const stat=fs.statSync(logPath,{bigint:true}),dir=path.dirname(logPath),dirStat=fs.statSync(dir,{bigint:true}),rootStat=fs.statSync(path.dirname(dir),{bigint:true});
+  return {path:logPath,dev:String(stat.dev),ino:String(stat.ino),birthtime_ns:String(stat.birthtimeNs),dir_dev:String(dirStat.dev),dir_ino:String(dirStat.ino),dir_birthtime_ns:String(dirStat.birthtimeNs),root_dev:String(rootStat.dev),root_ino:String(rootStat.ino),root_birthtime_ns:String(rootStat.birthtimeNs)};
 }
 
 async function startRoute(t,{live,heartbeatMs=40,token='owner-secret-token'}={}){
@@ -778,4 +809,34 @@ test('a recorder-verified artifact is recorder-authoritative with bounded per-ch
   assert.equal(detail.fields.verified_checks,1);
   assert.equal(detail.checks[0].test_results.passed,60);
   assert.equal(detail.checks[0].test_results.covered_files,1);
+});
+
+test('a real recorded check writes a birthtime identity and tail reads it, refusing replacement',async t=>{
+  const root=fs.mkdtempSync('/tmp/opencode/workbench-live-check-'),projectRoot=path.join(root,'project');fs.mkdirSync(projectRoot);fs.writeFileSync(path.join(projectRoot,'math.js'),'export const sum = (a,b) => a - b;\n');
+  const store=new SqliteWorkspaceStore(path.join(root,'runtime')),workspace_id=randomUUID();
+  store.commit(commandIdentity({workspace_id,action:'sync',base_revision:0,state:initial(),operation_id:randomUUID(),intent:'Check tail fixture'},'owner'),{create:()=>({id:workspace_id,revision:1,state:initial(),capability:randomUUID(),api:'http://127.0.0.1:4318'})});
+  const data=new WorkbenchData(store),records=new WorkbenchStore(store);
+  const opened=openProjectRoot(projectRoot),project=records.register(workspace_id,{root:projectRoot,name:'Check tail',identity:opened.identity});opened.close();
+  const gate=createWorkbenchGate(),execution=createWorkbenchExecution({store,records,data,gate});
+  const live=createWorkbenchLive({store,records,data,gate,execution});
+  t.after(()=>{live.close();execution.close();store.close();fs.rmSync(root,{recursive:true,force:true});});
+  const base={workspace_id,project_id:project.id},call=(action,fields={})=>execution.dispatch({...base,action,...fields});
+  const {task}=await call('task_create',{title:'Fix sum',acceptance_statement:'sum adds',check_definition_id:'host-regression',profile_id:'fixture',session_id:'sess'});
+  const preview=await call('candidate_preview',{task_id:task.id});
+  const {candidate}=await call('candidate_create',{task_id:task.id,preview_id:preview.preview_id,preview_digest:preview.preview.digest});
+  const spec=await call('check_preview',{candidate_id:candidate.id,definition_id:'host-regression'});
+  await call('check_run',{candidate_id:candidate.id,preview_id:spec.preview_id,preview_digest:spec.preview.spec_digest,op_id:randomUUID()});
+  const job=data.list('jobs',workspace_id,project.id).at(-1);
+  assert.ok(job.artifact_log_identity&&job.artifact_log_identity.birthtime_ns,'recorder persisted a private creation identity');
+  assert.ok(BigInt(job.artifact_log_identity.birthtime_ns)>0n,'birthtime identity is positive');
+  const tailed=live.tail({...base,job_id:job.id});
+  assert.equal(tailed.available,true);
+  assert.equal(tailed.verified,false);
+  assert.match(tailed.note,/Unverified tail/);
+  const logPath=job.artifact_log_identity.path;
+  fs.renameSync(logPath,`${logPath}.original`);
+  fs.writeFileSync(logPath,'REPLACED_CHECK_OUTPUT',{mode:0o600});
+  const replaced=live.tail({...base,job_id:job.id});
+  assert.equal(replaced.available,false);
+  assert.ok(!JSON.stringify(replaced).includes('REPLACED_CHECK_OUTPUT'));
 });
