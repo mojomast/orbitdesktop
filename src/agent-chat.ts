@@ -6,6 +6,8 @@ import './hermes-tools.css';
 import './agent-toolbar.css';
 import { el, button } from './dom';
 import { workspaceId, ensureWorkspaceSynced } from './workspace-sync';
+import { readPanePrefs, writePanePrefs, type PaneMode, type PaneWorkbenchPrefs } from './pane-prefs';
+import { mountPaneWorkbench, type PaneWorkbenchBadge } from './pane-workbench';
 
 import { archiveChat, validChat, transcript, chatProfileId, chatBindingKey, type ChatState } from './chat-storage';
 export function createAgentChat(body: HTMLElement, paneId: string, getToken: () => string, toolbar?: HTMLElement) {
@@ -58,6 +60,18 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     try { sessionStorage.setItem(storageKey, JSON.stringify(state)); } catch { /* Private browsing/storage limit. */ }
   };
   body.classList.add('chat-body');
+  // Persistent Normal/Workbench siblings. Mode switching only toggles `hidden`;
+  // the Normal conversation DOM (messages, composer, queue) is never rebuilt, so
+  // the chat session, draft and queue survive a view change.
+  const chatNormal = el('div', 'agent-chat-normal');
+  const workbenchHost = el('div', 'agent-workbench-host');
+  workbenchHost.hidden = true;
+  let panePrefs: PaneWorkbenchPrefs = readPanePrefs(workspaceId, paneId);
+  let paneMode: PaneMode = panePrefs.mode;
+  let workbenchStatus = '';
+  let workbenchLaneActive = false;
+  let workbenchBadge: PaneWorkbenchBadge = { mode: 'workbench', pending: 0, results: 0, laneBusy: false, status: 'Idle' };
+  let workbench: ReturnType<typeof mountPaneWorkbench> | undefined;
   const badge = el('div', 'agent-meta');
   const status = el('span', 'agent-status', 'READY');
   status.setAttribute('role', 'status');
@@ -115,7 +129,20 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     dialog.append(form); dialog.addEventListener('close', () => dialog.remove());
     document.body.append(dialog); dialog.showModal(); name.focus(); name.select();
   }, 'small-button');
-  badge.append(el('span', 'agent-avatar', '✳'), titleInput, colorInput, rename, status, newChat, notificationButton);
+  // The Normal/Workbench selector lives in the pane header, so it stays visible
+  // in both modes. Changing it never dispatches work; it only changes the view.
+  const modeSelect = el('select', 'agent-mode-select');
+  modeSelect.setAttribute('aria-label', 'Pane view');
+  for (const [value, label] of [['normal', 'Normal'], ['workbench', 'Workbench']] as const) {
+    const option = el('option', '', label);
+    option.value = value;
+    modeSelect.append(option);
+  }
+  modeSelect.value = paneMode;
+  modeSelect.addEventListener('change', () => setMode(modeSelect.value === 'workbench' ? 'workbench' : 'normal'));
+  const modeBadge = el('span', 'agent-mode-badge');
+  modeBadge.setAttribute('aria-hidden', 'true');
+  badge.append(el('span', 'agent-avatar', '✳'), titleInput, colorInput, rename, status, newChat, notificationButton, modeSelect, modeBadge);
   const bindingControls = el('div', 'agent-binding-controls');
   const profileSelect = el('select'); profileSelect.setAttribute('aria-label', 'Profile');
   const sessionSelect = el('select'); sessionSelect.setAttribute('aria-label', 'Session');
@@ -188,7 +215,9 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   const queueList = el('div', 'agent-queue');
   const drainButton = button('Send next queued', 'Resume sending queued messages', () => { void drainQueue(); }, 'small-button');
   async function drainQueue() {
-    if (disposed || busy || state.run || !state.queue?.length) return;
+    // The native/runtime lane is server-authoritative and single. While a
+    // Workbench submission or attempt occupies it, never auto-send queued chat.
+    if (disposed || busy || state.run || workbenchLaneActive || !state.queue?.length) return;
     queuePaused = false;
     await submit(state.queue[0]);
   }
@@ -241,10 +270,21 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   }
   const inlineTools = createInlineTools(paneId, messages, () => api({action:'activity'}));
   badge.append(inlineTools.toggle);
-  const activity = registerActivity(paneId, () => {
+  // Cross-mode status plumbing. The lead-owned activity registry gains optional
+  // mode/normalStatus/workbenchStatus fields and a focusMode registration option;
+  // the compatibility cast keeps this compiling before and after that change.
+  type ActivityPatch = { title?: string; task?: string; status?: string; mode?: PaneMode; normalStatus?: string; workbenchStatus?: string };
+  const registerActivityCompat = registerActivity as unknown as (
+    id: string,
+    focus: () => void,
+    options?: { focusMode?: (mode: PaneMode) => void },
+  ) => { update(patch: ActivityPatch): void; dispose(): void };
+  const activity = registerActivityCompat(paneId, () => {
     window.dispatchEvent(new CustomEvent('orbit-focus-agent', {detail:paneId}));
-    body.scrollIntoView({block:'nearest'}); input.focus();
-  });
+    body.scrollIntoView({block:'nearest'});
+    if (paneMode !== 'normal') setMode('normal');
+    input.focus();
+  }, { focusMode: (mode) => setMode(mode) });
   let toolStatus = '', streamStatus = '';
   const strip = el('div','agent-activity-strip');
   const activityButton = button('Ready','Show live tool details',()=>inlineTools.show(),'small-button');
@@ -253,7 +293,8 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     const runStatus = status.textContent || 'READY';
     const label = !getToken() ? 'Host disconnected' : runStatus === 'ATTENTION' ? 'Needs attention · check status' : runStatus === 'WAITING FOR APPROVAL' ? 'Waiting for you' : state.run ? (streamStatus || toolStatus || 'Working · awaiting tool events') : runStatus === 'COMPLETED' ? 'Finished' : runStatus === 'FAILED' ? 'Failed' : runStatus === 'CANCELLED' ? 'Cancelled' : 'Ready';
     activityButton.textContent = label;
-    activity.update({title:state.title || 'Hermes',task:state.messages.filter(m=>m.role==='user').at(-1)?.text.slice(0,200) || 'No task yet',status:label});
+    activity.update({title:state.title || 'Hermes',task:state.messages.filter(m=>m.role==='user').at(-1)?.text.slice(0,200) || 'No task yet',status:label,mode:paneMode,normalStatus:label,workbenchStatus});
+    updateModeBadge();
   }
   const statusObserver = new MutationObserver(refreshActivity);
   statusObserver.observe(status,{childList:true,characterData:true,subtree:true});
@@ -385,6 +426,55 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     // Allow composing the next message while Hermes works; Send remains disabled.
     input.disabled = false;
   }
+  function updateModeBadge() {
+    const count = workbenchBadge.pending + workbenchBadge.results;
+    modeBadge.textContent = paneMode === 'normal'
+      ? (count || workbenchBadge.laneBusy ? `WB ${count || '•'}` : '')
+      : 'N';
+    modeBadge.hidden = !modeBadge.textContent;
+    const workbenchLabel = workbenchBadge.laneBusy ? 'lane busy' : workbenchBadge.status || 'idle';
+    modeSelect.title = `Normal: ${status.textContent || 'READY'} · Workbench: ${workbenchLabel}`
+      + (workbenchBadge.pending ? ` · ${workbenchBadge.pending} pending` : '')
+      + (workbenchBadge.results ? ` · ${workbenchBadge.results} result(s)` : '');
+  }
+  function ensureWorkbench() {
+    if (workbench || disposed) return workbench;
+    workbench = mountPaneWorkbench({
+      paneId,
+      body: workbenchHost,
+      workspaceId,
+      getToken,
+      binding: () => ({ profileId: chatProfileId(state), sessionId: state.session, bindingRevision: state.binding_revision ?? 0 }),
+      messages: () => state.messages.map((message, index) => ({ id: String(index), role: message.role, text: message.text })),
+      prefs: panePrefs,
+      onPrefs: (patch) => { panePrefs = writePanePrefs(workspaceId, paneId, patch); },
+      onBadge: (next) => {
+        workbenchBadge = next;
+        workbenchLaneActive = next.laneBusy;
+        workbenchStatus = next.status;
+        updateModeBadge();
+        refreshActivity();
+        update();
+      },
+      onLaneBusy: (laneBusy) => { workbenchLaneActive = laneBusy; update(); },
+      onError: showError,
+    });
+    return workbench;
+  }
+  // View toggle only: it never starts, stops, queues or drains any work. Normal
+  // DOM is hidden by attribute, so the same nodes, session, draft and queue persist.
+  function setMode(next: PaneMode, persist = true) {
+    if (disposed) return;
+    paneMode = next;
+    if (persist) panePrefs = writePanePrefs(workspaceId, paneId, { mode: next });
+    chatNormal.hidden = next !== 'normal';
+    workbenchHost.hidden = next !== 'workbench';
+    modeSelect.value = next;
+    if (next === 'workbench') ensureWorkbench()?.setVisible(true);
+    else workbench?.setVisible(false);
+    updateModeBadge();
+    update();
+  }
   function render() {
     if(!state.run) {toolStatus='';streamStatus='';}
     refreshActivity();
@@ -467,7 +557,8 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
         const finishedRun = state.run;
         state.run = undefined; save(); render(); progress.textContent = '';
         notifyReply(finishedRun, data.status === 'completed');
-        if (data.status === 'completed' && !queuePaused) void drainQueue();
+        // Never auto-drain while the shared native lane is occupied by Workbench.
+        if (data.status === 'completed' && !queuePaused && !workbenchLaneActive) void drainQueue();
         return;
       }
       progress.textContent = data.status === 'waiting_for_approval' ? 'Hermes needs your permission before continuing.' : 'Hermes is working. You can stop the run. Replies appear when the turn completes.';
@@ -513,13 +604,17 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   form.append(input, tools, send);
   form.onsubmit = e => { e.preventDefault(); void submit(); };
   input.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); void submit(); } };
-  body.append(badge, bindingControls, strip, notice, messages, taskCards, progress, approvals, controls,recovery, queueList, form);
+  chatNormal.append(badge, bindingControls, strip, notice, messages, taskCards, progress, approvals, controls,recovery, queueList, form);
+  body.append(chatNormal, workbenchHost);
   if (toolbar) {
     toolbar.classList.add('agent-pane-head');
     badge.classList.add('agent-toolbar-meta');
     toolbar.insertBefore(badge, toolbar.children[1] || null);
   }
   render();
+  // Restore the persisted view after the DOM exists. This only reads host state
+  // (owner read APIs); it never starts a run or drains the queue.
+  setMode(paneMode, false);
   async function syncShared() {
     if (sharing || switching || pending || busy || polling || disposed || !getToken()) return;
     const requested = scope();
@@ -553,6 +648,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
       saveDraft(); generation++; clearTimeout(timer); toolsDialog?.close(); liveController?.abort(); approvals.replaceChildren();
       taskCards.replaceChildren(); taskCards.hidden = true; cardsDigest = '';
       queuePaused = true; toolStatus = ''; streamStatus = '';
+      workbench?.invalidateBinding();
     }
     state = next;
     if (changed) { loadDraft(); resetBindingControls(); status.textContent = state.run ? 'WORKING' : 'READY'; progress.textContent = ''; }
@@ -578,5 +674,5 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     progress.textContent = 'A saved run may still be active. Connect host to check its status. Closing the pane does not stop Hermes.';
     if (getToken()) void poll();
   }
-  return () => { saveDraft(); disposed = true; generation++; statusObserver.disconnect(); activity.dispose(); clearInterval(sharedTimer); stopToolFeed(); inlineTools.dispose(); toolsDialog?.close(); liveController?.abort(); clearTimeout(timer); controller.abort(); window.removeEventListener('orbit-host-connected', onUnlock); window.removeEventListener('orbit-open-hermes-tools', onOpenTools); };
+  return () => { saveDraft(); disposed = true; generation++; statusObserver.disconnect(); activity.dispose(); clearInterval(sharedTimer); stopToolFeed(); inlineTools.dispose(); workbench?.dispose(); toolsDialog?.close(); liveController?.abort(); clearTimeout(timer); controller.abort(); window.removeEventListener('orbit-host-connected', onUnlock); window.removeEventListener('orbit-open-hermes-tools', onOpenTools); };
 }

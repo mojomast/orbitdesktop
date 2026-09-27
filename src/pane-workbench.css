@@ -1,0 +1,176 @@
+/* Scoped pane Workbench + Normal/Workbench mode chrome. Keeps the accepted
+   project-workbench and agent-chat styling intact; only additive, scoped rules. */
+
+.agent-chat-normal {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.agent-workbench-host {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+}
+
+.agent-mode-badge {
+  font-size: 0.72em;
+  padding: 0 0.3rem;
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, var(--accent, #b5f268) 30%, transparent);
+}
+
+.agent-mode-badge[hidden] {
+  display: none;
+}
+
+.agent-workbench-host[hidden],
+.agent-chat-normal[hidden] {
+  display: none !important;
+}
+
+.agent-mode-select {
+  max-width: 9rem;
+}
+
+.pane-workbench {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0.6rem;
+  color: inherit;
+}
+
+.pane-workbench-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.4rem;
+  min-width: 0;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--border-color, #555);
+}
+
+.pane-workbench-field {
+  display: grid;
+  gap: 0.15rem;
+  font-size: 0.78em;
+  min-width: 0;
+}
+
+.pane-workbench-field > span {
+  opacity: 0.75;
+}
+
+.pane-workbench-field :is(select) {
+  max-width: 14rem;
+  min-width: 0;
+}
+
+.pane-workbench-status,
+.pane-workbench-error,
+.pane-workbench-stale,
+.pane-workbench-excerpt-count,
+.pane-workbench-excerpt-bytes,
+.pane-workbench-live-note {
+  margin: 0.15rem 0;
+  font-size: 0.82em;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.pane-workbench-error {
+  color: var(--error-color, #c33);
+}
+
+.pane-workbench-stale {
+  color: var(--warning-color, #d9a441);
+}
+
+.pane-workbench-authority > summary,
+.pane-workbench-handoff > summary,
+.pane-workbench-advanced > summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 0.25rem 0;
+}
+
+.pane-workbench-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  border-bottom: 1px solid var(--border-color, #555);
+}
+
+.pane-workbench-tab {
+  border: 1px solid var(--border-color, #555);
+  border-bottom: none;
+  border-radius: 0.35rem 0.35rem 0 0;
+  padding: 0.25rem 0.7rem;
+  background: transparent;
+  color: inherit;
+}
+
+.pane-workbench-tab.active,
+.pane-workbench-tab[aria-selected='true'] {
+  background: color-mix(in srgb, var(--accent, #b5f268) 22%, transparent);
+}
+
+.pane-workbench-panel {
+  min-width: 0;
+}
+
+.pane-workbench-panel[hidden] {
+  display: none !important;
+}
+
+.pane-workbench-excerpts {
+  display: grid;
+  gap: 0.2rem;
+  max-height: 16rem;
+  overflow: auto;
+  padding: 0.3rem;
+  border: 1px solid var(--border-color, #555);
+  border-radius: 0.35rem;
+}
+
+.pane-workbench-excerpt {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: start;
+  gap: 0.4rem;
+  font-size: 0.82em;
+}
+
+.pane-workbench-excerpt-text {
+  overflow-wrap: anywhere;
+}
+
+.pane-workbench-composer {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: inherit;
+  margin-top: 0.35rem;
+}
+
+.pane-workbench-excerpt-preview {
+  max-height: 18rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 0.5rem;
+  background: var(--panel-background, #111);
+  border: 1px solid var(--border-color, #555);
+  border-radius: 0.35rem;
+}
+
+@media (min-width: 900px) {
+  .pane-workbench-head {
+    align-items: end;
+  }
+}
