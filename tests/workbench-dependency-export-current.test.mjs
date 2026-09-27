@@ -15,6 +15,7 @@ import {initial} from '../src/model.ts';
 import {commandIdentity} from '../server/command-identity.mjs';
 
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
+const fixtures=new URL('./fixtures/',import.meta.url);
 const git=(root,...args)=>execFileSync('/usr/bin/git',['-C',root,...args],{encoding:'utf8'}).trim();
 const scope=(root,source,t,registryCache)=>{
   const store=new SqliteWorkspaceStore(path.join(root,'runtime'));
@@ -168,6 +169,38 @@ test('tampering the fresh patch-applied stage refuses publication despite passin
   assert.equal(countChecks(f),prior);
 });
 
+test('a missing required test in the patch-applied stage refuses artifact verification',async t=>{
+  const f=localFixture(t),state=await reviewed(f,{path:'math.cjs',content:f.repair},{profileInputs:f.profileInputs});
+  const prior=countChecks(f),body=request(state),verify=f.execution.verifyPatchArtifact;
+  f.execution.verifyPatchArtifact=async input=>{
+    fs.unlinkSync(path.join(input.stage_root,'math.test.cjs'));
+    return verify(input);
+  };
+  await assert.rejects(f.flow('patch_export',body),{code:'stale_resource'});
+  const [failed]=(await f.flow('patch_list',{op_id:body.op_id})).patches;
+  assert.equal(failed.status,'preparation_failed');
+  await assert.rejects(f.flow('private_patch_get',{artifact_id:failed.artifact_id}),{code:'permission_denied'});
+  assert.equal(countChecks(f),prior);
+});
+
+test('an incomplete copied dependency tree cannot satisfy independent artifact checks',async t=>{
+  const f=localFixture(t),state=await reviewed(f,{path:'math.cjs',content:f.repair},{profileInputs:f.profileInputs});
+  const prior=countChecks(f),body=request(state),createView=f.environments.createExecutionView;
+  let corrupted=false;
+  f.environments.createExecutionView=input=>{
+    const view=createView(input);
+    if(input.staged_source){
+      corrupted=true;
+      fs.unlinkSync(path.join(view.root,'node_modules','export-fixture-lib','index.js'));
+    }
+    return view;
+  };
+  await assert.rejects(f.flow('patch_export',body),{code:'stale_resource'});
+  assert.equal(corrupted,true,'verifier must construct a separate staged-source dependency view');
+  await assertNoArtifact(f,body.op_id);
+  assert.equal(countChecks(f),prior);
+});
+
 test('toolchain identity drift after preview refuses export before executing artifact checks',async t=>{
   const f=localFixture(t),state=await reviewed(f,{path:'math.cjs',content:f.repair},{profileInputs:f.profileInputs});
   const prior=countChecks(f),body=request(state);
@@ -200,25 +233,36 @@ test('acceptance revision after review invalidates old approval and preview',asy
 });
 
 test('real RouteTok export independently verifies 293 tests and retrieved diff passes on a fresh base',{
-  skip:!process.env.ORBIT_ROUTETOK_TEST_SOURCE||!process.env.ORBIT_ROUTETOK_TEST_CACHE||!process.env.ORBIT_ROUTETOK_REPAIR_EVIDENCE,timeout:300000,
+  skip:!process.env.ORBIT_ROUTETOK_TEST_SOURCE||!process.env.ORBIT_ROUTETOK_TEST_CACHE,timeout:300000,
 },async t=>{
-  const source=process.env.ORBIT_ROUTETOK_TEST_SOURCE,cache=process.env.ORBIT_ROUTETOK_TEST_CACHE;
-  assert.equal(git(source,'rev-parse','HEAD'),'7e3a1fb024d62fcb0e2bfc994b7db3185bd41fac');
-  assert.equal(git(source,'status','--porcelain'),'');
-  const historical=JSON.parse(fs.readFileSync(process.env.ORBIT_ROUTETOK_REPAIR_EVIDENCE,'utf8'));
-  const [change]=historical.patch_preview.changes;
-  assert.equal(historical.patch_preview.changes.length,1);
-  assert.equal(change.path,'src/net-address.ts');
+  const upstream=process.env.ORBIT_ROUTETOK_TEST_SOURCE,cache=process.env.ORBIT_ROUTETOK_TEST_CACHE;
+  const upstreamHead='5982efe845f99528b2facde08991d951269ec4ab';
+  assert.equal(git(upstream,'rev-parse','HEAD'),upstreamHead);
+  assert.equal(git(upstream,'status','--porcelain'),'');
+  assert.equal(fs.existsSync(path.join(upstream,'node_modules')),false);
+  const filename='src/net-address.ts',oldHash='f6439cfa1775a2c01bfbb5d3682401abffbb62ac36bfb6cbb54ab470f8a3cb09',newHash='540967904a3898172b9a4a9ed9bd436b2a0c3a303933032c7c4ce767929b44d1';
+  const regression=fs.readFileSync(new URL('routetok-net-address-equivalence.test.ts',fixtures));
+  const publicRepair=fs.readFileSync(new URL('routetok-net-address-repair.patch',fixtures));
   const root=fs.mkdtempSync('/tmp/opencode/orbit-export-routetok-');
+  const source=path.join(root,'source');
+  execFileSync('/usr/bin/git',['clone','--no-hardlinks','--quiet',upstream,source]);
+  execFileSync('/usr/bin/git',['-C',source,'checkout','--detach','--quiet',upstreamHead]);
+  assert.equal(git(source,'status','--porcelain'),'');
+  const testPath='test/unit/net-address-equivalence.test.ts';
+  assert.equal(fs.existsSync(path.join(source,testPath)),false);
+  fs.writeFileSync(path.join(source,testPath),regression);
+  assert.equal(git(source,'status','--porcelain'),`?? ${testPath}`);
   const temporary=path.join(root,'repaired');fs.mkdirSync(path.join(temporary,'src'),{recursive:true});
-  const original=fs.readFileSync(path.join(source,change.path));assert.equal(hash(original),change.old_hash);
-  fs.writeFileSync(path.join(temporary,change.path),original);
-  const diffFile=path.join(root,'repair.patch');fs.writeFileSync(diffFile,historical.patch_preview.patch_text);
+  const original=fs.readFileSync(path.join(source,filename));assert.equal(hash(original),oldHash);
+  fs.writeFileSync(path.join(temporary,filename),original);
+  const diffFile=path.join(root,'repair.patch');fs.writeFileSync(diffFile,publicRepair);
   execFileSync('/usr/bin/git',['-C',temporary,'apply','--check',diffFile]);
   execFileSync('/usr/bin/git',['-C',temporary,'apply',diffFile]);
-  const repair=fs.readFileSync(path.join(temporary,change.path));assert.equal(hash(repair),change.new_hash);
+  // The deterministic one-source model repair is a test fixture, never an agent
+  // submission or replacement for a fresh live-model acceptance trial.
+  const repair=fs.readFileSync(path.join(temporary,filename));assert.equal(hash(repair),newHash);
   const f=scope(root,source,t,cache);
-  const state=await reviewed(f,{path:change.path,content:repair.toString('utf8')});
+  const state=await reviewed(f,{path:filename,content:repair.toString('utf8')});
   assert.equal(state.run.evidence.test_results.tests,293);
   assert.equal(state.run.evidence.test_results.covered_files.length,60);
   const prior=countChecks(f),body=request(state),exported=await f.flow('patch_export',body);
@@ -239,13 +283,15 @@ test('real RouteTok export independently verifies 293 tests and retrieved diff p
   const downloaded=await f.flow('private_patch_get',{artifact_id:exported.patch.id});
   assert.equal(hash(Buffer.from(downloaded.patch)),exported.patch.artifact_hash);
   const fresh=path.join(root,'fresh-base');
-  execFileSync('/usr/bin/git',['clone','--no-hardlinks','--quiet',source,fresh]);
-  assert.equal(git(fresh,'rev-parse','HEAD'),git(source,'rev-parse','HEAD'));
-  assert.equal(hash(fs.readFileSync(path.join(fresh,change.path))),change.old_hash);
+  execFileSync('/usr/bin/git',['clone','--no-hardlinks','--quiet',upstream,fresh]);
+  execFileSync('/usr/bin/git',['-C',fresh,'checkout','--detach','--quiet',upstreamHead]);
+  fs.writeFileSync(path.join(fresh,testPath),regression);
+  assert.equal(git(fresh,'rev-parse','HEAD'),upstreamHead);
+  assert.equal(hash(fs.readFileSync(path.join(fresh,filename))),oldHash);
   fs.writeFileSync(path.join(root,'export.patch'),downloaded.patch);
   execFileSync('/usr/bin/git',['-C',fresh,'apply','--check',path.join(root,'export.patch')]);
   execFileSync('/usr/bin/git',['-C',fresh,'apply',path.join(root,'export.patch')]);
-  assert.equal(hash(fs.readFileSync(path.join(fresh,change.path))),change.new_hash);
+  assert.equal(hash(fs.readFileSync(path.join(fresh,filename))),newHash);
   assert.equal(state.run.evidence.test_results.required_files.length,60);
   assert.ok(state.run.evidence.test_results.required_files.every(file=>fs.existsSync(path.join(fresh,file))));
   const npm=path.resolve(path.dirname(process.execPath),'../lib/node_modules/npm/bin/npm-cli.js');
@@ -256,8 +302,9 @@ test('real RouteTok export independently verifies 293 tests and retrieved diff p
   assert.equal(retest.status,0,retest.stderr.slice(-4000));
   assert.match(retest.stdout,/tests 293\b/);
   assert.match(retest.stdout,/pass 293\b/);
-  assert.equal(git(source,'status','--porcelain'),'');
-  assert.deepEqual(fs.readFileSync(path.join(source,change.path)),original);
+  assert.equal(git(upstream,'status','--porcelain'),'');
+  assert.equal(git(source,'status','--porcelain'),`?? ${testPath}`);
+  assert.deepEqual(fs.readFileSync(path.join(source,filename)),original);
   assert.equal(fs.existsSync(path.join(source,'node_modules')),false);
-  console.log(JSON.stringify({current_artifact:exported.patch.id,artifact_check_count:result.test_results.tests,required_files:result.test_results.covered_files.length,artifact_hash:exported.patch.artifact_hash,source_head:git(fresh,'rev-parse','HEAD'),changed_file_hash:change.new_hash,fresh_retest:'293/293'}));
+  console.log(JSON.stringify({current_artifact:exported.patch.id,artifact_check_count:result.test_results.tests,required_files:result.test_results.covered_files.length,artifact_hash:exported.patch.artifact_hash,source_head:upstreamHead,changed_file_hash:newHash,fresh_retest:'293/293'}));
 });

@@ -1,0 +1,93 @@
+--- a/src/net-address.ts
++++ b/src/net-address.ts
+@@ -14,15 +14,83 @@
+   return a >= 224;
+ }
+ 
++// Expand any textual IPv6 form (compressed, expanded, zero-padded, or with an
++// embedded dotted-quad IPv4 tail) into its raw 16 bytes, or null when invalid.
++function parseIPv6Bytes(address: string): number[] | null {
++  if (isIP(address) !== 6) return null;
++  let text = address;
++  const zone = text.indexOf("%");
++  if (zone >= 0) text = text.slice(0, zone);
++
++  if (text.includes(".")) {
++    const lastColon = text.lastIndexOf(":");
++    if (lastColon < 0) return null;
++    const tail = text.slice(lastColon + 1);
++    if (isIP(tail) !== 4) return null;
++    const octets = tail.split(".").map(Number);
++    const high = ((octets[0]! << 8) | octets[1]!).toString(16).padStart(4, "0");
++    const low = ((octets[2]! << 8) | octets[3]!).toString(16).padStart(4, "0");
++    text = `${text.slice(0, lastColon + 1)}${high}:${low}`;
++  }
++
++  const parseGroups = (segment: string): number[] | null => {
++    if (segment === "") return [];
++    const groups: number[] = [];
++    for (const group of segment.split(":")) {
++      if (!/^[0-9a-fA-F]{1,4}$/.test(group)) return null;
++      groups.push(parseInt(group, 16));
++    }
++    return groups;
++  };
++
++  const parts = text.split("::");
++  if (parts.length > 2) return null;
++  const head = parseGroups(parts[0]!);
++  if (head === null) return null;
++
++  let groups: number[];
++  if (parts.length === 1) {
++    if (head.length !== 8) return null;
++    groups = head;
++  } else {
++    const tail = parseGroups(parts[1]!);
++    if (tail === null) return null;
++    const missing = 8 - head.length - tail.length;
++    if (missing < 1) return null;
++    groups = [...head, ...new Array<number>(missing).fill(0), ...tail];
++  }
++
++  const bytes: number[] = [];
++  for (const group of groups) bytes.push((group >> 8) & 0xff, group & 0xff);
++  return bytes;
++}
++
++function isPrivateIPv6(address: string): boolean {
++  const bytes = parseIPv6Bytes(address);
++  if (bytes === null) return false;
++
++  // ::ffff:0:0/96 carries an embedded IPv4 address; classify those four bytes.
++  const mapped =
++    bytes.slice(0, 10).every((byte) => byte === 0) && bytes[10] === 0xff && bytes[11] === 0xff;
++  if (mapped) return privateIPv4(bytes.slice(12));
++
++  if (bytes.every((byte) => byte === 0)) return true; // :: (unspecified)
++  if (bytes.slice(0, 15).every((byte) => byte === 0) && bytes[15] === 1) return true; // ::1
++
++  const first = bytes[0]!;
++  const second = bytes[1]!;
++  if ((first & 0xfe) === 0xfc) return true; // fc00::/7 unique-local
++  if (first === 0xfe && (second & 0xc0) === 0x80) return true; // fe80::/10 link-local
++  return false;
++}
++
+ export function isPrivateAddress(address: string): boolean {
+-  if (isIP(address) === 4) {
++  const version = isIP(address);
++  if (version === 4) {
+     return privateIPv4(address.split(".").map(Number));
+   }
+-  if (address.toLowerCase().startsWith("::ffff:")) {
+-    const v4 = address.slice(7);
+-    return isIP(v4) === 4 && privateIPv4(v4.split(".").map(Number));
++  if (version === 6) {
++    return isPrivateIPv6(address);
+   }
+-  if (address === "::1" || address === "::") return true;
+-  const lower = address.toLowerCase();
+-  return lower.startsWith("fc") || lower.startsWith("fd") || /^fe[89ab]/.test(lower);
++  return false;
+ }
