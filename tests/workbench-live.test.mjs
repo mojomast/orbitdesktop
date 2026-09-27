@@ -10,6 +10,8 @@ import {WorkbenchStore} from '../server/workbench-store.mjs';
 import {WorkbenchData} from '../server/workbench-data.mjs';
 import {createWorkbenchLive,projectWorkbenchEvent} from '../server/workbench-live.mjs';
 import {createWorkbenchLiveHandler} from '../server/workbench-live-route.mjs';
+import {createWorkbenchExecution} from '../server/workbench-execution.mjs';
+import {createWorkbenchGate} from '../server/workbench-gate.mjs';
 import {validateLiveItem,validateWorkbenchLive,LIVE_LIMITS} from '../contracts/workbench-live-v1.mjs';
 import {commandIdentity} from '../server/command-identity.mjs';
 import {initial} from '../src/model.ts';
@@ -76,7 +78,25 @@ test('observer errors are isolated and a rolled-back transaction never fabricate
   assert.equal(f.data.get('tasks',f.workspace,f.project.id,task.id).status,'open');
 });
 
-test('a committed nested transaction notifies every captured revision once, in order',t=>{
+test('a rolled-back deferred revision reused by a different payload never emits the rolled-back payload',async t=>{
+  const f=fixture(t),scope={workspace_id:f.workspace,project_id:f.project.id};
+  const task=f.data.create('tasks',{...scope,title:'Original',status:'open'});
+  assert.throws(()=>f.data.db.transaction(()=>{
+    f.data.update('tasks',f.workspace,f.project.id,task.id,1,{title:'ROLLED_BACK_PAYLOAD'});
+    throw Object.assign(Error('rollback'),{code:'stale_resource'});
+  }).immediate(),{code:'stale_resource'});
+  // Same record id and revision are reused by a real write before the deferred
+  // microtask flush; revision equality alone would have surfaced the stale payload.
+  f.data.update('tasks',f.workspace,f.project.id,task.id,1,{title:'COMMITTED_PAYLOAD'});
+  await Promise.resolve();
+  const events=f.live.page(scope).events.filter(event=>event.kind==='task');
+  const json=JSON.stringify(events);
+  assert.ok(!json.includes('ROLLED_BACK_PAYLOAD'),'rolled-back payload must never be projected');
+  assert.ok(events.some(event=>event.summary==='Task COMMITTED_PAYLOAD'));
+  assert.equal(f.data.get('tasks',f.workspace,f.project.id,task.id).title,'COMMITTED_PAYLOAD');
+});
+
+test('a committed nested transaction surfaces only provable current state, never fabricated intermediates',t=>{
   const f=fixture(t),scope={workspace_id:f.workspace,project_id:f.project.id};
   const grant=f.data.create('grants',{...scope,status:'approved',calls_used:0});
   f.data.db.transaction(()=>{
@@ -85,8 +105,13 @@ test('a committed nested transaction notifies every captured revision once, in o
   }).immediate();
   return Promise.resolve().then(()=>{
     const events=f.live.page(scope).events.filter(event=>event.kind==='grant');
-    assert.deepEqual(events.map(event=>event.id),[`grants:${grant.id}:1`,`grants:${grant.id}:2`,`grants:${grant.id}:3`]);
-    assert.deepEqual(events.map(event=>event.sequence),[1,2,3]);
+    // The top-level create is exact; the savepoint writes collapse to one
+    // current-state snapshot for revision 3. Intermediate rev2 is not claimed.
+    assert.deepEqual(events.map(event=>event.id),[`grants:${grant.id}:1`,`grants:${grant.id}:3`]);
+    const snapshot=events.at(-1);
+    assert.equal(snapshot.authority,'observed');
+    assert.ok(snapshot.fields.some(field=>field.label==='observed'&&field.value==='reconciled_snapshot'));
+    assert.equal(f.data.get('grants',f.workspace,f.project.id,grant.id).status,'running');
   });
 });
 
@@ -273,34 +298,75 @@ test('revoked project and superseded generation hard-fence reads and streams',as
   await assert.rejects(()=>f.live.detail({...scope,attempt_id:attempt.id,reference:{kind:'candidate',id:candidate.id}}),{code:'stale_resource'});
 });
 
-test('tail reads only trusted artifacts, caps at 16KiB and is explicitly unverified',t=>{
+test('tail resolves only the job recorded artifact reference and never cross-discloses',t=>{
   const f=fixture(t),scope={workspace_id:f.workspace,project_id:f.project.id};
-  const job=f.data.create('jobs',{...scope,status:'running',definition_id:'node-test',log_bytes:0,candidate_id:randomUUID()});
-  const unresolved=f.live.tail({...scope,job_id:job.id});
+  const candA=f.data.create('candidates',{...scope,generation:1,hash:'a'.repeat(64),files:[],total_bytes:0,status:'approved'});
+  const candB=f.data.create('candidates',{...scope,generation:1,hash:'b'.repeat(64),files:[],total_bytes:0,status:'approved'});
+  const attemptA=f.data.create('attempts',{...scope,status:'created',candidate_id:candA.id,candidate_hash:candA.hash});
+  const attemptB=f.data.create('attempts',{...scope,status:'created',candidate_id:candB.id,candidate_hash:candB.hash});
+  const jobA=f.data.create('jobs',{...scope,status:'running',definition_id:'node-test',candidate_id:candA.id});
+  const jobB=f.data.create('jobs',{...scope,status:'running',definition_id:'node-test',candidate_id:candB.id});
+  // Missing private reference fails closed; nothing is scanned or guessed.
+  const unresolved=f.live.tail({...scope,job_id:jobA.id});
   assert.equal(unresolved.available,false);
   assert.equal(unresolved.reason,'unresolved');
   assert.equal(unresolved.verified,false);
 
-  const checkDir=path.join(f.live.artifactRoot,'check-fixture');fs.mkdirSync(checkDir,{recursive:true,mode:0o700});
-  const logPath=path.join(checkDir,'output.log');
-  const payload='x'.repeat(20000);
-  fs.writeFileSync(logPath,payload,{mode:0o600});
-  f.data.create('evidence',{...scope,verdict:'inconclusive',log_path:logPath,log_bytes:payload.length,log_hash:createHash('sha256').update(payload).digest('hex'),job_id:job.id,candidate_id:randomUUID()});
-  const tailed=f.live.tail({...scope,job_id:job.id});
-  assert.equal(tailed.available,true);
-  assert.equal(tailed.verified,false);
-  assert.equal(tailed.cap_bytes,LIVE_LIMITS.tailBytes);
-  assert.equal(Buffer.byteLength(tailed.text),LIVE_LIMITS.tailBytes);
-  assert.equal(tailed.truncated,true);
-  assert.match(tailed.note,/Unverified tail/);
+  const dirA=path.join(f.live.artifactRoot,'check-alpha');fs.mkdirSync(dirA,{recursive:true,mode:0o700});
+  const dirB=path.join(f.live.artifactRoot,'check-bravo');fs.mkdirSync(dirB,{recursive:true,mode:0o700});
+  const decoy=path.join(f.live.artifactRoot,'check-decoy');fs.mkdirSync(decoy,{recursive:true,mode:0o700});
+  fs.writeFileSync(path.join(dirA,'output.log'),'ALPHA_ONLY',{mode:0o600});
+  fs.writeFileSync(path.join(dirB,'output.log'),'BRAVO_ONLY',{mode:0o600});
+  fs.writeFileSync(path.join(decoy,'output.log'),'DECOY_SENTINEL',{mode:0o600});
+  f.data.update('jobs',f.workspace,f.project.id,jobA.id,1,{artifact_log_path:path.join(dirA,'output.log'),artifact_dir:dirA});
+  f.data.update('jobs',f.workspace,f.project.id,jobB.id,1,{artifact_log_path:path.join(dirB,'output.log'),artifact_dir:dirB});
 
-  const outside=path.join(f.root,'outside','output.log');fs.mkdirSync(path.dirname(outside),{recursive:true});fs.writeFileSync(outside,'SENTINEL');
-  const outsideJob=f.data.create('jobs',{...scope,status:'running',definition_id:'node-test'});
-  f.data.create('evidence',{...scope,verdict:'inconclusive',log_path:outside,log_bytes:8,log_hash:'0'.repeat(64),job_id:outsideJob.id,candidate_id:randomUUID()});
-  const refused=f.live.tail({...scope,job_id:outsideJob.id});
+  const a=f.live.tail({...scope,attempt_id:attemptA.id,job_id:jobA.id});
+  assert.equal(a.available,true);
+  assert.match(a.text,/ALPHA_ONLY/);
+  assert.ok(!a.text.includes('BRAVO_ONLY')&&!a.text.includes('DECOY_SENTINEL'));
+  const b=f.live.tail({...scope,attempt_id:attemptB.id,job_id:jobB.id});
+  assert.match(b.text,/BRAVO_ONLY/);
+  assert.ok(!b.text.includes('ALPHA_ONLY')&&!b.text.includes('DECOY_SENTINEL'));
+  // A job may not be tailed through another attempt even in the same project.
+  assert.throws(()=>f.live.tail({...scope,attempt_id:attemptA.id,job_id:jobB.id}),{code:'permission_denied'});
+
+  // A recorded path outside the trusted artifact root is refused, not escaped.
+  const outside=path.join(f.root,'outside','output.log');fs.mkdirSync(path.dirname(outside),{recursive:true});fs.writeFileSync(outside,'ESCAPE_SENTINEL');
+  const escaped=f.data.create('jobs',{...scope,status:'running',definition_id:'node-test',candidate_id:candA.id});
+  f.data.update('jobs',f.workspace,f.project.id,escaped.id,1,{artifact_log_path:outside,artifact_dir:path.dirname(outside)});
+  const refused=f.live.tail({...scope,job_id:escaped.id});
   assert.equal(refused.available,false);
-  assert.match(refused.reason,/outside_artifact_root|unexpected_artifact|untrusted_path/);
+  assert.equal(refused.reason,'outside_artifact_root');
+  assert.ok(!JSON.stringify(refused).includes('ESCAPE_SENTINEL'));
+
+  // Cap and unverified labelling.
+  const dirCap=path.join(f.live.artifactRoot,'check-cap');fs.mkdirSync(dirCap,{recursive:true,mode:0o700});
+  fs.writeFileSync(path.join(dirCap,'output.log'),'x'.repeat(20000),{mode:0o600});
+  const capJob=f.data.create('jobs',{...scope,status:'running',definition_id:'node-test',candidate_id:candA.id});
+  f.data.update('jobs',f.workspace,f.project.id,capJob.id,1,{artifact_log_path:path.join(dirCap,'output.log'),artifact_dir:dirCap});
+  const cap=f.live.tail({...scope,job_id:capJob.id});
+  assert.equal(cap.cap_bytes,LIVE_LIMITS.tailBytes);
+  assert.equal(Buffer.byteLength(cap.text),LIVE_LIMITS.tailBytes);
+  assert.equal(cap.truncated,true);
+  assert.equal(cap.verified,false);
+  assert.match(cap.note,/Unverified tail/);
   assert.throws(()=>f.live.tail({...scope,job_id:f.workspace}),{code:'permission_denied'});
+});
+
+test('public job projections never expose private artifact coordinates',async t=>{
+  const f=fixture(t),scope={workspace_id:f.workspace,project_id:f.project.id};
+  const dir=path.join(f.live.artifactRoot,'check-private');fs.mkdirSync(dir,{recursive:true,mode:0o700});
+  fs.writeFileSync(path.join(dir,'output.log'),'PRIVATE_BYTES',{mode:0o600});
+  const job=f.data.create('jobs',{...scope,status:'running',definition_id:'node-test',candidate_id:randomUUID()});
+  f.data.update('jobs',f.workspace,f.project.id,job.id,1,{artifact_log_path:path.join(dir,'output.log'),artifact_dir:dir});
+  const execution=createWorkbenchExecution({store:f.store,records:f.records,data:f.data,gate:createWorkbenchGate()});
+  t.after(()=>execution.close());
+  const fetched=await execution.dispatch({action:'job_get',workspace_id:f.workspace,project_id:f.project.id,job_id:job.id});
+  assert.equal(fetched.job.artifact_log_path,undefined);
+  assert.equal(fetched.job.artifact_dir,undefined);
+  const state=await execution.dispatch({action:'execution_state',workspace_id:f.workspace,project_id:f.project.id});
+  assert.ok(!JSON.stringify(state).includes('artifact_log_path')&&!JSON.stringify(state).includes('check-private'));
 });
 
 async function startRoute(t,{live,heartbeatMs=40,token='owner-secret-token'}={}){

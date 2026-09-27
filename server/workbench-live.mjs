@@ -48,11 +48,15 @@ CREATE TABLE IF NOT EXISTS live_floors(
 
 const STATUS_MAP=Object.freeze({
   created:'ready',approved:'ready',open:'ready',candidate_ready:'ready',ready:'ready',info:'info',
-  starting:'waiting',running:'running',in_progress:'running',stop_requested:'waiting',paused_budget:'waiting',
+  starting:'waiting',running:'running',in_progress:'running',started:'running',stop_requested:'waiting',paused_budget:'waiting',
+  // A cancellation request is not a confirmed cancellation; termination can
+  // still be unconfirmed, so it stays `waiting` until a confirmed terminal state.
+  cancel_requested:'waiting',cancelling:'waiting',
   pending:'pending',finalization_pending:'pending',result_pending:'pending',preparing:'pending',verifying:'running',
   completed:'completed',checked:'completed',accepted:'completed',pass:'completed',passed:'completed',available:'completed',verified:'completed',
   failed:'failed',rejected:'failed',fail:'failed',denied:'denied',
-  stopped:'stopped',revoked:'stopped',cancelled:'cancelled',cancel_requested:'cancelled',
+  // Revocation is an access fence, not proof the process stopped.
+  stopped:'stopped',revoked:'unknown',cancelled:'cancelled',
   inconclusive:'unknown',outcome_unknown:'unknown',dispatch_unknown:'unknown',acknowledged_unknown:'unknown',unknown:'unknown',expired:'unknown',unavailable:'unknown',
   superseded:'info',fenced:'unknown',legacy_unknown:'unknown',explanation_unavailable:'unknown',
 });
@@ -108,7 +112,7 @@ function safeFields(kind,record){
     case 'tasks':push('acceptance_version',record.acceptance_version);push('status',short(record.status,80));break;
     case 'attempts':push('acceptance_version',record.acceptance_version);push('status',short(record.status,80));break;
     case 'grants':push('calls_used',record.calls_used);push('checks_used',record.checks_used);push('repairs_used',record.repairs_used);push('runtime_status',short(record.runtime_status,80));break;
-    case 'toolcalls':push('action',short(record.action,80));push('status',short(record.status,80));break;
+    case 'toolcalls':push('action',short(record.action,80));push('status',short(record.status,80));push('attempt_id',record.attempt_id);push('grant_id',record.grant_id);break;
     case 'candidates':push('generation',record.generation);push('total_bytes',record.total_bytes);push('files',Array.isArray(record.files)?record.files.length:undefined);push('limited',record.limited===true?1:0);break;
     case 'jobs':push('exit_code',record.exit_code);push('log_bytes',record.log_bytes);push('definition_id',short(record.definition_id,80));push('timed_out',record.timed_out===true?1:0);push('process_survival_unknown',record.process_survival_unknown===true?1:0);break;
     case 'evidence':{
@@ -163,21 +167,29 @@ function summaryFor(kind,record){
  * on read. Never contains raw content. */
 export function projectWorkbenchEvent(kind,record,{phase='update',at=record.updated_at??record.created_at??null}={}){
   if(!WORKBENCH_RECORD_KINDS.includes(kind))throw wbError('invalid_request');
+  const rawStatus=kind==='evidence'?record.verdict:kind==='reviews'?record.decision:kind==='results'?record.availability:record.status;
+  let category=CATEGORY[kind]??'agent';
+  // Revocation / fenced evidence is a warning, never a quiet terminal state.
+  if(rawStatus==='revoked'||record.revoked===true)category='warnings';
   const event={
     version:1,
     id:`${kind}:${record.id}:${record.revision}`,
     at:Number.isFinite(at)?at:null,
     authority:authorityFor(kind,record,phase),
-    category:CATEGORY[kind]??'agent',
+    category,
     kind:KIND_LABEL[kind]??kind,
     summary:short(summaryFor(kind,record),240),
-    status:statusFor(kind==='evidence'?record.verdict:kind==='reviews'?record.decision:kind==='results'?record.availability:record.status),
+    status:statusFor(rawStatus),
   };
   const duration=durationFor(record);
   if(duration!==undefined)event.duration_ms=duration;
   const reference=referenceFor(kind,record);
   if(reference)event.reference=reference;
   const fields=safeFields(kind,record);
+  // A reconciled snapshot is a current-state observation, made explicit without
+  // changing the record's producer authority below.
+  if(phase==='snapshot')fields.push({label:'observed',value:'reconciled_snapshot'});
+  if(fields.length>12)fields.length=12;
   if(fields.length)event.fields=fields;
   if(JSON.stringify(event).length>LIVE_LIMITS.eventBytes){
     delete event.fields;
@@ -206,6 +218,9 @@ export function createWorkbenchLive({store,records,data,gate,execution,native,no
   const subscribers=new Set();
   let closed=false;
   let unsubscribeData=null;
+  // Projection failures are counted and swallowed; they never propagate into an
+  // authoritative action or the caller's operation error channel.
+  let projectionErrors=0;
 
   const notify=notification=>{for(const listener of [...subscribers]){try{listener(notification);}catch{}}};
 
@@ -226,7 +241,7 @@ export function createWorkbenchLive({store,records,data,gate,execution,native,no
     if(closed)return null;
     let event;
     try{event=projectWorkbenchEvent(kind,record,{phase,at:record.updated_at??record.created_at??now()});}
-    catch{return null;}
+    catch{projectionErrors++;return null;}
     const workspace_id=record.workspace_id,project_id=record.project_id;
     if(!UUID.test(workspace_id??'')||!UUID.test(project_id??''))return null;
     try{
@@ -238,10 +253,10 @@ export function createWorkbenchLive({store,records,data,gate,execution,native,no
       const notification={workspace_id:row.workspace_id,project_id:row.project_id,attempt_id:row.attempt_id??null,sequence:row.seq,event:{...JSON.parse(row.event_json),sequence:row.seq}};
       notify(notification);
       return notification;
-    }catch{return null;}
+    }catch{projectionErrors++;return null;}
   };
 
-  const observer=change=>{try{append({phase:change.phase,kind:change.kind,record:change.record});}catch{}};
+  const observer=change=>{try{append({phase:change.phase,kind:change.kind,record:change.record});}catch{projectionErrors++;}};
 
   const reconcile=({workspace_id,project_id}={})=>{
     let added=0;
@@ -433,33 +448,17 @@ export function createWorkbenchLive({store,records,data,gate,execution,native,no
     }
   };
 
-  const activeLogDescriptor=()=>{
-    let entries;
-    try{entries=fs.readdirSync('/proc/self/fd');}catch{return null;}
-    const found=new Set();
-    for(const entry of entries){
-      let target;
-      try{target=fs.readlinkSync(`/proc/self/fd/${entry}`);}catch{continue;}
-      if(!path.isAbsolute(target))continue;
-      const resolved=path.resolve(target);
-      if(resolved!==target)continue;
-      if(!resolved.startsWith(`${artifactRoot}${path.sep}`))continue;
-      const dir=path.dirname(resolved);
-      if(path.basename(resolved)!=='output.log')continue;
-      if(!path.basename(dir).startsWith('check-'))continue;
-      if(path.dirname(dir)!==artifactRoot)continue;
-      found.add(resolved);
-    }
-    return found.size===1?[...found][0]:null;
-  };
-  const safeTail=(candidate,evidenceSourced=false)=>{
+  // The only admitted source is the private reference the recorder persisted on
+  // the job itself. There is no descriptor scan, directory search or
+  // request-supplied path: a job can only ever tail the artifact it created.
+  const safeTail=candidate=>{
+    if(typeof candidate!=='string'||!candidate)return {available:false,reason:'untrusted_path'};
     const resolved=path.resolve(candidate);
     if(resolved!==candidate)return {available:false,reason:'untrusted_path'};
     if(!resolved.startsWith(`${artifactRoot}${path.sep}`))return {available:false,reason:'outside_artifact_root'};
     if(path.basename(resolved)!=='output.log')return {available:false,reason:'unexpected_artifact'};
     const dir=path.dirname(resolved);
     if(!path.basename(dir).startsWith('check-')||path.dirname(dir)!==artifactRoot)return {available:false,reason:'unexpected_artifact'};
-    if(!evidenceSourced&&activeLogDescriptor()!==resolved)return {available:false,reason:'not_currently_open'};
     let fd;
     try{fd=fs.openSync(resolved,fs.constants.O_RDONLY|fs.constants.O_NOFOLLOW);}catch{return {available:false,reason:'unreadable'};}
     try{
@@ -481,16 +480,13 @@ export function createWorkbenchLive({store,records,data,gate,execution,native,no
     const job=data.get('jobs',workspace_id,project_id,job_id);
     const attempt=typeof attempt_id==='string'&&attempt_id?data.get('attempts',workspace_id,project_id,attempt_id):null;
     assertAttemptScope('jobs',job,attempt,project);
-    const evidence=data.list('evidence',workspace_id,project_id).filter(entry=>entry.job_id===job.id&&typeof entry.log_path==='string');
-    let candidate=null,source=null;
-    if(evidence.length){candidate=evidence.at(-1).log_path;source='recorded_evidence';}
-    else{candidate=activeLogDescriptor();source=candidate?'active_run':null;}
+    const recorded=typeof job.artifact_log_path==='string'&&job.artifact_log_path?job.artifact_log_path:null;
     const base={job_id:job.id,status:short(job.status,80),verified:false,cap_bytes:LIVE_LIMITS.tailBytes,log_bytes:Number.isFinite(job.log_bytes)?job.log_bytes:null};
-    if(!candidate)return {...base,available:false,reason:'unresolved',note:'No trusted log artifact is currently resolvable. Request-supplied paths are never read.'};
-    const result=safeTail(candidate,source==='recorded_evidence');
+    if(!recorded)return {...base,available:false,reason:'unresolved',note:'No recorded private artifact reference exists for this job. Request-supplied paths and directory searches are never used.'};
+    const result=safeTail(recorded);
     if(!result.available)return {...base,available:false,reason:result.reason,note:'The trusted log artifact could not be read safely; no partial content is shown.'};
-    return {...base,available:true,source,bytes:result.bytes,truncated:result.truncated,sha256:result.sha256,text:result.text,at:now(),
-      note:'Unverified tail of a retained private log artifact. Ordering and completeness are not guaranteed and this is never a progress, pass or failure signal.'};
+    return {...base,available:true,bytes:result.bytes,truncated:result.truncated,sha256:result.sha256,text:result.text,at:now(),
+      note:'Unverified tail of the private log artifact recorded by this job. Ordering and completeness are not guaranteed and this is never a progress, pass or failure signal.'};
   };
 
   const dispatch=async body=>{
@@ -513,6 +509,7 @@ export function createWorkbenchLive({store,records,data,gate,execution,native,no
 
   return {
     page,detail,tail,dispatch,subscribe,reconcile,lane,snapshot,
+    projectionErrors:()=>projectionErrors,
     close(){
       if(closed)return;
       closed=true;

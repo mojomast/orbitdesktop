@@ -129,7 +129,7 @@ export async function runCheck(options){
   const reservation=Symbol('check');pending.add(reservation);
   try{return await executeCheck(options);}finally{pending.delete(reservation);}
 }
-async function executeCheck({definition_id,candidate_root,workspace_id,project_id,job_id,artifact_root,candidate_boundary=artifact_root,rehash,spawn_record,required_test_files=[]}){
+async function executeCheck({definition_id,candidate_root,workspace_id,project_id,job_id,artifact_root,candidate_boundary=artifact_root,rehash,spawn_record,artifact_record,required_test_files=[]}){
   const definition=checkDefinition(definition_id);
   if(typeof workspace_id!=='string'||typeof project_id!=='string'||typeof job_id!=='string'||!job_id||typeof rehash!=='function'||typeof spawn_record!=='function')throw wbError('invalid_request');
   validateRoots(candidate_root,artifact_root,candidate_boundary);
@@ -141,6 +141,11 @@ async function executeCheck({definition_id,candidate_root,workspace_id,project_i
   const temp=fs.mkdtempSync(path.join(directory,'private-'));fs.chmodSync(temp,0o700);
   const log_path=path.join(directory,'output.log');
   const fd=fs.openSync(log_path,fs.constants.O_WRONLY|fs.constants.O_CREAT|fs.constants.O_EXCL|fs.constants.O_NOFOLLOW,0o600);
+  // Lifecycle hook: publish the exact private artifact location immediately
+  // after the exclusive output.log creation, before any child is spawned, so a
+  // trusted tail never has to guess an artifact path. Purely additive: a
+  // rejected or throwing callback never changes the recorder result.
+  if(typeof artifact_record==='function')try{artifact_record({log_path,artifact_dir:directory,definition_id,workspace_id,project_id,job_id,created_at:Date.now()});}catch{}
   const env={PATH:'/usr/bin:/bin',HOME:temp,LANG:'C.UTF-8',LC_ALL:'C.UTF-8',NODE_OPTIONS:'',TMPDIR:temp,TSX_DISABLE_CACHE:'1'};
   const env_fingerprint=digest(JSON.stringify(env));
   let args=definition.args;

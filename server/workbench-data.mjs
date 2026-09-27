@@ -55,11 +55,19 @@ export class WorkbenchData {
   }
   // Durability guard: a nested `data.update` inside another `db.transaction`
   // returns from a savepoint, not a commit. Those changes are deferred to a
-  // microtask and re-verified against the authoritative row before notifying,
-  // so a rolled-back transaction can never surface as a fabricated transition.
-  #notifyAfterCommit(kind,record,phase){
-    const change={phase,kind,record};
+  // microtask and verified against the exact committed record bytes before
+  // notifying. Revision comparison alone is insufficient: a rolled-back
+  // revision can be reused by a later write with a different payload, so only
+  // an exact `record_json` match proves the captured payload committed. On a
+  // mismatch the captured transition is discarded and the current authoritative
+  // state is surfaced as a snapshot instead of a fabricated transition.
+  #notifyAfterCommit(kind,record,phase,json){
+    const change={phase,kind,record,json};
     if(this.db.inTransaction){
+      // Savepoint write: the outer transaction may still roll back, and an
+      // intermediate revision can later be reused by an unrelated payload.
+      // Mark it deferred so only provable current state is ever surfaced.
+      change.deferred=true;
       this.#pending.push(change);
       if(!this.#flushScheduled){
         this.#flushScheduled=true;
@@ -71,11 +79,20 @@ export class WorkbenchData {
   }
   #emitVerified(change){
     if(!this.#observers.size)return;
-    try{
-      const current=this.get(change.kind,change.record.workspace_id,change.record.project_id,change.record.id);
-      if(!current||!Number.isSafeInteger(current.revision)||current.revision<change.record.revision)return;
-    }catch{return;}
-    for(const observer of [...this.#observers]){try{observer(change);}catch{}}
+    let row;
+    try{row=this.db.prepare(`SELECT record_json FROM ${table(change.kind)} WHERE id=? AND workspace_id=? AND project_id=?`).get(change.record.id,change.record.workspace_id,change.record.project_id);}
+    catch{return;}
+    if(!row)return;
+    let notify=change;
+    if(change.deferred||row.record_json!==change.json){
+      // Only the exact committed payload may be announced as a transition. A
+      // deferred savepoint write is announced only as the current authoritative
+      // snapshot, so a rollback or revision reuse can never fabricate a prior
+      // transition. Duplicate revisions collapse on the projection unique index.
+      try{notify={phase:'snapshot',kind:change.kind,json:row.record_json,record:JSON.parse(row.record_json)};}
+      catch{return;}
+    }
+    for(const observer of [...this.#observers]){try{observer(notify);}catch{}}
   }
   #scope(workspaceId,projectId){
     if(!identifier.test(workspaceId||'')||!identifier.test(projectId||''))throw wbError('invalid_request');
@@ -92,15 +109,16 @@ export class WorkbenchData {
     if(!fields||typeof fields!=='object'||Array.isArray(fields))throw wbError('invalid_request');
     const {workspace_id,project_id}=fields;this.#scope(workspace_id,project_id);
     for(const key of ['id','version','revision','created_at','updated_at'])if(Object.hasOwn(fields,key))throw wbError('invalid_request');
-    const value=this.db.transaction(()=>{
+    const committed=this.db.transaction(()=>{
       if(this.db.prepare(`SELECT count(*) AS n FROM ${name} WHERE workspace_id=? AND project_id=?`).get(workspace_id,project_id).n>=limits[kind])throw wbError('limit_exceeded');
       const time=this.now();
       const value={...structuredClone(fields),id:randomUUID(),version:1,revision:1,created_at:time,updated_at:time};
-      this.db.prepare(`INSERT INTO ${name} VALUES (?,?,?,?,?)`).run(value.id,workspace_id,project_id,1,this.#encode(kind,value));
-      return value;
+      const encoded=this.#encode(kind,value);
+      this.db.prepare(`INSERT INTO ${name} VALUES (?,?,?,?,?)`).run(value.id,workspace_id,project_id,1,encoded);
+      return {value,encoded};
     }).immediate();
-    this.#notifyAfterCommit(kind,value,'create');
-    return value;
+    this.#notifyAfterCommit(kind,committed.value,'create',committed.encoded);
+    return committed.value;
   }
   get(kind,workspaceId,projectId,id){
     const name=table(kind);this.#scope(workspaceId,projectId);
@@ -116,14 +134,15 @@ export class WorkbenchData {
     const name=table(kind);
     if(!Number.isSafeInteger(expectedRevision)||expectedRevision<1||!patch||typeof patch!=='object'||Array.isArray(patch))throw wbError('invalid_request');
     for(const key of ['id','version','revision','workspace_id','project_id','created_at','updated_at'])if(Object.hasOwn(patch,key))throw wbError('invalid_request');
-    const next=this.db.transaction(()=>{
+    const committed=this.db.transaction(()=>{
       const current=this.get(kind,workspaceId,projectId,id);
       if(current.revision!==expectedRevision)throw wbError('stale_resource');
       const next={...current,...structuredClone(patch),revision:expectedRevision+1,updated_at:this.now()};
-      if(this.db.prepare(`UPDATE ${name} SET revision=?,record_json=? WHERE id=? AND revision=?`).run(next.revision,this.#encode(kind,next),id,expectedRevision).changes!==1)throw wbError('stale_resource');
-      return next;
+      const encoded=this.#encode(kind,next);
+      if(this.db.prepare(`UPDATE ${name} SET revision=?,record_json=? WHERE id=? AND revision=?`).run(next.revision,encoded,id,expectedRevision).changes!==1)throw wbError('stale_resource');
+      return {next,encoded};
     }).immediate();
-    this.#notifyAfterCommit(kind,next,'update');
-    return next;
+    this.#notifyAfterCommit(kind,committed.next,'update',committed.encoded);
+    return committed.next;
   }
 }
