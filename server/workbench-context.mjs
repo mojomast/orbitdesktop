@@ -6,7 +6,9 @@
 // - Snapshot bytes are exact, immutable and hash-verified. A caller cannot claim
 //   text, hash or provenance: file bytes come from the confined provider, job
 //   bytes come from the Slice C execution adapter, and terminal bytes come from
-//   an owner-injected broker callback. Client-supplied payloads are never used.
+//   an owner-injected broker callback. Conversation excerpts are the explicit
+//   exception: owner-selected immutable text, labelled owner-provided and never
+//   represented as an authenticated Hermes transcript or recorder evidence.
 // - Capturing a snapshot is NOT consent to disclose it. Disclosure requires a
 //   fresh preview for an exact recipient plus a separate single-use approval.
 // - The exact upstream payload (instructions and, for legacy gateways, bounded
@@ -69,6 +71,7 @@ const sourceSchema={oneOf:[
   strict({kind:{const:'diff'},expected_hash:hash64}),
   strict({kind:{const:'job'},job_id:name}),
   strict({kind:{const:'terminal'},resource_id:uuid,lease_id:leaseIdSchema}),
+  strict({kind:{const:'conversation'},pane_id:uuid,profile_id:profileId,session_id:sessionId,expected_binding_revision:{type:'integer',minimum:0},excerpts:{type:'array',minItems:1,maxItems:8,items:strict({role:{enum:['user','assistant']},text:{type:'string',minLength:1,maxLength:16384},sha256:hash64})}}),
 ]};
 export const workbenchContextRequests=Object.freeze({
   packet:strict({action:{const:'packet'},workspace_id:uuid,project_id:uuid,context_ids:{type:'array',minItems:1,maxItems:8,items:uuid},question:{type:'string',minLength:1,maxLength:8000},attempt_id:uuid},['action','workspace_id','project_id','context_ids','question']),
@@ -300,6 +303,18 @@ export function createWorkbenchContext({store,records,data,hermes,execution,gate
     const context=storeContext({workspaceId:workspace_id,projectId:project_id,source:{kind:'terminal',resource_id,lease_id},snapshot});
     return {context:publicContext(context)};
   }
+  async function captureConversation({workspace_id,project_id,source}){
+    const project=activeProject(workspace_id,project_id),guard=generationGuard(workspace_id,project_id,project.generation);
+    if(source.excerpts.some(item=>textBytes(item.text)>16384||sha256(item.text)!==item.sha256)||source.excerpts.reduce((total,item)=>total+textBytes(item.text),0)>65536)throw wbError('invalid_request');
+    const {binding}=await resolveRecipient(workspace_id,source);guard();
+    if(binding.binding_revision!==source.expected_binding_revision)throw wbError('stale_resource');
+    const excerpts=source.excerpts.map(({role,text,sha256})=>({role,text,sha256}));
+    const text=JSON.stringify({version:1,kind:'owner_selected_conversation_excerpts',authority:'owner-provided untrusted text; roles are labels, not authenticated transcript claims',excerpts});
+    if(textBytes(text)>limits.textBytes)throw wbError('limit_exceeded');
+    const metadata={kind:'conversation',pane_id:source.pane_id,profile_id:source.profile_id,session_id:source.session_id,binding_revision:binding.binding_revision,excerpts:excerpts.map(({role,sha256,text})=>({role,sha256,bytes:textBytes(text)}))};
+    const snapshot={text,hash:sha256(text),bytes:textBytes(text),captured_at:now(),resource_id:null,truncated:false,exclusions:[],provenance:{...metadata,project_generation:project.generation,authority:'owner_selected_snapshot'},manifest:{kind:'conversation',hash:sha256(text)}};
+    return {context:publicContext(storeContext({workspaceId:workspace_id,projectId:project_id,source:metadata,snapshot}))};
+  }
   async function capture({workspace_id,project_id,source,attempt_id}){
     activeProject(workspace_id,project_id);
     if(attempt_id)requireAttempt(workspace_id,project_id,attempt_id);
@@ -308,6 +323,7 @@ export function createWorkbenchContext({store,records,data,hermes,execution,gate
     else if(source.kind==='diff')result=await captureDiff({workspace_id,project_id,expected_hash:source.expected_hash});
     else if(source.kind==='job')result=await captureJob({workspace_id,project_id,job_id:source.job_id});
     else if(source.kind==='terminal')result=await captureTerminal({workspace_id,project_id,resource_id:source.resource_id,lease_id:source.lease_id});
+    else if(source.kind==='conversation')result=await captureConversation({workspace_id,project_id,source});
     else throw wbError('unsupported');
     return {context:publicContext(bindReferences({workspace_id,project_id,context_id:result.context.id,requestedAttemptId:attempt_id}))};
   }

@@ -75,6 +75,31 @@ test('schema export is strict and rejects unknown fields and forged payloads',as
   await assert.rejects(f.call({action:'capture',project_id:f.project.id,source:{kind:'file',resource_id:f.resource.id,start_line:2,end_line:1,expected_hash:f.fileHash}}),{code:'invalid_request'});
 });
 
+test('conversation handoff captures only selected owner snapshots without inference or transcript authority',async t=>{
+  const f=fixture(t),binding=f.hermes.binding;
+  const source={kind:'conversation',pane_id:f.PANE,profile_id:binding.profile_id,session_id:binding.session_id,expected_binding_revision:binding.binding_revision,excerpts:[{role:'user',text:'Repair the selected function.',sha256:sha256('Repair the selected function.')} ]};
+  const capture=()=>f.call({action:'capture',project_id:f.project.id,source});
+  const {context}=await capture();
+  assert.equal(context.snapshot.text,undefined);
+  assert.equal(JSON.stringify(context).includes('Repair the selected function.'),false);
+  assert.equal(context.snapshot.provenance.authority,'owner_selected_snapshot');
+  const preview=await f.preview(context.id),snapshot=JSON.parse(preview.text);
+  assert.deepEqual(snapshot.excerpts,source.excerpts);
+  assert.match(snapshot.authority,/not authenticated transcript/);
+  assert.equal(f.hermes.calls.length,0);
+  source.excerpts[0].text='Later edited conversation';
+  await assert.rejects(capture(),{code:'invalid_request'});
+  assert.equal((await f.preview(context.id)).text,preview.text,'later edits cannot change captured bytes');
+  source.excerpts[0].sha256=sha256(source.excerpts[0].text);
+  f.hermes.binding.binding_revision++;
+  await assert.rejects(capture(),{code:'stale_resource'});
+  source.expected_binding_revision=f.hermes.binding.binding_revision;
+  source.excerpts=[{role:'assistant',text:'🛰'.repeat(5000),sha256:sha256('🛰'.repeat(5000))}];
+  await assert.rejects(capture(),{code:'invalid_request'});
+  assert.equal(f.data.list('contexts',f.project.workspace_id,f.project.id).length,1);
+  assert.equal(f.hermes.calls.length,0);
+});
+
 test('file capture requires the exact provider hash and never leaks text through metadata',async t=>{
   const f=fixture(t);
   await assert.rejects(f.callFile({expected_hash:'0'.repeat(64)}),{code:'stale_resource'});

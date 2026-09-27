@@ -22,6 +22,8 @@ import {createWorkbenchExecution} from './workbench-execution.mjs';
 import {createWorkbenchEnvironments} from './workbench-environments.mjs';
 import {createWorkbenchWorkflow} from './workbench-workflow.mjs';
 import {createWorkbenchNative} from './workbench-native.mjs';
+import {createWorkbenchLive} from './workbench-live.mjs';
+import {createWorkbenchLiveHandler} from './workbench-live-route.mjs';
 import {createWorkbenchNativeRuntime,nativeRuntimeEnvironmentOptions,nativeRuntimeMetadata} from './workbench-native-runtime.mjs';
 const port = Number(process.env.PORT || 4318);
 if (!Number.isInteger(port) || port < 1024 || port > 65535)
@@ -155,6 +157,8 @@ const nativeHermes={
 const native=createWorkbenchNative({store:workspaceService.store,records:workbench.records,data:workbenchData,execution,hermes:nativeOptions?nativeHermes:{readBinding:nativeHermes.readBinding,quarantineNative:nativeHermes.quarantineNative,acknowledgeNativeUnknown:nativeHermes.acknowledgeNativeUnknown}});
 workbenchServices.native=native;workbenchServices.nativeConfigured=!!nativeOptions;
 const nativeHandler=workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:body=>native.dispatch(body)});
+const workbenchLive=createWorkbenchLive({store:workspaceService.store,records:workbench.records,data:workbenchData,gate:executionGate,execution,native});
+const liveHandler=createWorkbenchLiveHandler({token,port,devOrigins,reply,live:workbenchLive});
 const workflowHandler=workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:body=>workflow.dispatch(body)});
 const environmentHandler=workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:body=>environments.dispatch(body),publicReasons:['dedicated_npm_cache_required','private_npm_cache_required','typescript_test_command_unsupported','typescript_dependency_shape_unsupported','typescript_toolchain_dependencies_required','development_lock_mismatch','registry_lock_entry_unsupported','registry_url_unsupported','registry_artifact_limit']});
 const server = http.createServer(async (req, res) => {
@@ -171,6 +175,7 @@ const server = http.createServer(async (req, res) => {
   if(url.pathname==='/api/workbench/context')return contextHandler(req,res);
   if(url.pathname==='/api/workbench/execution')return executionHandler(req,res);
   if(url.pathname==='/api/workbench/native')return nativeHandler(req,res);
+  if(url.pathname==='/api/workbench/live')return liveHandler(req,res);
   if(url.pathname==='/api/workbench/workflow')return workflowHandler(req,res);
   if(url.pathname==='/api/workbench/environments')return environmentHandler(req,res);
   if (url.pathname === "/api/managed-terminals") return managedTerminalHandler(req, res);
@@ -427,6 +432,7 @@ for (const signal of ["SIGTERM", "SIGINT"])
     execution.close();
     contextSharing.close?.();
     native.close();
+    workbenchLive.close();
     for (const ws of wss.clients) ws.terminate();
     server.close(() => {workspaceService.close();process.exit(0);});
     setTimeout(() => process.exit(0), 2000).unref();
