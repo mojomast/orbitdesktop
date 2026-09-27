@@ -331,11 +331,14 @@ def main(renderer, linked=False):
                         for entry in responses:
                             if not isinstance(entry[2], dict):
                                 entry[2] = entry[2].json()
-                        # Chromium can commit and render the replacement document
-                        # while Playwright's Page.reload lifecycle promise remains
-                        # pending on workspace activity. Schedule reload outside
-                        # the evaluate task and verify the navigation by observable
-                        # document state and the authenticated workspace handshake.
+                        # Schedule the reload outside the evaluate task. Playwright
+                        # gates a scoped FrameLocator lookup on the main-frame
+                        # navigation, so checking the pre-reload `frame` while the
+                        # reload is still in flight waits on that navigation and can
+                        # exceed the default 5s assertion timeout (CI); the product
+                        # reload itself succeeds. Wait for the top document to commit
+                        # and finish, then connect/ack the workspace, then re-acquire a
+                        # fresh selector-scoped frame and check the new document.
                         reload_dialogs = []
 
                         def accept_reload_dialog(browser_dialog):
@@ -343,8 +346,10 @@ def main(renderer, linked=False):
                             browser_dialog.accept()
 
                         page.on("dialog", accept_reload_dialog)
+                        reload_started = time.time()
                         page.evaluate("() => window.setTimeout(() => window.location.reload(), 0)")
-                        expect(frame.locator('#document-nonce')).not_to_have_text(nonce)
+                        page.wait_for_function("document.readyState === 'complete'", timeout=60000)
+                        reload_ms = round((time.time() - reload_started) * 1000)
                         reload_navigation = page.evaluate("""() => {
                             const entry = performance.getEntriesByType('navigation')[0];
                             return {type: entry?.type, readyState: document.readyState};
@@ -352,7 +357,17 @@ def main(renderer, linked=False):
                         assert reload_navigation == {"type": "reload", "readyState": "complete"}, reload_navigation
                         assert not reload_dialogs, f"Unexpected dialog interrupted full document reload: {reload_dialogs}"
                         page.remove_listener("dialog", accept_reload_dialog)
+                        # Connect first so the canonical pane layout is restored
+                        # before any scoped iframe lookup; the pane id must survive.
                         connected(page, token)
+                        frame = page.frame_locator(f'.pane[data-pane-id="{BROWSER_PANE}"] iframe')
+                        expect(page.locator(f'.pane[data-pane-id="{BROWSER_PANE}"] iframe')).to_be_visible(timeout=30000)
+                        app_frames = [item for item in page.frames if item.url.startswith(origin + "/apps/")]
+                        assert app_frames, [item.url for item in page.frames]
+                        expect(frame.locator('#document-nonce')).to_be_visible(timeout=30000)
+                        expect(frame.locator('#document-nonce')).not_to_have_text(nonce, timeout=30000)
+                        post_reload_nonce = frame.locator('#document-nonce').inner_text()
+                        assert post_reload_nonce != nonce
                         dialog = open_workbench(page)
                         expect(dialog.get_by_role("button", name="Open project synthetic-project")).to_be_visible()
                         assert any(item["id"] == project_id for item in result_for(responses, "list")["projects"])
@@ -397,7 +412,7 @@ def main(renderer, linked=False):
                         assert result_for(responses,'register_commit')['project']['id']==project_id
                         assert not errors,errors
                         assert not agent_requests,agent_requests
-                        print(f"PASS: renderer={renderer} Chromium={browser.version} workbench_responses={len(responses)} agent_requests={len(agent_requests)} terminal_websockets={sum('/api/terminal' in url for url in websockets)} page_errors: {len(errors)} project_id={project_id} resource_id={resource_id}")
+                        print(f"PASS: renderer={renderer} Chromium={browser.version} workbench_responses={len(responses)} agent_requests={len(agent_requests)} terminal_websockets={sum('/api/terminal' in url for url in websockets)} page_errors: {len(errors)} project_id={project_id} resource_id={resource_id} reload_ms={reload_ms} frame_url={app_frames[0].url} nonce_changed={post_reload_nonce != nonce}")
                     except Exception:
                         page.screenshot(path=f'/tmp/opencode/orbit-project-workbench-{renderer}.png',full_page=True,
                                         mask=[page.get_by_role('textbox',name='Host session token')])
