@@ -13,7 +13,7 @@ const safeId = (value: unknown): string => text(value,100).replace(/[^\w:.-]/g,'
 export function createNormalLiveAdapter(timeline: Timeline) {
   let binding = '', serial=0;
   const observed = new Map<string,LiveItem>();
-  const emit = () => timeline.replace([...observed.values()]);
+  const emit = () => timeline.upsert([...observed.values()]);
   return {
     event(raw: unknown) {
       const d=asRecord(raw), name=eventName(d);
