@@ -471,6 +471,63 @@ def main(renderer):
                     assert "start" not in agent_requests, agent_requests
                     assert fixture_requests == [], fixture_requests
 
+                    # Deterministic hidden-running badge: the durable page reports the
+                    # selected attempt's grant running while the global lane snapshot is
+                    # a stale idle race. The badge must show "Running" (never a pending
+                    # receipt counted as a result), keep Send blocked, and then count a
+                    # completed available result once the run settles.
+                    live_state = {"grant_status": "running", "runtime_status": "running", "availability": "pending"}
+
+                    def live_page():
+                        settled = live_state["grant_status"] != "running"
+                        return {
+                            "version": 1, "events": [], "after_sequence": 0, "reset_required": False,
+                            "has_more": False, "project_generation": 1,
+                            "snapshot": {
+                                "scope": "attempt", "attempt_id": attempt["id"],
+                                "grant": {"id": "grant-live", "status": live_state["grant_status"],
+                                          "runtime_status": live_state["runtime_status"],
+                                          "calls_used": 3, "checks_used": 1, "budget": {"calls": 24, "checks": 3, "repair_iterations": 3}},
+                                "result": {"id": "result-live", "availability": live_state["availability"],
+                                           "candidate_id": candidate["id"]},
+                                "active_grants": 1 if not settled else 0, "active_jobs": 0, "results": 1,
+                            },
+                            "lane": {"agent_busy": False, "job_busy": False, "unknown": False},
+                        }
+
+                    def serve_live(route):
+                        body = route.request.post_data_json or {}
+                        action = body.get("action")
+                        if action == "stream":
+                            route.fulfill(status=200, headers={"Content-Type": "text/event-stream"},
+                                          body="event: page\ndata: %s\n\n" % json.dumps(live_page()))
+                        elif action == "page":
+                            route.fulfill(status=200, content_type="application/json",
+                                          body=json.dumps({"ok": True, **live_page()}))
+                        else:
+                            route.fulfill(status=200, content_type="application/json", body=json.dumps({"ok": True}))
+
+                    page.route("**/api/workbench/live", serve_live)
+                    # Force the live client to restart for the selected attempt scope.
+                    workbench_attempt_select = pane_locator.get_by_label("Workbench attempt", exact=True)
+                    workbench_attempt_select.select_option("")
+                    workbench_attempt_select.select_option(attempt["id"])
+                    wb_button = pane_locator.get_by_role("button", name="Workbench Hermes mode", exact=True)
+                    normal_mode_button = pane_locator.get_by_role("button", name="Normal Hermes mode", exact=True)
+                    normal_mode_button.click()
+                    expect(wb_button).to_contain_text("Running", timeout=20000)
+                    assert "result(s)" not in wb_button.inner_text(), wb_button.inner_text()
+                    assert "pending" not in wb_button.inner_text(), wb_button.inner_text()
+                    # Send stays blocked while the selected grant is live, even though
+                    # the synthetic global lane snapshot is idle.
+                    send_while_running = pane_locator.get_by_role("button", name="Send message to Hermes", exact=True)
+                    expect(send_while_running).to_be_disabled(timeout=15000)
+
+                    live_state.update({"grant_status": "completed", "runtime_status": "exited", "availability": "available"})
+                    expect(wb_button).to_contain_text("result", timeout=20000)
+                    assert "Running" not in wb_button.inner_text(), wb_button.inner_text()
+                    page.unroute("**/api/workbench/live", serve_live)
+
                     # Hidden-Normal reload while the shared lane is busy: the global
                     # execution_lane signal (carried by the existing shared_chat read,
                     # no extra polling) must disable Send and show a literal state.

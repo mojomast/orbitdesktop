@@ -370,24 +370,53 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
 
   function emitBadge() {
     const snapshot = latestSnapshot;
-    const pending = snapshot
-      ? (Number(snapshot.active_grants) || 0) + (Number(snapshot.active_jobs) || 0)
-      : grantCache.filter((grant) => ['approved', 'running', 'prepared', 'dispatching', 'submission_unknown', 'result_pending', 'dispatch_unknown'].includes(String(grant.status))).length;
-    const results = snapshot ? Number(snapshot.results) || 0 : cardCache.length;
-    const laneBusy = laneState.agent_busy || laneState.job_busy;
-    // Visible, literal state — stop/waiting/unknown/failed each get their own
-    // label rather than a bare count.
-    const grantStatus = String(latestSnapshot?.grant?.status ?? '');
-    const jobStatus = String(latestSnapshot?.job?.status ?? '');
+    const attemptScoped = snapshot?.scope === 'attempt';
+    // Selected-scope grant: the attempt-scoped snapshot grant when present, else
+    // the cached native grant for the exact selected attempt — never the newest
+    // unrelated grant. The global gate remains authoritative for global busy.
+    const snapshotGrant = attemptScoped ? (snapshot?.grant ?? null) : null;
+    const cachedGrant = prefs.attemptId
+      ? (grantCache.find((entry) => String(entry.attempt_id) === prefs.attemptId) ?? null)
+      : null;
+    const grant = snapshotGrant ?? cachedGrant;
+    const grantStatus = String(grant?.status ?? '');
+    const runtimeStatus = String(grant?.runtime_status ?? '');
+    // A live run is a first-class visible state, independent of a momentarily
+    // stale global lane snapshot.
+    const running = grantStatus === 'running' || /^(running|started|in_progress|starting)$/.test(runtimeStatus);
+    const failed = /fail|error/.test(grantStatus) || /fail/.test(runtimeStatus);
+    const stopped = /stop|cancel|revok|denied|expired/.test(grantStatus);
+    const waiting = /approved|prepared|dispatching|paused_budget|stop_requested|submission_unknown|dispatch_unknown/.test(grantStatus);
+    const globalLaneBusy = laneState.agent_busy || laneState.job_busy;
+    const laneBusy = globalLaneBusy || running || waiting;
+    // A pending receipt is NOT a completed result. Count available results only
+    // for the selected scope; fall back to the server count solely when the scope
+    // exposes no result record.
+    const scopedResult = attemptScoped ? (snapshot?.result ?? null) : (snapshot?.latest_result ?? null);
+    const resultAvailability = String(scopedResult?.availability ?? '');
+    const results = scopedResult
+      ? (resultAvailability === 'available' ? 1 : 0)
+      : (snapshot ? Number(snapshot.results) || 0 : cardCache.length);
+    const activeGrants = snapshot ? Number(snapshot.active_grants) || 0 : 0;
+    const activeJobs = snapshot ? Number(snapshot.active_jobs) || 0 : 0;
+    const cachedPending = grantCache.filter((entry) => ['approved', 'running', 'prepared', 'dispatching', 'submission_unknown', 'result_pending', 'dispatch_unknown'].includes(String(entry.status))).length;
+    const pending = running ? 1
+      : waiting ? Math.max(1, activeGrants + activeJobs)
+      : (snapshot ? activeGrants + activeJobs : cachedPending) + (resultAvailability === 'pending' ? 1 : 0);
     const stateLabel = laneState.unknown ? 'Execution outcome unknown'
-      : laneBusy ? 'Lane busy'
-      : /fail|error/.test(grantStatus) || /fail/.test(jobStatus) ? 'Failed'
-      : /stop|cancel/.test(grantStatus) || /cancel/.test(jobStatus) ? 'Stopped'
-      : /wait|pending|prepared|dispatching|approved|starting/.test(grantStatus) || /pending|running|in_progress/.test(jobStatus) ? 'Waiting'
+      : failed ? 'Failed'
+      : stopped ? 'Stopped'
+      : running ? 'Running'
+      : waiting ? 'Waiting'
+      : globalLaneBusy ? 'Lane busy'
+      : resultAvailability === 'pending' ? 'Result pending'
       : `${pending} pending · ${results} result(s)`;
     const badge: PaneWorkbenchBadge = { mode: 'workbench', pending, results, laneBusy, status: stateLabel };
     deps.onBadge(badge);
-    deps.onLane({ agent_busy: laneState.agent_busy, job_busy: laneState.job_busy, unknown: laneState.unknown });
+    // Report a busy lane while this pane's selected grant is live so a hidden
+    // Normal view never enables Send against a real run even if the global lane
+    // snapshot is momentarily stale.
+    deps.onLane({ agent_busy: laneState.agent_busy || running || waiting, job_busy: laneState.job_busy, unknown: laneState.unknown });
   }
   let cardCache: Data[] = [];
   let laneState: { agent_busy: boolean; job_busy: boolean; unknown: boolean } = { agent_busy: false, job_busy: false, unknown: true };

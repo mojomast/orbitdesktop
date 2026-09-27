@@ -513,9 +513,13 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   function updateModeBadge() {
     // Both statuses stay visible; the hidden mode's status keeps updating.
     const normalStatusText = status.textContent || 'READY';
-    const workbenchLabel = workbenchBadge.laneBusy || workbenchLaneActive || laneUnknown
-      ? (laneUnknown ? 'Execution outcome unknown' : 'Lane busy')
-      : (workbenchBadge.status || 'Idle');
+    // Prefer the explicit Workbench state (Running/Waiting/Failed/Stopped/
+    // Result pending/counts). Only fall back to the lane wording when no specific
+    // state is known, so a live run is never shown as a generic "Lane busy".
+    const definiteWorkbench = ['Running', 'Waiting', 'Failed', 'Stopped', 'Result pending', 'Execution outcome unknown'];
+    const explicitWorkbench = definiteWorkbench.includes(workbenchBadge.status) ? workbenchBadge.status : '';
+    const workbenchLabel = explicitWorkbench
+      || (laneUnknown ? 'Execution outcome unknown' : (workbenchBadge.laneBusy || workbenchLaneActive ? 'Lane busy' : (workbenchBadge.status || 'Idle')));
     const count = workbenchBadge.pending + workbenchBadge.results;
     const normal = modeButtons.get('normal');
     const workbench = modeButtons.get('workbench');
