@@ -421,7 +421,12 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
       onPage: (page: WorkbenchLivePage) => {
         if (disposed) return;
         deps.timeline.upsert(page.events);
-        latestSnapshot = page.snapshot ?? null;
+        const selected = selectedCandidate();
+        if (selected && page.events.some(event => event.reference?.kind === 'candidate' && event.reference.id === selected.id && (event.reference.generation ?? 0) > selected.generation)) {
+          staleNote.hidden = false;
+          staleNote.textContent = 'The selected candidate changed. Refresh setup before acting; no newer candidate has been selected for you.';
+        }
+        applyLiveSnapshot(page.snapshot ?? null);
         if (page.lane) reflectLane(page.lane);
         emitBadge();
         renderHeader();
@@ -438,7 +443,17 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
         renderHeader();
       },
       onLane: (lane) => { if (!disposed) reflectLane(lane); },
+      onSnapshot: (snapshot) => { if (!disposed) { applyLiveSnapshot(snapshot); emitBadge(); renderHeader(); } },
     });
+  }
+
+  function applyLiveSnapshot(snapshot: Data | null) {
+    const before = latestSnapshot?.candidate, after = snapshot?.candidate;
+    if (before?.id && before.id === after?.id && (before.hash !== after.hash || before.generation !== after.generation)) {
+      staleNote.hidden = false;
+      staleNote.textContent = `Candidate changed to generation ${unknown(after.generation)}. Refresh setup before acting; review and consent must bind the current identity.`;
+    }
+    latestSnapshot = snapshot;
   }
 
   // ---- project/task/candidate selectors -----------------------------------

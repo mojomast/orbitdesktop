@@ -14,6 +14,7 @@ type Options = {
   onConnection: (state: LiveConnection, message: string) => void;
   onReset?: () => void;
   onLane?: (lane: NonNullable<WorkbenchLivePage['lane']>) => void;
+  onSnapshot?: (snapshot: Record<string, unknown>) => void;
 };
 
 /** A reconnect is always an owner-authenticated read, never an execution retry. */
@@ -37,7 +38,7 @@ export function watchWorkbenchLive(options: Options) {
     if(disposed||fenced)throw Error('Activity scope is closed');
     const token=options.getToken();if(!token)throw Error('Unlock the local host to inspect private activity');
     const response=await fetch('/api/workbench/live',{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({...scope,action,...fields}),cache:'no-store',signal});
-    if(response.status===403||response.status===410){fenced=true;controller?.abort();options.onConnection('closed','Project authority changed. Refresh the selected scope before acting.');}
+    if(action==='page'&&(response.status===403||response.status===410)){fenced=true;controller?.abort();options.onConnection('closed','Project authority changed. Refresh the selected scope before acting.');}
     if(!response.body)throw Error('Private activity response unavailable');
     const reader=response.body.getReader(),decoder=new TextDecoder();let text='',bytes=0;
     try{while(true){const part=await reader.read();if(part.done)break;bytes+=part.value.byteLength;if(bytes>MAX_BUFFER)throw Error('Private activity response exceeds its bound');text+=decoder.decode(part.value,{stream:true});}text+=decoder.decode();}
@@ -76,6 +77,7 @@ export function watchWorkbenchLive(options: Options) {
           if(type==='page')acceptPage(value);
           else if(type==='heartbeat'){
             if(value.lane)options.onLane?.(value.lane);
+            if(value.snapshot&&typeof value.snapshot==='object'&&!Array.isArray(value.snapshot))options.onSnapshot?.(value.snapshot);
             if(value.projection_incomplete)options.onConnection('unavailable','Some activity observations could not be retained. Inspect authoritative task records; execution will not be replayed.');
           }
           else if(type==='fenced'){fenced=true;options.onConnection('closed','Authority revoked or changed. Execution will not be replayed automatically.');own.abort();return;}

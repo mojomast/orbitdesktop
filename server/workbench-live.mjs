@@ -643,7 +643,15 @@ export function createWorkbenchLive({store,records,data,gate,execution,native,no
         case 'candidate':{
           const candidate_id=UUID.test(ref.candidate_id??'')?ref.candidate_id:ref.id;
           const candidateRecord=data.get('candidates',workspace_id,project_id,candidate_id);
-          assertAttemptScope('candidates',candidateRecord,attempt,project);
+          if(attempt&&attempt.candidate_id!==candidate_id)throw wbError('permission_denied');
+          if(Number.isSafeInteger(ref.generation)&&typeof ref.hash==='string'&&candidateRecord.project_generation!==undefined&&candidateRecord.project_generation!==project.generation)throw wbError('stale_resource');
+          const retained=ref.generation===candidateRecord.generation&&ref.hash===candidateRecord.hash||(candidateRecord.root_history??[]).some(entry=>entry.generation===ref.generation&&entry.hash===ref.hash);
+          if(Number.isSafeInteger(ref.generation)&&typeof ref.hash==='string'&&!retained)return {mode:'candidate_generation_diff',available:false,not_diff:true,verified:false,reason:'historical_diff_unavailable',current_generation:candidateRecord.generation};
+          // Scope the requested retained identity, not a later generation now
+          // owned by another attempt. The detail reader independently rehashes
+          // both exact trees before any source bytes are returned.
+          const scopedVersion=Number.isSafeInteger(ref.generation)&&typeof ref.hash==='string'?{...candidateRecord,generation:ref.generation,hash:ref.hash}:candidateRecord;
+          assertAttemptScope('candidates',scopedVersion,attempt,project);
           const reference={kind:'candidate',id:candidate_id,generation:Number.isSafeInteger(ref.generation)?ref.generation:undefined,hash:typeof ref.hash==='string'?ref.hash:undefined};
           // Absent exact generation/hash: refuse and never substitute current
           // content for a specific generation.

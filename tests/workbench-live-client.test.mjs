@@ -41,3 +41,19 @@ test('Workbench truncation replaces retained history; authority fencing cannot r
   assert.equal(connections.at(-1)[0],'closed');assert.match(connections.at(-1)[1],/not be replayed/);
   await assert.rejects(live.tail('33333333-3333-4333-8333-333333333333'),/closed/);
 });
+
+test('a refused historical detail does not stop the independently authorized live stream',async t=>{
+  const original=globalThis.fetch,pages=[],connections=[];let wire;
+  globalThis.fetch=async(_url,options)=>{
+    const request=JSON.parse(options.body);
+    if(request.action==='detail')return Response.json({ok:false,code:'permission_denied'},{status:403});
+    const body=new ReadableStream({start(controller){wire=controller;options.signal.addEventListener('abort',()=>controller.close(),{once:true});}});
+    return new Response(body,{headers:{'Content-Type':'text/event-stream'}});
+  };
+  const live=watchWorkbenchLive({...scope,getToken:()=>'owner',onPage:value=>pages.push(value),onConnection:state=>connections.push(state)});
+  t.after(()=>{live.dispose();globalThis.fetch=original;});
+  await assert.rejects(live.detail({kind:'candidate',id:'33333333-3333-4333-8333-333333333333',generation:1,hash:'a'.repeat(64)}),/permission_denied/);
+  wire.enqueue(new TextEncoder().encode(`event: page\ndata: ${JSON.stringify(page(1,[item(1)]))}\n\n`));
+  await new Promise(resolve=>setTimeout(resolve,10));
+  assert.equal(pages.length,1);assert.equal(connections.includes('closed'),false);
+});

@@ -480,6 +480,14 @@ test('detail returns whitelisted metadata only and an exact-generation candidate
 
   // No source bytes ever enter durable/page events.
   assert.ok(!JSON.stringify(f.live.page({...scope,attempt_id:attempt.id}).events).includes('a+b'));
+  // A later attempt can advance the same candidate without stealing the old
+  // attempt's exact retained-generation reference.
+  f.data.create('toolcalls',{...scope,attempt_id:attempt.id,grant_id:randomUUID(),candidate_id:candidateId,action:'candidate_patch',status:'completed',result_candidate:{id:candidateId,generation:2,hash:'b'.repeat(64)}});
+  const newer=f.data.create('attempts',{...scope,status:'created',candidate_id:candidateId,candidate_hash:'c'.repeat(64)});
+  f.data.update('candidates',f.workspace,f.project.id,candidateId,candidate.revision,{generation:3,hash:'c'.repeat(64),root_history:[...candidate.root_history,{root:'/private/retained/gen2',generation:2,hash:'b'.repeat(64)}]});
+  const historical=await f.live.detail({...scope,attempt_id:attempt.id,reference:{kind:'candidate',id:candidateId,generation:2,hash:'b'.repeat(64)}});
+  assert.equal(historical.available,true);assert.equal(historical.to.generation,2);
+  await assert.rejects(f.live.detail({...scope,attempt_id:newer.id,reference:{kind:'candidate',id:candidateId,generation:2,hash:'b'.repeat(64)}}),{code:'permission_denied'});
 });
 
 test('revoked project and superseded generation hard-fence reads and streams',async t=>{

@@ -111,7 +111,10 @@ export function createWorkbenchLiveHandler({token,port,devOrigins,live,reply,hea
         unsubscribe=live.subscribe(notification=>{
           if(closed)return;
           if(notification.workspace_id!==body.workspace_id||notification.project_id!==body.project_id)return;
-          if(scopeAttempt&&notification.attempt_id!==scopeAttempt)return;
+          // An un-attributed candidate mutation still invalidates a selected
+          // resource view. Wake a scoped page/snapshot read without relabelling
+          // the mutation as this attempt's action or forwarding foreign events.
+          if(scopeAttempt&&notification.attempt_id!==scopeAttempt&&notification.event?.kind!=='candidate')return;
           if(notification.sequence<=cursor)return;
           dirty=true;void pump();
         });
