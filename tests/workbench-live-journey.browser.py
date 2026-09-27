@@ -229,7 +229,6 @@ def main(renderer):
     log_path = Path(tempfile.gettempdir()) / ("orbit-live-journey-%s-%s.log" % (renderer, secrets.token_hex(8)))
     log_file = log_path.open("w")
     lines = []
-    mode_scope_violations = []
 
     def log(message):
         lines.append(str(message))
@@ -532,7 +531,7 @@ def main(renderer):
                         assert binding.value.status == 200 and bound["state"]["session"] == session, bound
 
                         step = "normal Hermes SSE feeds Normal-only safe timeline metadata"
-                        normal_pane = page.locator('.pane[data-pane-id="%s"]' % helper.PANE)
+                        normal_pane = page.locator('[data-pane-id="%s"]' % helper.PANE)
                         normal_timeline = normal_pane.locator(".agent-chat-normal .agent-live-timeline")
                         expect(normal_timeline).to_be_visible(timeout=15000)
                         normal_input = normal_pane.get_by_label("Message to Hermes", exact=True)
@@ -716,12 +715,14 @@ def main(renderer):
                         workbench_dialog = page.locator("dialog.project-workbench-dialog")
                         if workbench_dialog.is_visible():
                             workbench_dialog.get_by_role("button", name="Close project workbench", exact=True).click()
-                        agent_pane = page.locator('.pane[data-pane-id="%s"]' % helper.PANE)
-                        mode = agent_pane.get_by_label("Pane view", exact=True)
+                        agent_pane = page.locator('[data-pane-id="%s"]' % helper.PANE)
+                        normal_mode = agent_pane.get_by_role("button", name="Normal Hermes mode", exact=True)
+                        workbench_mode = agent_pane.get_by_role("button", name="Workbench Hermes mode", exact=True)
                         normal_draft = agent_pane.get_by_label("Message to Hermes", exact=True)
                         normal_draft.fill("LIVE-JOURNEY-DRAFT-MUST-SURVIVE")
                         model_requests_before_toggle = len(model.requests)
-                        mode.select_option("workbench")
+                        workbench_mode.click()
+                        expect(workbench_mode).to_have_attribute("aria-pressed", "true")
                         wb_project = agent_pane.get_by_label("Workbench project", exact=True)
                         expect(wb_project.locator('option[value="%s"]' % project_id)).to_have_count(1, timeout=30000)
                         wb_project.select_option(value=project_id)
@@ -732,20 +733,27 @@ def main(renderer):
                         expect(wb_timeline).to_be_visible(timeout=30000)
                         expect(wb_timeline).to_contain_text("grant", timeout=30000)
                         expect(wb_timeline).to_contain_text("running", timeout=30000)
+                        grant_line = agent_pane.locator(".pane-workbench-grant-line")
+                        expect(grant_line).to_contain_text("orbit-local-fixture", timeout=30000)
+                        grant_budget = started["grant"]["budget"]
+                        repairs_budget = consent.get("repair_iteration_limit", grant_budget.get("repair_iterations", 3))
+                        expect(grant_line).to_contain_text(re.compile(
+                            r"calls \d+/%s · checks \d+/%s · repairs \d+/%s · elapsed \d{2}:\d{2}" % (
+                                re.escape(str(grant_budget["calls"])), re.escape(str(grant_budget["checks"])),
+                                re.escape(str(repairs_budget)))), timeout=30000)
                         assert any(badge in wb_timeline.inner_text() for badge in ("AGENT", "YOU")), wb_timeline.inner_text()
-                        if "normal_fixture_read" in wb_timeline.inner_text():
-                            mode_scope_violations.append("Workbench timeline contains Normal SSE row normal_fixture_read")
+                        assert "normal_fixture_read" not in wb_timeline.inner_text(), "Workbench history contains Normal SSE event"
                         assert "MODEL_ONLY_EXPLANATION" not in wb_timeline.inner_text()
                         assert "SECRET_ARGUMENT" not in wb_timeline.inner_text() and "SECRET_OUTPUT" not in wb_timeline.inner_text()
-                        mode.select_option("normal")
+                        normal_mode.click()
+                        expect(normal_mode).to_have_attribute("aria-pressed", "true")
                         expect(normal_draft).to_have_value("LIVE-JOURNEY-DRAFT-MUST-SURVIVE")
-                        expect(agent_pane.locator(".agent-mode-badge")).to_contain_text("WB")
                         if not normal_timeline.count():
-                            mode_scope_violations.append("Normal timeline is absent while Normal mode is selected")
+                            raise AssertionError("Normal timeline instance is absent while Normal mode is selected")
                         else:
                             normal_after_toggle = normal_timeline.text_content() or ""
-                            if "normal_fixture_read" not in normal_after_toggle or "Native grant" in normal_after_toggle:
-                                mode_scope_violations.append("Normal timeline lost its SSE history or contains Workbench grant metadata")
+                            assert "normal_fixture_read" in normal_after_toggle, "Normal history was lost across mode toggle"
+                            assert "Native grant" not in normal_after_toggle, "Normal history contains Workbench metadata"
                         assert len(model.requests) == model_requests_before_toggle, "mode toggles must not execute the worker/model"
                         model.release_model.set()
                         status = started
@@ -762,23 +770,37 @@ def main(renderer):
                         assert final_status["health"]["healthy"] is True, final_status["health"]
                         assert len(final_status["toolcalls"]) == 6, final_status["toolcalls"]
                         assert all(call["status"] == "completed" for call in final_status["toolcalls"])
-                        mode.select_option("workbench")
+                        workbench_mode.click()
+                        expect(workbench_mode).to_have_attribute("aria-pressed", "true")
                         expect(wb_timeline).to_be_visible(timeout=30000)
                         expect(wb_timeline).to_contain_text("toolcall", timeout=30000)
                         expect(wb_timeline).to_contain_text("evidence", timeout=30000)
-                        if "normal_fixture_read" in wb_timeline.inner_text():
-                            mode_scope_violations.append("Workbench timeline contains Normal SSE history after hidden updates")
+                        assert "normal_fixture_read" not in wb_timeline.inner_text(), "Workbench history contains hidden Normal updates"
                         assert not any(secret in wb_timeline.inner_text() for secret in ("SECRET_ARGUMENT", "SECRET_OUTPUT", WRONG, RIGHT))
+                        job_row = wb_timeline.locator(".alt-row").filter(has_text="Check node-test").last
+                        expect(job_row).to_be_visible(timeout=30000)
+                        job_row.locator("summary").click()
+                        job_row.get_by_role("button", name="Open details").click()
+                        job_detail = page.locator("dialog.pane-workbench-detail")
+                        expect(job_detail).to_be_visible()
+                        tail_button = job_detail.get_by_role("button", name="Read a bounded unverified tail of the retained job log", exact=True)
+                        expect(tail_button).to_be_visible()
+                        tail_button.click()
+                        expect(job_detail).to_contain_text("LIVE OUTPUT · UNVERIFIED · bounded", timeout=30000)
+                        job_detail.get_by_role("button", name="Close focused detail").click()
                         wb_timeline.get_by_role("button", name="Detailed", exact=True).click()
-                        assert re.search(r"tests:\s*\d+", wb_timeline.inner_text()) and re.search(r"passed:\s*\d+", wb_timeline.inner_text()), wb_timeline.inner_text()
+                        expect(wb_timeline).to_contain_text(re.compile(r"\d+/\d+ tests passed"), timeout=30000)
                         candidate_row = wb_timeline.locator(".alt-row").filter(has_text="Candidate generation 2").last
                         expect(candidate_row).to_be_visible(timeout=30000)
+                        candidate_row.locator("summary").click()
                         candidate_row.get_by_role("button", name="Open details").click()
                         candidate_detail_dialog = page.locator("dialog.pane-workbench-detail")
                         expect(candidate_detail_dialog).to_be_visible()
-                        expect(candidate_detail_dialog).to_contain_text("candidate_generation_diff", timeout=30000)
-                        expect(candidate_detail_dialog).to_contain_text("old_text", timeout=30000)
-                        expect(candidate_detail_dialog).to_contain_text("new_text", timeout=30000)
+                        expect(candidate_detail_dialog).to_contain_text("Exact retained candidate generations 1→2", timeout=30000)
+                        expect(candidate_detail_dialog).to_contain_text("old · private read-only", timeout=30000)
+                        expect(candidate_detail_dialog).to_contain_text("new · private read-only", timeout=30000)
+                        expect(candidate_detail_dialog).to_contain_text("add(a, -b)", timeout=30000)
+                        expect(candidate_detail_dialog).to_contain_text("add(a, b)", timeout=30000)
                         candidate_detail_dialog.get_by_role("button", name="Close focused detail").click()
 
                         page_status, live_page = helper.api(origin, token, "/api/workbench/live", {
@@ -786,7 +808,14 @@ def main(renderer):
                             "after_sequence": 0, "limit": 200})
                         assert page_status == 200 and live_page.get("ok") is True, live_page
                         live_events = live_page["events"]
-                        assert sum(event["kind"] == "toolcall" for event in live_events) == 6, live_events
+                        tool_events = [event for event in live_events if event["kind"] == "toolcall"]
+                        assert len(tool_events) == 12, tool_events
+                        tool_revisions = {}
+                        for event in tool_events:
+                            call_id = event.get("reference", {}).get("id")
+                            status = next((field["value"] for field in event.get("fields", []) if field.get("label") == "status"), None)
+                            tool_revisions.setdefault(call_id, []).append(status)
+                        assert len(tool_revisions) == 6 and all(sorted(statuses) == ["completed", "started"] for statuses in tool_revisions.values()), tool_revisions
                         assert any(event["kind"] == "job" and event["authority"] == "observed" for event in live_events), live_events
                         assert any(event["kind"] == "evidence" and event["authority"] == "recorder" for event in live_events), live_events
                         assert not any(secret in json.dumps(live_events) for secret in ("SECRET_ARGUMENT", "SECRET_OUTPUT", "MODEL_ONLY_EXPLANATION", WRONG, RIGHT)), live_events
@@ -873,20 +902,26 @@ def main(renderer):
                         patch_events = patch_page["events"]
                         assert any(event["kind"] == "patch" and event["authority"] == "recorder" and event["status"] == "completed" for event in patch_events), patch_events
                         assert not any(secret in json.dumps(patch_events) for secret in (WRONG, RIGHT, "MODEL_ONLY_EXPLANATION", "SECRET_ARGUMENT", "SECRET_OUTPUT")), patch_events
-                        mode.select_option("normal")
+                        if workbench.is_visible():
+                            workbench.get_by_role("button", name="Close project workbench", exact=True).click()
+                            expect(workbench).not_to_be_visible()
+                        normal_mode.click()
+                        expect(normal_mode).to_have_attribute("aria-pressed", "true")
                         if not normal_timeline.count():
-                            mode_scope_violations.append("Normal timeline is absent after Workbench export updates")
+                            raise AssertionError("Normal timeline instance is absent after Workbench updates")
                         else:
                             expect(normal_timeline).to_be_visible()
                             normal_after_export = normal_timeline.text_content() or ""
-                            if "normal_fixture_read" not in normal_after_export or "Private patch" in normal_after_export:
-                                mode_scope_violations.append("Normal timeline lost Normal SSE history or includes Workbench export metadata")
+                            assert "normal_fixture_read" in normal_after_export, "Normal history missing after Workbench export"
+                            assert "Private patch" not in normal_after_export, "Normal history contains Workbench export metadata"
                         assert len(gateway.posts) == 1, "mode switches must not submit another Normal run"
-                        mode.select_option("workbench")
+                        workbench_mode.click()
+                        expect(workbench_mode).to_have_attribute("aria-pressed", "true")
                         expect(wb_timeline).to_be_visible()
                         expect(wb_timeline).to_contain_text("Private patch", timeout=30000)
                         result_row = wb_timeline.locator(".alt-row").filter(has_text="Task result")
                         expect(result_row.first).to_be_visible(timeout=30000)
+                        result_row.first.locator("summary").click()
                         result_row.first.get_by_role("button", name="Open details").click()
                         result_detail = page.locator("dialog.pane-workbench-detail")
                         expect(result_detail).to_be_visible()
@@ -903,8 +938,14 @@ def main(renderer):
                         page.get_by_role("textbox", name="Host session token").fill(token)
                         page.get_by_role("button", name="Unlock local host", exact=True).click()
                         expect(page.locator(".saved")).to_contain_text("Workspace connected", timeout=15000)
-                        reloaded_agent = page.locator('.pane[data-pane-id="%s"]' % helper.PANE)
-                        expect(reloaded_agent.get_by_label("Pane view", exact=True)).to_have_value("workbench")
+                        reloaded_agent = page.locator('[data-pane-id="%s"]' % helper.PANE)
+                        expect(reloaded_agent.get_by_role("button", name="Workbench Hermes mode", exact=True)).to_have_attribute("aria-pressed", "true")
+                        reloaded_project = reloaded_agent.get_by_label("Workbench project", exact=True)
+                        expect(reloaded_project.locator('option[value="%s"]' % project_id)).to_have_count(1, timeout=30000)
+                        reloaded_project.select_option(value=project_id)
+                        reloaded_attempt = reloaded_agent.get_by_label("Workbench attempt", exact=True)
+                        expect(reloaded_attempt.locator('option[value="%s"]' % attempt["id"])).to_have_count(1, timeout=30000)
+                        reloaded_attempt.select_option(value=attempt["id"])
                         reloaded_timeline = reloaded_agent.locator(".pane-workbench-live-slot .agent-live-timeline")
                         expect(reloaded_timeline).to_be_visible(timeout=30000)
                         expect(reloaded_timeline).to_contain_text("Private patch", timeout=30000)
@@ -919,11 +960,11 @@ def main(renderer):
                                    and request.get("after_sequence", 0) == 0 for request in replay_streams), replay_streams
                         reloaded_normal = reloaded_agent.locator(".agent-chat-normal .agent-live-timeline")
                         if not reloaded_normal.count():
-                            mode_scope_violations.append("Normal history instance is missing while Workbench mode is restored after reload")
+                            raise AssertionError("Normal history instance is missing after reload")
                         else:
                             reloaded_text = reloaded_normal.text_content() or ""
-                            if "normal_fixture_read" not in reloaded_text or "Private patch" in reloaded_text:
-                                mode_scope_violations.append("Reload mixed Workbench events into Normal history")
+                            assert "Private patch" not in reloaded_text, "Reload mixed Workbench events into Normal history"
+                            assert "Native grant" not in reloaded_text, "Reload mixed Workbench grant metadata into Normal history"
                         persisted = api(EXEC_ROUTE, "execution_state", project_id=project_id)
                         assert [entry["verdict"] for entry in persisted[1]["evidence"]] == ["fail", "pass"], persisted[1]["evidence"]
                         assert any(item["decision"] == "approved" for item in persisted[1]["reviews"]), persisted[1]["reviews"]
@@ -953,7 +994,6 @@ def main(renderer):
                         print("LIVE_EVENTS renderer=%s kinds=%s toolcalls=%d evidence=%d reviews=%d patches=%d normal_sse_runs=%d model_requests=%d" % (
                             renderer, json.dumps(event_kinds), len(calls), len(state["evidence"]), len(persisted[1]["reviews"]),
                             sum(event["kind"] == "patch" for event in patch_events), len(gateway.posts), len(model.requests)), flush=True)
-                        assert not mode_scope_violations, mode_scope_violations
                         log("PASS: renderer=%s chromium=%s model_requests=%d toolcalls=%d normal_sse_runs=%d verdicts=[fail,pass] "
                             "environment=%s dependency_hash=%s source=WRONG candidate=RIGHT "
                             "page_errors=0 external=0 owner_read=false secrets_redacted=true"
