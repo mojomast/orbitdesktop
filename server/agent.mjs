@@ -149,7 +149,8 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
         if (body.action === 'shared_chat') {
           if(body.replace === true) return reply(res,409,{error:'Use validated session selection to change conversations.'});
           const state = shared.bind(body.workspace_id,body.pane_id,body.initial);
-          return reply(res,200,{state});
+          const lane=executionGate?.status?.();
+          return reply(res,200,{state,...(lane?{execution_lane:{agent_busy:!!lane.agent||!!lane.legacy?.active||!!lane.legacy?.enabled,job_busy:!!lane.job,unknown:!!lane.quarantines?.length||!!lane.legacy?.uncertain}}:{})});
         }
         const linked = shared.read(body.workspace_id,body.pane_id);
         if (!linked) return reply(res,409,{error:'This chat has not linked yet. Open it on the desktop and reload once.'});

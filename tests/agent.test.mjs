@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createAgentHandler } from '../server/agent.mjs';
+import { createWorkbenchGate } from '../server/workbench-gate.mjs';
 const token = 'orbit-test-token-'.repeat(4);
 const session = 'orbit-12345678-1234-4234-9234-123456789abc';
 const runId = 'run_123456789abcdef';
@@ -25,6 +26,19 @@ async function setup(t, mock, configured = true, extra = {}) {
   return {request,calls};
 }
 const json = (v,status=200)=>new Response(JSON.stringify(v),{status});
+
+test('shared chat reports the global dispatch lane without inference or exposing lease identities',async t=>{
+  const workspace_id='11111111-1111-4111-8111-111111111111',pane_id='22222222-2222-4222-8222-222222222222';
+  const gate=createWorkbenchGate(),workspaceRead=()=>({state:{monitors:[{layout:{type:'pane',pane:{id:pane_id,kind:'agent'}}}]}});
+  const {request,calls}=await setup(t,()=>{throw Error('read-only lane must not reach Hermes');},true,{workspaceRead,executionGate:gate});
+  const body={action:'shared_chat',workspace_id,pane_id,initial:{session,messages:[]}};
+  const idle=await request(body);assert.equal(idle.status,200);assert.deepEqual(idle.body.execution_lane,{agent_busy:false,job_busy:false,unknown:false});
+  const release=gate.claim('agent','private-worker-identity');
+  const busy=await request(body);assert.equal(busy.body.execution_lane.agent_busy,true);assert.equal(JSON.stringify(busy.body).includes('private-worker-identity'),false);
+  release();const acknowledge=gate.quarantine('private-unknown-identity');
+  assert.equal((await request(body)).body.execution_lane.unknown,true);acknowledge();
+  assert.equal(calls.length,0);
+});
 
 test('agent requires token and exact origin; rejected calls never reach Hermes', async t=>{
  const {request,calls}=await setup(t,()=>json({}));
