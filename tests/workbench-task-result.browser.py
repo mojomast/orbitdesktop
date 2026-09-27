@@ -90,7 +90,9 @@ def main():
                         def execution_api(route):
                             body = route.request.post_data_json
                             if body['action'] == 'execution_state':
-                                route.fulfill(json={'ok': True, 'tasks': [{'id': task_id, 'acceptance_version': 2, 'acceptance_digest': acceptance_digest, 'acceptance': {'required_checks': [{'definition_id': 'node-test', 'definition_digest': 'e' * 64, 'execution_profile_id': None, 'execution_profile': None}]}}], 'jobs': [{'id': job_id, 'candidate_id': candidate_id, 'candidate_hash': 'a' * 64, 'project_generation': 1, 'acceptance_version': 2, 'acceptance_digest': acceptance_digest, 'definition_id': 'node-test', 'definition_digest': 'e' * 64, 'execution_profile_id': None, 'execution_profile': None, 'created_at': 2000, 'status': 'completed'}], 'evidence': [], 'reviews': [{'id': '99999999-9999-4999-8999-999999999998', 'candidate_id': candidate_id, 'candidate_hash': 'a' * 64, 'review_identity': 'review-exact', 'decision': 'approved'}]})
+                                 match = {'id': evidence_id, 'job_id': job_id, 'candidate_id': candidate_id, 'candidate_hash_before': 'a' * 64, 'candidate_hash_after': 'a' * 64, 'project_generation': 1, 'acceptance_digest': acceptance_digest, 'verdict': 'pass', 'revoked': False, 'superseded': False, 'provenance': check_provenance}
+                                 unrelated = [{**match, 'id': 'other-hash', 'candidate_hash_after': 'b' * 64, 'verdict': 'fail'}, {**match, 'id': 'old-acceptance', 'acceptance_digest': 'f' * 64, 'verdict': 'fail'}, {**match, 'id': 'revoked', 'revoked': True, 'verdict': 'fail'}, {**match, 'id': 'superseded', 'superseded': True, 'verdict': 'fail'}]
+                                 route.fulfill(json={'ok': True, 'tasks': [{'id': task_id, 'acceptance_version': 2, 'acceptance_digest': acceptance_digest, 'acceptance': {'required_checks': [{'definition_id': 'node-test', 'definition_digest': 'e' * 64, 'execution_profile_id': None, 'execution_profile': None}]}}], 'jobs': [{'id': job_id, 'candidate_id': candidate_id, 'candidate_hash': 'a' * 64, 'project_generation': 1, 'acceptance_version': 2, 'acceptance_digest': acceptance_digest, 'definition_id': 'node-test', 'definition_digest': 'e' * 64, 'execution_profile_id': None, 'execution_profile': None, 'created_at': 2000, 'status': 'completed'}], 'evidence': [match, {**match, 'id': 'valid-failure', 'verdict': 'fail'}, {**match, 'id': 'valid-inconclusive', 'verdict': 'inconclusive'}, *unrelated], 'reviews': [{'id': '99999999-9999-4999-8999-999999999998', 'candidate_id': candidate_id, 'candidate_hash': 'a' * 64, 'review_identity': 'review-exact', 'decision': 'approved'}]})
                             elif body['action'] == 'candidate_get':
                                 route.fulfill(json={'ok': True, 'candidate': {'id': candidate_id, 'hash': 'a' * 64, 'generation': 1, 'project_generation': 1}, 'review_identity': 'review-exact', 'review_evidence_ids': [evidence_id], 'acceptance_complete': True, 'target_changed': False})
                             elif body['action'] == 'job_get':
@@ -107,6 +109,7 @@ def main():
                         }""")
                         expect(page.get_by_text('Agent explanation')).to_be_visible()
                         expect(page.locator('.workbench-result-text')).to_contain_text('<img src=x onerror=alert(1)>')
+                        expect(page.locator('.workbench-result-recorder-counts')).to_have_text('Service-recorded evidence for this result identity · 1 pass · 1 fail · 1 inconclusive')
                         assert page.locator('.workbench-result-text img').count() == 0
                         expect(page.get_by_text('Recorded checks')).to_be_visible()
                         expect(page.get_by_text('Complete for this exact candidate and acceptance revision')).to_be_visible()
@@ -136,6 +139,7 @@ def main():
                         }}""")
                         page.wait_for_timeout(100)
                         expect(page.locator('.workbench-result-text')).to_contain_text('Result from the newly selected attempt.', timeout=7000)
+                        expect(page.locator('.workbench-result-recorder-counts')).to_have_text('Service-recorded evidence for this result identity · 1 pass · 1 fail · 1 inconclusive')
                         page.get_by_label('Result native attempt').select_option(grant_id)
                         expect(page.locator('.workbench-result-text')).to_contain_text('<img src=x onerror=alert(1)>')
                         mode['result'] = 'missing'

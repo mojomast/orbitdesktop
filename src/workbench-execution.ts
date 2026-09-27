@@ -11,6 +11,7 @@ type Projection = { tasks: Task[]; candidates: Candidate[]; jobs: Job[]; evidenc
 type CandidatePreview = { digest: string; preview_id: string; expires_at: number; base: { manifest_hash: string; files: FileEntry[]; exclusions: unknown; limited: boolean; total_bytes: number; head: null } };
 type CheckPreview = { spec_digest: string; preview_id: string; expires_at: number; candidate_id: string; candidate_hash: string; acceptance_version: number; definition_id: string; definition_digest: string; definition_hash: string; executable: string; args: string[]; script: string; limits: unknown; policy: unknown };
 type Reply = Record<string, unknown>;
+type Readiness = {ready:boolean;reason:string|null;message:string;candidate_hash:string;candidate_generation:number;acceptance_digest:string;required_checks:{definition_id:string;execution_profile_id:string|null;ready:boolean;reason:string|null;message:string}[]};
 
 function row(label: string, value: unknown) {
   return el('p', '', `${label}: ${typeof value === 'string' ? value : JSON.stringify(value ?? null)}`);
@@ -72,6 +73,7 @@ export function mountWorkbenchExecution(args: {
   const proposed = el('textarea'); proposed.setAttribute('aria-label', 'Owner-pasted structured patch'); proposed.rows = 5;
   const submissionNote = el('p', '', 'Owner-pasted proposed patch only; tool: agent_tool_blocked. Not agent-authored and not verified.');
   let projection: Projection | null = null;
+  let readiness: Readiness | null = null;
   let candidatePreview: CandidatePreview | null = null;
   let checkPreview: CheckPreview | null = null;
   let opId = '';
@@ -126,6 +128,25 @@ export function mountWorkbenchExecution(args: {
     if (!disposed && args.container.isConnected) timer = setTimeout(() => { timer = null; void refresh(); }, 2000);
   }
   function selectedCandidate() { return projection?.candidates.find(item => item.id === candidateSelect.value) ?? null; }
+  function currentReadiness(candidate: Candidate | null) {
+    const task = projection?.tasks.find(item => item.id === candidate?.task_id);
+    return candidate && readiness?.candidate_hash === candidate.hash && readiness.candidate_generation === candidate.generation && readiness.acceptance_digest === task?.acceptance_digest ? readiness : null;
+  }
+  function showReadiness() {
+    const candidate = selectedCandidate(), state = currentReadiness(candidate);
+    const message = !candidate ? 'Select a candidate.' : state ? state.message : 'Checking current acceptance and profiles…';
+    const notice = el('p', 'workbench-readiness', `Acceptance/profile readiness: ${message}`);
+    candidateView.querySelector('.workbench-readiness')?.remove();candidateView.append(notice);
+    controls();
+  }
+  async function loadReadiness(ticket: number) {
+    const candidate = selectedCandidate();readiness = null;showReadiness();
+    if (!candidate) return;
+    const response = await request({action:'candidate_get',candidate_id:candidate.id},ticket);
+    if (!current(ticket) || selectedCandidate()?.id !== candidate.id) return;
+    readiness = response?.readiness as Readiness | undefined ?? null;
+    render();
+  }
   function resetPreview() { candidatePreview = null; checkPreview = null; opId = ''; renderPreviews(); }
   function controls() {
     const candidate = selectedCandidate();
@@ -133,8 +154,9 @@ export function mountWorkbenchExecution(args: {
     previewCandidate.disabled = pending || !taskSelect.value;
     createCandidate.disabled = pending || !candidatePreview || !taskSelect.value;
     saveEdit.disabled = pending || !candidate || !selectedFile || selectedFile.candidate_id !== candidate.id || selectedFile.binary || candidate.files.find(file => file.path === selectedFile?.path)?.hash !== selectedFile.hash;
-    previewCheck.disabled = pending || !candidate || !checkDefinition.value;
-    runCheck.disabled = pending || !candidate || !checkPreview || checkPreview.candidate_id !== candidate.id || !opId || !!projection?.revoked || Object.keys(projection?.unknown_jobs ?? {}).length > 0;
+    previewCheck.disabled = pending || !candidate || !checkDefinition.value || currentReadiness(candidate)?.ready !== true;
+    runCheck.disabled = pending || !candidate || !checkPreview || checkPreview.candidate_id !== candidate.id || !opId || currentReadiness(candidate)?.ready !== true || !!projection?.revoked || Object.keys(projection?.unknown_jobs ?? {}).length > 0;
+    startCheck.disabled = runCheck.disabled;
     submission.disabled = pending || !candidate || !proposed.value.trim();
     exportCandidate.disabled = pending || !candidate;
   }
@@ -157,6 +179,7 @@ export function mountWorkbenchExecution(args: {
     if (!result || !current(ticket)) return;
     projection = result as unknown as Projection;
     render();
+    await loadReadiness(ticket);
   }
   async function refresh() {
     if (disposed) return;
@@ -267,6 +290,7 @@ export function mountWorkbenchExecution(args: {
     if (checkPreview && (!candidate || checkPreview.candidate_id !== candidate.id || checkPreview.candidate_hash !== candidate.hash)) { checkPreview = null; opId = ''; }
     candidateView.replaceChildren(el('h3', '', 'Candidate'), row('Identity', candidate?.id ?? 'none'));
     if (candidate) candidateView.append(row('Status', candidate.status), row('Generation', candidate.generation), row('Hash', candidate.hash), row('Base hash', candidate.base_hash), row('Source manifest', candidate.source_manifest_hash), row('Exclusions', candidate.exclusions), row('Limited', candidate.limited), row('Total bytes', candidate.total_bytes));
+    showReadiness();
     fileList.replaceChildren();
     for (const file of candidate?.files ?? []) fileList.append(button(file.path, `Read candidate file ${file.path}`, () => void act('Reading candidate file',
       { action: 'candidate_read', candidate_id: candidate!.id, path: file.path }, reply => {
@@ -329,7 +353,7 @@ export function mountWorkbenchExecution(args: {
           const evidence_ids = data.evidence.filter(item => item.candidate_id === candidate.id && item.verdict === 'pass' && !item.superseded && !item.revoked && selectedEvidence.has(item.id)).map(item => item.id);
           void act('Recording review', { action: 'review_decide', candidate_id: candidate.id, evidence_ids, decision, expected_identity: data.review_identity[candidate.id] }, () => { selectedEvidence.clear(); });
         });
-        if (decision === 'approved' && targetChanged) node.disabled = true;
+        if (decision === 'approved' && (targetChanged || currentReadiness(candidate)?.ready !== true)) node.disabled = true;
         reviewView.append(node);
       }
     }
@@ -340,7 +364,7 @@ export function mountWorkbenchExecution(args: {
   definition.addEventListener('change', controls);
   checkDefinition.addEventListener('change', () => { checkPreview = null; opId = ''; renderPreviews(); });
   taskSelect.addEventListener('change', resetPreview);
-  candidateSelect.addEventListener('change', () => { selectedFile = null; dirty = false; edit.value = ''; expected.textContent = 'Expected hash: no file selected'; selectedEvidence.clear(); resetPreview(); render(); });
+  candidateSelect.addEventListener('change', () => { selectedFile = null; dirty = false; edit.value = ''; expected.textContent = 'Expected hash: no file selected'; selectedEvidence.clear(); resetPreview(); readiness=null; render(); void loadReadiness(epoch); });
   const sections=new Map<string,HTMLElement>();
   const section=(name:string,...children:Node[])=>{const node=el('section',`workbench-task-${name.toLowerCase()}`);node.setAttribute('aria-label',name);node.tabIndex=-1;node.append(el('h3','',name),...children);sections.set(name,node);return node;};
   const requestSection=section('Request',labelled('Title',title),labelled('Acceptance statement',acceptance),labelled('Check definition',definition),labelled('Profile ID',profile),labelled('Session ID',session),createTask,taskView,labelled('Task',taskSelect));

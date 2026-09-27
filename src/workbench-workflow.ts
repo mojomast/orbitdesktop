@@ -3,6 +3,7 @@ import {button, el} from './dom';
 type Reply = Record<string, unknown>;
 type Preview = {preview_id:string;preview_digest:string;expires_at:number};
 type PatchPreview = Preview & {patch_text:string;artifact_hash:string;bytes:number};
+type VerificationSupport={ready:boolean;reason:string|null;message:string;candidate_hash:string;candidate_generation:number;acceptance_digest:string;required_checks:{definition_id:string;execution_profile_id:string|null;ready:boolean;reason:string|null;message:string}[]};
 export function mountWorkbenchWorkflow(args:{container:HTMLElement;token:string|(()=>string);workspace_id:string;project_id:string;candidate?:()=>{id:string;review_id:string}|null;onError?:(message:string)=>void}):{refresh():Promise<void>;dispose():void}{
   const status=el('p','','Workflow: loading…');status.setAttribute('role','status');
   const error=el('p');error.setAttribute('role','alert');
@@ -69,13 +70,14 @@ export function mountWorkbenchWorkflow(args:{container:HTMLElement;token:string|
     const [candidate_id,review_id,task_id]=candidateSelect.value.split(':');if(!candidate_id||!review_id||!task_id)return;
     void act('Reviewed patch preview',{action:'patch_preview',task_id,candidate_id,review_id},reply=>{
        patchPreview=reply as PatchPreview;patchArtifactId='';
+       const support=reply.verification_support as VerificationSupport|undefined;
        const exact=el('pre','workbench-patch-preview-text',patchPreview.patch_text);exact.setAttribute('aria-label','Exact unified diff bytes proposed for verified patch export');
-       patchView.replaceChildren(field('Format',reply.format),field('Source identity',reply.source),field('Candidate identity',reply.candidate),field('Reviewed checks and evidence',reply.review),field('Exact changes',reply.changes),field('Exclusions (not deletions)',reply.exclusions),field('Unsupported changes',reply.unsupported),field('Round-trip verification',reply.roundtrip),field('Patch bytes / SHA-256',`${reply.bytes} / ${reply.artifact_hash}`),field('Preview digest',reply.preview_digest),el('h4','','Exact patch bytes to be confirmed'),exact);
-      confirmPatch.disabled=false;
+        patchView.replaceChildren(field('Format',reply.format),field('Source identity',reply.source),field('Candidate identity',reply.candidate),field('Reviewed checks and evidence',reply.review),field('Verification support',support?.message??'Server support unavailable; refresh the preview'),...(support?.required_checks??[]).filter(check=>!check.ready).map(check=>field(`${check.definition_id} · profile ${check.execution_profile_id??'default'}`,check.message)),field('Exact changes',reply.changes),field('Exclusions (not deletions)',reply.exclusions),field('Unsupported changes',reply.unsupported),field('Round-trip verification',reply.roundtrip),field('Patch bytes / SHA-256',`${reply.bytes} / ${reply.artifact_hash}`),field('Preview digest',reply.preview_digest),el('h4','','Exact patch bytes to be confirmed'),exact);
+       confirmPatch.disabled=support?.ready!==true||support.candidate_hash!==reply.candidate_hash||support.candidate_generation!==reply.candidate_generation||support.acceptance_digest!==((reply.review as Reply|undefined)?.required_check_state as Reply|undefined)?.acceptance_digest;
     });
   });
   const confirmPatch=button('Create private verified patch','Persist the exact previewed patch in the private authenticated artifact store',()=>{
-    if(!patchPreview)return;const [candidate_id,review_id,task_id]=candidateSelect.value.split(':');if(!candidate_id||!review_id||!task_id)return;
+    if(!patchPreview||(patchPreview as PatchPreview&{verification_support?:VerificationSupport}).verification_support?.ready!==true)return;const [candidate_id,review_id,task_id]=candidateSelect.value.split(':');if(!candidate_id||!review_id||!task_id)return;
     const op_id=crypto.randomUUID();void act('Exporting verified patch',{action:'patch_export',task_id,candidate_id,review_id,preview_id:patchPreview.preview_id,preview_digest:patchPreview.preview_digest,op_id},reply=>{
       const record=reply.patch as Reply;patchArtifactId=String(record.artifact_id??record.id??'');patchPreview=null;confirmPatch.disabled=true;
        patchView.replaceChildren(field('Status',record.status),field('Private artifact ID',patchArtifactId),field('SHA-256 / bytes',`${record.artifact_hash} / ${record.bytes}`),field('Round-trip verification',record.roundtrip),field('Required-check verification',record.verification),field('File changes',record.changes));downloadPatch.disabled=!patchArtifactId||record.status!=='available';void refresh();
