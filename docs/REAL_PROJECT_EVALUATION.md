@@ -27,6 +27,13 @@ journeys, focused readiness/recorder UI tests, Python/plugin tests and portable
 archive parity passed. Final GitHub CI and the separately authorized isolated
 real-model trial remain pending.
 
+The first follow-up CI candidate (`6bff09b`) passed plugin CI and the new
+dependency-export regression, but its older RouteTok profile regression timed out
+with exit 124 and incomplete structured results under concurrent test-file
+execution. That failure remains recorded in run `36288109665`. Node test files
+are now serialized to avoid competing heavyweight RouteTok suites; production
+check deadlines and acceptance semantics were not relaxed.
+
 ## Original evaluation
 
 Date: **2026-09-26**. **Overall: incomplete — real repair verified, private
