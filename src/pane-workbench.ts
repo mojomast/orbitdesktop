@@ -45,7 +45,7 @@ export interface PaneWorkbenchDeps {
   prefs: PaneWorkbenchPrefs;
   onPrefs: (patch: Partial<PaneWorkbenchPrefs>) => void;
   onBadge: (badge: PaneWorkbenchBadge) => void;
-  onLane: (lane: { agent_busy: boolean; job_busy: boolean; unknown: boolean }) => void;
+  onLane: (lane: { agent_busy: boolean; job_busy: boolean; unknown: boolean; observed?: boolean }) => void;
   timeline: LiveTimeline;
   onError?: (message: string) => void;
 }
@@ -312,7 +312,8 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
     applyingScope = false;
   }
   function pushLane() {
-    authorityMount?.setLane?.({ busy: laneState.agent_busy || laneState.job_busy, unknown: laneState.unknown });
+    // Only an observed lane may disable Start; not-observed is not a fence.
+    authorityMount?.setLane?.({ busy: laneState.observed && (laneState.agent_busy || laneState.job_busy), unknown: laneState.observed && laneState.unknown });
   }
 
   function reconcile(present: { projects: Set<string>; tasks: Set<string>; candidates: Set<string>; attempts: Set<string>; grants: Set<string>; results: Set<string> }) {
@@ -389,7 +390,8 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
     const outcomeUnknown = /^(dispatch_unknown|submission_unknown|outcome_unknown)$/.test(grantStatus);
     const stopped = /^(stopped|cancelled|revoked|denied|expired)$/.test(grantStatus);
     const waiting = /approved|prepared|dispatching|paused_budget|stop_requested|submission_unknown|dispatch_unknown/.test(grantStatus);
-    const globalLaneBusy = laneState.agent_busy || laneState.job_busy;
+    // Only an explicitly observed lane counts; "not observed yet" is never a fence.
+    const globalLaneBusy = laneState.observed && (laneState.agent_busy || laneState.job_busy);
     const executionUnresolved = running || stopRequested || outcomeUnknown || grantStatus === 'starting';
     const laneBusy = globalLaneBusy || executionUnresolved;
     // A pending receipt is NOT a completed result. Count available results only
@@ -406,7 +408,7 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
     const pending = running ? 1
       : waiting ? Math.max(1, activeGrants + activeJobs)
       : (snapshot ? activeGrants + activeJobs : cachedPending) + (resultAvailability === 'pending' ? 1 : 0);
-    const stateLabel = laneState.unknown || outcomeUnknown ? 'Execution outcome unknown'
+    const stateLabel = outcomeUnknown || (laneState.observed && laneState.unknown) ? 'Execution outcome unknown'
       : stopRequested ? 'Stop requested'
       : failed ? 'Failed'
       : stopped ? 'Stopped'
@@ -420,13 +422,18 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
     // Report a busy lane while this pane's selected grant is live so a hidden
     // Normal view never enables Send against a real run even if the global lane
     // snapshot is momentarily stale.
-    deps.onLane({ agent_busy: laneState.agent_busy || executionUnresolved, job_busy: laneState.job_busy, unknown: laneState.unknown || outcomeUnknown });
+    // "Not observed yet" must never be reported as execution unknown; only an
+    // explicit server lane.unknown or an unresolved selected grant qualifies.
+    deps.onLane({ agent_busy: laneState.agent_busy || executionUnresolved, job_busy: laneState.job_busy, unknown: (laneState.observed && laneState.unknown) || outcomeUnknown, observed: laneState.observed });
   }
   let cardCache: Data[] = [];
-  let laneState: { agent_busy: boolean; job_busy: boolean; unknown: boolean } = { agent_busy: false, job_busy: false, unknown: true };
+  // `observed` distinguishes "no authoritative lane read yet" from an explicit
+  // execution-unknown fence. It starts false so an opened Workbench with no
+  // project/scope cannot fabricate a permanent unknown.
+  let laneState: { agent_busy: boolean; job_busy: boolean; unknown: boolean; observed: boolean } = { agent_busy: false, job_busy: false, unknown: false, observed: false };
 
   function reflectLane(lane: { agent_busy: boolean; job_busy: boolean; unknown: boolean }) {
-    laneState = { agent_busy: lane.agent_busy === true, job_busy: lane.job_busy === true, unknown: lane.unknown === true };
+    laneState = { agent_busy: lane.agent_busy === true, job_busy: lane.job_busy === true, unknown: lane.unknown === true, observed: true };
     laneNote = laneState.unknown ? 'unknown' : laneState.agent_busy || laneState.job_busy ? 'busy' : 'idle';
     emitBadge();
     pushLane();
@@ -439,6 +446,11 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
     liveClient?.dispose();
     liveClient = null;
     liveAttempt = null;
+    // A stopped scope is "not observed", never an execution-unknown fence; the
+    // authoritative shared_chat execution_lane is unaffected.
+    laneState = { agent_busy: false, job_busy: false, unknown: false, observed: false };
+    deps.onLane({ agent_busy: false, job_busy: false, unknown: false, observed: false });
+    pushLane();
   }
   function startLive() {
     if (disposed || !projectId) return;

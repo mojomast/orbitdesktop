@@ -80,7 +80,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   // Shared-lane signals are tracked per source so a fresh read from one source
   // never clears another source's unknown state. The Workbench pane live lane and
   // the shared_chat execution_lane are independent read-only observations.
-  let wbLane = { agent_busy: false, job_busy: false, unknown: false };
+  let wbLane = { agent_busy: false, job_busy: false, unknown: false, observed: false };
   let sharedLane = { agent_busy: false, job_busy: false, unknown: false };
   let sharedLanePresent = false;
   let workbenchLaneActive = false;
@@ -339,12 +339,29 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   }, { focusMode: (mode) => setMode(mode) });
   let toolStatus = '', streamStatus = '';
   const strip = el('div','agent-activity-strip');
-  const activityButton = button('Ready','Show live tool details',()=>inlineTools.show(),'small-button');
+  // On attention, reveal the actual error instead of opening inline tools. With
+  // an active run the click performs a read-only status poll; otherwise it just
+  // focuses the error/progress area.
+  const onActivityAction = () => {
+    const runStatus = status.textContent || 'READY';
+    if (runStatus === 'ATTENTION') {
+      progress.scrollIntoView({ block: 'nearest' });
+      progress.focus();
+      if (state.run) void poll();
+      return;
+    }
+    inlineTools.show();
+  };
+  const activityButton = button('Ready','Show live tool details',onActivityAction,'small-button');
   strip.append(activityButton,button('Workspace agents','Overview of all open agents',openAgentOverview,'small-button'));
   function refreshActivity() {
     const runStatus = status.textContent || 'READY';
-    const label = !getToken() ? 'Host disconnected' : runStatus === 'ATTENTION' ? 'Needs attention · check status' : runStatus === 'WAITING FOR APPROVAL' ? 'Waiting for you' : state.run ? (streamStatus || toolStatus || 'Working · awaiting tool events') : runStatus === 'COMPLETED' ? 'Finished' : runStatus === 'FAILED' ? 'Failed' : runStatus === 'CANCELLED' ? 'Cancelled' : 'Ready';
+    const attention = runStatus === 'ATTENTION';
+    const label = !getToken() ? 'Host disconnected' : attention ? (state.run ? 'Needs attention · check status' : 'Needs attention · view error') : runStatus === 'WAITING FOR APPROVAL' ? 'Waiting for you' : state.run ? (streamStatus || toolStatus || 'Working · awaiting tool events') : runStatus === 'COMPLETED' ? 'Finished' : runStatus === 'FAILED' ? 'Failed' : runStatus === 'CANCELLED' ? 'Cancelled' : 'Ready';
     activityButton.textContent = label;
+    activityButton.title = attention
+      ? (state.run ? 'Poll the active run status and reveal the error' : 'Reveal the error and focus the status area')
+      : 'Show live tool details';
     activity.update({title:state.title || 'Hermes',task:state.messages.filter(m=>m.role==='user').at(-1)?.text.slice(0,200) || 'No task yet',status:label,mode:paneMode,normalStatus:label,workbenchStatus});
     normalLive.status({ status: label, run: state.run, at: Date.now() });
     updateModeBadge();
@@ -366,6 +383,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   const notice = el('div', 'agent-notice', 'Hermes can inspect and change this workspace, build apps, and open their previews here. Host terminals run as your account. Workspace context includes layout and app URLs, not private terminal buffers or iframe contents.');
   const progress = el('div', 'agent-progress');
   progress.setAttribute('role', 'status');
+  progress.tabIndex = -1;
   const approvals = el('div', 'agent-approvals');
   const controls = el('div', 'agent-controls');
   const stop = button('Stop', 'Ask Hermes to stop this run', async () => {
@@ -501,9 +519,13 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     return '';
   }
   function recomputeLane() {
-    const agentBusy = wbLane.agent_busy || (sharedLanePresent && sharedLane.agent_busy);
-    const jobBusy = wbLane.job_busy || (sharedLanePresent && sharedLane.job_busy);
-    laneUnknown = wbLane.unknown || (sharedLanePresent && sharedLane.unknown);
+    // The Workbench pane contributes only when it actually observed a lane read.
+    // An unobserved pane lane is never a fence; the shared_chat execution_lane
+    // stays authoritative and is only cleared by an explicit server value.
+    const wbObserved = wbLane.observed === true;
+    const agentBusy = (wbObserved && wbLane.agent_busy) || (sharedLanePresent && sharedLane.agent_busy);
+    const jobBusy = (wbObserved && wbLane.job_busy) || (sharedLanePresent && sharedLane.job_busy);
+    laneUnknown = (wbObserved && wbLane.unknown) || (sharedLanePresent && sharedLane.unknown);
     workbenchLaneActive = (agentBusy && !state.run) || jobBusy;
     // The queue is held, never auto-drained, until the owner sends explicitly.
     if (workbenchLaneActive || laneUnknown) queuePaused = true;
@@ -556,7 +578,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
       // The Workbench pane's own live lane observation. Combined with (but never
       // overriding) the shared_chat execution_lane signal.
       onLane: (lane) => {
-        wbLane = { agent_busy: lane.agent_busy === true, job_busy: lane.job_busy === true, unknown: lane.unknown === true };
+        wbLane = { agent_busy: lane.agent_busy === true, job_busy: lane.job_busy === true, unknown: lane.unknown === true, observed: lane.observed === true };
         recomputeLane();
       },
       timeline: workbenchTimeline,

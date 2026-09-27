@@ -471,6 +471,37 @@ def main(renderer):
                     assert "start" not in agent_requests, agent_requests
                     assert fixture_requests == [], fixture_requests
 
+                    # Idle WB with no project selected must never fabricate a fence:
+                    # the authenticated shared_chat execution_lane is idle, so the
+                    # hidden Workbench status stays literal (not Execution outcome
+                    # unknown / Lane busy) and a Normal draft submit actually starts
+                    # (the configured profile is a fixture mock; no real model).
+                    pane_locator.get_by_label("Workbench project", exact=True).select_option("")
+                    assert pane_locator.get_by_label("Workbench project", exact=True).input_value() == ""
+                    idle_wb_button = pane_locator.get_by_role("button", name="Workbench Hermes mode", exact=True)
+                    expect(idle_wb_button).not_to_contain_text("Execution outcome unknown", timeout=15000)
+                    expect(idle_wb_button).not_to_contain_text("Lane busy", timeout=15000)
+                    pane_locator.get_by_role("button", name="Normal Hermes mode", exact=True).click()
+                    idle_send = pane_locator.get_by_label("Message to Hermes", exact=True)
+                    idle_send.fill("IDLE-LANE-DRAFT")
+                    starts_before_idle = len([a for a in agent_requests if a == "start"])
+                    expect(pane_locator.get_by_role("button", name="Send message to Hermes", exact=True)).to_be_enabled(timeout=10000)
+                    idle_send.press("Enter")
+                    for _ in range(40):
+                        if len([a for a in agent_requests if a == "start"]) > starts_before_idle:
+                            break
+                        page.wait_for_timeout(250)
+                    assert len([a for a in agent_requests if a == "start"]) > starts_before_idle, "idle lane wrongly fenced the draft submit"
+                    assert pane_locator.locator(".agent-mode-control").get_attribute("data-lane") == "idle"
+
+                    # Restore the registered project for the deterministic live checks.
+                    pane_locator.get_by_role("button", name="Workbench Hermes mode", exact=True).click()
+                    pane_locator.get_by_role("button", name="Re-read projects, tasks and state without executing anything", exact=True).click()
+                    restored_project = pane_locator.get_by_label("Workbench project", exact=True)
+                    expect(restored_project.locator(f'option[value="{project_id}"]')).to_have_count(1, timeout=15000)
+                    restored_project.select_option(project_id)
+                    expect(pane_locator.get_by_label("Workbench attempt", exact=True).locator(f'option[value="{attempt["id"]}"]')).to_have_count(1, timeout=15000)
+
                     # Deterministic hidden-running badge: the durable page reports the
                     # selected attempt's grant running while the global lane snapshot is
                     # a stale idle race. The badge must show "Running" (never a pending
@@ -531,7 +562,6 @@ def main(renderer):
                     live_state.update({"grant_status": "dispatch_unknown", "runtime_status": "unknown"})
                     expect(wb_button).to_contain_text("Execution outcome unknown", timeout=20000)
                     expect(send_while_running).to_be_disabled()
-
                     live_state.update({"grant_status": "completed", "runtime_status": "exited", "availability": "available"})
                     expect(wb_button).to_contain_text("result", timeout=20000)
                     assert "Running" not in wb_button.inner_text(), wb_button.inner_text()
@@ -540,12 +570,14 @@ def main(renderer):
                     # Hidden-Normal reload while the shared lane is busy: the global
                     # execution_lane signal (carried by the existing shared_chat read,
                     # no extra polling) must disable Send and show a literal state.
+                    lane_signal = {"agent_busy": True, "job_busy": False, "unknown": False}
+
                     def inject_lane(route):
                         request_body = route.request.post_data_json or {}
                         response = route.fetch()
                         if request_body.get("action") == "shared_chat" and response.ok:
                             data = response.json()
-                            data["execution_lane"] = {"agent_busy": True, "job_busy": False, "unknown": False}
+                            data["execution_lane"] = dict(lane_signal)
                             route.fulfill(response=response, json=data)
                         else:
                             route.fulfill(response=response)
@@ -567,6 +599,16 @@ def main(renderer):
                     expect(pane_locator.locator(".agent-mode-control")).to_have_attribute("data-lane", re.compile("busy|unknown"))
                     send_title = (send_button.get_attribute("title") or "").lower()
                     assert ("busy" in send_title) or ("unknown" in send_title), send_title
+
+                    # A real authoritative unknown (quarantine) must still fence:
+                    # flip the injected execution_lane to unknown and let the next
+                    # authenticated shared_chat read clear/keep it explicitly.
+                    lane_signal["agent_busy"] = False
+                    lane_signal["unknown"] = True
+                    page.wait_for_timeout(2500)
+                    expect(pane_locator.get_by_role("button", name="Workbench Hermes mode", exact=True)).to_contain_text("Execution outcome unknown", timeout=10000)
+                    expect(send_button).to_be_disabled()
+                    expect(pane_locator.locator(".agent-mode-control")).to_have_attribute("data-lane", "unknown")
 
                     assert not errors, errors
                     page.screenshot(path=f"/tmp/opencode/orbit-pane-workbench-{renderer}.png")
