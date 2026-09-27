@@ -335,8 +335,19 @@ def main(renderer):
                     assert len([a for a in context_requests if a == "capture"]) == captures_before
                     assert len([a for a in execution_requests if a == "task_create"]) == tasks_before
 
-                    # Real backend: register a project, create a real task, then capture
-                    # the exact selected excerpts into a selectable packet.
+                    # Real backend: register a project, create a real task, then a
+                    # candidate + bound attempt, then capture the exact selected
+                    # excerpts into a packet BOUND to that attempt, then reach native
+                    # consent preview (an unbound packet would 403 here).
+                    def click_expect(scope, label, action, route):
+                        with page.expect_response(
+                            lambda r: r.url.split("?")[0] == origin + route and (r.request.post_data_json or {}).get("action") == action,
+                            timeout=90000,
+                        ) as pending:
+                            scope.locator("button").filter(has_text=re.compile("^" + re.escape(label) + "$")).first.click()
+                        response = pending.value
+                        return response.status, response.json()
+
                     project_dir = root / "handoff-project"
                     project_dir.mkdir(exist_ok=True)
                     (project_dir / "app.js").write_text("export const sum = (a, b) => a + b;\n")
@@ -348,6 +359,10 @@ def main(renderer):
                     project_select.select_option(project_id)
                     definition_select = pane_locator.get_by_label("Task check definition (handoff)", exact=True)
                     expect(definition_select).not_to_have_value("", timeout=20000)
+                    # The host-owned regression needs no prepared profile, so consent
+                    # readiness is satisfiable and native preview reaches the gate.
+                    if definition_select.locator("option[value='host-regression']").count():
+                        definition_select.select_option("host-regression")
                     pane_locator.get_by_label("Task title (handoff)", exact=True).fill("Handoff real task")
                     pane_locator.locator(".pane-workbench-handoff button", has_text="Preview task").click()
                     expect(pane_locator.locator(".pane-workbench-task-preview")).to_contain_text('"action": "task_create"')
@@ -363,7 +378,8 @@ def main(renderer):
                     # Scope selector binds the newly created task.
                     expect(pane_locator.get_by_label("Workbench task", exact=True)).to_have_value(new_task["id"], timeout=15000)
 
-                    # Capture the exact selected conversation excerpts into a packet.
+                    capture_button = pane_locator.locator(".pane-workbench-handoff button", has_text="Capture selected context packet")
+                    # Capture is gated on an explicit bound attempt; preview may run first.
                     pane_locator.locator(".pane-workbench-excerpt input[type=checkbox]").first.check()
                     pane_locator.get_by_label("Task or question excerpt", exact=True).fill("REAL-HANDOFF-QUESTION")
                     pane_locator.locator(".pane-workbench-handoff button", has_text="Preview context packet").click()
@@ -372,23 +388,70 @@ def main(renderer):
                     expect(excerpt_preview).to_contain_text('"kind": "conversation"')
                     expect(excerpt_preview).to_contain_text("sha256")
                     assert '"id"' not in excerpt_preview.inner_text(), "capture preview leaks a client excerpt id"
-                    pane_locator.locator(".pane-workbench-handoff button", has_text="Capture selected context packet").click()
-                    expect(pane_locator.locator(".pane-workbench-status")).to_contain_text("context packet", timeout=20000)
+                    expect(capture_button).to_be_disabled()
+
+                    # Candidate + bound attempt through the normal UI.
+                    pane_locator.locator(".pane-workbench-tab", has_text="Checks").click()
+                    execute = pane_locator.locator(".pane-workbench-panel").nth(2)
+                    with page.expect_response(lambda r: r.url.split("?")[0] == origin + "/api/workbench/execution" and (r.request.post_data_json or {}).get("action") == "execution_state", timeout=30000):
+                        execute.locator("button").filter(has_text=re.compile("^Refresh execution workbench$")).first.click()
+                    execute.get_by_label("Selected task", exact=True).select_option(new_task["id"])
+                    status, _preview = click_expect(execute, "Preview candidate", "candidate_preview", "/api/workbench/execution")
+                    assert status == 200 and _preview.get("ok"), _preview
+                    status, candidate_result = click_expect(execute, "Create candidate", "candidate_create", "/api/workbench/execution")
+                    assert status == 200 and candidate_result.get("ok"), candidate_result
+                    candidate = candidate_result["candidate"]
+
+                    pane_locator.locator(".pane-workbench-authority > summary").click()
+                    click_expect(pane_locator, "Refresh task authority", "execution_state", "/api/workbench/execution")
+                    pane_locator.get_by_label("Authority candidate", exact=True).select_option(candidate["id"])
+                    status, attempt_result = click_expect(pane_locator, "Create bound attempt", "attempt_create", "/api/workbench/execution")
+                    assert status == 200 and attempt_result.get("ok"), attempt_result
+                    attempt = attempt_result["attempt"]
+                    # Refresh the pane selectors so the new attempt is offered, then
+                    # the pane attempt scope follows the bound attempt.
+                    pane_locator.get_by_role("button", name="Re-read projects, tasks and state without executing anything", exact=True).click()
+                    expect(pane_locator.get_by_label("Workbench attempt", exact=True)).to_have_value(attempt["id"], timeout=15000)
+                    # Recipient must default to THIS pane; never an unrelated entry.
+                    recipient_select = pane_locator.get_by_label("Native agent recipient", exact=True)
+                    if recipient_select.input_value() == "":
+                        candidates = recipient_select.locator("option:not([value=''])")
+                        if candidates.count():
+                            recipient_select.select_option(candidates.first.get_attribute("value"))
+                    expect(recipient_select).not_to_have_value("")
+
+                    # Re-select and re-preview now that an attempt is bound; the
+                    # frozen preview carries the attempt id and only then enables capture.
+                    pane_locator.locator(".pane-workbench-excerpt input[type=checkbox]").first.check()
+                    pane_locator.get_by_label("Task or question excerpt", exact=True).fill("REAL-HANDOFF-QUESTION")
+                    expect(capture_button).to_be_disabled()
+                    pane_locator.locator(".pane-workbench-handoff button", has_text="Preview context packet").click()
+                    expect(excerpt_preview).to_contain_text('"attempt_id"')
+                    expect(excerpt_preview).to_contain_text(attempt["id"])
+                    expect(capture_button).to_be_enabled()
+                    capture_button.click()
+                    expect(pane_locator.locator(".pane-workbench-status")).to_contain_text("context packet", timeout=30000)
                     listed = owner_post("/api/workbench/context", {"action": "list", "project_id": project_id})["contexts"]
                     conversation = next((entry for entry in listed if entry.get("source", {}).get("kind") == "conversation"), None)
                     packet = next((entry for entry in listed if entry.get("source", {}).get("kind") == "packet"), None)
                     assert conversation and packet, listed
+                    # Binding is exact: both snapshot and packet carry this attempt id.
+                    assert conversation.get("attempt_id") == attempt["id"], conversation
+                    assert packet.get("attempt_id") == attempt["id"], packet
                     excerpts = conversation["source"]["excerpts"]
                     for excerpt in excerpts:
                         assert set(excerpt.keys()) == {"role", "sha256", "bytes"}, excerpt
-                    # Only the explicitly selected message + composed statement are stored.
                     assert len(excerpts) == 2, excerpts
                     assert hashlib.sha256(b"SECOND-ASSISTANT-EXCERPT").hexdigest() not in {e["sha256"] for e in excerpts}
-                    # The packet freezes exactly the captured context.
                     assert packet["snapshot"]["provenance"]["context_ids"] == [conversation["id"]], packet["snapshot"]["provenance"]
-                    # The packet is selectable in the mounted authority control.
-                    pane_locator.locator(".pane-workbench-authority > summary").click()
                     expect(pane_locator.get_by_label("Native approved context packet", exact=True)).to_have_value(packet["id"], timeout=15000)
+
+                    # Native consent preview must pass the binding gate: the unbound
+                    # packet previously returned 403 permission_denied here.
+                    pane_locator.get_by_label("Native task attempt", exact=True).select_option(attempt["id"])
+                    pane_locator.get_by_label("Native approved context packet", exact=True).select_option(packet["id"])
+                    native_status, native_result = click_expect(pane_locator, "Preview native task consent", "preview", "/api/workbench/native")
+                    assert native_status != 403 and native_result.get("code") != "permission_denied", native_result
                     # No model call occurred anywhere in this journey.
                     assert "start" not in agent_requests, agent_requests
                     assert fixture_requests == [], fixture_requests
@@ -429,8 +492,9 @@ def main(renderer):
                     print(
                         f"PASS[{renderer}]: paired Normal/Workbench buttons with visible statuses; Normal DOM/session/draft/queue preserved; "
                         "two independent timeline instances; no execution on toggle; stale durable ID fail-closed; Normal draft -> handoff preview "
-                        "(draft unchanged); real task_create selects the new task; exact selected excerpts captured into a selectable packet with "
-                        f"no client id and no model call; 320px geometry; hidden busy-lane reconnect disables Send; page_errors={len(errors)}"
+                        "(draft unchanged); real task_create selects the new task; candidate+bound attempt then exact selected excerpts captured into an "
+                        "attempt-bound packet (no client id, native consent preview not 403, no model call); 320px geometry; hidden busy-lane "
+                        f"reconnect disables Send; page_errors={len(errors)}"
                     )
                     context.close()
                     browser.close()
