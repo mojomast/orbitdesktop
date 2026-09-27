@@ -8,6 +8,7 @@ import {captureProject,openProjectRoot,readProjectFile} from './project-files.mj
 import {registryTypeScriptProfile,privateCacheRoot} from './workbench-registry-profile.mjs';
 
 const uuid={type:'string',pattern:'^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$'};
+const uuidMatch=new RegExp(uuid.pattern);
 const hex={type:'string',pattern:'^[a-f0-9]{64}$'};
 const base={action:{type:'string'},workspace_id:uuid,project_id:uuid};
 const strict=(properties,required=Object.keys(properties))=>({type:'object',properties,required,additionalProperties:false});
@@ -136,6 +137,32 @@ export function createWorkbenchEnvironments({store,records,data,now=Date.now,gat
     if(candidate.project_generation!==p.project_generation||observed.lock_hash!==p.lock_hash||toolchain().hash!==p.toolchain_hash||p.required_inputs.some(item=>observed.selected.find(file=>file.path===item)?.hash!==p.input_hashes[item]))throw wbError('stale_resource');
     return {candidate,observed};
   }
+  function readyProfile(body){
+    const project=scope(body),p=profile(body);
+    if(p.project_generation!==project.generation||p.status!=='ready'||!p.prepared||body.candidate_id&&p.candidate_id!==body.candidate_id)throw wbError('stale_resource');
+    const {candidate}=current(body,p);
+    if(treeHash(p.prepared.dependency_root,!!p.registry)!==p.prepared.dependency_hash)throw wbError('stale_resource');
+    return {p,candidate,identity:{profile_id:p.id,profile_version:p.profile_version,project_generation:p.project_generation,lock_hash:p.lock_hash,toolchain_hash:p.toolchain_hash,dependency_hash:p.prepared.dependency_hash,environment_identity:p.prepared.environment_identity,network_policy:p.network_policy,lifecycle_policy:p.lifecycle_policy}};
+  }
+  function profileReadiness(body){
+    // Diagnostic projection of the same admission checks used by verifyProfile.
+    // The caller must already be authenticated; no private filesystem paths leak.
+    scope(body);
+    let p;
+    try{p=profile(body);}catch(error){if(error.code==='permission_denied')return {ready:false,reason:'missing',message:'Execution profile was not found.'};throw error;}
+    if(p.status!=='ready'||!p.prepared)return {ready:false,reason:'missing',message:'Execution profile is not prepared and ready.'};
+    if(p.project_generation!==scope(body).generation||body.candidate_id&&p.candidate_id!==body.candidate_id)return {ready:false,reason:'stale',message:'Execution profile no longer matches the project or candidate.'};
+    try{
+      if(toolchain().hash!==p.toolchain_hash)return {ready:false,reason:'toolchain_changed',message:'The approved Node/npm toolchain changed.'};
+    }catch{return {ready:false,reason:'toolchain_changed',message:'The approved Node/npm toolchain is unavailable.'};}
+    try{return {ready:true,reason:null,message:'Execution profile is ready.',identity:readyProfile(body).identity};}
+    catch(error){
+      if(error.code==='unsupported')return {ready:false,reason:'unsupported',message:'The candidate no longer satisfies the approved dependency policy.'};
+      if(['ENOENT','ENOTDIR','unavailable'].includes(error.code))return {ready:false,reason:'artifact_missing',message:'The prepared dependency artifact is unavailable.'};
+      if(error.code==='stale_resource')return {ready:false,reason:'stale',message:'The approved source or prepared dependencies changed.'};
+      throw error;
+    }
+  }
   async function dispatch(body){
     if(!validate(body))throw wbError('invalid_request');
     const project=scope(body);
@@ -189,17 +216,35 @@ export function createWorkbenchEnvironments({store,records,data,now=Date.now,gat
     }catch(error){if(record){try{data.update('profiles',body.workspace_id,body.project_id,p.id,record.revision,{status:error.code==='outcome_unknown'?'outcome_unknown':'failed',finished_at:now(),failure_code:error.code??'unavailable',private_artifact:dir});}catch{}}throw error;}
     finally{active.delete(p.id);release();}
   }
-  function createExecutionView({workspace_id,project_id,profile_id,candidate_id}){
-    const body={workspace_id,project_id,profile_id};const project=scope(body);
-    const p=profile(body);
-    if(p.status!=='ready'||p.candidate_id!==candidate_id||!p.prepared)throw wbError('unsupported');
-    if(p.project_generation!==project.generation)throw wbError('stale_resource');
-    const {candidate}=current(body,p);
+  function createExecutionView({workspace_id,project_id,profile_id,candidate_id,staged_source}){
+    const body={workspace_id,project_id,profile_id,candidate_id};
+    const {candidate,p}=readyProfile(body);
+    const patchRoot=path.join(store.root,'workbench-patches');
+    let stageIdentity;
+    if(staged_source){
+      const parent=path.dirname(staged_source.root??''),name=path.basename(parent);
+      const files=staged_source.files;
+      if(staged_source.root!==path.join(parent,'roundtrip')||path.dirname(parent)!==patchRoot||!name.startsWith('.verify-')||!uuidMatch.test(name.slice(8))||staged_source.hash!==candidate.hash||!Array.isArray(files)||files.length!==candidate.files.length||new Set(files.map(file=>file.path)).size!==files.length||files.some(file=>!['100644','100755'].includes(file.mode))||stable(files.map(({path,hash,bytes})=>({path,hash,bytes})).sort((a,b)=>a.path.localeCompare(b.path)))!==stable(candidate.files.map(({path,hash,bytes})=>({path,hash,bytes})).sort((a,b)=>a.path.localeCompare(b.path))))throw wbError('permission_denied');
+      const opened=openProjectRoot(staged_source.root);stageIdentity=opened.identity;opened.close();
+    }
+    const sourceFiles=()=>{
+      if(!staged_source)return candidate.files;
+      const capture=captureProject({root:staged_source.root,identity:stageIdentity});
+      const observed=capture.files.map(file=>({path:file.path,hash:file.hash,bytes:file.bytes.length}));
+      const expected=candidate.files.map(({path,hash,bytes})=>({path,hash,bytes}));
+      if(capture.limited||stable(observed.sort((a,b)=>a.path.localeCompare(b.path)))!==stable(expected.sort((a,b)=>a.path.localeCompare(b.path)))||stable(capture.exclusions)!==stable([{path:'.git',reason:'excluded_by_policy'}]))throw wbError('stale_resource');
+      for(const item of staged_source.files){
+        const stat=fs.lstatSync(path.join(staged_source.root,item.path));
+        if(!stat.isFile()||stat.isSymbolicLink()||((stat.mode&0o111)?'100755':'100644')!==item.mode)throw wbError('stale_resource');
+      }
+      return staged_source.files;
+    };
+    sourceFiles();
     const rootDir=path.join(root,randomUUID()),source=path.join(rootDir,'source');
     fs.mkdirSync(rootDir,{mode:0o700});fs.mkdirSync(source,{mode:0o700});
     try{
       if(treeHash(p.prepared.dependency_root,!!p.registry)!==p.prepared.dependency_hash)throw wbError('stale_resource');
-      for(const item of candidate.files){const destination=path.join(source,item.path);fs.mkdirSync(path.dirname(destination),{recursive:true,mode:0o700});fs.writeFileSync(destination,validFile(candidate.root,item.path,item),{flag:'wx',mode:0o600});}
+      for(const item of sourceFiles()){const destination=path.join(source,item.path);fs.mkdirSync(path.dirname(destination),{recursive:true,mode:0o700});const bytes=validFile(staged_source?.root??candidate.root,item.path,item);fs.writeFileSync(destination,bytes,{flag:'wx',mode:item.mode==='100755'?0o700:0o600});}
       fs.mkdirSync(path.join(source,'node_modules'),{mode:0o700});
       if(traverse(p.prepared.dependency_root,path.join(source,'node_modules'),{largeFiles:!!p.registry})!==p.prepared.dependency_hash)throw wbError('stale_resource');
       if(treeHash(path.join(source,'node_modules'),!!p.registry)!==p.prepared.dependency_hash||treeHash(p.prepared.dependency_root,!!p.registry)!==p.prepared.dependency_hash)throw wbError('stale_resource');
@@ -208,11 +253,13 @@ export function createWorkbenchEnvironments({store,records,data,now=Date.now,gat
       const opened=openProjectRoot(source),sourceIdentity=opened.identity;opened.close();
       const prepared={...p.prepared,source_hash:candidate.hash,environment_identity:digest([p.prepared.environment_identity,candidate.hash])};
       const verify=()=>{
-        if(scope(body).generation!==p.project_generation||current(body,p).candidate.hash!==candidate.hash)throw wbError('stale_resource');
+        if(readyProfile(body).candidate.hash!==candidate.hash)throw wbError('stale_resource');
+        sourceFiles();
         const capture=captureProject({root:source,identity:sourceIdentity});
         const observed=capture.files.map(file=>({path:file.path,hash:file.hash,bytes:file.bytes.length})).sort((a,b)=>a.path.localeCompare(b.path));
         const expected=candidate.files.map(({path,hash,bytes})=>({path,hash,bytes})).sort((a,b)=>a.path.localeCompare(b.path));
         if(capture.limited||stable(observed)!==stable(expected)||capture.exclusions.some(entry=>entry.path!=='node_modules'||entry.reason!=='excluded_by_policy'))throw wbError('stale_resource');
+        if(staged_source)for(const item of staged_source.files){const stat=fs.lstatSync(path.join(source,item.path));if(((stat.mode&0o111)?'100755':'100644')!==item.mode)throw wbError('stale_resource');}
         const dependency_hash=traverse(path.join(source,'node_modules'),undefined,{rejectBins:true,largeFiles:!!p.registry});
         if(dependency_hash!==prepared.dependency_hash||treeHash(p.prepared.dependency_root,!!p.registry)!==prepared.dependency_hash)throw wbError('stale_resource');
         return {source_hash:candidate.hash,dependency_hash,environment_identity:prepared.environment_identity,output_hash:digest([]),allowed_outputs:[]};
@@ -224,11 +271,7 @@ export function createWorkbenchEnvironments({store,records,data,now=Date.now,gat
     }catch(error){throw error;}
   }
   function verifyProfile({workspace_id,project_id,profile_id,candidate_id}){
-    const body={workspace_id,project_id,profile_id},project=scope(body),p=profile(body);
-    if(p.project_generation!==project.generation||p.status!=='ready'||!p.prepared||candidate_id&&p.candidate_id!==candidate_id)throw wbError('stale_resource');
-    current(body,p);
-    if(treeHash(p.prepared.dependency_root,!!p.registry)!==p.prepared.dependency_hash)throw wbError('stale_resource');
-    return {profile_id:p.id,profile_version:p.profile_version,project_generation:p.project_generation,lock_hash:p.lock_hash,toolchain_hash:p.toolchain_hash,dependency_hash:p.prepared.dependency_hash,environment_identity:p.prepared.environment_identity,network_policy:p.network_policy,lifecycle_policy:p.lifecycle_policy};
+    return readyProfile({workspace_id,project_id,profile_id,candidate_id}).identity;
   }
-  return {dispatch,createExecutionView,verifyProfile};
+  return {dispatch,createExecutionView,verifyProfile,profileReadiness};
 }

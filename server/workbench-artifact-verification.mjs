@@ -15,7 +15,7 @@ const digest=value=>hash(canonical(value));
 
 // Internal confirmation-only capability. The patch exporter owns publication;
 // this supplier never writes candidate jobs/review evidence or accepts commands.
-export function createArtifactVerifier({store,records,data,gate,verifyCurrent,now=Date.now}){
+export function createArtifactVerifier({store,records,data,gate,verifyCurrent,environments,now=Date.now}){
   const root=path.join(store.root,'workbench-execution'),patchRoot=path.join(store.root,'workbench-patches');
   const journalRoot=path.join(root,'patch-verification-pending');fs.mkdirSync(journalRoot,{recursive:true,mode:0o700});
   const held=new Map(),leases=new Map(),activeRuns=new Map(),inProgress=new Set();
@@ -161,7 +161,6 @@ export function createArtifactVerifier({store,records,data,gate,verifyCurrent,no
     const candidate=data.get('candidates',workspace_id,project_id,patch.candidate_id),task=data.get('tasks',workspace_id,project_id,patch.task_id),review=data.get('reviews',workspace_id,project_id,patch.review_id);
     const required=task.acceptance?.required_checks;
     if(!Array.isArray(required)||!required.length||candidate.project_generation!==project.generation||task.project_generation!==project.generation||candidate.task_id!==task.id||task.candidate_id!==candidate.id||candidate.hash!==patch.candidate_hash||candidate.generation!==patch.candidate_generation||candidate.source_manifest_hash!==patch.source?.manifest_hash||review.decision!=='approved'||review.review_identity!==patch.review_identity||review.candidate_hash!==candidate.hash||task.acceptance_digest!==patch.review?.required_check_state?.acceptance_digest)throw wbError('stale_resource');
-    if(required.some(check=>check.execution_profile_id!==null&&check.execution_profile_id!==undefined))throw wbError('unsupported');
     verifyCurrent({workspace_id,project_id,patch,candidate,task,review,project});
     if(sorted(candidate.files.map(({path,hash,bytes})=>({path,hash,bytes})))!==sorted(patch.candidate.files.map(({path,hash,bytes})=>({path,hash,bytes}))))throw wbError('stale_resource');
     const source=captureProject(project);
@@ -170,6 +169,10 @@ export function createArtifactVerifier({store,records,data,gate,verifyCurrent,no
     const exact=stageFiles(stage_root,patch.candidate.files);
     for(const check of required){
       if(check.definition_digest!==definitionDigest(checkDefinition(check.definition_id))||check.definition_id==='node-test'&&(!check.required_test_files?.length||JSON.stringify(check.required_test_files)!==JSON.stringify(discoverTestFiles(candidate.files))))throw wbError('stale_resource');
+      if(check.execution_profile_id){
+        if(!environments?.verifyProfile||!environments?.createExecutionView)throw wbError('unsupported');
+        if(canonical(environments.verifyProfile({workspace_id,project_id,profile_id:check.execution_profile_id,candidate_id:candidate.id}))!==canonical(check.execution_profile))throw wbError('stale_resource');
+      }
     }
     const view=path.join(root,'patch-verification',randomUUID());
     const id=randomUUID(),release=gate.claim('job',id),scope={workspace_id,project_id};leases.set(artifact_id,release);
@@ -196,17 +199,34 @@ export function createArtifactVerifier({store,records,data,gate,verifyCurrent,no
       };
       for(const check of required){
         const job_id=randomUUID();observed=false;known=false;
+        const profiled=!!check.execution_profile_id;
+        const executionView=profiled?environments.createExecutionView({workspace_id,project_id,profile_id:check.execution_profile_id,candidate_id:candidate.id,staged_source:{root:stage_root,files:patch.candidate.files,hash:candidate.hash}}):null;
+        const viewObservations=[];
+        const observe=()=>{
+          const source=verifyView(),entry={source_hash:candidate.hash,view_source_hash:null,dependency_hash:null,output_hash:null,verified:false};
+          viewObservations.push(entry);
+          if(profiled){
+            const identity=environments.verifyProfile({workspace_id,project_id,profile_id:check.execution_profile_id,candidate_id:candidate.id});
+            if(canonical(identity)!==canonical(check.execution_profile))throw wbError('stale_resource');
+            const verified=executionView.verify();
+            Object.assign(entry,{view_source_hash:verified.source_hash,dependency_hash:verified.dependency_hash,output_hash:verified.output_hash,verified:true});
+          }
+          return source;
+        };
         const starting=data.get('patches',workspace_id,project_id,artifact_id);
         revise(scope,artifact_id,{verification:{...starting.verification,process:{job_id,state:'starting'},status:'verifying'}});
         launchedAttempt=true;
-        const raw=await runCheck({definition_id:check.definition_id,required_test_files:check.required_test_files,candidate_root:view,workspace_id,project_id,job_id,artifact_root:root,rehash:verifyView,spawn_record:process=>{
+        const raw=await runCheck({definition_id:check.definition_id,required_test_files:check.required_test_files,candidate_root:executionView?.root??view,candidate_boundary:executionView?path.join(store.root,'workbench-environments'):root,workspace_id,project_id,job_id,artifact_root:root,rehash:observe,spawn_record:process=>{
           observed=true;activeRuns.set(artifact_id,{job_id,pid:process.pid,started_at:String(process.started_at)});
           const current=data.get('patches',workspace_id,project_id,artifact_id);
           revise(scope,artifact_id,{verification:{...current.verification,process:{job_id,pid:process.pid,pgid:process.pgid,started_at:String(process.started_at),supervisor:process.supervisor},status:'running'}});
         }});
         activeRuns.delete(artifact_id);launchedAttempt=false;
         if(raw.process_survival_unknown)throw wbError('outcome_unknown');
-        observations.push({definition_id:check.definition_id,definition_digest:raw.definition_digest,required_test_files:check.required_test_files,verdict:raw.verdict,test_results:raw.test_results,candidate_hash_before:raw.candidate_hash_before,candidate_hash_after:raw.candidate_hash_after,artifact_hash:raw.artifact_hash,log_hash:raw.log_hash,env_fingerprint:raw.env_fingerprint,process_survival_unknown:raw.process_survival_unknown});
+        const execution_observation=profiled?{source_before:viewObservations[0]?.source_hash??null,source_after:viewObservations[1]?.source_hash??null,view_source_before:viewObservations[0]?.view_source_hash??null,view_source_after:viewObservations[1]?.view_source_hash??null,dependency_before:viewObservations[0]?.dependency_hash??null,dependency_after:viewObservations[1]?.dependency_hash??null,output_hash_before:viewObservations[0]?.output_hash??null,output_hash_after:viewObservations[1]?.output_hash??null,allowed_outputs:[],verified_view:viewObservations.length===2&&viewObservations.every(item=>item.verified)}:null;
+        const environment=profiled?{...check.execution_profile,source_hash:candidate.hash,execution_view_identity:executionView.prepared.environment_identity,execution_view_id:path.basename(path.dirname(executionView.root))}:null;
+        const artifact_hash=profiled?digest({recorder_artifact_hash:raw.artifact_hash,environment,execution_observation}):raw.artifact_hash;
+        observations.push({definition_id:check.definition_id,definition_digest:raw.definition_digest,required_test_files:check.required_test_files,verdict:raw.verdict,test_results:raw.test_results,candidate_hash_before:raw.candidate_hash_before,candidate_hash_after:raw.candidate_hash_after,artifact_hash,log_hash:raw.log_hash,env_fingerprint:raw.env_fingerprint,process_survival_unknown:raw.process_survival_unknown,...(profiled?{execution_profile_id:check.execution_profile_id,execution_profile:check.execution_profile,environment,execution_observation}:{})});
         const record={version:1,workspace_id,project_id,artifact_id,verification_id:id,artifact_hash:patch.artifact_hash,required_count:required.length,results:[...observations]};
         writeJournal(record);known=true;
         const current=data.get('patches',workspace_id,project_id,artifact_id);
