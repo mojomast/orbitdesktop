@@ -100,7 +100,13 @@ def install_fixture(context, origin, name, width, height, theme=None):
             elif action == 'status': data.update(status='waiting_for_approval' if name == 'approval' else 'running',
                 approvals=[{'command': 'npm run check', 'reason': 'Run the recorded checks in the private candidate.'}] if name == 'approval' else [])
             elif action == 'capabilities': data.update(features={})
-            elif action in ('activity', 'events'): data.update(activity=[], events=[])
+            elif action == 'activity': data.update(activity=[{'kind': 'call', 'name': 'read_file', 'id': 'fixture-call', 'detail': 'SYNTHETIC_TOOL_ARGUMENT'}])
+            elif action == 'events':
+                if name == 'running':
+                    events = [{'event': 'tool.started', 'tool': 'read_file', 'tool_call_id': 'fixture-live-call', 'arguments': {'path': 'synthetic.txt'}},
+                              {'event': 'tool.completed', 'tool': 'read_file', 'tool_call_id': 'fixture-live-call', 'output': 'SYNTHETIC_LIVE_RESULT', 'duration': .2}]
+                    route.fulfill(content_type='text/event-stream', body=''.join('data: ' + json.dumps(event) + '\n\n' for event in events)); return
+                data.update(events=[])
             else: requests_unknown.append((path, action))
         elif path == '/api/workbench': data.update(projects=[{'id': 'fixture-project', 'name': 'Orbit UX', 'active': True}])
         elif path == '/api/workbench/context': data.update(attempts=[{'id': 'fixture-attempt', 'task_id': 'fixture-task'}], contexts=[], packets=[])
@@ -155,6 +161,28 @@ def audit_idle(page, inspector_screenshot):
     assert SESSION not in pane.inner_text(), 'Raw binding exposed at idle'
     message = pane.get_by_label('Message to Hermes', exact=True)
     message.fill('A private fixture draft survives settings and mode changes.')
+    tools = pane.get_by_role('button', name='Toggle tool activity in chat', exact=True)
+    expect(tools).to_be_visible()
+    expect(tools).to_have_text('Show tools')
+    tools.click()
+    expect(tools).to_have_attribute('aria-expanded', 'true')
+    tool_view = pane.get_by_role('region', name='Inline tool activity', exact=True)
+    expect(tool_view).to_be_visible()
+    tool_view.get_by_role('button', name='Load persisted tool arguments and results for this conversation').click()
+    expect(tool_view.locator('.inline-tools-saved')).to_contain_text('Arguments · read_file')
+    tool_view.get_by_text('Arguments · read_file', exact=True).click()
+    expect(tool_view.get_by_text('SYNTHETIC_TOOL_ARGUMENT', exact=True)).to_be_visible()
+    page.evaluate("window.__qaToolNode = document.querySelector('.inline-tools')")
+    pane.get_by_role('button', name='Workbench Hermes mode', exact=True).click()
+    expect(tool_view).to_be_hidden()
+    pane.get_by_role('button', name='Normal Hermes mode', exact=True).click()
+    expect(tool_view).to_be_visible()
+    assert page.evaluate("window.__qaToolNode === document.querySelector('.inline-tools')"), 'Tool DOM replaced on mode switch'
+    expect(message).to_have_value('A private fixture draft survives settings and mode changes.')
+    assert page.evaluate("localStorage.getItem('orbit-inline-tools:' + %s)" % json.dumps(PANE)) == 'on'
+    assert page.evaluate("JSON.stringify(localStorage).includes('SYNTHETIC_TOOL_ARGUMENT')") is False
+    tools.click()
+    expect(tool_view).to_be_hidden()
     settings = pane.get_by_role('button', name='Agent pane menu', exact=True)
     settings.click()
     page.get_by_role('menuitem', name='Conversation settings', exact=True).click()
@@ -203,6 +231,14 @@ def audit_idle(page, inspector_screenshot):
     pane.get_by_role('button', name='Normal Hermes mode', exact=True).click()
     expect(message).to_have_value('A private fixture draft survives settings and mode changes.')
     message.fill('')
+    # The preference survives a real page reload; tool payloads remain memory-only.
+    tools.click()
+    page.reload(wait_until='networkidle')
+    page.keyboard.press('Escape')
+    page.evaluate('window.__qaUnlock()')
+    expect(pane.get_by_role('button', name='Toggle tool activity in chat')).to_have_text('Hide tools')
+    expect(pane.get_by_role('region', name='Inline tool activity')).to_be_visible()
+    expect(pane.locator('.inline-tools-saved')).not_to_contain_text('SYNTHETIC_TOOL_ARGUMENT')
     return metrics
 
 
@@ -275,6 +311,18 @@ def main(args):
                                 metrics = None
                                 if not args.baseline:
                                     if name == 'idle': metrics = audit_idle(page, out / f'{label}-inspector.png')
+                                    elif name == 'running':
+                                        tools = pane.get_by_role('button', name='Toggle tool activity in chat', exact=True)
+                                        tools.click()
+                                        view = pane.get_by_role('region', name='Inline tool activity')
+                                        expect(view.locator('.inline-tool')).to_have_count(1)
+                                        expect(view.locator('.inline-tools-totals')).to_contain_text('1 completed')
+                                        view.locator('.inline-tool > summary').click()
+                                        view.get_by_text('tool.completed', exact=True).click()
+                                        expect(view.get_by_text('SYNTHETIC_LIVE_RESULT', exact=True)).to_be_visible()
+                                        page.screenshot(path=str(out / f'{label}-tools.png'))
+                                        tools.click(); expect(view).to_be_hidden()
+                                        tools.click(); expect(view.get_by_text('SYNTHETIC_LIVE_RESULT', exact=True)).to_be_visible()
                                     elif name == 'approval': expect(pane.get_by_role('button', name='Allow once for the pending tool action', exact=True)).to_be_visible()
                                     elif name == 'unknown':
                                         message = pane.get_by_label('Message to Hermes', exact=True)

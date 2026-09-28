@@ -20,7 +20,21 @@ Normal mode keeps the conversation title, one concise runtime status, the
 Normal/Workbench switch, and an overflow control in its permanent header. The
 composer has one primary Send control and compact secondary actions. Profile and
 session binding, rename/color, notification preferences, workspace-agent overview,
-saved tools and healthy submission receipts belong in secondary surfaces.
+healthy submission receipts belong in secondary surfaces.
+
+Normal chat has a visible **Show tools / Hide tools** toggle below its header.
+It restores the existing per-pane preference and exposes the retained tool view
+inside the conversation, with bounded scrolling, observed call counts and expanded
+arguments/results. **Load saved details** retrieves persisted conversation tools.
+The overflow **Saved tools** shortcut opens this same view. Toggling visibility
+does not submit a model request or change execution; mode changes retain its DOM.
+Only the preference is stored locally, never tool payloads. Gateways without live
+call IDs show separate observations rather than invented correlated executions.
+
+The restored inline view is exercised by `tests/agent-pane-ux.browser.py` in both
+renderers at four viewport sizes: live SSE observations, saved tool details,
+hide/show, reload preference, retained mode-switch DOM and composer drafts. These
+fixtures assert that inspection does not submit or approve model work.
 
 Use **Agent pane menu → Conversation settings / Activity / Saved tools /
 Troubleshooting**. The activity summary counts retained event observations, not

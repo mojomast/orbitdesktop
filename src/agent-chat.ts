@@ -207,8 +207,8 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   inspector.element.dataset.paneId = paneId;
   function openPanel(id: string, trigger?: HTMLElement) {
     overflowMenu.hidden = true; overflow.setAttribute('aria-expanded', 'false');
+    if (id === 'tools') { inspector.close(); setMode('normal'); inlineTools.show(); return; }
     inspector.open(id, trigger);
-    if (id === 'tools' && !inlineTools.enabled()) inlineTools.toggle.click();
   }
   const menuEntry = (label: string, action: () => void) => {
     const entry = button(label, label, action, 'small-button');
@@ -371,7 +371,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   const timeline = createLiveTimeline({
     storageKey: `orbit-live-timeline:${workspaceId}:${paneId}:normal`,
     onOpenReference: (item: LiveItem) => {
-      if (item.reference?.kind === 'normal-tool') { inlineTools.show(); openPanel('tools'); }
+      if (item.reference?.kind === 'normal-tool') openPanel('tools');
     },
   });
   normalTimelineHost.append(timeline.element);
@@ -383,14 +383,14 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   const normalLive = createNormalLiveAdapter(timeline);
   normalLive.reset(chatBindingKey(state));
   normalLive.connection(getToken() ? 'connecting' : 'unavailable', getToken() ? undefined : 'Unlock the local host to inspect activity');
-  const inlineTools = createInlineTools(paneId, messages, async () => {
+  const inlineTools = createInlineTools(paneId, null, async () => {
     const data = await api({action:'activity'});
     normalLive.saved(Array.isArray(data.activity) ? data.activity : []);
     return data;
   });
-  const toolsPanel = el('div', 'agent-tools-panel');
-  toolsPanel.append(inlineTools.toggle, inlineTools.root);
-  inspector.register('tools', 'Tool details', toolsPanel);
+  // One retained tool view in the conversation, not a duplicate subscription.
+  // Its existing per-pane preference controls visibility, never execution.
+  inlineTools.toggle.classList.add('agent-tools-toggle');
   // Cross-mode status plumbing; the activity registry now carries these fields.
   const activity = registerActivity(paneId, () => {
     window.dispatchEvent(new CustomEvent('orbit-focus-agent', {detail:paneId}));
@@ -414,7 +414,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     openPanel('activity', activityButton);
   };
   const activityButton = button('Ready','Show live tool details',onActivityAction,'small-button');
-  strip.append(activityButton);
+  strip.append(inlineTools.toggle, activityButton);
   const workspaceAgents = button('Workspace agents','Overview of all open agents',openAgentOverview,'small-button');
   function refreshActivity() {
     const runStatus = status.textContent || 'READY';
@@ -426,7 +426,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
       : 'Show live tool details';
     const observed = normalLive.counts();
     activityButton.textContent = attention ? label : observed.failures ? `${observed.failures} activity warning${observed.failures === 1 ? '' : 's'} · View` : state.run && streamStatus ? streamStatus.replace('Tool stream disconnected', 'Live updates disconnected') : `Activity · ${observed.events} events`;
-    strip.hidden = !attention && !observed.events && !(state.run && streamStatus);
+    activityButton.hidden = !attention && !observed.events && !(state.run && streamStatus);
     activity.update({title:state.title || 'Hermes',task:state.messages.filter(m=>m.role==='user').at(-1)?.text.slice(0,200) || 'No task yet',status:label,mode:paneMode,normalStatus:label,workbenchStatus});
     normalLive.status({ status: label, run: state.run, at: Date.now() });
     updateModeBadge();
@@ -610,7 +610,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     // The queue is held, never auto-drained, until the owner sends explicitly.
     if (workbenchLaneActive || laneUnknown) queuePaused = true;
     unknownAction.hidden = !laneUnknown;
-    strip.hidden = status.textContent !== 'ATTENTION' && !normalLive.counts().events && !(state.run && streamStatus);
+    activityButton.hidden = status.textContent !== 'ATTENTION' && !normalLive.counts().events && !(state.run && streamStatus);
     updateModeBadge();
     update();
   }
@@ -846,7 +846,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   form.append(input, workbenchTask, send);
   form.onsubmit = e => { e.preventDefault(); void submit(); };
   input.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); void submit(); } };
-  chatNormal.append(strip, messages, taskCards, progress, approvals, unknownAction, controls, queueList, form);
+  chatNormal.append(strip, inlineTools.root, messages, taskCards, progress, approvals, unknownAction, controls, queueList, form);
   body.append(chatNormal, workbenchHost);
   if (toolbar) {
     toolbar.classList.add('agent-pane-head');

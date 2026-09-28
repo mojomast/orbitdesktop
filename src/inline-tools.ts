@@ -2,11 +2,13 @@ import { el, button } from './dom';
 import './inline-tools.css';
 
 // Trusted chat only. Never forward these details to sandboxed plugins or persist them.
-export function createInlineTools(pane: string, scroller: HTMLElement, activity?: () => Promise<{activity?: {kind:string; name:string; id:string; detail:string}[]}>) {
+export function createInlineTools(pane: string, scroller: HTMLElement | null, activity?: () => Promise<{activity?: {kind:string; name:string; id:string; detail:string}[]}>) {
   const key = `orbit-inline-tools:${pane}`;
   let enabled = false, session = '', run = '', sequence = 0;
   try { enabled = localStorage.getItem(key) === 'on'; } catch {}
   const root = el('section', 'inline-tools');
+  root.id = `agent-inline-tools-${pane}`;
+  const scrollHost = scroller || root;
   root.setAttribute('aria-label', 'Inline tool activity');
   const note = el('div', 'inline-tools-note', 'Waiting for tool events. Details may contain private data.');
   const rows = el('div', 'inline-tools-rows');
@@ -16,7 +18,7 @@ export function createInlineTools(pane: string, scroller: HTMLElement, activity?
     compact.textContent=rows.classList.contains('hide-completed')?'Show completed':'Hide completed';
     compact.setAttribute('aria-pressed',String(rows.classList.contains('hide-completed')));
   });
-  const follow = button('Jump to latest', 'Resume following live tool calls', () => { scroller.scrollTop = scroller.scrollHeight; });
+  const follow = button('Jump to latest', 'Resume following live tool calls', () => { scrollHost.scrollTop = scrollHost.scrollHeight; });
   root.append(note, totals, compact, follow, rows);
   const saved = el('details', 'inline-tools-saved'); saved.append(el('summary', '', 'Saved conversation tool history'));
   const history = el('div'); saved.append(history);
@@ -36,12 +38,13 @@ export function createInlineTools(pane: string, scroller: HTMLElement, activity?
       saved.open = true;
     } catch { if(!disposed && requestedSession === session) { history.textContent = 'Saved activity unavailable. Connect host and try again.'; saved.open = true; } }
   }), saved);
-  const toggle = button('Show tools', 'Show inline tool calls and details', () => {
+  const toggle = button('Show tools', 'Toggle tool activity in chat', () => {
     enabled = !enabled;
     try { localStorage.setItem(key, enabled ? 'on' : 'off'); } catch {}
     updateToggle();
   }, 'small-button');
-  function updateToggle() { root.hidden = !enabled; toggle.textContent = enabled ? 'Hide tools' : 'Show tools'; toggle.setAttribute('aria-pressed', String(enabled)); }
+  toggle.setAttribute('aria-controls', root.id);
+  function updateToggle() { root.hidden = !enabled; toggle.textContent = enabled ? 'Hide tools' : 'Show tools'; toggle.setAttribute('aria-pressed', String(enabled)); toggle.setAttribute('aria-expanded', String(enabled)); }
   updateToggle();
   type Row = { node: HTMLDetailsElement; summary: HTMLElement; detail: HTMLElement; name: string; started: number; phase: string; duration?: number; preview: string };
   const calls = new Map<string, Row>();
@@ -67,7 +70,7 @@ export function createInlineTools(pane: string, scroller: HTMLElement, activity?
     const fingerprint = JSON.stringify(raw);
     if (seen.has(fingerprint)) return;
     seen.add(fingerprint); if(seen.size > 600) seen.delete(seen.values().next().value!);
-    const pinned = scroller.scrollHeight-scroller.scrollTop-scroller.clientHeight < 70;
+    const pinned = scrollHost.scrollHeight-scrollHost.scrollTop-scrollHost.clientHeight < 70;
     const id = text(raw.tool_call_id || raw.toolCallId || raw.call_id || raw.callId);
     // Without a canonical ID, keep separate observations rather than merge concurrent calls by name.
     const identity = id || `observation-${++sequence}`;
@@ -95,7 +98,7 @@ export function createInlineTools(pane: string, scroller: HTMLElement, activity?
       while(row.detail.childElementCount > 12) row.detail.children[1]?.remove();
     }
     label(row); summary(); note.textContent = 'Live tool activity · expand a row for details (up to 12,000 characters).';
-    if (pinned && enabled) scroller.scrollTop = scroller.scrollHeight;
+    if (pinned && enabled) scrollHost.scrollTop = scrollHost.scrollHeight;
   }
   const timer = setInterval(() => { for(const row of calls.values()) if(row.phase === 'Running') label(row); }, 1000);
   return { root, toggle, enabled: () => enabled, event, summary,

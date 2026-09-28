@@ -14,6 +14,13 @@ Live acceptance (`tests/browser-hermes-catalog-live.py`) retrieved 83 skills and
 
 ## Live activity and published outputs
 
+Normal agent chat exposes **Show tools / Hide tools** directly below the header.
+The preference persists per pane. Expand observations for live tool details, or
+use **Load saved details** for persisted arguments and results. The same tool view
+survives hiding and Normal/Workbench mode switches; payloads are memory-only in
+the browser. **Agent pane menu → Saved tools** also opens it. This visibility
+control never starts inference or changes the tool budget.
+
 The tools menu offers **Live activity** during an active run when the gateway advertises `run_events_sse`. It proxies the native event stream with server-side authentication and checks the run's Orbit session before subscribing. Expand event rows to inspect their payloads (up to 150 rows, 12K characters per displayed payload). This is an initial event inspector, not a polished token-by-token transcript. Closing the viewer disconnects its stream, not the agent. Normal chat status polling continues; on stream failure use Check status and saved Tool activity. Reopening is possible but replay is not guaranteed. Avoid multiple viewers for the same run: upstream stream fan-out semantics vary by Hermes version. Event payloads can contain sensitive tool data.
 
 **Apps and outputs** lists deliberately published files under Orbit's existing app publication root, never arbitrary home-directory files. HTML apps/reports, text, CSV, and common images can be opened in a sandboxed preview dialog or downloaded. The shelf is profile-wide and persists through the published files themselves, bounded to 100 app folders, 300 entries and four nested directory levels; hidden files and symlinks are excluded. Refresh updates the index. Use the existing workspace controller `publish` command to publish folders. This is not yet a separate artifact registry, PDF viewer, or draggable persistent shelf pane. Published URLs retain the existing app-serving access model; do not publish secrets.
@@ -97,6 +104,16 @@ tailscale serve --bg --https=4325 http://127.0.0.1:4326
 The legacy builder flag works around the deployment environment's read-only default buildx configuration; ordinary environments can use normal `docker build`. An existing container must be stopped/replaced to update it; doing so ends its live shells. Tailscale Funnel/public exposure is not supported.
 
 ## History and lifecycle
+
+The explicit text-only history introduced in `8f45bce` has an efficiency tradeoff:
+prior tool arguments/results remain in Hermes storage and are inspectable through
+Tool activity, but are absent from the next turn's frozen model context. On the
+pinned runtime this replaces richer native session reconstruction for that turn,
+so follow-up work may repeat reads when the assistant's previous text did not
+capture their findings. This is a plausible contributor, not a measured diagnosis
+of an individual run. A tool-history-preserving contract needs separate validation
+of bounds, tool-call/result pairing, binding isolation and immutable handoff; simply
+removing explicit history would undo the established continuity guarantees.
 
 The pinned Hermes Runs implementation reloads session history when a selected session has no explicit history. Capability advertisements alone do not verify that behavior on another installed gateway. For pane-backed ordinary and Workbench submissions, Orbit now freezes server-loaded, bounded user/assistant text history into the exact Runs payload before dispatch, regardless of advertised continuation: up to 80 messages, 16,000 characters per message, and 120,000 characters total. Unanswered trailing user turns, tool-call internals/results, private message metadata and host-delivered result cards are excluded. A missing transcript for an established or unmarked older pane fails before submission with an explicit New chat action; only a session created through the server's explicit New chat selection may have a missing upstream record. This is bounded conversational continuity, not archival recall. On pinned Hermes, nonempty explicit history overrides native SessionDB history/delivery consumption for that turn, so native detached session deliveries/wake eligibility cannot be assumed on this path.
 

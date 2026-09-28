@@ -53,9 +53,21 @@ The separate shared XFCE/X11 desktop is in container `orbit-shared-desktop`, dis
 
 ## Default behavior
 
-Use `python3 scripts/workspace_control.py --workspace WORKSPACE_ID describe
+### Match effort to the request
+
+Answer questions directly when the available context is sufficient. For an action,
+make the smallest change that satisfies the request and verify that specific result.
+Reuse facts already established in this conversation unless they may be stale.
+Avoid repeating broad discovery, full test suites or deployment work for a small
+layout/content change. Larger source changes still require the relevant checks.
+Finish once the requested outcome is verified; follow-on features are separate work.
+
+For a workspace operation whose contract you do not already know, use
+`python3 scripts/workspace_control.py --workspace WORKSPACE_ID describe
 --catalog` (or the Normal `orbit_workspace` tool's `describe` action with
 `catalog:true`) to discover the operation schemas from the server's own contract.
+Request the full catalog only when its schemas are needed; ordinary state reads
+and known targeted operations do not need repeated catalog discovery.
 Without `catalog`, the bounded description reports editable fields and actual
 project/pane bindings. Optional `--project-id` narrows it to one active project.
 Descriptions omit project paths, resource contents and credentials. A selected
@@ -75,7 +87,7 @@ Return stages an inverse only at the exact committed revision; a newer owner
 edit must produce a conflict. Saved state, browser acknowledgement, and visual
 inspection remain separate. See [arrangement contracts](WORKSPACE_ARRANGEMENTS_API.md).
 
-Act on the workspace ID supplied by the Orbit conversation context. Never choose another workspace by scanning runtime records. Run the controller yourself rather than instructing the owner to paste commands. Read current state first. The CLI keeps capability credentials private; never print runtime JSON or `.env` files.
+When changing the workspace, act on the workspace ID supplied by the Orbit conversation context. Never choose another workspace by scanning runtime records. Run the controller yourself rather than instructing the owner to paste commands. Read current state before a mutation. The CLI keeps capability credentials private; never print runtime JSON or `.env` files.
 
 1. `python3 scripts/workspace_control.py --workspace WORKSPACE_ID read`
 2. Pick the narrowest supported operation. Layout/appearance changes use `apply`. New widgets use the plugin publisher and lifecycle below. Preserve existing pane IDs, running terminals and unrelated configuration.
