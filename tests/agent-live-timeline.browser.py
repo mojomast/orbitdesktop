@@ -83,7 +83,7 @@ with tempfile.TemporaryDirectory(prefix='orbit-live-timeline-') as temp:
               assert(t.element.querySelector('[data-status=failed]')&&t.element.querySelector('[data-status=running]'),'failure and active rows survive deterministic cap');
               assert(t.element.querySelector('.alt-count').textContent.includes('500'),'visible event count');
               assert(t.element.querySelector('.alt-overflow').textContent.includes('omitted'),'overflow notice');
-              const follow=t.element.querySelector('.alt-toolbar > button:last-child');
+              const follow=t.element.querySelector('.alt-view-controls > button:last-child');
               assert(follow.textContent==='Resume following','expanded historical row pauses and labels follow: '+follow.textContent);
               follow.click();assert(follow.textContent==='Pause following','follow toggles explicitly on');
               follow.click();assert(follow.textContent==='Resume following','follow toggles explicitly off');
@@ -91,17 +91,17 @@ with tempfile.TemporaryDirectory(prefix='orbit-live-timeline-') as temp:
               const before=list.scrollTop;
               t.upsert([{version:1,id:'new-event',at:1000,authority:'observed',category:'tools',kind:'Tool',summary:'New event',status:'completed'}]);
               assert(list.scrollTop===before,'follow off does not auto-scroll');
-              t.element.querySelector('.alt-toolbar > button:nth-last-child(2)').click();
+              t.element.querySelector('.alt-view-controls > button:nth-last-child(2)').click();
               assert(list.scrollTop>before,'latest resumes follow');
               assert(JSON.parse(localStorage.getItem('timeline-browser-fixture')).follow===true,'follow preference persists');
-              t.element.querySelector('.alt-toolbar > button:nth-of-type(1)').click();
+              t.element.querySelector('.alt-view-controls > button:nth-of-type(1)').click();
               assert(JSON.parse(localStorage.getItem('timeline-browser-fixture')).density==='detailed','density preference persists');
-              t.element.querySelector('.alt-toolbar > button:nth-of-type(2)').click();
+              t.element.querySelector('.alt-view-controls > button:nth-of-type(2)').click();
               assert(JSON.parse(localStorage.getItem('timeline-browser-fixture')).collapseCompleted===true,'collapse preference persists');
               t.replace(Array.from({length:505},(_,i)=>({version:1,id:'active-'+i,at:i,authority:'observed',category:'tools',kind:'Tool',summary:'Active '+i,status:'running'})));
               assert(t.element.querySelector('.alt-overflow').textContent.includes('active/waiting/unknown priority events exceeded'),'protected overflow is explicit');
               t.upsert([{version:1,id:'warning-denied',at:600,authority:'agent',category:'warnings',kind:'Denied',summary:'Permission denied',status:'denied'},{version:1,id:'warning-unknown',at:601,authority:'observed',category:'warnings',kind:'Uncertain',summary:'Outcome unknown',status:'unknown'}]);
-              t.element.querySelector('.alt-toolbar > button:nth-of-type(3)').click();
+              t.element.querySelector('.alt-view-controls > button:nth-of-type(3)').click();
               assert(document.activeElement?.dataset.status==='unknown','first failure navigation includes unknown and focuses row');
               t.dispose();return 'PASS keyed rows, persisted controls, timestamps/counts/overflow, safe adapter, filters, authorities, references, follow, and retention';
             }''')

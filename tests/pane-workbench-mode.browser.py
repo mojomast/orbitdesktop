@@ -5,7 +5,8 @@ Verifies, for BOTH the default and opt-in docking renderers:
   * toggling the view neither rebuilds the Normal DOM nor starts work;
   * the chat session, draft and queue survive a mode change and a reload;
   * a stale restored durable ID is cleared explicitly and never substituted;
-  * the explicit conversation-excerpt preview is bounded and read-only.
+  * Normal activity keeps its own pane-keyed inspector DOM, separate from the
+    Workbench timeline, and the excerpt preview remains bounded and read-only.
 
 Run:
   PLAYWRIGHT_BROWSERS_PATH=/tmp/opencode/orbit-evolution-browsers \\
@@ -163,6 +164,34 @@ def main(renderer):
                     expect(page.locator(".saved")).to_contain_text("Workspace connected", timeout=15000)
 
                     pane_locator = page.locator(f'.pane[data-pane-id="{pane}"]')
+                    def open_settings(scope):
+                        settings = scope.locator('.pane-workbench-settings')
+                        if settings.get_attribute('open') is None:
+                            settings.locator(':scope > summary').click()
+                        return settings
+
+                    def open_identities(scope):
+                        settings = open_settings(scope)
+                        identities = settings.locator('.pane-workbench-identities')
+                        if identities.get_attribute('open') is None:
+                            identities.locator(':scope > summary').click()
+                        return identities
+
+                    def clear_choice(scope, name):
+                        clear = scope.locator('.pane-workbench-clear-choice').filter(
+                            has_text=re.compile('^Clear Workbench ' + re.escape(name) + '$'))
+                        if clear.is_visible():
+                            clear.click()
+                        else:
+                            scope.get_by_label(f'Workbench {name}', exact=True).select_option('')
+
+                    def open_activity(scope):
+                        scope.get_by_role('button', name='Agent pane menu', exact=True).click()
+                        page.get_by_role('menuitem', name='Activity', exact=True).click()
+                        inspector = page.locator(f'dialog.agent-inspector[data-pane-id="{pane}"]')
+                        expect(inspector).to_be_visible()
+                        return inspector
+
                     expect(pane_locator).to_be_visible(timeout=15000)
                     normal_button = pane_locator.get_by_role("button", name="Normal Hermes mode", exact=True)
                     workbench_button = pane_locator.get_by_role("button", name="Workbench Hermes mode", exact=True)
@@ -180,6 +209,8 @@ def main(renderer):
                     expect(workbench_host).to_be_visible()
                     expect(pane_locator.locator(".pane-workbench-stale")).to_be_visible()
                     expect(pane_locator.locator(".pane-workbench-stale")).to_contain_text("no substitution")
+                    expect(pane_locator.get_by_role('button', name='Choose a project and task')).to_be_visible()
+                    open_settings(pane_locator)
                     expect(pane_locator.get_by_label("Workbench project", exact=True)).to_have_value("")
                     # Live stays dominant; advanced setup is collapsed.
                     tabs = pane_locator.locator(".pane-workbench-tab")
@@ -198,12 +229,15 @@ def main(renderer):
                     input_box = pane_locator.get_by_label("Message to Hermes", exact=True)
                     expect(messages).to_contain_text("FIRST-USER-EXCERPT")
                     expect(pane_locator.locator(".agent-queue")).to_contain_text("QUEUED-NORMAL-MESSAGE")
-                    expect(pane_locator.locator(".agent-chat-normal .agent-live-timeline")).to_be_visible()
+                    expect(page.locator(f'dialog.agent-inspector[data-pane-id="{pane}"] .agent-live-timeline')).to_be_hidden()
+                    normal_inspector = open_activity(pane_locator)
+                    expect(normal_inspector.locator('.agent-live-timeline')).to_be_visible()
+                    normal_inspector.get_by_role('button', name='Close agent inspector').click()
                     input_box.fill("DRAFT-KEEP-ME")
                     nodes = page.evaluate(
                         """(pane) => {
                           const root = document.querySelector(`.pane[data-pane-id="${pane}"]`);
-                          const normalTimeline = root.querySelector('.agent-chat-normal .agent-live-timeline');
+                           const normalTimeline = document.querySelector(`dialog.agent-inspector[data-pane-id="${pane}"] .agent-live-timeline`);
                           const wbTimeline = root.querySelector('.pane-workbench-live-slot .agent-live-timeline');
                           window.__paneNodes = {
                             messages: root.querySelector('.chat-messages'),
@@ -233,7 +267,7 @@ def main(renderer):
                           return n.messages === root.querySelector('.chat-messages')
                             && n.input === root.querySelector('textarea[aria-label="Message to Hermes"]')
                             && n.queue === root.querySelector('.agent-queue')
-                            && n.normalTimeline === root.querySelector('.agent-chat-normal .agent-live-timeline')
+                             && n.normalTimeline === document.querySelector(`dialog.agent-inspector[data-pane-id="${pane}"] .agent-live-timeline`)
                             && n.wbTimeline === root.querySelector('.pane-workbench-live-slot .agent-live-timeline')
                             && n.normalTimeline !== n.wbTimeline;
                         }""",
@@ -273,7 +307,7 @@ def main(renderer):
                     normal_button.click()
                     assert input_box.input_value() == "DRAFT-KEEP-ME"
                     expect(pane_locator.locator(".agent-queue")).to_contain_text("QUEUED-NORMAL-MESSAGE")
-                    expect(pane_locator.locator(".agent-chat-normal .agent-live-timeline")).to_be_visible()
+                    assert page.locator(f'dialog.agent-inspector[data-pane-id="{pane}"] .agent-live-timeline').count() == 1
 
                     # Narrow/mobile geometry: paired controls wrap with no pane-head
                     # horizontal overflow at 320px.
@@ -311,7 +345,7 @@ def main(renderer):
                     reload_distinct = page.evaluate(
                         """(pane) => {
                           const root = document.querySelector(`.pane[data-pane-id="${pane}"]`);
-                          const normalTimeline = root.querySelector('.agent-chat-normal .agent-live-timeline');
+                           const normalTimeline = document.querySelector(`dialog.agent-inspector[data-pane-id="${pane}"] .agent-live-timeline`);
                           const wbTimeline = root.querySelector('.pane-workbench-live-slot .agent-live-timeline');
                           return !!normalTimeline && !!wbTimeline && normalTimeline !== wbTimeline;
                         }""",
@@ -353,7 +387,7 @@ def main(renderer):
                     (project_dir / "app.js").write_text("export const sum = (a, b) => a + b;\n")
                     registration = owner_post("/api/workbench", {"action": "register_preview", "root": str(project_dir), "name": "Handoff project"})
                     project_id = owner_post("/api/workbench", {"action": "register_commit", "approval_id": registration["approval_id"]})["project"]["id"]
-                    pane_locator.get_by_role("button", name="Re-read projects, tasks and state without executing anything", exact=True).click()
+                    open_settings(pane_locator).get_by_role("button", name="Re-read projects, tasks and state without executing anything", exact=True).click()
                     project_select = pane_locator.get_by_label("Workbench project", exact=True)
                     expect(project_select.locator(f'option[value="{project_id}"]')).to_have_count(1, timeout=15000)
                     project_select.select_option(project_id)
@@ -375,6 +409,7 @@ def main(renderer):
                             break
                         page.wait_for_timeout(250)
                     assert new_task, "task_create did not persist a task"
+                    expect(pane_locator.locator('.pane-workbench-scope-line')).to_contain_text('Handoff real task')
                     # Scope selector binds the newly created task.
                     expect(pane_locator.get_by_label("Workbench task", exact=True)).to_have_value(new_task["id"], timeout=15000)
 
@@ -410,7 +445,8 @@ def main(renderer):
                     attempt = attempt_result["attempt"]
                     # Refresh the pane selectors so the new attempt is offered, then
                     # the pane attempt scope follows the bound attempt.
-                    pane_locator.get_by_role("button", name="Re-read projects, tasks and state without executing anything", exact=True).click()
+                    open_settings(pane_locator).get_by_role("button", name="Re-read projects, tasks and state without executing anything", exact=True).click()
+                    open_identities(pane_locator)
                     expect(pane_locator.get_by_label("Workbench attempt", exact=True)).to_have_value(attempt["id"], timeout=15000)
                     # Recipient must default to THIS pane; never an unrelated entry.
                     recipient_select = pane_locator.get_by_label("Native agent recipient", exact=True)
@@ -430,6 +466,7 @@ def main(renderer):
                     expect(excerpt_preview).to_contain_text(attempt["id"])
                     expect(capture_button).to_be_enabled()
                     capture_button.click()
+                    pane_locator.locator('.pane-workbench-exact-scope > summary').click()
                     expect(pane_locator.locator(".pane-workbench-status")).to_contain_text("context packet", timeout=30000)
                     listed = owner_post("/api/workbench/context", {"action": "list", "project_id": project_id})["contexts"]
                     conversation = next((entry for entry in listed if entry.get("source", {}).get("kind") == "conversation"), None)
@@ -476,7 +513,8 @@ def main(renderer):
                     # hidden Workbench status stays literal (not Execution outcome
                     # unknown / Lane busy) and a Normal draft submit actually starts
                     # (the configured profile is a fixture mock; no real model).
-                    pane_locator.get_by_label("Workbench project", exact=True).select_option("")
+                    open_settings(pane_locator)
+                    clear_choice(pane_locator, 'project')
                     assert pane_locator.get_by_label("Workbench project", exact=True).input_value() == ""
                     idle_wb_button = pane_locator.get_by_role("button", name="Workbench Hermes mode", exact=True)
                     expect(idle_wb_button).not_to_contain_text("Execution outcome unknown", timeout=15000)
@@ -506,7 +544,7 @@ def main(renderer):
 
                     # Restore the registered project for the deterministic live checks.
                     pane_locator.get_by_role("button", name="Workbench Hermes mode", exact=True).click()
-                    pane_locator.get_by_role("button", name="Re-read projects, tasks and state without executing anything", exact=True).click()
+                    open_settings(pane_locator).get_by_role("button", name="Re-read projects, tasks and state without executing anything", exact=True).click()
                     restored_project = pane_locator.get_by_label("Workbench project", exact=True)
                     expect(restored_project.locator(f'option[value="{project_id}"]')).to_have_count(1, timeout=15000)
                     restored_project.select_option(project_id)
@@ -550,8 +588,9 @@ def main(renderer):
 
                     page.route("**/api/workbench/live", serve_live)
                     # Force the live client to restart for the selected attempt scope.
+                    open_identities(pane_locator)
+                    clear_choice(pane_locator, 'attempt')
                     workbench_attempt_select = pane_locator.get_by_label("Workbench attempt", exact=True)
-                    workbench_attempt_select.select_option("")
                     workbench_attempt_select.select_option(attempt["id"])
                     wb_button = pane_locator.get_by_role("button", name="Workbench Hermes mode", exact=True)
                     normal_mode_button = pane_locator.get_by_role("button", name="Normal Hermes mode", exact=True)
@@ -573,7 +612,9 @@ def main(renderer):
                     expect(wb_button).to_contain_text("Execution outcome unknown", timeout=20000)
                     expect(send_while_running).to_be_disabled()
                     live_state.update({"grant_status": "completed", "runtime_status": "exited", "availability": "available"})
-                    expect(wb_button).to_contain_text("result", timeout=20000)
+                    expect(pane_locator.locator('.agent-mode-control')).to_have_attribute(
+                        'title', re.compile(r'1 result\(s\)'), timeout=20000)
+                    expect(wb_button).to_have_attribute('data-badge', '1')
                     assert "Running" not in wb_button.inner_text(), wb_button.inner_text()
                     page.unroute("**/api/workbench/live", serve_live)
 
@@ -628,7 +669,11 @@ def main(renderer):
                     page.evaluate("id => { const root=document.querySelector(`[data-pane-id=\"${id}\"]`); window.__separateNormalNodes={input:root.querySelector('textarea'),messages:root.querySelector('.chat-messages')}; }", pane)
                     before_starts = agent_requests.count("start")
                     before_captures = context_requests.count("capture")
-                    pane_locator.get_by_role("button", name="Open a separate Workbench window beside this chat; nothing is copied or sent", exact=True).click()
+                    pane_locator.get_by_role('button', name='Agent pane menu', exact=True).click()
+                    page.get_by_role('menuitem', name='Conversation settings', exact=True).click()
+                    settings_inspector = page.locator(f'dialog.agent-inspector[data-pane-id="{pane}"]')
+                    settings_inspector.get_by_role("button", name="Open a separate Workbench window beside this chat; nothing is copied or sent", exact=True).click()
+                    settings_inspector.get_by_role('button', name='Close agent inspector').click()
                     page.wait_for_function("() => JSON.parse(localStorage.getItem('orbit.workspace.v1')).monitors.some(m=>m.name==='Workbench')")
                     new_pane = page.evaluate("() => JSON.parse(localStorage.getItem('orbit.workspace.v1')).monitors.find(m=>m.name==='Workbench').layout.pane.id")
                     assert new_pane != pane
@@ -640,8 +685,11 @@ def main(renderer):
                     sessions = page.evaluate("ids => ids.map(id=>JSON.parse(sessionStorage.getItem('orbit-hermes-chat:'+id)).session)",[pane,new_pane])
                     assert sessions[0] != sessions[1]
                     expect(separate.get_by_label('Task or question excerpt',exact=True)).to_have_value('')
-                    separate.get_by_role('button',name='Open or focus the separate Normal chat window',exact=True).click()
-                    pane_locator.get_by_role("button", name="Open a separate Workbench window beside this chat; nothing is copied or sent", exact=True).click()
+                    open_settings(separate).get_by_role('button',name='Open or focus the separate Normal chat window',exact=True).click()
+                    pane_locator.get_by_role('button', name='Agent pane menu', exact=True).click()
+                    page.get_by_role('menuitem', name='Conversation settings', exact=True).click()
+                    settings_inspector.get_by_role("button", name="Open a separate Workbench window beside this chat; nothing is copied or sent", exact=True).click()
+                    settings_inspector.get_by_role('button', name='Close agent inspector').click()
                     assert page.evaluate("() => JSON.parse(localStorage.getItem('orbit.workspace.v1')).monitors.filter(m=>m.name==='Workbench').length") == 1
                     assert agent_requests.count('start') == before_starts
                     assert context_requests.count('capture') == before_captures
@@ -653,6 +701,41 @@ def main(renderer):
                     expect(page.locator(f'[data-pane-id="{new_pane}"] .pane-workbench')).to_be_visible()
                     expect(page.locator(f'[data-pane-id="{pane}"]').get_by_label('Message to Hermes',exact=True)).to_have_value('NORMAL-ONLY separate window draft')
                     assert page.evaluate("ids => ids.map(id=>JSON.parse(sessionStorage.getItem('orbit-hermes-chat:'+id)).session)",[pane,new_pane]) == sessions
+
+                    # A task change must drop its old candidate/attempt authority,
+                    # including durable pane preferences. Use the real selections
+                    # created above; do not fake DOM state or grant another task
+                    # the old attempt by retaining an opaque ID.
+                    pane_locator = page.locator(f'.pane[data-pane-id="{pane}"]')
+                    pane_locator.get_by_role('button', name='Workbench Hermes mode', exact=True).click()
+                    open_settings(pane_locator)
+                    task_choice = pane_locator.get_by_label('Workbench task', exact=True)
+                    expect(task_choice.locator(f'option[value="{new_task["id"]}"]')).to_have_count(1, timeout=15000)
+                    if task_choice.input_value() != new_task['id']:
+                        task_choice.select_option(new_task['id'])
+                    open_identities(pane_locator)
+                    candidate_choice = pane_locator.get_by_label('Workbench candidate', exact=True)
+                    attempt_choice = pane_locator.get_by_label('Workbench attempt', exact=True)
+                    assert page.evaluate('key => { const prefs=JSON.parse(localStorage.getItem(key)); return ["candidateId","attemptId","grantId","resultId","reviewId"].every(id=>prefs[id]===null); }', prefs_key), 'task selection retained dependent durable scope'
+                    expect(candidate_choice).to_have_value('')
+                    expect(attempt_choice).to_have_value('')
+                    expect(candidate_choice.locator(f'option[value="{candidate["id"]}"]')).to_have_count(1, timeout=15000)
+                    candidate_choice.select_option(candidate['id'])
+                    expect(attempt_choice.locator(f'option[value="{attempt["id"]}"]')).to_have_count(1, timeout=15000)
+                    attempt_choice.select_option(attempt['id'])
+                    assert page.evaluate('key => { const prefs=JSON.parse(localStorage.getItem(key)); return prefs.candidateId && prefs.attemptId; }', prefs_key) == attempt['id']
+                    pane_locator.get_by_role('tab', name='Checks').click()
+                    pane_locator.locator('.pane-workbench-authority > summary').click()
+                    authority_candidate = pane_locator.get_by_label('Authority candidate', exact=True)
+                    authority_attempt = pane_locator.get_by_label('Native task attempt', exact=True)
+                    expect(authority_candidate).to_have_value(candidate['id'], timeout=15000)
+                    expect(authority_attempt).to_have_value(attempt['id'], timeout=15000)
+                    clear_choice(pane_locator, 'task')
+                    assert page.evaluate('key => { const prefs=JSON.parse(localStorage.getItem(key)); return ["taskId","candidateId","attemptId","grantId","resultId","reviewId"].every(id=>prefs[id]===null); }', prefs_key), 'task clear retained dependent durable scope'
+                    expect(candidate_choice).to_have_value('')
+                    expect(attempt_choice).to_have_value('')
+                    expect(authority_candidate).to_have_value('')
+                    expect(authority_attempt).to_have_value('')
 
                     assert not errors, errors
                     page.screenshot(path=f"/tmp/opencode/orbit-pane-workbench-{renderer}.png")

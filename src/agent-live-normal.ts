@@ -19,6 +19,7 @@ export function createNormalLiveAdapter(timeline: Timeline) {
   const observed = new Map<string,LiveItem>();
   const emit = () => timeline.upsert([...observed.values()]);
   return {
+    counts() { const tools=[...observed.values()].filter(item=>item.category==='tools'||item.category==='files'); return {events:tools.length,failures:tools.filter(item=>item.status==='failed'||item.status==='denied'||item.status==='unknown').length}; },
     event(raw: unknown) {
       const d=asRecord(raw), name=eventName(d);
       if (!/^tool[._]/.test(name)) return;

@@ -540,7 +540,7 @@ p {
   font-size: 16px;
   background: #172327;
 }
-.chat-form button {
+.chat-form .chat-send {
   background: var(--lime);
   color: #1f3023;
   font-size: 23px;

@@ -1,7 +1,7 @@
 import {button,el} from './dom';
 
 type Json=Record<string,any>;
-type Args={container:HTMLElement;token:string|(()=>string);workspace_id:string;project_id:string;onChanged?:()=>void;onOpenEvidence?:(reference:{evidence_id:string;job_id:string})=>void;onOpenCandidate?:(reference:{candidate_id:string;candidate_hash:string;generation:number})=>void;scope?:{grantId?:string|null;resultId?:string|null};onScopeChange?:(scope:{grantId:string|null;resultId:string|null})=>void};
+type Args={container:HTMLElement;compact?:boolean;token:string|(()=>string);workspace_id:string;project_id:string;onChanged?:()=>void;onOpenEvidence?:(reference:{evidence_id:string;job_id:string})=>void;onOpenCandidate?:(reference:{candidate_id:string;candidate_hash:string;generation:number})=>void;scope?:{grantId?:string|null;resultId?:string|null};onScopeChange?:(scope:{grantId:string|null;resultId:string|null})=>void};
 
 /** Owner-facing view of the durable native result; explanation is always literal text. */
 export function mountWorkbenchTaskResult(args:Args):{refresh():Promise<void>;setScope(next:{grantId?:string|null;resultId?:string|null}):void;dispose():void}{
@@ -14,6 +14,7 @@ export function mountWorkbenchTaskResult(args:Args):{refresh():Promise<void>;set
   const grants=el('select','workbench-result-grants'),results=el('select','workbench-result-results');
   grants.setAttribute('aria-label','Result native attempt');results.setAttribute('aria-label','Recorded task result');
   const view=el('section','workbench-task-result');
+  view.classList.toggle('workbench-result-compact',args.compact===true);
   const field=(label:string,value:unknown)=>{const row=el('p','workbench-result-field');const name=el('strong','',`${label}: `),content=el('span');content.textContent=typeof value==='string'?value:JSON.stringify(value??null);row.append(name,content);return row;};
   function readToken(){return typeof args.token==='function'?args.token():args.token;}
   function clearPrivateView(){selectedResult='';results.replaceChildren();view.replaceChildren();}
@@ -46,14 +47,15 @@ export function mountWorkbenchTaskResult(args:Args):{refresh():Promise<void>;set
     try{
       const data=await api('native',{action:'list'},token,requestController.signal);if(!isCurrent(ticket,token,''))return;
       const old=grants.value;grants.replaceChildren();
-      for(const grant of data.grants??[]){const option=el('option','',`${grant.id} · ${grant.status} · candidate ${grant.candidate_id}`);option.value=grant.id;grants.append(option);}
+      for(const grant of data.grants??[]){const option=el('option','',args.compact?`Attempt ${grants.options.length+1} · ${grant.status}`:`${grant.id} · ${grant.status} · candidate ${grant.candidate_id}`);option.value=grant.id;grants.append(option);}
+      grants.hidden=args.compact===true&&grants.options.length<2;
       if((data.grants??[]).some((g:Json)=>g.id===old))grants.value=old;
       if(scope.grantId&&(data.grants??[]).some((g:Json)=>g.id===scope.grantId))grants.value=scope.grantId;
       selectedGrant=grants.value;if(!selectedGrant){view.replaceChildren(el('p','','No native task attempts are recorded for this project.'));status.textContent='Task results ready.';return;}
       const grantId=selectedGrant,response=await api('native',{action:'status',grant_id:grantId},token,requestController.signal);if(!isCurrent(ticket,token,grantId))return;
       const result=response.result as Json|null;
       results.replaceChildren();
-      if(result){const option=el('option','',`${result.id} · ${result.availability}${result.unavailable_reason?` (${result.unavailable_reason})`:''}`);option.value=result.id;results.append(option);selectedResult=result.id;const detail=await loadDetails(result,response.grant,token,requestController.signal);if(!isCurrent(ticket,token,grantId,result.id))return;render(result,response.grant,{ticket,token,grantId},detail);}
+      if(result){const option=el('option','',`${args.compact?'Result':result.id} · ${result.availability}${result.unavailable_reason?` (${result.unavailable_reason})`:''}`);option.value=result.id;results.append(option);results.hidden=args.compact===true;selectedResult=result.id;const detail=await loadDetails(result,response.grant,token,requestController.signal);if(!isCurrent(ticket,token,grantId,result.id))return;render(result,response.grant,{ticket,token,grantId},detail);}
       else{selectedResult='';view.replaceChildren(el('p','','No durable result is available yet. Refresh status to read; execution is never retried by refresh.'));}
       status.textContent=`Attempt status: ${response.grant?.status??'unknown'}. Result ${result?.availability??'pending or not yet recorded'}.`;
     }catch(reason){if(isCurrent(ticket,token,selectedGrant)&&!(reason instanceof Error&&reason.name==='AbortError')){clearPrivateView();error.textContent=`Could not read task result: ${reason instanceof Error?reason.message:'unavailable'}. Refresh to try again; execution will not be replayed.`;status.textContent='Task result unavailable.';}}
@@ -103,6 +105,19 @@ export function mountWorkbenchTaskResult(args:Args):{refresh():Promise<void>;set
     if(result.provenance){const provenanceSectionView=el('section','workbench-result-provenance-view');provenanceSectionView.append(el('h4','','Result provenance'),provenance(result.provenance));provenanceSection.append(provenanceSectionView);}
     const deliver=button('Return result to originating conversation','Create a host-authored result card; this does not send content to a model',()=>void deliverResult(result,auth));
     deliver.disabled=result.availability!=='available';provenanceSection.append(el('p','','Review and accept/reject the exact candidate separately in the execution panel. This result does not establish verification.'),deliver);sections.push(provenanceSection);
+    if(args.compact){
+      openCandidate.classList.add('agent-ui-secondary');deliver.classList.add('agent-ui-primary');
+      const resultDetails=el('details','workbench-result-identities');resultDetails.append(el('summary','','Result identities and provenance'));
+      for(const node of Array.from(provenanceSection.children))if(node.classList.contains('workbench-result-provenance-view')||(node.classList.contains('workbench-result-field')&&!node.textContent?.startsWith('Candidate freshness:')))resultDetails.append(node);
+      provenanceSection.append(resultDetails);
+      const explanationDetails=el('details');explanationDetails.append(el('summary','','Explanation receipt details'));
+      for(const node of Array.from(explanation.querySelectorAll('.workbench-result-field')))explanationDetails.append(node);
+      explanation.append(explanationDetails);
+      const countSummary=explanation.querySelector('.workbench-result-recorder-counts');if(countSummary)evidence.prepend(countSummary);
+      const checkDetails=el('details');checkDetails.append(el('summary','','Recorded evidence and provenance'));
+      for(const node of Array.from(evidence.children))if(!['H4'].includes(node.tagName)&&node!==countSummary&&!node.classList.contains('workbench-result-field'))checkDetails.append(node);
+      evidence.append(checkDetails);
+    }
     view.replaceChildren(...sections);
   }
   async function retryPersistence(result:Json,grant:Json,auth:{ticket:number;token:string;grantId:string}){
@@ -120,7 +135,8 @@ export function mountWorkbenchTaskResult(args:Args):{refresh():Promise<void>;set
   }
   grants.addEventListener('change',()=>{checkToken();invalidate();selectedGrant=grants.value;scope.grantId=grants.value||null;args.onScopeChange?.({grantId:scope.grantId,resultId:selectedResult||null});clearPrivateView();void refresh();});
   const refreshButton=button('Refresh task result','Read durable status and result without retrying the native run',()=>void refresh());
-  args.container.replaceChildren(el('h3','','Task result'),status,error,grants,refreshButton,results,view);
+  if(args.compact){const selection=el('details','workbench-result-selection');selection.append(el('summary','','Result selection and status'),status,grants,refreshButton,results);args.container.replaceChildren(error,view,selection);}
+  else args.container.replaceChildren(el('h3','','Task result'),status,error,grants,refreshButton,results,view);
   const tokenWatcher=setInterval(()=>{if(!disposed)checkToken();},1000);
   void refresh();
   return {refresh,setScope(next:{grantId?:string|null;resultId?:string|null}){Object.assign(scope,next);void refresh();},dispose(){disposed=true;clearInterval(tokenWatcher);invalidate();clearPrivateView();args.container.replaceChildren();}};

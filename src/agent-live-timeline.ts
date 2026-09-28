@@ -109,7 +109,9 @@ export function createLiveTimeline(options:{storageKey:string;onOpenReference?:(
   followButton.addEventListener('click',()=>{setFollow(!follow);if(follow)rows.scrollTop=rows.scrollHeight;});
   latest.addEventListener('click',()=>{setFollow(true);rows.scrollTop=rows.scrollHeight;});
   firstFailure.addEventListener('click',()=>{const row=Array.from(rows.querySelectorAll<HTMLDetailsElement>('.alt-row')).find(n=>!n.hidden&&['failed','denied','unknown'].includes(n.dataset.status||''));if(row){setFollow(false);row.tabIndex=-1;row.scrollIntoView({block:'nearest'});row.focus();}});
-  toolbar.append(filter,search,densityButton,completedButton,firstFailure,latest,followButton);root.append(connection,toolbar,count,overflow,rows);prefs();setFollow(follow);
+   const viewControls=document.createElement('div');viewControls.className='alt-view-controls';viewControls.setAttribute('role','group');viewControls.setAttribute('aria-label','Activity display and navigation');
+   viewControls.append(densityButton,completedButton,firstFailure,latest,followButton);
+   toolbar.append(filter,search,viewControls);root.append(connection,toolbar,count,overflow,rows);prefs();setFollow(follow);
   rows.addEventListener('scroll',()=>{const near=rows.scrollHeight-rows.scrollTop-rows.clientHeight<24;if(!near&&follow)setFollow(false);});
   function retainBudget(){
     if(items.size<=500){dropped=0;protectedDropped=0;return;}

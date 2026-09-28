@@ -166,3 +166,4 @@
 .workbench-patch-preview-text{max-height:30rem;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;padding:.75rem;background:var(--panel-background,#111);color:inherit;border:1px solid var(--border-color,#555)}
 @media(max-width:460px){.workbench-review-view{grid-template-columns:minmax(0,1fr)}.workbench-review-summary,.workbench-review-explanation,.workbench-review-owner{grid-column:auto}}
 @media(min-width:900px){.workbench-task-result{grid-template-columns:repeat(2,minmax(0,1fr))}.workbench-task-result>.workbench-result-human-review{grid-column:1/-1}}
+.workbench-review-single{margin:0;font-size:.8em;line-height:1.3;opacity:.8}.workbench-review-single[hidden]{display:none}

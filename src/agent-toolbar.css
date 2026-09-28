@@ -1,24 +1,93 @@
-/* A single in-flow toolbar; no fixed-width overlay over chat controls. */
+/* One bounded chat header alongside the pane host controls. */
 #app .pane .pane-head.agent-pane-head {
-  display:flex; flex-wrap:wrap; align-items:center; gap:4px;
-  height:auto; min-height:28px; width:100%; box-sizing:border-box;
-  padding:3px 4px; overflow:visible; flex-shrink:0;
+  display: flex; flex-wrap: nowrap; align-items: center; gap: 2px;
+  height: 44px; min-height: 44px; max-height: 52px; width: 100%;
+  box-sizing: border-box; padding: 3px 5px; overflow: visible; flex-shrink: 0;
+  container-type: inline-size;
 }
-#app .agent-pane-head > select {flex:0 0 auto; max-width:100%;}
-#app .agent-pane-head > .pane-spacer {display:none;}
+#app .agent-pane-head > select { flex: 0 1 85px; min-width: 42px; max-width: 85px; }
+#app .agent-pane-head > .pane-spacer { display: none; }
 #app .agent-pane-head > .agent-toolbar-meta {
-  display:contents; position:static; width:auto; height:auto;
-  padding:0; border:0; background:transparent;
+  display: flex; align-items: center; gap: 5px; flex: 1 1 auto;
+  min-width: 0; position: relative; padding: 0; border: 0; background: transparent;
 }
-#app .agent-toolbar-meta > .agent-avatar {display:none;}
-#app .agent-toolbar-meta input[aria-label="Conversation title"] {
-  flex:0 1 90px; width:90px; min-width:50px; max-width:100%; box-sizing:border-box;
+#app .agent-pane-head > button { flex: 0 0 auto; white-space: nowrap; padding: 2px 3px; }
+#app .agent-pane-head .agent-pane-title {
+  min-width: 24px; flex: 1 1 auto; overflow: hidden; white-space: nowrap;
+  text-overflow: ellipsis; font-weight: 650; font-size: 12px;
 }
-#app .agent-toolbar-meta input[type=color] {flex:0 0 24px; width:24px; min-width:24px; height:24px; padding:1px;}
-#app .agent-pane-head button {flex:0 0 auto; white-space:nowrap; max-width:100%; font-size:11px; padding:3px 5px;}
-#app .agent-toolbar-meta .agent-status {display:inline; flex:0 0 auto; font-size:10px;}
-#app .agent-binding-controls {display:flex; flex-wrap:wrap; align-items:center; gap:4px; min-width:0; max-width:100%;}
-#app .agent-binding-controls label {display:flex; align-items:center; gap:3px; font-size:11px; white-space:nowrap;}
-#app .agent-binding-controls select {max-width:min(180px, 35vw); min-width:60px; font:inherit;}
-#app .agent-binding-controls button {font-size:11px;}
-#app .agent-binding-note {font-size:11px; color:#f5ca83; max-width:100%; overflow-wrap:anywhere;}
+#app .agent-pane-head .agent-status {
+  flex: 0 1 auto; min-width: 0; margin: 0; font-size: 10px; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+#app .agent-pane-head .agent-human-status{background:transparent;border:0;padding:2px 4px;font-weight:400;color:inherit}
+#app .agent-pane-head .agent-mode-control {
+  flex: 0 0 auto; display: flex; flex-wrap: nowrap; gap: 2px;
+}
+#app .agent-pane-head .agent-mode-button {
+  flex: 0 0 auto; display: inline-flex; align-items: center; flex-direction: row;
+  min-width: 0; max-width: none; padding: 4px 5px; font-size: 11px;
+  line-height: 1.1; white-space: nowrap;
+}
+#app .agent-pane-head .agent-mode-button-status { font-size: 0; }
+#app .agent-pane-head .agent-mode-button-status:not(:empty)::before { content: '●'; font-size: 8px; color:var(--theme-accentColor,#91bfa2); }
+#app .agent-pane-head .agent-mode-button[aria-pressed=true] .agent-mode-button-status { display:none; }
+#app .agent-pane-head .agent-mode-button-status:empty { display: none; }
+#app .agent-pane-head .agent-menu-trigger { flex: 0 0 auto; font-size: 16px; padding: 2px 7px; }
+.agent-overflow-menu {
+  position: fixed; z-index: 10000;
+  width: min(240px, 85vw); padding: 6px; border: 1px solid #728977;
+  border-radius: 8px; background: var(--theme-panelColor, #172327);
+  box-shadow: 0 8px 24px #0009; display: grid; gap: 3px;
+}
+.agent-overflow-menu[hidden] { display: none; }
+.agent-overflow-menu{overflow-y:auto;overscroll-behavior:contain}
+.agent-menu-trigger[data-attention=true]::after{content:'•';color:var(--warning-color,#c88736);font-size:10px}
+.agent-overflow-menu button { text-align: left; font-size: 12px; white-space: normal; }
+@container (max-width: 390px) {
+  #app .agent-pane-head .agent-status { max-width:56px;font-size:9px; }
+  #app .agent-pane-head .agent-mode-button { padding: 4px 3px; }
+}
+
+.agent-settings { display: grid; gap: 10px; min-width: 0; }
+.agent-settings h3 { margin: 10px 0 0; }
+.agent-settings-row { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.agent-settings-row input[aria-label="Conversation title"] { flex: 1 1 140px; min-width: 80px; }
+.agent-settings-row input[type=color] { width: 32px; height: 30px; padding: 1px; }
+.agent-binding-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.agent-binding-controls select { max-width: min(180px, 35vw); min-width: 70px; font: inherit; }
+.agent-binding-note { font-size: 11px; color: #f5ca83; max-width: 100%; overflow-wrap: anywhere; }
+.agent-tools-panel { min-width: 0; }
+.agent-tools-panel .inline-tools { display: block; }
+.agent-tools-panel .inline-tools[hidden] { display: none; }
+.agent-activity-strip[hidden], .agent-unknown-action[hidden] { display: none; }
+.agent-unknown-action { margin: 6px 12px; align-self: flex-start; }
+.agent-chat-normal .agent-unknown-action{background:color-mix(in srgb,#c88736 16%,var(--theme-background,#171b24))!important;color:var(--theme-textColor,#f5e6c9)!important;border:1px solid #c88736;border-left-width:4px;padding:10px 12px;text-align:left;white-space:normal}
+.agent-chat-normal .agent-progress:empty { display: none; }
+
+/* Keep the draft at the bottom without a second toolbar of full-size actions. */
+#app .agent-chat-normal .chat-form {
+  display: flex; align-items: flex-end; flex: 0 0 auto; min-width: 0;
+  gap: 6px; padding: 8px; margin: 0; box-sizing: border-box;
+}
+#app .agent-chat-normal .chat-form textarea {
+  flex: 1 1 auto; width: 0; min-width: 0; min-height: 64px;
+  max-height: 96px; height: 64px; overflow-y: auto; resize: none;
+  box-sizing: border-box;
+}
+#app .agent-chat-normal .chat-form .chat-composer-action {
+  flex: 0 0 auto; width: auto; min-width: 0; min-height: 32px;
+  padding: 4px 7px; font-size: 11px; font-weight: 500;
+  align-self: flex-end; white-space: normal; max-width: 84px;
+}
+#app .agent-chat-normal .chat-form .chat-send {
+  flex: 0 0 auto; min-width: 48px; min-height: 36px; padding: 5px 8px;
+  font-size: 14px; font-weight: 700; align-self: flex-end;
+}
+
+/* A readable conversation column, with replies on the canvas rather than nested
+   cards. These rules are scoped to the trusted Normal view, not owner widgets. */
+#app .agent-chat-normal .chat-messages{box-sizing:border-box;padding-inline:max(12px,calc((100% - 960px)/2));gap:16px}
+#app .agent-chat-normal .chat-message{box-sizing:border-box;min-width:0;max-width:100%;overflow-wrap:anywhere}
+#app .agent-chat-normal .chat-message:not(.user){border:0;border-radius:0;background:transparent!important;box-shadow:none;padding:12px 8px}
+#app .agent-chat-normal .chat-message.user{max-width:min(85%,720px);margin-left:auto}

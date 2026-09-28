@@ -57,11 +57,13 @@ thread = threading.Thread(target=gateway.serve_forever, daemon=True); thread.sta
 try:
     with tempfile.TemporaryDirectory(prefix='orbit-agent-selection-', dir='/tmp/opencode') as temporary:
         root = Path(temporary)
-        for name in ('server', 'src', 'contracts', 'dist', 'docs', 'scripts'):
+        for name in ('server', 'src', 'contracts', 'public', 'docs', 'scripts'):
             shutil.copytree(ROOT / name, root / name)
         (root / 'node_modules').symlink_to(ROOT / 'node_modules', target_is_directory=True)
-        shutil.copy2(ROOT / 'package.json', root / 'package.json')
+        for name in ('package.json', 'index.html', 'tsconfig.json', 'vite.config.js'):
+            shutil.copy2(ROOT / name, root / name)
         for name in ('runtime', 'home', 'cwd'): (root / name).mkdir()
+        subprocess.run([shutil.which('node'), str(ROOT / 'scripts/isolated_build.mjs'), '--source', str(root), '--dest', str(root / 'dist'), '--allow-source-dist'], cwd=root, check=True, capture_output=True, env={**os.environ, 'HOME': str(root / 'home')})
         with socket.socket() as probe:
             probe.bind(('127.0.0.1', 0)); port = probe.getsockname()[1]
         origin = f'http://127.0.0.1:{port}'
@@ -104,31 +106,44 @@ try:
                     expect(page.locator('.saved')).to_contain_text('Workspace connected', timeout=15000)
                     agents = [page.locator(f'article.monitor[data-monitor-id="{w}"]') for w in windows]
                     page.wait_for_function('(panes) => panes.every(id => Number.isSafeInteger(JSON.parse(sessionStorage.getItem(`orbit-hermes-chat:${id}`) || "{}").binding_revision))', arg=panes)
-                    for agent, profile in zip(agents, ('default', 'research')):
-                        agent.get_by_role('button', name='Load available Hermes profiles and sessions').click(force=True)
-                        expect(agent.get_by_label('Profile', exact=True)).to_be_enabled()
-                        agent.get_by_label('Profile', exact=True).select_option(profile)
-                        expect(agent.get_by_label('Session', exact=True).locator('option[value="shared-session"]')).to_have_count(1)
-                        agent.get_by_label('Session', exact=True).select_option('shared-session')
-                        expect(agent.get_by_role('button', name='Apply selected profile and session')).to_be_enabled()
-                        agent.get_by_role('button', name='Apply selected profile and session').click()
+                    def settings(index):
+                        agent = agents[index]
+                        agent.get_by_role('button', name='Agent pane menu', exact=True).click()
+                        page.get_by_role('menuitem', name='Conversation settings', exact=True).click()
+                        panel = page.locator(f'dialog[data-pane-id="{panes[index]}"]')
+                        expect(panel).to_be_visible()
+                        return panel
+                    for index, (agent, profile) in enumerate(zip(agents, ('default', 'research'))):
+                        panel = settings(index)
+                        panel.get_by_role('button', name='Load available Hermes profiles and sessions').click()
+                        expect(panel.get_by_label('Profile', exact=True)).to_be_enabled()
+                        panel.get_by_label('Profile', exact=True).select_option(profile)
+                        expect(panel.get_by_label('Session', exact=True).locator('option[value="shared-session"]')).to_have_count(1)
+                        panel.get_by_label('Session', exact=True).select_option('shared-session')
+                        expect(panel.get_by_role('button', name='Apply selected profile and session')).to_be_enabled()
+                        panel.get_by_role('button', name='Apply selected profile and session').click()
+                        page.keyboard.press('Escape')
                         expect(agent.get_by_label('Hermes conversation', exact=True)).to_contain_text('Saved answer ' + profile)
-                    for agent, profile in zip(agents, ('default', 'research')):
-                        expect(agent.get_by_label('Profile', exact=True)).to_have_value(profile)
+                    for index, (agent, profile) in enumerate(zip(agents, ('default', 'research'))):
+                        panel = settings(index)
+                        expect(panel.get_by_label('Profile', exact=True)).to_have_value(profile)
+                        page.keyboard.press('Escape')
                         expect(agent.get_by_label('Hermes conversation', exact=True)).to_contain_text('Saved answer ' + profile)
                         agent.get_by_label('Message to Hermes', exact=True).fill('Draft ' + profile)
                     # Staging is not a rebind. Applying a different profile must not
                     # carry its predecessor's unsent text into the new conversation.
                     second = agents[1]
                     for profile in ('default', 'research'):
-                        second.get_by_label('Profile', exact=True).select_option(profile)
-                        expect(second.get_by_label('Session', exact=True).locator('option[value="shared-session"]')).to_have_count(1)
-                        second.get_by_label('Session', exact=True).select_option('shared-session')
+                        panel = settings(1)
+                        panel.get_by_label('Profile', exact=True).select_option(profile)
+                        expect(panel.get_by_label('Session', exact=True).locator('option[value="shared-session"]')).to_have_count(1)
+                        panel.get_by_label('Session', exact=True).select_option('shared-session')
                         if profile == 'default':
                             expect(second.get_by_label('Message to Hermes', exact=True)).to_have_value('Draft research')
                             expect(second.get_by_label('Hermes conversation', exact=True)).to_contain_text('Saved answer research')
-                        expect(second.get_by_role('button', name='Apply selected profile and session')).to_be_enabled()
-                        second.get_by_role('button', name='Apply selected profile and session').click()
+                        expect(panel.get_by_role('button', name='Apply selected profile and session')).to_be_enabled()
+                        panel.get_by_role('button', name='Apply selected profile and session').click()
+                        page.keyboard.press('Escape')
                         expect(second.get_by_label('Hermes conversation', exact=True)).to_contain_text('Saved answer ' + profile)
                         expect(second.get_by_label('Message to Hermes', exact=True)).to_have_value('' if profile == 'default' else 'Draft research')
                     page.reload(wait_until='networkidle')

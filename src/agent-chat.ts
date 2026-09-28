@@ -11,6 +11,7 @@ import { mountPaneWorkbench, type PaneWorkbenchBadge } from './pane-workbench';
 import { createLiveTimeline } from './agent-live-timeline';
 import { createNormalLiveAdapter } from './agent-live-normal';
 import type { LiveItem } from './agent-live-types';
+import { createAgentInspector } from './agent-inspector';
 
 import { archiveChat, validChat, transcript, chatProfileId, chatBindingKey, type ChatState } from './chat-storage';
 export function createAgentChat(body: HTMLElement, paneId: string, getToken: () => string, toolbar?: HTMLElement) {
@@ -69,8 +70,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   const chatNormal = el('div', 'agent-chat-normal');
   const workbenchHost = el('div', 'agent-workbench-host');
   workbenchHost.hidden = true;
-  // One shared live timeline element lives in Normal mode and moves (same node)
-  // into the Workbench Live tab; the feeds keep running while either is hidden.
+  // Independent timelines retain their DOM and subscriptions while hidden.
   const normalTimelineHost = el('div', 'agent-live-host');
   let panePrefs: PaneWorkbenchPrefs = readPanePrefs(workspaceId, paneId);
   let paneMode: PaneMode = panePrefs.mode;
@@ -86,8 +86,16 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   let workbenchLaneActive = false;
   let laneUnknown = false;
   const badge = el('div', 'agent-meta');
+  const heading = el('span', 'agent-pane-title', 'Hermes');
   const status = el('span', 'agent-status', 'READY');
   status.setAttribute('role', 'status');
+  const humanStatus = button('Ready', 'Inspect agent status and activity', () => {
+    if (laneUnknown) { recovery.open = true; openPanel('troubleshooting', humanStatus); }
+    else if (['ATTENTION','FAILED','WAITING FOR APPROVAL'].includes(status.textContent || '')) { setMode('normal'); progress.focus(); }
+    else openPanel('activity', humanStatus);
+  }, 'agent-status agent-human-status');
+  humanStatus.setAttribute('aria-live', 'polite');
+  status.className = 'agent-runtime-status';
   const newChat = button('New chat', 'Start a separate Hermes conversation', () => {
     void switchConversation(chatProfileId(state));
   }, 'small-button');
@@ -123,7 +131,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   updateNotifications();
   const titleInput = el('input'); titleInput.placeholder = 'Hermes'; titleInput.maxLength = 100;
   titleInput.setAttribute('aria-label', 'Conversation title');
-  titleInput.addEventListener('input', () => { state.title = titleInput.value; save(); });
+  titleInput.addEventListener('input', () => { state.title = titleInput.value; heading.textContent = state.title || 'Hermes'; save(); });
   const colorInput = el('input'); colorInput.type = 'color'; colorInput.title = 'Conversation color theme';
   colorInput.setAttribute('aria-label', 'Conversation color theme');
   colorInput.addEventListener('input', () => { state.color = colorInput.value; save(); render(); });
@@ -178,7 +186,55 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     modeButtons.set(mode, { button: control, status: statusText });
     modeControl.append(control);
   }
-  badge.append(el('span', 'agent-avatar', '✳'), titleInput, colorInput, rename, status, newChat, notificationButton, modeControl);
+  const overflow = button('⋯', 'Agent pane menu', () => {
+    overflowMenu.hidden = !overflowMenu.hidden;
+    overflow.setAttribute('aria-expanded', String(!overflowMenu.hidden));
+    if (!overflowMenu.hidden) {
+      const bounds = overflow.getBoundingClientRect();
+      overflowMenu.style.top = `${Math.min(bounds.bottom + 5, window.innerHeight - 10)}px`;
+      overflowMenu.style.right = `${Math.max(5, window.innerWidth - bounds.right)}px`;
+      overflowMenu.style.maxHeight = `${Math.max(80, window.innerHeight - 20)}px`;
+      overflowMenu.style.top = `${Math.max(5, Math.min(bounds.bottom + 5, window.innerHeight - overflowMenu.scrollHeight - 8))}px`;
+      overflowMenu.querySelector('button')?.focus();
+    }
+  }, 'small-button agent-menu-trigger');
+  overflow.setAttribute('aria-expanded', 'false');
+  overflow.setAttribute('aria-haspopup', 'menu');
+  const overflowMenu = el('div', 'agent-overflow-menu'); overflowMenu.hidden = true;
+  overflowMenu.setAttribute('role', 'menu');
+  document.body.append(overflowMenu);
+  const inspector = createAgentInspector({ title: 'Hermes inspector' });
+  inspector.element.dataset.paneId = paneId;
+  function openPanel(id: string, trigger?: HTMLElement) {
+    overflowMenu.hidden = true; overflow.setAttribute('aria-expanded', 'false');
+    inspector.open(id, trigger);
+    if (id === 'tools' && !inlineTools.enabled()) inlineTools.toggle.click();
+  }
+  const menuEntry = (label: string, action: () => void) => {
+    const entry = button(label, label, action, 'small-button');
+    entry.setAttribute('role', 'menuitem'); overflowMenu.append(entry);
+  };
+  menuEntry('Conversation settings', () => openPanel('settings', overflow));
+  menuEntry('Activity', () => openPanel('activity', overflow));
+  menuEntry('Saved tools', () => openPanel('tools', overflow));
+  menuEntry('Troubleshooting', () => openPanel('troubleshooting', overflow));
+  menuEntry('Hermes tools and conversations', () => { overflowMenu.hidden = true; overflow.setAttribute('aria-expanded', 'false'); openTools(); });
+  overflowMenu.addEventListener('keydown', event => {
+    if (event.key === 'Escape') { event.preventDefault(); overflowMenu.hidden = true; overflow.setAttribute('aria-expanded', 'false'); overflow.focus(); }
+    if (['ArrowDown','ArrowUp','Home','End'].includes(event.key)) {
+      event.preventDefault(); const entries=Array.from(overflowMenu.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));
+      const index=entries.indexOf(document.activeElement as HTMLButtonElement);
+      entries[event.key==='Home'?0:event.key==='End'?entries.length-1:(index+(event.key==='ArrowDown'?1:-1)+entries.length)%entries.length]?.focus();
+    }
+  });
+  const onOutsideMenu = (event: PointerEvent) => {
+    if (!overflow.contains(event.target as Node) && !overflowMenu.contains(event.target as Node)) {
+      overflowMenu.hidden = true; overflow.setAttribute('aria-expanded', 'false');
+      if (overflowMenu.contains(document.activeElement)) overflow.focus();
+    }
+  };
+  document.addEventListener('pointerdown', onOutsideMenu);
+  badge.append(heading, humanStatus, modeControl, overflow);
   const bindingControls = el('div', 'agent-binding-controls');
   const profileSelect = el('select'); profileSelect.setAttribute('aria-label', 'Profile');
   const sessionSelect = el('select'); sessionSelect.setAttribute('aria-label', 'Session');
@@ -190,6 +246,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   }
   function resetBindingControls() {
     metadataSequence++; metadataReady = false; sessionsReady = false; catalogRequested = false;
+    delete overflow.dataset.attention; overflow.title = 'Agent pane menu';
     profileSelect.replaceChildren(option(chatProfileId(state), chatProfileId(state)));
     sessionSelect.replaceChildren(option(state.session, state.title || state.session));
     bindingNote.textContent = `Bound: ${chatProfileId(state)} · ${state.session}`;
@@ -215,7 +272,8 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
       sessionsReady = true; bindingNote.textContent = target === chatProfileId(state) && sessionSelect.value === state.session
         ? `Bound: ${profiles.find(p => p.id === target)?.label || target} · ${state.title || state.session}`
         : 'Selection is staged. Press Apply to switch.';
-    } catch (error) { if (current(requested) && sequence === metadataSequence) bindingNote.textContent = error instanceof Error ? error.message : 'Sessions unavailable.'; }
+      delete overflow.dataset.attention; overflow.title = 'Agent pane menu';
+    } catch (error) { if (current(requested) && sequence === metadataSequence) { bindingNote.textContent = error instanceof Error ? error.message : 'Sessions unavailable.'; overflow.dataset.attention = 'true'; overflow.title = `Conversation settings: ${bindingNote.textContent}`; } }
     finally { if (current(requested)) update(); }
   }
   async function loadProfiles() {
@@ -236,7 +294,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
       profileSelect.value = chatProfileId(state); metadataReady = true;
       if (!bound?.configured) throw Error('The bound profile is missing or unconfigured. Select a configured profile explicitly.');
       await loadSessions();
-    } catch (error) { if (current(requested)) bindingNote.textContent = error instanceof Error ? error.message : 'Profiles unavailable.'; }
+    } catch (error) { if (current(requested)) { bindingNote.textContent = error instanceof Error ? error.message : 'Profiles unavailable.'; overflow.dataset.attention = 'true'; overflow.title = `Conversation settings: ${bindingNote.textContent}`; } }
     finally { if (current(requested)) update(); }
   }
   profileSelect.onchange = () => { void loadSessions(); };
@@ -313,10 +371,11 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   const timeline = createLiveTimeline({
     storageKey: `orbit-live-timeline:${workspaceId}:${paneId}:normal`,
     onOpenReference: (item: LiveItem) => {
-      if (item.reference?.kind === 'normal-tool') inlineTools.show();
+      if (item.reference?.kind === 'normal-tool') { inlineTools.show(); openPanel('tools'); }
     },
   });
   normalTimelineHost.append(timeline.element);
+  inspector.register('activity', 'Live activity', normalTimelineHost);
   const workbenchTimeline = createLiveTimeline({
     storageKey: `orbit-live-timeline:${workspaceId}:${paneId}:workbench`,
     onOpenReference: (item: LiveItem) => workbench?.openLiveReference(item),
@@ -329,7 +388,9 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     normalLive.saved(Array.isArray(data.activity) ? data.activity : []);
     return data;
   });
-  badge.append(inlineTools.toggle);
+  const toolsPanel = el('div', 'agent-tools-panel');
+  toolsPanel.append(inlineTools.toggle, inlineTools.root);
+  inspector.register('tools', 'Tool details', toolsPanel);
   // Cross-mode status plumbing; the activity registry now carries these fields.
   const activity = registerActivity(paneId, () => {
     window.dispatchEvent(new CustomEvent('orbit-focus-agent', {detail:paneId}));
@@ -350,10 +411,11 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
       if (state.run) void poll();
       return;
     }
-    inlineTools.show();
+    openPanel('activity', activityButton);
   };
   const activityButton = button('Ready','Show live tool details',onActivityAction,'small-button');
-  strip.append(activityButton,button('Workspace agents','Overview of all open agents',openAgentOverview,'small-button'));
+  strip.append(activityButton);
+  const workspaceAgents = button('Workspace agents','Overview of all open agents',openAgentOverview,'small-button');
   function refreshActivity() {
     const runStatus = status.textContent || 'READY';
     const attention = runStatus === 'ATTENTION';
@@ -362,6 +424,9 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     activityButton.title = attention
       ? (state.run ? 'Poll the active run status and reveal the error' : 'Reveal the error and focus the status area')
       : 'Show live tool details';
+    const observed = normalLive.counts();
+    activityButton.textContent = attention ? label : observed.failures ? `${observed.failures} activity warning${observed.failures === 1 ? '' : 's'} · View` : state.run && streamStatus ? streamStatus.replace('Tool stream disconnected', 'Live updates disconnected') : `Activity · ${observed.events} events`;
+    strip.hidden = !attention && !observed.events && !(state.run && streamStatus);
     activity.update({title:state.title || 'Hermes',task:state.messages.filter(m=>m.role==='user').at(-1)?.text.slice(0,200) || 'No task yet',status:label,mode:paneMode,normalStatus:label,workbenchStatus});
     normalLive.status({ status: label, run: state.run, at: Date.now() });
     updateModeBadge();
@@ -412,13 +477,28 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   let receiptHash='';
   const recoveryLabel=el('label','','I investigated the original upstream and confirmed no run remains active');recoveryLabel.append(investigated);
   recovery.append(el('summary','','Submission receipt and recovery'),button('Inspect submission receipt','Read the durable submission receipt without resending',async()=>{try{const result=await api({action:'submission_status'});receiptHash=typeof result.payload_hash==='string'?result.payload_hash:'';receiptView.textContent=JSON.stringify(result,null,2);}catch(error){showError(error);}}),receiptView,recoveryLabel,button('Acknowledge unknown submission','Clear only the exact investigated unknown submission; never replay it',async()=>{if(!receiptHash||!investigated.checked)return;try{receiptView.textContent=JSON.stringify(await api({action:'acknowledge_submission_unknown',payload_hash:receiptHash,upstream_investigated:true}),null,2);receiptHash='';investigated.checked=false;}catch(error){showError(error);}}));
+  const settings = el('div', 'agent-settings');
+  const titleSettings = el('div', 'agent-settings-row'); titleSettings.append(titleInput, rename, colorInput);
+  settings.append(el('h3', '', 'Conversation'), titleSettings, newChat, notificationButton,
+    el('h3', '', 'Profile and session'), bindingControls, workspaceAgents, notice);
+  inspector.register('settings', 'Settings', settings);
+  const troubleshooting = el('div', 'agent-troubleshooting'); troubleshooting.append(status, recovery);
+  troubleshooting.append(el('p', '', 'Unknown execution is not replayed automatically. A shared-lane warning may belong to a Workbench worker or check; inspect its authoritative record before using any recovery acknowledgement.'), button('Inspect Workbench execution', 'Open Workbench checks and recovery without acknowledging or replaying anything', () => { inspector.close(); setMode('workbench'); workbenchHost.querySelector<HTMLButtonElement>('[aria-label="Checks workbench view"]')?.click(); }, 'small-button'));
+  inspector.register('troubleshooting', 'Troubleshooting', troubleshooting);
+  const unknownAction = button('Execution outcome unknown — no automatic replay · Inspect recovery', 'Open submission receipt and recovery', () => {
+    recovery.open = true; openPanel('troubleshooting', unknownAction);
+  }, 'small-button agent-unknown-action');
+  unknownAction.hidden = true;
   const form = el('form', 'chat-form');
   const input = el('textarea');
   input.placeholder = 'Ask Hermes… (up to 100,000 characters)'; input.rows = 2; input.maxLength = 100000;
   input.setAttribute('aria-label', 'Message to Hermes');
   loadDraft();
-  input.addEventListener('input', saveDraft);
-  const tools = button('⋯', 'Hermes tools and conversations', () => openTools(), 'small-button');
+  function sizeComposer() {
+    input.style.height = '64px';
+    input.style.height = `${Math.min(96, Math.max(64, input.scrollHeight))}px`;
+  }
+  input.addEventListener('input', () => { saveDraft(); sizeComposer(); });
   let toolsDialog: HTMLDialogElement | undefined;
   function openTools() {
     toolsDialog?.close();
@@ -500,7 +580,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     applyBinding.disabled = switchBlocked() || !getToken() || !metadataReady || !sessionsReady;
     refreshBindings.disabled = switchBlocked() || !getToken();
     refreshBindings.title = getToken() ? 'Load available Hermes profiles and sessions' : 'Connect host first to load profiles';
-    send.textContent = state.run ? 'Queue' : '↑';
+    send.textContent = state.run ? 'Queue' : 'Send';
     send.title = blocked ? laneReason() || 'Shared agent lane is busy.' : state.run ? 'Queue message after the current turn' : 'Send message to Hermes';
     drainButton.disabled = blocked;
     stop.hidden = !state.run; resume.hidden = !state.run; steer.hidden = !state.run;
@@ -529,12 +609,18 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     workbenchLaneActive = (agentBusy && !state.run) || jobBusy;
     // The queue is held, never auto-drained, until the owner sends explicitly.
     if (workbenchLaneActive || laneUnknown) queuePaused = true;
+    unknownAction.hidden = !laneUnknown;
+    strip.hidden = status.textContent !== 'ATTENTION' && !normalLive.counts().events && !(state.run && streamStatus);
     updateModeBadge();
     update();
   }
   function updateModeBadge() {
     // Both statuses stay visible; the hidden mode's status keeps updating.
     const normalStatusText = status.textContent || 'READY';
+    const workbenchHumanStatus = wbLane.job_busy ? 'Running check' : ({Running:'Working',Waiting:'Waiting',Failed:'Needs attention','Stop requested':'Stopping','Result pending':'Result pending'} as Record<string,string>)[workbenchBadge.status] || (workbenchLaneActive ? 'Working' : 'Ready');
+    humanStatus.textContent = laneUnknown ? 'Unknown outcome' : normalStatusText === 'WAITING FOR APPROVAL' ? 'Needs approval' : ['ATTENTION','FAILED'].includes(normalStatusText) ? 'Needs attention' : paneMode === 'workbench' ? workbenchHumanStatus : state.run || busy ? 'Working' : 'Ready';
+    humanStatus.title = humanStatus.textContent;
+    humanStatus.setAttribute('aria-label', `${humanStatus.textContent} · Inspect agent status and activity`);
     // Prefer the explicit Workbench state (Running/Waiting/Failed/Stopped/
     // Result pending/counts). Only fall back to the lane wording when no specific
     // state is known, so a live run is never shown as a generic "Lane busy".
@@ -545,8 +631,10 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     const count = workbenchBadge.pending + workbenchBadge.results;
     const normal = modeButtons.get('normal');
     const workbench = modeButtons.get('workbench');
-    if (normal) normal.status.textContent = normalStatusText;
-    if (workbench) workbench.status.textContent = workbenchLabel;
+    if (normal) normal.status.textContent = ['ATTENTION', 'WAITING FOR APPROVAL', 'FAILED'].includes(normalStatusText) ? normalStatusText : '';
+    if (workbench) workbench.status.textContent = count && workbenchLabel === 'Idle'
+      ? [workbenchBadge.pending && `${workbenchBadge.pending} pending`, workbenchBadge.results && `${workbenchBadge.results} results`].filter(Boolean).join(' · ')
+      : definiteWorkbench.includes(workbenchLabel) || workbenchLabel === 'Lane busy' ? workbenchLabel : '';
     for (const [mode, entry] of modeButtons) entry.button.setAttribute('aria-pressed', String(mode === paneMode));
     modeControl.title = `Normal: ${normalStatusText} · Workbench: ${workbenchLabel}`
       + (workbenchBadge.pending ? ` · ${workbenchBadge.pending} pending` : '')
@@ -555,7 +643,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     modeControl.dataset.lane = laneUnknown ? 'unknown' : workbenchLaneActive ? 'busy' : 'idle';
     // Cross-mode hidden badge: annotate the inactive button with pending counts.
     const inactive = modeButtons.get(paneMode === 'normal' ? 'workbench' : 'normal');
-    if (inactive) inactive.button.dataset.badge = String(count);
+    if (inactive) inactive.button.dataset.badge = String(inactive.button.dataset.mode === 'workbench' ? count : state.queue?.length ?? 0);
   }
   function ensureWorkbench() {
     if (workbench || disposed) return workbench;
@@ -611,6 +699,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     if(!state.run) {toolStatus='';streamStatus='';}
     refreshActivity();
     titleInput.value = state.title || '';
+    heading.textContent = state.title || 'Hermes';
     colorInput.value = state.color || '#b5f268';
     body.style.setProperty('--accent', state.color || '');
     body.style.background = state.color ? `color-mix(in srgb, ${state.color} 12%, #10141c)` : '';
@@ -633,11 +722,8 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
       messages.append(node);
     }
     inlineTools.sync(chatBindingKey(state), state.run);
-    // Keep the live trace in the conversation, immediately before the final reply.
-    const last = messages.lastElementChild;
-    if (!state.run && state.messages.at(-1)?.role === 'assistant' && last) messages.insertBefore(inlineTools.root, last);
-    else messages.append(inlineTools.root);
     messages.scrollTop = messages.scrollHeight;
+    sizeComposer();
     update();
   }
   async function api(payload: Record<string, unknown>, requested = scope()) {
@@ -687,7 +773,8 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
         state.messages.push({ role: 'assistant', text: data.output || (data.status === 'completed' ? 'Hermes finished without a text reply.' : data.error || `Run ${data.status}.`) });
         state.messages = state.messages.slice(-100);
         const finishedRun = state.run;
-        state.run = undefined; save(); render(); progress.textContent = '';
+        state.run = undefined; save(); render();
+        progress.textContent = data.status === 'completed' ? '' : String(data.error || `Run ${data.status}. Check the conversation and troubleshooting details.`);
         notifyReply(finishedRun, data.status === 'completed');
         // Ordinary normal-run completion may auto-drain only when the shared lane
         // is idle and not unknown. A Workbench-held queue stays held until the
@@ -741,7 +828,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   // Visible Normal-mode entry point into the Workbench handoff. It copies the
   // current draft in memory to the handoff preview and switches the view only;
   // the Normal composer is untouched and nothing is captured, queued or created.
-  const workbenchTask = button('Create Workbench task', 'Open the Workbench handoff preview with your current draft; nothing is created until you confirm', () => {
+  const workbenchTask = button('Task from draft', 'Open the Workbench handoff preview with your current draft; nothing is created until you confirm', () => {
     const statement = input.value;
     setMode('workbench');
     ensureWorkbench()?.openHandoff({ statement });
@@ -752,15 +839,21 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   const openWorkbenchWindow = button('Open Workbench window', 'Open a separate Workbench window beside this chat; nothing is copied or sent', () => {
     window.dispatchEvent(new CustomEvent('orbit-open-workbench-window', { detail: { paneId } }));
   }, 'small-button');
-  form.append(input, tools, workbenchTask, openWorkbenchWindow, send);
+  settings.append(openWorkbenchWindow);
+  send.classList.add('chat-send');
+  workbenchTask.classList.add('chat-composer-action');
+  openWorkbenchWindow.classList.add('chat-composer-action');
+  form.append(input, workbenchTask, send);
   form.onsubmit = e => { e.preventDefault(); void submit(); };
   input.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); void submit(); } };
-  chatNormal.append(badge, bindingControls, strip, notice, messages, taskCards, normalTimelineHost, progress, approvals, controls,recovery, queueList, form);
+  chatNormal.append(strip, messages, taskCards, progress, approvals, unknownAction, controls, queueList, form);
   body.append(chatNormal, workbenchHost);
   if (toolbar) {
     toolbar.classList.add('agent-pane-head');
     badge.classList.add('agent-toolbar-meta');
     toolbar.insertBefore(badge, toolbar.children[1] || null);
+  } else {
+    chatNormal.prepend(badge);
   }
   render();
   // Restore the persisted view after the DOM exists. This only reads host state
@@ -849,5 +942,5 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     progress.textContent = 'A saved run may still be active. Connect host to check its status. Closing the pane does not stop Hermes.';
     if (getToken()) void poll();
   }
-  return () => { saveDraft(); disposed = true; generation++; statusObserver.disconnect(); activity.dispose(); clearInterval(sharedTimer); stopToolFeed(); inlineTools.dispose(); workbench?.dispose(); timeline.dispose(); workbenchTimeline.dispose(); toolsDialog?.close(); liveController?.abort(); clearTimeout(timer); controller.abort(); window.removeEventListener('orbit-host-connected', onUnlock); window.removeEventListener('orbit-open-hermes-tools', onOpenTools); };
+  return () => { saveDraft(); disposed = true; generation++; statusObserver.disconnect(); activity.dispose(); clearInterval(sharedTimer); stopToolFeed(); inlineTools.dispose(); workbench?.dispose(); timeline.dispose(); workbenchTimeline.dispose(); inspector.dispose(); overflowMenu.remove(); toolsDialog?.close(); liveController?.abort(); clearTimeout(timer); controller.abort(); document.removeEventListener('pointerdown', onOutsideMenu); window.removeEventListener('orbit-host-connected', onUnlock); window.removeEventListener('orbit-open-hermes-tools', onOpenTools); };
 }

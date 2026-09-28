@@ -105,9 +105,12 @@ def journey(renderer, page, origin, token, project):
     page.locator('.agent-mode-button').filter(has_text='Workbench').click()
     workbench = page.locator('.pane-workbench')
     expect(workbench).to_be_visible()
+    workbench.locator('.pane-workbench-settings > summary').click()
     workbench.get_by_label('Workbench project').select_option(project_id)
+    workbench.locator('.pane-workbench-identities > summary').click()
     expect(workbench.get_by_label('Workbench candidate').locator(f'option[value="{candidate["id"]}"]')).to_have_count(1)
     workbench.get_by_label('Workbench candidate').select_option(candidate['id'])
+    expect(workbench.locator('.pane-workbench-candidate-line')).to_contain_text('Candidate 4')
     workbench.get_by_role('tab', name='Changes').click()
     expect(workbench.locator('.pane-workbench-changes-diff .candidate-diff-viewer')).to_be_visible()
     changes = workbench.locator('.pane-workbench-changes-diff .candidate-diff-viewer')
@@ -197,6 +200,29 @@ def journey(renderer, page, origin, token, project):
     assert execution('execution_state')['candidates'][0]['generation'] == 5
     assert len([action for route, action in requests if route in ('native', 'execution') and action in ('candidate_edit', 'candidate_patch', 'check_run', 'check_start', 'review_decide')]) == mutation_count
     assert not any(text in item for item in page.evaluate("Object.entries(localStorage).map(([key,value])=>key+'='+value)") for text in (WRONG.strip(), RIGHT.strip(), THIRD.strip(), token))
+
+    # Revoke through the real owner route after the historical-read checks.
+    # Refreshing the selected pane must drop the old bound controls and exact
+    # comparison, not keep a stale candidate or authority for a revoked root.
+    page.get_by_role('button', name='Connect local host', exact=True).click()
+    page.get_by_role('textbox', name='Host session token').fill(token)
+    page.get_by_role('button', name='Unlock local host', exact=True).click()
+    expect(page.locator('.saved')).to_contain_text('Workspace connected', timeout=15000)
+    workbench = page.locator('.pane-workbench')
+    expect(workbench).to_be_visible(timeout=15000)
+    settings = workbench.locator('.pane-workbench-settings')
+    if settings.get_attribute('open') is None:
+        settings.locator(':scope > summary').click()
+    expect(workbench.get_by_label('Workbench project')).to_have_value(project_id)
+    workbench.get_by_role('tab', name='Changes').click()
+    current = next(entry for entry in api('', {'action': 'list', 'workspace_id': workspace})['projects'] if entry['id'] == project_id)
+    revoked = api('', {**scope, 'action': 'revoke_project', 'base_generation': current['generation']})['project']
+    assert revoked['active'] is False
+    settings.get_by_role('button', name='Re-read projects, tasks and state without executing anything').click()
+    expect(workbench.get_by_label('Workbench project')).to_have_value('', timeout=15000)
+    expect(workbench.locator('.pane-workbench-scope-line')).to_contain_text('Choose project')
+    expect(workbench.locator('.pane-workbench-changes-diff .candidate-diff-viewer')).to_have_count(0)
+    expect(workbench.locator('.pane-workbench-authority-body')).to_be_empty()
 
 
 def main(renderer):

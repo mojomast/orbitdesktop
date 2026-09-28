@@ -25,6 +25,12 @@ handoff remains explicit. Existing in-pane mode controls remain available.
 
 ## What the timeline means
 
+Normal chat exposes this timeline through **Agent pane menu → Activity**. Its
+subscriptions and bounded retained rows continue while the Inspector is closed.
+Workbench Live retains its dedicated timeline. See the [agent pane information
+hierarchy](AGENT_PANE_UX.md) for settings, exceptional-state visibility and visual
+acceptance measurements.
+
 Candidate change details use the shared trusted [candidate diff review
 surface](CANDIDATE_DIFF_REVIEW.md). Historical Live references retain their exact
 generation transition; cumulative review explicitly compares against the initial

@@ -1,0 +1,43 @@
+/* Shared agent controls only; no element-wide reset or theme authority. */
+:where(.chat-body, .agent-inspector, .pane-workbench, .agent-meta) {
+  --agent-space-1: 4px;
+  --agent-space-2: 8px;
+  --agent-space-3: 12px;
+  --agent-space-4: 16px;
+  --agent-space-5: 24px;
+  --agent-control-height: 30px;
+  --agent-control-radius: 7px;
+}
+:is(.agent-ui-primary, .agent-ui-secondary, .agent-ui-ghost, .agent-ui-icon, .agent-ui-danger) {
+  box-sizing: border-box;
+  min-height: var(--agent-control-height, 30px);
+  padding: 5px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--agent-control-radius, 7px);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.agent-ui-primary { background: var(--theme-accentColor, #a9e5cf); color: var(--theme-surfaceColor, #102a23); border-color: var(--theme-accentColor, #a9e5cf); }
+.agent-ui-secondary { background: var(--theme-buttonColor, #263338); color: var(--theme-buttonTextColor, #e6eeed); border-color: var(--theme-borderColor, #46565b); }
+.agent-ui-ghost, .agent-ui-icon { background: transparent; color: var(--theme-textColor, #c2cfce); border-color: transparent; }
+.agent-ui-icon { width: 30px; padding: 4px; display: inline-grid; place-items: center; }
+.agent-ui-danger { background: #47272c; color: #ffd4d8; border-color: #92535d; }
+:is(.agent-ui-primary, .agent-ui-secondary, .agent-ui-ghost, .agent-ui-icon, .agent-ui-danger):hover:not(:disabled) { filter: brightness(1.14); }
+:is(.agent-ui-ghost, .agent-ui-icon):hover:not(:disabled) { background: #ffffff12; }
+:is(.agent-ui-primary, .agent-ui-secondary, .agent-ui-ghost, .agent-ui-icon, .agent-ui-danger):focus-visible { outline: 2px solid #a9e5cf; outline-offset: 2px; }
+:is(.agent-ui-primary, .agent-ui-secondary, .agent-ui-ghost, .agent-ui-icon, .agent-ui-danger):disabled { opacity: .45; cursor: default; }
+
+/* Keep explicit composer intents legible under the legacy owner theme's
+   important generic .chat-form button gradient. Scope only semantic controls. */
+#app .chat-body .chat-form :is(.agent-ui-secondary, .agent-ui-ghost, .agent-ui-icon, .agent-ui-danger) {
+  min-height: var(--agent-control-height, 30px);
+  min-width: 0;
+  box-shadow: none;
+}
+#app .chat-body .chat-form :is(.agent-ui-secondary, .chat-composer-action) { background: var(--theme-buttonColor, #263338) !important; color: var(--theme-buttonTextColor, #e6eeed) !important; box-shadow: none; }
+#app .chat-body .chat-form :is(.agent-ui-ghost, .agent-ui-icon) { background: transparent !important; color: var(--theme-textColor, #c2cfce) !important; }
+#app .chat-body .chat-form .agent-ui-danger { background: #47272c !important; color: #ffd4d8 !important; }

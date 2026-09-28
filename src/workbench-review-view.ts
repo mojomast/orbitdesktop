@@ -15,6 +15,7 @@ export function mountWorkbenchReviewView(body:HTMLElement,args:Args):{refresh():
   const status=el('p','workbench-review-status','Loading exact candidate reviews…');status.setAttribute('role','status');
   const error=el('p','workbench-review-error');error.setAttribute('role','alert');
   const candidates=el('select');candidates.setAttribute('aria-label','Approved candidate review');
+  const soleReview=el('p','workbench-review-single');soleReview.hidden=true;
   const view=el('div','workbench-review-view');
   view.dataset.paneId=args.paneId;
   const textField=(title:string,value:unknown)=>{const node=el('p','');node.append(el('strong','',`${title}: `),document.createTextNode(typeof value==='string'?value:JSON.stringify(value??null)));return node;};
@@ -123,14 +124,17 @@ export function mountWorkbenchReviewView(body:HTMLElement,args:Args):{refresh():
       const approved=(executionState.reviews??[]).filter((review:Data)=>review.decision==='approved').map((review:Data)=>({review,candidate:(executionState.candidates??[]).find((entry:Data)=>entry.id===review.candidate_id)})).filter((pair:{review:Data;candidate:Data|undefined}):pair is {review:Data;candidate:Data}=>!!pair.candidate);
       const previous=selectedKey;candidates.replaceChildren();
       for(const pair of approved){const task=(executionState.tasks??[]).find((item:Data)=>item.id===pair.candidate.task_id),value=JSON.stringify({candidate_id:pair.candidate.id,review_id:pair.review.id,task_id:pair.candidate.task_id}),option=el('option','',`${task?.title??'Task'} · ${pair.candidate.hash===pair.review.candidate_hash?`gen ${pair.candidate.generation}`:'historical approval'}`);option.title=`Candidate ${pair.candidate.id} · review ${pair.review.id}`;option.value=value;candidates.append(option);}
-      if(Array.from(candidates.options).some(option=>option.value===previous))candidates.value=previous;selectedKey=candidates.value;
+       if(Array.from(candidates.options).some(option=>option.value===previous))candidates.value=previous;selectedKey=candidates.value;
+       candidates.hidden=candidates.options.length<=1;
+       soleReview.hidden=candidates.options.length!==1;
+       soleReview.textContent=candidates.options.length===1?candidates.selectedOptions[0]?.textContent??'Only approved review':'';
       if(!selectedKey){view.replaceChildren(el('p','','No approved candidate review is available.'));status.textContent='No approved candidate review.';return;}
       await renderSelected(ticket);
     }catch(reason){if(current(ticket)&&!(reason instanceof Error&&reason.name==='AbortError')){diffViewer?.dispose();diffViewer=null;view.replaceChildren();error.textContent=`Could not load exact candidate review: ${reason instanceof Error?reason.message:'unavailable'}. Refresh before relying on prior evidence.`;status.textContent='Candidate review unavailable.';}}
   }
   candidates.addEventListener('change',()=>{selectedKey=candidates.value;void refresh();});
   const refreshButton=button('Refresh exact candidate review','Revalidate candidate, frozen checks, review, and worker explanation',()=>void refresh());
-  const panel=el('div','workbench-review-panel');panel.append(el('h3','','Candidate review'),status,error,candidates,refreshButton,view);
+   const panel=el('div','workbench-review-panel');panel.append(el('h3','','Candidate review'),status,error,soleReview,candidates,refreshButton,view);
   body.replaceChildren(panel);
   void refresh();
   return {refresh,dispose(){closed=true;generation++;controller?.abort();controller=null;diffViewer?.dispose();diffViewer=null;view.replaceChildren();body.replaceChildren();}};

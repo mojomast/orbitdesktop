@@ -532,21 +532,30 @@ def main(renderer):
 
                         step = "normal Hermes SSE feeds Normal-only safe timeline metadata"
                         normal_pane = page.locator('[data-pane-id="%s"]' % helper.PANE)
-                        normal_timeline = normal_pane.locator(".agent-chat-normal .agent-live-timeline")
+                        normal_timeline = page.locator('dialog.agent-inspector[data-pane-id="%s"] .agent-live-timeline' % helper.PANE)
+                        expect(normal_timeline).to_be_hidden()
+                        normal_pane.get_by_role('button', name='Agent pane menu', exact=True).click()
+                        page.get_by_role('menuitem', name='Activity', exact=True).click()
                         expect(normal_timeline).to_be_visible(timeout=15000)
+                        page.locator('dialog.agent-inspector[data-pane-id="%s"]' % helper.PANE).get_by_role('button', name='Close agent inspector').click()
                         normal_input = normal_pane.get_by_label("Message to Hermes", exact=True)
                         normal_input.fill("deterministic normal SSE fixture request")
                         with page.expect_response(lambda response: response.url == origin + "/api/agent"
                                                   and post_json(response.request).get("action") == "start") as normal_start:
                             normal_pane.get_by_role("button", name="Send message to Hermes", exact=True).click()
                         assert normal_start.value.status == 202, normal_start.value.status
+                        normal_pane.get_by_role('button', name='Agent pane menu', exact=True).click()
+                        page.get_by_role('menuitem', name='Activity', exact=True).click()
+                        expect(normal_timeline).to_be_visible()
                         expect(normal_timeline).to_contain_text("normal_fixture_read", timeout=30000)
                         assert "SECRET_ARGUMENT" not in normal_timeline.inner_text() and "SECRET_OUTPUT" not in normal_timeline.inner_text()
-                        expect(normal_pane.locator(".agent-status")).to_contain_text("COMPLETED", timeout=15000)
+                        expect(normal_timeline).to_contain_text('completed', timeout=15000)
+                        expect(normal_pane.locator(".agent-status")).to_contain_text("Ready", timeout=15000)
                         normal_summary = normal_timeline.inner_text()
                         assert "OBSERVED" in normal_summary and "running" in normal_summary and "completed" in normal_summary, normal_summary
                         assert len(gateway.posts) == 1, gateway.posts
                         assert any("/v1/runs/run_normal_live_fixture_0001/events" in path for path in gateway.gets), gateway.gets
+                        page.locator('dialog.agent-inspector[data-pane-id="%s"]' % helper.PANE).get_by_role('button', name='Close agent inspector').click()
 
                         step = "register linked worktree"
                         page.get_by_role("button", name="Open orbit menu").click()
@@ -701,12 +710,17 @@ def main(renderer):
                         normal_draft = agent_pane.get_by_label("Message to Hermes", exact=True)
                         workbench_mode.click()
                         expect(workbench_mode).to_have_attribute("aria-pressed", "true")
+                        task_settings = agent_pane.locator('.pane-workbench-settings')
+                        task_settings.locator(':scope > summary').click()
                         wb_project = agent_pane.get_by_label("Workbench project", exact=True)
                         expect(wb_project.locator('option[value="%s"]' % project_id)).to_have_count(1, timeout=30000)
                         wb_project.select_option(value=project_id)
                         wb_task = agent_pane.get_by_label("Workbench task", exact=True)
                         expect(wb_task.locator('option[value="%s"]' % task["id"])).to_have_count(1, timeout=30000)
                         wb_task.select_option(value=task["id"])
+                        expect(agent_pane.locator('.pane-workbench-scope-line')).to_contain_text('Repair sum with recorded evidence')
+                        identities = agent_pane.locator('.pane-workbench-identities')
+                        identities.locator(':scope > summary').click()
                         wb_candidate = agent_pane.get_by_label("Workbench candidate", exact=True)
                         expect(wb_candidate.locator('option[value="%s"]' % candidate["id"])).to_have_count(1, timeout=30000)
                         wb_candidate.select_option(value=candidate["id"])
@@ -714,10 +728,10 @@ def main(renderer):
                         expect(wb_attempt.locator('option[value="%s"]' % attempt["id"])).to_have_count(1, timeout=30000)
                         wb_attempt.select_option(value=attempt["id"])
                         setup_details = agent_pane.locator(".pane-workbench-setup")
-                        if not setup_details.get_attribute("open"):
+                        if setup_details.get_attribute("open") is None:
                             setup_details.locator(":scope > summary").click()
                         handoff = agent_pane.locator(".pane-workbench-handoff")
-                        if not handoff.get_attribute("open"):
+                        if handoff.get_attribute("open") is None:
                             handoff.locator(":scope > summary").click()
                         excerpt_check = handoff.get_by_label("Include user excerpt", exact=True).first
                         expect(excerpt_check).to_be_visible(timeout=15000)
@@ -744,12 +758,14 @@ def main(renderer):
                         assert packet_context["attempt_id"] == attempt["id"], packet_context
                         assert packet_context["source"]["kind"] == "packet", packet_context
                         packet_snapshot_hash = packet_context["snapshot"]["hash"]
+                        agent_pane.locator('.pane-workbench-exact-scope > summary').click()
                         expect(agent_pane.locator(".pane-workbench-status")).to_contain_text(
                             "bound to attempt %s" % attempt["id"], timeout=30000)
 
                         step = "preview and approve native consent through pane authority using that packet"
+                        agent_pane.get_by_role('tab', name='Checks').click()
                         pane_authority = agent_pane.locator(".pane-workbench-authority")
-                        if not pane_authority.get_attribute("open"):
+                        if pane_authority.get_attribute("open") is None:
                             pane_authority.locator(":scope > summary").click()
                         refresh_authority(pane_authority)
                         pane_authority.get_by_label("Authority candidate", exact=True).select_option(value=candidate["id"])
@@ -811,6 +827,7 @@ def main(renderer):
                         model_requests_before_toggle = len(model.requests)
                         workbench_mode.click()
                         expect(workbench_mode).to_have_attribute("aria-pressed", "true")
+                        agent_pane.get_by_role('tab', name='Live').click()
                         wb_timeline = agent_pane.locator(".pane-workbench-live-slot .agent-live-timeline")
                         expect(wb_timeline).to_be_visible(timeout=30000)
                         expect(wb_timeline).to_contain_text("grant", timeout=30000)
@@ -854,6 +871,7 @@ def main(renderer):
                         assert all(call["status"] == "completed" for call in final_status["toolcalls"])
                         workbench_mode.click()
                         expect(workbench_mode).to_have_attribute("aria-pressed", "true")
+                        agent_pane.get_by_role('tab', name='Live').click()
                         expect(wb_timeline).to_be_visible(timeout=30000)
                         expect(wb_timeline).to_contain_text("toolcall", timeout=30000)
                         expect(wb_timeline).to_contain_text("evidence", timeout=30000)
@@ -993,13 +1011,17 @@ def main(renderer):
                         if not normal_timeline.count():
                             raise AssertionError("Normal timeline instance is absent after Workbench updates")
                         else:
+                            normal_pane.get_by_role('button', name='Agent pane menu', exact=True).click()
+                            page.get_by_role('menuitem', name='Activity', exact=True).click()
                             expect(normal_timeline).to_be_visible()
                             normal_after_export = normal_timeline.text_content() or ""
                             assert "normal_fixture_read" in normal_after_export, "Normal history missing after Workbench export"
                             assert "Private patch" not in normal_after_export, "Normal history contains Workbench export metadata"
+                            page.locator('dialog.agent-inspector[data-pane-id="%s"]' % helper.PANE).get_by_role('button', name='Close agent inspector').click()
                         assert len(gateway.posts) == 1, "mode switches must not submit another Normal run"
                         workbench_mode.click()
                         expect(workbench_mode).to_have_attribute("aria-pressed", "true")
+                        agent_pane.get_by_role('tab', name='Live').click()
                         expect(wb_timeline).to_be_visible()
                         expect(wb_timeline).to_contain_text("Private patch", timeout=30000)
                         result_row = wb_timeline.locator(".alt-row").filter(has_text="Task result")
@@ -1023,12 +1045,18 @@ def main(renderer):
                         expect(page.locator(".saved")).to_contain_text("Workspace connected", timeout=15000)
                         reloaded_agent = page.locator('[data-pane-id="%s"]' % helper.PANE)
                         expect(reloaded_agent.get_by_role("button", name="Workbench Hermes mode", exact=True)).to_have_attribute("aria-pressed", "true")
+                        reloaded_agent.locator('.pane-workbench-settings > summary').click()
                         reloaded_project = reloaded_agent.get_by_label("Workbench project", exact=True)
                         expect(reloaded_project.locator('option[value="%s"]' % project_id)).to_have_count(1, timeout=30000)
-                        reloaded_project.select_option(value=project_id)
+                        if reloaded_project.input_value() != project_id:
+                            reloaded_project.select_option(value=project_id)
+                        reloaded_agent.locator('.pane-workbench-identities > summary').click()
                         reloaded_attempt = reloaded_agent.get_by_label("Workbench attempt", exact=True)
                         expect(reloaded_attempt.locator('option[value="%s"]' % attempt["id"])).to_have_count(1, timeout=30000)
-                        reloaded_attempt.select_option(value=attempt["id"])
+                        if reloaded_attempt.input_value() != attempt["id"]:
+                            reloaded_attempt.select_option(value=attempt["id"])
+                        expect(reloaded_agent.get_by_role('tab', name='Live')).to_have_attribute('aria-selected', 'true')
+                        reloaded_agent.get_by_role('tab', name='Live').click()
                         reloaded_timeline = reloaded_agent.locator(".pane-workbench-live-slot .agent-live-timeline")
                         expect(reloaded_timeline).to_be_visible(timeout=30000)
                         expect(reloaded_timeline).to_contain_text("Private patch", timeout=30000)
@@ -1041,7 +1069,7 @@ def main(renderer):
                         replay_streams = live_requests[live_requests_before_reload:]
                         assert any(request.get("action") == "stream" and request.get("attempt_id") == attempt["id"]
                                    and request.get("after_sequence", 0) == 0 for request in replay_streams), replay_streams
-                        reloaded_normal = reloaded_agent.locator(".agent-chat-normal .agent-live-timeline")
+                        reloaded_normal = page.locator('dialog.agent-inspector[data-pane-id="%s"] .agent-live-timeline' % helper.PANE)
                         if not reloaded_normal.count():
                             raise AssertionError("Normal history instance is missing after reload")
                         else:

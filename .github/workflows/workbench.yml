@@ -126,6 +126,13 @@ jobs:
           for renderer in default docking; do
             /tmp/opencode/orbit-workbench-venv/bin/python tests/pane-workbench-mode.browser.py --renderer "$renderer"
           done
+      - name: Agent pane progressive disclosure and visual budgets
+        if: ${{ !cancelled() && steps.browser_tools.outcome == 'success' }}
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
+        run: |
+          /tmp/opencode/orbit-workbench-venv/bin/python tests/agent-pane-ux.browser.py
+          /tmp/opencode/orbit-workbench-venv/bin/python tests/agent-selection.browser.py
       - name: Exact candidate diff review on both renderers
         if: ${{ !cancelled() && steps.browser_tools.outcome == 'success' }}
         env:
