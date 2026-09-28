@@ -31,7 +31,7 @@ function modeName(mode: CandidateDiffFile['old_mode']): string {
 }
 
 /** Memory-only presentation of already resolved candidate bytes and identities. */
-export function createCandidateDiffViewer(data: CandidateDiffData, options: { selectedPath?: string; title?: string } = {}): { element: HTMLElement; dispose: () => void } {
+export function createCandidateDiffViewer(data: CandidateDiffData, options: { selectedPath?: string; title?: string; compact?: boolean } = {}): { element: HTMLElement; dispose: () => void } {
   const files = data.available ? [...data.files ?? []] : [];
   let prefs: Preferences = { mode: 'split', context: 3, wrap: true };
   try {
@@ -47,6 +47,7 @@ export function createCandidateDiffViewer(data: CandidateDiffData, options: { se
   const results = new Map<number, CalculatedDiff>(); const errors = new Map<number, string>();
   const collapsedFiles = new Set<number>();
   const root = el('section', 'candidate-diff-viewer'); root.tabIndex = 0; root.setAttribute('aria-label', options.title ?? 'Candidate diff viewer');
+  root.classList.toggle('cdv-compact', options.compact === true);
   const header = el('header', 'cdv-header');
   const heading = el('strong', 'cdv-title', options.title ?? 'Candidate changes');
   const comparisonLabel = data.comparison === 'initial' ? 'Cumulative · initial → selected generation' : data.comparison === 'previous' ? 'Transition · previous → selected generation' : 'Exact selected versions';
@@ -94,7 +95,18 @@ export function createCandidateDiffViewer(data: CandidateDiffData, options: { se
   const viewport = el('div', 'cdv-viewport'); viewport.tabIndex = 0; viewport.setAttribute('aria-label', 'Diff source');
   const pagination = el('div', 'cdv-pagination');
   const help = el('details', 'cdv-help'); help.append(el('summary', '', 'Keyboard shortcuts'), el('p', '', 'With focus in the viewer: j / k or Alt+↓ / ↑: next / previous hunk. ] / [ or Alt+→ / ←: next / previous file. u / s: unified / split. /: search. Escape: leave expanded view. Source search counts matching lines on each available side and matching paths.'));
-   main.append(fileHeader, controls, viewport, pagination); body.append(nav, main); root.append(header, comparison, identityStrip, identities, notice, toolbar, whitespaceNotice, searchbar, body, status, help);
+  const settings = el('details', 'cdv-settings'); settings.append(el('summary', '', 'Review controls and files'));
+  main.append(fileHeader, controls, viewport, pagination);
+  if (options.compact) {
+    comparison.textContent = `${data.comparison === 'initial' ? 'Cumulative' : 'Historical transition'}${data.from && data.to ? ` · g${data.from.generation} → g${data.to.generation}` : ''}`;
+    comparison.hidden = true; identityStrip.prepend(document.createTextNode(data.comparison === 'initial' ? 'Initial · ' : 'Transition · '));
+    settings.append(identities, toolbar, searchbar, nav); body.append(main);
+    settings.append(button('Copy selected hunk', () => { const result = results.get(selected), range = result?.hunks[Math.max(0, hunk)]; if (result && range) copyRows(Math.max(0, range.start - 3), Math.min(result.rows.length, range.end + 3), false); }));
+    const controlsButton = button('Controls', () => { settings.open = !settings.open; if (settings.open) settings.scrollIntoView({block:'nearest'}); }, 'Review controls and files');
+    controlsButton.setAttribute('aria-expanded', 'false'); settings.addEventListener('toggle', () => controlsButton.setAttribute('aria-expanded', String(settings.open)));
+    header.insertBefore(controlsButton, expand);
+    root.append(header, comparison, identityStrip, notice, whitespaceNotice, body, settings, status, help);
+  } else { body.append(nav, main); root.append(header, comparison, identityStrip, identities, notice, toolbar, whitespaceNotice, searchbar, body, status, help); }
   let dialog: HTMLDialogElement | undefined; let placeholder: Comment | undefined; let returnFocus: HTMLElement | null = null;
   function toggleExpanded() {
     if (dialog) { closeExpanded(); return; }
@@ -221,16 +233,17 @@ export function createCandidateDiffViewer(data: CandidateDiffData, options: { se
     const file = files[selected]; const result = results.get(selected);
     hunkLabel.textContent = result ? `${hunk < 0 ? 0 : hunk + 1} / ${result.hunks.length} hunks` : '';
     if (!file) { viewport.append(el('p', 'cdv-empty', data.available ? 'No changed files supplied.' : 'Exact comparison unavailable. See comparison identity above.')); return; }
-    const path = el('strong', 'cdv-file-title', file.path); fileHeader.append(path, button('Copy path', () => copy(file.path)));
+    const path = el('strong', 'cdv-file-title', file.path); const copyPath = button('Copy path', () => copy(file.path)); fileHeader.append(path); if (!options.compact) fileHeader.append(copyPath);
     fileHeader.append(el('span', 'cdv-file-hashes', `old ${file.old_hash?.slice(0, 12) ?? 'absent'} → new ${file.new_hash?.slice(0, 12) ?? 'absent'}`));
     const collapseFile = button(collapsedFiles.has(selected) ? 'Expand source' : 'Collapse file', () => { if (collapsedFiles.has(selected)) collapsedFiles.delete(selected); else collapsedFiles.add(selected); render(); });
-    collapseFile.setAttribute('aria-expanded', String(!collapsedFiles.has(selected))); fileHeader.append(collapseFile);
+    collapseFile.setAttribute('aria-expanded', String(!collapsedFiles.has(selected))); if (!options.compact) fileHeader.append(collapseFile);
     const metadata = el('details', 'cdv-file-identity'); metadata.append(el('summary', '', `${changeName(file)} · ${result ? `+${result.additions} −${result.deletions}${result.limited ? ' · non-minimal / bounded' : ''}` : readable(file) && !errors.has(selected) ? 'Statistics pending' : 'Text statistics unavailable'} · Mode ${file.old_hash === null ? 'absent' : modeName(file.old_mode)} → ${file.new_hash === null ? 'absent' : modeName(file.new_mode)}`));
     for (const side of ['old', 'new'] as const) {
       const hash = file[`${side}_hash`]; metadata.append(el('div', '', `${side}: ${hash ?? 'absent'} · mode ${modeName(file[`${side}_mode`])}${file[`${side}_bytes`] !== undefined ? ` · ${file[`${side}_bytes`]} bytes` : ''}`));
       if (hash) metadata.append(button(`Copy ${side} hash`, () => copy(hash)));
     }
     if (data.mode_provenance === 'retained_tree_observation') metadata.append(el('p', '', 'Modes are server-observed executable bits of the retained trees, rechecked across this read. Legacy candidate hashes bind content, not file modes. Artifact verification validates its own modes independently.'));
+    if (options.compact) metadata.append(copyPath, collapseFile);
     fileHeader.append(metadata);
     if (collapsedFiles.has(selected)) { viewport.append(el('p', 'cdv-empty', 'File source collapsed. Identity and statistics remain visible.')); return; }
     if (!readable(file)) { viewport.append(el('p', 'cdv-empty', `${file.reason === 'binary' ? 'Binary file changed. No text diff is provided.' : `Text unavailable: ${file.reason ?? 'missing exact source'}.`} Old: ${file.old_hash ?? 'absent'} (${file.old_bytes ?? 'unknown'} bytes). New: ${file.new_hash ?? 'absent'} (${file.new_bytes ?? 'unknown'} bytes). No substitute source is displayed.`)); return; }
@@ -304,7 +317,7 @@ export function createCandidateDiffViewer(data: CandidateDiffData, options: { se
     if ((event.target as HTMLElement).closest('input,textarea,select,[contenteditable="true"],[role="textbox"]') || event.ctrlKey || event.metaKey) return;
     let handled = true;
     if (event.key === 'Escape' && dialog) closeExpanded();
-    else if (event.key === '/' && !event.altKey) search.focus();
+    else if (event.key === '/' && !event.altKey) { if (options.compact) settings.open = true; search.focus(); }
     else if (event.key === 'j' || (event.altKey && event.key === 'ArrowDown')) jumpHunk(1);
     else if (event.key === 'k' || (event.altKey && event.key === 'ArrowUp')) jumpHunk(-1);
     else if (event.key === ']' || (event.altKey && event.key === 'ArrowRight')) selectFile(selected + 1);

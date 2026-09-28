@@ -102,6 +102,10 @@ Keyboard shortcuts are focus-scoped and listed in the viewer: j/k or Alt+Down/Up
 for hunks, [/ ] or Alt+Left/Right for files, u/s for layout, and / for search.
 Expand moves the same viewer into a dialog; returning preserves state and scroll.
 Raw and copied text are review conveniences, separate from verified patch download.
+Embedded Review uses the component's compact layout so that code and recorder
+verdicts fit together in small default and docking panes. Its **Controls** button
+opens layout, context, search and the file list; identities and hunk/file navigation
+stay visible. The expanded dialog retains the same selected comparison.
 
 Syntax is line-local, with plain-text fallback for unknown formats and lines over
 12,000 characters. Multiline lexical context is approximate. No rename heuristic,

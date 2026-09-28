@@ -508,7 +508,11 @@ def main(renderer):
                         assert "?" not in review_pane["url"], review_pane["url"]
                         review_view = page.locator('.pane[data-pane-id="%s"] .workbench-review-view' % review_pane["id"])
                         expect(review_view).to_be_visible(timeout=20000)
-                        expect(review_view.locator(".workbench-review-diff")).to_contain_text("--- a/math.js", timeout=20000)
+                        review_diff = review_view.locator(".workbench-review-diff .candidate-diff-viewer")
+                        expect(review_diff).to_be_visible(timeout=20000)
+                        review_diff.get_by_role('button', name='Review controls and files', exact=True).click()
+                        review_diff.get_by_role("button", name="Raw unified", exact=True).click()
+                        expect(review_diff.locator(".cdv-raw")).to_contain_text("--- a/math.js", timeout=20000)
                         expect(review_view.locator(".workbench-review-checks")).to_be_visible(timeout=20000)
                         expect(review_view.locator(".workbench-review-explanation")).to_be_visible(timeout=20000)
                         step = "expand literal Hermes explanation and assert exact text, provenance and no model/chat effect"
@@ -541,7 +545,7 @@ def main(renderer):
                                 details.locator("summary").click()
                         assert len(model.requests) == requests_before_expand, "expanding the explanation must not call the model"
                         assert page.locator('.pane[data-pane-id="%s"] .chat-messages .chat-message' % helper.PANE).count() == messages_before_expand, "expanding the explanation must not add a chat turn"
-                        diff_text = review_view.locator("pre.workbench-review-diff-text").inner_text()
+                        diff_text = review_view.locator("pre.cdv-raw").inner_text()
                         assert "math.js" in diff_text and "@@" in diff_text, diff_text[:200]
                         listed = helper.api(origin, token, "/api/workbench", {"action": "list"})[1]
                         owned = [b for b in listed.get("bindings", []) if b.get("pane_id") == review_pane["id"] and b.get("role") == "candidate_diff"]
@@ -644,7 +648,7 @@ def main(renderer):
                                 return False
                             return (box["y"] >= pane_scroll["y"] - 2 and box["y"] + box["height"] <= pane_scroll["y"] + pane_scroll["height"] + 2
                                     and box["x"] >= pane_scroll["x"] - 2 and box["x"] + box["width"] <= pane_scroll["x"] + pane_scroll["width"] + 2)
-                        diff_visible = within(review_view.locator("pre.workbench-review-diff-text"))
+                        diff_visible = within(review_view.locator(".cdv-table"))
                         verdict_visible = within(review_view.locator(".workbench-review-check").first)
                         useful = diff_visible and verdict_visible
                         screenshot = "/tmp/opencode/comet-next-flash-scratch/review-view-%s.png" % renderer

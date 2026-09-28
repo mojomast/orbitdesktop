@@ -486,7 +486,17 @@ def main(renderer):
                     idle_send.fill("IDLE-LANE-DRAFT")
                     starts_before_idle = len([a for a in agent_requests if a == "start"])
                     expect(pane_locator.get_by_role("button", name="Send message to Hermes", exact=True)).to_be_enabled(timeout=10000)
-                    idle_send.press("Enter")
+                    # The read-only shared-chat poll briefly disables Send. Dispatch
+                    # Enter in the same browser turn as the enabled check so that
+                    # the fixture cannot race that poll and silently skip its send.
+                    page.wait_for_function("""id => {
+                        const root=document.querySelector(`[data-pane-id="${id}"]`);
+                        const send=root?.querySelector('[aria-label="Send message to Hermes"]');
+                        const input=root?.querySelector('[aria-label="Message to Hermes"]');
+                        if(!send || send.disabled || !input) return false;
+                        input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
+                        return true;
+                    }""", arg=pane)
                     for _ in range(40):
                         if len([a for a in agent_requests if a == "start"]) > starts_before_idle:
                             break

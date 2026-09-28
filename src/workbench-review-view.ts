@@ -41,7 +41,7 @@ export function mountWorkbenchReviewView(body:HTMLElement,args:Args):{refresh():
         const reply=await api('live',{action:'detail',reference:ref,comparison:'initial'},ticket);
         if(!current(ticket))return;
         const diff=candidateDiffFromDetail(reply,{candidate_id:ref.id,generation:ref.generation,candidate_hash:ref.hash});
-        diffViewer=createCandidateDiffViewer(diff,{title:`Historical approved review · generation ${ref.generation}`});stale.append(diffViewer.element);
+        diffViewer=createCandidateDiffViewer(diff,{title:`Historical approved review · generation ${ref.generation}`,compact:true});stale.append(diffViewer.element);
       }catch(reason){if(!current(ticket))return;stale.append(el('p','','Exact historical comparison unavailable. The server could not resolve and validate the retained approved generation; current source was NOT substituted.'));}
       if(!current(ticket))return;
       view.replaceChildren(stale);status.textContent='Historical approved review · not current authorization.';return;
@@ -89,7 +89,7 @@ export function mountWorkbenchReviewView(body:HTMLElement,args:Args):{refresh():
     const metadata=el('details','workbench-review-metadata'),metadataSummary=el('summary','','Candidate, source, acceptance and evidence identities');
     metadata.append(metadataSummary,textField('Candidate ID',candidate.id),textField('Candidate SHA-256',candidate.hash),textField('Source snapshot SHA-256',patch.source?.manifest_hash),textField('Acceptance digest',task?.acceptance_digest),textField('Required-check digest',task?.acceptance?.required_checks_digest),textField('Review identity',review.review_identity),textField('Evidence IDs',candidateReply.review_evidence_ids??[]),textField('Verified patch-export support',artifactChecksSupported?support?.message??'Supported for this exact preview':support?.message??'Server support unavailable; refresh this review'),...(support?.required_checks??[]).filter((check:Data)=>!check.ready).map((check:Data)=>textField(`Check ${check.definition_id} · profile ${check.execution_profile_id??'default'}`,check.message)));summary.append(metadata);
     const left=el('section','workbench-review-diff');left.setAttribute('aria-label','Exact reviewed candidate diff');
-    diffViewer?.dispose();diffViewer=createCandidateDiffViewer(diff,{title:`Initial candidate generation 1 → reviewed generation ${candidate.generation}`});
+    diffViewer?.dispose();diffViewer=createCandidateDiffViewer(diff,{title:'Reviewed candidate changes',compact:true});
     left.append(el('h4','','Exact candidate diff'),diffViewer.element);
     if(!diff.available)left.append(el('p','workbench-review-diff-unavailable',`Exact retained generation comparison unavailable (${diff.reason??'unavailable'}). The current candidate is not substituted.`));
     const patchStatus=el('p','workbench-review-verified-patch',verifiedPatch?.inconsistent
