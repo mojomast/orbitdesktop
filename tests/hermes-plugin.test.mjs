@@ -9,6 +9,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { initial } from '../src/model.ts';
 import { createWorkspaceService } from '../server/workspace.mjs';
+import {WorkbenchStore} from '../server/workbench-store.mjs';
 const exec = promisify(execFile);
 
 test('Hermes plugin uses real Orbit API: preview, apply, conflict, checkpoint, restore', async t => {
@@ -42,6 +43,11 @@ ctx=Context(); module.register(ctx); print(ctx.handler(json.loads(sys.argv[4])))
   }
   const read = await call({ action: 'read' });
   assert.equal(read.ok, true);
+  const description=await call({action:'describe',catalog:true});
+  assert.equal(description.ok,true);
+  assert.equal(description.result.catalog.operations.layout_panes.input.properties.action.const,'layout_panes');
+  assert.equal(description.result.catalog.limits.maxOperations,32);
+  assert.deepEqual(description.result.bindings,[],'unbound initial panes must not invent project roles');
   const revision = read.result.revision;
   const operations = [{ action: 'sidebar', hidden: true }];
   assert.equal((await call({ action: 'preview', base_revision: revision, operations })).ok, true);
@@ -57,4 +63,26 @@ ctx=Context(); module.register(ctx); print(ctx.handler(json.loads(sys.argv[4])))
   assert.equal(restored.ok, true);
   assert.equal(Boolean(restored.result.state.sidebarHidden), Boolean(read.result.state.sidebarHidden));
   assert.equal((await call({ action: 'checkpoint', label: 'Verified plugin integration' })).ok, true);
+  const records=new WorkbenchStore(service.store);
+  const project=records.register(workspace,{root:'/synthetic/hermes-arrangement',name:'Adapter fixture',identity:'fixture'});
+  const current=service.store.read(workspace),pane=current.state.monitors[2].layout.pane;
+  const resource=records.resource(project.id,'synthetic-terminal',{kind:'terminal',pane_id:pane.id});
+  records.bind({workspace_id:workspace,project_id:project.id,resource_id:resource.id,pane_id:pane.id,base_revision:current.revision,role:'active_terminal'});
+  const arrangement=request=>call({action:'arrangement',request:{project_id:project.id,...request}});
+  const saved=await arrangement({action:'recipe_save',name:'Debug adapter',roles:['active_terminal'],layout:'columns',renderer:'windows',op_id:randomUUID()});
+  assert.equal(saved.ok,true,JSON.stringify(saved));
+  const preview=await arrangement({action:'recipe_preview',recipe:'project_focus',recipe_id:saved.result.recipe.id,width:1000,height:700,renderer:'windows'});
+  assert.equal(preview.ok,true,JSON.stringify(preview));
+  const apply={action:'recipe_apply',recipe:'project_focus',preview_id:preview.result.preview_id,preview_digest:preview.result.preview_digest,viewport:preview.result.viewport,op_id:randomUUID()};
+  const committed=await arrangement(apply);
+  assert.equal(committed.ok,true,JSON.stringify(committed));
+  const retry=await arrangement(apply);
+  assert.equal(retry.ok,true);assert.equal(retry.result.idempotent,true);
+  assert.equal(retry.result.workspace.revision,committed.result.workspace.revision);
+  const inverse=await arrangement({action:'recipe_preview',recipe:'return'});
+  assert.equal(inverse.ok,true);
+  const returned=await arrangement({action:'recipe_apply',recipe:'return',preview_id:inverse.result.preview_id,preview_digest:inverse.result.preview_digest,op_id:randomUUID()});
+  assert.equal(returned.ok,true,JSON.stringify(returned));
+  assert.deepEqual(returned.result.workspace.state,current.state);
+  assert.deepEqual(returned.result.workspace.placement,current.placement);
 });

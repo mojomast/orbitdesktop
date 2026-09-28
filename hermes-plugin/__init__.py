@@ -15,13 +15,14 @@ maxRequestBytes = 150000
 maxResponseBytes = 2000000
 maxLabelCharacters = 120
 # END GENERATED WORKSPACE LIMITS
-ACTIONS = ("read", "preview", "apply", "history", "checkpoint", "restore")
+ACTIONS = ("read", "describe", "arrangement", "preview", "apply", "history", "checkpoint", "restore")
 MUTATIONS = ("apply", "checkpoint", "restore")
 OPERATION_ID = re.compile(r"[a-zA-Z0-9_.:-]{1,128}")
 SCHEMA = {
     "name": "orbit_workspace",
     "description": (
         "Read or edit the Orbit workspace explicitly configured for this Hermes profile. "
+        "Use describe with catalog=true to discover the validated operation schemas and actual role bindings. "
         "Read first; use actual IDs and revision. Preview before large edits. "
         "Apply/restore require base_revision; do not retry conflicts blindly. "
         "Restore requires the user's explicit rollback request and confirm=true. "
@@ -32,6 +33,9 @@ SCHEMA = {
         "type": "object",
         "properties": {
             "action": {"type": "string", "enum": list(ACTIONS)},
+            "project_id": {"type": "string"},
+            "catalog": {"type": "boolean"},
+            "request": {"type": "object", "description": "Exact arrangement request from the discovered catalog; omit workspace_id and actor. Keep op_id when recovering an unknown result."},
             "base_revision": {"type": "integer", "minimum": 0},
             "operations": {"type": "array", "items": {"type": "object"}, "minItems": 1, "maxItems": maxOperations},
             "label": {"type": "string", "maxLength": maxLabelCharacters},
@@ -69,6 +73,19 @@ def invoke(ctx, params):
         raise ValueError("Unknown workspace action")
     action = params["action"]
     allowed = {"action"}
+    if action == "arrangement":
+        allowed |= {"request"}
+        request = params.get("request")
+        if not isinstance(request, dict) or set(request) & {"workspace_id", "actor"}:
+            raise ValueError("Arrangement request cannot override workspace or actor")
+        if request.get("action") not in ("recipe_list", "proposal_list", "proposal_get") and ctx.get_config("allow_mutations", False) is not True:
+            raise ValueError("Workspace mutations are disabled in this profile's plugin settings")
+    if action == "describe":
+        allowed |= {"project_id", "catalog"}
+        if "catalog" in params and type(params["catalog"]) is not bool:
+            raise ValueError("catalog must be boolean")
+        if "project_id" in params and (not isinstance(params["project_id"], str) or not UUID.fullmatch(params["project_id"])):
+            raise ValueError("Invalid project_id")
     if action in ("apply", "preview"):
         allowed |= {"base_revision", "operations"}
     elif action == "restore":
@@ -151,6 +168,8 @@ def invoke(ctx, params):
             else "Orbit rejected the request; check authorization and operation schema"
         )}
     except (urllib.error.URLError, TimeoutError, OSError):
+        if action == "arrangement":
+            return {"ok": False, "outcome": "unknown", "op_id": params["request"].get("op_id"), "error": "Arrangement response unavailable. Read its durable proposal/receipt; retry a commit only with the exact retained request and key. Do not create a new operation."}
         if action in MUTATIONS:
             return {"ok": False, "outcome": "unknown", "operation_id": request_params["operation_id"], "base_revision": request_params["base_revision"], "error": "Mutation outcome unknown. Reuse the exact key and payload or read before reconsidering; never blindly create a new mutation."}
         return {"ok": False, "error": "Orbit unavailable"}

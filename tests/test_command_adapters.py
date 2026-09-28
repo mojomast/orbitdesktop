@@ -60,7 +60,7 @@ class CommandAdapters(unittest.TestCase):
         with self.assertRaises(ValueError): plugin.invoke(self.context, {"action": "read"})
         with self.assertRaises(ValueError): self.cli("read")
     def test_hermes_advertises_only_real_control_actions_and_reuses_explicit_checkpoint_key(self):
-        self.assertEqual(set(plugin.ACTIONS), {"read", "preview", "apply", "history", "checkpoint", "restore"})
+        self.assertEqual(set(plugin.ACTIONS), {"read", "describe", "arrangement", "preview", "apply", "history", "checkpoint", "restore"})
         payload = {"action": "checkpoint", "base_revision": 5, "label": "Known", "operation_id": "stable-key", "intent": "Reviewed checkpoint"}
         with mock.patch.object(plugin.urllib.request, "build_opener") as opener:
             opener.return_value.open.return_value = Response({"checkpoint": "fixture"})
@@ -87,6 +87,20 @@ class CommandAdapters(unittest.TestCase):
         self.assertEqual(result["command_receipt"]["operation_id"], "cli-key")
         self.assertEqual([call["action"] for call in calls], ["read", "apply", "read"])
         self.assertEqual(calls[1]["base_revision"], 5)
+
+    def test_arrangement_transport_loss_never_retries_or_changes_retained_key(self):
+        request = {"action": "recipe_apply", "project_id": WORKSPACE, "recipe": "investigate", "preview_id": WORKSPACE, "preview_digest": "a" * 64, "op_id": WORKSPACE}
+        with mock.patch.object(plugin.urllib.request, "build_opener") as opener:
+            opener.return_value.open.side_effect = urllib.error.URLError("private transport detail")
+            result = plugin.invoke(self.context, {"action": "arrangement", "request": request})
+            self.assertEqual(result["outcome"], "unknown")
+            self.assertEqual(result["op_id"], WORKSPACE)
+            self.assertNotIn("private transport detail", json.dumps(result))
+            opener.return_value.open.assert_called_once()
+        with mock.patch.object(control, "open_workspace", side_effect=urllib.error.URLError("private transport detail")) as opened:
+            with self.assertRaisesRegex(RuntimeError, "Arrangement outcome unknown"):
+                self.cli("arrangement", json.dumps(request))
+            opened.assert_called_once()
     def test_cli_transport_rejects_remote_or_credential_destinations(self):
         for url in ("https://example.com", "http://localhost", "http://u:p@127.0.0.1", "http://127.0.0.1/path", "file:///tmp/test"):
             with self.subTest(url=url), self.assertRaises(ValueError): control.endpoint(url)

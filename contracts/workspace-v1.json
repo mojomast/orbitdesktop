@@ -1104,6 +1104,594 @@
         "recovery": "read"
       }
     },
+    "describe": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
+            "const": "describe"
+          },
+          "project_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "catalog": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "version": {
+            "const": 1
+          },
+          "editable_fields": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 100
+            },
+            "maxItems": 32
+          },
+          "surfaces": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "window_id": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                },
+                "pane_id": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                },
+                "kind": {
+                  "enum": [
+                    "terminal",
+                    "browser",
+                    "agent"
+                  ]
+                }
+              },
+              "required": [
+                "window_id",
+                "pane_id",
+                "kind"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 1000
+          },
+          "projects": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                },
+                "name": {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                "generation": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "generation"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 32
+          },
+          "bindings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                },
+                "project_id": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                },
+                "resource_id": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                },
+                "pane_id": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                },
+                "role": {
+                  "type": "string",
+                  "maxLength": 40
+                },
+                "available": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "project_id",
+                "resource_id",
+                "pane_id",
+                "role",
+                "available"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 1000
+          },
+          "extension_compatibility": {
+            "type": "object",
+            "properties": {
+              "manifest_api": {
+                "const": 1
+              },
+              "multiple_instances": {
+                "const": false
+              },
+              "private_frame_data": {
+                "const": false
+              },
+              "network": {
+                "const": "legacy-network-capable"
+              }
+            },
+            "required": [
+              "manifest_api",
+              "multiple_instances",
+              "private_frame_data",
+              "network"
+            ],
+            "additionalProperties": false
+          },
+          "unsupported": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "maxItems": 32
+          },
+          "catalog": {
+            "type": "object"
+          },
+          "recipes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "name": {
+                  "type": "string",
+                  "maxLength": 60
+                },
+                "roles": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 40
+                  },
+                  "maxItems": 5
+                },
+                "layout": {
+                  "type": "string",
+                  "maxLength": 40
+                },
+                "renderer": {
+                  "type": "string",
+                  "maxLength": 40
+                }
+              },
+              "required": [
+                "id",
+                "version",
+                "name",
+                "roles",
+                "layout",
+                "renderer"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 1024
+          },
+          "recipe_scope": {
+            "enum": [
+              "selected-project",
+              "select-project-to-list"
+            ]
+          }
+        },
+        "required": [
+          "workspace_id",
+          "revision",
+          "version",
+          "editable_fields",
+          "surfaces",
+          "projects",
+          "bindings",
+          "extension_compatibility",
+          "unsupported",
+          "recipes",
+          "recipe_scope"
+        ],
+        "additionalProperties": false
+      },
+      "sideEffect": "read",
+      "permission": "authenticated-workspace",
+      "revision": "none",
+      "idempotency": "read-only"
+    },
+    "arrangement": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
+            "const": "arrangement"
+          },
+          "request": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "const": "recipe_list"
+                  },
+                  "project_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  }
+                },
+                "required": [
+                  "action",
+                  "project_id"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "const": "recipe_save"
+                  },
+                  "project_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 60
+                  },
+                  "roles": {
+                    "type": "array",
+                    "items": {
+                      "enum": [
+                        "primary_agent",
+                        "active_terminal",
+                        "preview",
+                        "candidate_diff",
+                        "project_files"
+                      ]
+                    },
+                    "minItems": 0,
+                    "maxItems": 5,
+                    "uniqueItems": true
+                  },
+                  "layout": {
+                    "enum": [
+                      "prioritize",
+                      "columns",
+                      "rows"
+                    ]
+                  },
+                  "renderer": {
+                    "enum": [
+                      "windows",
+                      "spatial",
+                      "docking"
+                    ]
+                  },
+                  "recipe_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "expected_version": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "op_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "intent": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 160
+                  }
+                },
+                "required": [
+                  "action",
+                  "project_id",
+                  "name",
+                  "roles",
+                  "layout",
+                  "renderer"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "const": "recipe_preview"
+                  },
+                  "project_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "recipe": {
+                    "enum": [
+                      "project_focus",
+                      "investigate",
+                      "implement",
+                      "review",
+                      "return"
+                    ]
+                  },
+                  "recipe_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "role_choices": {
+                    "type": "object",
+                    "propertyNames": {
+                      "enum": [
+                        "primary_agent",
+                        "active_terminal",
+                        "preview",
+                        "candidate_diff",
+                        "project_files"
+                      ]
+                    },
+                    "additionalProperties": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                    },
+                    "maxProperties": 5
+                  },
+                  "renderer": {
+                    "enum": [
+                      "windows",
+                      "spatial",
+                      "docking"
+                    ]
+                  },
+                  "width": {
+                    "type": "number",
+                    "minimum": 280,
+                    "maximum": 16000
+                  },
+                  "height": {
+                    "type": "number",
+                    "minimum": 180,
+                    "maximum": 16000
+                  }
+                },
+                "required": [
+                  "action",
+                  "project_id",
+                  "recipe"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "const": "recipe_apply"
+                  },
+                  "project_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "recipe": {
+                    "enum": [
+                      "project_focus",
+                      "investigate",
+                      "implement",
+                      "review",
+                      "return"
+                    ]
+                  },
+                  "preview_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "preview_digest": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "op_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "intent": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 160
+                  },
+                  "viewport": {
+                    "type": "object",
+                    "properties": {
+                      "width": {
+                        "type": "number",
+                        "minimum": 280,
+                        "maximum": 16000
+                      },
+                      "height": {
+                        "type": "number",
+                        "minimum": 180,
+                        "maximum": 16000
+                      }
+                    },
+                    "required": [
+                      "width",
+                      "height"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "action",
+                  "project_id",
+                  "recipe",
+                  "preview_id",
+                  "preview_digest",
+                  "op_id"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "const": "proposal_list"
+                  },
+                  "project_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "recipe": {
+                    "enum": [
+                      "project_focus",
+                      "investigate",
+                      "implement",
+                      "review",
+                      "return"
+                    ]
+                  },
+                  "after_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  }
+                },
+                "required": [
+                  "action",
+                  "project_id"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "const": "proposal_get"
+                  },
+                  "project_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "proposal_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  }
+                },
+                "required": [
+                  "action",
+                  "project_id",
+                  "proposal_id"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "const": "proposal_reject"
+                  },
+                  "project_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "proposal_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "expected_version": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                },
+                "required": [
+                  "action",
+                  "project_id",
+                  "proposal_id",
+                  "expected_version"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action",
+          "request"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "description": "Arrangement service result; structural preview, committed receipt and browser acknowledgement are separate facts"
+      },
+      "sideEffect": "workspace-proposal",
+      "permission": "authenticated-workspace",
+      "revision": "service-validated",
+      "idempotency": "action-specific; recipe_apply requires the exact retained preview identity and op_id, with durable actor-scoped receipt recovery"
+    },
     "history": {
       "input": {
         "type": "object",
@@ -3691,6 +4279,352 @@
         "required": [
           "workspace_id",
           "action"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
+            "const": "describe"
+          },
+          "project_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "catalog": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
+            "const": "arrangement"
+          },
+          "request": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "const": "recipe_list"
+                  },
+                  "project_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  }
+                },
+                "required": [
+                  "action",
+                  "project_id"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "const": "recipe_save"
+                  },
+                  "project_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 60
+                  },
+                  "roles": {
+                    "type": "array",
+                    "items": {
+                      "enum": [
+                        "primary_agent",
+                        "active_terminal",
+                        "preview",
+                        "candidate_diff",
+                        "project_files"
+                      ]
+                    },
+                    "minItems": 0,
+                    "maxItems": 5,
+                    "uniqueItems": true
+                  },
+                  "layout": {
+                    "enum": [
+                      "prioritize",
+                      "columns",
+                      "rows"
+                    ]
+                  },
+                  "renderer": {
+                    "enum": [
+                      "windows",
+                      "spatial",
+                      "docking"
+                    ]
+                  },
+                  "recipe_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "expected_version": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "op_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "intent": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 160
+                  }
+                },
+                "required": [
+                  "action",
+                  "project_id",
+                  "name",
+                  "roles",
+                  "layout",
+                  "renderer"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "const": "recipe_preview"
+                  },
+                  "project_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "recipe": {
+                    "enum": [
+                      "project_focus",
+                      "investigate",
+                      "implement",
+                      "review",
+                      "return"
+                    ]
+                  },
+                  "recipe_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "role_choices": {
+                    "type": "object",
+                    "propertyNames": {
+                      "enum": [
+                        "primary_agent",
+                        "active_terminal",
+                        "preview",
+                        "candidate_diff",
+                        "project_files"
+                      ]
+                    },
+                    "additionalProperties": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                    },
+                    "maxProperties": 5
+                  },
+                  "renderer": {
+                    "enum": [
+                      "windows",
+                      "spatial",
+                      "docking"
+                    ]
+                  },
+                  "width": {
+                    "type": "number",
+                    "minimum": 280,
+                    "maximum": 16000
+                  },
+                  "height": {
+                    "type": "number",
+                    "minimum": 180,
+                    "maximum": 16000
+                  }
+                },
+                "required": [
+                  "action",
+                  "project_id",
+                  "recipe"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "const": "recipe_apply"
+                  },
+                  "project_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "recipe": {
+                    "enum": [
+                      "project_focus",
+                      "investigate",
+                      "implement",
+                      "review",
+                      "return"
+                    ]
+                  },
+                  "preview_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "preview_digest": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "op_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "intent": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 160
+                  },
+                  "viewport": {
+                    "type": "object",
+                    "properties": {
+                      "width": {
+                        "type": "number",
+                        "minimum": 280,
+                        "maximum": 16000
+                      },
+                      "height": {
+                        "type": "number",
+                        "minimum": 180,
+                        "maximum": 16000
+                      }
+                    },
+                    "required": [
+                      "width",
+                      "height"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "action",
+                  "project_id",
+                  "recipe",
+                  "preview_id",
+                  "preview_digest",
+                  "op_id"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "const": "proposal_list"
+                  },
+                  "project_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "recipe": {
+                    "enum": [
+                      "project_focus",
+                      "investigate",
+                      "implement",
+                      "review",
+                      "return"
+                    ]
+                  },
+                  "after_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  }
+                },
+                "required": [
+                  "action",
+                  "project_id"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "const": "proposal_get"
+                  },
+                  "project_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "proposal_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  }
+                },
+                "required": [
+                  "action",
+                  "project_id",
+                  "proposal_id"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "const": "proposal_reject"
+                  },
+                  "project_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "proposal_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "expected_version": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                },
+                "required": [
+                  "action",
+                  "project_id",
+                  "proposal_id",
+                  "expected_version"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action",
+          "request"
         ],
         "additionalProperties": false
       },

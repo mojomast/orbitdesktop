@@ -75,6 +75,21 @@ class TransportTest(unittest.TestCase):
             self.assertFalse(self.call(action=action)["ok"])
         self.assertFalse(self.calls)
 
+    def test_describe_catalog_without_mutation_authority(self):
+        self.assertTrue(self.call(action="describe", catalog=True, project_id=WORKSPACE)["ok"])
+        self.assertEqual(self.calls[-1][2], {"action": "describe", "catalog": True, "project_id": WORKSPACE, "workspace_id": WORKSPACE})
+        for fields in ({"catalog": "true"}, {"project_id": "invalid"}, {"actor": "owner"}, {"operations": []}):
+            self.assertFalse(self.call(action="describe", **fields)["ok"])
+        self.assertEqual(len(self.calls), 1)
+
+    def test_arrangement_scope_and_mutation_gate(self):
+        self.assertTrue(self.call(action="arrangement", request={"action": "recipe_list", "project_id": WORKSPACE})["ok"])
+        self.assertFalse(self.call(action="arrangement", request={"action": "recipe_apply", "project_id": WORKSPACE})["ok"])
+        self.ctx.settings["allow_mutations"] = True
+        for forbidden in ("actor", "workspace_id"):
+            self.assertFalse(self.call(action="arrangement", request={"action": "recipe_list", forbidden: WORKSPACE})["ok"])
+        self.assertEqual(len(self.calls), 1)
+
     def test_preview_and_apply_revision(self):
         ops = [{"action": "sidebar", "hidden": True}]
         self.assertTrue(self.call(action="preview", operations=ops, base_revision=7)["ok"])

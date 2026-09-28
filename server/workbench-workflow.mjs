@@ -6,12 +6,10 @@ import Ajv from 'ajv';
 import {wbError} from './workbench-store.mjs';
 import {captureProject,readProjectFile,repositorySnapshot} from './project-files.mjs';
 import {readCandidateFile} from './workbench-candidates.mjs';
-import {applyOperation} from '../src/workspace-ops.ts';
-import {validate} from '../src/model.ts';
-import {commandIdentity} from './command-identity.mjs';
 import {patchRequests,validatePatchRequest} from '../contracts/workbench-result-v1.mjs';
+import {arrangementRequests} from '../contracts/workbench-workflow-v1.mjs';
 import {createWorkbenchPatchExport} from './workbench-patch-export.mjs';
-import {emptyPlacement,placementWindows,prunePlacement,validateDockingPlacement} from '../src/docking-placement.ts';
+import {createWorkspaceArrangements} from './workspace-arrangements.mjs';
 
 const uuid={type:'string',pattern:'^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$'};
 const hash={type:'string',pattern:'^[a-f0-9]{64}$'};
@@ -21,8 +19,7 @@ export const workflowSchema={$schema:'http://json-schema.org/draft-07/schema#',o
   request('integration_preview',{candidate_id:uuid,review_id:uuid}),
   request('integrate_confirm',{candidate_id:uuid,review_id:uuid,preview_id:uuid,preview_digest:hash,op_id:uuid}),
   request('integration_list'),request('retention_inventory'),request('retention_plan'),
-  {type:'object',properties:{...base,action:{const:'recipe_preview'},recipe:{enum:['project_focus','investigate','implement','review','return']},width:{type:'number',minimum:280,maximum:16000},height:{type:'number',minimum:180,maximum:16000}},required:[...Object.keys(base),'action','recipe'],additionalProperties:false},
-  request('recipe_apply',{recipe:{enum:['project_focus','investigate','implement','review','return']},preview_id:uuid,preview_digest:hash,op_id:uuid}),
+  ...Object.values(arrangementRequests),
   ...Object.values(patchRequests),
 ]};
 const valid=new Ajv({strict:true}).compile(workflowSchema);
@@ -39,8 +36,9 @@ export function createWorkbenchWorkflow({store,records,data,execution,now=Date.n
   if(!path.isAbsolute(store?.root??'')||!records?.project||!data?.db||!execution?.dispatch)throw Error('Workbench workflow dependencies required');
   const root=path.join(store.root,'workbench-integration');
   fs.mkdirSync(root,{recursive:true,mode:0o700});
-  const previews=new Map(),previousArrangements=new Map();
+  const previews=new Map();
   const patchExport=createWorkbenchPatchExport({store,records,data,execution,inspect:actual,now});
+  const arrangements=createWorkspaceArrangements({store,records,data,now});
   const scope=body=>{store.read(body.workspace_id);return records.project(body.workspace_id,body.project_id);};
   const stale=()=>{throw wbError('stale_resource');};
   async function actual(body){
@@ -151,83 +149,6 @@ export function createWorkbenchWorkflow({store,records,data,execution,now=Date.n
       throw error;
     }
   }
-  function recipePreview(body){
-    const project=scope(body),workspace=store.read(body.workspace_id);
-    if(body.recipe==='review'&&(!Number.isFinite(body.width)||body.width<280||body.width>16000||!Number.isFinite(body.height)||body.height<180||body.height>16000)||body.recipe!=='review'&&(body.width!==undefined||body.height!==undefined))throw wbError('invalid_request');
-    const bindings=records.bindings(body.workspace_id,body.project_id);
-    const monitorIds=new Set();
-    for(const binding of bindings){
-      const monitor=workspace.state.monitors.find(m=>{
-        const visit=node=>node.type==='pane'?node.pane.id===binding.pane_id:visit(node.first)||visit(node.second);
-        return visit(m.layout);
-      });
-      if(monitor)monitorIds.add(monitor.id);
-    }
-    if(!monitorIds.size)throw wbError('unsupported');
-    const ids=workspace.state.monitors.map(m=>m.id);
-    const key=`${body.workspace_id}:${body.project_id}`;
-    const saved=previousArrangements.get(key);
-    if(body.recipe==='return'&&(!saved||saved.applied_revision!==workspace.revision))stale();
-    // Only relationships the current owner API can bind are prioritized. There
-    // is no job_output pane binding yet; do not imply that a generic window
-    // contains recorder output merely because a role name exists in a contract.
-    const roles={investigate:['primary_agent','project_files','active_terminal','preview'],implement:['primary_agent','candidate_diff','project_files'],review:['candidate_diff','project_files','primary_agent'],project_focus:[]};
-    const priorities=roles[body.recipe]??[];
-    const priority=id=>{const monitor=workspace.state.monitors.find(m=>m.id===id);const panes=new Set();const visit=node=>node.type==='pane'?panes.add(node.pane.id):(visit(node.first),visit(node.second));visit(monitor.layout);return Math.min(99,...bindings.filter(b=>panes.has(b.pane_id)).map(b=>{const index=priorities.indexOf(b.role);return index<0?99:index;}));};
-    let operations,placement=workspace.placement??emptyPlacement(),nextPlacement=placement;
-    if(body.recipe==='return'){
-      operations=[{action:'set_workspace',state:saved.state}];nextPlacement=saved.placement;
-    }else if(body.recipe==='review'){
-      const boundPanes=(role,predicate=()=>true)=>bindings.filter(item=>item.role===role).flatMap(binding=>{
-        for(const monitor of workspace.state.monitors){let found=null;const visit=node=>{if(node.type==='pane'){if(node.pane.id===binding.pane_id)found=node.pane;}else{visit(node.first);visit(node.second);}};visit(monitor.layout);if(found&&predicate(found))return [{monitor,pane:found,binding}];}
-        return [];
-      });
-      const trustedReviews=boundPanes('candidate_diff',pane=>pane.kind==='browser'&&pane.url==='orbit://workbench-review');
-      const anchors=boundPanes('primary_agent');
-      if(trustedReviews.length>1||anchors.length>1)throw wbError('conflict');
-      const review=trustedReviews[0]??null,anchor=anchors[0]??null;
-      if(!review||!anchor||review.monitor.id===anchor.monitor.id)throw wbError('unsupported');
-      const target=review.monitor,origin=anchor.monitor;
-      const anchorFrame=origin.frame??{x:24,y:18,width:Math.min(740,body.width-60),height:Math.min(510,body.height-90),z:0};
-      const width=Math.min(body.width,Math.max(280,Math.min(740,body.width*.42))),height=Math.min(body.height,Math.max(180,Math.min(620,body.height*.78)));
-      let x=anchorFrame.x+anchorFrame.width+16;if(x+width>body.width)x=Math.max(0,anchorFrame.x-width-16);x=Math.max(0,Math.min(x,body.width-width));
-      const y=Math.max(0,Math.min(anchorFrame.y,body.height-height));
-      const z=Math.max(0,...workspace.state.monitors.map(item=>item.frame?.z??0))+1;
-      operations=[{action:'update_window',window_id:target.id,frame:{x,y,width,height,z}},{action:'select',window_id:target.id},{action:'set_view',view:'windows'}];
-      const oldWindows=placementWindows(placement);
-      nextPlacement=prunePlacement(placement,oldWindows.filter(id=>id!==target.id));
-      nextPlacement.floats.push({windows:[target.id],frame:{x,y,width,height},active:target.id});nextPlacement.active=target.id;
-      nextPlacement=validateDockingPlacement(nextPlacement,{windowIds:ids});
-    }else{
-      const next=[...ids.filter(id=>monitorIds.has(id)).sort((a,b)=>priority(a)-priority(b)),...ids.filter(id=>!monitorIds.has(id))];
-      operations=[{action:'reorder_windows',window_ids:next}];
-    }
-    const state=operations.reduce((current,operation)=>validate(applyOperation(current,operation)),workspace.state);
-    const identity={workspace_id:body.workspace_id,project_id:body.project_id,project_generation:project.generation,recipe:body.recipe,base_revision:workspace.revision,bindings:bindings.map(b=>b.id),operations,previous_state:workspace.state,previous_placement:placement,next_placement:nextPlacement};
-    const preview_id=randomUUID(),preview_digest=digest(identity),expires_at=now()+TTL;
-    previews.set(preview_id,{identity,preview_digest,expires_at});
-    const previewOperations=body.recipe==='return'?[{action:'restore_review_arrangement',revision:saved.applied_revision}]:operations;
-    const warning=body.recipe==='review'
-      ?'Targets only the uniquely bound orbit://workbench-review window, positioning it beside primary_agent when measured space permits. The Docking float placement is updated without changing other placements. Return restores the exact previous workspace frame/view/selection and Docking placement under revision CAS.'
-      :body.recipe==='return'
-        ?'Restores the exact workspace state and Docking placement saved before the previous arrangement under revision CAS. Any intervening workspace revision prevents return.'
-        :'Explicit workspace revision CAS. Reorders existing windows only; pane IDs and contents stay the same. Browser continuity depends on native moveBefore support.';
-    return {preview_id,preview_digest,expires_at,base_revision:workspace.revision,operations:previewOperations,changed:JSON.stringify(state)!==JSON.stringify(workspace.state)||JSON.stringify(nextPlacement)!==JSON.stringify(placement),warning};
-  }
-  function recipeApply(body){
-    const issued=previews.get(body.preview_id);if(!issued||issued.expires_at<=now())throw wbError('expired');
-    const identity=issued.identity;
-    if(issued.preview_digest!==body.preview_digest||identity.workspace_id!==body.workspace_id||identity.project_id!==body.project_id||identity.recipe!==body.recipe)stale();
-    const project=scope(body),current=store.read(body.workspace_id);
-    if(current.revision!==identity.base_revision||project.generation!==identity.project_generation||JSON.stringify(records.bindings(body.workspace_id,body.project_id).map(b=>b.id))!==JSON.stringify(identity.bindings))stale();
-    const command={workspace_id:body.workspace_id,action:'apply',operations:identity.operations,base_revision:identity.base_revision,operation_id:body.op_id};
-    const receipt=store.commit(commandIdentity(command,'owner'),{apply:value=>identity.operations.reduce((state,operation)=>validate(applyOperation(state,operation)),value.state),placement:identity.next_placement,checkpointLabel:`Before ${body.recipe} recipe`,response:next=>({workspace_id:next.id,revision:next.revision,state:next.state,placement:next.placement})});
-    const key=`${body.workspace_id}:${body.project_id}`;
-    if(body.recipe!=='return')previousArrangements.set(key,{state:identity.previous_state,placement:identity.previous_placement,applied_revision:receipt.result.revision});
-    else previousArrangements.delete(key);
-    previews.delete(body.preview_id);
-    return {workspace:receipt.result,recipe:body.recipe};
-  }
   function inventory(body){
     scope(body);
     const counts={};for(const kind of ['tasks','attempts','candidates','profiles','jobs','evidence','reviews','integrations','contexts','submissions','grants','toolcalls'])counts[kind]=data.list(kind,body.workspace_id,body.project_id).length;
@@ -239,14 +160,13 @@ export function createWorkbenchWorkflow({store,records,data,execution,now=Date.n
   async function dispatch(body){
     if(validatePatchRequest(body))return patchExport.dispatch(body);
     if(!valid(body))throw wbError('invalid_request');
+    if(body.action.startsWith('recipe_')||body.action.startsWith('proposal_'))return arrangements.dispatch(body,{actor:'owner'});
     switch(body.action){
       case 'integration_preview':return integrationPreview(body);
       case 'integrate_confirm':return confirm(body);
       case 'integration_list':return {integrations:data.list('integrations',body.workspace_id,body.project_id).map(publicIntegration)};
       case 'retention_inventory':return inventory(body);
       case 'retention_plan':return {...inventory(body),deletions:[],requires_explicit_cleanup:true,reason:'No automated deletion is safe while references, active jobs and unknown outcomes can exist.'};
-      case 'recipe_preview':return recipePreview(body);
-      case 'recipe_apply':return recipeApply(body);
     }
   }
   return {dispatch};

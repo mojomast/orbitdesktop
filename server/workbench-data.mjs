@@ -5,8 +5,9 @@ import {wbError} from './workbench-store.mjs';
 // checkpoint, workspace projection, receipt outbox, or public static directory.
 // Typed relationships within each record are validated by its owning service.
 // Project/workspace foreign keys also protect the authoritative storage boundary.
-export const WORKBENCH_RECORD_KINDS=Object.freeze(['tasks','attempts','contexts','disclosures','submissions','candidates','jobs','evidence','reviews','grants','toolcalls','profiles','integrations','annotations','results','cards','patches']);
-const limits=Object.freeze({tasks:200,attempts:400,contexts:512,disclosures:512,submissions:512,candidates:200,jobs:512,evidence:1024,reviews:512,grants:512,toolcalls:4096,profiles:64,integrations:200,annotations:2048,results:512,cards:512,patches:200});
+export const WORKBENCH_RECORD_KINDS=Object.freeze(['tasks','attempts','contexts','disclosures','submissions','candidates','jobs','evidence','reviews','grants','toolcalls','profiles','integrations','annotations','results','cards','patches','proposals','recipes']);
+const limits=Object.freeze({tasks:200,attempts:400,contexts:512,disclosures:512,submissions:512,candidates:200,jobs:512,evidence:1024,reviews:512,grants:512,toolcalls:4096,profiles:64,integrations:200,annotations:2048,results:512,cards:512,patches:200,proposals:200,recipes:32});
+export const WORKBENCH_RECORD_LIMITS=limits;
 const identifier=/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
 const table=kind=>{if(!WORKBENCH_RECORD_KINDS.includes(kind))throw wbError('invalid_request');return `wb_${kind}`;};
 const recordTableSql=kind=>`
@@ -24,7 +25,9 @@ CREATE TABLE IF NOT EXISTS wb_${kind}(
 );
 CREATE INDEX IF NOT EXISTS wb_${kind}_project ON wb_${kind}(workspace_id,project_id);
 `;
-export const workbenchExecutionSchemaSql=WORKBENCH_RECORD_KINDS.filter(kind=>!['results','cards','patches'].includes(kind)).map(recordTableSql).join('\n');
+// Schema 6 must stay frozen: proposals/recipes are created by the additive
+// schema-9 migration, not while upgrading a legacy schema-5 database.
+export const workbenchExecutionSchemaSql=WORKBENCH_RECORD_KINDS.filter(kind=>!['results','cards','patches','proposals','recipes'].includes(kind)).map(recordTableSql).join('\n');
 export const workbenchOperationSchemaSql=`
 CREATE UNIQUE INDEX IF NOT EXISTS wb_jobs_operation_identity
 ON wb_jobs(workspace_id,project_id,json_extract(record_json,'$.op_id'))
@@ -39,6 +42,25 @@ CREATE UNIQUE INDEX IF NOT EXISTS wb_results_run ON wb_results(workspace_id,proj
 CREATE UNIQUE INDEX IF NOT EXISTS wb_cards_operation ON wb_cards(workspace_id,project_id,json_extract(record_json,'$.op_id'));
 CREATE UNIQUE INDEX IF NOT EXISTS wb_patches_operation ON wb_patches(workspace_id,project_id,json_extract(record_json,'$.op_id')) WHERE json_extract(record_json,'$.op_id') IS NOT NULL;
 `;
+// Additive schema 9: durable arrangement proposals, portable saved recipes and
+// append-only recipe-save operation receipts. The proposal operation index is
+// created separately after a duplicate guard so a conflicted old copy fails
+// migration instead of silently dropping a receipt.
+export const workbenchProposalSchemaSql=`${['proposals','recipes'].map(recordTableSql).join('\n')}
+CREATE TABLE IF NOT EXISTS wb_recipe_receipts(
+  workspace_id TEXT NOT NULL REFERENCES workspaces(id),
+  actor TEXT NOT NULL,
+  op_id TEXT NOT NULL,
+  request_hash TEXT NOT NULL,
+  intent TEXT NOT NULL,
+  result_json TEXT NOT NULL CHECK(json_valid(result_json)),
+  created INTEGER NOT NULL,
+  PRIMARY KEY(workspace_id,actor,op_id)
+);
+CREATE INDEX IF NOT EXISTS wb_recipe_receipts_workspace ON wb_recipe_receipts(workspace_id);
+`;
+export const workbenchProposalIndexSql=`CREATE UNIQUE INDEX IF NOT EXISTS wb_proposals_operation ON wb_proposals(workspace_id,project_id,json_extract(record_json,'$.op_id'),json_extract(record_json,'$.committed_actor')) WHERE json_extract(record_json,'$.op_id') IS NOT NULL AND json_extract(record_json,'$.committed_actor') IS NOT NULL;`;
+
 
 export class WorkbenchData {
   // Optional read-only observers. They are notified only after an authoritative
@@ -100,7 +122,7 @@ export class WorkbenchData {
   }
   #encode(kind,value){
     let json;try{json=JSON.stringify(value);}catch{throw wbError('invalid_request');}
-    const max=kind==='candidates'?16*1024*1024:kind==='contexts'||kind==='submissions'?1024*1024:512*1024;
+    const max=kind==='candidates'?16*1024*1024:kind==='contexts'||kind==='submissions'?1024*1024:kind==='proposals'?2*1024*1024:512*1024;
     if(Buffer.byteLength(json)>max)throw wbError('limit_exceeded');
     return json;
   }

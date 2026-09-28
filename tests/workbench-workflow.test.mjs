@@ -40,7 +40,7 @@ const git=(folder,...args)=>execFileSync('/usr/bin/git',['-C',folder,...args],{e
 test('real approved candidate creates a separate private two-commit Git branch, with durable retry receipt',async t=>{
   const f=fixture(t);fs.writeFileSync(path.join(f.projectRoot,'.gitignore'),'math.js\n');fs.writeFileSync(path.join(f.projectRoot,'.gitattributes'),'*.js -diff\n');
   assert.deepEqual(workflowSchema.oneOf.map(item=>item.properties.action.const).sort(),[
-    'integration_preview','integrate_confirm','integration_list','retention_inventory','retention_plan','recipe_preview','recipe_apply',
+    'integration_preview','integrate_confirm','integration_list','retention_inventory','retention_plan','recipe_list','recipe_save','recipe_preview','recipe_apply','proposal_list','proposal_get','proposal_reject',
     'patch_preview','patch_export','private_patch_get','patch_list','patch_finalize_retry','patch_check_cancel','patch_acknowledge_unknown',
   ].sort());
   const {task}=await f.call('task_create',{title:'Repair sum',acceptance_statement:'sum returns arithmetic addition',check_definition_id:'host-regression',profile_id:'default',session_id:'fixture'});
@@ -143,7 +143,7 @@ test('Review targets only the bound trusted window, floats it beside the agent, 
   assert.deepEqual(applied.workspace.placement.floats.find(item=>item.windows.includes(ids[2])),priorPlacement.floats[0],'unrelated owner float remains exact');
   assert.ok(applied.workspace.placement.layout.windows.includes(ids[0]));assert.ok(!applied.workspace.placement.layout.windows.includes(ids[1]));
   const returning=await f.flow('recipe_preview',{recipe:'return'});
-  assert.match(returning.warning,/Restores the exact workspace state and Docking placement/);assert.equal(returning.operations[0].action,'restore_review_arrangement');
+  assert.match(returning.warning,/Restores the exact workspace state and Docking placement/);assert.equal(returning.operations[0].action,'set_workspace');
   const restored=await f.flow('recipe_apply',{recipe:'return',preview_id:returning.preview_id,preview_digest:returning.preview_digest,op_id:randomUUID()});
   assert.deepEqual(restored.workspace.state,priorState);assert.deepEqual(restored.workspace.placement,priorPlacement);
   await assert.rejects(f.flow('recipe_preview',{recipe:'return'}),{code:'stale_resource'});

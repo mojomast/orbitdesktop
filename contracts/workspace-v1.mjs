@@ -1,5 +1,6 @@
 // Trusted, versioned JSON Schema source. Never load validator code from apps/models.
 // Generated adapters and reference files are checked by --check in CI.
+import {arrangementRequests} from './workbench-workflow-v1.mjs';
 const object = (properties, required = Object.keys(properties)) => ({ type: 'object', properties, required, additionalProperties: false });
 const text = (maxLength = 2048) => ({ type: 'string', maxLength });
 const num = (minimum, maximum) => ({ type: 'number', minimum, maximum });
@@ -92,6 +93,15 @@ function command(name, properties = {}, required = [], effect = 'read', revision
   commands[name] = {input:object({workspace_id:uuid,action:{const:name},...properties},['workspace_id','action',...required]),output:effect==='read'?'metadata-or-snapshot':'committed-snapshot',sideEffect:effect,permission:'authenticated-workspace',revision,idempotency:effect==='read'?'read-only':'legacy-no-durable-receipt'};
 }
 command('read',{observed_revision:integer(0)});
+command('describe',{project_id:uuid,catalog:bool});
+// Derive the Normal envelope from the exact service schemas, removing only the
+// authenticated workspace field. No second hand-maintained action vocabulary.
+export const arrangementControlRequests=Object.fromEntries(Object.entries(arrangementRequests).map(([name,schema])=>{
+  const copy=structuredClone(schema);delete copy.properties.workspace_id;
+  copy.required=copy.required.filter(key=>key!=='workspace_id');
+  return [name,copy];
+}));
+command('arrangement',{request:{oneOf:Object.values(arrangementControlRequests)}},['request'],'workspace-proposal','service-validated');
 command('history');
 command('checkpoint',{label:text(limits.maxLabelCharacters)},[],'checkpoint');
 command('placement_save',{base_revision:integer(0),placement:ref('dockingPlacement'),operation_id:{type:'string',pattern:'^[a-zA-Z0-9_.:-]{1,128}$'},intent:{type:'string',minLength:1,maxLength:160}},['base_revision','placement','operation_id','intent'],'layout','current-base-revision');
@@ -110,6 +120,7 @@ command('jev_apply',{action_id:text(100),base_revision:integer(0),confirm:bool},
 commands.read.sideEffect = 'route-dependent-client-observation';
 commands.read.routeEffects = {browser:'client-observation-write',control:'read',recovery:'read'};
 commands.read.idempotency = 'read-only-on-control-and-recovery; browser-overwrites-observation';
+commands.arrangement.idempotency = 'action-specific; recipe_apply requires the exact retained preview identity and op_id, with durable actor-scoped receipt recovery';
 commands.jev_suggest.permission = 'authenticated-owner-with-external-data-consent';
 commands.jev_suggest.idempotency = 'external-provider-request-not-retry-safe';
 commands.recovery_policy.permission = 'authenticated-owner-on-recovery-route-only';
@@ -119,6 +130,8 @@ defs.snapshot = object({workspace_id:uuid,revision:integer(1),state:ref('workspa
 defs.placementSnapshot = object({workspace_id:uuid,revision:integer(1),placement_revision:integer(0),placement:ref('dockingPlacement'),observed_revision:integer(0),browser_seen:{anyOf:[{type:'number'},{type:'null'}]},recovery_policy:ref('recoveryPolicy'),command_receipt:ref('commandReceipt')},['workspace_id','revision','placement_revision','placement','command_receipt']);
 defs.checkpointMetadata = object({id:uuid,created:{type:'number'},label:text(160),revision:integer(1)});
 const outputs = {
+  arrangement:{type:'object',description:'Arrangement service result; structural preview, committed receipt and browser acknowledgement are separate facts'},
+  describe:object({workspace_id:uuid,revision:integer(1),version:{const:1},editable_fields:array(text(100),{maxItems:32}),surfaces:array(object({window_id:identifier,pane_id:identifier,kind}),{maxItems:1000}),projects:array(object({id:uuid,name:text(200),generation:integer(1)}),{maxItems:32}),bindings:array(object({id:uuid,project_id:uuid,resource_id:uuid,pane_id:identifier,role:text(40),available:bool}),{maxItems:1000}),extension_compatibility:object({manifest_api:{const:1},multiple_instances:{const:false},private_frame_data:{const:false},network:{const:'legacy-network-capable'}}),unsupported:array(text(200),{maxItems:32}),catalog:{type:'object'}},['workspace_id','revision','version','editable_fields','surfaces','projects','bindings','extension_compatibility','unsupported']),
   read:ref('snapshot'),sync:ref('snapshot'),apply:ref('snapshot'),plugins_apply:ref('snapshot'),restore:ref('snapshot'),jev_apply:ref('snapshot'),recovery_policy:ref('snapshot'),
   placement_save:ref('placementSnapshot'),
   checkpoint:object({checkpoint:uuid}),
@@ -127,6 +140,9 @@ const outputs = {
   shelf:object({items:array(object({title:text(),url:text(),kind:enumeration('app/report','output')}),{maxItems:300})}),
 };
 defs.commandReceipt=object({operation_id:{type:'string',pattern:'^[a-zA-Z0-9_.:-]{1,128}$'},legacy:bool});
+outputs.describe.properties.recipes=array(object({id:uuid,version:integer(1),name:text(60),roles:array(text(40),{maxItems:5}),layout:text(40),renderer:text(40)}),{maxItems:1024});
+outputs.describe.properties.recipe_scope=enumeration('selected-project','select-project-to-list');
+outputs.describe.required.push('recipes','recipe_scope');
 defs.snapshot.properties.command_receipt=ref('commandReceipt');
 outputs.checkpoint.properties.command_receipt=ref('commandReceipt');
 outputs.checkpoint.required.push('command_receipt');
