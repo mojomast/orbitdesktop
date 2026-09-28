@@ -126,6 +126,15 @@ html[data-orbit-style="ember"] [data-icon="grid"]{--icon-image:url("/icons/ember
 html[data-orbit-style="ember"] [data-icon="image"]{--icon-image:url("/icons/ember/image.svg")}
 html[data-orbit-style="ember"] [data-icon="key"]{--icon-image:url("/icons/ember/key.svg")}
 html[data-orbit-style="ember"] [data-icon="app"]{--icon-image:url("/icons/ember/app.svg")}
+html[data-orbit-style="relay"] [data-icon="folder"]{--icon-image:url("/icons/relay/folder.svg")}
+html[data-orbit-style="relay"] [data-icon="chat"]{--icon-image:url("/icons/relay/chat.svg")}
+html[data-orbit-style="relay"] [data-icon="terminal"]{--icon-image:url("/icons/relay/terminal.svg")}
+html[data-orbit-style="relay"] [data-icon="browser"]{--icon-image:url("/icons/relay/browser.svg")}
+html[data-orbit-style="relay"] [data-icon="document"]{--icon-image:url("/icons/relay/document.svg")}
+html[data-orbit-style="relay"] [data-icon="grid"]{--icon-image:url("/icons/relay/grid.svg")}
+html[data-orbit-style="relay"] [data-icon="image"]{--icon-image:url("/icons/relay/image.svg")}
+html[data-orbit-style="relay"] [data-icon="key"]{--icon-image:url("/icons/relay/key.svg")}
+html[data-orbit-style="relay"] [data-icon="app"]{--icon-image:url("/icons/relay/app.svg")}
 html:not([data-orbit-style]),html[data-orbit-style=""]{--unused:0} .theme-icon[data-icon="folder"]{--icon-fallback:url("/icons/midnight/folder.svg")}
 html:not([data-orbit-style]),html[data-orbit-style=""]{--unused:0} .theme-icon[data-icon="chat"]{--icon-fallback:url("/icons/midnight/chat.svg")}
 html:not([data-orbit-style]),html[data-orbit-style=""]{--unused:0} .theme-icon[data-icon="terminal"]{--icon-fallback:url("/icons/midnight/terminal.svg")}
