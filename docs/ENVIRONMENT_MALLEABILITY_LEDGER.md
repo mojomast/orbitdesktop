@@ -358,3 +358,57 @@ schema-8 conversation-history hotfix does not activate these tables or UI. Its
 activation was stopped at the owner's request to preserve the other agent's
 concurrent theme deployment; no backend restart was performed by this workstream.
 No paid-provider acceptance is part of this increment.
+
+## Concurrent theme work and history-fix integration
+
+At the owner's request, the completed theme branch was imported from its separate
+checkout and merged with its original commit ancestry intact:
+
+- `c162998448be888635cfb9c10a44e1b722ed9dfd`: Hermes Relay personality, icons and wallpaper.
+- `e70f6d413daf1d270b10bf9df4c075036d783738`: MS-DOS personality, icons and wallpaper.
+
+The independently reviewed conversation-history fix is also integrated. Pane-backed
+Runs submissions freeze bounded server-loaded user/assistant history before payload
+hashing; malformed history and missing established sessions fail before dispatch.
+An unmarked absent session requires explicit **New chat**, preserving its draft and
+binding. Pinned Hermes does support native Runs history reconstruction; the fix is
+cross-version and silent-empty-history hardening, not proof that Runs never reloads
+history. See [Hermes](HERMES.md) for bounds and delivery/wake tradeoffs.
+
+The separate schema-8 backport passed **658 tests, 656 passed, 2 gated skips** and
+both real-server browser context and cross-mode journeys. The context fixture
+advertises native continuation, sends an identical Normal prompt twice, verifies
+the earlier completed turn in the second exact Runs body, then verifies Workbench
+retains both turns without the unsent draft. Gateway/model endpoints are synthetic;
+the cross-mode fixture uses the pinned actual Hermes runtime with a local model.
+
+The other agent's schema-8 `orbit-e70f6d4` deployment is preserved. This source merge
+does not deploy M3 or upgrade that runtime to schema 10. A runtime-only
+`KillMode=process` override was added to the copied-main service during the
+authorized restart preflight so its tmux server is not killed with the backend;
+the rollout was then stopped when the concurrent deployment was detected. No
+backend restart or pointer activation was performed by this workstream.
+
+Combined-source local acceptance:
+
+- Dependency-enabled `npm run check`: **732 tests, 730 passed, 0 failed, 2 gated
+  skips**, including the merged themes and reviewed history implementation.
+  Log: `/tmp/opencode/orbit-merged-final-check.log`.
+- Python adapters/contracts/publisher/catalog/portable checks: **58 passed** on
+  the regenerated merged archive. Real disposable schema-10 release packaging
+  and launch: **2/2 passed** on the combined source.
+- Both isolated theme browser fixtures pass all **16** personalities and icon
+  packs, including Relay, MS-DOS and Nous Atelier. They build disposable source
+  copies, use private runtime/HOME/tmux settings and ephemeral ports, verify
+  asset responses and preserve layout/pane identities through apply and reload.
+  Chromium **145.0.7632.6**, zero page errors.
+- Both project-tool renderers preserve the exact notebook editor DOM node,
+  unsaved draft and saved data revision/text while applying Relay and MS-DOS.
+  Lead inspected synthetic themed notebook/manager screenshots; artifacts stay
+  outside Git. The theme fixtures are included in the Workbench CI workflow.
+- The conversation-context browser journey passes again on the combined source
+  in Default and Docking, including repeated Normal submissions and bounded
+  Workbench handoff without the unsent draft.
+
+These are local results; publication must obtain new exact-head remote CI rather
+than treating the M1–M2 baseline runs as validation of this merge.

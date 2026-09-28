@@ -133,6 +133,13 @@ jobs:
           for renderer in default docking; do
             /tmp/opencode/orbit-workbench-venv/bin/python tests/project-tools.browser.py --renderer "$renderer"
           done
+      - name: Merged theme personalities and icon packs
+        if: ${{ !cancelled() && steps.browser_tools.outcome == 'success' }}
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
+        run: |
+          /tmp/opencode/orbit-workbench-venv/bin/python tests/theme-personalities.browser.py
+          /tmp/opencode/orbit-workbench-venv/bin/python tests/theme-icons.browser.py
       - name: Shared live timeline and persistent Hermes mode switching
         if: ${{ !cancelled() && steps.browser_tools.outcome == 'success' }}
         env:
@@ -245,3 +252,7 @@ jobs:
             /tmp/opencode/orbit-arrangements-docking-semantic-preview-*.png
             /tmp/opencode/orbit-arrangements-default-changes-collapsed-*.png
             /tmp/opencode/orbit-arrangements-docking-changes-collapsed-*.png
+            /tmp/opencode/project-tools-default-manager-*.png
+            /tmp/opencode/project-tools-docking-manager-*.png
+            /tmp/opencode/project-tools-default-notebook-*.png
+            /tmp/opencode/project-tools-docking-notebook-*.png
