@@ -459,3 +459,74 @@ test('proposal caps are honest: capabilities document retention and expired unco
   assert.ok(committed&&committed.status==='committed','committed proposal retained');
   assert.ok(proposals.some(proposal=>proposal.id===second.preview_id));
 });
+
+test('built-in roles accept explicit choices, list missing roles and prioritize only chosen candidates',async t=>{
+  const f=fixture(t);
+  const a=f.bind('project_files',f.monitorPane(0),'a.js');
+  const b=f.bind('project_files',f.monitorPane(1),'b.js');
+  await assert.rejects(f.flow('recipe_preview',{recipe:'investigate'}),{code:'conflict'});
+  const preview=await f.flow('recipe_preview',{recipe:'investigate',role_choices:{project_files:b.id}});
+  assert.equal(preview.role_choices.project_files,b.id);
+  assert.ok(preview.unbound.includes('primary_agent')&&preview.unbound.includes('active_terminal')&&preview.unbound.includes('preview'),'absent roles are listed');
+  const chosenMonitor=f.store.read(f.workspace_id).state.monitors.find(monitor=>monitor.layout.type==='pane'&&monitor.layout.pane.id===b.pane_id).id;
+  const otherMonitor=f.store.read(f.workspace_id).state.monitors.find(monitor=>monitor.layout.type==='pane'&&monitor.layout.pane.id===a.pane_id).id;
+  const order=preview.operations.find(operation=>operation.action==='reorder_windows').window_ids;
+  assert.equal(order[0],chosenMonitor,'only the chosen candidate is prioritized');
+  assert.ok(order.indexOf(chosenMonitor)<order.indexOf(otherMonitor));
+});
+
+test('built-in preview records the supplied renderer and measured viewport in its identity',async t=>{
+  const f=fixture(t);f.bind('project_files',f.monitorPane(1),'math.js');
+  const windows=await f.flow('recipe_preview',{recipe:'investigate'});
+  const docking=await f.flow('recipe_preview',{recipe:'investigate',renderer:'docking'});
+  assert.equal(windows.renderer,'windows');assert.equal(docking.renderer,'docking');
+  assert.notEqual(windows.preview_digest,docking.preview_digest,'declared renderer affects the preview identity');
+  const measured=await f.flow('recipe_preview',{recipe:'investigate',width:1400,height:900});
+  assert.deepEqual(measured.viewport,{width:1400,height:900});
+  const stored=(await f.flow('proposal_get',{proposal_id:measured.preview_id})).proposal;
+  assert.equal(stored.renderer,'windows');assert.deepEqual(stored.viewport,{width:1400,height:900});
+  const generated=await f.flow('recipe_preview',{recipe:'project_focus'});
+  assert.deepEqual(generated.operations.map(operation=>operation.action),['reorder_windows'],'project_focus remains order-only for all bound windows');
+});
+
+test('review selects among multiple trusted bindings explicitly and validates the trusted URL',async t=>{
+  const f=fixture(t);
+  const before=f.store.read(f.workspace_id);
+  const state=structuredClone(before.state);
+  for(const monitor of state.monitors.slice(0,2)){monitor.layout.pane.kind='browser';monitor.layout.pane.url='orbit://workbench-review';}
+  f.store.commit(commandIdentity({workspace_id:f.workspace_id,action:'apply',operations:[],base_revision:before.revision,operation_id:randomUUID()},'owner'),{apply:()=>state});
+  const current=f.store.read(f.workspace_id);
+  const trustedA=f.bindIn(f.project.id,current.state.monitors[0].layout.pane.id,'rev-a.js','candidate_diff');
+  const trustedB=f.bindIn(f.project.id,current.state.monitors[1].layout.pane.id,'rev-b.js','candidate_diff');
+  const generic=f.bindIn(f.project.id,current.state.monitors[2].layout.pane.id,'gen.js','candidate_diff');
+  const agent=f.bindIn(f.project.id,current.state.monitors[2].layout.pane.id,'agent.js','primary_agent');
+  await assert.rejects(f.flow('recipe_preview',{recipe:'review',width:1400,height:900}),{code:'conflict'});
+  await assert.rejects(f.flow('recipe_preview',{recipe:'review',width:1400,height:900,role_choices:{candidate_diff:generic.id}}),{code:'unsupported'});
+  const chosen=await f.flow('recipe_preview',{recipe:'review',width:1400,height:900,role_choices:{candidate_diff:trustedB.id}});
+  assert.equal(chosen.role_choices.candidate_diff,trustedB.id);assert.equal(chosen.role_choices.primary_agent,agent.id);
+  assert.equal(chosen.renderer,'windows');
+  const spatial=await f.flow('recipe_preview',{recipe:'review',width:1400,height:900,renderer:'spatial',role_choices:{candidate_diff:trustedA.id}});
+  assert.equal(spatial.renderer,'windows','review from spatial records the effective windows target');
+  const docking=await f.flow('recipe_preview',{recipe:'review',width:1400,height:900,renderer:'docking',role_choices:{candidate_diff:trustedA.id}});
+  assert.equal(docking.renderer,'docking');
+  assert.notEqual(spatial.preview_digest,docking.preview_digest);
+});
+
+test('semantic diff names windows with before→after geometry and a bounded return revision',async t=>{
+  const f=fixture(t);f.bind('project_files',f.monitorPane(1),'math.js');
+  const saved=await f.flow('recipe_save',{name:'Cols',roles:['project_files'],layout:'columns',renderer:'windows'});
+  const preview=await f.flow('recipe_preview',{recipe:'investigate',recipe_id:saved.recipe.id,width:1400,height:900});
+  const geometry=preview.semantic_diff.find(item=>item.kind==='geometry');
+  assert.ok(geometry&&/unplaced → \d+×\d+/.test(geometry.summary),'geometry names the window and shows before→after size');
+  assert.ok(geometry.summary.length<=300);
+  assert.ok(preview.semantic_diff.every(item=>item.summary.length<=300&&item.summary.length>0));
+  assert.ok(preview.semantic_diff.length<=32);
+  await f.flow('recipe_apply',{recipe:'investigate',preview_id:preview.preview_id,preview_digest:preview.preview_digest,op_id:randomUUID()});
+  const returning=await f.flow('recipe_preview',{recipe:'return'});
+  const restore=returning.semantic_diff.find(item=>item.kind==='restore');
+  assert.ok(restore&&/^Restore to revision \d+$/.test(restore.summary),'return names the exact prior revision');
+  assert.equal(typeof restore.revision,'number');
+  assert.ok(returning.semantic_diff.some(item=>['geometry','order','select','view','placement'].includes(item.kind)),'return carries a real semantic diff');
+  assert.ok(returning.semantic_diff.every(item=>item.summary.length<=300));
+  assert.match(returning.warning,/no pane, terminal, browser content or resource is created, reloaded or closed/);
+});

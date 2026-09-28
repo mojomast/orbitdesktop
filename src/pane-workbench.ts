@@ -209,9 +209,12 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
   fileReadControls.append(detailPath, button('Inspect file', 'Read one changed file from these exact generations within the private source bound', () => { clearChanges(); void refreshChanges(); }, 'small-button'), button('All changed files', 'Restore bounded comparison of all changed files', () => { detailPath.value = ''; clearChanges(); void refreshChanges(); }, 'small-button'));
   fileReadControls.append(el('small', '', 'For partial comparisons, inspect a specific changed path. The same exact identities and 64 KiB limit apply.'));
   const workflowContainer = el('div', 'pane-workbench-workflow');
+  const arrangementContainer = el('div', 'pane-workbench-arrangements');
+  const arrangementDisclosure = el('details', 'pane-workbench-arrangements-disclosure');
+  arrangementDisclosure.append(el('summary', '', 'Workspace arrangements'), arrangementContainer);
   const exportTools = el('details', 'pane-workbench-export-tools');
   exportTools.append(el('summary', '', 'Verified patch and integration actions'), workflowContainer);
-  changesPanel.append(labelled('Compare', comparisonSelect), changesNote, fileReadControls, changesDiff, exportTools);
+  changesPanel.append(labelled('Compare', comparisonSelect), changesNote, fileReadControls, changesDiff, arrangementDisclosure, exportTools);
   comparisonSelect.addEventListener('change', () => { clearChanges(); void refreshChanges(); });
   const resultPanel = panels.result;
   const tabButtons = new Map<string, HTMLButtonElement>();
@@ -756,7 +759,7 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
       },
     });
     executionMount = mountWorkbenchExecution({ container: executionContainer, token: deps.getToken, workspace_id: deps.workspaceId, project_id: projectIdValue, onError: (message) => { error.textContent = message; } });
-    workflowMount = mountWorkbenchWorkflow({ container: workflowContainer, token: deps.getToken, workspace_id: deps.workspaceId, project_id: projectIdValue, onError: (message) => { error.textContent = message; } });
+    workflowMount = mountWorkbenchWorkflow({ container: workflowContainer, arrangementContainer, token: deps.getToken, workspace_id: deps.workspaceId, project_id: projectIdValue, onError: (message) => { error.textContent = message; } });
     resultMount = mountWorkbenchTaskResult({
       container: resultPanel,
       compact: true,

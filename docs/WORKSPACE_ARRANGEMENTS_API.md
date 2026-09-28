@@ -125,15 +125,24 @@ workspace, compiled here against this project's bindings), `role_choices`
 
 Behaviour:
 
-- Built-in `review` requires a measured `width`/`height`, a unique bound
-  `orbit://workbench-review` window and a `primary_agent` anchor. Built-in
-  `investigate`/`implement` refuse an ambiguous role (multiple bindings) with
-  `conflict` rather than silently ordering one.
-- A saved recipe resolves its roles against the target's live bindings: an
-  explicit choice must name a real binding of that role; a choice for a role the
-  recipe does not use is `invalid_request`; ambiguity without a choice is
-  `conflict`; zero candidates — or a binding whose pane no longer exists — is
-  reported in `unbound`. No binding is ever created.
+- Built-in recipes (`project_focus`, `investigate`, `implement`, `review`)
+  accept the same optional `role_choices` and `renderer` as a saved recipe. Their
+  roles are resolved identically: an explicit choice must name a real binding of
+  that role; a choice for a role the recipe does not use is `invalid_request`;
+  ambiguity without a choice is `conflict` (the path to choose); zero candidates —
+  or a binding whose pane no longer exists — is reported in `unbound`; only the
+  chosen candidates are prioritized, and other bound windows follow. Built-in
+  `project_focus` keeps its legacy behaviour: with no roles it orders every bound
+  window ahead of unbound ones.
+- Built-in `review` requires a measured `width`/`height` and validates the
+  chosen `candidate_diff` against the trusted `orbit://workbench-review` URL:
+  when exactly one trusted Review pane is bound it is selected automatically;
+  multiple trusted bindings or multiple `primary_agent` anchors require an
+  explicit `role_choices` entry (`conflict` otherwise); choosing a non-trusted
+  `candidate_diff` is `unsupported`. `primary_agent` and `project_files` resolve
+  the same way (absent `project_files` is listed in `unbound`).
+- A saved recipe resolves its roles against the target's live bindings exactly as
+  above. No binding is ever created.
 - `layout:'prioritize'` reorders only. `layout:'columns'` / `'rows'` emit
   distinct measured shapes: `columns` prefers one row of columns and narrows
   toward stacked rows until the minimum frame width fits; `rows` prefers one
@@ -143,12 +152,22 @@ Behaviour:
 - `renderer:'windows'` writes measured window frames. `renderer:'docking'`
   writes the same measured frames as Docking floats for the chosen windows only,
   preserving unrelated groups/floats exactly. `renderer:'spatial'` supports
-  `prioritize` only; `columns`/`rows` are refused `unsupported`.
+  `prioritize` only; `columns`/`rows` are refused `unsupported`. A built-in
+  records the supplied renderer in its identity; a `review` preview whose
+  operations switch to the Windows view records the effective `windows` target
+  (supplied `spatial` is normalized to `windows`, supplied `docking` is kept).
+- Any measured `width`/`height` are recorded as the preview `viewport` and in the
+  digest, for built-ins and saved recipes alike.
 - `recipe:'return'` compiles an inverse proposal whose operation is the exact
   normalized `set_workspace` restore of the checkpoint captured by the most
   recent committed non-return proposal. It requires the current revision to equal
   that proposal's `committed_revision`; any intervening edit is `stale_resource`.
-  The phantom `restore_review_arrangement` label no longer exists.
+  The phantom `restore_review_arrangement` label no longer exists. Its semantic
+  diff prepends the exact prior revision and then carries a real diff against the
+  current workspace; applied semantics are unchanged.
+- Every warning states that only window order, geometry and Docking placement
+  change and that no pane, terminal, browser content or resource is created,
+  reloaded or closed.
 
 Response:
 
@@ -157,8 +176,9 @@ Response:
   "preview_id": "…", "preview_digest": "…", "expires_at": 0, "base_revision": 7,
   "operations": [{"action":"reorder_windows","window_ids":["…"]}],
   "changed": true,
-  "semantic_diff": [{"kind":"order","summary":"Window order changed"}],
-  "unbound": [], "role_choices": {"project_files":"…"},
+  "semantic_diff": [{"kind":"order","summary":"Order: Display 02 → Display 01"}],
+  "unbound": ["primary_agent", "active_terminal", "preview"],
+  "role_choices": {"project_files":"…"},
   "roles": ["project_files"], "layout": "prioritize", "renderer": "windows",
   "recipe_id": null, "recipe_project_id": null, "geometry": "none",
   "viewport": null, "rendered": false, "tested": false, "warning": "…"
@@ -167,10 +187,19 @@ Response:
 
 `preview_id` is the durable proposal record ID. The measured `viewport` and
 `renderer` are part of the preview identity/digest and are persisted; two
-previews of the same recipe at different viewports have different digests.
+previews of the same recipe at different viewports (or declared renderers) have
+different digests.
+
 `semantic_diff` entries are `{kind, summary, window_id?}` with `kind ∈ {order,
-geometry, select, view, placement, restore}`. `rendered`/`tested` are
-independent facts and always false on this surface.
+geometry, select, view, placement, restore, truncated}`. Summaries are human
+readable and bounded: monitor `name` (fallback `Window`), order lists readable
+names (at most 32), geometry shows `name: WIDTH×HEIGHT → WIDTH×HEIGHT`
+(`unplaced` when absent), selection/view show before → after values, and
+placement shows float counts and the active window name. Individual summaries are
+at most 300 characters and the list is bounded to 32 entries (a `truncated`
+marker replaces the tail). No filesystem paths or resource/private contents are
+included; names are bounded layout labels. `rendered`/`tested` are independent
+facts and always false on this surface.
 
 ### `recipe_apply`
 
@@ -244,5 +273,9 @@ rather than deleting history.
   `deferred` otherwise.
 - A proposal stages one exact result; it is not a general layout designer and
   does not change pane identity or content.
-- `renderer:'spatial'` does not write window frames or Docking placement.
+- For saved recipes, `renderer:'spatial'` does not write window frames or Docking
+  placement; a built-in `review` normalizes a supplied spatial target to its
+  effective `windows` operations.
+- Only window order, geometry and Docking placement change in these recipes; no
+  pane, terminal, browser content or resource is created, reloaded or closed.
 - Persisted plan and browser acknowledgement do not establish browser rendering.

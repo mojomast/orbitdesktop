@@ -127,6 +127,7 @@ export function showProjectWorkbench(getToken: () => string): void {
   const fileView = el("div", "workbench-file");
   const bindingsView = el("div", "workbench-bindings");
   const execution = el("div", "workbench-execution");
+  const arrangements = el("div", "workbench-arrangements-slot");
   const doctor = el("div", "workbench-doctor");
   const root = el("input");
   const gitDirectory=el('input'),commonDirectory=el('input');
@@ -226,7 +227,7 @@ export function showProjectWorkbench(getToken: () => string): void {
     }
     const task=mountWorkbenchExecution({container:taskContainer,token:getToken,workspace_id:workspaceId,project_id:selectedProject,onAskContext:(jobId:string)=>{void askContext({kind:'job',job_id:jobId});}});
     const authority=mountWorkbenchTaskAuthority({container:authorityContainer,token:getToken,workspace_id:workspaceId,project_id:selectedProject});
-    const workflow=mountWorkbenchWorkflow({container:workflowContainer,token:getToken,workspace_id:workspaceId,project_id:selectedProject});
+    const workflow=mountWorkbenchWorkflow({container:workflowContainer,arrangementContainer:arrangements,token:getToken,workspace_id:workspaceId,project_id:selectedProject});
     const result=mountWorkbenchTaskResult({container:resultContainer,token:getToken,workspace_id:workspaceId,project_id:selectedProject,onOpenEvidence:ref=>openReference('Exact recorded check evidence',{action:'job_get',job_id:ref.job_id},ref.evidence_id),onOpenCandidate:ref=>openReference('Exact recorded candidate version',{action:'candidate_version_get',...ref})});
     executionMount={dispose(){window.removeEventListener('orbit-open-workbench-review',openReviewRequested);task.dispose();authority.dispose();workflow.dispose();result.dispose();for(const dialog of referenceDialogs)dialog.close();},async refresh(){await Promise.all([task.refresh(),authority.refresh(),workflow.refresh(),result.refresh()]);}};
   }
@@ -717,6 +718,7 @@ export function showProjectWorkbench(getToken: () => string): void {
       "Pane links and bindings are metadata only; they do NOT authorize file disclosure or execution.",
     ),
     bindingsView,
+    arrangements,
     button('Activity and disclosures','Activity and disclosures',async()=>{
       if(!project)return;
       const selectedProject=project.id,selectedEpoch=epoch;

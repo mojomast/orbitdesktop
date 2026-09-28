@@ -43,6 +43,12 @@ const digest=value=>sha(canonicalJson(value));
 const TTL=ARRANGEMENT_LIMITS.ttlMs;
 const MAX_RECIPE_RECEIPTS=512;
 const PROPOSAL_PAGE=32;
+// Semantic-diff bounds: readable monitor names, at most 300 characters per
+// summary and at most 32 entries. Never paths or resource contents.
+const MAX_DIFF_ITEMS=32,MAX_SUMMARY=300,MAX_NAME=60;
+const bounded=(value,max=MAX_SUMMARY)=>{const text=String(value);return text.length<=max?text:`${[...text].slice(0,Math.max(1,max-1)).join('')}…`;};
+const nameOf=monitor=>monitor&&typeof monitor.name==='string'&&monitor.name.trim()?bounded(monitor.name.trim(),MAX_NAME):'Window';
+const frameText=frame=>frame?`${Math.round(frame.width)}×${Math.round(frame.height)} at (${Math.round(frame.x)}, ${Math.round(frame.y)})`:'unplaced';
 const valid=new Ajv({strict:true}).compile({oneOf:Object.values(arrangementRequests)});
 
 const BUILTIN_ROLES=Object.freeze({
@@ -52,9 +58,9 @@ const BUILTIN_ROLES=Object.freeze({
   project_focus:[],
   return:[],
 });
-const REVIEW_WARNING='Targets only the uniquely bound orbit://workbench-review window, positioning it beside primary_agent when measured space permits. The Docking float placement is updated without changing other placements. Return restores the exact previous workspace frame/view/selection and Docking placement under revision CAS.';
-const RETURN_WARNING='Restores the exact workspace state and Docking placement captured before the previous arrangement under revision CAS. Any intervening workspace revision prevents return.';
-const BUILTIN_WARNING='Explicit workspace revision CAS. Reorders existing windows only; pane IDs and contents stay the same. Browser continuity depends on native moveBefore support.';
+const REVIEW_WARNING='Targets only the uniquely bound or explicitly selected orbit://workbench-review window, positioning it beside primary_agent when measured space permits. The Docking float placement is updated without changing other placements. Return restores the exact previous workspace frame/view/selection and Docking placement under revision CAS. Only window order, geometry and Docking placement change; no pane, terminal, browser content or resource is created, reloaded or closed by these operations. Browser document continuity requires native moveBefore; fallback movement may reload a frame.';
+const RETURN_WARNING='Restores the exact workspace state and Docking placement captured before the previous arrangement under revision CAS. Any intervening workspace revision prevents return. Only window order, geometry and Docking placement change; no pane, terminal, browser content or resource is created, reloaded or closed by these operations. Browser document continuity requires native moveBefore; fallback movement may reload a frame.';
+const BUILTIN_WARNING='Explicit workspace revision CAS. Reorders existing windows only; pane IDs and contents stay the same. Only window order and geometry change; no pane, terminal, browser content or resource is created, reloaded or closed by these operations. Browser continuity depends on native moveBefore support; fallback movement may reload a frame.';
 const REVIEW_PANE_URL='orbit://workbench-review';
 const MIN_FRAME={width:280,height:180},MAX_FRAME={width:4000,height:4000},GAP=8;
 
@@ -69,22 +75,45 @@ function paneMonitor(state,paneId){
   }
   return null;
 }
+function paneNode(state,paneId){
+  for(const monitor of state.monitors){
+    let found=null;
+    const visit=node=>{if(node.type==='pane'){if(node.pane.id===paneId)found={monitor,pane:node.pane};}else{visit(node.first);visit(node.second);}};
+    visit(monitor.layout);
+    if(found)return found;
+  }
+  return null;
+}
 function samePlacement(a,b){return placementEqual(a??emptyPlacement(),b??emptyPlacement());}
 function sameViewport(a,b){return canonicalJson(a??null)===canonicalJson(b??null);}
 const effectiveIntent=(proposal,body)=>body.intent??`Recipe ${proposal.recipe}`;
 const sameRequest=(proposal,body)=>proposal.workspace_id===body.workspace_id&&proposal.project_id===body.project_id&&proposal.recipe===body.recipe&&proposal.id===body.preview_id&&proposal.preview_digest===body.preview_digest&&proposal.op_id===body.op_id&&sameViewport(body.viewport??proposal.viewport,proposal.viewport)&&effectiveIntent(proposal,body)===proposal.committed_intent;
 function semanticDiff(before,after,beforePlacement,afterPlacement){
   const diff=[];
-  if(before.monitors.map(m=>m.id).join(',')!==after.monitors.map(m=>m.id).join(','))diff.push({kind:'order',summary:'Window order changed'});
-  if(before.selected!==after.selected)diff.push({kind:'select',summary:'Active window changed',window_id:after.selected});
-  if(before.view!==after.view)diff.push({kind:'view',summary:'View mode changed'});
-  if(!samePlacement(beforePlacement,afterPlacement))diff.push({kind:'placement',summary:'Docking placement changed'});
+  if(before.monitors.map(m=>m.id).join(',')!==after.monitors.map(m=>m.id).join(',')){
+    const names=after.monitors.slice(0,MAX_DIFF_ITEMS).map(monitor=>nameOf(monitor));
+    const extra=after.monitors.length>MAX_DIFF_ITEMS?` … (+${after.monitors.length-MAX_DIFF_ITEMS})`:'';
+    diff.push({kind:'order',summary:bounded(`Order: ${names.join(' → ')}${extra}`)});
+  }
+  if(before.selected!==after.selected){
+    const from=before.monitors.find(monitor=>monitor.id===before.selected),to=after.monitors.find(monitor=>monitor.id===after.selected);
+    diff.push({kind:'select',summary:bounded(`Active window: ${nameOf(from)} → ${nameOf(to)}`),window_id:after.selected});
+  }
+  if(before.view!==after.view)diff.push({kind:'view',summary:bounded(`View: ${before.view??'windows'} → ${after.view??'windows'}`)});
+  if(!samePlacement(beforePlacement,afterPlacement)){
+    const beforeFloats=(beforePlacement??emptyPlacement()).floats.length,afterFloats=(afterPlacement??emptyPlacement()).floats.length;
+    const activeId=(afterPlacement??emptyPlacement()).active;
+    const activeName=activeId?(nameOf(after.monitors.find(monitor=>monitor.id===activeId))||'Window'):'none';
+    diff.push({kind:'placement',summary:bounded(`Docking placement: floats ${beforeFloats} → ${afterFloats}, active ${activeName}`)});
+  }
   for(const monitor of after.monitors){
     const prior=before.monitors.find(item=>item.id===monitor.id);
-    if(prior&&canonicalJson(prior.frame??null)!==canonicalJson(monitor.frame??null))diff.push({kind:'geometry',summary:'Window geometry changed',window_id:monitor.id});
+    if(prior&&canonicalJson(prior.frame??null)!==canonicalJson(monitor.frame??null))diff.push({kind:'geometry',summary:bounded(`${nameOf(monitor)}: ${frameText(prior.frame)} → ${frameText(monitor.frame)}`),window_id:monitor.id});
   }
+  if(diff.length>MAX_DIFF_ITEMS){const extra=diff.length-(MAX_DIFF_ITEMS-1);return [...diff.slice(0,MAX_DIFF_ITEMS-1),{kind:'truncated',summary:bounded(`… (+${extra} more changes)`) }];}
   return diff;
 }
+function restoreDiff(revision,list){return [{kind:'restore',summary:bounded(`Restore to revision ${revision}`),revision,window_id:null},...list];}
 // Distinct columns vs rows shapes. `columns` prefers one row of columns and
 // narrows (falling back toward stacked rows) until the minimum frame width fits;
 // `rows` prefers one column of rows and shortens until the minimum height fits.
@@ -166,34 +195,57 @@ export function createWorkspaceArrangements({store,records,data,now=Date.now}={}
     const state=validate(structuredClone(staged.state));
     const placement=validateDockingPlacement(staged.placement??emptyPlacement(),{windowIds:state.monitors.map(monitor=>monitor.id)});
     const changed=canonicalJson(state)!==canonicalJson(workspace.state)||!samePlacement(placement,workspace.placement);
-    return {...staged,state,placement,changed,semantic_diff:staged.semantic_diff??semanticDiff(workspace.state,state,workspace.placement,placement)};
+    const list=staged.semantic_diff??semanticDiff(workspace.state,state,workspace.placement,placement);
+    const semantic_diff=staged.restore_revision!==undefined?restoreDiff(staged.restore_revision,list):list;
+    return {...staged,state,placement,changed,semantic_diff};
   }
 
   function compileBuiltin(body,{workspace,bindings}){
-    if(body.recipe==='review'&&(!Number.isFinite(body.width)||body.width<280||body.width>16000||!Number.isFinite(body.height)||body.height<180||body.height>16000))throw wbError('invalid_request');
-    if(body.recipe!=='review'&&(body.width!==undefined||body.height!==undefined))throw Object.assign(wbError('invalid_request'),{reason:'measurement_only_for_review'});
-    if(body.recipe_id||body.role_choices||body.renderer)throw Object.assign(wbError('invalid_request'),{reason:'saved_recipe_fields_for_builtin'});
+    const isReview=body.recipe==='review';
+    if(body.recipe_id)throw Object.assign(wbError('invalid_request'),{reason:'saved_recipe_fields_for_builtin'});
+    if(isReview&&(!Number.isFinite(body.width)||body.width<280||body.width>16000||!Number.isFinite(body.height)||body.height<180||body.height>16000))throw wbError('invalid_request');
+    // Record the actually supplied viewport whenever both bounds are measured.
+    const viewport=Number.isFinite(body.width)&&Number.isFinite(body.height)?{width:body.width,height:body.height}:null;
+    // Built-ins accept the same optional renderer as saved recipes. A `review`
+    // preview switches to the Windows view by its operations, so a supplied
+    // spatial target is recorded as the effective windows target; docking is
+    // recorded because its operations update the Docking placement.
+    const renderer=isReview?((body.renderer??'windows')==='spatial'?'windows':(body.renderer??'windows')):(body.renderer??'windows');
+    const roles=BUILTIN_ROLES[body.recipe]??[];
+    const ids=workspace.state.monitors.map(monitor=>monitor.id);
     const monitorIds=new Set();for(const binding of bindings){const monitor=paneMonitor(workspace.state,binding.pane_id);if(monitor)monitorIds.add(monitor.id);}
     if(!monitorIds.size)throw wbError('unsupported');
-    const ids=workspace.state.monitors.map(monitor=>monitor.id);
-    const priorities=BUILTIN_ROLES[body.recipe]??[];
-    // Non-review built-ins refuse an ambiguous role explicitly instead of
-    // silently ordering an arbitrary candidate. `review` applies its own
-    // trusted-window uniqueness rules below.
-    if(body.recipe!=='review')for(const role of priorities){const count=bindings.filter(binding=>binding.role===role).length;if(count>1)throw Object.assign(wbError('conflict'),{reason:'ambiguous_role',role});}
-    const priority=id=>{const monitor=workspace.state.monitors.find(item=>item.id===id),panes=new Set();const visit=node=>node.type==='pane'?panes.add(node.pane.id):(visit(node.first),visit(node.second));visit(monitor.layout);return Math.min(99,...bindings.filter(binding=>panes.has(binding.pane_id)).map(binding=>{const index=priorities.indexOf(binding.role);return index<0?99:index;}));};
-    let operations,placement=workspace.placement??emptyPlacement();
-    if(body.recipe==='review'){
-      const boundPanes=(role,predicate=()=>true)=>bindings.filter(item=>item.role===role).flatMap(binding=>{
-        for(const monitor of workspace.state.monitors){let found=null;const visit=node=>{if(node.type==='pane'){if(node.pane.id===binding.pane_id)found=node.pane;}else{visit(node.first);visit(node.second);}};visit(monitor.layout);if(found&&predicate(found))return [{monitor,pane:found,binding}];}
-        return [];
-      });
-      const trustedReviews=boundPanes('candidate_diff',pane=>pane.kind==='browser'&&pane.url===REVIEW_PANE_URL);
-      const anchors=boundPanes('primary_agent');
-      if(trustedReviews.length>1||anchors.length>1)throw wbError('conflict');
-      const review=trustedReviews[0]??null,anchor=anchors[0]??null;
-      if(!review||!anchor||review.monitor.id===anchor.monitor.id)throw wbError('unsupported');
-      const target=review.monitor,origin=anchor.monitor;
+    let operations,placement=workspace.placement??emptyPlacement(),roleChoices={},unbound=[];
+    if(isReview){
+      const choices=body.role_choices??{};
+      for(const key of Object.keys(choices))if(!roles.includes(key))throw Object.assign(wbError('invalid_request'),{reason:'unused_role_choice',role:key});
+      const withPane=role=>bindings.filter(binding=>binding.role===role).map(binding=>({binding,node:paneNode(workspace.state,binding.pane_id)})).filter(entry=>entry.node);
+      const trusted=withPane('candidate_diff').filter(entry=>entry.node.pane.kind==='browser'&&entry.node.pane.url===REVIEW_PANE_URL);
+      let reviewEntry=null;
+      if(choices.candidate_diff){
+        reviewEntry=trusted.find(entry=>entry.binding.id===choices.candidate_diff)??null;
+        if(!reviewEntry)throw Object.assign(wbError('unsupported'),{reason:'review_not_trusted'});
+      }else if(trusted.length===1)reviewEntry=trusted[0];
+      else if(trusted.length===0)throw wbError('unsupported');
+      else throw Object.assign(wbError('conflict'),{reason:'ambiguous_role',role:'candidate_diff'});
+      const agents=withPane('primary_agent');
+      let anchorEntry=null;
+      if(choices.primary_agent){
+        anchorEntry=agents.find(entry=>entry.binding.id===choices.primary_agent)??null;
+        if(!anchorEntry)throw Object.assign(wbError('conflict'),{reason:'unknown_binding_choice',role:'primary_agent'});
+      }else if(agents.length===1)anchorEntry=agents[0];
+      else if(agents.length===0)throw wbError('unsupported');
+      else throw Object.assign(wbError('conflict'),{reason:'ambiguous_role',role:'primary_agent'});
+      const projectFiles=withPane('project_files');
+      if(choices.project_files){
+        const chosen=projectFiles.find(entry=>entry.binding.id===choices.project_files)??null;
+        if(!chosen)throw Object.assign(wbError('conflict'),{reason:'unknown_binding_choice',role:'project_files'});
+        roleChoices.project_files=chosen.binding.id;
+      }else if(projectFiles.length===1)roleChoices.project_files=projectFiles[0].binding.id;
+      else{roleChoices.project_files=null;unbound.push('project_files');}
+      roleChoices.candidate_diff=reviewEntry.binding.id;roleChoices.primary_agent=anchorEntry.binding.id;
+      const target=reviewEntry.node.monitor,origin=anchorEntry.node.monitor;
+      if(target.id===origin.id)throw wbError('unsupported');
       const anchorFrame=origin.frame??{x:24,y:18,width:Math.min(740,body.width-60),height:Math.min(510,body.height-90),z:0};
       const width=Math.min(body.width,Math.max(280,Math.min(740,body.width*.42))),height=Math.min(body.height,Math.max(180,Math.min(620,body.height*.78)));
       let x=anchorFrame.x+anchorFrame.width+16;if(x+width>body.width)x=Math.max(0,anchorFrame.x-width-16);x=Math.max(0,Math.min(x,body.width-width));
@@ -205,10 +257,17 @@ export function createWorkspaceArrangements({store,records,data,now=Date.now}={}
       placement.floats.push({windows:[target.id],frame:{x,y,width,height},active:target.id});placement.active=target.id;
       placement=validateDockingPlacement(placement,{windowIds:ids});
     }else{
-      const next=[...ids.filter(id=>monitorIds.has(id)).sort((a,b)=>priority(a)-priority(b)),...ids.filter(id=>!monitorIds.has(id))];
+      let resolved;
+      ({resolved,unbound}=resolveRoles(roles,bindings,body.role_choices,workspace));
+      roleChoices=resolved;
+      // Only explicitly chosen candidates are prioritized; other bound windows
+      // stay after them and unbound windows last.
+      const chosenIds=[];
+      for(const role of roles){const bindingId=resolved[role];if(!bindingId)continue;const binding=bindings.find(item=>item.id===bindingId),monitor=binding?paneMonitor(workspace.state,binding.pane_id):null;if(monitor&&!chosenIds.includes(monitor.id))chosenIds.push(monitor.id);}
+      const next=[...chosenIds,...ids.filter(id=>!chosenIds.includes(id)&&monitorIds.has(id)),...ids.filter(id=>!monitorIds.has(id))];
       operations=[{action:'reorder_windows',window_ids:next}];
     }
-    return {recipe:body.recipe,recipe_id:null,recipe_version:null,recipe_source_project_id:null,layout:'prioritize',renderer:'windows',roles:priorities,role_choices:{},unbound:[],operations,state:operations.reduce((state,operation)=>validate(applyOperation(state,operation)),workspace.state),placement,geometry:'none',viewport:body.recipe==='review'?{width:body.width,height:body.height}:null,warning:body.recipe==='review'?REVIEW_WARNING:BUILTIN_WARNING};
+    return {recipe:body.recipe,recipe_id:null,recipe_version:null,recipe_source_project_id:null,layout:'prioritize',renderer,roles,role_choices:roleChoices,unbound,operations,state:operations.reduce((state,operation)=>validate(applyOperation(state,operation)),workspace.state),placement,geometry:'none',viewport,warning:isReview?REVIEW_WARNING:BUILTIN_WARNING};
   }
 
   function compileSaved(body,{workspace,bindings},recipe){
@@ -220,7 +279,8 @@ export function createWorkspaceArrangements({store,records,data,now=Date.now}={}
     const ordered=[];
     for(const role of roles){const bindingId=resolved[role];if(!bindingId)continue;const binding=bindings.find(item=>item.id===bindingId),monitor=binding?paneMonitor(workspace.state,binding.pane_id):null;if(monitor&&!ordered.includes(monitor.id))ordered.push(monitor.id);}
     const operations=[];
-    let geometry='none',placement=workspace.placement??emptyPlacement(),viewport=null,warning='Reorders existing windows only; pane IDs and contents stay the same.';
+    const NO_RESOURCES=' Only window order, geometry and Docking placement change; no pane, terminal, browser content or resource is created, reloaded or closed.';
+    let geometry='none',placement=workspace.placement??emptyPlacement(),viewport=null,warning='Reorders existing windows only; pane IDs and contents stay the same.'+NO_RESOURCES;
     if(layout==='columns'||layout==='rows'){
       const frames=arrangeGeometry(ordered,{layout,width:body.width,height:body.height});
       if(frames){
@@ -233,11 +293,11 @@ export function createWorkspaceArrangements({store,records,data,now=Date.now}={}
           for(const operation of frames)placement.floats.push({windows:[operation.window_id],frame:{x:operation.frame.x,y:operation.frame.y,width:operation.frame.width,height:operation.frame.height},active:operation.window_id});
           if(frames.length)placement.active=frames[0].window_id;
           placement=validateDockingPlacement(placement,{windowIds:ids});
-          warning='Places the chosen bound windows as measured Docking floats ('+layout+'), preserving unrelated placement. Geometry uses the caller-measured viewport; measured relative geometry is not yet persisted with a saved recipe.';
+          warning='Places the chosen bound windows as measured Docking floats ('+layout+'), preserving unrelated placement. Geometry uses the caller-measured viewport; measured relative geometry is not yet persisted with a saved recipe.'+NO_RESOURCES;
         }else{
-          warning='Places the chosen bound windows in a measured '+layout+' grid, then prioritizes them. Geometry uses the caller-measured viewport; measured relative geometry is not yet persisted with a saved recipe.';
+          warning='Places the chosen bound windows in a measured '+layout+' grid, then prioritizes them. Geometry uses the caller-measured viewport; measured relative geometry is not yet persisted with a saved recipe.'+NO_RESOURCES;
         }
-      }else{geometry='deferred';warning='Prioritizes the chosen bound windows only. Measured '+layout+' geometry was deferred because the measured viewport cannot hold the bound windows at the minimum frame size; provide a larger measured viewport or use prioritize.';}
+      }else{geometry='deferred';warning='Prioritizes the chosen bound windows only. Measured '+layout+' geometry was deferred because the measured viewport cannot hold the bound windows at the minimum frame size; provide a larger measured viewport or use prioritize.'+NO_RESOURCES;}
     }
     const next=[...ordered,...ids.filter(id=>!ordered.includes(id))];
     operations.push({action:'reorder_windows',window_ids:next});
@@ -245,14 +305,16 @@ export function createWorkspaceArrangements({store,records,data,now=Date.now}={}
   }
 
   function compileReturn(body,{workspace}){
-    if(body.recipe_id||body.role_choices||body.renderer||body.width!==undefined||body.height!==undefined)throw wbError('invalid_request');
+    if(body.recipe_id||body.role_choices||body.width!==undefined||body.height!==undefined)throw wbError('invalid_request');
     const sources=data.list('proposals',body.workspace_id,body.project_id).filter(proposal=>proposal.recipe!=='return'&&proposal.status==='committed'&&proposal.return_checkpoint_id&&!proposal.returned_at).sort((a,b)=>(b.committed_revision??0)-(a.committed_revision??0)||String(b.id).localeCompare(String(a.id)));
     const source=sources[0];
     if(!source)throw wbError('stale_resource');
     if(workspace.revision!==source.committed_revision)throw wbError('stale_resource');
     let checkpoint;try{checkpoint=store.checkpointGet(body.workspace_id,source.return_checkpoint_id);}catch{throw wbError('stale_resource');}
     const state=validate(structuredClone(checkpoint.state));
-    return {recipe:'return',recipe_id:null,recipe_version:null,recipe_source_project_id:null,layout:'prioritize',renderer:'windows',roles:[],role_choices:{},unbound:[],operations:[{action:'set_workspace',state}],state,placement:checkpoint.placement??emptyPlacement(),geometry:'none',viewport:null,return_of:source.id,warning:RETURN_WARNING,semantic_diff:[{kind:'restore',summary:'Restore exact pre-arrangement workspace state and Docking placement'}]};
+    // `restore_revision` lets finalize prepend the exact prior revision to the
+    // real semantic diff computed against the current workspace.
+    return {recipe:'return',recipe_id:null,recipe_version:null,recipe_source_project_id:null,layout:'prioritize',renderer:body.renderer??'windows',roles:[],role_choices:{},unbound:[],operations:[{action:'set_workspace',state}],state,placement:checkpoint.placement??emptyPlacement(),geometry:'none',viewport:null,return_of:source.id,restore_revision:checkpoint.revision,warning:RETURN_WARNING};
   }
 
   function pruneExpiredPreviews(workspaceId,projectId){
