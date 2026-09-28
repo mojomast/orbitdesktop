@@ -8,7 +8,7 @@ import { validateWorkspaceRequest } from '../server/workspace-contract.mjs';
 
 const workspace_id = '12345678-1234-1234-1234-123456789abc';
 test('all release theme personalities use the authoritative v1 appearance contract', () => {
-  assert.equal(themes.length, 14);
+  assert.equal(themes.length, 16);
   assert.equal(new Set(themes.map(theme => theme.name)).size, themes.length);
   for (const theme of themes) {
     const patch = themePatch(theme.name);

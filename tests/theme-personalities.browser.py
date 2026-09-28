@@ -20,8 +20,17 @@ with tempfile.TemporaryDirectory(prefix='orbit-personalities-') as runtime:
    page.get_by_role('textbox',name='Host session token').fill(token)
    page.get_by_role('button',name='Unlock local host',exact=True).click();page.wait_for_timeout(1000)
    before=page.evaluate('JSON.parse(localStorage.getItem("orbit.workspace.v1")).monitors')
-   for name,style in [('Windows XP','xp'),('Classic 95','classic'),('Paper Studio','paper'),('Cyberpunk','cyberpunk'),('Aurora Glass','aurora'),('Phosphor','phosphor'),('Blueprint','blueprint'),('Pop Art','pop'),('Ocean','ocean'),('Forest','forest'),('Plum','plum'),('Ember','ember'),('Midnight','midnight')]:
-    page.get_by_role('button',name='Choose workspace theme',exact=True).click()
+   def open_theme_picker():
+    # The orbit menu toggles; close any leftover dialog and make sure it is open first.
+    if page.locator('dialog[open]').count(): page.keyboard.press('Escape');page.wait_for_timeout(200)
+    item=page.locator('.orbit-menu-item',has_text='Themes').first
+    if not item.is_visible():
+     page.get_by_role('button',name='Open orbit menu',exact=True).click();page.wait_for_timeout(300)
+    if not item.is_visible():
+     page.get_by_role('button',name='Open orbit menu',exact=True).click();page.wait_for_timeout(300)
+    item.click();page.wait_for_timeout(400)
+   for name,style in [('Windows XP','xp'),('Classic 95','classic'),('MS-DOS','msdos'),('Paper Studio','paper'),('Cyberpunk','cyberpunk'),('Aurora Glass','aurora'),('Phosphor','phosphor'),('Blueprint','blueprint'),('Pop Art','pop'),('Ocean','ocean'),('Forest','forest'),('Plum','plum'),('Ember','ember'),('Midnight','midnight'),('Hermes Relay','relay')]:
+    open_theme_picker()
     page.get_by_role('button',name='Apply '+name+' theme',exact=True).click()
     expect(page.locator('html')).to_have_attribute('data-orbit-style',style)
     expect(page.get_by_role('status').filter(has_text=name+' applied locally')).to_be_visible()
@@ -47,6 +56,37 @@ with tempfile.TemporaryDirectory(prefix='orbit-personalities-') as runtime:
      assert '/wallpapers/phosphor.svg' in page.locator('.workspace').evaluate('e=>getComputedStyle(e).backgroundImage')
      page.locator('.start-button').hover();expect(page.locator('.start-button')).to_have_css('color','rgb(6, 19, 12)')
     if style=='blueprint': expect(page.locator('.monitor').first).to_have_css('border-top-style','double')
+    if style=='msdos':
+     block='"'+'\u2588'+'"'
+     msg=page.locator('.chat-message').first
+     expect(msg).to_have_css('border-top-width','0px')
+     assert 'mono' in msg.evaluate('e=>getComputedStyle(e).fontFamily')
+     assert msg.evaluate('e=>getComputedStyle(e,"::before").content')=='"C:> "',msg.evaluate('e=>getComputedStyle(e,"::before").content')
+     bar=page.locator('.monitor-bar').first
+     expect(bar).to_have_css('text-transform','uppercase')
+     assert 'mono' in bar.evaluate('e=>getComputedStyle(e).fontFamily')
+     assert bar.evaluate('e=>getComputedStyle(e,"::before").content')==block,bar.evaluate('e=>getComputedStyle(e,"::before").content')
+     assert page.locator('.display-tabs button').first.evaluate('e=>getComputedStyle(e).borderRadius')=='0px'
+     last=page.locator('.chat-message').last
+     assert last.evaluate('e=>getComputedStyle(e,"::after").content')==block
+     assert last.evaluate('e=>getComputedStyle(e,"::after").animationName')=='msdos-cursor'
+     page.emulate_media(reduced_motion='reduce')
+     assert last.evaluate('e=>getComputedStyle(e,"::after").animationName')=='none'
+     page.emulate_media(reduced_motion='no-preference')
+    if style=='relay':
+     msg=page.locator('.chat-message').first
+     expect(msg).to_have_css('border-left-width','3px')
+     assert 'rgb(255, 179, 71)' in msg.evaluate('e=>getComputedStyle(e).borderLeftColor'),msg.evaluate('e=>getComputedStyle(e).borderLeftColor')
+     assert msg.evaluate('e=>getComputedStyle(e,"::before").borderRadius')=='2px'
+     bar=page.locator('.monitor-bar').first
+     expect(bar).to_have_css('text-transform','uppercase')
+     assert 'mono' in bar.evaluate('e=>getComputedStyle(e).fontFamily')
+     assert bar.evaluate('e=>getComputedStyle(e,"::before").borderRadius')=='50%'
+     assert page.locator('.display-tabs button').first.evaluate('e=>getComputedStyle(e,"::after").content')=='""'
+     page.emulate_media(reduced_motion='reduce')
+     assert page.locator('.chat-message').last.evaluate('e=>getComputedStyle(e,"::before").animationName')=='none'
+     page.emulate_media(reduced_motion='no-preference')
+     assert page.locator('.chat-message').last.evaluate('e=>getComputedStyle(e,"::before").animationName')=='relay-pulse'
     if style=='pop':
      b=page.locator('.start-button');b.hover();page.mouse.down();page.wait_for_timeout(180);expect(b).to_have_css('translate','3px 3px');page.mouse.move(1400,5);page.mouse.up()
     page.mouse.move(1400,5)
@@ -60,7 +100,7 @@ with tempfile.TemporaryDirectory(prefix='orbit-personalities-') as runtime:
     page.get_by_role('textbox',name='Host session token').fill(token)
     page.get_by_role('button',name='Unlock local host',exact=True).click();page.wait_for_timeout(1000)
     page.set_viewport_size({'width':390,'height':844})
-    page.get_by_role('button',name='Choose workspace theme',exact=True).click()
+    open_theme_picker()
     assert page.locator('.theme-picker').evaluate('e=>e.scrollWidth<=e.clientWidth+1')
     page.get_by_role('button',name='Close workspace themes').click();page.set_viewport_size({'width':1440,'height':1000})
     print('PASS',name,'picker, persistence, pane preservation, responsive chat and dialog')

@@ -3,9 +3,11 @@ import {themePersonality} from './theme-personality.ts';
 type Theme = NonNullable<Workspace['appearance']> & {name:string;description:string};
 export const themes:Theme[] = [
  {name:'Nous Atelier',description:'Ultramarine celestial engraving, the Nous girl seal, indexed research ribbon and marginalia chat.',theme:'midnight',background:'#11112b',textColor:'#f0eeff',accentColor:'#aba8ff',cornerRadius:2},
+ {name:'Hermes Relay',description:'Agent-ops console: ink-navy panels, amber signal rails and a live tool-call timeline.',theme:'midnight',background:'#0c1622',textColor:'#e9f1fa',accentColor:'#ffb347',cornerRadius:4},
  {name:'Midnight',description:'Quiet, modern graphite with lime highlights.',theme:'midnight',background:'#10141c',textColor:'#e8edf5',accentColor:'#b5f268',cornerRadius:12},
  {name:'Windows XP',description:'Luna-inspired blue title bars, green Start, tactile controls and warm panels.',theme:'xp',background:'#397bd1',textColor:'#172341',accentColor:'#245edb',cornerRadius:8},
  {name:'Classic 95',description:'Square beveled controls, gray panels and navy title bars.',theme:'classic',background:'#008080',textColor:'#111111',accentColor:'#000080',cornerRadius:0},
+ {name:'MS-DOS',description:'CGA blue screen, double-line box borders, monospace command prompt and a blinking text cursor.',theme:'classic',background:'#0000a8',textColor:'#a8a8a8',accentColor:'#ffff55',cornerRadius:0,surfaceColor:'#000000',panelColor:'#0000a8',borderColor:'#a8a8a8',mutedColor:'#5f5f5f',titlebarColor:'#0000a8',titlebarTextColor:'#fcfcfc',buttonColor:'#a8a8a8',buttonTextColor:'#000000',controlRadius:0,titlebarHeight:28,uiFont:'mono'},
  {name:'Paper Studio',description:'Warm editorial canvas, ink outlines and hard offset shadows.',theme:'paper',background:'#e9e1d2',textColor:'#29251f',accentColor:'#93432d',cornerRadius:2},
  {name:'Cyberpunk',description:'Angular black panels, cyan edges and electric pink accents.',theme:'cyberpunk',background:'#090b16',textColor:'#e6fbff',accentColor:'#ff58cf',cornerRadius:0},
  {name:'Aurora Glass',description:'Frosted floating dock, luminous glass borders and softly lifting controls.',theme:'midnight',background:'#102c40',textColor:'#e5faff',accentColor:'#83eddd',cornerRadius:20},

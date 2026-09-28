@@ -64,6 +64,23 @@ html[data-orbit-style=plum] #app#app .display-tabs button:is(:hover,:focus-visib
 html[data-orbit-style=ember] #app#app:not(.full-viewport) .scene-navigation {background:repeating-linear-gradient(0deg,#ffbd800a 0 1px,transparent 1px 4px),#302019!important;border:3px ridge #b8875b;box-shadow:inset 0 2px 8px #000;}
 html[data-orbit-style=ember] #app#app .display-tabs button {border:2px inset #b8875b;border-radius:3px;box-shadow:inset 0 2px 5px #0008;letter-spacing:.04em;}
 html[data-orbit-style=ember] #app#app .display-tabs button:is(:hover,:focus-visible) {color:#ffe2aa!important;text-shadow:0 0 7px #ff9b40;box-shadow:inset 0 -3px #ffbd80,0 0 8px #ff9b4055;}
+/* Relay: telemetry status strip — mono channels with a live state LED per tab. */
+html[data-orbit-style=relay] #app#app:not(.full-viewport) .scene-navigation {left:10px;right:10px;border-radius:3px;border:1px solid #2c455c;border-top:3px solid var(--theme-accentColor,#ffb347)!important;background:#0d1a27!important;box-shadow:0 -6px 22px #02060c99;font-family:ui-monospace,monospace;}
+html[data-orbit-style=relay] #app#app .display-tabs {gap:1px;}
+html[data-orbit-style=relay] #app#app .display-tabs button {border:0;border-right:1px solid #2c455c;border-radius:0;box-shadow:none;letter-spacing:.04em;text-transform:uppercase;font-size:11px;}
+html[data-orbit-style=relay] #app#app .display-tabs button::after {content:'';display:inline-block;width:6px;height:6px;margin-left:6px;border-radius:50%;background:#3a586f;vertical-align:middle;}
+html[data-orbit-style=relay] #app#app .display-tabs button.selected {background:#173049!important;color:#ffd39a!important;outline:0;box-shadow:inset 0 -3px var(--theme-accentColor,#ffb347);}
+html[data-orbit-style=relay] #app#app .display-tabs button.selected::after {background:var(--theme-accentColor,#ffb347);box-shadow:0 0 6px #ffb347aa;}
+html[data-orbit-style=relay] #app#app .display-tabs button:is(:hover,:focus-visible) {box-shadow:inset 0 -3px var(--theme-accentColor,#ffb347);filter:none;}
+/* MS-DOS: full-width text-mode status bar with box-drawing borders and block tabs. */
+html[data-orbit-style=msdos] #app#app:not(.full-viewport) .scene-navigation {left:0;right:0;bottom:0;border-radius:0;border:0;border-top:3px double var(--theme-borderColor,#a8a8a8);background:#0000a8!important;color:#fcfcfc;box-shadow:none;font-family:ui-monospace,monospace;}
+html[data-orbit-style=msdos] #app#app .scene-navigation :is(button,.layout-toggle) {border:0;border-right:1px solid #a8a8a8;border-radius:0!important;background:#0000a8!important;color:#fcfcfc!important;box-shadow:none;font:12px ui-monospace,monospace;text-transform:uppercase;letter-spacing:.06em;}
+html[data-orbit-style=msdos] #app#app .scene-navigation .start-button {gap:6px;padding-inline:10px;}
+html[data-orbit-style=msdos] #app#app .scene-navigation .start-button::after {content:'\2588';margin-left:2px;color:var(--theme-accentColor,#ffff55);}
+html[data-orbit-style=msdos] #app#app .scene-navigation :is(.display-tabs button.selected,.start-button[aria-expanded=true],button:active) {background:#a8a8a8!important;color:#000084!important;outline:0;font-weight:bold;}
+html[data-orbit-style=msdos] #app#app .scene-navigation button:is(:hover,:focus-visible) {background:#fcfcfc!important;color:#000084!important;filter:none;}
+html[data-orbit-style=msdos] #app#app .display-tabs button {min-width:80px;max-width:190px;text-align:left;}
+html[data-orbit-style=msdos] #app#app .taskbar-status {padding:5px 8px;border-left:3px double var(--theme-borderColor,#a8a8a8);background:#000084;color:#fcfcfc;font:11px ui-monospace,monospace;text-transform:uppercase;}
 @media(max-width:600px) {
  html[data-orbit-style] #app#app:not(.full-viewport) .scene-navigation {left:3px;right:3px;gap:3px;padding-left:3px;padding-right:3px;}
  html[data-orbit-style] #app#app .scene-navigation .display-tabs button {min-width:0;max-width:145px;}
