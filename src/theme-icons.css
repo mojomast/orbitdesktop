@@ -135,6 +135,15 @@ html[data-orbit-style="relay"] [data-icon="grid"]{--icon-image:url("/icons/relay
 html[data-orbit-style="relay"] [data-icon="image"]{--icon-image:url("/icons/relay/image.svg")}
 html[data-orbit-style="relay"] [data-icon="key"]{--icon-image:url("/icons/relay/key.svg")}
 html[data-orbit-style="relay"] [data-icon="app"]{--icon-image:url("/icons/relay/app.svg")}
+html[data-orbit-style="msdos"] [data-icon="folder"]{--icon-image:url("/icons/msdos/folder.svg")}
+html[data-orbit-style="msdos"] [data-icon="chat"]{--icon-image:url("/icons/msdos/chat.svg")}
+html[data-orbit-style="msdos"] [data-icon="terminal"]{--icon-image:url("/icons/msdos/terminal.svg")}
+html[data-orbit-style="msdos"] [data-icon="browser"]{--icon-image:url("/icons/msdos/browser.svg")}
+html[data-orbit-style="msdos"] [data-icon="document"]{--icon-image:url("/icons/msdos/document.svg")}
+html[data-orbit-style="msdos"] [data-icon="grid"]{--icon-image:url("/icons/msdos/grid.svg")}
+html[data-orbit-style="msdos"] [data-icon="image"]{--icon-image:url("/icons/msdos/image.svg")}
+html[data-orbit-style="msdos"] [data-icon="key"]{--icon-image:url("/icons/msdos/key.svg")}
+html[data-orbit-style="msdos"] [data-icon="app"]{--icon-image:url("/icons/msdos/app.svg")}
 html:not([data-orbit-style]),html[data-orbit-style=""]{--unused:0} .theme-icon[data-icon="folder"]{--icon-fallback:url("/icons/midnight/folder.svg")}
 html:not([data-orbit-style]),html[data-orbit-style=""]{--unused:0} .theme-icon[data-icon="chat"]{--icon-fallback:url("/icons/midnight/chat.svg")}
 html:not([data-orbit-style]),html[data-orbit-style=""]{--unused:0} .theme-icon[data-icon="terminal"]{--icon-fallback:url("/icons/midnight/terminal.svg")}

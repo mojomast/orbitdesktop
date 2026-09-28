@@ -16,7 +16,9 @@ Use reset_appearance with specific keys to remove overrides without removing the
 
 ## Distinct desktop personalities
 
-The picker also offers Aurora Glass (frosted dock and lifting buttons), Phosphor (green command log, scanline chrome and inverted hover), Blueprint (drafting grid, double borders and ruled chat), Pop Art (halftone, heavy outlines and press-depth buttons), and Hermes Relay (agent-ops console: ink-navy instrument panels, amber signal rails and a chat that reads as a live tool-call timeline). Paper, Cyberpunk, Midnight, Ocean, Forest, Plum and Ember have additional scoped chrome/chat treatments. XP Messenger and Classic 95 Fixedsys Notepad remain intact.
+The picker also offers Aurora Glass (frosted dock and lifting buttons), Phosphor (green command log, scanline chrome and inverted hover), Blueprint (drafting grid, double borders and ruled chat), Pop Art (halftone, heavy outlines and press-depth buttons), MS-DOS (CGA blue screen, double-line box borders, monospace `C:\>` command prompt and a blinking block cursor) and Hermes Relay (agent-ops console: ink-navy instrument panels, amber signal rails and a chat that reads as a live tool-call timeline). Paper, Cyberpunk, Midnight, Ocean, Forest, Plum and Ember have additional scoped chrome/chat treatments. XP Messenger and Classic 95 Fixedsys Notepad remain intact.
+
+MS-DOS reuses the validated `classic` chrome family with CGA token overrides (blue panels, gray double-line borders, bright-yellow highlight, mono UI font) and its own generated wallpaper and icon pack. It changes presentation only: no window geometry, pane identity, terminal palette or plugin state. Its blinking cursor is disabled under reduced motion and forced colors.
 
 These presets deliberately reuse the existing validated theme families plus their background color; `themePersonality` resolves the pair to a presentation-only `data-orbit-style`. This avoids a live backend restart or schema migration. Changing a preset's background to an unrelated custom color returns to its base family. Apply complete presets from `themePatch`, not invented theme IDs. New picker previews reflect the personality tokens.
 

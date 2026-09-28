@@ -4,6 +4,7 @@ export function themePersonality(a:Workspace['appearance']):string {
  const variants:Record<string,[string,string]>={
  '#11112b':['midnight','nous'], '#0c1622':['midnight','relay'],
  '#102c40':['midnight','aurora'], '#06130c':['cyberpunk','phosphor'],
+ '#0000a8':['classic','msdos'],
  '#12345a':['paper','blueprint'], '#f6d84b':['paper','pop'],
  '#092535':['midnight','ocean'], '#12271f':['midnight','forest'],
  '#291b32':['midnight','plum'], '#302019':['midnight','ember'],

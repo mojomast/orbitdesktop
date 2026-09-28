@@ -20,7 +20,7 @@ with tempfile.TemporaryDirectory(prefix='orbit-personalities-') as runtime:
    page.get_by_role('textbox',name='Host session token').fill(token)
    page.get_by_role('button',name='Unlock local host',exact=True).click();page.wait_for_timeout(1000)
    before=page.evaluate('JSON.parse(localStorage.getItem("orbit.workspace.v1")).monitors')
-   for name,style in [('Windows XP','xp'),('Classic 95','classic'),('Paper Studio','paper'),('Cyberpunk','cyberpunk'),('Aurora Glass','aurora'),('Phosphor','phosphor'),('Blueprint','blueprint'),('Pop Art','pop'),('Ocean','ocean'),('Forest','forest'),('Plum','plum'),('Ember','ember'),('Midnight','midnight')]:
+   for name,style in [('Windows XP','xp'),('Classic 95','classic'),('MS-DOS','msdos'),('Paper Studio','paper'),('Cyberpunk','cyberpunk'),('Aurora Glass','aurora'),('Phosphor','phosphor'),('Blueprint','blueprint'),('Pop Art','pop'),('Ocean','ocean'),('Forest','forest'),('Plum','plum'),('Ember','ember'),('Midnight','midnight')]:
     page.get_by_role('button',name='Choose workspace theme',exact=True).click()
     page.get_by_role('button',name='Apply '+name+' theme',exact=True).click()
     expect(page.locator('html')).to_have_attribute('data-orbit-style',style)

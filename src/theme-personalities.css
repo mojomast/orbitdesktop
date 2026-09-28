@@ -91,3 +91,27 @@ html[data-orbit-style=relay] #app#app .start-button {border-radius:2px;text-tran
 @media(max-width:600px) {html[data-orbit-style=relay] .chat-message {padding:10px 10px 10px 14px!important;}html[data-orbit-style=relay] #app#app .monitor-bar {padding-left:16px;}}
 @media(prefers-reduced-motion:reduce) {html[data-orbit-style=relay] .chat-message::before {animation:none!important;}}
 @media(forced-colors:active) {html[data-orbit-style=relay] .chat-message {border:1px solid CanvasText!important;box-shadow:none!important;}html[data-orbit-style=relay] #app#app .monitor-bar::before {background:Highlight;}}
+/* MS-DOS: CGA blue screen, double-line box borders, monospace command prompt and a
+   blinking text cursor. Presentation only: no window geometry, pane identity or
+   terminal palette changes. */
+html[data-orbit-style=msdos] #app#app .monitor {border:2px double var(--theme-borderColor,#a8a8a8);border-radius:0;box-shadow:none;background:#000000;}
+html[data-orbit-style=msdos] #app#app .monitor-bar {position:relative;background:#0000a8!important;color:#fcfcfc!important;font-family:ui-monospace,monospace;text-transform:uppercase;letter-spacing:.1em;border-bottom:1px solid var(--theme-borderColor,#a8a8a8);text-shadow:none;}
+html[data-orbit-style=msdos] #app#app .monitor:not(.selected) .monitor-bar {background:#000082!important;}
+html[data-orbit-style=msdos] #app#app .monitor-bar::before {content:'\2588';margin-right:6px;color:var(--theme-accentColor,#ffff55);}
+html[data-orbit-style=msdos] #app#app .monitor.selected {border-color:var(--theme-accentColor,#ffff55);box-shadow:0 0 0 1px #ffff5566;}
+html[data-orbit-style=msdos] #app#app .chat-messages {background:#000000!important;color:#a8a8a8!important;}
+html[data-orbit-style=msdos] .chat-message {border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;align-self:stretch;max-width:100%;padding:2px 0!important;margin:0!important;font-family:ui-monospace,monospace;color:#a8a8a8!important;line-height:1.5;overflow-wrap:anywhere;}
+html[data-orbit-style=msdos] .chat-message small {display:block;font:12px ui-monospace,monospace;text-transform:uppercase;letter-spacing:.06em;color:#00a8a8!important;}
+html[data-orbit-style=msdos] .chat-message::before {content:'C:\3e\20';color:#fcfcfc;}
+html[data-orbit-style=msdos] .chat-message :is(p,code,small) {color:#a8a8a8!important;background:transparent!important;}
+html[data-orbit-style=msdos] .chat-message pre {border:2px double var(--theme-borderColor,#a8a8a8);border-radius:0;background:#000000!important;color:#a8a8a8!important;padding:6px 8px;max-width:100%;overflow:auto;font-family:ui-monospace,monospace;}
+html[data-orbit-style=msdos] #app#app .chat-form {background:#0000a8!important;border-top:2px double var(--theme-borderColor,#a8a8a8)!important;}
+html[data-orbit-style=msdos] #app#app .chat-form textarea {border:2px double var(--theme-borderColor,#a8a8a8);border-radius:0;background:#000000!important;color:#a8a8a8!important;font-family:ui-monospace,monospace;}
+html[data-orbit-style=msdos] #app#app :is(.agent-progress,.agent-queue,.agent-activity-strip) {background:#0000a8!important;color:#a8a8a8!important;font-family:ui-monospace,monospace;font-size:12px;}
+html[data-orbit-style=msdos] #app#app button {border:2px double var(--theme-borderColor,#a8a8a8);border-radius:0;background:#0000a8!important;color:#fcfcfc!important;box-shadow:none!important;font-family:ui-monospace,monospace;}
+html[data-orbit-style=msdos] #app#app button:hover {background:#a8a8a8!important;color:#000084!important;filter:none;outline:0;}
+@keyframes msdos-cursor {0%,49% {opacity:1;}50%,100% {opacity:0;}}
+html[data-orbit-style=msdos] .chat-message:last-child::after {content:'\2588';color:#fcfcfc;animation:msdos-cursor 1.06s steps(1,end) infinite;}
+@media(prefers-reduced-motion:reduce) {html[data-orbit-style=msdos] .chat-message:last-child::after {animation:none!important;}}
+@media(max-width:600px) {html[data-orbit-style=msdos] .chat-message small {font-size:11px;}}
+@media(forced-colors:active) {html[data-orbit-style=msdos] #app#app .monitor {border:1px solid CanvasText!important;}html[data-orbit-style=msdos] .chat-message:last-child::after {content:none!important;}}
