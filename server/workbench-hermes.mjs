@@ -27,7 +27,7 @@ function boundedOutput(value) {
 
 // Two-phase Workbench dispatch:
 //  - prepareSubmission(args) builds the EXACT upstream payload once (capabilities
-//    and, for legacy gateways, bounded history) and returns {recipient,caps,payload}.
+//    and bounded history) and returns {recipient,caps,payload}.
 //  - dispatchExact(args) sends that immutable payload verbatim. It never re-reads
 //    capabilities or rebuilds history, so the durable submission record is byte-for-byte
 //    what the gateway receives.
@@ -145,14 +145,41 @@ export function createWorkbenchHermes({ configuration, shared, locks, upstreamFo
     const caps = await capabilities(profile);
     exact(args, expected); // revalidate the binding after the capability await
     const payload = { input: args.input, session_id: args.session_id, instructions: trustedInstructions };
-    if (!caps.native_continuation) {
-      // Legacy gateways reload no transcript; supply bounded history ONCE here so the
-      // caller can persist the exact payload before dispatch.
-      let history = [];
-      try { history = sanitizeHistory(await upstreamFor(profile, `/api/sessions/${encodeURIComponent(args.session_id)}/messages`)); }
-      catch (error) { if (error.status !== 404) throw transportError(error); }
-      payload.conversation_history = history.map(({ role, text }) => ({ role, content: text }));
+    // A capability advertisement does not prove that this gateway's Runs route
+    // reloads the selected session. Freeze the exact, bounded transcript in the
+    // submission receipt on every route. Never take roles or history from the UI.
+    let history = [];
+    try {
+      // A tool-heavy turn must not crowd the conversational text out of a
+      // small raw-message page. Hermes caps this explicitly latest page at 500.
+      const page = await upstreamFor(profile, `/api/sessions/${encodeURIComponent(args.session_id)}/messages?limit=500&offset=0&order=latest`);
+      if (!Array.isArray(page?.data) || page.data.length > 500) throw wbError('unavailable');
+      for (const row of page.data) {
+        if (!row || typeof row !== 'object' || Array.isArray(row) || typeof row.role !== 'string') throw wbError('unavailable');
+        if (row.role === 'user' || row.role === 'assistant') {
+          // Pinned Hermes projects text as a string. Tool-call-only assistant
+          // rows may have no text, but malformed conversational rows cannot
+          // silently turn an established session into an empty history.
+          if (typeof row.content !== 'string' && typeof row.text !== 'string' && !(row.role === 'assistant' && Array.isArray(row.tool_calls) && row.tool_calls.length)) throw wbError('unavailable');
+        }
+      }
+      history = sanitizeHistory(page);
+    } catch (error) {
+      // Only an unstarted Orbit-created session can legitimately be absent.
+      // An explicitly selected external session must never become a new thread.
+      if (error.status !== 404 || !/^orbit-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(args.session_id) || current.history_unstarted !== true || current.messages?.length) {
+        if (error.status === 404) throw Object.assign(wbError('unavailable'), { status: 409, message: 'Conversation history is unavailable. Select New chat explicitly to start a new conversation.' });
+        throw transportError(error);
+      }
     }
+    // Unanswered/pending turns are not conversation context. A new message with
+    // identical text is still a new turn, and must appear only as payload.input.
+    while (history.length && history.at(-1).role !== 'assistant') history.pop();
+    if (!history.length && current.messages?.some(message => message.role === 'user')) throw wbError('unavailable');
+    payload.conversation_history = history.map(({ role, text }) => ({ role,
+      // sanitizeHistory applies the established bounds; repair only a boundary
+      // surrogate before serializing the immutable Runs payload as UTF-8.
+      content: /[\uD800-\uDBFF]$/.test(text) ? text.slice(0, -1) : text }));
     const latest = exact(args, expected);
     return { recipient: latest.recipient, caps, payload };
   }

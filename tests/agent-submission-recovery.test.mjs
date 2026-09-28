@@ -16,7 +16,7 @@ const listen = server => new Promise(resolve => server.listen(0,'127.0.0.1',reso
 const close = server => new Promise(resolve => { server.close(resolve); server.closeAllConnections(); });
 const reply = (res,status,body) => { res.writeHead(status,{'Content-Type':'application/json'}); res.end(JSON.stringify(body)); };
 
-async function setup(t, {lost = false, legacy = false, durable = false} = {}) {
+async function setup(t, {lost = false, legacy = false, durable = false, messages = [{role:'user',content:'Earlier'},{role:'assistant',content:'Remembered'},{role:'system',content:'not context'}]} = {}) {
   const directory = fs.mkdtempSync('/tmp/opencode/ordinary-submission-');
   const calls = [];
   let runStatus = 'running', postFault;
@@ -24,7 +24,11 @@ async function setup(t, {lost = false, legacy = false, durable = false} = {}) {
     let text = ''; for await (const chunk of req) text += chunk;
     calls.push({url:req.url,method:req.method,headers:req.headers,text});
     if (req.url === '/v1/capabilities') return reply(res,200,legacy ? {version:'fake',features:{session_continuation:true}} : {...actualCapabilities,features:{...actualCapabilities.features,...(durable ? {runs_idempotency:{supported:true,durable:true,retention_seconds:600}} : {})}});
-    if (req.url.includes('/messages')) return reply(res,200,{data:[{role:'user',content:'Earlier'},{role:'assistant',content:'Remembered'},{role:'system',content:'not context'}]});
+    if (req.url.includes('/messages')) {
+      const selectedMessages = typeof messages === 'function' ? messages(req.url) : messages;
+      return reply(res,selectedMessages === 'missing' ? 404 : 200,selectedMessages === 'malformed' ? {unexpected:[]} : {data:selectedMessages});
+    }
+    if (req.url.startsWith('/api/sessions/')) return reply(res,200,{id:decodeURIComponent(req.url.split('/')[3]),title:'Selected'});
     if (req.url === '/v1/runs' && req.method === 'POST') {
       const binding = JSON.parse(fs.readFileSync(path.join(directory,'shared-chats',`${workspace_id}.${pane_id}.json`),'utf8'));
       const record = JSON.parse(fs.readFileSync(path.join(directory,'ordinary-submissions',`${binding.ordinary_submission_id}.json`),'utf8'));
@@ -53,7 +57,7 @@ async function setup(t, {lost = false, legacy = false, durable = false} = {}) {
     return {status:response.status,body:await response.json()};
   }
   assert.equal((await request({action:'shared_chat',initial:{session:session_id,messages:[]}})).status,200);
-  return {request,restart,calls,directory,setStatus:value=>{runStatus=value;},setPostFault:value=>{postFault=value;}};
+  return {request,restart,calls,directory,setMessages:value=>{messages=value;},setStatus:value=>{runStatus=value;},setPostFault:value=>{postFault=value;}};
 }
 
 test('lost HTTP response persists exact intent and fences restart without a second POST', async t => {
@@ -76,15 +80,15 @@ test('lost HTTP response persists exact intent and fences restart without a seco
   assert.equal(f.calls.filter(call=>call.method==='POST').length,1);
 });
 
-test('known receipt uses original configuration, normal status clears the fence, native continuation is actual-contract gated', async t => {
+test('known receipt uses original configuration, normal status clears the fence, advertised native continuation still carries history', async t => {
   const f = await setup(t);
   const result = await f.request({action:'start',input:'Hello'});
   assert.equal(result.status,202); assert.equal(result.body.run_id,run_id);
   const post = f.calls.find(call=>call.method==='POST');
   assert.equal(post.headers['idempotency-key'],undefined);
-  assert.equal(JSON.parse(post.text).conversation_history,undefined);
+  assert.deepEqual(JSON.parse(post.text).conversation_history,[{role:'user',content:'Earlier'},{role:'assistant',content:'Remembered'}]);
   assert.match(JSON.parse(post.text).instructions,/Trusted workspace context/);
-  assert.ok(!f.calls.some(call=>call.url.includes('/messages')));
+  assert.equal(f.calls.filter(call=>call.url.includes('/messages')).length,1);
   f.restart('changed-key'); const count = f.calls.length;
   assert.equal((await f.request({action:'submission_status'})).status,409);
   assert.equal((await f.request({action:'status',run_id})).status,409);
@@ -106,6 +110,99 @@ test('legacy history is frozen once and model routing/actor fields are rejected'
   const payload = JSON.parse(f.calls.find(call=>call.method==='POST').text);
   assert.deepEqual(payload.conversation_history,[{role:'user',content:'Earlier'},{role:'assistant',content:'Remembered'}]);
   assert.equal(f.calls.filter(call=>call.url.includes('/messages')).length,1);
+});
+
+test('advertised continuation cannot omit prior turns, inject metadata, or duplicate a pending/current message', async t => {
+  const f = await setup(t,{messages:[
+    {role:'system',content:'private instructions'},
+    {role:'user',content:'Prior user',private_metadata:'do not forward'},
+    {role:'assistant',content:'Prior answer',tool_calls:[]},
+    {role:'tool',content:'private tool result'},
+    {role:'assistant',content:'private tool invocation',tool_calls:[{id:'call'}]},
+    {role:'user',content:'Current message'}, // an uncompleted turn must stay excluded
+  ]});
+  assert.equal((await f.request({action:'start',input:'Current message'})).status,202);
+  const payload = JSON.parse(f.calls.find(call=>call.method==='POST').text);
+  assert.equal(payload.input,'Current message');
+  assert.deepEqual(payload.conversation_history,[{role:'user',content:'Prior user'},{role:'assistant',content:'Prior answer'}]);
+  assert.deepEqual(Object.keys(payload).sort(),['conversation_history','input','instructions','session_id']);
+  assert.match(f.calls.find(call=>call.url.includes('/messages')).url,/order=latest/);
+});
+
+test('missing history of an existing pane fails closed without a new run', async t => {
+  const f = await setup(t,{messages:[]});
+  const file = path.join(f.directory,'shared-chats',`${workspace_id}.${pane_id}.json`);
+  const state = JSON.parse(fs.readFileSync(file,'utf8'));
+  fs.writeFileSync(file,JSON.stringify({...state,messages:[{role:'user',text:'Previous question'},{role:'assistant',text:'Previous answer'}]}));
+  const result = await f.request({action:'start',input:'follow-up'});
+  assert.notEqual(result.status,202);
+  assert.equal(f.calls.some(call=>call.url==='/v1/runs'),false);
+});
+
+test('malformed history and missing selected session never dispatch; fresh Orbit session permits empty history', async t => {
+  const f = await setup(t,{messages:'malformed'});
+  assert.notEqual((await f.request({action:'start',input:'first'})).status,202);
+  f.setMessages([]);
+  const selected = 'orbit-aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa';
+  assert.equal((await f.request({action:'select_session',target_profile_id:'default',target_session_id:selected})).status,200);
+  f.setMessages('missing');
+  assert.notEqual((await f.request({action:'start',input:'selected follow-up',session_id:selected,expected_binding_revision:1})).status,202);
+  assert.equal(f.calls.filter(call=>call.url==='/v1/runs').length,0);
+  const created = await f.request({action:'select_session',session_id:selected,expected_binding_revision:1,target_profile_id:'default'});
+  assert.equal(created.status,200);
+  const fresh = created.body.state;
+  assert.equal((await f.request({action:'start',session_id:fresh.session,expected_binding_revision:2,input:'first'})).status,202);
+  assert.deepEqual(JSON.parse(f.calls.find(call=>call.url==='/v1/runs').text).conversation_history,[]);
+});
+
+test('unmarked old empty Orbit binding and malformed successful rows fail before POST', async t => {
+  const f = await setup(t,{messages:'missing'});
+  const absent = await f.request({action:'start',input:'Do not start a replacement thread'});
+  assert.equal(absent.status,409);
+  assert.match(absent.body.error,/Select New chat explicitly/);
+  f.setMessages([{role:'user',content:42}]);
+  assert.notEqual((await f.request({action:'start',input:'Do not silently omit malformed context'})).status,202);
+  assert.equal(f.calls.filter(call=>call.url==='/v1/runs').length,0);
+});
+
+test('latest bounded raw page retains earlier conversation through tool-heavy turns and never splits Unicode', async t => {
+  const rows = [{role:'user',content:'Earlier question'},{role:'assistant',content:'Earlier answer'},
+    ...Array.from({length:110},(_,i)=>({role:'tool',content:`Tool result ${i}`}))];
+  const f = await setup(t,{messages:rows});
+  assert.equal((await f.request({action:'start',input:'Follow-up'})).status,202);
+  const post = f.calls.find(call=>call.url==='/v1/runs');
+  assert.deepEqual(JSON.parse(post.text).conversation_history,[{role:'user',content:'Earlier question'},{role:'assistant',content:'Earlier answer'}]);
+  assert.match(f.calls.find(call=>call.url.includes('/messages?')).url,/limit=500.*order=latest/);
+  const unicodeFixture = await setup(t,{messages:[{role:'user',content:'x'.repeat(15999)+'😀'},{role:'assistant',content:'answer'}]});
+  assert.equal((await unicodeFixture.request({action:'start',input:'Follow-up'})).status,202);
+  const unicode = JSON.parse(unicodeFixture.calls.find(call=>call.url==='/v1/runs').text).conversation_history;
+  assert.equal(unicode[0].content,'x'.repeat(15999));
+  assert.equal(JSON.stringify(unicode).includes('�'),false);
+});
+
+test('switching conversations reads only the bound session; Workbench card text and unsent drafts stay out', async t => {
+  const other = 'selected-conversation';
+  const f = await setup(t,{messages:url=>url.includes(other)
+    ? [{role:'user',content:'Workbench question'},{role:'assistant',content:'Workbench answer'}]
+    : [{role:'user',content:'Normal question'},{role:'assistant',content:'Normal answer'}]});
+  assert.equal((await f.request({action:'start',input:'Normal follow-up'})).status,202);
+  f.setStatus('completed');
+  assert.equal((await f.request({action:'status',run_id})).status,200);
+  const switched = await f.request({action:'select_session',target_profile_id:'default',target_session_id:other});
+  assert.equal(switched.status,200);
+  const file = path.join(f.directory,'shared-chats',`${workspace_id}.${pane_id}.json`);
+  const state = JSON.parse(fs.readFileSync(file,'utf8'));
+  fs.writeFileSync(file,JSON.stringify({...state,queued_draft:'Unsent draft',host_result_card:'Private Workbench result'}));
+  assert.equal((await f.request({action:'start',session_id:other,expected_binding_revision:1,input:'Workbench follow-up'})).status,202);
+  const posts = f.calls.filter(call=>call.url==='/v1/runs').map(call=>JSON.parse(call.text));
+  assert.deepEqual(posts.map(post=>post.conversation_history),[
+    [{role:'user',content:'Normal question'},{role:'assistant',content:'Normal answer'}],
+    [{role:'user',content:'Workbench question'},{role:'assistant',content:'Workbench answer'}],
+  ]);
+  assert.equal(posts[0].session_id,session_id);
+  assert.equal(posts[1].session_id,other);
+  assert.ok(!JSON.stringify(posts).includes('Private Workbench result'));
+  assert.ok(!JSON.stringify(posts).includes('Unsent draft'));
 });
 
 test('durable advertised idempotency uses the receipt UUID but never replays unknown POSTs', async t => {

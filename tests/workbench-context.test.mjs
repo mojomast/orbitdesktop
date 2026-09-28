@@ -585,7 +585,7 @@ function hermesFixture(t,{capabilities={}}={}){
   async function upstreamFor(used,route,body,method,headers={}){
     calls.push({route,body,method,headers,profile:used.id});
     if(route==='/v1/capabilities')return respond.capabilities;
-    if(route.endsWith('/messages'))return respond.messages;
+    if(route.includes('/messages?'))return respond.messages;
     if(route==='/v1/runs'){if(respond.runError)throw respond.runError;return respond.run;}
     if(route.includes('/stop'))return {};
     return {session_id:session_id,status:'completed',...(respond.output?{output:respond.output}:{})};
@@ -641,7 +641,7 @@ test('hermes adapter recognizes source-derived capabilities without claiming ins
   const nativePrepared=await native.api.prepareRecipient({workspace_id:native.workspace_id,pane_id:native.pane_id});
   await native.api.submit({workspace_id:native.workspace_id,pane_id:native.pane_id,profile_id:'default',session_id:native.session_id,input:'hello',expected_binding_revision:nativePrepared.binding_revision,expected_config_generation:nativePrepared.config_generation,idempotency_key:'key-1'});
   const nativeRun=native.calls.find(call=>call.route==='/v1/runs');
-  assert.equal(nativeRun.body.conversation_history,undefined);
+   assert.deepEqual(nativeRun.body.conversation_history,[]);
   assert.equal(nativeRun.headers['Idempotency-Key'],undefined);
 
   const documented=hermesFixture(t);

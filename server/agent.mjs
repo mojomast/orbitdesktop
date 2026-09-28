@@ -177,7 +177,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
            validatePane(body);
            if (shared.locks.has(`session:${target.id}:${targetId}`) || shared.hasActive(target.id,targetId,body.workspace_id,body.pane_id)) return reply(res,409,{error:'This conversation is already running.'});
            if (current.binding_revision !== revision || current.session !== body.session_id || current.profile_id !== profileId || current.run) return reply(res,409,{error:'Conversation changed or is still running.'});
-          const state = shared.write(body.workspace_id,body.pane_id,{session:targetId,profile_id:target.id,binding_revision:revision+1,messages,title});
+           const state = shared.write(body.workspace_id,body.pane_id,{session:targetId,profile_id:target.id,binding_revision:revision+1,messages,title,history_unstarted:creating});
           return reply(res,200,{state});
         }
         if(linked.session !== body.session_id || linked.profile_id !== profileId || revision !== linked.binding_revision) return reply(res,409,{error:'This pane is linked to another conversation. Wait for synchronization.'});
