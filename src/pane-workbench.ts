@@ -1202,6 +1202,9 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
     },
     invalidateBinding() {
       epoch++;
+      // A superseded load cannot clear the new epoch's busy latch in its
+      // finally block. Release its ownership before starting the replacement.
+      busy = false;
       disposePanels();
       stopLive();
       latestSnapshot = null;

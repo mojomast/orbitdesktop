@@ -133,6 +133,7 @@ jobs:
         run: |
           /tmp/opencode/orbit-workbench-venv/bin/python tests/agent-pane-ux.browser.py
           /tmp/opencode/orbit-workbench-venv/bin/python tests/agent-selection.browser.py
+          /tmp/opencode/orbit-workbench-venv/bin/python tests/pane-workbench-load-race.browser.py
       - name: Exact candidate diff review on both renderers
         if: ${{ !cancelled() && steps.browser_tools.outcome == 'success' }}
         env:

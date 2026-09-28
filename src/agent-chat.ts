@@ -905,10 +905,10 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
       saveDraft(); generation++; clearTimeout(timer); toolsDialog?.close(); liveController?.abort(); approvals.replaceChildren();
       taskCards.replaceChildren(); taskCards.hidden = true; cardsDigest = '';
       queuePaused = true; toolStatus = ''; streamStatus = '';
-      workbench?.invalidateBinding();
     }
     state = next;
     if (changed) {
+      workbench?.invalidateBinding();
       loadDraft(); resetBindingControls(); status.textContent = state.run ? 'WORKING' : 'READY'; progress.textContent = '';
       // A binding change resets the shared timeline (Normal feed and idle Workbench scope).
       normalLive.reset(chatBindingKey(state));

@@ -81,3 +81,9 @@ immutable context and authority handoff, shared execution fences, historical dif
 scope clearing, project revocation, result review/placement and reload. The
 separate trusted Review window is covered there; the visual fixture's “review”
 state represents Workbench Result, not that independent window.
+
+Binding invalidation releases the superseded Workbench load's busy ownership
+before launching its replacement. The accepted chat binding is installed first.
+A deterministic delayed-import regression covers this reload interleaving: the
+replacement must reconnect retained activity without a manual refresh or replaying
+execution. Old asynchronous loads remain fenced by their epoch checks.
