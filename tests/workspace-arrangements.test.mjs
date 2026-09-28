@@ -185,6 +185,9 @@ test('preview base/revision drift and digest mismatch are refused before commit'
   const current=f.store.read(f.workspace_id);
   f.store.commit(commandIdentity({workspace_id:f.workspace_id,action:'apply',operations:[],base_revision:current.revision,operation_id:randomUUID()},'owner'),{apply:value=>{const state=structuredClone(value.state);state.arc=state.arc+1;return state;}});
   await assert.rejects(apply(f,'project_focus',preview),{code:'stale_resource'});
+  assert.equal((await f.flow('proposal_get',{proposal_id:preview.preview_id})).proposal.status,'stale');
+  const reopened=createWorkspaceArrangements({store:f.store,records:f.records,data:new WorkbenchData(f.store)});
+  assert.equal((await reopened.dispatch({action:'proposal_get',workspace_id:f.workspace_id,project_id:f.project.id,proposal_id:preview.preview_id})).proposal.status,'stale');
 });
 
 test('recipe_save enforces retained workspace recipe budget, including revoked source projects',async t=>{

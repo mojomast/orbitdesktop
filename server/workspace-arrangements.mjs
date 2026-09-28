@@ -388,7 +388,13 @@ export function createWorkspaceArrangements({store,records,data,now=Date.now}={}
           return {workspace:{workspace_id:record.id,revision:record.revision,state:record.state,placement:record.placement},recipe:proposal.recipe,idempotent:false,status:'committed',preview_id:proposal.id,preview_digest:proposal.preview_digest,viewport:proposal.viewport??null,intent,rendered:false,tested:false};
         },
       });
-    }catch(error){throw asWbError(error);}
+    }catch(error){
+      const mapped=asWbError(error);
+      // The refused workspace transaction has rolled back. Persist the proposal
+      // disposition separately; doing it inside authorize would roll it back too.
+      if(mapped.code==='stale_resource'||mapped.code==='expired')markStale(proposal);
+      throw mapped;
+    }
     return committed.result;
   }
 
