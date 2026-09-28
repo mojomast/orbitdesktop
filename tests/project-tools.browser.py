@@ -271,6 +271,51 @@ def add_supersede_annotation(runtime_dir, workspace_id, project_id, evidence_id)
                                   "note": "synthetic fixture supersession"})
 
 
+def close_theme_picker(page):
+    dialog = page.locator("dialog[aria-label='Workspace themes']")
+    if dialog.count() and dialog.is_visible():
+        dialog.get_by_role("button", name="Close workspace themes").click()
+        dialog.wait_for(state="detached", timeout=10000)
+
+
+def open_theme_picker(page):
+    close_workbench(page)
+    close_orbit_menu(page)
+    # Real user-visible flow: orbit menu -> Themes (no programmatic clicks).
+    item = page.locator(".orbit-menu-item", has_text="Themes").first
+    if not item.is_visible():
+        page.get_by_role("button", name="Open orbit menu", exact=True).click()
+        page.wait_for_timeout(300)
+    if not item.is_visible():
+        page.get_by_role("button", name="Open orbit menu", exact=True).click()
+        page.wait_for_timeout(300)
+    item.click()
+    page.wait_for_timeout(300)
+    dialog = page.locator("dialog[aria-label='Workspace themes']")
+    expect(dialog).to_be_visible(timeout=15000)
+    return dialog
+
+
+def apply_theme(page, name):
+    dialog = open_theme_picker(page)
+    with page.expect_response(lambda response: response.url.split("?")[0].endswith("/api/workspace")
+                              and (response.request.post_data_json or {}).get("action") == "checkpoint") as pending:
+        dialog.get_by_role("button", name=f"Apply {name} theme").click()
+    assert pending.value.status == 200, pending.value
+    expect(dialog).to_contain_text("applied locally", timeout=15000)
+    return dialog
+
+
+def select_window(page, name):
+    """Raise/select a window through the real scene-navigation display tabs."""
+    for prefix in ("Select", "Restore"):
+        candidate = page.get_by_role("button", name=f"{prefix} {name}", exact=True)
+        if candidate.count():
+            candidate.first.click()
+            page.wait_for_timeout(150)
+            return
+
+
 def assert_within_viewport(page, locator, label):
     viewport = page.viewport_size
     box = locator.bounding_box()
@@ -417,13 +462,40 @@ def main(renderer):
                             pane.locator(".project-tool-save").click()
                             expect(pane.locator(".project-tool-status")).to_contain_text("Saved at data revision", timeout=15000)
 
+                            # --- independent second-project notebook, created while A is active ---
+                            dialog = open_workbench(page)
+                            open_project(page, dialog, "Project B")
+                            create_tool_through_manager(page, dialog, "notebook", "Field notebook")
+                            b_notebook = instance_by_title(origin, token, "Field notebook")
+                            assert b_notebook["kind"] == "notebook" and b_notebook["id"] != notebook_id, b_notebook
+                            b_notebook_id = b_notebook["id"]
+                            b_pane_id = pane_for_instance(origin, token, b_notebook_id)
+                            assert b_pane_id and b_pane_id != notebook_pane, b_pane_id
+                            b_pane = wait_for_tool_pane(page, b_pane_id)
+                            b_editor = b_pane.locator(".project-tool-editor")
+                            expect(b_editor).to_be_visible(timeout=20000)
+                            select_window(page, "Field notebook")
+                            b_editor.fill("B independent note")
+                            b_pane.locator(".project-tool-save").click()
+                            expect(b_pane.locator(".project-tool-status")).to_contain_text("Saved at data revision", timeout=15000)
+                            # Both notes persist independently with their own exact text/revision.
+                            status, a_persisted = tools_api(origin, token, {"action": "data_read", "project_id": project_ids["Project A"], "instance_id": notebook_id, "pane_id": notebook_pane})
+                            status_b, b_persisted = tools_api(origin, token, {"action": "data_read", "project_id": project_ids["Project B"], "instance_id": b_notebook_id, "pane_id": b_pane_id})
+                            assert status == 200 and a_persisted["data"]["text"] == "first note" and a_persisted["revision"] == 1, a_persisted
+                            assert status_b == 200 and b_persisted["data"]["text"] == "B independent note" and b_persisted["revision"] == 1, b_persisted
+
                             # --- saved data survives a full page reload (drafts are memory only) ---
                             page.reload(wait_until="domcontentloaded")
                             connected(page, token)
                             pane = wait_for_tool_pane(page, notebook_pane)
                             expect(pane.locator(".project-tool-editor")).to_have_value("first note", timeout=20000)
+                            editor = pane.locator(".project-tool-editor")
+                            b_pane = wait_for_tool_pane(page, b_pane_id)
+                            expect(b_pane.locator(".project-tool-editor")).to_have_value("B independent note", timeout=20000)
+                            b_editor = b_pane.locator(".project-tool-editor")
 
                             # --- stale-revision save conflict retains the draft ---
+                            select_window(page, "Lab notebook")
                             status, loaded = tools_api(origin, token, {"action": "data_read", "project_id": project_ids["Project A"], "instance_id": notebook_id, "pane_id": notebook_pane})
                             assert status == 200 and loaded["ok"], loaded
                             status, external = tools_api(origin, token, {"action": "data_save", "project_id": project_ids["Project A"], "instance_id": notebook_id,
@@ -435,6 +507,7 @@ def main(renderer):
                             expect(pane.locator(".project-tool-conflict")).to_be_visible(timeout=15000)
                             expect(editor).to_have_value("local draft kept")
                             assert editor.input_value() == "local draft kept"
+                            select_window(page, "Lab notebook")
                             page.once("dialog", lambda confirmation: confirmation.accept())
                             pane.locator(".project-tool-reload").click()
                             expect(editor).to_have_value("external note", timeout=15000)
@@ -476,6 +549,66 @@ def main(renderer):
                             pane.locator(".project-tool-save").click()
                             expect(pane.locator(".project-tool-status")).to_contain_text("Saved at data revision", timeout=15000)
 
+                            # --- combined UI: theme appearance must not disturb a live notebook ---
+                            editor.fill("unsaved draft survives theme")
+                            page.evaluate(
+                                "(sel) => { window.__projectToolEditor = document.querySelector(sel); }",
+                                f'.pane[data-pane-id="{notebook_pane}"] .project-tool-editor',
+                            )
+                            status, before_theme = tools_api(origin, token, {"action": "data_read", "project_id": project_ids["Project A"], "instance_id": notebook_id, "pane_id": notebook_pane})
+                            assert status == 200 and before_theme["data"]["text"] == "later notes preserved", before_theme
+                            snap = read_snapshot(origin, token)
+                            initial_style = page.evaluate("() => document.documentElement.dataset.orbitStyle ?? ''")
+                            initial_appearance = snap["state"].get("appearance")
+                            for theme_name, style, accent, base_theme in (
+                                ("Hermes Relay", "relay", "#ffb347", "midnight"),
+                                ("MS-DOS", "msdos", "#ffff55", "classic"),
+                            ):
+                                apply_theme(page, theme_name)
+                                assert page.evaluate("() => document.documentElement.dataset.orbitStyle") == style, style
+                                assert page.evaluate("() => document.documentElement.dataset.orbitTheme") == base_theme, style
+                                assert page.evaluate("() => getComputedStyle(document.documentElement).getPropertyValue('--theme-accentColor').trim().toLowerCase()") == accent, style
+                                icon_image = page.evaluate("() => { const s=document.createElement('span'); s.className='theme-icon'; s.dataset.icon='terminal'; document.body.append(s); const v=getComputedStyle(s).getPropertyValue('--icon-image').trim(); s.remove(); return v; }")
+                                assert f"/icons/{style}/terminal.svg" in icon_image, (theme_name, icon_image)
+                                close_theme_picker(page)
+                                close_orbit_menu(page)
+                                # exact editor DOM identity and unsaved draft survive the appearance change
+                                assert page.evaluate("(sel) => window.__projectToolEditor === document.querySelector(sel)", f'.pane[data-pane-id="{notebook_pane}"] .project-tool-editor'), theme_name
+                                expect(editor).to_have_value("unsaved draft survives theme")
+                                # saved data revision/text are never changed by appearance
+                                status, after_theme = tools_api(origin, token, {"action": "data_read", "project_id": project_ids["Project A"], "instance_id": notebook_id, "pane_id": notebook_pane})
+                                assert status == 200 and after_theme["revision"] == before_theme["revision"], after_theme
+                                assert after_theme["instance_revision"] == before_theme["instance_revision"], after_theme
+                                assert after_theme["data"]["text"] == "later notes preserved", after_theme
+                                select_window(page, "Lab notebook")
+                                pane.scroll_into_view_if_needed()
+                                shot(pane.locator(".project-tool-host"), f"/tmp/opencode/project-tools-{renderer}-{style}.png")
+                                dialog = open_workbench(page)
+                                open_project(page, dialog, "Project A")
+                                shot(dialog.locator(".project-tool-manager"), f"/tmp/opencode/project-tools-{renderer}-{style}-manager.png")
+                                close_workbench(page)
+                                close_orbit_menu(page)
+                            # restore the pre-theme appearance and clear the theme-check draft
+                            snap = read_snapshot(origin, token)
+                            restored_state = json.loads(json.dumps(snap["state"]))
+                            if initial_appearance is None:
+                                restored_state.pop("appearance", None)
+                            else:
+                                restored_state["appearance"] = initial_appearance
+                            status, _ = workspace_api(origin, token, mutation({"action": "sync", "base_revision": snap["revision"], "state": restored_state}, "Fixture restore pre-theme appearance"))
+                            assert status == 200, status
+                            deadline = time.time() + 15
+                            while time.time() < deadline and page.evaluate("() => document.documentElement.dataset.orbitStyle ?? ''") != initial_style:
+                                page.wait_for_timeout(200)
+                            assert page.evaluate("() => document.documentElement.dataset.orbitStyle ?? ''") == initial_style
+                            select_window(page, "Lab notebook")
+                            page.once("dialog", lambda confirmation: confirmation.accept())
+                            pane.locator(".project-tool-reload").click()
+                            expect(editor).to_have_value("later notes preserved", timeout=15000)
+                            theme_ids = dict(pane_ids(read_snapshot(origin, token)))
+                            assert TERMINAL_PANE in theme_ids and AGENT_PANE in theme_ids, theme_ids
+                            assert not any("/api/terminal" in url for url in websockets), websockets
+
                             # Enable the v2 count companion so the release pin can be checked:
                             # v1 must hide it (descriptor gate), v2 must show it.
                             _, meta = tools_api(origin, token, {"action": "metadata_list", "project_id": project_ids["Project A"]})
@@ -512,6 +645,7 @@ def main(renderer):
                             close_workbench(page)
                             close_orbit_menu(page)
                             hide_sidebar(page)
+                            select_window(page, "Lab notebook")
                             pane.scroll_into_view_if_needed()
                             assert_within_viewport(page, pane.locator(".project-tool-editor"), "desktop notebook editor")
                             assert_within_viewport(page, pane.locator(".project-tool-save"), "desktop notebook save")
@@ -526,6 +660,7 @@ def main(renderer):
                             close_workbench(page)
                             close_orbit_menu(page)
                             hide_sidebar(page)
+                            select_window(page, "Lab notebook")
                             pane.scroll_into_view_if_needed()
                             # Fit the window into the narrow viewport through the existing UI Focus
                             # control. Default (windowed) needs it; docking already fits its pane.
@@ -556,6 +691,10 @@ def main(renderer):
                             row.locator(".project-tool-toggle").click()
                             expect(pane.locator(".project-tool-gate.is-disabled")).to_be_visible(timeout=15000)
                             assert pane.locator(".project-tool-editor").count() == 0
+                            # Disabling A must not disturb the independent B notebook.
+                            status_b, b_while_a_disabled = tools_api(origin, token, {"action": "data_read", "project_id": project_ids["Project B"], "instance_id": b_notebook_id, "pane_id": b_pane_id})
+                            assert status_b == 200 and b_while_a_disabled["data"]["text"] == "B independent note", b_while_a_disabled
+                            expect(b_pane.locator(".project-tool-editor")).to_have_value("B independent note", timeout=15000)
                             row.locator(".project-tool-configure").click()
                             row.get_by_label("Tool font size").fill("20")
                             row.locator(".project-tool-configure-apply").click()
@@ -597,6 +736,16 @@ def main(renderer):
                             row.locator(".project-tool-toggle").click()
                             expect(pane.locator(".project-tool-editor")).to_have_value("later notes preserved", timeout=15000)
                             close_workbench(page)
+                            # The workspace-wide hold disabled enabled instances; B stays disabled
+                            # until the owner explicitly re-enables it (release never auto-enables).
+                            status, meta_b_hold = tools_api(origin, token, {"action": "metadata_list", "project_id": project_ids["Project B"]})
+                            b_after_hold = next(item for item in meta_b_hold["instances"] if item["id"] == b_notebook_id)
+                            if b_after_hold["enabled"] is False:
+                                status, enabled_b = tools_api(origin, token, {"action": "set_enabled", "project_id": project_ids["Project B"], "instance_id": b_notebook_id,
+                                                                             "expected_revision": b_after_hold["revision"], "enabled": True,
+                                                                             "op_id": str(uuid.uuid4()), "intent": "Fixture re-enable B after hold"})
+                                assert status == 200 and enabled_b["ok"], enabled_b
+                            expect(b_pane.locator(".project-tool-editor")).to_have_value("B independent note", timeout=15000)
 
                             # --- layout checkpoint undo preserves notes ---
                             snap = read_snapshot(origin, token)
@@ -648,6 +797,10 @@ def main(renderer):
                             page.wait_for_timeout(1500)
                             assert pane.locator(".project-tool-editor").count() == 0, "delayed stale data rendered after revoke"
                             assert pane.locator(".project-tool-gate.is-revoked").is_visible()
+                            # Revoking A must not disturb the independent B notebook.
+                            status_b, b_after_a_revoke = tools_api(origin, token, {"action": "data_read", "project_id": project_ids["Project B"], "instance_id": b_notebook_id, "pane_id": b_pane_id})
+                            assert status_b == 200 and b_after_a_revoke["data"]["text"] == "B independent note" and b_after_a_revoke["revision"] == 1, b_after_a_revoke
+                            expect(b_pane.locator(".project-tool-editor")).to_have_value("B independent note", timeout=15000)
 
                             # --- evidence_checks card over a second project ---
                             dialog = open_workbench(page)
@@ -688,6 +841,7 @@ def main(renderer):
                             expect(checks_view.locator(".project-tool-verdict").first).to_have_text("PASS")
                             expect(checks_view.locator(".project-tool-check").first).to_contain_text("node-test")
                             expect(checks_view.locator(".project-tool-check").first).to_contain_text("review: approved")
+                            select_window(page, "Checks card")
                             checks_view.locator(".project-tool-check-details summary").first.click()
                             expect(checks_view.locator(".project-tool-check-details").first).to_contain_text("review-synthetic-exact")
                             expect(checks_view.locator(".project-tool-check-details").first).to_contain_text(evidence_one["id"])
@@ -710,11 +864,17 @@ def main(renderer):
                             expect(checks_view.locator(".project-tool-check").filter(has_text="node-test")).to_have_count(0)
                             expect(checks_view.locator(".project-tool-check").filter(has_text="host-regression")).to_have_count(1)
 
-                            # --- two-project isolation ---
+                            # --- exact two-project membership (A notebook; B notebook + checks) ---
                             status, meta_a = tools_api(origin, token, {"action": "metadata_list", "project_id": project_ids["Project A"]})
-                            status, meta_b = tools_api(origin, token, {"action": "metadata_list", "project_id": project_ids["Project B"]})
+                            status_b, meta_b = tools_api(origin, token, {"action": "metadata_list", "project_id": project_ids["Project B"]})
+                            assert [item["id"] for item in meta_a["instances"]] == [notebook_id], meta_a["instances"]
                             assert all(item["kind"] == "notebook" for item in meta_a["instances"]), meta_a["instances"]
-                            assert all(item["kind"] == "evidence_checks" for item in meta_b["instances"]), meta_b["instances"]
+                            b_membership = {item["id"]: item["kind"] for item in meta_b["instances"]}
+                            assert b_membership == {b_notebook_id: "notebook", checks["id"]: "evidence_checks"}, meta_b["instances"]
+                            # B notebook remains independently readable after A was revoked.
+                            status_b, b_final = tools_api(origin, token, {"action": "data_read", "project_id": project_ids["Project B"], "instance_id": b_notebook_id, "pane_id": b_pane_id})
+                            assert status_b == 200 and b_final["data"]["text"] == "B independent note" and b_final["revision"] == 1, b_final
+                            expect(b_pane.locator(".project-tool-editor")).to_have_value("B independent note", timeout=15000)
 
                             # --- unrelated terminal/conversation identities unchanged ---
                             final_ids = dict(pane_ids(read_snapshot(origin, token)))
