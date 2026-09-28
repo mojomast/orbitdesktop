@@ -114,6 +114,16 @@ grant controller, model or generated-frame access. Notebook data has an independ
 revision CAS and never enters layout checkpoints or mutation receipts. See
 [Project tools](PROJECT_TOOLS.md) for lifecycle, hold and compatibility semantics.
 
+## Exact-artifact Studio
+
+`server/extension-studio.mjs` admits only the finite `focus-timer-v1` generator.
+Private immutable file-backed drafts/checks/proposals reference content-addressed
+publisher outputs. Installation commits the staged layout/checkpoint and command
+receipt together. Revocation uses append-only `studio-revoke` receipts, checked by
+every workspace commit before enabling a registered release. Schema 11 is a writer
+fence for those semantics; it preserves schema-10 tables and v1 layouts. Generated
+frames receive no host/private-data bridge. See [Studio](EXTENSION_STUDIO.md).
+
 ## Hermes
 
 `server/agent.mjs` bridges authenticated runs, bounded server-loaded conversation history, approvals, stop, steering, activity, capabilities, catalog and job controls. `server/workspace.mjs` supplies the active workspace context and reads `docs/AGENT_GUIDE.md` into it at request time. Editing that guide updates subsequent contexts without copying instructions into several prompts. `src/agent-chat.ts` retains per-pane UI state; Hermes is a real runtime, not a chat stub.

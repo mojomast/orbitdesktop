@@ -51,7 +51,7 @@ test('schema 5 additive upgrade retains project identities and leaves source bac
   const target=path.join(f.root,'upgraded');fs.mkdirSync(target);fs.copyFileSync(backup,path.join(target,'workspace.sqlite'));
   const upgraded=new SqliteWorkspaceStore(target);
   try{
-    assert.equal(upgraded.db.pragma('user_version',{simple:true}),10);
+    assert.equal(upgraded.db.pragma('user_version',{simple:true}),11);
     assert.equal(new WorkbenchStore(upgraded).project(f.workspace,f.project.id).id,f.project.id);
     for(const kind of WORKBENCH_RECORD_KINDS)assert.deepEqual(new WorkbenchData(upgraded).list(kind,f.workspace,f.project.id),[]);
   }finally{upgraded.close();}
@@ -98,7 +98,7 @@ test('schema 8 enforces patch op IDs and refuses conflicting old copies without 
   const target=path.join(f.root,'patch-conflict');fs.mkdirSync(target);await f.store.backup(path.join(target,'workspace.sqlite'));
   assert.throws(()=>new SqliteWorkspaceStore(target),/MIGRATION_INVALID/);
   const db=new Database(path.join(target,'workspace.sqlite'),{readonly:true});
-  try{assert.equal(db.pragma('user_version',{simple:true}),10);assert.equal(db.prepare('SELECT count(*) AS n FROM wb_patches').get().n,2);}finally{db.close();}
+  try{assert.equal(db.pragma('user_version',{simple:true}),11);assert.equal(db.prepare('SELECT count(*) AS n FROM wb_patches').get().n,2);}finally{db.close();}
 });
 
 test('schema 6 migration refuses conflicting operation receipts without deleting either record',async t=>{

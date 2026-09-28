@@ -128,7 +128,7 @@ export function createWorkspaceService({ token, port, devOrigins, reply: sendRep
       return reply(res,200,safe(record));
     } catch (e) {
       const category=e.category||(e.code==='SQLITE_BUSY'?'RESOURCE_BUSY':e.code?.startsWith('SQLITE_')?'STORE_UNAVAILABLE':'INVALID_OPERATION');
-      const status={REVISION_CONFLICT:409,IDEMPOTENCY_CONFLICT:409,RECOVERY_HOLD:409,RECOVERY_POLICY_CHANGED:409,BUNDLE_UNAVAILABLE:409,UPGRADE_REQUIRED:409,PERMISSION_REQUIRED:403,RESOURCE_GONE:404,RESOURCE_BUSY:503,STORE_UNAVAILABLE:503,REQUEST_TOO_LARGE:413}[category]||400;
+      const status={REVISION_CONFLICT:409,IDEMPOTENCY_CONFLICT:409,RECOVERY_HOLD:409,RECOVERY_POLICY_CHANGED:409,STUDIO_RELEASE_REVOKED:409,BUNDLE_UNAVAILABLE:409,UPGRADE_REQUIRED:409,PERMISSION_REQUIRED:403,RESOURCE_GONE:404,RESOURCE_BUSY:503,STORE_UNAVAILABLE:503,REQUEST_TOO_LARGE:413}[category]||400;
       let current={};
       if(category==='REVISION_CONFLICT')try {current=safe(read(body.workspace_id),!recovery);} catch {}
       return reply(res,status,{error:category==='REVISION_CONFLICT'?'Workspace changed; read and reconsider':category==='BUNDLE_UNAVAILABLE'?'Published bundle is unavailable or changed; verify files and refresh the bundle index':'Workspace request could not be completed',category,...current});

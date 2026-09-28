@@ -1,5 +1,19 @@
 # Independent recovery console
 
+## Studio release revocation
+
+The finite [Extension Studio](EXTENSION_STUDIO.md) profile adds permanent
+workspace-scoped revocation of an exact registered release entry. It disables the
+registered window and records revocation outside layout checkpoints. Restore,
+controller enable and browser sync cannot reactivate that entry. Recovery hold
+also disables Studio previews/instances; release never clears revocations or
+auto-enables widgets. Public files and offline/direct app pages remain accessible.
+Schema 11 prevents older writers from ignoring these rules. Full runtime backups
+include `extension-studio/`, SQLite and `apps/`; restoring old security state needs
+explicit reconciliation of any later revocations.
+
+## Owner console
+
 Open `/recovery` on the same authenticated Orbit host. Enter the owner session token
 and the exact workspace UUID; do not paste credentials into a conversation or URL.
 The page keeps the token in memory only. It does not enumerate workspaces, mount

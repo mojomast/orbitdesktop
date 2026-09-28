@@ -146,6 +146,7 @@ jobs:
         run: |
           for renderer in default docking; do
             /tmp/opencode/orbit-workbench-venv/bin/python tests/project-tools.browser.py --renderer "$renderer"
+            /tmp/opencode/orbit-workbench-venv/bin/python tests/extension-studio.browser.py --renderer "$renderer"
           done
       - name: Merged theme personalities and icon packs
         if: ${{ !cancelled() && matrix.suite == 'themes' && steps.browser_tools.outcome == 'success' }}
@@ -270,6 +271,8 @@ jobs:
             /tmp/opencode/project-tools-docking-manager-*.png
             /tmp/opencode/project-tools-default-notebook-*.png
             /tmp/opencode/project-tools-docking-notebook-*.png
+            /tmp/opencode/orbit-studio-default.png
+            /tmp/opencode/orbit-studio-docking.png
   workbench:
     name: workbench
     if: always()

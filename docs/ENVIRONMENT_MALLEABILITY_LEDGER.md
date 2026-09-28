@@ -282,7 +282,7 @@ These increments have not been deployed to an owner runtime.
 | M1 durable proposals and Return | Complete for admitted arrangement scope | Exact proposals/receipts, atomic/CAS tests, restart/browser/PTY journeys passed |
 | M2 durable role recipes and description | Complete for portable role-order/grid contract | Two-project apply/Return, independent browser, Normal adapter, import and role-choice gates passed; limits below |
 | M3 instances/private useful tools | Implemented for the closed host-tool contract | Schema-10 trusted notebooks/checks cards; acceptance evidence below |
-| M4 exact-output Extension Studio | Not implemented | Requires M3 and reviewed artifact profile |
+| M4 exact-output Extension Studio | First finite focus-timer profile implemented in source | Exact public artifact, durable review, atomic install and registered-release revocation; see Studio contract |
 | M5 trusted integrations/workflows | Not implemented | Requires first-release use and lifecycle decisions |
 | M6 verified Orbit Git integration | Not implemented | Requires explicit supported Orbit execution profile |
 
@@ -412,3 +412,58 @@ Combined-source local acceptance:
 
 These are local results; publication must obtain new exact-head remote CI rather
 than treating the M1–M2 baseline runs as validation of this merge.
+
+## M3 publication/deployment and parallel CI follow-on
+
+The combined `a15d7eb947d0c5936ce7ac66b5cda0ce49b5fea3` passed both
+[plugin CI](https://github.com/mojomast/orbitdesktop/actions/runs/36475557044) and
+[Workbench CI](https://github.com/mojomast/orbitdesktop/actions/runs/36475556992).
+The authorized release `orbit-a15d7eb` then upgraded the owner runtime from schema
+8 to 10 after a private rehearsal and stopped-writer full backup. Activation took
+1.6 seconds. All 30 existing tables' rows survived migration; all 79 saved layouts
+and revisions, 20 conversation files and three tmux panes were preserved. Both
+renderers passed fresh-context HTTPS smoke checks; the owner-authenticated tools
+route exposed two definitions/four releases. No paid model turn or personal-pane
+interaction was used to establish that result; everyday owner acceptance remains
+separate from those measured deployment checks.
+
+`76262c3` splits CI into seven isolated parallel suites with fail-fast disabled and
+a required aggregate gate. All suites passed in
+[the first parallel run](https://github.com/mojomast/orbitdesktop/actions/runs/36482575086).
+Runner wall time fell from **44m42s** to approximately **11m**, with the same tests.
+This timing precedes the new Studio browser cases.
+
+## M4 first profile: focus timer
+
+The owner selected a finite local focus-timer generator as the first end-to-end
+Studio journey. See [the frozen profile/lifecycle contract](EXTENSION_STUDIO.md).
+This is template-backed generation, not Hermes-authored arbitrary code. Public
+artifact bytes are previewed, structurally checked and approved by exact digest;
+private notebook data is never forwarded. Timer countdown state is memory-only;
+code rollback preserves later public instance configuration.
+
+Schema 11 fences older writers that cannot honor permanent registered-release
+revocations. It adds no tables and keeps all schema-10 data. This source increment
+does not upgrade the live M3 deployment. Exact-head verification for Studio is
+recorded separately from the successful M3 and CI-only heads above.
+
+Local first-profile acceptance:
+
+- Dependency-enabled `npm run check`: **740 tests, 738 passed, 0 failed, 2 gated
+  skips** (`/tmp/opencode/orbit-studio-full-check.log`). The final frontend build,
+  focused Studio tests and both browser journeys also pass after the bounded-record
+  and uncertain-HTTP-response refinements.
+- **8 focused Studio tests** passed, including the real archived schema-10 reader;
+  combined Studio/tools/migration/backup guards passed **24/24**.
+- Real publisher, endpoint and portable archive checks: **11/11 passed**.
+  Disposable schema-11 release packaging and launch: **2/2 passed**.
+- Both real-server Studio browser journeys passed: timer Start/Pause/Reset;
+  exact source and preview; parent DOM, storage and fetch denial; stale review;
+  committed-but-lost response (transport abort and HTTP 503) and identical retry
+  after reopening; update and
+  code rollback preserving later configuration; hold/release and revocation.
+- Lead inspected synthetic preview and narrow-dialog screenshots under
+  `/tmp/opencode/orbit-studio-*`. Narrow inspection found a global button-style
+  override of the native `hidden` attribute; Studio now explicitly hides retry
+  controls when no request is pending. Both browser journeys and the final build
+  passed after that correction. No private owner screenshot or model call was used.

@@ -22,6 +22,7 @@ import {createWorkbenchExecution} from './workbench-execution.mjs';
 import {createWorkbenchEnvironments} from './workbench-environments.mjs';
 import {createWorkbenchWorkflow} from './workbench-workflow.mjs';
 import {createProjectTools} from './project-tools.mjs';
+import {createExtensionStudio} from './extension-studio.mjs';
 import {createWorkbenchNative} from './workbench-native.mjs';
 import {createWorkbenchLive} from './workbench-live.mjs';
 import {createWorkbenchLiveHandler} from './workbench-live-route.mjs';
@@ -140,6 +141,8 @@ const executionHandler=workbenchOwnerRoute({token,port,devOrigins,reply,dispatch
 const workflow=createWorkbenchWorkflow({store:workspaceService.store,records:workbench.records,data:workbenchData,execution});
 const projectTools=createProjectTools({store:workspaceService.store,records:workbench.records,data:workbenchData});
 const projectToolsHandler=workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:body=>projectTools.dispatch(body)});
+const extensionStudio=createExtensionStudio({store:workspaceService.store});
+const extensionStudioHandler=workbenchOwnerRoute({token,port,devOrigins,reply,maxBytes:16384,dispatch:body=>extensionStudio.dispatch(body)});
 const nativeOptions=nativeRuntimeEnvironmentOptions({root:path.join(runtimeRoot,'workbench-native-runtime'),gate:executionGate});
 const nativeRuntimes=new Map();
 const nativeQuarantines=new Map();
@@ -185,6 +188,7 @@ const server = http.createServer(async (req, res) => {
   if(url.pathname==='/api/workbench/live')return liveHandler(req,res);
   if(url.pathname==='/api/workbench/workflow')return workflowHandler(req,res);
   if(url.pathname==='/api/workbench/tools')return projectToolsHandler(req,res);
+  if(url.pathname==='/api/extension-studio')return extensionStudioHandler(req,res);
   if(url.pathname==='/api/workbench/environments')return environmentHandler(req,res);
   if (url.pathname === "/api/managed-terminals") return managedTerminalHandler(req, res);
   if(url.pathname==='/api/workspace/events')return workspaceEvents(req,res);

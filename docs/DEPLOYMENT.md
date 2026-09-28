@@ -2,12 +2,15 @@
 
 ## Current source compatibility
 
-The M3 source uses SQLite schema 10; serialized workspace layout remains v1.
-Packaging now defaults to schema maximum 10. Always pass the intended release's
+The Studio source uses SQLite schema 11; serialized workspace layout remains v1.
+Schema 11 fences older writers that cannot enforce Studio release revocations;
+no tables or existing rows are rewritten by the 10→11 migration. Backups must
+include private `extension-studio/` proposals as well as retained `apps/` bundles.
+The deployed M3 release remains schema 10 until separately authorized activation.
+Packaging now defaults to schema maximum 11. Always pass the intended release's
 explicit compatibility range when packaging a historical branch or a narrow
-hotfix. Source validation is separate from activation: M3 does not authorize
-upgrading any owner runtime. Coordinate all writers and retain a pre-upgrade
-backup; schema-9 and earlier binaries refuse schema 10.
+hotfix. Source validation is separate from activation. Coordinate all writers and
+retain a pre-upgrade backup; schema-10 and earlier binaries refuse schema 11.
 
 ## Provisioning the RouteTok TypeScript cache
 

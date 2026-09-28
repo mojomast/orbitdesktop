@@ -30,8 +30,9 @@ is `orbit://project-tool/<instance-uuid>`. Consequences:
   reporting the legacy-v1 `extension_compatibility` flags truthfully; project
   tools are documented here, not advertised as legacy-v1 plugin capabilities.
 
-M4 (exact-output Studio) and any general broker/egress gateway are **not**
-implemented. Nothing here should be read as a resource grant.
+The later [Extension Studio](EXTENSION_STUDIO.md) focus-timer profile uses the
+separate sandboxed-app publisher; it does not receive these private notes. General
+broker/egress gateways remain unimplemented. Nothing here is a resource grant.
 
 ## Owner journey
 

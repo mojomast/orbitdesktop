@@ -1,5 +1,9 @@
 # Workspace plugins v1
 
+For the finite local focus-timer draft, preview, check and exact-artifact install
+journey, see [Extension Studio](EXTENSION_STUDIO.md). Its registered-release
+revocation rules supplement this existing v1 lifecycle.
+
 This is a working sandboxed-app lifecycle and trusted built-in extension registry, not a complete conversion of Orbit into plugins.
 
 For persistent private notebooks and evidence cards, see [Project tools](PROJECT_TOOLS.md).
@@ -64,8 +68,8 @@ cannot release the hold; explicit owner release does not auto-enable plugins. Th
 not a full pre-boot safe mode: cached/offline clients and already-running frames can
 still consume resources, static app URLs remain available, and backends are not stopped.
 See [Recovery](RECOVERY.md). General dependency resolution, capability-granted host
-APIs, persistent plugin storage, signed packages, background workers, preview/test
-promotion and full conversion of the pane/scene renderer are outstanding.
+APIs, persistent plugin storage, signed packages, background workers, arbitrary
+artifact preview/test promotion and full pane/scene conversion are outstanding.
 
 Content-addressed folders avoid overwriting through this publisher; filesystem owner edits or the older generic publisher can still mutate/delete them. These are version-pinned references, not a filesystem-enforced immutable store or disaster backup. Never rewrite published hash folders. No installer dependencies or third-party packages are executed.
 
