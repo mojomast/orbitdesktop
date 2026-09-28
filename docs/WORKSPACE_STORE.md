@@ -1,10 +1,54 @@
 # Workspace store: compatibility, migration, and operations
 
-Orbit's workspace authority is `PATH/workspace.sqlite` (schema `user_version=6`, including separate private Project Workbench records), where `PATH` is the configured runtime directory (`ORBIT_RUNTIME_DIR`, or the repository's `.runtime` by default). `server/workspace.mjs` uses `SqliteWorkspaceStore`; this is still a single-owner workspace, not a multi-user database service. The v1 workspace state and command shapes remain defined by `contracts/workspace-v1.mjs`. Layout, docking placement, plugin registration/configuration, checkpoint state, independent recovery policy, bundle metadata and workspace capability are stored in the database; published app bytes, terminal processes, conversations, external effects and arbitrary runtime files are not workspace snapshots.
+Orbit's workspace authority is `PATH/workspace.sqlite` (current source schema `user_version=9`; schema 8 is the historical pre-arrangements baseline), where `PATH` is the configured runtime directory (`ORBIT_RUNTIME_DIR`, or the repository's `.runtime` by default). `server/workspace.mjs` uses `SqliteWorkspaceStore`; this is still a single-owner workspace, not a multi-user database service. The v1 workspace state and command shapes remain defined by `contracts/workspace-v1.mjs`. Layout, docking placement, plugin registration/configuration, checkpoint state, independent recovery policy, bundle metadata, Workbench records, durable workspace arrangements and workspace capability are stored in the database; published app bytes, terminal processes, conversations, external effects and arbitrary runtime files are not workspace snapshots. Schema numbers below are incremental historical descriptions, not claims that old versions are the current baseline.
 
-## Private Workbench execution records (version 6)
+## Managed terminal authority (current boundary)
 
-Schema 5 → 6 adds separate `wb_tasks`, `wb_attempts`, `wb_contexts`,
+Managed terminal observation is an explicit Workbench authority path, not an
+extension of the workspace-controller capability. An owner-adopted terminal and
+its observe lease authorize bounded owner capture; sharing captured bytes with an
+agent/model is a separate, recipient-bound preview and approval. Pane placement or
+pane ID alone grants neither observation nor disclosure. Revocation fences future
+capture/delivery but cannot recall bytes already shown or delivered. This managed
+path is distinct from the broader terminal WebSocket's interactive input/history
+protocol and from the resource-authority proposal below; do not infer a general
+resource broker or plugin/model grant from either.
+
+## Durable workspace arrangements (schema 9)
+
+Schema 8 → 9 adds durable arrangement proposals, portable recipes and append-only
+recipe-save receipts. The workspace layout representation remains v1. The
+arrangement API is implemented; see [Workspace arrangements API](WORKSPACE_ARRANGEMENTS_API.md).
+Recipes store only source-owned name/role/layout/renderer constraints and are
+reusable against another project only through that target project's current
+bindings. They do not store pane/window/binding IDs or project content.
+
+Limits: 32 recipes per workspace; 200 proposals per project, listed newest-first
+in pages of 32; 512 append-only recipe-save receipts per workspace. Exact recipe
+save retries are scoped by workspace, authenticated actor and operation ID.
+Proposal apply revalidates active project authorization, project and recovery
+generations, proposal/revision state, saved-recipe revision and live binding/resource
+identity under the commit transaction. The exact staged workspace state and
+placement, checkpoint, proposal status, and actor-scoped command receipt commit or
+roll back together. The staged output digest binds the preview inputs/result.
+
+Measured viewport is part of preview identity and commit reconciliation. Windows
+and Docking may use measured frames; spatial currently supports priority ordering
+only and rejects columns/rows geometry. `Return` proposes restoring the checkpoint
+captured by the prior arrangement and succeeds only at its exact committed
+revision; intervening edits make it stale. Ordinary small direct workspace
+operations remain supported alongside recipes.
+
+This is an arrangement/recipe API, not a general extension model or durable private
+plugin-data feature. Legacy local-layout import is only a pure adapter from saved
+window order to portable role-order constraints: it does not convert exact geometry.
+Pixel frames, scaling, minimized/selected state and camera remain only in the
+original local layout. Keep that layout, preview the imported recipe, and report
+success only after durable save; the frontend/browser import journey is separate.
+
+## Private Workbench execution records (version 6; historical migration)
+
+Schema 5 → 6 added separate `wb_tasks`, `wb_attempts`, `wb_contexts`,
 `wb_disclosures`, `wb_submissions`, `wb_candidates`, `wb_jobs`, `wb_evidence`, and
 `wb_reviews` tables in one immediate transaction. WorkbenchData enforces project /
 workspace foreign keys, opaque IDs, immutable record identity, revision CAS and
@@ -13,17 +57,17 @@ SQLite backup carries their private payloads; candidate directories and log file
 require a separately consistent private runtime backup. Layout checkpoints and old
 whole-state clients cannot erase these records or restore approvals. Schema-5
 binaries reject version 6; use a compatible pre-upgrade backup for rollback.
-The restore CLI accepts schemas 1–6; `--preserve-schema` never down-converts.
+The current restore CLI accepts schemas 1–9; `--preserve-schema` never down-converts.
 
-## Project Workbench schema upgrade (version 5)
+## Project Workbench schema upgrade (version 5; historical migration)
 
-Schema 4 → 5 adds `wb_projects`, `wb_resources` and `wb_bindings` in an immediate
+Schema 4 → 5 added `wb_projects`, `wb_resources` and `wb_bindings` in an immediate
 transaction. These versioned records survive ordinary whole-state sync and SQLite
 backup, but are not layout/checkpoint content or permission grants. Schema-4
 binaries reject this database; stop old writers before an authorized upgrade and
 retain the compatible pre-upgrade backup. See [Project Workbench](PROJECT_WORKBENCH.md).
 
-## Docking placement schema upgrade (version 4)
+## Docking placement schema upgrade (version 4; historical migration)
 
 Placement is a separate per-workspace version-1 adjunct (`record.placement`), outside
 the unchanged v1 `record.state`. It contains docked groups/splits, floating group
@@ -110,18 +154,18 @@ node --experimental-strip-types scripts/workspace_store.mjs export-legacy --runt
 
 `diagnose` reports schema version, WAL mode, foreign keys, SQLite `quick_check`, counts of workspaces/checkpoints/receipts/events and whether a connection projection error was observed. It is a point-in-time diagnostic, not a rendering or external-resource check. The store requires WAL journaling and `synchronous=FULL`; keep the live database and its SQLite sidecars together rather than treating a raw copy of `workspace.sqlite` as a consistent online backup. `backup` uses SQLite's backup API, checks its standalone output and atomically publishes to an unused path without overwriting an existing destination. It does not copy app bundles or other runtime resources. Coordinate with writers when taking an operationally consistent whole-runtime backup.
 
-`restore` validates SQLite schemas 1–6 (`quick_check` and bootstrap marker), stages the backup, upgrades older schemas if needed, and publishes an entirely **new**, nonexistent runtime directory; it will not overwrite a runtime. Schemas 2–6 retain recovery hold and generation. SQLite backup/restore carries placement/checkpoint copies and schema-6 workbench records. Stop servers first and separately provide required bundles/other runtime resources. Restore does not restart a server. `export-legacy` refuses an active recovery hold; otherwise it writes an offline archive of current workspace/checkpoint JSON with `EXPORT_WARNING.txt`. Export cannot preserve Project Workbench tables in legacy layouts. Older consumers also lose receipts/outbox, bundle indexing, policy enforcement and newer placement semantics. Export does not remove SQLite authority or migrate bundles. Prefer a compatible pre-upgrade backup and separate runtime for rollback; never run mixed-version writers. None of these procedures undo shell, conversation, network or external effects.
+`restore` validates SQLite schemas 1–9 (`quick_check` and bootstrap marker), stages the backup, upgrades older schemas if needed, and publishes an entirely **new**, nonexistent runtime directory; it will not overwrite a runtime. Schemas 2–9 retain recovery hold and generation. SQLite backup/restore carries placement/checkpoint copies and Workbench records through schema 9. Newer schemas refuse with `UPGRADE_REQUIRED`. Stop servers first and separately provide required bundles/other runtime resources. Restore does not restart a server. `export-legacy` refuses an active recovery hold; otherwise it writes an offline archive of current workspace/checkpoint JSON with `EXPORT_WARNING.txt`. Export cannot preserve Project Workbench tables in legacy layouts. Older consumers also lose receipts/outbox, bundle indexing, policy enforcement and newer placement semantics. Export does not remove SQLite authority or migrate bundles. Prefer a compatible pre-upgrade backup and separate runtime for rollback; never run mixed-version writers. None of these procedures undo shell, conversation, network or external effects.
 
 ### Rolling back to a pre-upgrade backup (`--preserve-schema`)
 
-`restore --preserve-schema` is the operator path for a **matching older binary** and pre-upgrade backup. It validates the backup privately and read-only (`quick_check`, bootstrap marker, `user_version` in 1–6; newer versions refuse with `UPGRADE_REQUIRED`), copies it through SQLite's backup API into a **new** runtime, checks integrity, and reports `schema_version`. It does **not** instantiate the newer store or migrate the copy; the source remains byte-identical and existing destinations are refused.
+`restore --preserve-schema` is the operator path for a **matching older binary** and pre-upgrade backup. It validates the backup privately and read-only (`quick_check`, bootstrap marker, `user_version` in 1–9; newer versions refuse with `UPGRADE_REQUIRED`), copies it through SQLite's backup API into a **new** runtime, checks integrity, and reports `schema_version`. It does **not** instantiate the newer store or migrate the copy; the source remains byte-identical and existing destinations are refused.
 
 Procedure:
 
 1. Stop **all** writers of the current runtime, considering live terminal/session preservation.
 2. Keep the pre-upgrade backup you took before cutover (and its bundles/resources).
 3. `node --experimental-strip-types scripts/workspace_store.mjs restore --runtime /private/rollback-runtime --source /private/pre-upgrade-backup.sqlite --confirm-stopped --preserve-schema`
-4. Start only the binary whose schema version matches the reported artifact. Do **not** point the newer server at this runtime; opening it there upgrades it (a normal `restore` migrates instead). There is no supported down-conversion of a newer schema. Old binaries strictly refuse schema 4 at startup (`UPGRADE_REQUIRED`) and no mixed-version writers may share a runtime.
+4. Start only the binary whose schema version matches the reported artifact. Do **not** point the newer server at this runtime; opening it there upgrades it (a normal `restore` migrates instead). There is no supported down-conversion of a newer schema. Old binaries refuse newer schemas at startup (`UPGRADE_REQUIRED`) and no mixed-version writers may share a runtime.
 
 `--preserve-schema` is restore-only and still requires `--confirm-stopped`; it is not a general backup-format converter. Because it publishes a raw pre-upgrade database, the newer server's connection projections are not rebuilt for it — the matching binary rebuilds them on open.
 

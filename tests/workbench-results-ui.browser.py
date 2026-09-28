@@ -563,6 +563,21 @@ def main(renderer):
                         log_extra.update({"review_view_mounted": True, "review_pane_reused": True, "review_unrelated_live": True})
 
                         step = "L4: trusted review placement preview/apply/return continuity"
+                        # Arrangement controls are mounted in the project Workbench's
+                        # dedicated sibling slot, outside `.workbench-execution`.
+                        # Keep recipe interaction scoped to that explicit panel.
+                        def arrangement_controls():
+                            controls = page.locator("dialog.project-workbench-dialog .workbench-arrangements-slot")
+                            expect(controls).to_be_visible(timeout=15000)
+                            expect(controls).to_contain_text("Workspace arrangements", timeout=15000)
+                            for disclosure in controls.locator("details").all():
+                                if disclosure.get_attribute("open") is None:
+                                    disclosure.locator("summary").click()
+                            preview_button = controls.locator("button").filter(has_text=re.compile("^Review$")).first
+                            if not preview_button.count():
+                                raise AssertionError("Arrangement preview control not mounted in explicit Workbench slot: " + controls.inner_text()[:1000])
+                            expect(preview_button).to_be_visible(timeout=15000)
+                            return controls
                         def workspace_state():
                             return helper.api(origin, token, "/api/workspace", {"action": "read"})[1]["state"]
                         def window_ids():
@@ -605,8 +620,8 @@ def main(renderer):
                         assert link_status == 200 and link_body.get("ok") is True, (link_status, link_body)
                         recipe_pane = open_project_workbench()
                         expect(recipe_pane.get_by_role("heading", name="Execution workbench")).to_be_visible(timeout=15000)
-                        review_preview = workflow_click(recipe_pane, "Preview Review", "recipe_preview")
-                        review_apply = workflow_click(recipe_pane, "Apply previewed arrangement", "recipe_apply")
+                        review_preview = workflow_click(arrangement_controls(), "Review", "recipe_preview")
+                        review_apply = workflow_click(arrangement_controls(), "Apply preview", "recipe_apply")
                         applied_revision = review_apply["workspace"]["revision"]
                         assert applied_revision == review_preview["base_revision"] + 1, (review_preview["base_revision"], applied_revision)
                         # Client acknowledgement: observed_revision reaches applied and browser_seen advances.
@@ -656,9 +671,9 @@ def main(renderer):
                         geometry_ops = [op for op in review_preview["operations"] if op.get("action") != "reorder_windows"]
                         # Return: reopen the Workbench and restore, comparing frames + placement (ignoring revision).
                         recipe_pane = open_project_workbench()
-                        return_preview = workflow_click(recipe_pane, "Preview return", "recipe_preview")
+                        return_preview = workflow_click(arrangement_controls(), "Undo arrangement", "recipe_preview")
                         assert return_preview["base_revision"] == applied_revision, (return_preview["base_revision"], applied_revision)
-                        returned = workflow_click(recipe_pane, "Apply previewed arrangement", "recipe_apply")
+                        returned = workflow_click(arrangement_controls(), "Apply preview", "recipe_apply")
                         assert returned["workspace"]["revision"] == applied_revision + 1
                         assert sorted(window_ids()) == sorted(ids_before), "return must preserve window identities"
                         assert {m["id"]: m.get("frame") for m in workspace_state()["monitors"]} == frames_before, "return must restore the window frames"
@@ -666,8 +681,8 @@ def main(renderer):
                         assert fixture_eval("() => window.__continuityFixture.draft") == draft_token
                         assert fixture_eval("() => window.__continuityFixture.nonce") == original_nonce
                         # A newer OWNER sync change (owner route) invalidates a saved return target.
-                        workflow_click(recipe_pane, "Preview Review", "recipe_preview")
-                        workflow_click(recipe_pane, "Apply previewed arrangement", "recipe_apply")
+                        workflow_click(arrangement_controls(), "Review", "recipe_preview")
+                        workflow_click(arrangement_controls(), "Apply preview", "recipe_apply")
                         sync_read = helper.api(origin, token, "/api/workspace", {"action": "read"})[1]
                         sync_state = json.loads(json.dumps(sync_read["state"]))
                         alternates = [m["id"] for m in sync_state["monitors"] if m["id"] != sync_state.get("selected")]
@@ -680,7 +695,7 @@ def main(renderer):
                         assert sync_status == 200 and "error" not in sync_body and sync_body.get("revision") == sync_read["revision"] + 1, (sync_status, sync_body)
                         assert helper.api(origin, token, "/api/workspace", {"action": "read"})[1]["revision"] == sync_read["revision"] + 1, "owner sync must advance the revision"
                         with page.expect_response(lambda r: r.url.split("?")[0] == origin + WORKFLOW_ROUTE and post_json(r.request).get("action") == "recipe_preview", timeout=30000) as stale_wait:
-                            recipe_pane.locator("button").filter(has_text=re.compile("^Preview return$")).first.click()
+                            arrangement_controls().locator("button").filter(has_text=re.compile("^Undo arrangement$")).first.click()
                         stale_status = stale_wait.value.status
                         assert stale_status != 200, "a return after a newer owner change must be refused"
                         def float_preserved(placement):

@@ -117,6 +117,14 @@ jobs:
           /tmp/opencode/orbit-workbench-venv/bin/python tests/runtime-continuity.browser.py --pty --renderer default
           /tmp/opencode/orbit-workbench-venv/bin/python tests/runtime-continuity.browser.py --pty --renderer docking
           /tmp/opencode/orbit-workbench-venv/bin/python tests/recovery-real-server.browser.py
+      - name: Durable workspace arrangements on both renderers
+        if: ${{ !cancelled() && steps.browser_tools.outcome == 'success' }}
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
+        run: |
+          for renderer in default docking; do
+            /tmp/opencode/orbit-workbench-venv/bin/python tests/workspace-arrangements.browser.py --renderer "$renderer" --pty
+          done
       - name: Shared live timeline and persistent Hermes mode switching
         if: ${{ !cancelled() && steps.browser_tools.outcome == 'success' }}
         env:
@@ -225,3 +233,7 @@ jobs:
             /tmp/opencode/comet-recovery-revocation-docking-error.png
             /tmp/opencode/comet-artifact-cancel-default-error.png
             /tmp/opencode/comet-artifact-cancel-docking-error.png
+            /tmp/opencode/orbit-arrangements-default-semantic-preview-*.png
+            /tmp/opencode/orbit-arrangements-docking-semantic-preview-*.png
+            /tmp/opencode/orbit-arrangements-default-changes-collapsed-*.png
+            /tmp/opencode/orbit-arrangements-docking-changes-collapsed-*.png

@@ -19,6 +19,8 @@ class BundleTest(unittest.TestCase):
             self.assertFalse((target / 'server/mobile-proxy.mjs').exists())
             for name in ['server/sqlite-workspace-store.mjs', 'server/bundle-registry.mjs', 'server/workspace-events.mjs', 'src/workspace-events.ts', 'scripts/workspace_bundles.mjs']:
                 self.assertTrue((target / name).is_file(), name)
+            for name in ['server/workspace-arrangements.mjs', 'server/workspace-arrangement-control.mjs', 'server/workspace-description.mjs', 'contracts/workbench-workflow-v1.mjs']:
+                self.assertTrue((target / name).is_file(), name)
             self.assertEqual(target.stat().st_mode & 0o777, 0o700)
             with self.assertRaises(ValueError):
                 launcher.unpack(target)

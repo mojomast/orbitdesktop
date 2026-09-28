@@ -47,6 +47,16 @@ kernel-identity limitations are documented in [managed terminals](MANAGED_TERMIN
 
 `src/workspace-sync.ts` polls and tracks browser acknowledgement. An acknowledged revision does not prove a widget rendered correctly. Local layout persistence and imports remain supported. Offline changes can be saved server-side; display acknowledgement waits for the browser.
 
+`server/workspace-description.mjs` provides authenticated, bounded layout metadata
+and an opt-in operation catalog sourced directly from the workspace contract.
+Normal's workspace adapter can discover this catalog rather than embedding every
+operation in its prompt. Only existing active project bindings produce roles;
+neither role nor pane selection authorizes access to resource content. Project
+paths, credentials, terminal output and conversation content are omitted. This
+owner/controller interface is not exposed to generated frames or native
+Workbench workers. The implementation ledger is
+[Environment malleability](ENVIRONMENT_MALLEABILITY_LEDGER.md).
+
 Schema 3 adds an indexed bundle registry and workspace-scoped metadata event queries.
 Schema 4 adds transactional docking placement, revision/checkpoint copies, and
 shared workspace-revision CAS. Schema-3 databases upgrade on opening; owner

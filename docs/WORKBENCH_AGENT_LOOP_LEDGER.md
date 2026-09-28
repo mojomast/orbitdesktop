@@ -1,5 +1,34 @@
 # Workbench agent loop — current increment
 
+> Historical release ledger: its commit IDs, schema-7 integration point and
+> verification counts describe the earlier agent-loop increment. Current source
+> store schema is 9; schema 8 is the historical pre-arrangements baseline. The
+> final arrangement API is documented in [WORKSPACE_ARRANGEMENTS_API.md](WORKSPACE_ARRANGEMENTS_API.md).
+> M1/M2 arrangement implementation and frontend/browser acceptance are recorded in
+> [the current ledger](ENVIRONMENT_MALLEABILITY_LEDGER.md), independently of this
+> earlier agent-loop increment's journeys.
+
+## Schema-9 arrangement backend status
+
+The current source adds durable role-order proposals, reusable source-owned recipe
+definitions, append-only actor-scoped recipe-save receipts (512/workspace), at most
+32 recipes/workspace, and at most 200 proposals/project with 32-item pagination.
+Previews bind a digest to exact staged state/placement, current scope/binding
+identity and viewport. Apply rechecks authority and relevant revisions, then commits
+state, placement, checkpoint, proposal metadata and receipt atomically. Source-owned
+definitions are reused only by resolving roles against the target project's live
+bindings; definitions contain no instance UUIDs or project content. Return is a
+checkpoint-derived inverse guarded by the exact committed workspace revision.
+
+The API supports measured Windows/Docking geometry; spatial supports ordering only,
+not columns/rows frames. Small direct workspace operations remain supported. The
+pure legacy-layout adapter imports only saved window order as role-order constraints:
+frame pixels, scaling, minimized/selected state and camera stay only in the retained
+local layout. The original remains untouched; preview and durable save are required.
+No full extension model or private plugin-data feature is implied. The current
+ledger records the passing backend gate and default/Docking two-project browser
+journeys, including private PTY continuity, restart and receipt recovery.
+
 Starting checkout: `c40cbe9e9cfec021824dfd064e75a7d8a195a820`, branch
 `testing/orbit-docking-managed-terminals`, clean at inspection. Actual baseline
 CI: Workbench `36215190423` and plugin `36215190350` both passed. Baseline has
@@ -12,7 +41,7 @@ native runtime tools, linked worktrees and integration are not yet delivered.
 | --- | --- |
 | A: terminal lease syntax | **Reproduced.** Actual disposable tmux → adopted broker → 32-hex observe lease → owner HTTP context capture returned 400. Canonical terminal-owned lease schema fixes the boundary; capture/preview now pass. Revoked/expired/foreign/workspace/replaced-shell cases reject. Logs `/tmp/opencode/comet-lease-{before,after}.log`. |
 | B: empty tests | **Reproduced and fixed in first slice.** Node test events use a bounded versioned channel, separate from project output. Empty/skipped-only/incomplete results cannot pass; required discovery files are pinned. |
-| C: changed idempotent request | **Reproduced and fixed in first slice.** Canonical request fingerprint plus schema-7 scoped unique operation index; changed requests conflict, identical historical receipts survive consumed previews. |
+| C: changed idempotent request | **Reproduced and fixed in that historical first slice.** Canonical request fingerprint plus schema-7 scoped unique operation index; changed requests conflict, identical historical receipts survive consumed previews. This is not the current schema baseline. |
 | D: revoke/re-register | **Reproduced and fixed in first slice.** Durable authority generation fences old results; newly registered work succeeds. Permanent in-memory revoked flag removed. |
 | E: finalization errors | **Reproduced and fixed in first slice.** Durable observed-result staging and atomic finalization; private journal/unhealthy admission on storage failure; DB-only finalization retry does not spawn. |
 

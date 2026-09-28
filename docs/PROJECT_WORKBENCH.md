@@ -166,7 +166,7 @@ owner action and does not authorize modifying or merging into the original tree.
 | --- | --- |
 | Explicit root registration | Owner Bearer + allowed Origin/Host; expiring server-issued preview bound to root inode identity and workspace; no caller actor or `confirm` bypass |
 | Revoke project access | Generation-checked, persistent disable of owner Workbench reads; late results fenced; fresh preview required to re-enable |
-| Stable projects/resources/bindings | Versioned records in SQLite schema 8; opaque UUIDs; separate from layout v1; whole-workspace sync cannot erase them |
+| Stable projects/resources/bindings | Versioned records in SQLite schema 9; opaque UUIDs; separate from layout v1; whole-workspace sync cannot erase them |
 | File tree / literal text / ranges | Implemented with bounded descriptor-relative reads; never rendered as HTML |
 | Repository status / readable diff | Bounded private materialization; tracked dirty/deleted and untracked text; explicit exclusions and unsupported states |
 | Linked terminals/conversations/browser panes | Metadata-only association with existing pane identity; no mounting, navigation, capture, permission or session change |
@@ -199,6 +199,38 @@ owner action and does not authorize modifying or merging into the original tree.
 Current verification, remaining scope limits and release gates are tracked in
 [WORKBENCH_AGENT_LOOP_LEDGER.md](WORKBENCH_AGENT_LOOP_LEDGER.md). Source completion,
 deterministic acceptance, real-model acceptance and live deployment are distinct.
+
+### Durable workspace arrangements (schema 9 backend)
+
+Schema-9 durable arrangement proposals and portable role recipes are implemented in
+the backend. `recipe_preview` stages an exact output state and placement, binds the
+preview digest to its source/target scope, live bindings and measured viewport, and
+returns a semantic diff. The owner workflow uses owner bearer/origin authentication;
+the Normal route uses the workspace-scoped controller capability. The route assigns
+the actor, never accepts one from the request, and the target project must be active
+in the authorized workspace. `recipe_apply` revalidates authorization and versions and
+commits workspace state, placement, pre-change checkpoint, proposal status and
+actor-scoped receipt in one transaction. Exact same-actor retries replay the saved
+result; different actors do not share receipts. `Return` restores the precise
+checkpointed state and placement only when workspace revision still equals the
+source arrangement's committed revision.
+
+Saved definitions contain only name, roles, layout and renderer. Source-project
+ownership is retained; a saved recipe can be reused in another project only by
+resolving roles against that target's actual bindings, with explicit choices for
+ambiguity. Roles/layouts remain data-free arrangement constraints; they do not
+authorize resource access or expose resource contents. Direct small workspace
+operations remain available. Limits are 32 recipes per workspace, 200 proposals
+per project with newest-first pagination of 32, and 512 append-only actor-scoped
+recipe-save receipts per workspace. See [Workspace arrangements API](WORKSPACE_ARRANGEMENTS_API.md)
+for request, authorization, expiry, viewport, geometry and retry semantics.
+
+The backend contract is implemented; frontend/browser acceptance remains a
+separate gate. Legacy-layout import is only window-order-to-role-order constraint
+conversion, not exact geometry migration. It reports omissions for pixel frames,
+scaling, minimized/selected state and camera, keeps the original local layout, and
+requires preview plus durable save before marking import successful. This helper
+does not establish a completed UI import journey.
 
 ## Confinement, bounds and privacy
 
@@ -330,7 +362,7 @@ remain stable. Context payloads and immutable submission requests are private
 application records, not layout fields. Candidate files and job logs live under
 the private runtime; SQLite backup alone does not copy those external artifacts.
 Back them up consistently when preserving complete job evidence.
-Schema 6 → 7 adds grants/tool calls/profiles/integrations/annotations and unique
+Schema 6 → 7 added grants/tool calls/profiles/integrations/annotations and unique
 operation indexes. Existing conflicting job operation keys fail migration rather
 than deleting historical receipts. Restore a copy for operator investigation.
 Backup scope includes candidate generations, check/finalization journals,
@@ -349,8 +381,10 @@ Stop writers only under a separately authorized session-preserving operator plan
 Back up the compatible pre-upgrade database before upgrade; test a copy. SQLite backup includes
 the new tables after upgrade. To return to the older binary, restore the compatible
 pre-upgrade backup into a **new** runtime with `restore --preserve-schema`. This
-does not down-convert schema 7. Older schema-6 binaries refuse schema 7. Old and
-new writers must not run concurrently. See [DEPLOYMENT.md](DEPLOYMENT.md).
+does not down-convert schema 7. This is a historical upgrade note: the current
+source baseline is schema 9, with schema 8 the immediately preceding baseline.
+Older binaries refuse newer schemas. Old and new writers must not run concurrently.
+See [DEPLOYMENT.md](DEPLOYMENT.md).
 
 No owner runtime was migrated as part of development. A newly built frontend needs
 a reload at its separately authorized test origin; source changes alone are not

@@ -3,7 +3,35 @@
 Status: implemented on the owner-authenticated Workbench workflow route and the
 Normal-controller arrangement adapter. Layout state remains v1; proposals and
 saved recipes are additive SQLite schema 9 tables, never layout/checkpoint
-content. No frontend is specified here; this is the frozen server surface.
+content. The owner controls below share this server surface with Normal's
+workspace controller.
+
+## Owner journey
+
+1. Open **Orbit menu → Project Workbench** and select a registered project.
+   Use **Link pane → Link selected pane metadata only** for its existing agent,
+   terminal and preview. This records relationships; it does not read their
+   contents, start a shell or switch a conversation.
+2. In **Workspace arrangements**, choose Investigate, Implement or Review, or
+   choose **Debug template**, edit the role order and save the portable recipe.
+   Duplicate role matches require a choice; missing roles stay visibly unbound.
+3. Read the semantic preview, including named window changes. **Advanced details**
+   holds exact operations and identities. **Apply preview** commits that staged
+   result; browser acknowledgement appears separately. Inspect the workspace to
+   confirm the resulting placement.
+4. Reopen the project after reload or server restart. **Recorded proposals**
+   retains the history; **Undo arrangement** previews Return only when no newer
+   workspace revision intervened. A conflict requires a new plan, not a reset.
+5. Select a second registered project and choose the same named recipe. It
+   resolves that project's bindings. Definitions are edited from their source
+   project; saved role order and grid intent are reusable within the workspace.
+
+The Workbench pane also exposes the card through **Changes → Workspace
+arrangements**, below the primary diff. Local-layout import and **Preview current
+role order** are explicit conversions: they omit saved pixels, scaling, camera,
+selection and minimized state. Originals remain in the browser. A grid recipe
+measures its current renderer surface instead of copying another viewport's
+coordinates. Spatial currently supports role order only.
 
 ## Factory
 
