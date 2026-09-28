@@ -169,6 +169,45 @@ counts and Studio draft-to-preview time have not been independently instrumented
 The last metric requires M4. Recovery outcomes and retained-byte samples above
 are actual fixture observations, not projected success percentages.
 
+### First published CI follow-up
+
+Published `e695db36cca5097911884aa8f94cdf898e647f67`. Plugin CI
+[`36461741968`](https://github.com/mojomast/orbitdesktop/actions/runs/36461741968)
+passed. Workbench CI
+[`36461742038`](https://github.com/mojomast/orbitdesktop/actions/runs/36461742038)
+passed its dependency-enabled Node gate, Python/portable parity, real release
+instance, both new arrangement/PTY journeys, continuity/recovery, live timeline,
+candidate diff and result/review boundaries, but failed three existing browser
+fixture gates. This is a failed CI run, not a release-wide green result.
+
+Confirmed fixture mismatches: Project Workbench's Doctor assertion still expected
+schema 8 rather than 9; the delayed-load fixture's strict read allowlist omitted
+`recipe_list` and `proposal_list`. The native browser failure was diagnosed using its
+separately captured diagnostic log. Corrections and their focused reruns are
+recorded below before republishing; no owner deployment is involved.
+
+- Doctor fixture: both displayed and API schema assertions now require 9.
+  Default/Docking × ordinary/linked registration: **4 browser runs passed**,
+  zero page errors, zero agent requests and zero terminal WebSockets.
+- Delayed-load fixture: only the exact workspace/project-scoped `recipe_list`
+  and `proposal_list` reads were admitted with bounded empty responses. Fixed
+  source passes; historical `ca7dd89` still fails the retained-activity assertion
+  as intended. Mutation/dispatch and zero-click assertions remain enforced.
+- Native fixture: arrangement selectors now target their sibling Inspector slot
+  and current button labels. In its two-window fixture, Investigate/Implement
+  are already satisfied, so Apply correctly stays disabled. The fixture still
+  previews all three recipes, then explicitly applies the changed Review
+  arrangement and Returns. Revision, exact prior state, pane IDs, chat/profile,
+  grant and reload assertions remain intact. Default and Docking **both passed**
+  using the pinned actual Hermes runtime and synthetic local model endpoint:
+  8 fixture model requests, 6 tool calls, fail/pass check verdicts, zero page
+  errors per run. These are not paid/live-provider trials.
+
+All three corrections are confined to browser fixtures; application source and
+contracts are unchanged from `e695db3`. The updated portable archive carries this
+ledger, and publication triggers new exact-head CI rather than reclassifying the
+failed run as passing.
+
 ## Milestones
 
 Reviewable backend increments:

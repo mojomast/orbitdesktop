@@ -754,27 +754,34 @@ def main(renderer):
                         workbench.get_by_role("button", name="Open project native-fixture").click()
                         pane = workbench.locator(".workbench-execution")
                         expect(pane.get_by_role("heading", name="Execution workbench")).to_be_visible(timeout=15000)
+                        # Arrangement controls are a sibling surface of the execution
+                        # pane; use their own slot and the current control labels.
+                        arrangements = workbench.locator(".workbench-arrangements-slot")
+                        expect(arrangements.get_by_role("heading", name="Workspace arrangements")).to_be_visible(timeout=15000)
 
                         step = "recipe CAS apply and return preserve workspace identity"
                         ws_before = api("/api/workspace", "read")[1]
                         state_before = ws_before["state"]
                         monitor_ids_before = [monitor["id"] for monitor in state_before["monitors"]]
                         revision_before = ws_before["revision"]
-                        investigate = click_text(pane, "Preview Investigate", "recipe_preview", WORKFLOW_ROUTE)
+                        investigate = click_text(arrangements, "Investigate", "recipe_preview", WORKFLOW_ROUTE)
                         assert investigate["preview_id"] and investigate["base_revision"] == revision_before, investigate
-                        for recipe in ("Preview Implement", "Preview Review"):
-                            previewed = click_text(pane, recipe, "recipe_preview", WORKFLOW_ROUTE)
+                        for recipe in ("Implement", "Review"):
+                            previewed = click_text(arrangements, recipe, "recipe_preview", WORKFLOW_ROUTE)
                             assert previewed["preview_id"], previewed
-                        # Re-preview Investigate so Apply commits exactly that arrangement.
-                        investigate = click_text(pane, "Preview Investigate", "recipe_preview", WORKFLOW_ROUTE)
-                        applied = click_text(pane, "Apply previewed arrangement", "recipe_apply", WORKFLOW_ROUTE)
+                        # This two-window workspace already has the bound agent first, so
+                        # Investigate/Implement are honest no-ops and disable Apply. Preview
+                        # Review (the arrangement that actually changes here) and apply it.
+                        reviewed = click_text(arrangements, "Review", "recipe_preview", WORKFLOW_ROUTE)
+                        assert reviewed["preview_id"] and reviewed["changed"] is True, reviewed
+                        applied = click_text(arrangements, "Apply preview", "recipe_apply", WORKFLOW_ROUTE)
                         applied_revision = applied["workspace"]["revision"]
                         assert applied_revision == revision_before + 1, applied
                         ws_mid = api("/api/workspace", "read")[1]
                         assert [monitor["id"] for monitor in ws_mid["state"]["monitors"]] == monitor_ids_before, "recipe must keep the same window identities"
-                        return_preview = click_text(pane, "Preview return", "recipe_preview", WORKFLOW_ROUTE)
+                        return_preview = click_text(arrangements, "Undo arrangement", "recipe_preview", WORKFLOW_ROUTE)
                         assert return_preview["preview_id"] and return_preview["base_revision"] == applied_revision, return_preview
-                        returned = click_text(pane, "Apply previewed arrangement", "recipe_apply", WORKFLOW_ROUTE)
+                        returned = click_text(arrangements, "Apply preview", "recipe_apply", WORKFLOW_ROUTE)
                         assert returned["workspace"]["revision"] == applied_revision + 1, returned
                         ws_after = api("/api/workspace", "read")[1]
                         assert ws_after["state"] == state_before, "return must restore the same arrangement"

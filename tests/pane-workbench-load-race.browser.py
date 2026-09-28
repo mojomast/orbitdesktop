@@ -121,6 +121,8 @@ def run_browser(base):
         ('/api/workbench/workflow', 'integration_list'): {'integrations': []},
         ('/api/workbench/workflow', 'retention_plan'): {'plan': {}},
         ('/api/workbench/workflow', 'patch_list'): {'patches': []},
+        ('/api/workbench/workflow', 'recipe_list'): {'recipes': [], 'bindings': []},
+        ('/api/workbench/workflow', 'proposal_list'): {'proposals': [], 'next_after_id': None, 'total_count': 0},
     }
     event = {'version': 1, 'id': 'retained-patch', 'sequence': 1, 'at': 1,
              'authority': 'observed', 'category': 'files', 'kind': 'Private patch',
@@ -206,6 +208,11 @@ def run_browser(base):
             cards = [body for key, body in requests if key == ('/api/workbench/native', 'cards_list')]
             assert cards[0]['session_id'] == 'old-session', cards
             assert any(body['session_id'] == 'accepted-session' for body in cards), cards
+            for action in ('recipe_list', 'proposal_list'):
+                reads = [body for key, body in requests if key == ('/api/workbench/workflow', action)]
+                assert reads and all(body == {
+                    'workspace_id': 'workspace-race', 'project_id': project['id'], 'action': action,
+                } for body in reads), (action, reads)
             expect(project_select).to_have_value(project['id'])
             expect(attempt_select).to_have_value(attempt['id'])
             state = page.evaluate('window.race.inspect()')
