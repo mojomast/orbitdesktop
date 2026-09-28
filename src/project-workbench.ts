@@ -128,6 +128,7 @@ export function showProjectWorkbench(getToken: () => string): void {
   const bindingsView = el("div", "workbench-bindings");
   const execution = el("div", "workbench-execution");
   const arrangements = el("div", "workbench-arrangements-slot");
+  const projectTools = el('div','workbench-project-tools');
   const doctor = el("div", "workbench-doctor");
   const root = el("input");
   const gitDirectory=el('input'),commonDirectory=el('input');
@@ -171,6 +172,19 @@ export function showProjectWorkbench(getToken: () => string): void {
   let executionMount:{dispose:()=>void;refresh?:()=>void|Promise<void>}|null=null;
   let executionProject:string|null=null;
   function disposeExecution(){executionMount?.dispose();executionMount=null;executionProject=null;}
+  let toolsMount:{dispose:()=>void;refresh:()=>Promise<void>}|null=null;
+  let toolsProject:string|null=null;
+  function disposeTools(){toolsMount?.dispose();toolsMount=null;toolsProject=null;projectTools.replaceChildren();}
+  async function mountTools(){
+    if(!project||project.active===false){disposeTools();return;}
+    if(toolsProject===project.id){void toolsMount?.refresh();return;}
+    disposeTools();projectTools.replaceChildren(el('p','','Loading project tools…'));
+    const selectedProject=project.id,selectedEpoch=epoch;
+    const {mountProjectToolManager}=await import('./project-tool-manager');
+    if(!current(selectedEpoch)||project?.id!==selectedProject)return;
+    projectTools.replaceChildren();toolsProject=selectedProject;
+    toolsMount=mountProjectToolManager({container:projectTools,getToken,workspace_id:workspaceId,project_id:selectedProject,onOpen:()=>{if(dialog.open&&project?.id===selectedProject)dialog.close();}});
+  }
   async function askContext(source: Record<string,unknown>){
     if(!project)return;
     const selectedProject=project.id,selectedEpoch=epoch;
@@ -434,12 +448,14 @@ export function showProjectWorkbench(getToken: () => string): void {
     }
     showBindings(data.bindings);
     void mountExecution();
+    void mountTools();
     updateButtons();
   }
   async function inspect() {
     if (!project) return;
     invalidate();
     if(project.active===false){
+      disposeTools();
       repository.replaceChildren(field('State','Project access revoked. Existing job cancellation and agent supervision remain available.'));
       files.replaceChildren();fileView.hidden=true;
       await mountExecution();state('revoked','Future reads and execution are blocked. Existing records and intervention controls remain available.');return;
@@ -472,6 +488,7 @@ export function showProjectWorkbench(getToken: () => string): void {
           invalidate();
           project = item;
           disposeExecution();
+          disposeTools();
           registration.open=false;
           inspection = null;
           openResource = null;
@@ -701,6 +718,8 @@ export function showProjectWorkbench(getToken: () => string): void {
       const revoked=result as {project?:Project};
       project=revoked.project??{...selected,active:false};inspection=null;openResource=null;openSnapshot=null;text.value='';inspector.hidden=false;
       disposeExecution();
+      disposeTools();
+      window.dispatchEvent(new CustomEvent('orbit-project-tool-changed',{detail:{workspace_id:workspaceId,project_id:selected.id}}));
       repository.replaceChildren();files.replaceChildren();bindingsView.replaceChildren();fileMeta.textContent='';
       await list();await mountExecution();state('revoked','Future project reads are blocked. Existing job cancellation and agent supervision remain available. Register again with fresh approval to restore access.');
     }),
@@ -719,6 +738,7 @@ export function showProjectWorkbench(getToken: () => string): void {
     ),
     bindingsView,
     arrangements,
+    projectTools,
     button('Activity and disclosures','Activity and disclosures',async()=>{
       if(!project)return;
       const selectedProject=project.id,selectedEpoch=epoch;
@@ -752,6 +772,7 @@ export function showProjectWorkbench(getToken: () => string): void {
   dialog.addEventListener("close", () => {
     invalidate();
     disposeExecution();
+    disposeTools();
     dialog.remove();
     previousFocus?.focus();
   });

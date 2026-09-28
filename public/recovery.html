@@ -49,7 +49,7 @@
 
     <section aria-labelledby="hold-heading">
       <h2 id="hold-heading">Registered-plugin recovery hold</h2>
-      <p>A persistent hold prevents the server from accepting workspace changes that activate registered plugins. It is separate from disabling apps, which only changes the saved layout. Releasing hold does not re-enable apps; review and enable them separately.</p>
+      <p>A persistent hold prevents the server from accepting workspace changes that activate registered plugins. It also disables trusted project-tool instances and blocks their private reads and writes. It is separate from disabling apps, which only changes the saved layout. Releasing hold does not re-enable apps or project tools; review and enable them separately. Notebook data is retained.</p>
       <dl class="policy-metadata">
         <div><dt>Hold status</dt><dd id="hold-status" data-testid="hold-status">Unavailable</dd></div>
         <div><dt>Policy generation</dt><dd id="hold-generation" data-testid="hold-generation">—</dd></div>

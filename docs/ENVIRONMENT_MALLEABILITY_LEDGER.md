@@ -208,6 +208,11 @@ contracts are unchanged from `e695db3`. The updated portable archive carries thi
 ledger, and publication triggers new exact-head CI rather than reclassifying the
 failed run as passing.
 
+The corrected exact head `ae14c4f327765dc5ff8786070dedc9eb7e9b3abe` subsequently
+passed both [plugin CI](https://github.com/mojomast/orbitdesktop/actions/runs/36466650831)
+and [Workbench/browser CI](https://github.com/mojomast/orbitdesktop/actions/runs/36466650882).
+These completed runs establish the M1–M2 baseline, not the later M3 source.
+
 ## Milestones
 
 Reviewable backend increments:
@@ -276,7 +281,7 @@ These increments have not been deployed to an owner runtime.
 | M0 source map and contract freeze | Complete | Baseline/reproduction and ownership/API decisions above |
 | M1 durable proposals and Return | Complete for admitted arrangement scope | Exact proposals/receipts, atomic/CAS tests, restart/browser/PTY journeys passed |
 | M2 durable role recipes and description | Complete for portable role-order/grid contract | Two-project apply/Return, independent browser, Normal adapter, import and role-choice gates passed; limits below |
-| M3 instances/private useful tools | Not implemented | Requires M1–M2 |
+| M3 instances/private useful tools | Implemented for the closed host-tool contract | Schema-10 trusted notebooks/checks cards; acceptance evidence below |
 | M4 exact-output Extension Studio | Not implemented | Requires M3 and reviewed artifact profile |
 | M5 trusted integrations/workflows | Not implemented | Requires first-release use and lifecycle decisions |
 | M6 verified Orbit Git integration | Not implemented | Requires explicit supported Orbit execution profile |
@@ -292,5 +297,64 @@ releasing hold must not re-enable one. Layout/code rollback must preserve later
 notes, and incompatible data-schema downgrade must refuse. The next complete
 journey is two notebook instances in two projects, independent edits, reload,
 disable/revoke, placement undo, compatible update and recovery. Read-only worker
-scoping is not an implemented extension SDK or Studio. Schema 10 is not activated
-by this release.
+scoping is not an implemented extension SDK or Studio. The M1–M2 release above
+did not activate schema 10; the follow-on implementation is recorded below.
+
+## M3 follow-on: persistent project tools
+
+The next source increment adds owner-only trusted notebooks and recorded
+checks/review cards. Shared contracts were frozen before exclusive Flash backend,
+frontend and migration work; the lead owns store, route and renderer integration.
+Schema 10 separates definitions, immutable finite host-release descriptors,
+instances, grants, authoritative pane bindings, data revisions, proposals and
+metadata-only mutation receipts. Layout remains v1 and contains opaque selectors.
+
+Notebook text stays in private instance data. Compatible renderer repin, placement
+undo and instance disable do not roll it back. Recovery hold disables all enabled
+instances transactionally and release never re-enables them. Instance grants have
+finite host-only scopes; project-generation fencing prevents project re-registration
+from reviving an earlier grant. This does not introduce a generic broker or the M4
+Describe → Draft → Preview → Check → Review → Install loop.
+
+Local integrated verification:
+
+- Dependency-enabled `npm run check`: **726 tests, 724 passed, 0 failed, 2 gated
+  skips**. Log: `/tmp/opencode/orbit-m3-final-check.log`. The source includes the
+  pinned actual Hermes and offline RouteTok dependency fixtures. An earlier run
+  failed the final fresh-base RouteTok subprocess without useful stdout in its
+  assertion; diagnostic output was improved, the isolated **293/293** rerun
+  passed, and the final serialized full gate passed. No production-code workaround
+  was made for that transient failure.
+- Python adapters/contracts/publisher/catalog/portable checks: **58 passed**,
+  including exact portable-archive parity.
+- Real disposable schema-10 release packaging/launch: **2/2 passed**, including
+  identity-bound pointer rollback and incompatible-schema refusal.
+- `tests/project-tools.browser.py`: Default and Docking pass against real
+  disposable servers. Two-project independent notes, save/conflict/reload,
+  intentional empty drafts, edits during an in-flight save, explicit exact retry,
+  compatible renderer repin in both directions, disable/configure/enable,
+  recovery hold/release, placement undo and late-response revocation are covered.
+  Both runs report zero page errors, zero terminal WebSockets, and unchanged
+  unrelated terminal/conversation pane identities.
+- Existing Project Workbench browser coverage passes in all four variants
+  (Default/Docking × ordinary/linked projects); the delayed-load binding-race
+  positive control also passes. Chromium **145.0.7632.6**, zero page errors.
+- Live-PTY continuity passes **94 transitions per renderer**, preserving retained
+  iframe DOM/document nonces and drafts, terminal pane identity and one PTY
+  connection; both reach `revision=observed_revision=53` with zero page errors.
+- The checks-card browser fixture inserts explicitly synthetic retained evidence,
+  review and supersession records into its private database. It verifies real
+  non-empty rendering, live updates and supersession rather than treating an
+  empty card as acceptance of the projection. No provider or check is invoked.
+- Lead inspected Default/Docking manager and notebook screenshots, including
+  corrected 430px narrow captures. Default uses the existing Focus control to
+  fit its window. Screenshots remain under `/tmp/opencode/project-tools-*`, outside
+  Git. Browser acknowledgements, DOM assertions and visual inspection are
+  separate evidence.
+
+Remote exact-head CI and packaging acceptance are recorded separately when
+complete. M3 has not been deployed to an owner runtime. The separately authorized
+schema-8 conversation-history hotfix does not activate these tables or UI. Its
+activation was stopped at the owner's request to preserve the other agent's
+concurrent theme deployment; no backend restart was performed by this workstream.
+No paid-provider acceptance is part of this increment.

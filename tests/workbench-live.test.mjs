@@ -148,7 +148,7 @@ test('unsubscribe and close stop delivering notifications without failing author
 test('projection lives in a separate private database and does not bump the workspace schema',t=>{
   const f=fixture(t),scope={workspace_id:f.workspace,project_id:f.project.id};
   f.data.create('tasks',{...scope,title:'Separate',status:'open'});
-  assert.equal(f.store.db.pragma('user_version',{simple:true}),9);
+  assert.equal(f.store.db.pragma('user_version',{simple:true}),10);
   assert.equal(f.live.filename,path.join(f.root,'workbench-live.sqlite'));
   assert.ok(fs.existsSync(f.live.filename));
   const projection=new Database(f.live.filename,{readonly:true});

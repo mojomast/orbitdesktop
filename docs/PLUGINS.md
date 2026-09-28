@@ -2,6 +2,11 @@
 
 This is a working sandboxed-app lifecycle and trusted built-in extension registry, not a complete conversion of Orbit into plugins.
 
+For persistent private notebooks and evidence cards, see [Project tools](PROJECT_TOOLS.md).
+These use separate project-scoped instances and trusted host rendering. They do not
+add private storage or a privileged bridge to generated v1 app frames. Existing
+v1 manifests, IDs and content-addressed bundles retain their original lifecycle.
+
 ## Partial configuration and window customization
 
 `plugin_patch_config` with `plugin_id` and `patch` merges individual primitive-valued settings while preserving omitted fields. Example: `{"action":"plugin_patch_config","plugin_id":"notes","patch":{"message":"Updated"}}`. Use `plugin_configure` only when replacing the whole config is intended.

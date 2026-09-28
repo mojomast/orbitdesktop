@@ -17,14 +17,16 @@ On conflict read again and reconsider; no automatic retry/overwrite occurs.
 ## Persistent registered-plugin hold
 
 The console also supports a separately confirmed **recovery hold**. Entering hold
-disables registered plugins and stores the policy outside checkpoint layout state.
+disables registered plugins and trusted project-tool instances, and stores the policy outside checkpoint layout state.
 It persists across server restarts. While held, the server rejects workspace mutations
 whose result activates registered plugins, including full-state sync, restore and
-controller edits. Ordinary layout edits that leave plugins disabled remain allowed.
+controller edits. It also blocks new project-tool surface attachments and private
+tool reads/writes. Existing tool panes become inert; notebook data is retained.
+Ordinary layout edits that leave optional contributions disabled remain allowed.
 
 Only the owner-authenticated recovery route can change this policy. The scoped
 controller capability cannot release it. Release is explicit and does **not** re-enable
-anything: review a plugin and enable it separately afterward. A layout checkpoint
+anything: review a plugin or tool instance and enable it separately afterward. A layout checkpoint
 cannot clear the hold. Read responses expose policy status and generation without
 credentials. A stale command receipt from a previous policy generation is rejected
 instead of returning an old active snapshot. Read again; do not automatically mint a
@@ -49,7 +51,8 @@ and close unresponsive app tabs separately if necessary.
   state, undo shell effects, restore documents/conversations, or roll back application
   data. Normal rendering still has unproven iframe continuity.
 - Layout restore may re-enable a previously disabled plugin when no hold is active.
-  There are no broker grants yet. Future revoked grants must remain outside layout.
+  Project-tool disable/revoke state is separate from layout and cannot be restored
+  by a checkpoint. There is no generic resource broker grant system.
 - Revision, checkpoint, command receipt and metadata event now share a SQLite
   transaction. Existing JSON runtimes require explicit offline migration before
   server startup; this page cannot perform that migration. Never run old JSON

@@ -14,6 +14,7 @@ export function connectWorkspace(getState: () => Workspace, apply: (state: Works
   placementSink?: { onRemote?(placement: DockingPlacement, placementRevision: number): void }) {
   let revision = 0, ready = false, changes = 0, sent = 0, uncertain = false;
   let lastPlacementRevision: number | undefined;
+  let lastRecoveryGeneration: number | undefined;
   let placementPending: Promise<unknown> = Promise.resolve();
   let pending: Promise<void> | null = null;
   let appVersions: Record<string, number> = {};
@@ -62,6 +63,10 @@ export function connectWorkspace(getState: () => Workspace, apply: (state: Works
       }
       appVersions = data.app_versions;
     }
+    if(typeof data.recovery_policy?.held==='boolean'&&Number.isSafeInteger(data.recovery_policy.generation)&&data.recovery_policy.generation!==lastRecoveryGeneration){
+      lastRecoveryGeneration=data.recovery_policy.generation;
+      window.dispatchEvent(new CustomEvent('orbit-recovery-policy',{detail:{workspace_id:workspaceId,...data.recovery_policy}}));
+    }
     const remote = !ready || response.status === 409 || (action === 'read' && data.revision > revision);
     if (data.state) {
       revision = data.revision; ready = true;
@@ -69,7 +74,7 @@ export function connectWorkspace(getState: () => Workspace, apply: (state: Works
         let backupNote='';
         if (changes !== sent) {holdLocalChanges();backupNote=backupSaved?'; local backup saved':'; local backup unavailable';}
         apply(data.state); applyAppearance(data.state); sent = changes; uncertain = false;
-        status((data.recovery_policy?.held ? 'Workspace connected · registered-plugin recovery hold active' : response.status === 409 ? 'Workspace updated elsewhere' : 'Workspace connected')+backupNote);
+        status((data.recovery_policy?.held ? 'Workspace connected · optional-tool recovery hold active' : response.status === 409 ? 'Workspace updated elsewhere' : 'Workspace connected')+backupNote);
       } else if (action === 'sync') sent = snapshot;
       else if(uncertain)status(`Previous save outcome unresolved; local changes are held. ${backupSaved?'Local backup saved.':'Local backup unavailable; keep this page open.'} Inspect saved state before reconnecting.`);
     }

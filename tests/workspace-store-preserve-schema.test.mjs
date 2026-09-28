@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createHash, randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { initial } from '../src/model.ts';
@@ -14,6 +15,23 @@ import { loadSqliteWorkspaceStore, tempRoot, removeRoot } from './fixtures/sqlit
 const SqliteWorkspaceStore = await loadSqliteWorkspaceStore();
 const CLI = new URL('../scripts/workspace_store.mjs', import.meta.url).pathname;
 const env = { PATH: process.env.PATH };
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+// Genuine schema-9 source baseline. A real archived reader, never a manual
+// `user_version` rewind, proves the preserve/restore path handles a real
+// pre-upgrade artifact and that older binaries still refuse newer schemas.
+const SCHEMA9_COMMIT = 'ae14c4f327765dc5ff8786070dedc9eb7e9b3abe';
+
+/** Import the archived schema-9 store implementation from a real Git commit. */
+async function archivedSchema9Store(t) {
+  const archived = tempRoot('orbit-preserve-schema9-src-');
+  t.after(() => removeRoot(archived));
+  const bytes = execFileSync('git', ['archive', '--format=tar', SCHEMA9_COMMIT], { cwd: ROOT, maxBuffer: 64 * 1024 * 1024 });
+  execFileSync('tar', ['-xf', '-', '-C', archived], { input: bytes, maxBuffer: 64 * 1024 * 1024 });
+  fs.symlinkSync(path.join(ROOT, 'node_modules'), path.join(archived, 'node_modules'), 'dir');
+  const source = pathToFileURL(path.join(archived, 'server/sqlite-workspace-store.mjs')).href;
+  const { SqliteWorkspaceStore: ArchivedStore } = await import(`${source}?schema9=${randomUUID()}`);
+  return ArchivedStore;
+}
 
 function run(args) {
   return JSON.parse(execFileSync(process.execPath, ['--experimental-strip-types', CLI, ...args], { env, encoding: 'utf8' }));
@@ -81,7 +99,7 @@ test('preserve-schema restores a pre-upgrade schema-3 backup without migrating',
   } finally { database.close(); }
 });
 
-test('normal restore of the same backup migrates the copy to schema 9', async (t) => {
+test('normal restore of the same backup migrates the copy to schema 10', async (t) => {
   const root = tempRoot('orbit-preserve-normal-');
   t.after(() => removeRoot(root));
   const { id, backup } = await schema3Backup(root);
@@ -90,12 +108,12 @@ test('normal restore of the same backup migrates the copy to schema 9', async (t
   const result = run(['restore', '--runtime', destination, '--source', backup, '--confirm-stopped']);
   assert.equal(result.restored, true);
   assert.equal(result.preserved, undefined);
-  assert.equal(result.schema_version, 9);
-  assert.equal(rawVersion(path.join(destination, 'workspace.sqlite')), 9);
+  assert.equal(result.schema_version, 10);
+  assert.equal(rawVersion(path.join(destination, 'workspace.sqlite')), 10);
   assert.equal(sha256(backup), before, 'source backup must remain byte-for-byte unchanged');
   const reopened = new SqliteWorkspaceStore(destination);
   try {
-    assert.equal(reopened.diagnostics().schema_version, 9);
+    assert.equal(reopened.diagnostics().schema_version, 10);
     assert.equal(reopened.read(id).revision, 1);
   } finally { reopened.close(); }
 });
@@ -113,21 +131,22 @@ test('preserve-schema refuses an existing destination and leaves it untouched', 
   assert.equal(fs.existsSync(path.join(destination, 'workspace.sqlite')), false);
 });
 
-test('preserve-schema reports schema 9 for a schema-9 backup without tampering', async (t) => {
-  const root = tempRoot('orbit-preserve-v4-');
+test('preserve-schema reports schema 9 for a genuine archived schema-9 backup without tampering', async (t) => {
+  const root = tempRoot('orbit-preserve-schema9-');
   t.after(() => removeRoot(root));
-  const store = new SqliteWorkspaceStore(root);
+  const ArchivedStore = await archivedSchema9Store(t);
+  const store = new ArchivedStore(root);
   seed(store);
-  const backup = path.join(root, 'v4.sqlite');
+  const backup = path.join(root, 'schema9.sqlite');
   await store.backup(backup);
   store.close();
-  const destination = path.join(root, 'restored-v4');
+  const destination = path.join(root, 'restored-schema9');
   const result = run(['restore', '--runtime', destination, '--source', backup, '--confirm-stopped', '--preserve-schema']);
   assert.deepEqual(result, { restored: true, preserved: true, schema_version: 9 });
   assert.equal(rawVersion(path.join(destination, 'workspace.sqlite')), 9);
 });
 
-test('genuine schema-7 backup preserves seven, while normal restore upgrades a copy to nine',async t=>{
+test('genuine schema-7 backup preserves seven, while normal restore upgrades a copy to ten',async t=>{
   const root=tempRoot('orbit-preserve-seven-');t.after(()=>removeRoot(root));
   const store=new SqliteWorkspaceStore(root),id=seed(store),before=store.read(id);
   store.close();
@@ -138,15 +157,15 @@ test('genuine schema-7 backup preserves seven, while normal restore upgrades a c
     const unchanged=sha256(backup),preserved=path.join(root,'preserved'),upgraded=path.join(root,'upgraded');
     assert.deepEqual(run(['restore','--runtime',preserved,'--source',backup,'--confirm-stopped','--preserve-schema']),{restored:true,preserved:true,schema_version:7});
     assert.equal(rawVersion(path.join(preserved,'workspace.sqlite')),7);
-    assert.equal(run(['restore','--runtime',upgraded,'--source',backup,'--confirm-stopped']).schema_version,9);
-    assert.equal(rawVersion(path.join(upgraded,'workspace.sqlite')),9);
+    assert.equal(run(['restore','--runtime',upgraded,'--source',backup,'--confirm-stopped']).schema_version,10);
+    assert.equal(rawVersion(path.join(upgraded,'workspace.sqlite')),10);
     assert.equal(sha256(backup),unchanged);
     const reopened=new SqliteWorkspaceStore(upgraded);
     try{assert.deepEqual(reopened.read(id),before);for(const name of ['wb_results','wb_cards','wb_patches'])assert.equal(reopened.db.prepare(`SELECT count(*) AS n FROM ${name}`).get().n,0);}finally{reopened.close();}
   }finally{db.close();}
 });
 
-test('schema-9 backup/restore retains result, card and patch records and workspace receipts',async t=>{
+test('schema-10 backup/restore retains result, card and patch records and workspace receipts',async t=>{
   const root=tempRoot('orbit-preserve-eight-'),runtime=path.join(root,'source');t.after(()=>removeRoot(root));
   const store=new SqliteWorkspaceStore(runtime),workspace_id=seed(store);
   const projectRoot=path.join(root,'project');fs.mkdirSync(projectRoot);fs.writeFileSync(path.join(projectRoot,'file.txt'),'fixture');
@@ -157,10 +176,10 @@ test('schema-9 backup/restore retains result, card and patch records and workspa
   const receipt=store.db.prepare('SELECT * FROM receipts WHERE workspace_id=?').get(workspace_id);
   const backup=path.join(root,'eight.sqlite');await store.backup(backup);store.close();
   const before=sha256(backup),destination=path.join(root,'restored');
-  assert.deepEqual(run(['restore','--runtime',destination,'--source',backup,'--confirm-stopped','--preserve-schema']),{restored:true,preserved:true,schema_version:9});
+  assert.deepEqual(run(['restore','--runtime',destination,'--source',backup,'--confirm-stopped','--preserve-schema']),{restored:true,preserved:true,schema_version:10});
   const restored=new SqliteWorkspaceStore(destination);
   try{
-    assert.equal(restored.diagnostics().schema_version,9);
+    assert.equal(restored.diagnostics().schema_version,10);
     const copy=new WorkbenchData(restored);
     for(const kind of ['results','cards','patches'])assert.deepEqual(copy.list(kind,workspace_id,project_id),rows[kind]);
     assert.deepEqual(restored.db.prepare('SELECT * FROM receipts WHERE workspace_id=?').get(workspace_id),receipt);
@@ -180,10 +199,10 @@ test('preserve-schema is rejected outside restore and requires confirmation', as
   assert.equal(fs.existsSync(destination), false);
 });
 
-test('future schema 10 backup cannot be restored or silently downgraded',async t=>{
+test('future schema 11 backup cannot be restored or silently downgraded',async t=>{
   const root=tempRoot('orbit-future-schema-');t.after(()=>removeRoot(root));
   const store=new SqliteWorkspaceStore(root);seed(store);store.close();
-  const db=new Database(path.join(root,'workspace.sqlite'));db.pragma('user_version = 10');
+  const db=new Database(path.join(root,'workspace.sqlite'));db.pragma('user_version = 11');
   const backup=path.join(root,'future.sqlite');await db.backup(backup);db.close();
   const before=sha256(backup);
   for(const preserve of [false,true]){

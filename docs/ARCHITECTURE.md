@@ -94,7 +94,8 @@ prove rendering, and no credentials or terminal/conversation content belong in e
 
 The owner-only recovery console can persist a registered-plugin activation hold
 outside checkpoint state. Policy generation and candidate-state checks share the
-command transaction. Entering hold disables plugins; release never auto-enables them.
+command transaction. Entering hold disables plugins and trusted project-tool
+instances; release never auto-enables them.
 Receipts from older policy generations fail closed rather than replaying an obsolete
 activation snapshot. This does not stop cached/offline frames or external backends,
 block public app files, or implement general safe boot. See [Recovery](RECOVERY.md).
@@ -104,6 +105,14 @@ block public app files, or implement general safe boot. See [Recovery](RECOVERY.
 Trusted built-ins use `src/workspace-extensions.ts`: typed activation entries dynamically load plugin manager, checkpoints, skills catalog, outputs and jobs. Live activity is also loaded on demand. These modules run in the parent page and are reviewed application code. They are not user-installable privileged plugins.
 
 Generated app plugins use a strict API-v1 manifest and config contract. `scripts/plugin_publish.py` copies static bundles to content-addressed folders. Lifecycle/config/entry references are part of workspace state and checkpoints. The existing sandboxed browser pane hosts the app; no host credentials or privileged message bridge are granted. Network access is allowed by the current app CSP. See [PLUGINS.md](PLUGINS.md) for limitations, including the absence of filesystem-enforced immutability, dependency resolution and independent safe boot.
+
+Persistent project tools are a closed set of reviewed host modules (notebook and
+recorded checks/review card), selected by an opaque browser-pane URL. Schema 10
+separates their definitions, host-release descriptors, instances, private data and
+authoritative pane bindings. The owner-only `/api/workbench/tools` route does not
+grant controller, model or generated-frame access. Notebook data has an independent
+revision CAS and never enters layout checkpoints or mutation receipts. See
+[Project tools](PROJECT_TOOLS.md) for lifecycle, hold and compatibility semantics.
 
 ## Hermes
 
@@ -138,6 +147,7 @@ Three.js PerspectiveCamera drives WebGL decoration plus CSS3DRenderer HTML monit
 | Workspace persistence / context | `server/workspace.mjs`, `src/workspace-sync.ts` |
 | Checkpoints / recovery policy | `server/sqlite-workspace-store.mjs`, `src/workspace-history.ts`, `public/recovery.js` |
 | Trusted extensions | `src/workspace-extensions.ts` |
+| Persistent project tools | `server/project-tools.mjs`, `server/project-tools-data.mjs`, `src/project-tool-host.ts`, `src/project-tool-manager.ts` |
 | Plugin management / publishing | `src/plugin-manager.ts`, `scripts/plugin_publish.py` |
 | Agent bridge / UI | `server/agent.mjs`, `src/agent-chat.ts` |
 | Host PTYs | `server/local-host.mjs`, `server/index.mjs`, `src/panes.ts` |

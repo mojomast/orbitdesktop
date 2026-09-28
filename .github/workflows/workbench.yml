@@ -125,6 +125,14 @@ jobs:
           for renderer in default docking; do
             /tmp/opencode/orbit-workbench-venv/bin/python tests/workspace-arrangements.browser.py --renderer "$renderer" --pty
           done
+      - name: Persistent project tools on both renderers
+        if: ${{ !cancelled() && steps.browser_tools.outcome == 'success' }}
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
+        run: |
+          for renderer in default docking; do
+            /tmp/opencode/orbit-workbench-venv/bin/python tests/project-tools.browser.py --renderer "$renderer"
+          done
       - name: Shared live timeline and persistent Hermes mode switching
         if: ${{ !cancelled() && steps.browser_tools.outcome == 'success' }}
         env:

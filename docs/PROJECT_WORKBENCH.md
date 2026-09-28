@@ -166,7 +166,7 @@ owner action and does not authorize modifying or merging into the original tree.
 | --- | --- |
 | Explicit root registration | Owner Bearer + allowed Origin/Host; expiring server-issued preview bound to root inode identity and workspace; no caller actor or `confirm` bypass |
 | Revoke project access | Generation-checked, persistent disable of owner Workbench reads; late results fenced; fresh preview required to re-enable |
-| Stable projects/resources/bindings | Versioned records in SQLite schema 9; opaque UUIDs; separate from layout v1; whole-workspace sync cannot erase them |
+| Stable projects/resources/bindings | Versioned records in SQLite schema 10; opaque UUIDs; separate from layout v1; whole-workspace sync cannot erase them |
 | File tree / literal text / ranges | Implemented with bounded descriptor-relative reads; never rendered as HTML |
 | Repository status / readable diff | Bounded private materialization; tracked dirty/deleted and untracked text; explicit exclusions and unsupported states |
 | Linked terminals/conversations/browser panes | Metadata-only association with existing pane identity; no mounting, navigation, capture, permission or session change |
@@ -201,6 +201,11 @@ Current verification, remaining scope limits and release gates are tracked in
 deterministic acceptance, real-model acceptance and live deployment are distinct.
 
 ### Durable workspace arrangements (schema 9 backend)
+
+The Project Inspector also exposes [persistent project tools](PROJECT_TOOLS.md):
+trusted notebook instances and recorded checks/review cards. Their additive
+schema-10 storage and owner-only route are separate from arrangements and native
+worker authority. Saving notes changes private data revisions, not layout state.
 
 Schema-9 durable arrangement proposals and portable role recipes are implemented in
 the backend. `recipe_preview` stages an exact output state and placement, binds the
@@ -382,7 +387,7 @@ Back up the compatible pre-upgrade database before upgrade; test a copy. SQLite 
 the new tables after upgrade. To return to the older binary, restore the compatible
 pre-upgrade backup into a **new** runtime with `restore --preserve-schema`. This
 does not down-convert schema 7. This is a historical upgrade note: the current
-source baseline is schema 9, with schema 8 the immediately preceding baseline.
+source baseline is schema 10, with schema 9 the immediately preceding baseline.
 Older binaries refuse newer schemas. Old and new writers must not run concurrently.
 See [DEPLOYMENT.md](DEPLOYMENT.md).
 

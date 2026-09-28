@@ -1,6 +1,22 @@
 # Workspace store: compatibility, migration, and operations
 
-Orbit's workspace authority is `PATH/workspace.sqlite` (current source schema `user_version=9`; schema 8 is the historical pre-arrangements baseline), where `PATH` is the configured runtime directory (`ORBIT_RUNTIME_DIR`, or the repository's `.runtime` by default). `server/workspace.mjs` uses `SqliteWorkspaceStore`; this is still a single-owner workspace, not a multi-user database service. The v1 workspace state and command shapes remain defined by `contracts/workspace-v1.mjs`. Layout, docking placement, plugin registration/configuration, checkpoint state, independent recovery policy, bundle metadata, Workbench records, durable workspace arrangements and workspace capability are stored in the database; published app bytes, terminal processes, conversations, external effects and arbitrary runtime files are not workspace snapshots. Schema numbers below are incremental historical descriptions, not claims that old versions are the current baseline.
+Orbit's workspace authority is `PATH/workspace.sqlite` (current source schema `user_version=10`; schema 9 is the pre-project-tools baseline), where `PATH` is the configured runtime directory (`ORBIT_RUNTIME_DIR`, or the repository's `.runtime` by default). `server/workspace.mjs` uses `SqliteWorkspaceStore`; this is still a single-owner workspace, not a multi-user database service. The v1 workspace state and command shapes remain defined by `contracts/workspace-v1.mjs`. Layout, docking placement, plugin registration/configuration, checkpoint state, independent recovery policy, bundle metadata, Workbench records, durable workspace arrangements, private project tools and workspace capability are stored in the database; published app bytes, terminal processes, conversations, external effects and arbitrary runtime files are not workspace snapshots. Schema numbers below are incremental historical descriptions, not claims that old versions are the current baseline.
+
+## Persistent project tools (schema 10)
+
+Schema 9 → 10 adds separate definition, immutable host-release descriptor, instance,
+surface binding, private data, proposal and operation-receipt tables. Existing v1
+plugin records and bundle references remain authoritative in their original stores.
+Tool panes use only opaque `orbit://project-tool/<instance-id>` selectors in layout.
+The owner-authenticated service validates the current pane, binding, project,
+instance and recovery policy before returning private data.
+
+Notebook writes use their own data-revision CAS. Placement restore and compatible
+release repin cannot overwrite later notes. Creation commits the exact staged
+layout and placement, checkpoint, instance, binding and receipt atomically. Hold
+disables all enabled instances in its transaction; releasing it does not re-enable
+them. Old schema-9 readers refuse schema 10. Coordinate writers and preserve a
+pre-upgrade backup for binary downgrade. See [Project tools](PROJECT_TOOLS.md).
 
 ## Managed terminal authority (current boundary)
 
@@ -154,7 +170,7 @@ node --experimental-strip-types scripts/workspace_store.mjs export-legacy --runt
 
 `diagnose` reports schema version, WAL mode, foreign keys, SQLite `quick_check`, counts of workspaces/checkpoints/receipts/events and whether a connection projection error was observed. It is a point-in-time diagnostic, not a rendering or external-resource check. The store requires WAL journaling and `synchronous=FULL`; keep the live database and its SQLite sidecars together rather than treating a raw copy of `workspace.sqlite` as a consistent online backup. `backup` uses SQLite's backup API, checks its standalone output and atomically publishes to an unused path without overwriting an existing destination. It does not copy app bundles or other runtime resources. Coordinate with writers when taking an operationally consistent whole-runtime backup.
 
-`restore` validates SQLite schemas 1–9 (`quick_check` and bootstrap marker), stages the backup, upgrades older schemas if needed, and publishes an entirely **new**, nonexistent runtime directory; it will not overwrite a runtime. Schemas 2–9 retain recovery hold and generation. SQLite backup/restore carries placement/checkpoint copies and Workbench records through schema 9. Newer schemas refuse with `UPGRADE_REQUIRED`. Stop servers first and separately provide required bundles/other runtime resources. Restore does not restart a server. `export-legacy` refuses an active recovery hold; otherwise it writes an offline archive of current workspace/checkpoint JSON with `EXPORT_WARNING.txt`. Export cannot preserve Project Workbench tables in legacy layouts. Older consumers also lose receipts/outbox, bundle indexing, policy enforcement and newer placement semantics. Export does not remove SQLite authority or migrate bundles. Prefer a compatible pre-upgrade backup and separate runtime for rollback; never run mixed-version writers. None of these procedures undo shell, conversation, network or external effects.
+`restore` validates SQLite schemas 1–10 (`quick_check` and bootstrap marker), stages the backup, upgrades older schemas if needed, and publishes an entirely **new**, nonexistent runtime directory; it will not overwrite a runtime. Schemas 2–10 retain recovery hold and generation. SQLite backup/restore carries placement/checkpoint copies, Workbench records and private project-tool tables through schema 10. Newer schemas refuse with `UPGRADE_REQUIRED`. Stop servers first and separately provide required bundles/other runtime resources. Restore does not restart a server. `export-legacy` refuses an active recovery hold; otherwise it writes an offline archive of current workspace/checkpoint JSON with `EXPORT_WARNING.txt`. Export cannot preserve Workbench or private project-tool tables in legacy layouts. Older consumers also lose receipts/outbox, bundle indexing, policy enforcement and newer placement semantics. Export does not remove SQLite authority or migrate bundles. Prefer a compatible pre-upgrade backup and separate runtime for rollback; never run mixed-version writers. None of these procedures undo shell, conversation, network or external effects.
 
 ### Rolling back to a pre-upgrade backup (`--preserve-schema`)
 

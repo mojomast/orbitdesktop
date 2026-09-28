@@ -2,13 +2,14 @@ import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
 import {randomUUID, createHash} from 'node:crypto';
-import {validate} from '../src/model.ts';
+import {validate,leaves} from '../src/model.ts';
 import {validateDockingPlacement,emptyPlacement,placementEqual,prunePlacement} from '../src/docking-placement.ts';
 import {applyOperation} from '../src/workspace-ops.ts';
 import {canonicalJson} from './command-identity.mjs';
 import {bundleSchemaSql,createBundleRegistry} from './bundle-registry.mjs';
 import {workbenchSchemaSql} from './workbench-store.mjs';
 import {workbenchExecutionSchemaSql,workbenchOperationSchemaSql,workbenchResultSchemaSql,workbenchProposalSchemaSql,workbenchProposalIndexSql} from './workbench-data.mjs';
+import {projectToolsSchemaSql} from './project-tools-data.mjs';
 
 const uuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
 const checkId = id => { if(typeof id!=='string'||!uuid.test(id))throw failure('INVALID_OPERATION'); return id; };
@@ -35,7 +36,7 @@ export class SqliteWorkspaceStore {
     this.db=new Database(this.filename,{timeout:busyTimeoutMs});
     try {
       const version=this.db.pragma('user_version',{simple:true});
-       if(version>9)throw failure('UPGRADE_REQUIRED');
+       if(version>10)throw failure('UPGRADE_REQUIRED');
       if(exists&&version===0&&!legacyPresent&&!importLegacy)throw failure('STORE_UNINITIALIZED');
       fs.chmodSync(this.filename,0o600);
       this.db.pragma('foreign_keys = ON');
@@ -71,7 +72,7 @@ export class SqliteWorkspaceStore {
       // restartable. Upgrade under the writer lock; old binaries refuse v2.
       this.db.transaction(()=>{
         const current=this.db.pragma('user_version',{simple:true});
-         if(current>9)throw failure('UPGRADE_REQUIRED');
+         if(current>10)throw failure('UPGRADE_REQUIRED');
         if(current===1) {
           this.db.exec(`
             ALTER TABLE receipts ADD COLUMN policy_generation INTEGER NOT NULL DEFAULT 0 CHECK(policy_generation>=0);
@@ -83,7 +84,7 @@ export class SqliteWorkspaceStore {
       }).immediate();
       this.db.transaction(()=>{
         const current=this.db.pragma('user_version',{simple:true});
-         if(current>9)throw failure('UPGRADE_REQUIRED');
+         if(current>10)throw failure('UPGRADE_REQUIRED');
         if(current===2) {
           this.db.exec(bundleSchemaSql);
           this.db.exec("CREATE INDEX IF NOT EXISTS events_workspace_sequence ON events(json_extract(event_json,'$.workspace_id'),sequence)");
@@ -94,7 +95,7 @@ export class SqliteWorkspaceStore {
       // Already-open old writers must be stopped: no mixed-version writers supported.
       this.db.transaction(()=>{
         const current=this.db.pragma('user_version',{simple:true});
-         if(current>9)throw failure('UPGRADE_REQUIRED');
+         if(current>10)throw failure('UPGRADE_REQUIRED');
         if(current===3) {
           // Guard each column add: a database rewound to an older user_version (or
           // an interrupted earlier upgrade) may already carry the placement columns.
@@ -110,17 +111,17 @@ export class SqliteWorkspaceStore {
       }).immediate();
       this.db.transaction(()=>{
         const current=this.db.pragma('user_version',{simple:true});
-         if(current>9)throw failure('UPGRADE_REQUIRED');
+         if(current>10)throw failure('UPGRADE_REQUIRED');
         if(current===4){this.db.exec(workbenchSchemaSql);this.db.pragma('user_version = 5');}
       }).immediate();
       this.db.transaction(()=>{
         const current=this.db.pragma('user_version',{simple:true});
-         if(current>9)throw failure('UPGRADE_REQUIRED');
+         if(current>10)throw failure('UPGRADE_REQUIRED');
         if(current===5){this.db.exec(workbenchExecutionSchemaSql);this.db.pragma('user_version = 6');}
       }).immediate();
       this.db.transaction(()=>{
         const current=this.db.pragma('user_version',{simple:true});
-         if(current>9)throw failure('UPGRADE_REQUIRED');
+         if(current>10)throw failure('UPGRADE_REQUIRED');
         if(current===6){
           // Never discard conflicting historical receipts to manufacture uniqueness.
           // A conflicted source requires explicit operator investigation on a copy.
@@ -132,7 +133,7 @@ export class SqliteWorkspaceStore {
        }).immediate();
        this.db.transaction(()=>{
          const current=this.db.pragma('user_version',{simple:true});
-         if(current>9)throw failure('UPGRADE_REQUIRED');
+         if(current>10)throw failure('UPGRADE_REQUIRED');
           if(current===7){this.db.exec(workbenchResultSchemaSql);this.db.pragma('user_version = 8');}
           // Existing schema-8 development copies may predate this operation
           // index. Reassert it on open, without deleting conflicting receipts.
@@ -148,7 +149,7 @@ export class SqliteWorkspaceStore {
        // republishing; a legacy project-wide index is rebuilt in place.
        this.db.transaction(()=>{
          const current=this.db.pragma('user_version',{simple:true});
-         if(current>9)throw failure('UPGRADE_REQUIRED');
+         if(current>10)throw failure('UPGRADE_REQUIRED');
          this.db.exec(workbenchProposalSchemaSql);
          if(current===8)this.db.pragma('user_version = 9');
          const duplicates=this.db.prepare("SELECT 1 FROM wb_proposals WHERE json_extract(record_json,'$.op_id') IS NOT NULL AND json_extract(record_json,'$.committed_actor') IS NOT NULL GROUP BY workspace_id,project_id,json_extract(record_json,'$.op_id'),json_extract(record_json,'$.committed_actor') HAVING count(*)>1 LIMIT 1").get();
@@ -156,6 +157,12 @@ export class SqliteWorkspaceStore {
          const existing=this.db.prepare("SELECT sql FROM sqlite_master WHERE type='index' AND name='wb_proposals_operation'").get();
          if(!existing||!String(existing.sql??'').includes('committed_actor')){this.db.exec('DROP INDEX IF EXISTS wb_proposals_operation');this.db.exec(workbenchProposalIndexSql);}
        }).immediate();
+      this.db.transaction(()=>{
+        const current=this.db.pragma('user_version',{simple:true});
+        if(current>10)throw failure('UPGRADE_REQUIRED');
+        this.db.exec(projectToolsSchemaSql);
+        if(current===9)this.db.pragma('user_version = 10');
+      }).immediate();
       this.bundles=createBundleRegistry({db:this.db,root:this.root});
       // Rebuildable discovery only. Frozen original workspace JSON is never updated.
       this.reconcileConnections();
@@ -290,6 +297,17 @@ export class SqliteWorkspaceStore {
         // Gate the final validated state for every mutation, including whole-state
         // sync/restore. Policy is authoritative metadata, never checkpoint state.
         if(record.recovery_policy.held && record.state.plugins?.some(plugin=>plugin.enabled||record.state.monitors.some(monitor=>monitor.id===plugin.window.id)))throw failure('RECOVERY_HOLD');
+        // Hold is outside layout undo. Disable trusted optional instances in this
+        // same transaction; releasing hold never restores an earlier grant state.
+        if(transition===true){
+          if(this.db.prepare("SELECT 1 FROM wb_tool_instances WHERE workspace_id=? AND revision>=9007199254740991 AND json_extract(record_json,'$.enabled')=1 LIMIT 1").get(workspaceId))throw failure('INVALID_STORE');
+          this.db.prepare("UPDATE wb_tool_instances SET revision=revision+1,record_json=json_set(record_json,'$.enabled',json('false'),'$.revision',revision+1,'$.updated_at',?) WHERE workspace_id=? AND json_extract(record_json,'$.enabled')=1").run(now,workspaceId);
+        }
+        if(record.recovery_policy.held){
+          const prior=new Map((previous?.state.monitors??[]).flatMap(m=>leaves(m.layout)).map(p=>[p.id,p.kind==='browser'?p.url:null]));
+          const attaches=record.state.monitors.flatMap(m=>leaves(m.layout)).some(p=>p.kind==='browser'&&p.url.startsWith('orbit://project-tool/')&&prior.get(p.id)!==p.url);
+          if(attaches)throw failure('RECOVERY_HOLD');
+        }
         // Check indexed new/activated references without scanning the filesystem
         // under the writer lock. Existing broken refs must not trap recovery edits.
         if(!change.checkpointOnly && transition===undefined)this.bundles.validateState(record.state,{previousState:previous?.state,onlyChanged:true});
@@ -410,7 +428,7 @@ export class SqliteWorkspaceStore {
         const directory=path.join(stage,'checkpoints',record.id);fs.mkdirSync(directory,{recursive:true,mode:0o700});
         for(const checkpoint of checkpoints)fs.writeFileSync(path.join(directory,`${checkpoint.id}.json`),JSON.stringify(checkpoint),{mode:0o600});
       }
-      fs.writeFileSync(path.join(stage,'EXPORT_WARNING.txt'),'Offline legacy layout export only. Project Workbench records and registration policies are NOT exported. Receipts/outbox are NOT preserved by old binaries. Immutable bundles and other runtime resources must be retained separately. No services have been started.\n',{mode:0o600});
+      fs.writeFileSync(path.join(stage,'EXPORT_WARNING.txt'),'Offline legacy layout export only. Project Workbench records and registration policies are NOT exported. Private project-tool data, grants and releases are NOT exported; use a SQLite backup to preserve notes. Receipts/outbox are NOT preserved by old binaries. Immutable bundles and other runtime resources must be retained separately. No services have been started.\n',{mode:0o600});
       if(fs.existsSync(destination))throw failure('DESTINATION_EXISTS');
       fs.renameSync(stage,destination);
       return {path:destination,workspaces:snapshot.length};

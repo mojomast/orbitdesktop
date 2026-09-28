@@ -301,7 +301,7 @@ test('real RouteTok export independently verifies 293 tests and retrieved diff p
   const installed=spawnSync('/usr/bin/timeout',['--kill-after=5s','60s',process.execPath,npm,'ci','--include=dev','--ignore-scripts','--offline','--no-audit','--no-fund'],{cwd:fresh,encoding:'utf8',env:{PATH:'/usr/bin:/bin',HOME:root,NPM_CONFIG_CACHE:freshCache,NPM_CONFIG_REGISTRY:'http://127.0.0.1:9/',NPM_CONFIG_USERCONFIG:userconfig,NPM_CONFIG_GLOBALCONFIG:globalconfig,NPM_CONFIG_UPDATE_NOTIFIER:'false'}});
   assert.equal(installed.status,0,installed.stderr);
   const retest=spawnSync('/usr/bin/timeout',['--kill-after=5s','90s',process.execPath,'--import',path.join(fresh,'node_modules','tsx','dist','loader.mjs'),'--test',...state.run.evidence.test_results.required_files],{cwd:fresh,encoding:'utf8',timeout:100000,maxBuffer:2*1024*1024,env:{PATH:'/usr/bin:/bin',HOME:root,TMPDIR:root,NODE_OPTIONS:'',TSX_DISABLE_CACHE:'1'}});
-  assert.equal(retest.status,0,retest.stderr.slice(-4000));
+  assert.equal(retest.status,0,`${retest.stderr.slice(-4000)}\n${retest.stdout.slice(-12000)}`);
   assert.match(retest.stdout,/tests 293\b/);
   assert.match(retest.stdout,/pass 293\b/);
   assert.equal(git(upstream,'status','--porcelain'),'');

@@ -1,5 +1,14 @@
 # Testing candidate deployment and rollback
 
+## Current source compatibility
+
+The M3 source uses SQLite schema 10; serialized workspace layout remains v1.
+Packaging now defaults to schema maximum 10. Always pass the intended release's
+explicit compatibility range when packaging a historical branch or a narrow
+hotfix. Source validation is separate from activation: M3 does not authorize
+upgrading any owner runtime. Coordinate all writers and retain a pre-upgrade
+backup; schema-9 and earlier binaries refuse schema 10.
+
 ## Provisioning the RouteTok TypeScript cache
 
 Use a fresh private provisioning directory containing only the reviewed pinned
@@ -59,7 +68,7 @@ a packaged release. Configuration and credentials are snapshotted at startup.
 Obtain fresh task consent after the target-only restart. No schema change is needed.
 
 For schema-8 releases, pass `--schema-min 8 --schema-max 8` explicitly to
-`release_package.mjs build`; do not rely on its older packaging defaults. Fail the
+`release_package.mjs build`; do not rely on another branch's packaging defaults. Fail the
 activation sequence immediately if release selection fails. A successful process
 start does not establish that the intended pointer was selected.
 

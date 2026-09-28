@@ -13,6 +13,9 @@ import {initial} from '../src/model.ts';
 
 const ROOT=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const BASELINE_COMMIT='d35142f812619c1a2492f0223fce2798cf105b6d';
+// Schema-9 was the immediately preceding baseline. A real archived reader (not
+// a manual `user_version` rewind) proves old binaries refuse a schema-10 store.
+const SCHEMA9_COMMIT='ae14c4f327765dc5ff8786070dedc9eb7e9b3abe';
 const id=()=>randomUUID();
 
 function tempRoot(prefix){return fs.mkdtempSync(path.join(os.tmpdir(),prefix));}
@@ -32,6 +35,18 @@ async function loadArchivedBaseline(t){
   return BaselineStore;
 }
 
+/** Import the real archived schema-9 store from Git history. */
+async function loadArchivedSchema9Reader(t){
+  const archived=tempRoot('orbit-schema9-source-');
+  t.after(()=>clean(archived));
+  const bytes=execFileSync('git',['archive','--format=tar',SCHEMA9_COMMIT],{cwd:ROOT,maxBuffer:64*1024*1024});
+  execFileSync('tar',['-xf','-','-C',archived],{input:bytes,maxBuffer:64*1024*1024});
+  fs.symlinkSync(path.join(ROOT,'node_modules'),path.join(archived,'node_modules'),'dir');
+  const source=pathToFileURL(path.join(archived,'server/sqlite-workspace-store.mjs')).href;
+  const {SqliteWorkspaceStore:Schema9Store}=await import(`${source}?schema9=${id()}`);
+  return Schema9Store;
+}
+
 function fixtureState(){
   const state=initial();
   state.monitors[0].layout={type:'split',axis:'row',ratio:0.61,
@@ -40,7 +55,7 @@ function fixtureState(){
   return state;
 }
 
-test('schema 9 upgrades a real schema-8 database and preserves authoritative workspace/Workbench/bundle records through backup and restore',async t=>{
+test('schema 10 upgrades a real schema-8 database and preserves authoritative workspace/Workbench/bundle records through backup and restore',async t=>{
   const BaselineStore=await loadArchivedBaseline(t);
   const sourceRoot=tempRoot('orbit-arrangements-v8-');
   const upgradedRoot=tempRoot('orbit-arrangements-v9-');
@@ -76,7 +91,7 @@ test('schema 9 upgrades a real schema-8 database and preserves authoritative wor
 
   const upgraded=new SqliteWorkspaceStore(upgradedRoot);
   t.after(()=>upgraded.close());
-  assert.equal(upgraded.diagnostics().schema_version,9);
+  assert.equal(upgraded.diagnostics().schema_version,10);
   assert.deepEqual(upgraded.read(workspaceId),applied);
   assert.deepEqual(upgraded.read(workspaceId).state.monitors[0].layout,state.monitors[0].layout);
   assert.deepEqual(upgraded.checkpointList(workspaceId),checkpointBefore);
@@ -90,10 +105,10 @@ test('schema 9 upgrades a real schema-8 database and preserves authoritative wor
 
   const migratedBackup=path.join(sourceRoot,'schema9.sqlite');await upgraded.backup(migratedBackup);
   const restoredOutput=execFileSync(process.execPath,['--experimental-strip-types','scripts/workspace_store.mjs','restore','--runtime',restoredRoot,'--source',migratedBackup,'--confirm-stopped'],{cwd:ROOT,encoding:'utf8'});
-  assert.equal(JSON.parse(restoredOutput).schema_version,9);
+  assert.equal(JSON.parse(restoredOutput).schema_version,10);
   const restored=new SqliteWorkspaceStore(restoredRoot);
   try{
-    assert.equal(restored.diagnostics().schema_version,9);
+    assert.equal(restored.diagnostics().schema_version,10);
     assert.deepEqual(restored.read(workspaceId),applied);
     assert.deepEqual(restored.checkpointList(workspaceId),checkpointBefore);
     assert.equal(restored.db.prepare('SELECT id FROM wb_projects WHERE id=?').get(projectId).id,projectId);
@@ -108,18 +123,27 @@ test('schema 9 upgrades a real schema-8 database and preserves authoritative wor
   const OldStore=await loadArchivedBaseline(t);
   assert.throws(()=>new OldStore(oldReaderRoot),error=>error.category==='UPGRADE_REQUIRED');
   const oldReaderDb=new Database(path.join(oldReaderRoot,'workspace.sqlite'),{readonly:true});
-  try{assert.equal(oldReaderDb.pragma('user_version',{simple:true}),9);}finally{oldReaderDb.close();}
+  try{assert.equal(oldReaderDb.pragma('user_version',{simple:true}),10);}finally{oldReaderDb.close();}
 });
 
-test('schema 10 is refused by both current and archived schema-8 readers',async t=>{
-  const fixture=tempRoot('orbit-arrangements-schema10-');t.after(()=>clean(fixture));
-  const store=new SqliteWorkspaceStore(fixture);store.close();
-  const db=new Database(path.join(fixture,'workspace.sqlite'));db.pragma('user_version=10');db.close();
+test('schema 11 is refused by the current reader, and an archived schema-9 reader refuses a schema-10 database',async t=>{
+  const fixture=tempRoot('orbit-arrangements-schema-future-');t.after(()=>clean(fixture));
+  const store=new SqliteWorkspaceStore(fixture);
+  assert.equal(store.diagnostics().schema_version,10,'current store must create schema 10');
+  store.close();
+  // The archived schema-9 reader is a real build from the preceding baseline,
+  // not a manual user_version rewind. It must fail closed on the real schema-10
+  // database, which is the mixed-version downgrade gate.
+  const schema9Root=tempRoot('orbit-arrangements-schema10-old-');t.after(()=>clean(schema9Root));
+  fs.copyFileSync(path.join(fixture,'workspace.sqlite'),path.join(schema9Root,'workspace.sqlite'));
+  const Schema9Store=await loadArchivedSchema9Reader(t);
+  assert.throws(()=>new Schema9Store(schema9Root),error=>error.category==='UPGRADE_REQUIRED');
+  const untouched=new Database(path.join(fixture,'workspace.sqlite'),{readonly:true});
+  try{assert.equal(untouched.pragma('user_version',{simple:true}),10);}finally{untouched.close();}
+  // No schema-11 implementation exists, so this marker is simulated; the
+  // current reader must still refuse it without modifying the database.
+  const db=new Database(path.join(fixture,'workspace.sqlite'));db.pragma('user_version=11');db.close();
   assert.throws(()=>new SqliteWorkspaceStore(fixture),error=>error.category==='UPGRADE_REQUIRED');
   const verify=new Database(path.join(fixture,'workspace.sqlite'),{readonly:true});
-  try{assert.equal(verify.pragma('user_version',{simple:true}),10);}finally{verify.close();}
-  const oldReaderRoot=tempRoot('orbit-arrangements-schema10-old-');t.after(()=>clean(oldReaderRoot));
-  fs.copyFileSync(path.join(fixture,'workspace.sqlite'),path.join(oldReaderRoot,'workspace.sqlite'));
-  const OldStore=await loadArchivedBaseline(t);
-  assert.throws(()=>new OldStore(oldReaderRoot),error=>error.category==='UPGRADE_REQUIRED');
+  try{assert.equal(verify.pragma('user_version',{simple:true}),11);}finally{verify.close();}
 });

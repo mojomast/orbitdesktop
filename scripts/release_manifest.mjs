@@ -102,7 +102,7 @@ export function serviceBuildId(root){
 }
 
 function normaliseCompat(compat={}){
-  const value={node:compat.node??'>=22.12',schema_min:compat.schema_min??7,schema_max:compat.schema_max??7,hermes_commit:compat.hermes_commit??DEFAULT_HERMES_COMMIT};
+  const value={node:compat.node??'>=22.12',schema_min:compat.schema_min??7,schema_max:compat.schema_max??10,hermes_commit:compat.hermes_commit??DEFAULT_HERMES_COMMIT};
   assertCompatComplete(value);
   return value;
 }

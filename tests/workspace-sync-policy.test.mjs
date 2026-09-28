@@ -8,14 +8,14 @@ import {randomUUID} from 'node:crypto';
 // Execute the real sync module in a disposable browser-like environment. Only
 // transport, appearance DOM writes and scheduling are replaced; no owner profile.
 function fixture(responses,{storageFailure=false}={}) {
-  const requests=[],statuses=[],storage=new Map(),applied=[];
+  const requests=[],statuses=[],storage=new Map(),applied=[],events=[];
   const listeners=new Map(),lifecycle={started:0,closed:0,intervals:0};
   let state={plugins:[],monitors:[]};
   const exports={};
-  const context=vm.createContext({exports,crypto:{randomUUID},
+  const context=vm.createContext({exports,crypto:{randomUUID},CustomEvent,
     localStorage:{getItem:key=>storage.get(key),setItem:(key,value)=>{if(storageFailure)throw Error('quota');storage.set(key,value);}},
     document:{querySelectorAll:()=>[],querySelector:()=>null},
-    window:{addEventListener:(name,callback)=>listeners.set(name,callback)},setInterval:()=>++lifecycle.intervals,clearInterval:()=>{},setTimeout:()=>1,clearTimeout:()=>{},
+    window:{addEventListener:(name,callback)=>listeners.set(name,callback),dispatchEvent:event=>{events.push(event);listeners.get(event.type)?.(event);return true;}},setInterval:()=>++lifecycle.intervals,clearInterval:()=>{},setTimeout:()=>1,clearTimeout:()=>{},
     require:name=>{
       if(name==='./workspace-appearance')return {applyAppearance:()=>{}};
       if(name==='./workspace-events')return {connectWorkspaceEvents:()=>{lifecycle.started++;return {close:()=>{lifecycle.closed++;},poll:async()=>{}};}};
@@ -31,7 +31,7 @@ function fixture(responses,{storageFailure=false}={}) {
   const source=fs.readFileSync(new URL('../src/workspace-sync.ts',import.meta.url),'utf8');
   vm.runInContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,context);
   const connection=exports.connectWorkspace(()=>state,next=>{state=next;applied.push(next);},()=> 'fixture-token',message=>statuses.push(message));
-  return {connection,flush:exports.ensureWorkspaceSynced,requests,statuses,storage,applied,lifecycle,dispatch:name=>listeners.get(name)?.(),edit:next=>{state=next;connection.changed();}};
+  return {connection,flush:exports.ensureWorkspaceSynced,requests,statuses,storage,applied,events,lifecycle,dispatch:name=>listeners.get(name)?.(),edit:next=>{state=next;connection.changed();}};
 }
 test('a failed concurrent layout read does not poison placement or polling queues',async()=>{
   let release;
@@ -68,6 +68,10 @@ for(const category of ['RECOVERY_HOLD','RECOVERY_POLICY_CHANGED'])test(`${catego
   assert.deepEqual(fixtureState.requests.map(body=>body.action),['read','sync','read','read']);
   assert.equal(fixtureState.applied.length,2);
   assert.match(fixtureState.statuses.at(-1),/recovery hold active/);
+  assert.equal(fixtureState.events.length,1,'Unchanged policy polling must not repeatedly invalidate private tool drafts');
+  assert.equal(fixtureState.events[0].type,'orbit-recovery-policy');
+  assert.equal(fixtureState.events[0].detail.held,true);
+  assert.equal(fixtureState.events[0].detail.generation,1);
 });
 
 for(const failure of [{transportError:true},{status:200,invalidJson:true},{status:503,body:{error:'busy'}}])test(`uncertain ${JSON.stringify(failure)} save is backed up and blocks dependent actions`,async()=>{
