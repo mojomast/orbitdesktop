@@ -31,7 +31,7 @@ function fixture(t){
     store.commit(commandIdentity({workspace_id:id,action:'sync',base_revision:0,state:initial(),operation_id:randomUUID()},'owner'),{create:()=>({id,revision:1,state:initial(),capability:randomUUID()})});
     return id;
   };
-  const flow=(action,fields={},actor='owner')=>arrangements.dispatch({action,workspace_id,project_id:project.id,...fields},{actor});
+  const flow=(action,fields={},actor='owner')=>arrangements.dispatch({action,workspace_id,project_id:project.id,...(action==='recipe_save'?{op_id:randomUUID()}:{}),...fields},{actor});
   const kindFor=role=>({project_files:'file',candidate_diff:'file',active_terminal:'terminal',primary_agent:'conversation',preview:'browser'}[role]);
   const bind=(role,pane,locator)=>{
     const resource=records.resource(project.id,locator,{kind:kindFor(role),hash:'0'.repeat(64),identity:locator,state:'available'});
@@ -44,7 +44,7 @@ function fixture(t){
     records.bind({workspace_id,project_id:projectId,resource_id:resource.id,pane_id:pane,role,base_revision:store.read(workspace_id).revision});
     return records.bindings(workspace_id,projectId).find(binding=>binding.pane_id===pane&&binding.role===role);
   };
-  const flowIn=(projectId,action,fields={},actor='owner')=>arrangements.dispatch({action,workspace_id,project_id:projectId,...fields},{actor});
+  const flowIn=(projectId,action,fields={},actor='owner')=>arrangements.dispatch({action,workspace_id,project_id:projectId,...(action==='recipe_save'?{op_id:randomUUID()}:{}),...fields},{actor});
   return {root,projectRoot,store,workspace_id,project,projectIdentity,records,data,arrangements,flow,flowIn,bind,bindIn,monitorPane,newProject,newWorkspace};
 }
 const apply=async(f,recipe,preview,op_id=randomUUID())=>f.flow('recipe_apply',{recipe,preview_id:preview.preview_id,preview_digest:preview.preview_digest,op_id});
@@ -334,7 +334,7 @@ test('an existing binding whose pane is gone is reported unbound and ambiguous b
   await assert.rejects(f2.flow('recipe_preview',{recipe:'investigate'}),{code:'conflict'});
 });
 
-test('recipe_save reconciles an optional operation key instead of duplicating on a lost response',async t=>{
+test('recipe_save requires a durable operation key and reconciles a lost response',async t=>{
   const f=fixture(t),op_id=randomUUID();
   const first=await f.flow('recipe_save',{name:'Idem',roles:[],layout:'prioritize',renderer:'windows',op_id});
   assert.equal(first.idempotent,false);assert.equal(first.legacy,false);
@@ -342,8 +342,7 @@ test('recipe_save reconciles an optional operation key instead of duplicating on
   assert.equal(retry.idempotent,true);assert.equal(retry.recipe.id,first.recipe.id);
   assert.equal((await f.flow('recipe_list')).recipes.length,1);
   await assert.rejects(f.flow('recipe_save',{name:'Idem',roles:[],layout:'rows',renderer:'windows',op_id}),{code:'conflict'});
-  const legacy=await f.flow('recipe_save',{name:'Legacy',roles:[],layout:'prioritize',renderer:'windows'});
-  assert.equal(legacy.legacy,true);
+  await assert.rejects(f.arrangements.dispatch({action:'recipe_save',workspace_id:f.workspace_id,project_id:f.project.id,name:'No key',roles:[],layout:'prioritize',renderer:'windows'}),{code:'invalid_request'});
 });
 
 test('recipe receipts survive later edits: an exact create or edit retry returns the original result/version',async t=>{

@@ -241,7 +241,8 @@
         "name",
         "roles",
         "layout",
-        "renderer"
+        "renderer",
+        "op_id"
       ],
       "additionalProperties": false
     },

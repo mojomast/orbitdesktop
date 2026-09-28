@@ -62,7 +62,7 @@ export const arrangementRequests = Object.freeze({
     // (non-retry-safe) and reported as such.
     op_id: uuid,
     intent: {type: 'string', minLength: 1, maxLength: 160},
-  }, ['action', 'workspace_id', 'project_id', 'name', 'roles', 'layout', 'renderer']),
+  }, ['action', 'workspace_id', 'project_id', 'name', 'roles', 'layout', 'renderer', 'op_id']),
   recipe_preview: object({
     action: {const: 'recipe_preview'},
     ...scope,

@@ -95,7 +95,7 @@ project; recipes are compiled against the target project's bindings.
 ### `recipe_save`
 
 Request:
-`{action:'recipe_save', workspace_id, project_id, name, roles:string[], layout:'prioritize'|'columns'|'rows', renderer:'windows'|'spatial'|'docking', recipe_id?, expected_version?, op_id?, intent?}`
+`{action:'recipe_save', workspace_id, project_id, name, roles:string[], layout:'prioritize'|'columns'|'rows', renderer:'windows'|'spatial'|'docking', recipe_id?, expected_version?, op_id, intent?}`
 
 - Create when `recipe_id` is absent; update when present (requires
   `expected_version`). Updates must target the **owning (source) project**: a
@@ -104,12 +104,12 @@ Request:
 - Only portable constraints are stored: name, roles, layout and renderer — never
   UUIDs or project content. `roles` is a unique subset of the five portable
   roles; names are unique across the workspace.
-- **Lost-response safety.** With `op_id`, an exact retry is reconciled from the
+- **Lost-response safety.** The required `op_id` lets an exact retry reconcile from the
   append-only receipt and returns the original version/result even after later
   edits (`idempotent:true`); a changed `name`/`roles`/`layout`/`renderer`/
   `recipe_id`/`expected_version`/`intent`/`project_id` on the same key is
-  `conflict`. Without `op_id` the response is marked `legacy:true` and is not
-  retry-safe.
+  `conflict`. Missing keys are rejected before mutation. This is a new API,
+  so there is no unreceipted legacy-save path.
 - Duplicate name → `conflict`; stale `expected_version` → `stale_resource`; over
   `max_recipes` or a full receipt table → `limit_exceeded`.
 
