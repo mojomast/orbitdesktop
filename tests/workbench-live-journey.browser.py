@@ -28,6 +28,7 @@ import time
 import traceback
 import urllib.request
 import uuid
+from urllib.parse import parse_qs, urlsplit
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -196,7 +197,14 @@ class NormalGatewayHandler(BaseHTTPRequestHandler):
         self.server.gets.append(self.path)
         if self.path == "/v1/capabilities":
             return self.reply({"version":"1","features":{"session_continuation":False,"idempotent_submit":False,"run_events_sse":True}})
-        if self.path.startswith("/api/sessions/") and self.path.endswith("/messages"):
+        target = urlsplit(self.path)
+        parts = target.path.split("/")
+        if len(parts) == 5 and parts[:3] == ["", "api", "sessions"] and parts[4] == "messages":
+            query = parse_qs(target.query)
+            assert query in ({"limit": ["500"], "offset": ["0"], "order": ["latest"]},
+                             {"limit": ["80"], "offset": ["0"]},
+                             {"limit": ["80"], "order": ["latest"]}, {}), (self.path, query)
+            assert parts[3] and all(ch.isalnum() or ch in "_:-" for ch in parts[3]), self.path
             return self.reply({"data":[]})
         if self.path == "/v1/runs/run_normal_live_fixture_0001":
             return self.reply({"run_id":"run_normal_live_fixture_0001","session_id":self.server.session_id,"status":"completed","output":"synthetic normal completion"})

@@ -17,6 +17,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from urllib.parse import parse_qs, urlsplit
 import uuid
 
 from playwright.sync_api import expect, sync_playwright
@@ -38,6 +39,9 @@ class SyntheticGateway(ThreadingHTTPServer):
     def __init__(self):
         super().__init__(("127.0.0.1", 0), SyntheticHandler)
         self.posts, self.gets, self.stops = [], [], []
+        self.messages = []
+        self.runs = {}
+        self.completed_posts = set()
         self.fail_status = False
 
 
@@ -58,14 +62,31 @@ class SyntheticHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.server.gets.append(self.path)
         if self.path == "/v1/capabilities":
-            return self.reply({"version": "1", "features": {
-                "session_continuation": False, "idempotent_submit": False}})
-        if self.path.startswith("/api/sessions/") and self.path.endswith("/messages"):
-            return self.reply({"data": []})
+            return self.reply({"object": "hermes.api_server.capabilities", "platform": "hermes-agent",
+                               "runtime": {"mode": "server_agent", "tool_execution": "server"},
+                               "features": {"run_submission": True, "run_status": True, "run_stop": True,
+                                            "session_resources": True, "session_continuity_header": "X-Hermes-Session-Id"}})
+        target = urlsplit(self.path)
+        parts = target.path.split("/")
+        if len(parts) == 5 and parts[:3] == ["", "api", "sessions"] and parts[4] == "messages":
+            query = parse_qs(target.query)
+            assert query in ({"limit": ["500"], "offset": ["0"], "order": ["latest"]},
+                             {"limit": ["80"], "offset": ["0"]},
+                             {"limit": ["80"], "order": ["latest"]}, {}), (self.path, query)
+            assert parts[3] and all(ch.isalnum() or ch in "_:-" for ch in parts[3]), self.path
+            return self.reply({"data": list(self.server.messages)})
         if self.path.startswith("/v1/runs/"):
             if self.server.fail_status:
                 return self.reply({"error": "synthetic status unavailable"}, 503)
-            payload = json.loads(self.server.posts[0][0])
+            run_id = self.path.rsplit("/", 1)[1]
+            if run_id not in self.server.runs:
+                return self.reply({"error": "Unknown synthetic fixture run"}, 404)
+            index = self.server.runs[run_id]
+            payload = json.loads(self.server.posts[index][0])
+            if index not in self.server.completed_posts:
+                self.server.completed_posts.add(index)
+                self.server.messages.extend([{"role": "user", "content": payload["input"]},
+                                             {"role": "assistant", "content": "synthetic agent reply\n"}])
             return self.reply({"run_id": self.path.rsplit("/", 1)[1],
                                "session_id": payload["session_id"], "status": "completed",
                                "output": "synthetic agent reply\n"})
@@ -75,7 +96,9 @@ class SyntheticHandler(BaseHTTPRequestHandler):
         raw = self.rfile.read(int(self.headers.get("Content-Length", 0)))
         if self.path == "/v1/runs":
             self.server.posts.append((raw, dict(self.headers)))
-            return self.reply({"run_id": "run_synthetic_fixture_0001", "status": "running"})
+            run_id = f"run_synthetic_fixture_{len(self.server.posts):04d}"
+            self.server.runs[run_id] = len(self.server.posts) - 1
+            return self.reply({"run_id": run_id, "status": "running"})
         if self.path.startswith("/v1/runs/") and self.path.endswith("/stop"):
             self.server.stops.append(self.path)
             return self.reply({"status": "stopping"})
@@ -193,6 +216,27 @@ def main(renderer):
                         expect(page.locator(".saved")).to_contain_text("Workspace connected", timeout=15000)
                         bound = binding.value.json()
                         assert binding.value.status == 200 and bound['state']['session'] == session, bound
+                        # Real browser -> Orbit -> synthetic gateway, twice with the
+                        # SAME prompt. A continuation advertisement alone cannot
+                        # justify omitting the first completed turn from Runs.
+                        agent_pane = page.locator('[data-pane-id="%s"]' % PANE)
+                        composer = agent_pane.get_by_label("Message to Hermes", exact=True)
+                        for turn in range(2):
+                            composer.fill("Remember cobalt")
+                            with page.expect_response(lambda response: response.url == origin + "/api/agent"
+                                                      and response.request.post_data_json.get("action") == "start") as normal_start:
+                                agent_pane.get_by_role("button", name="Send message to Hermes", exact=True).click()
+                            assert normal_start.value.status == 202, normal_start.value.json()
+                            expect(agent_pane.locator(".agent-status")).to_contain_text("Ready", timeout=15000)
+                            assert len(gateway.posts) == turn + 1
+                            normal_payload = json.loads(gateway.posts[turn][0])
+                            assert normal_payload["input"] == "Remember cobalt"
+                            assert normal_payload["conversation_history"] == (
+                                [] if turn == 0 else [
+                                    {"role": "user", "content": "Remember cobalt"},
+                                    {"role": "assistant", "content": "synthetic agent reply\n"}])
+                        assert gateway.completed_posts == {0, 1}, gateway.completed_posts
+                        composer.fill("UNSENT_PRIVATE_DRAFT")
                         page.get_by_role("button", name="Open orbit menu").click()
                         page.get_by_role("button", name="Project Workbench", exact=True).click()
                         workbench = page.locator("dialog.project-workbench-dialog")
@@ -232,13 +276,19 @@ def main(renderer):
                                                   and response.request.post_data_json.get("action") == "share"):
                             dialog.get_by_text("Share once", exact=True).click()
                         share = result("share")
-                        expect(dialog.locator(".workbench-context-outcome")).to_contain_text("run_synthetic_fixture_0001")
+                        expect(dialog.locator(".workbench-context-outcome")).to_contain_text("run_synthetic_fixture_0003")
                         expect(dialog.get_by_text("Share once", exact=True)).to_be_disabled()
-                        assert len(gateway.posts) == 1
-                        raw, headers = gateway.posts[0]
+                        assert len(gateway.posts) == 3
+                        raw, headers = gateway.posts[2]
                         payload = json.loads(raw)
                         assert payload["input"].count(preview["text"]) == 1
-                        assert payload["conversation_history"] == []
+                        assert payload["conversation_history"] == [
+                            {"role": "user", "content": "Remember cobalt"},
+                            {"role": "assistant", "content": "synthetic agent reply\n"},
+                            {"role": "user", "content": "Remember cobalt"},
+                            {"role": "assistant", "content": "synthetic agent reply\n"}]
+                        assert "UNSENT_PRIVATE_DRAFT" not in raw.decode()
+                        assert composer.input_value() == "UNSENT_PRIVATE_DRAFT"
                         assert headers["Authorization"] == "Bearer fixture-synthetic-not-real"
                         # Read the live real SQLite read-only, including its WAL.
                         databases = list((root / "runtime").rglob("workspace.sqlite"))
@@ -258,7 +308,7 @@ def main(renderer):
                         # Consumed approval: real second API request cannot issue another POST.
                         status, denied = context_api("share", preview_id=preview["preview_id"], approval_id=approval["approval_id"])
                         assert status >= 400 and denied["code"] in ("expired", "permission_denied"), (status, denied)
-                        assert len(gateway.posts) == 1
+                        assert len(gateway.posts) == 3
                         # Unknown live status then reconciliation: a status outage, not an
                         # ambiguous initial submission. Neither operation may resend bytes.
                         gateway.fail_status = True
@@ -269,7 +319,7 @@ def main(renderer):
                         assert unavailable["submission"]["state"] == "dispatched"
                         status, reconciled = context_api("reconcile")
                         assert status == 200 and reconciled["ok"] is True, (status, reconciled)
-                        assert len(gateway.posts) == 1
+                        assert len(gateway.posts) == 3
                         gateway.fail_status = False
                         dialog.get_by_text("Check status", exact=True).click()
                         response_text = dialog.get_by_role("textbox", name="Agent response (read-only)")
@@ -304,7 +354,7 @@ def main(renderer):
                         assert status == 403 and denied["code"] == "permission_denied", (status, denied)
                         status, denied = context_api("share", preview_id=preview["preview_id"], approval_id=approval["approval_id"])
                         assert status == 403 and denied["code"] == "permission_denied", (status, denied)
-                        assert len(gateway.posts) == 1
+                        assert len(gateway.posts) == 3
                         assert not errors, errors
                         assert not terminals, terminals
                         print(f"PASS: renderer={renderer} Chromium={browser.version} synthetic_gateway_posts={len(gateway.posts)} "
