@@ -21,6 +21,7 @@ import {createWorkbenchContext} from './workbench-context.mjs';
 import {createWorkbenchExecution} from './workbench-execution.mjs';
 import {createWorkbenchEnvironments} from './workbench-environments.mjs';
 import {createWorkbenchWorkflow} from './workbench-workflow.mjs';
+import {createWorkbenchSetup,SETUP_PUBLIC_REASONS} from './workbench-setup.mjs';
 import {createProjectTools} from './project-tools.mjs';
 import {createExtensionStudio} from './extension-studio.mjs';
 import {createWorkbenchNative} from './workbench-native.mjs';
@@ -163,6 +164,10 @@ const nativeHermes={
 const native=createWorkbenchNative({store:workspaceService.store,records:workbench.records,data:workbenchData,execution,hermes:nativeOptions?nativeHermes:{readBinding:nativeHermes.readBinding,quarantineNative:nativeHermes.quarantineNative,acknowledgeNativeUnknown:nativeHermes.acknowledgeNativeUnknown}});
 workbenchServices.native=native;workbenchServices.nativeConfigured=!!nativeOptions;
 const nativeHandler=workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:body=>native.dispatch(body)});
+const workbenchSetup=createWorkbenchSetup({store:workspaceService.store,records:workbench.records,data:workbenchData,
+  execution,hermes:agentHandler.workbench,context:contextSharing,native,gate:executionGate,nativeConfigured:!!nativeOptions});
+workspaceService.setWorkbenchSetup(workbenchSetup);
+const setupHandler=workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:body=>workbenchSetup.dispatch(body),publicReasons:SETUP_PUBLIC_REASONS});
 let workbenchLive=null;
 // A damaged observability projection must not prevent authoritative runtime
 // recovery or change the outcome of an existing worker operation.
@@ -185,6 +190,7 @@ const server = http.createServer(async (req, res) => {
   if(url.pathname==='/api/workbench/context')return contextHandler(req,res);
   if(url.pathname==='/api/workbench/execution')return executionHandler(req,res);
   if(url.pathname==='/api/workbench/native')return nativeHandler(req,res);
+  if(url.pathname==='/api/workbench/setup')return setupHandler(req,res);
   if(url.pathname==='/api/workbench/live')return liveHandler(req,res);
   if(url.pathname==='/api/workbench/workflow')return workflowHandler(req,res);
   if(url.pathname==='/api/workbench/tools')return projectToolsHandler(req,res);

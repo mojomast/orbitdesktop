@@ -17,6 +17,7 @@ import { watchWorkbenchLive, type WorkbenchLivePage } from './workbench-live-cli
 import { candidateDiffFromDetail } from './candidate-diff-adapter';
 import type { CandidateDiffData } from './candidate-diff-types';
 import type { PaneMode, PaneWorkbenchPrefs } from './pane-prefs';
+import { createWorkbenchSetup } from './workbench-setup';
 import './pane-workbench.css';
 
 type Data = Record<string, any>;
@@ -133,6 +134,7 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
   };
 
   const newTask = button('New task', 'Open task creation and context handoff', () => {
+    settings.open = true;
     setup.open = true;
     handoff.open = true;
     taskTitle.focus();
@@ -160,11 +162,11 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
   const header = el('div', 'pane-workbench-scope');
   const scopeLine = el('p', 'pane-workbench-scope-line');
   const startNote = el('p', 'pane-workbench-start');
-  const startButton = button('Choose a project and task', 'Open Task settings to choose a project and task explicitly', () => {
+  const startButton = button('Set up task', 'Describe a goal or open Task settings for manual setup', () => {
     settings.open = true;
     projectId ? taskSelect.focus() : projectSelect.focus();
   }, 'small-button');
-  startNote.append(el('span', '', 'Start by choosing a project and task. Selection does not grant authority. '), startButton);
+  startNote.append(el('span', '', 'Describe a goal above to set up a task. Selection does not grant authority. '), startButton);
   const candidateLine = el('p', 'pane-workbench-candidate-line');
   const grantLine = el('p', 'pane-workbench-grant-line');
   header.append(scopeLine, head, startNote, candidateLine);
@@ -339,9 +341,26 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
   const setup = el('details', 'pane-workbench-setup');
   setup.append(el('summary', '', 'Task handoff · selected conversation and context'));
   setup.append(handoff, advanced);
+  settings.append(setup);
   executionPanel.prepend(authority);
 
-  root.append(header, error, staleNote, tabBar, panels.live, panels.changes, panels.checks, panels.result, setup);
+  const guided = createWorkbenchSetup({
+    workspaceId: deps.workspaceId, paneId: deps.paneId, getToken: deps.getToken, binding: deps.binding,
+    selectedProject: () => prefs.projectId,
+    selectedTask: () => prefs.taskId,
+    onProject: (id) => { if (id !== projectId) { projectSelect.value = id; projectSelect.dispatchEvent(new Event('change')); } },
+    onRegister: () => { void import('./project-workbench').then(m => m.showProjectWorkbench(deps.getToken)).catch(fail); },
+    onOpenNormal: deps.onOpenNormal,
+    onPrepared: (draft) => {
+      if (!draft.project_id || !draft.task_id || !draft.candidate_id || !draft.attempt_id) return;
+      const patch = { projectId: draft.project_id, taskId: draft.task_id, candidateId: draft.candidate_id, attemptId: draft.attempt_id, grantId: draft.grant_id || null, resultId: null, reviewId: null };
+      prefs = { ...prefs, ...patch }; projectId = draft.project_id;
+      deps.onPrefs(patch);
+      epoch++; busy = false;
+      void load();
+    },
+  });
+  root.append(guided.element, header, error, staleNote, tabBar, panels.live, panels.changes, panels.checks, panels.result);
   deps.body.replaceChildren(root);
   showTab('live');
   // Restore only after the pane's caches and adapters have been initialized.
@@ -466,6 +485,8 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
     const snapshot = latestSnapshot;
     scopeLine.textContent = `${project}  /  ${task?.title ?? 'Choose task'}${task?.status ? ` · ${task.status}` : ''}`;
     startNote.hidden = !!(projectId && prefs.taskId);
+    tabBar.hidden = !prefs.taskId;
+    for (const panel of Object.values(panels)) panel.classList.toggle('pane-workbench-no-task', !prefs.taskId);
     // An attempt-scoped live snapshot may contain a later candidate generation.
     // Never present that identity as if the owner explicitly selected it.
     const candidate = selectedCandidate();
@@ -1182,7 +1203,7 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
   // Authenticated acknowledgement re-reads state even while Normal is selected,
   // so a remembered Workbench scope reconnects its read-only lane/badge without
   // mounting execution controls.
-  const onConnected = () => { if (!disposed) void load(); };
+  const onConnected = () => { if (!disposed) { void load(); void guided.refresh(); } };
   window.addEventListener('orbit-host-connected', onConnected);
 
   composer.addEventListener('input', () => { invalidateExcerptPreview(); updateExcerptCount(); });
@@ -1216,6 +1237,7 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
       invalidateTaskPreview();
       deps.timeline.reset();
       renderHandoff();
+      guided.invalidate();
       void load();
     },
     liveSlot: () => liveSlotEl,
@@ -1225,8 +1247,9 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
     // but never captures or creates anything; the owner must preview and confirm.
     openHandoff(options?: { statement?: string; messageIds?: readonly string[] }) {
       if (disposed) return;
-      setup.open = true;
-      handoff.open = true;
+      guided.seedGoal(options?.statement ?? '');
+      // The older exact-excerpt handoff remains available in Task settings.
+      if (options?.messageIds?.length) { settings.open = true; setup.open = true; handoff.open = true; }
       if (typeof options?.statement === 'string') {
         composer.value = options.statement.slice(0, 8000);
         invalidateExcerptPreview();
@@ -1242,8 +1265,7 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
         }
       }
       updateExcerptCount();
-      handoff.scrollIntoView({ block: 'nearest' });
-      composer.focus();
+      guided.element.scrollIntoView({ block: 'nearest' });
     },
     dispose() {
       disposed = true;
@@ -1253,6 +1275,7 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
       window.removeEventListener('orbit-host-connected', onConnected);
       stopLive();
       disposePanels();
+      guided.dispose();
       deps.body.replaceChildren();
     },
   };

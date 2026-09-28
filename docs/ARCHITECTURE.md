@@ -126,6 +126,15 @@ frames receive no host/private-data bridge. See [Studio](EXTENSION_STUDIO.md).
 
 ## Hermes
 
+Goal-first Workbench setup uses `server/workbench-setup.mjs` and the closed
+`contracts/workbench-setup-v1.mjs` owner API. Normal's workspace controller can
+submit only untrusted workspace suggestions; adoption binds an owner draft to the
+live pane recipient. A bounded private, fsynced setup journal records reviews and
+operation identities; preparation uses internal transactional execution step
+receipts and native launch retains its separate exact approval. Setup records do
+not enter layouts, checkpoints or workspace metadata events. See
+[Goal-first setup](WORKBENCH_SETUP.md) for the workflow and recovery boundaries.
+
 `server/agent.mjs` bridges authenticated runs, bounded server-loaded conversation history, approvals, stop, steering, activity, capabilities, catalog and job controls. `server/workspace.mjs` supplies the active workspace context and reads `docs/AGENT_GUIDE.md` into it at request time. Editing that guide updates subsequent contexts without copying instructions into several prompts. `src/agent-chat.ts` retains per-pane UI state; Hermes is a real runtime, not a chat stub.
 
 The gateway's tool environment may differ from the terminal host. Local workspace control requires access to the repository/runtime; it is not automatically available to a remote gateway. Layout metadata does not expose terminal buffers or embedded app DOM.

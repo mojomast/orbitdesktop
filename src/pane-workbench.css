@@ -207,6 +207,8 @@
   border-bottom: 1px solid var(--border-color, #555);
 }
 
+.pane-workbench-tabs[hidden], .pane-workbench-panel.pane-workbench-no-task { display: none !important; }
+
 .pane-workbench-tab {
   border: 1px solid var(--border-color, #555);
   border-bottom: none;

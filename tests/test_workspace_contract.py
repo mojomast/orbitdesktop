@@ -89,6 +89,53 @@ class WorkspaceContractTest(unittest.TestCase):
             self.assertEqual(CONTRACT["commands"][action]["input"]["properties"]["operations"]["maxItems"], limits["maxOperations"])
         self.assertEqual(CONTRACT["commands"]["checkpoint"]["input"]["properties"]["label"]["maxLength"], limits["maxLabelCharacters"])
 
+    def test_workbench_setup_contract_is_closed_bounded_and_proposal_only(self):
+        command = CONTRACT["commands"]["workbench_setup"]
+        self.assertEqual(command["input"]["properties"]["request"], {"$ref": "#/$defs/workbenchSetupRequest"})
+        request = CONTRACT["schema"]["$defs"]["workbenchSetupRequest"]
+        self.assertEqual(request["additionalProperties"], False)
+        self.assertEqual(set(request["required"]), {"op_id", "goal"})
+        properties = request["properties"]
+        self.assertEqual(set(properties), set(plugin.SETUP_FIELDS))
+        self.assertEqual(properties["goal"]["maxLength"], plugin.SETUP_GOAL_MAX)
+        self.assertEqual(properties["title"]["maxLength"], plugin.SETUP_TITLE_MAX)
+        self.assertEqual(properties["acceptance_statement"]["maxLength"], plugin.SETUP_ACCEPTANCE_MAX)
+        self.assertEqual(properties["check_definition_id"]["enum"], list(plugin.SETUP_CHECKS))
+        for forbidden in ("action", "actor", "pane_id", "profile_id", "session_id", "operations", "credentials", "root", "command"):
+            self.assertNotIn(forbidden, properties)
+        self.assertEqual(command["sideEffect"], "workspace-proposal")
+        self.assertTrue(command["permission"].startswith("authenticated-workspace-capability"))
+        self.assertIn("proposal-only", command["permission"])
+
+    def test_cli_setup_dispatches_proposal_without_read_or_revision(self):
+        bodies = []
+
+        def urlopen(request, timeout=20):
+            bodies.append(json.loads(request.data))
+            return Response(json.dumps({"suggestion": {"id": WORKSPACE}}).encode())
+
+        proposal = {"op_id": WORKSPACE, "goal": "Ship the mobile layout"}
+        with mock.patch.object(control, "open_workspace", side_effect=urlopen):
+            result = self.run_cli("setup", json.dumps(proposal))
+        self.assertEqual(result["suggestion"]["id"], WORKSPACE)
+        self.assertEqual(bodies, [{"action": "workbench_setup", "workspace_id": WORKSPACE, "request": proposal}])
+
+    def test_cli_workbench_setup_alias_and_owner_field_rejection(self):
+        bodies = []
+
+        def urlopen(request, timeout=20):
+            bodies.append(json.loads(request.data))
+            return Response(json.dumps({"suggestion": {"id": WORKSPACE}}).encode())
+
+        with mock.patch.object(control, "open_workspace", side_effect=urlopen):
+            self.run_cli("workbench_setup", json.dumps({"op_id": WORKSPACE, "goal": "g"}))
+        self.assertEqual(bodies[0]["action"], "workbench_setup")
+        stderr = io.StringIO()
+        with mock.patch.object(control, "open_workspace", side_effect=urlopen), mock.patch("sys.stderr", stderr):
+            with self.assertRaises(SystemExit):
+                self.run_cli("setup", json.dumps({"op_id": WORKSPACE, "goal": "g", "pane_id": WORKSPACE}))
+        self.assertEqual(len(bodies), 1)
+
     def test_adapter_rejects_oversized_utf8_json_before_transport(self):
         # A single operation stays within maxItems, but exceeds the encoded byte budget.
         payload = {"action": "preview", "base_revision": 1, "operations": [{"action": "set_view", "view": "windows", "note": "é" * plugin.maxRequestBytes}]}

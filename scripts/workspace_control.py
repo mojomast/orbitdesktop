@@ -58,6 +58,7 @@ def main():
     sub.add_parser('read')
     describe = sub.add_parser('describe'); describe.add_argument('--project-id'); describe.add_argument('--catalog', action='store_true')
     arrangement = sub.add_parser('arrangement'); arrangement.add_argument('request', help='Exact arrangement request JSON or @file; retain preview and op_id when recovering a response')
+    setup = sub.add_parser('setup', aliases=['workbench_setup']); setup.add_argument('request', help='Exact workbench_setup proposal JSON or @file; proposal only, no execution, credentials or owner scope fields')
     apply = sub.add_parser('apply'); apply.add_argument('operations', help='JSON operation or array; use @file.json to read a file'); apply.add_argument('--base-revision',type=int); apply.add_argument('--operation-id'); apply.add_argument('--intent')
     preview = sub.add_parser('preview'); preview.add_argument('operations'); preview.add_argument('--base-revision',type=int)
     sub.add_parser('history')
@@ -104,6 +105,12 @@ def main():
         if not isinstance(fields, dict) or 'workspace_id' in fields or 'actor' in fields:
             p.error('Arrangement request must be an object without workspace_id or actor')
         print(json.dumps(request('arrangement', request=fields), indent=2)); return
+    if args.command in ('setup', 'workbench_setup'):
+        raw = Path(args.request[1:]).read_text() if args.request.startswith('@') else args.request
+        fields = json.loads(raw)
+        if not isinstance(fields, dict) or set(fields) & {'workspace_id', 'actor', 'action', 'operations', 'pane_id', 'profile_id', 'session_id', 'credentials', 'root', 'path', 'command'}:
+            p.error('Workbench setup request must be a proposal object without owner, execution or free-form fields')
+        print(json.dumps(request('workbench_setup', request=fields), indent=2)); return
     if args.command == 'describe':
         fields = {'catalog': args.catalog}
         if args.project_id: fields['project_id'] = args.project_id

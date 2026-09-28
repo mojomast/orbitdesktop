@@ -215,6 +215,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     entry.setAttribute('role', 'menuitem'); overflowMenu.append(entry);
   };
   menuEntry('Conversation settings', () => openPanel('settings', overflow));
+  menuEntry('Set up task', () => { overflowMenu.hidden = true; overflow.setAttribute('aria-expanded', 'false'); setMode('workbench'); ensureWorkbench()?.openHandoff({ statement: input.value }); });
   menuEntry('Activity', () => openPanel('activity', overflow));
   menuEntry('Saved tools', () => openPanel('tools', overflow));
   menuEntry('Troubleshooting', () => openPanel('troubleshooting', overflow));
@@ -828,7 +829,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   // Visible Normal-mode entry point into the Workbench handoff. It copies the
   // current draft in memory to the handoff preview and switches the view only;
   // the Normal composer is untouched and nothing is captured, queued or created.
-  const workbenchTask = button('Task from draft', 'Open the Workbench handoff preview with your current draft; nothing is created until you confirm', () => {
+  const workbenchTask = button('Set up task', 'Open goal-first Workbench setup with your current draft; nothing is created until you confirm', () => {
     const statement = input.value;
     setMode('workbench');
     ensureWorkbench()?.openHandoff({ statement });

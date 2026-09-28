@@ -1,5 +1,24 @@
 # Comet/Orbit workspace control
 
+## Propose a Workbench task
+
+`orbit_workspace` action `workbench_setup` accepts a closed `request` with a UUID
+`op_id`, a `goal`, and optional `title`, `acceptance_statement`, `project_id` and
+`check_definition_id`. The scoped CLI equivalent is:
+
+```sh
+python3 scripts/workspace_control.py --workspace UUID setup '{"op_id":"RETAINED_UUID","goal":"Fix addition and verify the existing Node tests"}'
+```
+
+Use an actual generated UUID and retain the exact request for uncertain-response
+recovery. `setup @request.json` and the `workbench_setup` subcommand alias are also
+supported. This writes a private untrusted suggestion, not a layout operation or
+an approved task. The response contains its ID only. The owner adopts it through
+**Set up task** and separately reviews preparation and execution. Pane identities,
+owner tokens, filesystem paths and execution verbs are not accepted. Discovery:
+`describe` with `catalog:true` includes `catalog.workbench_setup`. See
+[Goal-first Workbench setup](WORKBENCH_SETUP.md).
+
 ## Existing split and partial appearance edits
 
 `update_split` takes `window_id`, a `path` array of `first`/`second` steps (empty for root), and optional `ratio` (0.15–0.85), `axis` (`row` or `column`) and boolean `swap`. It changes the existing split without recreating pane IDs. Read state first and recalculate nested paths after swapping. `patch_appearance` with a `patch` object merges validated appearance fields, retaining omitted settings. Both use normal controller apply/revision/checkpoint handling. Exact examples are in the injected `docs/AGENT_GUIDE.md`. Live browser test: `tests/browser-layout-customization-live.py`.

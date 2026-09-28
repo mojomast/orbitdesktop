@@ -6,6 +6,10 @@ The Studio source uses SQLite schema 11; serialized workspace layout remains v1.
 Schema 11 fences older writers that cannot enforce Studio release revocations;
 no tables or existing rows are rewritten by the 10→11 migration. Backups must
 include private `extension-studio/` proposals as well as retained `apps/` bundles.
+Goal-first setup additionally stores its bounded private journal in
+`workbench-setup/`; back it up with the Workbench database, candidate directories
+and execution journals. Preparation step receipts and setup launch identities
+must remain together. An unknown setup/start is not authorization to replay work.
 The deployed M3 release remains schema 10 until separately authorized activation.
 Packaging now defaults to schema maximum 11. Always pass the intended release's
 explicit compatibility range when packaging a historical branch or a narrow

@@ -15,9 +15,16 @@ maxRequestBytes = 150000
 maxResponseBytes = 2000000
 maxLabelCharacters = 120
 # END GENERATED WORKSPACE LIMITS
-ACTIONS = ("read", "describe", "arrangement", "preview", "apply", "history", "checkpoint", "restore")
+ACTIONS = ("read", "describe", "arrangement", "workbench_setup", "preview", "apply", "history", "checkpoint", "restore")
 MUTATIONS = ("apply", "checkpoint", "restore")
 OPERATION_ID = re.compile(r"[a-zA-Z0-9_.:-]{1,128}")
+# Proposal-only setup bounds; kept equal to contracts/workspace-v1.mjs by
+# tests/test_workspace_contract.py so a stale adapter cannot widen the contract.
+SETUP_CHECKS = ("node-test", "host-regression")
+SETUP_GOAL_MAX = 4000
+SETUP_TITLE_MAX = 240
+SETUP_ACCEPTANCE_MAX = 4000
+SETUP_FIELDS = ("op_id", "goal", "title", "acceptance_statement", "project_id", "check_definition_id")
 SCHEMA = {
     "name": "orbit_workspace",
     "description": (
@@ -26,6 +33,11 @@ SCHEMA = {
         "Read first; use actual IDs and revision. Preview before large edits. "
         "Apply/restore require base_revision; do not retry conflicts blindly. "
         "Restore requires the user's explicit rollback request and confirm=true. "
+        "workbench_setup only proposes a draft Workbench setup (op_id, goal, optional title, "
+        "acceptance_statement, project_id, check_definition_id) for the owner to review; it "
+        "never starts work, never reads private project data, and never grants task, "
+        "execution or approval authority. It is a suggestion, not owner approval or "
+        "authenticated pane evidence. "
         "State does not expose terminal buffers or iframe contents. observed_revision "
         "acknowledges synchronization, not visual correctness. Browser display may lag."
     ),
@@ -35,7 +47,7 @@ SCHEMA = {
             "action": {"type": "string", "enum": list(ACTIONS)},
             "project_id": {"type": "string"},
             "catalog": {"type": "boolean"},
-            "request": {"type": "object", "description": "Exact arrangement request from the discovered catalog; omit workspace_id and actor. Keep op_id when recovering an unknown result."},
+            "request": {"type": "object", "description": "Exact arrangement request from the discovered catalog; omit workspace_id and actor. Keep op_id when recovering an unknown result. For workbench_setup, pass only {op_id, goal, title?, acceptance_statement?, project_id?, check_definition_id?}; no pane/profile/session/actor/credentials/root/command fields."},
             "base_revision": {"type": "integer", "minimum": 0},
             "operations": {"type": "array", "items": {"type": "object"}, "minItems": 1, "maxItems": maxOperations},
             "label": {"type": "string", "maxLength": maxLabelCharacters},
@@ -68,11 +80,44 @@ def endpoint(api):
     return api.rstrip("/") + "/api/workspace/control"
 
 
+def validate_workbench_setup_request(request):
+    """Proposal-only setup input. Reject owner/execution identity before transport."""
+    if not isinstance(request, dict):
+        raise ValueError("workbench_setup requires a request object")
+    forbidden = {"action", "actor", "workspace_id", "pane_id", "profile_id", "session_id", "operations", "credentials", "root", "path", "command"}
+    if set(request) & forbidden:
+        raise ValueError("workbench_setup cannot carry owner, execution or free-form fields")
+    if set(request) - set(SETUP_FIELDS):
+        raise ValueError("Unexpected fields in workbench_setup request")
+    op_id = request.get("op_id")
+    if not isinstance(op_id, str) or not UUID.fullmatch(op_id):
+        raise ValueError("workbench_setup requires a UUID op_id")
+    goal = request.get("goal")
+    if not isinstance(goal, str) or not 1 <= len(goal) <= SETUP_GOAL_MAX or not goal.strip():
+        raise ValueError("workbench_setup goal must be 1-%d non-blank characters" % SETUP_GOAL_MAX)
+    title = request.get("title")
+    if title is not None and (not isinstance(title, str) or not 1 <= len(title) <= SETUP_TITLE_MAX or not title.strip()):
+        raise ValueError("workbench_setup title must be 1-%d non-blank characters" % SETUP_TITLE_MAX)
+    acceptance = request.get("acceptance_statement")
+    if acceptance is not None and (not isinstance(acceptance, str) or not 1 <= len(acceptance) <= SETUP_ACCEPTANCE_MAX or not acceptance.strip()):
+        raise ValueError("workbench_setup acceptance_statement must be 1-%d non-blank characters" % SETUP_ACCEPTANCE_MAX)
+    project_id = request.get("project_id")
+    if project_id is not None and (not isinstance(project_id, str) or not UUID.fullmatch(project_id)):
+        raise ValueError("workbench_setup project_id must be a UUID")
+    check = request.get("check_definition_id")
+    if check is not None and check not in SETUP_CHECKS:
+        raise ValueError("workbench_setup check_definition_id must be a supported check")
+    return {name: request[name] for name in SETUP_FIELDS if name in request}
+
+
 def invoke(ctx, params):
     if not isinstance(params, dict) or params.get("action") not in ACTIONS:
         raise ValueError("Unknown workspace action")
     action = params["action"]
     allowed = {"action"}
+    if action == "workbench_setup":
+        allowed |= {"request"}
+        validate_workbench_setup_request(params.get("request"))
     if action == "arrangement":
         allowed |= {"request"}
         request = params.get("request")
@@ -193,7 +238,7 @@ def register(ctx):
         except ValueError as error:
             # Only our validation messages are safe; JSON and URL parser errors are not.
             result = {"ok": False, "error": "Invalid workspace request or configuration"}
-            if type(error) is ValueError and str(error).startswith(("Unknown ", "Unexpected ", "Workspace mutations", "Read the ", "Provide ", "Restore requires", "Checkpoint label", "Configure this", "Orbit API must", "Workspace request", "Workspace response", "Refusing ", "Invalid Orbit")):
+            if type(error) is ValueError and str(error).startswith(("Unknown ", "Unexpected ", "workbench_setup ", "Workspace mutations", "Read the ", "Provide ", "Restore requires", "Checkpoint label", "Configure this", "Orbit API must", "Workspace request", "Workspace response", "Refusing ", "Invalid Orbit")):
                 result["error"] = str(error)
         except Exception:
             result = {"ok": False, "error": "Orbit unavailable or runtime record invalid; check the local deployment"}

@@ -58,7 +58,16 @@ The plugin reads only the configured workspace record and uses its existing scop
 
 ## Tool and workflows
 
-One tool, `orbit_workspace`, provides `read`, `describe`, `arrangement`, `preview`, `apply`, `history`, `checkpoint`, and `restore`. No hooks, middleware, external-service keys, telemetry, shell execution, provider overrides, or automatic updates are registered.
+One tool, `orbit_workspace`, provides `read`, `describe`, `arrangement`, `workbench_setup`, `preview`, `apply`, `history`, `checkpoint`, and `restore`. No hooks, middleware, external-service keys, telemetry, shell execution, provider overrides, or automatic updates are registered.
+
+`workbench_setup` submits an untrusted workspace suggestion for the owner to adopt
+in **Set up task**. Supply `request.op_id` (a retained UUID) and `request.goal`;
+optional fields are `title`, `acceptance_statement`, `project_id` and
+`check_definition_id`. This proposal-only action does not require `allow_mutations`:
+it creates no task, candidate, grant or execution, changes no layout and grants no
+private project reads. Never pass pane/profile/session identities or owner tokens.
+The result contains only the suggestion ID. Retry only the exact original request.
+`describe` with `catalog:true` includes the closed `catalog.workbench_setup` shape.
 
 `{"action":"describe","catalog":true}` discovers the server's operation and
 arrangement schemas plus actual project/surface bindings. Add `project_id` to

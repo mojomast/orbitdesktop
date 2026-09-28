@@ -209,14 +209,28 @@ def main(renderer):
                     expect(workbench_host).to_be_visible()
                     expect(pane_locator.locator(".pane-workbench-stale")).to_be_visible()
                     expect(pane_locator.locator(".pane-workbench-stale")).to_contain_text("no substitution")
-                    expect(pane_locator.get_by_role('button', name='Choose a project and task')).to_be_visible()
+                    # Intentional label change: the goal-first setup renamed the
+                    # manual start affordance. Its visible text is now "Set up
+                    # task" and its accessible name/title changed from "Open Task
+                    # settings to choose a project and task explicitly" to the new
+                    # description below. The behavior assertion (start affordance
+                    # is visible while no task is bound) is unchanged.
+                    expect(pane_locator.locator('.pane-workbench-start').get_by_role(
+                        'button', name='Describe a goal or open Task settings for manual setup', exact=True)).to_be_visible()
                     open_settings(pane_locator)
                     expect(pane_locator.get_by_label("Workbench project", exact=True)).to_have_value("")
-                    # Live stays dominant; advanced setup is collapsed.
+                    # Intentional goal-first behavior: with no task bound the
+                    # Workbench tabs/panels are hidden behind the "What are we
+                    # working on?" empty state. The four tab controls stay
+                    # mounted (so a bound task can reveal them) but must not be
+                    # visible yet. Their availability once a task is selected is
+                    # asserted after task_create below. Advanced setup stays
+                    # collapsed.
                     tabs = pane_locator.locator(".pane-workbench-tab")
                     expect(tabs).to_have_count(4)
+                    expect(pane_locator.locator(".pane-workbench-tabs")).to_be_hidden()
                     for tab in ("Live", "Changes", "Checks", "Result"):
-                        expect(tabs.filter(has_text=tab)).to_be_visible()
+                        expect(tabs.filter(has_text=tab)).to_be_hidden()
                     expect(pane_locator.locator(".pane-workbench-setup")).not_to_have_attribute("open", "")
 
                     # Switch to Normal and capture the live DOM handles + both
@@ -369,6 +383,18 @@ def main(renderer):
                     assert len([a for a in context_requests if a == "capture"]) == captures_before
                     assert len([a for a in execution_requests if a == "task_create"]) == tasks_before
 
+                    # Intentional goal-first entry: "Set up task" from Normal chat
+                    # now seeds the guided "What are we working on?" setup instead
+                    # of opening the legacy exact-excerpt handoff, which the new
+                    # journey keeps available under Task settings. Open it
+                    # explicitly so this journey can continue to exercise the
+                    # exact-excerpt / context-packet path. No assertion is
+                    # weakened; the new entry behavior is covered by the setup
+                    # journey.
+                    open_settings(pane_locator)
+                    pane_locator.locator(".pane-workbench-setup > summary").click()
+                    pane_locator.locator(".pane-workbench-handoff summary").click()
+
                     # Real backend: register a project, create a real task, then a
                     # candidate + bound attempt, then capture the exact selected
                     # excerpts into a packet BOUND to that attempt, then reach native
@@ -412,6 +438,11 @@ def main(renderer):
                     expect(pane_locator.locator('.pane-workbench-scope-line')).to_contain_text('Handoff real task')
                     # Scope selector binds the newly created task.
                     expect(pane_locator.get_by_label("Workbench task", exact=True)).to_have_value(new_task["id"], timeout=15000)
+                    # Once a task is bound the intentionally hidden no-task views
+                    # must become available again.
+                    expect(pane_locator.locator(".pane-workbench-tabs")).to_be_visible(timeout=15000)
+                    for tab in ("Live", "Changes", "Checks", "Result"):
+                        expect(pane_locator.locator(".pane-workbench-tab").filter(has_text=tab)).to_be_visible()
 
                     capture_button = pane_locator.locator(".pane-workbench-handoff button", has_text="Capture selected context packet")
                     # Capture is gated on an explicit bound attempt; preview may run first.

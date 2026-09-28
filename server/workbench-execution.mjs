@@ -267,9 +267,11 @@ export function createWorkbenchExecution({store,records,data,gate,environments,n
     const first=required_checks[0],required_test_files=[...new Set(required_checks.flatMap(check=>check.required_test_files))].sort();
     return {version:1,statement,check_definition_id:first.definition_id,definition_digest:first.definition_digest,required_test_files,discovery:first.discovery,required_checks,required_checks_digest:digest(required_checks),limits:CHECK_LIMITS,policy:ACCEPTANCE_POLICY};
   }
-  function createTask({workspace_id,project_id,title,acceptance_statement,check_definition_id,required_checks:requested,profile_id,session_id,pane_id}){
+  function createTask({workspace_id,project_id,title,acceptance_statement,check_definition_id,required_checks:requested,profile_id,session_id,pane_id,expected_source_hash}){
     const project=requireActive(workspace_id,project_id);
-    const required_checks=buildRequirements(workspace_id,project_id,undefined,captureProject(project).files,requested??[{definition_id:check_definition_id}]);
+    const capture=captureProject(project);
+    if(expected_source_hash!==undefined&&capture.hash!==expected_source_hash)throw wbError('stale_resource');
+    const required_checks=buildRequirements(workspace_id,project_id,undefined,capture.files,requested??[{definition_id:check_definition_id}]);
     if(!required_checks.some(check=>check.definition_id===check_definition_id))throw wbError('invalid_request');
     const acceptance=acceptanceFor(acceptance_statement,required_checks);
     const acceptance_digest=digest(acceptance);
@@ -327,9 +329,11 @@ export function createWorkbenchExecution({store,records,data,gate,environments,n
     try{
       const assembled={generation:fields.generation,base_hash:fields.base_hash,root:fields.root,files:fields.files};
       const full=rehashCandidate(assembled);
-      const candidate=data.create('candidates',{workspace_id,project_id,project_generation:project.generation,task_id:ownerTask.id,source_manifest_hash:fields.source_manifest_hash,preview_digest:fields.preview_digest,base_hash:fields.base_hash,generation:fields.generation,hash:full.hash,root:fields.root,files:full.files,exclusions:full.exclusions,limited:full.limited,total_bytes:fields.total_bytes,head:null,status:'approved'});
-      const updatedTask=revise('tasks',workspace_id,project_id,ownerTask.id,{candidate_id:candidate.id,status:'candidate_ready'});
-      return {candidate:publicCandidate(candidate),task:updatedTask};
+      return data.db.transaction(()=>{
+        const candidate=data.create('candidates',{workspace_id,project_id,project_generation:project.generation,task_id:ownerTask.id,source_manifest_hash:fields.source_manifest_hash,preview_digest:fields.preview_digest,base_hash:fields.base_hash,generation:fields.generation,hash:full.hash,root:fields.root,files:full.files,exclusions:full.exclusions,limited:full.limited,total_bytes:fields.total_bytes,head:null,status:'approved'});
+        const updatedTask=revise('tasks',workspace_id,project_id,ownerTask.id,{candidate_id:candidate.id,status:'candidate_ready'});
+        return {candidate:publicCandidate(candidate),task:updatedTask};
+      }).immediate();
     }catch(error){
       // Persistence failed after materialization (cap, DB or validation). Remove
       // ONLY the copy this call just created, bounded and via its owned root; no
@@ -853,5 +857,44 @@ export function createWorkbenchExecution({store,records,data,gate,environments,n
     validatePinned(task,candidate,project);
     if(rehashCandidate(candidate).hash!==candidate.hash||reviewIdentityFor(workspace_id,project_id,candidate,task)!==review.review_identity||!latestAcceptanceEvidence(workspace_id,project_id,candidate,task).every(Boolean))throw wbError('stale_resource');
   }});
-  return {dispatch,contextSource,onRevoke,close,health,recoverFinalization,startApprovedCheck,verifyPatchArtifact,retryPatchArtifact,acknowledgePatchArtifactUnknown,cancelPatchArtifact,patchArtifactRecovery,activeCount:()=>inFlight.size,activeChecks:()=>activeCheckCount(),unknownJobDigest:(workspaceId,projectId)=>unknownJobs(workspaceId,projectId).map(ackDigest),records:data};
+  // Trusted setup composition only; deliberately absent from the owner/model
+  // dispatch contract. SQLite effects and their step receipt commit together.
+  // Filesystem materialization is not transactional: its durable intent fences a
+  // process death before the receipt. Such an unknown copy is never duplicated.
+  function setupStep({setup_id,step,request_hash,body,snapshot,source_hash,authorize}){
+    const {workspace_id,project_id}=body;
+    authorize?.();
+    requireActive(workspace_id,project_id);
+    const prior=data.list('annotations',workspace_id,project_id).find(r=>r.kind==='setup_step'&&r.setup_id===setup_id&&r.step===step);
+    if(prior){
+      if(prior.request_hash!==request_hash)throw wbError('conflict');
+      if(prior.status==='completed')return prior.result;
+      if(prior.status==='materializing')throw Object.assign(wbError('outcome_unknown'),{reason:'setup_candidate_materialization_unknown'});
+    }
+    if(!['task','candidate','attempt','context'].includes(step))throw wbError('invalid_request');
+    let intent=prior;
+    if(step==='candidate')intent=prior?revise('annotations',workspace_id,project_id,prior.id,{status:'materializing'}):data.create('annotations',{workspace_id,project_id,kind:'setup_step',setup_id,step,request_hash,status:'materializing'});
+    let createdRoot;
+    try{return data.db.transaction(()=>{
+      let result;
+      if(step==='task')result=createTask({...body,expected_source_hash:source_hash});
+      if(step==='candidate'){
+        const p=candidatePreview(body);
+        if(p.preview.base.manifest_hash!==source_hash)throw wbError('stale_resource');
+        result=candidateCreate({...body,preview_id:p.preview_id,preview_digest:p.preview.digest});
+        createdRoot=candidateRecord(workspace_id,project_id,result.candidate.id).root;
+      }
+      if(step==='attempt')result=attemptCreate(body);
+      if(step==='context')result={context:data.create('contexts',{workspace_id,project_id,attempt_id:body.attempt_id,task_id:body.task_id,source:{kind:'setup_goal',setup_id},snapshot,state:'captured',retention_until:now()+86400000})};
+      authorize?.();
+      if(intent)revise('annotations',workspace_id,project_id,intent.id,{status:'completed',result});
+      else data.create('annotations',{workspace_id,project_id,kind:'setup_step',setup_id,step,request_hash,status:'completed',result});
+      return result;
+    }).immediate();}catch(error){
+      if(createdRoot)removeCandidateWorkspace(store,{root:createdRoot});
+      if(intent)revise('annotations',workspace_id,project_id,intent.id,{status:'failed'});
+      throw error;
+    }
+  }
+  return {dispatch,setupStep,contextSource,onRevoke,close,health,recoverFinalization,startApprovedCheck,verifyPatchArtifact,retryPatchArtifact,acknowledgePatchArtifactUnknown,cancelPatchArtifact,patchArtifactRecovery,activeCount:()=>inFlight.size,activeChecks:()=>activeCheckCount(),unknownJobDigest:(workspaceId,projectId)=>unknownJobs(workspaceId,projectId).map(ackDigest),records:data};
 }

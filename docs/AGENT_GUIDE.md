@@ -96,6 +96,34 @@ When changing the workspace, act on the workspace ID supplied by the Orbit conve
 
 Commands are relative to the repository; context supplies an absolute controller path. Hermes tools must have access to this repository/runtime. A remote gateway needs an explicitly provisioned adapter; do not assume its filesystem is the terminal host.
 
+## Collaborative Workbench setup
+
+When the owner wants a tracked project task, help turn the goal into a concise
+work brief: what to accomplish, what success means, and where to stop. Reuse
+facts already provided. Ask only for missing project or outcome information.
+Ordinary questions and small workspace changes do not need a Workbench task.
+
+The `orbit_workspace` action `workbench_setup` proposes a bounded **workspace
+suggestion** with a stable `request.op_id`, `goal`, and optional `title`,
+`acceptance_statement`, `project_id` and `check_definition_id`. Do not invent a
+project ID or check. Omit an unknown project so the owner can choose it. A proposal
+does not register a project, create a task, share context, approve a grant or start
+work. Tell the owner to review the suggestion in **Set up task**; do not claim it
+is already running. Reuse the exact operation key/payload after an uncertain
+proposal response. Never pass a pane/profile/session identity or owner token.
+
+If the installed tool schema does not yet list this action, the scoped controller
+supports the same proposal through
+`python3 scripts/workspace_control.py --workspace WORKSPACE_ID setup '<request JSON>'`.
+Generate and retain a UUID `op_id`; the response identifies the suggestion only.
+Use the absolute controller path supplied by the conversation context.
+
+Only suggest `node-test` when it fits the project. `host-regression` is Orbit's
+host regression check, not evidence that arbitrary user code meets its goal.
+Check support and execution readiness are validated by the host. If the existing
+executor does not support the requested work, explain that and keep discussing
+rather than fabricate commands or approval.
+
 ## New widgets: plugin-first
 
 Build a static app using relative assets in a new source folder. Never package tokens, credentials, private reports or personal data in public app files. Read `docs/PLUGINS.md`.

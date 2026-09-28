@@ -1693,6 +1693,46 @@
       "revision": "service-validated",
       "idempotency": "action-specific; recipe_apply requires the exact retained preview identity and op_id, with durable actor-scoped receipt recovery"
     },
+    "workbench_setup": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
+            "const": "workbench_setup"
+          },
+          "request": {
+            "$ref": "#/$defs/workbenchSetupRequest"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action",
+          "request"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "sideEffect": "workspace-proposal",
+      "permission": "authenticated-workspace-capability; proposal-only, never owner, task, execution or approval authority",
+      "revision": "service-validated",
+      "idempotency": "durable proposal keyed by authenticated workspace/op_id; returns only the caller-submitted suggestion for owner review, never a setup, authorization or execution receipt"
+    },
     "history": {
       "input": {
         "type": "object",
@@ -4024,6 +4064,48 @@
           }
         ]
       },
+      "workbenchSetupRequest": {
+        "type": "object",
+        "properties": {
+          "op_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "goal": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000,
+            "pattern": "\\S"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240,
+            "pattern": "\\S"
+          },
+          "acceptance_statement": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000,
+            "pattern": "\\S"
+          },
+          "project_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "check_definition_id": {
+            "enum": [
+              "node-test",
+              "host-regression"
+            ]
+          }
+        },
+        "required": [
+          "op_id",
+          "goal"
+        ],
+        "additionalProperties": false
+      },
       "recoveryPolicy": {
         "type": "object",
         "properties": {
@@ -4621,6 +4703,27 @@
                 "additionalProperties": false
               }
             ]
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action",
+          "request"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
+            "const": "workbench_setup"
+          },
+          "request": {
+            "$ref": "#/$defs/workbenchSetupRequest"
           }
         },
         "required": [

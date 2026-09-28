@@ -174,6 +174,16 @@ export function createWorkbenchNative({store,records,data,execution,hermes,now=D
     if(latest.status!==current.status||latest.authority_generation!==g.authority_generation||closedAttempt(get('attempts',g,g.attempt_id))||now()>=g.expires_at||requireScope(g).generation!==g.project_generation)throw wbError('expired');
     return latest;
   }
+  // No await here: the host's setup guard itself awaits a binding lookup. A
+  // stop/revoke during that lookup must invalidate the authorization returned to
+  // the runtime, before it can spawn or deliver input. Keep this check AFTER the
+  // last asynchronous guard, not another asynchronous authorize() round trip.
+  function currentStartAuthority(g,status){
+    const current=get('grants',g,g.id),project=requireScope(g),a=get('attempts',g,g.attempt_id),c=get('candidates',g,g.candidate_id),t=get('tasks',g,a.task_id);
+    if(current.status!==status||current.authority_generation!==g.authority_generation||now()>=g.expires_at||closedAttempt(a)||project.generation!==g.project_generation||[a.project_generation,c.project_generation,t.project_generation].some(value=>value!==project.generation)||a.candidate_id!==g.candidate_id||c.task_id!==a.task_id||c.hash!==g.candidate_hash||t.acceptance_digest!==g.acceptance_digest||t.check_definition_id!==g.definition_id)throw wbError('expired');
+    for(const context of g.contexts){const row=get('contexts',g,context.id);if(row.purged_at||row.retention_until<=now()||!row.snapshot||row.snapshot.hash!==context.hash||typeof row.snapshot.text!=='string'||digest(row.snapshot.text)!==context.text_digest)throw wbError('expired');}
+    return current;
+  }
   async function snapshot(body){
     const project=requireScope(body),attempt=get('attempts',body,body.attempt_id),candidate=get('candidates',body,attempt.candidate_id),task=get('tasks',body,attempt.task_id);
     if(closedAttempt(attempt)||[attempt.project_generation,candidate.project_generation,task.project_generation].some(value=>value!==project.generation)||candidate.task_id!==task.id||task.candidate_id!==candidate.id)throw wbError('stale_resource');
@@ -183,7 +193,7 @@ export function createWorkbenchNative({store,records,data,execution,hermes,now=D
     const contexts=body.context_ids.map(id=>{const c=get('contexts',body,id);if(c.attempt_id!==attempt.id||c.purged_at||!Number.isFinite(c.retention_until)||c.retention_until<=now()||typeof c.snapshot?.text!=='string'||createHash('sha256').update(c.snapshot.text).digest('hex')!==c.snapshot.hash||(c.snapshot.provenance?.project_generation!==undefined&&c.snapshot.provenance.project_generation!==project.generation))throw wbError('permission_denied');return {id,hash:c.snapshot.hash,text_digest:digest(c.snapshot.text)};});
     return {workspace_id:body.workspace_id,project_id:body.project_id,attempt_id:attempt.id,candidate_id:candidate.id,candidate_hash:candidate.hash,project_generation:project.generation,acceptance_digest:task.acceptance_digest,definition_id:task.check_definition_id,required_checks:task.acceptance.required_checks,recipient,contexts,budget:clone(body.budget),authority_generation:randomUUID()};
   }
-  async function dispatch(body){
+  async function dispatch(body,{authorizeStart}={}){
     if(!validateNative(body))throw wbError('invalid_request');
     if(body.action==='cards_list')return cardsList(body);
     if(body.action==='result_get')return resultGet(body);
@@ -200,11 +210,15 @@ export function createWorkbenchNative({store,records,data,execution,hermes,now=D
     }
     if(body.action==='approve'){
       const p=previews.get(body.preview_id);
-      if(!p||p.workspace_id!==body.workspace_id||p.project_id!==body.project_id||p.expires_at<=now()||p.preview_digest!==body.preview_digest)throw wbError('expired');
-      const fresh=await snapshot({...body,attempt_id:p.attempt_id,context_ids:p.contexts.map(c=>c.id),budget:p.budget});fresh.authority_generation=p.authority_generation;
+      const noApproval=code=>Object.assign(wbError(code),{native_approval_outcome:'not_created'});
+      if(!p||p.workspace_id!==body.workspace_id||p.project_id!==body.project_id||p.expires_at<=now()||p.preview_digest!==body.preview_digest)throw noApproval('expired');
+      let fresh;
+      try{fresh=await snapshot({...body,attempt_id:p.attempt_id,context_ids:p.contexts.map(c=>c.id),budget:p.budget});}
+      catch(error){throw Object.assign(error,{native_approval_outcome:'not_created'});}
+      fresh.authority_generation=p.authority_generation;
       const {preview_id,preview_digest,expires_at,...scope}=p;
-      if(digest(fresh)!==digest(scope))throw wbError('stale_resource');
-      if(previews.get(preview_id)!==p)throw wbError('expired');
+      if(digest(fresh)!==digest(scope))throw noApproval('stale_resource');
+      if(previews.get(preview_id)!==p)throw noApproval('expired');
       previews.delete(preview_id);
       return {grant:publicGrant(data.create('grants',{...scope,status:'approved',expires_at:now()+p.budget.duration_ms,calls_used:0,checks_used:0,run_id:null}))};
     }
@@ -242,13 +256,18 @@ export function createWorkbenchNative({store,records,data,execution,hermes,now=D
       if(g.run_id)await hermes.stopNative({run_id:g.run_id,grant_id:g.id});
       return {grant:grantStatus(get('grants',g,g.id)),stop_requested:!!g.run_id,termination_confirmed:!g.run_id};
     }
-    const authorized=await authorize(g);
+    let authorized=await authorize(g);
+    // Host-only composition hook: never a JSON/body field or model authority.
+    // Recheck after binding awaits and carry it through the runtime's actual
+    // pre-spawn authorization callback, rather than trusting admission time.
+    await authorizeStart?.();
+    authorized=currentStartAuthority(g,'approved');
     if(authorized.status!=='approved'||typeof hermes?.startNative!=='function')throw wbError('unavailable');
     if(get('candidates',g,g.candidate_id).hash!==g.candidate_hash)throw wbError('stale_resource');
     if(!health().healthy)throw wbError('outcome_unknown');
     if(data.list('grants',g.workspace_id,g.project_id).some(x=>x.id!==g.id&&x.attempt_id===g.attempt_id&&['running','dispatch_unknown'].includes(x.status)))throw wbError('busy');
     data.update('grants',g.workspace_id,g.project_id,g.id,authorized.revision,{status:'starting'});
-    let socket;try{socket=await listen();}catch(e){update('grants',g,g.id,{status:'failed'});throw e;}
+    let socket;try{socket=await listen();await authorizeStart?.();currentStartAuthority(g,'starting');}catch(e){update('grants',g,g.id,{status:get('grants',g,g.id).status==='stopped'?'stopped':'failed',runtime_status:'not_started'});throw e;}
     if(get('grants',g,g.id).status!=='starting')throw wbError('expired');
     const secret=randomBytes(32).toString('hex'),run_id=randomUUID();
     const a=get('attempts',g,g.attempt_id),c=get('candidates',g,g.candidate_id);
@@ -258,7 +277,9 @@ export function createWorkbenchNative({store,records,data,execution,hermes,now=D
     }).immediate();}catch(error){try{update('grants',g,g.id,{status:'failed',runtime_status:'not_started'});}catch{markUnknown(g);}throw error;}
     channels.set(g.id,{secret,sequence:0,busy:false,scope:clone(g)});
     try{
-      const handle=await hermes.startNative({scope:clone(g),run_id,channel:{socket,secret,grant_id:g.id},input:'Work only on the approved candidate. Inspect the task and context, make bounded candidate changes, and use recorded check evidence. Completion text is not verification.',authorize:()=>authorize(g,{active:true})});
+      const authorizeDispatch=async()=>{await authorize(g,{active:true});await authorizeStart?.();return currentStartAuthority(g,'running');};
+      try{await authorizeDispatch();}catch(error){throw Object.assign(error,{native_outcome:'not_started'});}
+      const handle=await hermes.startNative({scope:clone(g),run_id,channel:{socket,secret,grant_id:g.id},input:'Work only on the approved candidate. Inspect the task and context, make bounded candidate changes, and use recorded check evidence. Completion text is not verification.',authorize:authorizeDispatch});
       if(!handle?.completion||typeof handle.completion.then!=='function')throw wbError('unavailable');
       running.set(g.id,{...handle,scope:clone(g)});
       Promise.resolve(handle.completion).then(outcome=>settled(g,outcome,true),error=>settled(g,error,false)).catch(()=>{

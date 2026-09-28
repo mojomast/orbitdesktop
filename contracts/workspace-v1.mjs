@@ -102,6 +102,22 @@ export const arrangementControlRequests=Object.fromEntries(Object.entries(arrang
   return [name,copy];
 }));
 command('arrangement',{request:{oneOf:Object.values(arrangementControlRequests)}},['request'],'workspace-proposal','service-validated');
+// Proposal-only Workbench setup suggestion. The authenticated workspace capability
+// may submit an untrusted draft for the owner to review and later adopt into the
+// current live binding. It never grants private project reads or any task,
+// execution or approval authority, and never accepts owner execution verbs,
+// pane/profile/session/actor identity, credentials or root paths. Unknown and
+// additional fields fail closed through the strict request schema.
+const workbenchSetupCheck=enumeration('node-test','host-regression');
+defs.workbenchSetupRequest=object({
+  op_id:uuid,
+  goal:{type:'string',minLength:1,maxLength:4000,pattern:'\\S'},
+  title:{type:'string',minLength:1,maxLength:240,pattern:'\\S'},
+  acceptance_statement:{type:'string',minLength:1,maxLength:4000,pattern:'\\S'},
+  project_id:uuid,
+  check_definition_id:workbenchSetupCheck,
+},['op_id','goal']);
+command('workbench_setup',{request:ref('workbenchSetupRequest')},['request'],'workspace-proposal','service-validated');
 command('history');
 command('checkpoint',{label:text(limits.maxLabelCharacters)},[],'checkpoint');
 command('placement_save',{base_revision:integer(0),placement:ref('dockingPlacement'),operation_id:{type:'string',pattern:'^[a-zA-Z0-9_.:-]{1,128}$'},intent:{type:'string',minLength:1,maxLength:160}},['base_revision','placement','operation_id','intent'],'layout','current-base-revision');
@@ -125,6 +141,8 @@ commands.jev_suggest.permission = 'authenticated-owner-with-external-data-consen
 commands.jev_suggest.idempotency = 'external-provider-request-not-retry-safe';
 commands.recovery_policy.permission = 'authenticated-owner-on-recovery-route-only';
 commands.recovery_policy.idempotency = 'durable receipt scoped to recovery policy generation; obsolete generation replay rejected';
+commands.workbench_setup.permission = 'authenticated-workspace-capability; proposal-only, never owner, task, execution or approval authority';
+commands.workbench_setup.idempotency = 'durable proposal keyed by authenticated workspace/op_id; returns only the caller-submitted suggestion for owner review, never a setup, authorization or execution receipt';
 defs.recoveryPolicy=object({held:bool,generation:integer(0)});
 defs.snapshot = object({workspace_id:uuid,revision:integer(1),state:ref('workspace'),observed_revision:integer(0),browser_seen:{anyOf:[{type:'number'},{type:'null'}]},app_versions:{type:'object',additionalProperties:{type:'number'}},recovery_policy:ref('recoveryPolicy'),placement:ref('dockingPlacement'),placement_revision:integer(0)},['workspace_id','revision','state','observed_revision','browser_seen']);
 defs.placementSnapshot = object({workspace_id:uuid,revision:integer(1),placement_revision:integer(0),placement:ref('dockingPlacement'),observed_revision:integer(0),browser_seen:{anyOf:[{type:'number'},{type:'null'}]},recovery_policy:ref('recoveryPolicy'),command_receipt:ref('commandReceipt')},['workspace_id','revision','placement_revision','placement','command_receipt']);
@@ -138,6 +156,10 @@ const outputs = {
   history:object({revision:integer(1),checkpoints:array(ref('checkpointMetadata'))}),
   preview:object({workspace_id:uuid,base_revision:integer(1),preview:{const:true},state:ref('workspace'),changed_fields:array(text(100)),warning:text()}),
   shelf:object({items:array(object({title:text(),url:text(),kind:enumeration('app/report','output')}),{maxItems:300})}),
+  // The proposal response returns only the server-assigned suggestion id. The
+  // suggestion itself (the caller's own bounded input) is private setup state,
+  // listed to the owner under its live pane binding, never in this tool result.
+  workbench_setup:object({id:uuid},['id']),
 };
 defs.commandReceipt=object({operation_id:{type:'string',pattern:'^[a-zA-Z0-9_.:-]{1,128}$'},legacy:bool});
 outputs.describe.properties.recipes=array(object({id:uuid,version:integer(1),name:text(60),roles:array(text(40),{maxItems:5}),layout:text(40),renderer:text(40)}),{maxItems:1024});
