@@ -70,6 +70,11 @@ test('HTTP arrangement controller enforces route/workspace authority and persist
 
   const list=async project_id=>control(workspaceA,{action:'recipe_list',project_id});
   const preview=async(project_id,recipe='project_focus')=>control(workspaceA,{action:'recipe_preview',project_id,recipe});
+  const saveRequest={action:'recipe_save',project_id:projectA.project.id,name:'Debug before rename',roles:['active_terminal'],layout:'prioritize',renderer:'windows',op_id:uuid()};
+  const saved=await control(workspaceA,saveRequest);
+  assert.equal(saved.status,200);
+  const edited=await control(workspaceA,{...saveRequest,name:'Debug retained',recipe_id:saved.body.recipe.id,expected_version:saved.body.recipe.version,op_id:uuid()});
+  assert.equal(edited.status,200);
 
   const ownerPreview=await owner(workspaceA,{action:'recipe_preview',project_id:projectA.project.id,recipe:'project_focus'});
   assert.equal(ownerPreview.status,200);
@@ -116,6 +121,14 @@ test('HTTP arrangement controller enforces route/workspace authority and persist
   assert.equal(stored.status,'committed');
   assert.equal(stored.committed_revision,ownerApplied.body.workspace.revision);
   assert.equal(stored.op_id,operationId);
+  const recoveredSave=await control(workspaceA,saveRequest);
+  assert.equal(recoveredSave.status,200);
+  assert.equal(recoveredSave.body.idempotent,true);
+  assert.deepEqual(recoveredSave.body.recipe,saved.body.recipe,'restart recovers original save receipt, not a later recipe version');
+  const currentRecipes=await list(projectA.project.id);
+  assert.equal(currentRecipes.body.recipes.length,1);
+  assert.equal(currentRecipes.body.recipes[0].name,'Debug retained');
+  assert.equal(currentRecipes.body.recipes[0].version,edited.body.recipe.version);
   assert.equal(running.service.store.read(workspaceB).id,workspaceB,'unrelated workspace survives service restart');
   assert.equal(workspaceRecordB.capability,running.service.store.read(workspaceB).capability);
   // Keep the explicit recipe_list request helper exercised through the real route.

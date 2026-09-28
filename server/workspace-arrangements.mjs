@@ -246,7 +246,7 @@ export function createWorkspaceArrangements({store,records,data,now=Date.now}={}
 
   function compileReturn(body,{workspace}){
     if(body.recipe_id||body.role_choices||body.renderer||body.width!==undefined||body.height!==undefined)throw wbError('invalid_request');
-    const sources=data.list('proposals',body.workspace_id,body.project_id).filter(proposal=>proposal.recipe!=='return'&&proposal.status==='committed'&&proposal.return_checkpoint_id&&!proposal.returned_at).sort((a,b)=>(b.updated_at??0)-(a.updated_at??0)||String(b.id).localeCompare(String(a.id)));
+    const sources=data.list('proposals',body.workspace_id,body.project_id).filter(proposal=>proposal.recipe!=='return'&&proposal.status==='committed'&&proposal.return_checkpoint_id&&!proposal.returned_at).sort((a,b)=>(b.committed_revision??0)-(a.committed_revision??0)||String(b.id).localeCompare(String(a.id)));
     const source=sources[0];
     if(!source)throw wbError('stale_resource');
     if(workspace.revision!==source.committed_revision)throw wbError('stale_resource');
@@ -375,6 +375,9 @@ export function createWorkspaceArrangements({store,records,data,now=Date.now}={}
       }
       if(body.name.trim()!==body.name||!body.name.trim())throw wbError('invalid_request');
       const all=workspaceRecipes(body.workspace_id);
+      // Revocation hides a source project's recipes from use, not from retained
+      // storage budgets or workspace-wide name uniqueness.
+      const retained=data.db.prepare("SELECT id,json_extract(record_json,'$.name') AS name FROM wb_recipes WHERE workspace_id=?").all(body.workspace_id);
       let stored;
       if(body.recipe_id){
         const current=all.find(item=>item.id===body.recipe_id);
@@ -382,12 +385,12 @@ export function createWorkspaceArrangements({store,records,data,now=Date.now}={}
         // Source-project ownership: edits must target the owning project.
         if(current.source_project_id!==body.project_id)throw Object.assign(wbError('stale_resource'),{reason:'recipe_source_project'});
         if(!Number.isSafeInteger(body.expected_version)||body.expected_version!==current.revision)throw wbError('stale_resource');
-        if(all.some(item=>item.id!==current.id&&item.name===body.name))throw wbError('conflict');
+        if(retained.some(item=>item.id!==current.id&&item.name===body.name))throw wbError('conflict');
         const updated=data.update('recipes',body.workspace_id,current.source_project_id,current.id,current.revision,{name:body.name,roles:body.roles,layout:body.layout,renderer:body.renderer});
         stored={recipe:publicRecipe({...updated,source_project_id:current.source_project_id}),project_generation:project.generation};
       }else{
-        if(all.length>=ARRANGEMENT_LIMITS.maxRecipes)throw wbError('limit_exceeded');
-        if(all.some(item=>item.name===body.name))throw wbError('conflict');
+        if(retained.length>=ARRANGEMENT_LIMITS.maxRecipes)throw wbError('limit_exceeded');
+        if(retained.some(item=>item.name===body.name))throw wbError('conflict');
         const created=data.create('recipes',{workspace_id:body.workspace_id,project_id:project.id,name:body.name,roles:body.roles,layout:body.layout,renderer:body.renderer});
         stored={recipe:publicRecipe({...created,source_project_id:project.id}),project_generation:project.generation};
       }

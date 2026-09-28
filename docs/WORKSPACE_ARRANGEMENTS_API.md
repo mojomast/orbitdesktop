@@ -112,6 +112,8 @@ Request:
   so there is no unreceipted legacy-save path.
 - Duplicate name → `conflict`; stale `expected_version` → `stale_resource`; over
   `max_recipes` or a full receipt table → `limit_exceeded`.
+  Retained recipes in revoked source projects still count toward the workspace
+  budget and reserve their names; revocation never deletes their definitions.
 
 ### `recipe_preview`
 

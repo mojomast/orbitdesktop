@@ -49,6 +49,17 @@ function fixture(t){
 }
 const apply=async(f,recipe,preview,op_id=randomUUID())=>f.flow('recipe_apply',{recipe,preview_id:preview.preview_id,preview_digest:preview.preview_digest,op_id});
 
+test('Return selects the latest committed revision even when the wall clock moves backward',async t=>{
+  const f=fixture(t);f.bind('project_files',f.monitorPane(1),'math.js');
+  f.data.now=()=>1000;
+  const first=await f.flow('recipe_preview',{recipe:'project_focus'});await apply(f,'project_focus',first);
+  f.data.now=()=>1;
+  const second=await f.flow('recipe_preview',{recipe:'investigate'});await apply(f,'investigate',second);
+  const inverse=await f.flow('recipe_preview',{recipe:'return'});
+  const record=await f.flow('proposal_get',{proposal_id:inverse.preview_id});
+  assert.equal(record.proposal.return_of,second.preview_id);
+});
+
 test('a consumed preview is reconciled from the durable operation key instead of expiring',async t=>{
   const f=fixture(t);f.bind('project_files',f.monitorPane(1),'math.js');
   const preview=await f.flow('recipe_preview',{recipe:'project_focus'});
@@ -176,10 +187,13 @@ test('preview base/revision drift and digest mismatch are refused before commit'
   await assert.rejects(apply(f,'project_focus',preview),{code:'stale_resource'});
 });
 
-test('recipe_save enforces the per-project recipe budget',async t=>{
+test('recipe_save enforces retained workspace recipe budget, including revoked source projects',async t=>{
   const f=fixture(t);
   for(let index=0;index<ARRANGEMENT_LIMITS.maxRecipes;index++)await f.flow('recipe_save',{name:`Recipe ${index}`,roles:[],layout:'prioritize',renderer:'windows'});
   await assert.rejects(f.flow('recipe_save',{name:'One too many',roles:[],layout:'prioritize',renderer:'windows'}),{code:'limit_exceeded'});
+  const target=f.newProject('other-project');
+  f.records.revoke(f.workspace_id,f.project.id,f.project.generation);
+  await assert.rejects(f.flowIn(target.id,'recipe_save',{name:'Cannot bypass by revoking',roles:[],layout:'prioritize',renderer:'windows'}),{code:'limit_exceeded'});
 });
 
 test('the normal-controller factory works without a caller-supplied WorkbenchData',async t=>{
