@@ -31,6 +31,7 @@ THEMES = (
     ("Paper Studio", "paper"), ("Cyberpunk", "cyberpunk"), ("Aurora Glass", "aurora"),
     ("Phosphor", "phosphor"), ("Blueprint", "blueprint"), ("Pop Art", "pop"),
     ("Ocean", "ocean"), ("Forest", "forest"), ("Plum", "plum"), ("Ember", "ember"),
+    ("Deep Field", "deepfield"), ("Sakura", "sakura"), ("Amber CRT", "amber"),
 )
 
 

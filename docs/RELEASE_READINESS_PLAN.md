@@ -207,6 +207,12 @@ provider acceptance separately if the owner elects to perform it.
 
 ### Implemented follow-up (candidate, pending exact-head CI and rollout)
 
+Deployment preflight found a concurrent live theme release, `orbit-74557da`, with
+Deep Field, Sakura and Amber CRT. Its theme-only delta relative to `4fec70f` was
+imported exactly, with manifest provenance in commit `9d67906`, and merged into
+the chat/Docking candidate. The existing theme matrix now covers those additions;
+activation must preserve the currently deployed themes as well as owner runtime.
+
 - Local `npm run check`: **774 passed, 0 failed, 8 optional skips**. Final isolated
   production build passed. Publisher: **6 passed**; portable plugin checks passed.
 

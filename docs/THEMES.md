@@ -23,6 +23,12 @@ Use reset_appearance with specific keys to remove overrides without removing the
 
 ## Distinct desktop personalities
 
+Deep Field, Sakura and Amber CRT are also available, with matching wallpapers,
+icon packs, menus and taskbars. Deep Field is a dark observatory with gold accents;
+Sakura uses warm paper and blossom-pink chrome; Amber CRT uses monochrome amber
+terminal styling. They were preserved from the owner's live theme release when
+integrating the chat/Docking rollout. The browser theme matrix includes all three.
+
 The picker also offers Aurora Glass (frosted dock and lifting buttons), Phosphor (green command log, scanline chrome and inverted hover), Blueprint (drafting grid, double borders and ruled chat), Pop Art (halftone, heavy outlines and press-depth buttons), MS-DOS (CGA blue screen, double-line box borders, monospace `C:\>` command prompt and a blinking block cursor) and Hermes Relay (agent-ops console: ink-navy instrument panels, amber signal rails and a chat that reads as a live tool-call timeline). Paper, Cyberpunk, Midnight, Ocean, Forest, Plum and Ember have additional scoped chrome/chat treatments. XP Messenger and Classic 95 Fixedsys Notepad remain intact.
 
 MS-DOS reuses the validated `classic` chrome family with CGA token overrides (blue panels, gray double-line borders, bright-yellow highlight, mono UI font) and its own generated wallpaper and icon pack. It changes presentation only: no window geometry, pane identity, terminal palette or plugin state. Its blinking cursor is disabled under reduced motion and forced colors.
