@@ -172,6 +172,7 @@ jobs:
         run: |
           /tmp/opencode/orbit-workbench-venv/bin/python tests/agent-pane-ux.browser.py
           /tmp/opencode/orbit-workbench-venv/bin/python tests/agent-selection.browser.py
+          /tmp/opencode/orbit-workbench-venv/bin/python tests/agent-selection.browser.py --renderer docking
           /tmp/opencode/orbit-workbench-venv/bin/python tests/pane-workbench-load-race.browser.py
       - name: Exact candidate diff review on both renderers
         if: ${{ !cancelled() && matrix.suite == 'chat' && steps.browser_tools.outcome == 'success' }}

@@ -92,6 +92,19 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
   }
   const originalArgs = record => ({ workspace_id: record.workspace_id, ...record.recipient, expected_binding_revision: record.recipient.binding_revision, expected_config_generation: record.recipient.config_generation, submission_id: record.receipt_id, run_id: record.run_id });
   const publicReceipt = record => ({ receipt_id: record.receipt_id, payload_hash: record.payload_hash, submission_state: record.state, ...(record.run_id ? { run_id: record.run_id } : {}), note: 'Never resend an unresolved submission. Inspect the original upstream before acknowledging an unknown outcome.' });
+  // Only the trusted Normal-chat caller may relax cross-conversation exclusion.
+  // Durable accepted receipts distinguish ordinary runs from Workbench and
+  // uncertain/legacy work, including after restart. Same-session exclusion stays.
+  const concurrentOrdinary = args => (state, workspace_id, pane_id) => {
+    const profileId = state.profile_id || 'default';
+    if (profileId === args.profile_id && state.session === args.session_id) return false;
+    if (!state.run || !state.ordinary_submission_id || state.workbench_pending !== state.ordinary_submission_id) return false;
+    const record = readSubmission({workspace_id,pane_id}, state), profile = configuration?.get(profileId);
+    return !!profile && record?.state === 'accepted' && record.run_id === state.run &&
+      record.recipient.profile_id === profileId && record.recipient.session_id === state.session &&
+      record.recipient.binding_revision === state.binding_revision &&
+      record.recipient.config_generation === createHash('sha256').update(`${profile.id}\0${profile.apiUrl || ''}\0${profile.apiKey || ''}`).digest('hex');
+  };
   function validatePane(body) {
     if(!workspaceRead)throw Object.assign(Error('Authoritative workspace access unavailable'),{status:503});
     let record;
@@ -292,7 +305,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
         if (typeof body.input !== 'string' || !body.input.trim() || body.input.length > 100000) return reply(res, 400, { error: 'Enter a message of 1–100,000 characters.' });
         // Do not start while the shared agent lane is held or legacy-unknown.
         // Pane-backed submissions claim it through preparation and dispatch below.
-        if (executionGate && typeof executionGate.busy === 'function' && executionGate.busy('agent')) return reply(res, 409, { error: 'The Workbench agent lane is busy or unresolved. Reconcile it before starting a new chat turn.' });
+        if (executionGate && ((typeof executionGate.busy === 'function' && executionGate.busy('agent')) || executionGate.status?.().job)) return reply(res, 409, { error: 'The shared execution lane is busy or unresolved. Wait for active work or reconcile an unknown outcome before starting a new chat turn.' });
         if (body.pane_id) {
           const receiptId = randomUUID();
           const release = executionGate?.claim('agent', receiptId);
@@ -304,7 +317,8 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
             catch { return reply(res,409,{error:'Workspace has not synced yet. Wait for workspace connection and retry.'}); }
             const recipient = await agent.workbench.readBinding(body);
             const args = {workspace_id:body.workspace_id,pane_id:body.pane_id,profile_id:profileId,session_id:body.session_id,input:body.input.trim(),expected_binding_revision:body.expected_binding_revision,expected_config_generation:recipient.config_generation};
-            const prepared = await agent.workbench.prepareSubmission(args, instructions + context);
+            const allowConcurrent = concurrentOrdinary(args);
+            const prepared = await agent.workbench.prepareSubmission(args, instructions + context, allowConcurrent);
             record = {receipt_id:receiptId,workspace_id:body.workspace_id,recipient:prepared.recipient,payload:prepared.payload,payload_hash:createHash('sha256').update(JSON.stringify(prepared.payload)).digest('hex'),state:'prepared',created_at:new Date().toISOString()};
             saveSubmission(record);
             const current = shared.read(body.workspace_id,body.pane_id);
@@ -319,7 +333,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
             shared.locks.delete(paneLock); paneLock = undefined;
             const data = await agent.workbench.dispatchExact({...args,payload:record.payload,submission_id:receiptId,preservePending:true,idempotency_key:prepared.caps.idempotent_submit ? receiptId : undefined,onAccepted: data => {
               record.run_id = data.run_id; record.state = 'accepted'; saveSubmission(record);
-            }});
+             }}, allowConcurrent);
             return reply(res,202,{...data,...publicReceipt(record)});
           } catch (error) {
             if (!record) throw error;

@@ -204,6 +204,7 @@ def run_browser(args, origin, token, workspace, state, windows, panes,
             if not page.evaluate("typeof Element.prototype.moveBefore === 'function'"):
                 raise RuntimeError("UNSUPPORTED BROWSER: Element.moveBefore required; not a passing skip")
             page.wait_for_function("document.documentElement.dataset.dockingRenderer === 'docking' && window.__orbitDocking?.supported === true")
+            page.get_by_label('Docking layout controls', exact=True).click()
             toolbar = page.get_by_role("toolbar", name="Docking layout", exact=True)
             expect(toolbar).to_be_visible()
             page.keyboard.press("Escape")
@@ -211,6 +212,7 @@ def run_browser(args, origin, token, workspace, state, windows, panes,
             page.get_by_role("textbox", name="Host session token", exact=True).fill(token)
             page.get_by_role("button", name="Unlock local host", exact=True).click()
             expect(page.locator(".saved")).to_contain_text("Workspace connected", timeout=15000)
+            page.get_by_label('Docking layout controls', exact=True).click()
 
             def frame(pid):
                 return page.frame_locator(f'.pane[data-pane-id="{pid}"] iframe')

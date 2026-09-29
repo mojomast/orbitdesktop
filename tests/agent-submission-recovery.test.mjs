@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { createAgentHandler } from '../server/agent.mjs';
+import { createWorkbenchGate } from '../server/workbench-gate.mjs';
 
 const workspace_id = '12345678-1234-4234-9234-123456789abc';
 const pane_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -16,9 +17,10 @@ const listen = server => new Promise(resolve => server.listen(0,'127.0.0.1',reso
 const close = server => new Promise(resolve => { server.close(resolve); server.closeAllConnections(); });
 const reply = (res,status,body) => { res.writeHead(status,{'Content-Type':'application/json'}); res.end(JSON.stringify(body)); };
 
-async function setup(t, {lost = false, legacy = false, durable = false, initial = {}, messages = [{role:'user',content:'Earlier'},{role:'assistant',content:'Remembered'},{role:'system',content:'not context'}]} = {}) {
+async function setup(t, {lost = false, legacy = false, durable = false, initial = {}, panes = [pane_id], messages = [{role:'user',content:'Earlier'},{role:'assistant',content:'Remembered'},{role:'system',content:'not context'}]} = {}) {
   const directory = fs.mkdtempSync('/tmp/opencode/ordinary-submission-');
   const calls = [];
+  const runs = new Map();
   let runStatus = 'running', postFault;
   const gateway = http.createServer(async (req,res) => {
     let text = ''; for await (const chunk of req) text += chunk;
@@ -30,7 +32,8 @@ async function setup(t, {lost = false, legacy = false, durable = false, initial 
     }
     if (req.url.startsWith('/api/sessions/')) return reply(res,200,{id:decodeURIComponent(req.url.split('/')[3]),title:'Selected'});
     if (req.url === '/v1/runs' && req.method === 'POST') {
-      const binding = JSON.parse(fs.readFileSync(path.join(directory,'shared-chats',`${workspace_id}.${pane_id}.json`),'utf8'));
+      const session = JSON.parse(text).session_id;
+      const binding = panes.map(id=>{try{return JSON.parse(fs.readFileSync(path.join(directory,'shared-chats',`${workspace_id}.${id}.json`),'utf8'));}catch{return null;}}).find(state=>state?.session===session&&state.workbench_pending);
       const record = JSON.parse(fs.readFileSync(path.join(directory,'ordinary-submissions',`${binding.ordinary_submission_id}.json`),'utf8'));
       assert.equal(record.state,'dispatching');
       assert.equal(JSON.stringify(record.payload),text);
@@ -38,17 +41,24 @@ async function setup(t, {lost = false, legacy = false, durable = false, initial 
       assert.equal(binding.workbench_pending,record.receipt_id);
       if (lost) { req.socket.destroy(); return; }
       postFault?.();
-      return reply(res,202,{run_id,status:'running'});
+      const id = panes.length > 1 ? `${run_id}_${runs.size}` : run_id;
+      runs.set(id,session);
+      return reply(res,202,{run_id:id,status:'running'});
+    }
+    if (panes.length > 1) {
+      const id = req.url.split('/')[3];
+      return reply(res,200,{run_id:id,session_id:runs.get(id),status:runStatus,output:`Finished ${runs.get(id)}`});
     }
     return reply(res,200,{run_id,session_id,status:runStatus,output:'Finished'});
   });
   await listen(gateway);
-  let handler;
+  let handler, gate;
   const server = http.createServer((req,res) => handler(req,res));
   await listen(server);
   const origin = `http://127.0.0.1:${server.address().port}`;
   const restart = (apiKey = 'private-test-key') => {
-    handler = createAgentHandler({token,port:server.address().port,devOrigins:[],reply,runtimeDirectory:directory,apiUrl:`http://127.0.0.1:${gateway.address().port}`,apiKey,workspaceContext:()=>'\nTrusted workspace context',workspaceRead:()=>({state:{monitors:[{layout:{type:'pane',pane:{id:pane_id,kind:'agent'}}}]}})});
+    gate = createWorkbenchGate();
+    handler = createAgentHandler({token,port:server.address().port,devOrigins:[],reply,runtimeDirectory:directory,executionGate:gate,apiUrl:`http://127.0.0.1:${gateway.address().port}`,apiKey,workspaceContext:()=>'\nTrusted workspace context',workspaceRead:()=>({state:{monitors:panes.map(id=>({layout:{type:'pane',pane:{id,kind:'agent'}}}))}})});
   };
   restart();
   t.after(async () => { await close(server); await close(gateway); fs.rmSync(directory,{recursive:true,force:true}); });
@@ -57,7 +67,7 @@ async function setup(t, {lost = false, legacy = false, durable = false, initial 
     return {status:response.status,body:await response.json()};
   }
   assert.equal((await request({action:'shared_chat',initial:{session:session_id,messages:[],...initial}})).status,200);
-  return {request,restart,calls,directory,setMessages:value=>{messages=value;},setStatus:value=>{runStatus=value;},setPostFault:value=>{postFault=value;}};
+  return {request,restart,calls,directory,get workbench(){return handler.workbench;},get gate(){return gate;},setMessages:value=>{messages=value;},setStatus:value=>{runStatus=value;},setPostFault:value=>{postFault=value;}};
 }
 
 test('lost HTTP response persists exact intent and fences restart without a second POST', async t => {
@@ -237,4 +247,46 @@ test('accepted receipt survives shared-binding write failure and restart', async
   assert.equal((await f.request({action:'submission_status'})).body.status,'completed');
   assert.equal((await f.request({action:'shared_chat'})).body.state.workbench_pending,undefined);
   assert.equal(f.calls.filter(call=>call.method==='POST').length,1);
+});
+
+test('distinct Normal conversations overlap across restart; same session and Workbench remain exclusive', async t => {
+ const second='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', third='cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+ const secondSession='orbit-bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+ const f=await setup(t,{panes:[pane_id,second,third]});
+ const bind=async(pane,session)=>f.request({action:'shared_chat',pane_id:pane,initial:{session,messages:[]}});
+ await bind(second,secondSession);await bind(third,session_id);
+ const first=await f.request({action:'start',input:'first conversation'});assert.equal(first.status,202);
+ f.restart();
+ const next=await f.request({action:'start',pane_id:second,session_id:secondSession,input:'independent second conversation'});
+ assert.equal(next.status,202);assert.notEqual(first.body.run_id,next.body.run_id);
+ assert.equal((await f.request({action:'start',pane_id:third,input:'duplicate session'})).status,409);
+ const recipient=await f.workbench.readBinding({workspace_id,pane_id:third});
+ await assert.rejects(f.workbench.prepareSubmission({workspace_id,pane_id:third,session_id,profile_id:'default',input:'Workbench stays exclusive',expected_binding_revision:0,expected_config_generation:recipient.config_generation}),{code:'busy'});
+ f.setStatus('completed');
+ const secondDone=await f.request({action:'submission_status',pane_id:second,session_id:secondSession});
+ const firstDone=await f.request({action:'submission_status'});
+ assert.equal(secondDone.body.output,`Finished ${secondSession}`);assert.equal(firstDone.body.output,`Finished ${session_id}`);
+ assert.equal(f.calls.filter(c=>c.method==='POST'&&c.url==='/v1/runs').length,2);
+ const release=f.gate.claim('agent','native-worker');
+ assert.equal((await f.request({action:'start',pane_id:second,session_id:secondSession,input:'native fence'})).status,409);
+ release();
+ const releaseJob=f.gate.claim('job','managed-check');
+ assert.equal((await f.request({action:'start',pane_id:second,session_id:secondSession,input:'job fence'})).status,409);
+ releaseJob();
+});
+
+test('unknown, unreceipted and configuration-drifted conversations cannot admit concurrent Normal work', async t => {
+ const second='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', secondSession='orbit-bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+ for(const mode of ['unknown','unreceipted','configuration-drift']){
+  const f=await setup(t,{panes:[pane_id,second],lost:mode==='unknown'});
+  await f.request({action:'shared_chat',pane_id:second,initial:{session:secondSession,messages:[]}});
+  await f.request({action:'start',input:mode});
+  if(mode==='unreceipted'){
+   const file=path.join(f.directory,'shared-chats',`${workspace_id}.${pane_id}.json`),state=JSON.parse(fs.readFileSync(file));
+   delete state.ordinary_submission_id;fs.writeFileSync(file,JSON.stringify(state));
+  }
+  f.restart(mode==='configuration-drift'?'changed-key':'private-test-key');
+  assert.equal((await f.request({action:'start',pane_id:second,session_id:secondSession,input:'must stay fenced'})).status,409,mode);
+  assert.equal(f.calls.filter(c=>c.method==='POST'&&c.url==='/v1/runs').length,1,mode);
+ }
 });

@@ -11,12 +11,18 @@ import threading
 import time
 import urllib.request
 import uuid
+import argparse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from playwright.sync_api import sync_playwright, expect
 
 ROOT = Path(__file__).resolve().parents[1]
+parser = argparse.ArgumentParser()
+parser.add_argument('--renderer', choices=('default', 'docking'), default='default')
+args = parser.parse_args()
 calls = []
 runs = {}
+missing_history = False
+hold_runs = False
 class Gateway(BaseHTTPRequestHandler):
     def log_message(self, *_): pass
     def do_POST(self):
@@ -30,8 +36,8 @@ class Gateway(BaseHTTPRequestHandler):
         else:
             assert body['session_id'] == 'shared-session', body
             assert body['input'] == 'Draft ' + profile, body
-        run = 'run_fixture_' + ('fresh' if fresh else profile)
-        runs[run] = {'run_id': run, 'session_id': body['session_id'], 'status': 'completed', 'output': 'Fresh pane answer' if fresh else 'New answer ' + profile}
+        run = 'run_fixture_' + ('fresh' if fresh else profile) + '_' + str(len(runs))
+        runs[run] = {'run_id': run, 'session_id': body['session_id'], 'status': 'running' if hold_runs else 'completed', 'output': 'Fresh pane answer' if fresh else 'New answer ' + profile}
         calls.append((profile, route))
         self.send_response(202); self.send_header('Content-Type', 'application/json'); self.end_headers()
         self.wfile.write(json.dumps({'run_id': run, 'status': 'running'}).encode())
@@ -39,6 +45,8 @@ class Gateway(BaseHTTPRequestHandler):
         profile, route = self.path[1:].split('/', 1)
         assert self.headers['Authorization'] == 'Bearer fixture-' + profile
         calls.append((profile, route))
+        if missing_history and route.startswith('api/sessions/shared-session/messages'):
+            self.send_response(404); self.end_headers(); return
         if route.startswith('api/sessions/shared-session/messages'):
             data = {'data': [{'role': 'user', 'content': 'Hello ' + profile}, {'role': 'assistant', 'content': 'Saved answer ' + profile}]}
         elif route == 'api/sessions/shared-session':
@@ -103,7 +111,7 @@ try:
                         if response.url == origin + '/api/agent' and response.request.post_data_json.get('action') == 'profiles':
                             catalogs.append(response.json())
                     page.on('response', inspect_catalog)
-                    page.goto(origin, wait_until='networkidle'); page.keyboard.press('Escape')
+                    page.goto(origin + '/?renderer=' + args.renderer, wait_until='networkidle'); page.keyboard.press('Escape')
                     page.get_by_role('button', name='Connect local host', exact=True).click()
                     page.get_by_role('textbox', name='Host session token').fill(token)
                     with page.expect_response(lambda response: response.url == origin + '/api/workspace'
@@ -113,12 +121,62 @@ try:
                     assert workspace_connection.value.json()['state']['monitors'], 'Workspace connection returned no layout'
                     agents = [page.locator(f'article.monitor[data-monitor-id="{w}"]') for w in windows]
                     page.wait_for_function('(panes) => panes.every(id => Number.isSafeInteger(JSON.parse(sessionStorage.getItem(`orbit-hermes-chat:${id}`) || "{}").binding_revision))', arg=panes)
+                    first = agents[0]
+                    send = first.get_by_role('button', name='Send message to Hermes', exact=True)
+                    new_chat = first.get_by_role('button', name='Start a separate Hermes conversation', exact=True)
+                    expect(new_chat).to_be_visible()
+                    expect(new_chat).to_be_enabled()
+                    # Observe transitions, not just a lucky sample between polls.
+                    first.evaluate('''pane => {
+                        window.__controlChanges=[];
+                        window.__controlObserver=new MutationObserver(records=>{
+                            for(const r of records) if(r.oldValue !== r.target.getAttribute('disabled'))
+                                window.__controlChanges.push(r.target.getAttribute('aria-label'));
+                        });
+                        for(const label of ['Send message to Hermes','Start a separate Hermes conversation'])
+                            window.__controlObserver.observe(pane.querySelector(`[aria-label="${label}"]`),
+                                {attributes:true,attributeFilter:['disabled'],attributeOldValue:true});
+                    }''')
+                    page.wait_for_timeout(30000)
+                    assert page.evaluate('window.__controlChanges') == [], 'Idle reads toggled primary controls'
+                    page.evaluate('window.__controlObserver.disconnect()')
+
+                    held = []
+                    hold = {'enabled': True, 'fail': False}
+                    def shared_response(route):
+                        body = route.request.post_data_json
+                        if body.get('action') == 'shared_chat' and body.get('pane_id') == panes[0]:
+                            if hold['fail']:
+                                route.fulfill(status=503, json={'error': 'Synthetic refresh outage'})
+                                return
+                            if hold['enabled']:
+                                held.append((route, route.fetch()))
+                                return
+                        route.continue_()
+                    page.route('**/api/agent', shared_response)
+                    def wait_held():
+                        deadline = time.monotonic() + 10
+                        while not held and time.monotonic() < deadline: page.wait_for_timeout(50)
+                        assert held, 'No shared-state snapshot intercepted'
+                    def release_held(error=False):
+                        hold['enabled'] = False
+                        for route, response in held:
+                            if error: route.fulfill(status=503, json={'error':'Obsolete refresh failure'})
+                            else: route.fulfill(response=response)
+                        held.clear()
+                    wait_held()
+                    expect(send).to_be_enabled()
+                    expect(new_chat).to_be_enabled()
                     # A newly mounted empty pane can send its first message even
                     # though Hermes has no upstream session/history for it yet.
                     # No extra New chat or transcript-reset action is required.
                     agents[0].get_by_label('Message to Hermes', exact=True).fill('First message from a fresh pane')
                     agents[0].get_by_role('button', name='Send message to Hermes', exact=True).click()
                     expect(agents[0].get_by_label('Hermes conversation', exact=True)).to_contain_text('Fresh pane answer', timeout=15000)
+                    assert len([c for c in calls if c == ('default', 'v1/runs')]) == 1
+                    release_held()  # stale empty snapshot arrives AFTER completed start/status
+                    page.wait_for_timeout(300)
+                    expect(first.get_by_label('Hermes conversation', exact=True)).to_contain_text('Fresh pane answer')
                     def settings(index):
                         agent = agents[index]
                         agent.get_by_role('button', name='Agent pane menu', exact=True).click()
@@ -137,6 +195,31 @@ try:
                         panel.get_by_role('button', name='Apply selected profile and session').click()
                         page.keyboard.press('Escape')
                         expect(agent.get_by_label('Hermes conversation', exact=True)).to_contain_text('Saved answer ' + profile)
+                    # New chat is a visible action; it works during a passive
+                    # read and its old response cannot restore the former binding.
+                    first.get_by_label('Message to Hermes', exact=True).fill('Draft retained across New chat')
+                    hold['enabled'] = True
+                    wait_held()
+                    new_chat.click()
+                    expect(first.get_by_label('Message to Hermes', exact=True)).to_have_value('')
+                    page.wait_for_function('(id)=>JSON.parse(sessionStorage.getItem(`orbit-hermes-chat:${id}`)).session !== "shared-session"', arg=panes[0])
+                    fresh_binding = page.evaluate('(id)=>JSON.parse(sessionStorage.getItem(`orbit-hermes-chat:${id}`)).session', panes[0])
+                    release_held()
+                    page.wait_for_timeout(300)
+                    assert page.evaluate('(id)=>JSON.parse(sessionStorage.getItem(`orbit-hermes-chat:${id}`)).session', panes[0]) == fresh_binding
+                    first.get_by_role('button', name='Open recent Hermes conversations', exact=True).click()
+                    page.get_by_role('button', name='Restore conversation: Saved default', exact=True).click()
+                    page.keyboard.press('Escape')
+                    expect(first.get_by_label('Hermes conversation', exact=True)).to_contain_text('Saved answer default')
+                    expect(first.get_by_label('Message to Hermes', exact=True)).to_have_value('Draft retained across New chat')
+                    # A background failure is a connection notice, not a failed
+                    # submission. It leaves both primary controls usable.
+                    hold['fail'] = True
+                    expect(first.locator('.agent-sync-notice')).to_contain_text('Conversation refresh unavailable', timeout=10000)
+                    expect(send).to_be_enabled()
+                    expect(new_chat).to_be_enabled()
+                    hold['fail'] = False
+                    expect(first.locator('.agent-sync-notice')).to_be_empty(timeout=10000)
                     for index, (agent, profile) in enumerate(zip(agents, ('default', 'research'))):
                         panel = settings(index)
                         expect(panel.get_by_label('Profile', exact=True)).to_have_value(profile)
@@ -171,8 +254,79 @@ try:
                         expect(agent.get_by_label('Hermes conversation', exact=True)).to_contain_text('Saved answer ' + profile)
                         expect(agent.get_by_label('Message to Hermes', exact=True)).to_have_value('Draft ' + profile)
                         expect(agent.get_by_role('button', name='Send message to Hermes', exact=True)).to_be_enabled()
-                        agent.get_by_role('button', name='Send message to Hermes', exact=True).click()
+                        if profile == 'default':
+                            hold['enabled'] = True
+                            wait_held()
+                            agent.get_by_label('Message to Hermes', exact=True).press('Enter')
+                        else:
+                            agent.get_by_role('button', name='Send message to Hermes', exact=True).click()
                         expect(agent.get_by_label('Hermes conversation', exact=True)).to_contain_text('New answer ' + profile, timeout=15000)
+                        if profile == 'default':
+                            release_held(error=True)
+                            page.wait_for_timeout(300)
+                            expect(agent.get_by_label('Hermes conversation', exact=True)).to_contain_text('New answer default')
+                            expect(agent.locator('.agent-sync-notice')).to_be_empty()
+                            expect(agent.locator('.agent-progress')).to_be_empty()
+                    # Another client rebinds while our old snapshot is delayed.
+                    # Send must reach the exact old revision and fail, never route
+                    # to the new session or silently discard the typed draft.
+                    hold['enabled'] = True
+                    wait_held()
+                    bound = page.evaluate('(id)=>JSON.parse(sessionStorage.getItem(`orbit-hermes-chat:${id}`))', panes[0])
+                    rebound = page.request.post(origin + '/api/agent', headers={'Origin': origin, 'Authorization': 'Bearer ' + token}, data={
+                        'action':'select_session','workspace_id':workspace,'pane_id':panes[0],
+                        'session_id':bound['session'],'profile_id':'default','expected_binding_revision':bound['binding_revision'],
+                        'target_profile_id':'default'})
+                    assert rebound.ok, rebound.text()
+                    starts_before = len([c for c in calls if c[1] == 'v1/runs'])
+                    first.get_by_label('Message to Hermes', exact=True).fill('Do not send to a different conversation')
+                    with page.expect_response(lambda r: r.url == origin + '/api/agent' and r.request.post_data_json.get('action') == 'start') as refused:
+                        send.click()
+                    assert refused.value.status == 409
+                    expect(first.locator('.agent-progress')).not_to_contain_text('Sending to Hermes')
+                    expect(first.get_by_label('Message to Hermes', exact=True)).to_have_value('Do not send to a different conversation')
+                    assert len([c for c in calls if c[1] == 'v1/runs']) == starts_before
+                    release_held()
+                    page.unroute('**/api/agent', shared_response)
+                    # Missing established history exposes recovery at the error,
+                    # without starting a replacement conversation automatically.
+                    page.wait_for_function('(args)=>JSON.parse(sessionStorage.getItem(`orbit-hermes-chat:${args.id}`)).session !== args.old', arg={'id':panes[0],'old':bound['session']})
+                    panel = settings(0)
+                    panel.get_by_label('Session', exact=True).select_option('shared-session')
+                    panel.get_by_role('button', name='Apply selected profile and session').click()
+                    page.keyboard.press('Escape')
+                    expect(first.get_by_label('Hermes conversation', exact=True)).to_contain_text('Saved answer default')
+                    missing_history = True
+                    first.get_by_label('Message to Hermes', exact=True).fill('Retain my unavailable-history draft')
+                    send.click()
+                    expect(first.locator('.agent-progress')).to_contain_text('Conversation history is unavailable')
+                    recovery = first.get_by_role('button', name='Start a new chat after unavailable history', exact=True)
+                    expect(recovery).to_be_visible()
+                    expect(first.get_by_label('Message to Hermes', exact=True)).to_have_value('Retain my unavailable-history draft')
+                    recovery.click()
+                    expect(first.get_by_label('Message to Hermes', exact=True)).to_have_value('')
+                    expect(recovery).to_be_hidden()
+                    missing_history = False
+                    assert len([c for c in calls if c[1] == 'v1/runs']) == 3, 'Duplicate or unexpected submission'
+                    # Keep both upstream turns running: second-chat Send must work
+                    # before the first response completes, with separate run IDs.
+                    hold_runs = True
+                    first.get_by_label('Message to Hermes', exact=True).fill('First message from a fresh pane')
+                    send.click()
+                    page.wait_for_function('(id)=>!!JSON.parse(sessionStorage.getItem(`orbit-hermes-chat:${id}`)).run', arg=panes[0])
+                    expect(new_chat).to_be_disabled()
+                    second.get_by_label('Message to Hermes', exact=True).fill('Draft research')
+                    second.get_by_role('button', name='Send message to Hermes', exact=True).click()
+                    page.wait_for_function('(ids)=>ids.every(id=>!!JSON.parse(sessionStorage.getItem(`orbit-hermes-chat:${id}`)).run)', arg=panes)
+                    active = [run for run in runs.values() if run['status'] == 'running']
+                    assert len(active) == 2 and active[0]['run_id'] != active[1]['run_id'], active
+                    hold_runs = False
+                    for run in active: run['status'] = 'completed'
+                    page.wait_for_function('(ids)=>ids.every(id=>!JSON.parse(sessionStorage.getItem(`orbit-hermes-chat:${id}`)).run)', arg=panes)
+                    expect(first.get_by_label('Hermes conversation', exact=True)).to_contain_text('Fresh pane answer')
+                    expect(second.get_by_label('Hermes conversation', exact=True)).to_contain_text('New answer research')
+                    expect(new_chat).to_be_enabled()
+                    assert len([c for c in calls if c[1] == 'v1/runs']) == 5
                     assert not errors, errors
                     assert catalogs, 'Profile catalog was never loaded'
                     assert all('apiKey' not in json.dumps(c) and 'apiUrl' not in json.dumps(c) and 'fixture-' not in json.dumps(c) for c in catalogs), catalogs
@@ -180,9 +334,14 @@ try:
                     assert {profile for profile, route in calls if route == 'v1/runs'} == {'default', 'research'}
                     capability = json.loads((root / 'runtime' / 'workspace-access' / (workspace + '.json')).read_text())['capability']
                     snapshot_request = urllib.request.Request(origin + '/api/workspace/control', data=json.dumps({'workspace_id': workspace, 'action': 'read'}).encode(), headers={'Origin': origin, 'Authorization': 'Bearer ' + capability, 'Content-Type': 'application/json'})
-                    with urllib.request.urlopen(snapshot_request) as response: snapshot = json.load(response)
+                    deadline = time.monotonic() + 10
+                    while True:
+                        with urllib.request.urlopen(snapshot_request) as response: snapshot = json.load(response)
+                        if snapshot['observed_revision'] >= snapshot['revision'] or time.monotonic() >= deadline: break
+                        page.wait_for_timeout(100)
                     assert snapshot['observed_revision'] >= snapshot['revision'], snapshot
-                    page.screenshot(path='/tmp/opencode/orbit-agent-selection.png')
+                    page.screenshot(path='/tmp/opencode/orbit-agent-selection-' + args.renderer + '.png')
+                    print('PASS:', args.renderer, '30s stable controls; delayed refresh click/Enter; late snapshot fences; visible New chat/history and draft restoration; refresh failure; stale binding refusal; missing-history recovery; two overlapping Normal runs')
                     print('PASS: two panes bind identical session IDs in different profiles, load distinct transcripts, preserve drafts/bindings on reload, and route new messages/status to the selected profile; Chromium', browser.version)
                     print('Workspace revision:', snapshot['revision'], 'observed_revision:', snapshot['observed_revision'], 'browser_applied:', snapshot['observed_revision'] >= snapshot['revision'], 'page_errors:', len(errors))
                     page.remove_listener('response', inspect_catalog)

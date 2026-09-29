@@ -22,6 +22,20 @@ composer has one primary Send control and compact secondary actions. Profile and
 session binding, rename/color, notification preferences, workspace-agent overview,
 healthy submission receipts belong in secondary surfaces.
 
+The conversation action row keeps **New chat**, **History**, and **Show tools**
+visible in Normal mode, including narrow panes. History opens the retained
+conversations/tools dialog. New chat changes this pane's conversation; it does
+not create another workspace window. It preserves the previous conversation and
+its separately keyed draft. Missing-history errors also expose an explicit New
+chat action beside the error.
+
+Initial host linking is distinct from a passive conversation refresh. Passive
+reads never disable Send or New chat; delayed snapshots are discarded after a
+foreground operation, even if that operation has already completed. Sends retain
+the exact selected profile/session/revision and the backend rejects stale scope.
+A read failure shows a connection notice rather than labeling message delivery
+failed. Actual work, approvals and unresolved outcomes retain their guards.
+
 Normal chat has a visible **Show tools / Hide tools** toggle below its header.
 It restores the existing per-pane preference and exposes the retained tool view
 inside the conversation, with bounded scrolling, observed call counts and expanded

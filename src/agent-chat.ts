@@ -51,12 +51,14 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   } catch {}
 
   let disposed = false, busy = false, polling = false, queuePaused = false, sharing = false, switching = false;
-  let generation = 0, pending = 0;
+  let generation = 0, pending = 0, sharedEpoch = 0;
+  // A cached revision is not proof that this mount has linked to the host.
+  let bindingReady = false;
   class StaleRequest extends Error {}
   const scope = () => ({ session_id: state.session, profile_id: chatProfileId(state), workspace_id: workspaceId, pane_id: paneId, generation, revision: state.binding_revision });
   type Scope = ReturnType<typeof scope>;
   const current = (s: Scope) => !disposed && s.generation === generation && s.workspace_id === workspaceId && s.session_id === state.session && s.profile_id === chatProfileId(state) && s.revision === state.binding_revision;
-  const switchBlocked = () => disposed || busy || polling || sharing || switching || pending > 0 || !!state.run || !!state.queue?.length || approvals.childElementCount > 0;
+  const switchBlocked = () => disposed || !bindingReady || busy || polling || switching || pending > 0 || !!state.run || !!state.queue?.length || approvals.childElementCount > 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const controller = new AbortController();
   let liveController: AbortController | undefined;
@@ -415,7 +417,8 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     openPanel('activity', activityButton);
   };
   const activityButton = button('Ready','Show live tool details',onActivityAction,'small-button');
-  strip.append(inlineTools.toggle, activityButton);
+  const conversations = button('History', 'Open recent Hermes conversations', () => openTools(), 'small-button');
+  strip.append(newChat, conversations, inlineTools.toggle, activityButton);
   const workspaceAgents = button('Workspace agents','Overview of all open agents',openAgentOverview,'small-button');
   function refreshActivity() {
     const runStatus = status.textContent || 'READY';
@@ -450,6 +453,11 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   const progress = el('div', 'agent-progress');
   progress.setAttribute('role', 'status');
   progress.tabIndex = -1;
+  const historyRecovery = button('New chat', 'Start a new chat after unavailable history', () => { void switchConversation(chatProfileId(state)); }, 'small-button agent-history-recovery');
+  historyRecovery.hidden = true;
+  const syncNotice = el('div', 'agent-sync-notice');
+  syncNotice.setAttribute('role', 'status');
+  const setSyncNotice = (text: string) => { if (syncNotice.textContent !== text) syncNotice.textContent = text; };
   const approvals = el('div', 'agent-approvals');
   const controls = el('div', 'agent-controls');
   const stop = button('Stop', 'Ask Hermes to stop this run', async () => {
@@ -480,7 +488,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   recovery.append(el('summary','','Submission receipt and recovery'),button('Inspect submission receipt','Read the durable submission receipt without resending',async()=>{try{const result=await api({action:'submission_status'});receiptHash=typeof result.payload_hash==='string'?result.payload_hash:'';receiptView.textContent=JSON.stringify(result,null,2);}catch(error){showError(error);}}),receiptView,recoveryLabel,button('Acknowledge unknown submission','Clear only the exact investigated unknown submission; never replay it',async()=>{if(!receiptHash||!investigated.checked)return;try{receiptView.textContent=JSON.stringify(await api({action:'acknowledge_submission_unknown',payload_hash:receiptHash,upstream_investigated:true}),null,2);receiptHash='';investigated.checked=false;}catch(error){showError(error);}}));
   const settings = el('div', 'agent-settings');
   const titleSettings = el('div', 'agent-settings-row'); titleSettings.append(titleInput, rename, colorInput);
-  settings.append(el('h3', '', 'Conversation'), titleSettings, newChat, notificationButton,
+  settings.append(el('h3', '', 'Conversation'), titleSettings, notificationButton,
     el('h3', '', 'Profile and session'), bindingControls, workspaceAgents, notice);
   inspector.register('settings', 'Settings', settings);
   const troubleshooting = el('div', 'agent-troubleshooting'); troubleshooting.append(status, recovery);
@@ -575,14 +583,18 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     // pane's Workbench task (or its outcome is unknown) this pane must not send
     // or drain, unless this pane's own normal run owns the current state.
     const blocked = laneBlocked();
-    send.disabled = busy || switching || sharing || blocked; newChat.disabled = switchBlocked();
+    send.disabled = busy || switching || !bindingReady || blocked;
+    newChat.disabled = switchBlocked() || !getToken();
+    historyRecovery.disabled = newChat.disabled;
+    newChat.title = !getToken() ? 'Connect host to start a new chat' : !bindingReady ? 'Connecting this conversation to the host' : switchBlocked() ? 'Finish pending work, approvals and queued messages before starting a new chat' : 'Start a separate Hermes conversation';
     profileSelect.disabled = switchBlocked() || !getToken() || !metadataReady;
     sessionSelect.disabled = switchBlocked() || !getToken() || !sessionsReady;
     applyBinding.disabled = switchBlocked() || !getToken() || !metadataReady || !sessionsReady;
     refreshBindings.disabled = switchBlocked() || !getToken();
     refreshBindings.title = getToken() ? 'Load available Hermes profiles and sessions' : 'Connect host first to load profiles';
-    send.textContent = state.run ? 'Queue' : 'Send';
-    send.title = blocked ? laneReason() || 'Shared agent lane is busy.' : state.run ? 'Queue message after the current turn' : 'Send message to Hermes';
+    const sendLabel = state.run ? 'Queue' : 'Send';
+    if (send.textContent !== sendLabel) send.textContent = sendLabel;
+    send.title = !bindingReady ? 'Connect host and wait for this conversation to link' : blocked ? laneReason() || 'Shared agent lane is busy.' : state.run ? 'Queue message after the current turn' : 'Send message to Hermes';
     drainButton.disabled = blocked;
     stop.hidden = !state.run; resume.hidden = !state.run; steer.hidden = !state.run;
     // Allow composing the next message while Hermes works; Send remains disabled.
@@ -727,11 +739,13 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     sizeComposer();
     update();
   }
-  async function api(payload: Record<string, unknown>, requested = scope()) {
+  async function api(payload: Record<string, unknown>, requested = scope(), passive = false) {
     if (!current(requested)) throw new StaleRequest();
     const token = getToken();
     if (!token) throw Error('Use “Connect host” in the top bar first.');
-    pending++; update();
+    // Foreground operations supersede any earlier shared-state snapshot, even
+    // when the operation finishes before that snapshot's response arrives.
+    if (!passive) { sharedEpoch++; pending++; update(); }
     try {
     const response = await fetch('/api/agent', {
       method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -748,12 +762,13 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     } catch (error) {
       if (!current(requested)) throw new StaleRequest();
       throw error;
-    } finally { pending--; if (!disposed) update(); }
+    } finally { if (!passive) { pending--; if (!disposed) update(); } }
   }
   function showError(error: unknown) {
     if (disposed || error instanceof StaleRequest) return;
     status.textContent = 'ATTENTION';
     progress.textContent = error instanceof Error ? error.message : 'Connection failed.';
+    historyRecovery.hidden = !/Conversation history is unavailable/.test(progress.textContent);
     update();
   }
   function schedule() {
@@ -801,11 +816,13 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   }
   async function submit(queuedText?: string) {
     const text = queuedText ?? input.value.trim();
-    if (!text || busy || disposed || switching || sharing) return;
+    if (!text || busy || disposed || switching) return;
+    if (!bindingReady) { showError(Error('Connect host and wait for this conversation to link. Your draft is preserved.')); return; }
     // Explicit guard before any queue or draft mutation: the Enter path must not
     // dispatch into a shared lane held by another pane's Workbench task.
     if (laneBlocked()) { showError(new Error(laneReason() || 'Shared agent lane is busy.')); return; }
     const requested = scope();
+    sharedEpoch++;
     if (state.run) {
       if (queuedText) return;
       if ((state.queue?.length || 0) >= 20) { showError(Error('Queue is full (20 messages).')); return; }
@@ -818,6 +835,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     try {
       await ensureWorkspaceSynced();
       const data = await api({ action: 'start', input: text }, requested);
+      historyRecovery.hidden = true;
       state.run = data.run_id;
       if (queuedText) state.queue?.shift();
       state.messages.push({ role: 'user', text });
@@ -847,7 +865,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   form.append(input, workbenchTask, send);
   form.onsubmit = e => { e.preventDefault(); void submit(); };
   input.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); void submit(); } };
-  chatNormal.append(strip, inlineTools.root, messages, taskCards, progress, approvals, unknownAction, controls, queueList, form);
+  chatNormal.append(strip, inlineTools.root, messages, taskCards, syncNotice, progress, historyRecovery, approvals, unknownAction, controls, queueList, form);
   body.append(chatNormal, workbenchHost);
   if (toolbar) {
     toolbar.classList.add('agent-pane-head');
@@ -862,12 +880,13 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   setMode(paneMode, false);
   async function syncShared() {
     if (sharing || switching || pending || busy || polling || disposed || !getToken()) return;
-    const requested = scope();
-    sharing = true; update();
+    const requested = scope(), epoch = sharedEpoch;
+    sharing = true;
+    if (!bindingReady) setSyncNotice('Connecting conversation…');
     try {
       await ensureWorkspaceSynced();
-      const data = await api({action:'shared_chat', ...(document.documentElement.dataset.mobile === 'true' ? {} : {initial:state})}, requested);
-      if (disposed || busy || polling) return;
+      const data = await api({action:'shared_chat', ...(document.documentElement.dataset.mobile === 'true' ? {} : {initial:state})}, requested, true);
+      if (!current(requested) || epoch !== sharedEpoch || busy || polling || switching) return;
       // Optional global lane signal carried by the existing shared_chat read.
       // No extra polling loop and no upstream call: an absent field (older
       // backend or test mock) is not treated as idle-confirmation and does not
@@ -881,8 +900,10 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
         sharedLanePresent = true;
         recomputeLane();
       }
-      if (!data.state) { progress.textContent = 'Open this chat on the desktop and reload once to link its existing conversation.'; return; }
+      if (!data.state) { setSyncNotice('Open this chat on the desktop and reload once to link its existing conversation. Your draft is preserved.'); return; }
       if (validChat(data.state)) {
+        bindingReady = Number.isSafeInteger(data.state.binding_revision);
+        setSyncNotice(bindingReady ? '' : 'This backend did not supply a conversation revision. Reconnect to a supported host.');
         const next = data.state as ChatState;
         if (chatBindingKey(next) !== chatBindingKey(state) && (state.run || state.queue?.length)) {
           showError(Error('This pane changed binding elsewhere while a run or queue was pending. Finish or remove pending work before refreshing.')); return;
@@ -898,7 +919,11 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
         }
         if (!catalogRequested) void loadProfiles();
       } else throw Error('The backend returned an invalid chat binding. The current conversation is preserved.');
-    } catch (e) { showError(e); } finally { sharing = false; if (!disposed) update(); }
+    } catch (e) {
+      if (current(requested) && epoch === sharedEpoch && !(e instanceof StaleRequest)) {
+        setSyncNotice(bindingReady ? 'Conversation refresh unavailable. Your draft is saved; sending still checks the current conversation with the host.' : 'Could not link this conversation. Check the host connection; your draft is preserved.');
+      }
+    } finally { sharing = false; if (!disposed) update(); }
   }
   function acceptState(next: ChatState) {
     const changed = chatBindingKey(next) !== chatBindingKey(state) || next.binding_revision !== state.binding_revision;
@@ -910,7 +935,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     state = next;
     if (changed) {
       workbench?.invalidateBinding();
-      loadDraft(); resetBindingControls(); status.textContent = state.run ? 'WORKING' : 'READY'; progress.textContent = '';
+      loadDraft(); resetBindingControls(); status.textContent = state.run ? 'WORKING' : 'READY'; progress.textContent = ''; historyRecovery.hidden = true;
       // A binding change resets the shared timeline (Normal feed and idle Workbench scope).
       normalLive.reset(chatBindingKey(state));
     }
@@ -920,7 +945,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     if (switchBlocked()) { showError(Error('Wait for pending work, approvals, and queued messages before switching.')); return; }
     if (!Number.isSafeInteger(state.binding_revision)) { showError(Error('Session switching is unsupported until the backend supplies an authoritative binding revision. Refresh the connection first.')); return; }
     const requested = scope();
-    switching = true; update();
+    switching = true; sharedEpoch++; update();
     try {
       const data = await api({action:'select_session',target_profile_id:targetProfile,...(targetSession ? {target_session_id:targetSession} : {}),expected_binding_revision:requested.revision}, requested);
       if (!validChat(data.state) || !Number.isSafeInteger(data.state.binding_revision) || chatProfileId(data.state) !== targetProfile || (targetSession && data.state.session !== targetSession)) throw Error('Session switching is unsupported: the backend did not return the requested authoritative binding. Refresh before any further actions.');

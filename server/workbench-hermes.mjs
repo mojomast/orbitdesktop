@@ -131,17 +131,19 @@ export function createWorkbenchHermes({ configuration, shared, locks, upstreamFo
     // (input + instructions + bounded history) stays within the 1 MiB record budget.
     if (!validSessionId(args.session_id) || typeof args.profile_id !== 'string' || typeof args.input !== 'string' || !args.input.trim() || args.input.length > 1048576) throw wbError('invalid_request');
   }
-  async function prepareSubmission(args, trustedInstructions = instructions) {
+  async function prepareSubmission(args, trustedInstructions = instructions, allowConcurrent) {
     configured();
     if (typeof trustedInstructions !== 'string' || Buffer.byteLength(trustedInstructions) > 512 * 1024) throw wbError('limit_exceeded');
     validateInput(args);
     const expected = { binding_revision: args.expected_binding_revision, config_generation: args.expected_config_generation };
     let { current, profile } = exact(args, expected);
     available(profile);
-    // Refuse to prepare while any ordinary run exists anywhere in the shared
+    // Workbench refuses to prepare while any ordinary run exists anywhere in the shared
     // records (or this pane already has a run/marker); no parallel runtime.
+    // Normal's trusted caller may admit only independently receipted ordinary
+    // conversations. This callback never comes from a request body.
     if (current.run) throw wbError('busy');
-    if (typeof shared.anyActive === 'function' && shared.anyActive(args.workspace_id, args.pane_id)) throw wbError('busy');
+    if (typeof shared.anyActive === 'function' && shared.anyActive(args.workspace_id, args.pane_id, allowConcurrent)) throw wbError('busy');
     const caps = await capabilities(profile);
     exact(args, expected); // revalidate the binding after the capability await
     const payload = { input: args.input, session_id: args.session_id, instructions: trustedInstructions };
@@ -183,7 +185,7 @@ export function createWorkbenchHermes({ configuration, shared, locks, upstreamFo
     const latest = exact(args, expected);
     return { recipient: latest.recipient, caps, payload };
   }
-  async function dispatchExact(args) {
+  async function dispatchExact(args, allowConcurrent) {
     configured();
     const payload = args.payload;
     if (!payload || typeof payload !== 'object' || Array.isArray(payload) || typeof payload.input !== 'string' || !payload.input.trim()) throw wbError('invalid_request');
@@ -198,7 +200,7 @@ export function createWorkbenchHermes({ configuration, shared, locks, upstreamFo
       const next = exact(args, expected);
       const marker = next.current.workbench_pending;
       if (next.current.run || (marker && marker !== owned) || shared.hasActive(profile.id, args.session_id, args.workspace_id, args.pane_id) ||
-          (typeof shared.anyActive === 'function' && shared.anyActive(args.workspace_id, args.pane_id))) throw wbError('busy');
+           (typeof shared.anyActive === 'function' && shared.anyActive(args.workspace_id, args.pane_id, allowConcurrent))) throw wbError('busy');
       return next.current;
     };
     if (pending.has(paneKey) || locks.has(lock) || locks.has(paneLock)) throw wbError('busy');

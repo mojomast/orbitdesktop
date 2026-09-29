@@ -109,7 +109,8 @@ const themesButton = button('Themes', 'Choose workspace theme', async () => {
  showThemes(()=>sessionToken, (patch,resetKeys=[]) => {const appearance={...state.appearance};for(const key of resetKeys)delete appearance[key];state.appearance={...appearance,...patch};applyAppearance(state);save();},()=>state.appearance??{});
 });
 const orbitToolbar = el('div', 'orbit-toolbar');
-top.append(brand, orbitToolbar, saved, hostStatus);
+const dockingToolbarHost = el('div', 'docking-toolbar-host');
+top.append(brand, orbitToolbar, saved, dockingToolbarHost, hostStatus);
 const shell = el("main", "shell"),
   work = el("section", "workspace"),
   stage = el("div", "stage");
@@ -1324,7 +1325,7 @@ if (dockingRequested(location.search)) {
   const beginPlacementGesture = (event: Event) => {
     const target = event.target;
     if (!event.isTrusted || applyingRemote || !(target instanceof Element) ||
-        !target.closest('.docking-root') || target.closest('.docking-surfaces')) return;
+        !target.closest('.docking-root, .docking-toolbar') || target.closest('.docking-surfaces')) return;
     dockingPlacementGesture++;
     dockingPlacementAllowed = true;
   };
@@ -1337,16 +1338,19 @@ if (dockingRequested(location.search)) {
       if (generation === dockingPlacementGesture) dockingPlacementAllowed = false;
     }));
   };
-  desktopHost.addEventListener('pointerdown', beginPlacementGesture, true);
-  for (const type of ['click', 'keydown']) desktopHost.addEventListener(type, event => {
-    beginPlacementGesture(event);
-    endPlacementGesture();
-  }, true);
+  for (const host of [desktopHost, dockingToolbarHost]) {
+    host.addEventListener('pointerdown', beginPlacementGesture, true);
+    for (const type of ['click', 'keydown']) host.addEventListener(type, event => {
+      beginPlacementGesture(event);
+      endPlacementGesture();
+    }, true);
+  }
   window.addEventListener('pointerup', endPlacementGesture, true);
   window.addEventListener('pointercancel', cancelDockingPlacementGesture, true);
   window.addEventListener('blur', cancelDockingPlacementGesture);
   installDockingRenderer({
     host: desktopHost,
+    toolbarHost: dockingToolbarHost,
     getState: () => state,
     onSelect: choose,
     onError: message => notify(`Docking renderer: ${message}`),

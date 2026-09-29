@@ -553,7 +553,7 @@ test('ordinary chat start is fenced while the workbench agent lane is held',asyn
   const body={action:'start',workspace_id,pane_id,profile_id:'default',session_id,expected_binding_revision:0,input:'hi'};
   const blocked=await send(body);
   assert.equal(blocked.status,409);
-  assert.match(String(blocked.body.error),/agent lane/i); // the lane fence fires before starting
+  assert.match(String(blocked.body.error),/shared execution lane/i); // the lane fence fires before starting
   busy=false;
   const free=await send(body);
   assert.notEqual(free.status,409); // past the lane fence; upstream is unreachable (502), not a lane denial

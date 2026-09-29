@@ -149,11 +149,27 @@ def audit_idle(page, inspector_screenshot):
     expect(pane.get_by_role('button', name='Workbench Hermes mode', exact=True)).to_be_visible()
     metrics = pane.evaluate('''root => {
       const h = s => root.querySelector(s).getBoundingClientRect().height;
-      return {header:h('.pane-head'), composer:h('.chat-form'), conversation:h('.chat-messages'), body:h('.chat-body')};
+      const composer = root.querySelector('.chat-form').getBoundingClientRect();
+      return {header:h('.pane-head'), composer:h('.chat-form'), conversation:h('.chat-messages'), body:h('.chat-body'),
+        composerBottom:composer.bottom, composerTop:composer.top, viewportHeight:innerHeight};
     }''')
     assert metrics['header'] <= 52, metrics
     assert 64 <= metrics['composer'] <= 96, metrics
     assert metrics['conversation'] > metrics['body'] / 2, metrics
+    assert 0 <= metrics['composerTop'] < metrics['composerBottom'] <= metrics['viewportHeight'], metrics
+    expect(pane.get_by_role('button', name='Start a separate Hermes conversation', exact=True)).to_be_visible()
+    expect(pane.get_by_role('button', name='Open recent Hermes conversations', exact=True)).to_be_visible()
+    if page.locator('html').get_attribute('data-docking-renderer') == 'docking':
+        toggle = page.get_by_label('Docking layout controls', exact=True)
+        expect(page.locator('.topbar .docking-controls')).to_have_count(1)
+        expect(page.locator('.docking-root .docking-toolbar')).to_have_count(0)
+        toggle.click()
+        toolbar = page.get_by_role('toolbar', name='Docking layout', exact=True)
+        expect(toolbar).to_be_visible()
+        toolbar.get_by_label('Docking window', exact=True).focus()
+        page.keyboard.press('Escape')
+        expect(toolbar).to_be_hidden()
+        expect(toggle).to_be_focused()
     inspector = page.locator(f'.agent-inspector[data-pane-id="{PANE}"]')
     for selector in ('.agent-binding-controls', '.alt-toolbar', '.agent-submission-recovery'):
         for node in inspector.locator(selector).all(): expect(node).to_be_hidden()

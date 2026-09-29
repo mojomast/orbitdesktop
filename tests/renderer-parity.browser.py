@@ -418,6 +418,7 @@ def main():
                         if renderer == "docking":
                             # Docking-only placement transition: tab a window into another group
                             # and prove no runtime is disposed and v1 is untouched (placement is an adjunct).
+                            page.get_by_label('Docking layout controls', exact=True).click()
                             toolbar = page.get_by_role("toolbar", name="Docking layout", exact=True)
                             toolbar.get_by_role("combobox", name="Docking window", exact=True).select_option(windows[1])
                             toolbar.get_by_role("combobox", name="Docking target", exact=True).select_option(windows[0])

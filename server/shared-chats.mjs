@@ -41,14 +41,14 @@ export function createSharedChats(directory) {
   // Any other pane carrying an active run or an unresolved Workbench submission
   // fences a new Workbench dispatch (single runtime lane for this milestone).
   // The caller's own pane is excluded so an owned marker cannot self-fence.
-  function anyActive(exceptWorkspace, exceptPane) {
+  function anyActive(exceptWorkspace, exceptPane, allowConcurrent) {
     const files = fs.readdirSync(directory).filter(name => uuid.test(name.slice(0,36)) && name.endsWith('.json'));
     if (files.length > 10000) return true;
     for (const name of files) {
       if (name === `${exceptWorkspace}.${exceptPane}.json`) continue;
       try {
         const state = JSON.parse(fs.readFileSync(path.join(directory,name),'utf8'));
-        if (state.run || state.workbench_pending) return true;
+        if ((state.run || state.workbench_pending) && !allowConcurrent?.(state,name.slice(0,36),name.slice(37,73))) return true;
       } catch { return true; }
     }
     return false;

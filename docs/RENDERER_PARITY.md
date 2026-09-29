@@ -34,7 +34,12 @@ the restored frame coordinates match on **both** renderers
 Screenshots are written to
 `/tmp/opencode/orbit-renderer-parity-{default,docking}.png` (never in Git).
 
-## Final results
+## Historical implementation results
+
+The measurements below belong to the original implementation build. See
+[Release readiness](RELEASE_READINESS_PLAN.md#assessment-evidence) for the fresh
+2026-09-28 run at `3a0262a`, and [Renderer comparison](RENDERER_COMPARISON.md) for
+the owner walkthrough. Continuity parity does not certify overall UX quality.
 
 Measured against the final build — `dist/index.html` sha256
 `dc62f47d8dc59c798d2c032b38a98882e3838b8e208de15476d3aa5fa3e5d3ed`, identical

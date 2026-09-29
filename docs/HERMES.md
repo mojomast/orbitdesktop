@@ -49,7 +49,8 @@ Live verification: `tests/browser-hermes-runtime-live.py` starts a real harmless
 
 ## Tools menu, history, and drafts
 
-The `⋯` button beside the composer opens Hermes tools without adding another header row.
+The agent header's `⋯` menu opens conversation settings, activity and troubleshooting.
+The visible History action above the conversation opens Hermes tools and recent conversations.
 
 - **Recent conversations:** New chat retains the previous completed conversation. Up to ten are kept per pane in this browser tab. Restore switches back to its original Hermes session, preserving server-side follow-up context. Switching is blocked during an active run.
 - **Draft recovery:** Unsent text survives reloads in the same tab. You can compose the next message while a run is active; Send remains disabled until that run ends. Drafts are not automatically queued or submitted.
@@ -124,6 +125,24 @@ This allows a first message before Hermes has created its upstream session.
 The creation request cannot reclassify an existing legacy binding or discard
 cached history. Existing missing-history conversations still require explicit
 New chat; their content is never silently treated as empty.
+
+In Normal mode, **New chat** and **History** are visible above the conversation,
+beside **Show tools**. New chat switches the current pane to a separate conversation;
+History opens recent conversations for restoring an earlier thread and its draft.
+Profile/session configuration remains under **⋯ → Conversation settings**.
+Background conversation refreshes do not disable Send or New chat. Initial linking,
+real submissions, pending work and explicit conversation switches remain distinct
+states; stale server bindings reject sends while retaining the draft.
+
+Separate Normal conversations can run at the same time, subject to the configured
+Hermes gateway's concurrency limit. Another pane's active run is admitted only
+when its durable ordinary-submission receipt confirms the exact accepted run,
+conversation, binding and unchanged profile configuration. That recognition
+survives an Orbit restart. Duplicate turns in the same profile/session remain
+blocked, as do Workbench/managed-job work, unreceipted legacy runs and uncertain
+submission outcomes. Submission preparation/dispatch remains serialized locally;
+once Hermes accepts a Normal turn, an independent conversation may start while it
+is still running. Busy upstream responses are not automatically retried.
 
 The browser retains the most recent 100 displayed messages and active run ID in sessionStorage. Reloading requires unlocking again, then polling resumes. New chat starts a separate conversation but does not delete Hermes's saved history. Closing the tab or pane is not cancellation; use Stop. Stop is cooperative and cannot undo actions already performed. Replies appear after the turn completes; token streaming and file/image attachments are not implemented in this version.
 

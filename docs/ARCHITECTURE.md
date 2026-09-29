@@ -73,6 +73,14 @@ Exact prepared Hermes payloads are durable before POST; unknown outcomes are not
 replayed. Candidate checks use approved private copies and recorder results, not
 completion markers. Worktrees and owner-UID processes are not sandboxes; reusable
 runtime tools stay blocked pending authenticated request-scope binding.
+
+Normal chat may overlap independently receipted accepted conversations. Its trusted
+adapter caller supplies a cross-conversation admission predicate that validates
+the other run's private receipt, binding and current profile fingerprint; this
+predicate is never accepted from a browser or model request. Workbench retains
+global exclusion. Preparation/dispatch uses the existing local gate, while active
+Normal runs remain durably recoverable after restart. Same-session and unknown
+outcome fences remain separate from background UI synchronization.
 Schema 7 adds bounded native task grants and authenticated private tool calls.
 Schema 8 adds private result receipts, explicit conversation-card deliveries and
 review-bound patch records. The pinned native Hermes adapter receives its packet

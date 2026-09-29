@@ -34,6 +34,7 @@ export interface DockingController {
 
 export interface DockingOptions {
   host: HTMLElement;
+  toolbarHost?: HTMLElement;
   getState: () => Workspace;
   onSelect: (id: string) => void;
   onError: (message: string) => void;
@@ -92,12 +93,22 @@ export async function installDockingRenderer(options: DockingOptions): Promise<D
   status.dataset.dockingStatus = '';
   status.setAttribute('role', 'status');
   toolbar.append(status);
+  const controls = document.createElement('details');
+  controls.className = 'docking-controls';
+  const toggle = document.createElement('summary');
+  toggle.textContent = 'Docking';
+  toggle.setAttribute('aria-label', 'Docking layout controls');
+  controls.append(toggle, toolbar);
+  controls.addEventListener('keydown', event => {
+    if (event.key === 'Escape') { controls.open = false; toggle.focus(); event.stopPropagation(); }
+  });
   const grid = document.createElement('div');
   grid.className = 'docking-grid';
   const surfaces = document.createElement('div');
   surfaces.className = 'docking-surfaces';
-  root.append(toolbar, grid, surfaces);
+  root.append(grid, surfaces);
   options.host.append(root);
+  (options.toolbarHost ?? options.host).append(controls);
 
   const placeholders = new Map<string, HTMLElement>();
   const dock = createDockview(grid, {
@@ -259,7 +270,6 @@ export async function installDockingRenderer(options: DockingOptions): Promise<D
 
   function layout(): void {
     if (disposed) return;
-    root.style.setProperty('--docking-toolbar-height', `${toolbar.offsetHeight}px`);
     const width = grid.clientWidth, height = grid.clientHeight;
     if (width > 0 && height > 0) dock.layout(width, height);
     placeCurrent();
@@ -357,6 +367,7 @@ export async function installDockingRenderer(options: DockingOptions): Promise<D
         }
       }
       dock.dispose();
+      controls.remove();
       root.remove();
       if (Reflect.get(window, '__orbitDocking') === diagnostic) Reflect.deleteProperty(window, '__orbitDocking');
       if (document.documentElement.dataset.dockingRenderer === 'docking') delete document.documentElement.dataset.dockingRenderer;

@@ -1,5 +1,9 @@
 # Optional docking placement (off by default)
 
+For a plain-language comparison and owner walkthrough, start with
+[Desktop or Docking](RENDERER_COMPARISON.md). Current release planning and fresh
+acceptance evidence are in [Release readiness](RELEASE_READINESS_PLAN.md).
+
 Status: opt-in experimental renderer. It is **not** the default workspace
 renderer, it does not change the v1 layout schema, and it grants no new
 permission or private-data path. Use it only by explicitly opting in from a local
@@ -70,6 +74,12 @@ http://127.0.0.1:<port>/?renderer=docking
 `.docking-toolbar` exposes native, focusable, labeled controls (no Dockview
 Enterprise feature):
 
+Open **Docking** in the top Orbit bar beside the host connection button. Its
+compact disclosure contains all arrangement controls; it no longer takes a row
+away from the desktop grid. Escape closes the disclosure and returns focus to
+Docking. In full-viewport mode, the Docking toggle remains at the upper right
+while the other workspace chrome stays hidden.
+
 | Control (accessible name) | Effect |
 | --- | --- |
 | `Docking window` select | chooses the window the commands act on |
@@ -108,7 +118,7 @@ silently close a pane.
 - Closing a pane or changing a browser URL still disposes/replaces that runtime;
   docking adds no way to preserve it.
 
-## Verification
+## Historical implementation verification
 
 Existing opt-in docking acceptance evidence (Chromium 145.0.7632.6, disposable
 runtime) predates versioned placement and is recorded in the handoff. For the

@@ -17,11 +17,19 @@ the cumulative changes, verified results, isolated test commands and remaining
 gates. Optional docking is off by default; this branch is not a live-runtime
 upgrade instruction.
 
-**Comet Project Workbench:** the normal workspace menu opens an owner-approved
-project inspector, exact one-shot context sharing, and supervised candidate checks
-with recorder evidence and human review. [Current capabilities and limits](docs/PROJECT_WORKBENCH.md)
-distinguish the working owner-mediated flow from pending native agent tools,
-automatic integration, and real-Hermes acceptance.
+**Comet Project Workbench:** describe a goal, review an editable brief and prepare
+a tracked task through [guided setup](docs/WORKBENCH_SETUP.md). Preparation is
+separate from approving execution. Project inspection, scoped context sharing,
+configured native workers, recorded candidate checks and human review have
+distinct authority boundaries. [Current capabilities and limits](docs/PROJECT_WORKBENCH.md)
+describe supported profiles and configuration; a working chat connection alone
+does not configure native Workbench execution.
+
+**Choosing a layout:** [Desktop and experimental Docking](docs/RENDERER_COMPARISON.md)
+arrange the same chats, terminals and apps in different ways. The default Desktop
+uses movable windows; opt-in Docking adds tiled panels and tab groups. See the
+[release readiness plan](docs/RELEASE_READINESS_PLAN.md) for the next release's
+owner walkthrough and merge gates.
 
 Local loopback operation does **not** require Tailscale. Ordinary HTTP(S) hosting
 and optional private tailnet access use the same application; see the

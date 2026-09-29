@@ -118,6 +118,7 @@ def main():
                             expect(page.locator('.saved')).to_contain_text('Workspace connected', timeout=15000)
 
                         unlock()
+                        page.get_by_label('Docking layout controls', exact=True).click()
                         toolbar = page.get_by_role('toolbar', name='Docking layout', exact=True)
                         terminal = page.locator(f'.pane[data-pane-id="{panes[2]}"]')
                         toolbar.get_by_role('combobox', name='Docking window').select_option(windows[2])
@@ -157,6 +158,7 @@ def main():
                         assert all(rect and rect['width'] > 0 for rect in column_rects), column_rects
                         page.reload(); unlock()
                         page.wait_for_function("() => document.documentElement.dataset.dockingRenderer === 'docking'")
+                        page.get_by_label('Docking layout controls', exact=True).click()
                         for _ in range(100):
                             restored_rects = [page.locator(f'.docking-placeholder[data-docking-window="{wid}"]').bounding_box() for wid in windows]
                             if all(rect and all(abs(rect[key] - column_rects[i][key]) <= 6 for key in ('x','y','width','height')) for i, rect in enumerate(restored_rects)): break
@@ -208,6 +210,7 @@ def main():
                         new_frame = page.frame_locator(f'.pane[data-pane-id="{panes[0]}"] iframe')
                         assert new_frame.locator('#document-nonce').inner_text() != nonce
                         assert new_frame.locator('#draft').input_value() == ''
+                        page.get_by_label('Docking layout controls', exact=True).click()
                         toolbar = page.get_by_role('toolbar', name='Docking layout', exact=True)
                         toolbar.get_by_role('combobox', name='Docking window').select_option(windows[2])
                         toolbar.get_by_role('button', name='Select window').click()
