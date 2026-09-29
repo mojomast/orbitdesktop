@@ -8,6 +8,8 @@ export function themePersonality(a:Workspace['appearance']):string {
  '#12345a':['paper','blueprint'], '#f6d84b':['paper','pop'],
  '#092535':['midnight','ocean'], '#12271f':['midnight','forest'],
  '#291b32':['midnight','plum'], '#302019':['midnight','ember'],
+ '#05060a':['midnight','deepfield'], '#f7edea':['paper','sakura'],
+ '#120a00':['classic','amber'],
  };
  const match=variants[a?.background?.toLowerCase()??''];
  return match&&match[0]===a?.theme?match[1]:a?.theme??'';
