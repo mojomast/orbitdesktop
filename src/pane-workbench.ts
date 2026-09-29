@@ -855,13 +855,15 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
     const actions = el('div', 'pane-workbench-detail-actions');
     const source = liveClient, requestController = new AbortController();
     let diffViewer: { element: HTMLElement; dispose(): void } | null = null;
-    let tailActive = false, tailTimer: ReturnType<typeof setTimeout> | undefined;
-    const stopTail = () => { tailActive = false; if (tailTimer !== undefined) clearTimeout(tailTimer); };
+    let selectedView: 'detail' | 'tail' = 'detail';
+    let tailActive = false, tailGeneration = 0, tailTimer: ReturnType<typeof setTimeout> | undefined;
+    const stopTail = () => { tailActive = false; tailGeneration++; if (tailTimer !== undefined) clearTimeout(tailTimer); tailTimer = undefined; };
     const updateTail = async () => {
       if (!source || source !== liveClient || !dialog.open || !tailActive) { stopTail(); return; }
+      const generation = tailGeneration;
       try {
         const tail = await source.tail(reference.id, requestController.signal);
-        if (!dialog.open || !tailActive) return;
+        if (!dialog.open || source !== liveClient || selectedView !== 'tail' || !tailActive || generation !== tailGeneration) return;
         content.replaceChildren(el('p', 'pane-workbench-tail-banner', `LIVE OUTPUT · UNVERIFIED · bounded ${unknown(tail.cap_bytes)}-byte tail · ${tail.truncated === true ? 'truncated' : 'not truncated'}. No progress or pass count is inferred from output.`));
         if (tail.available) {
           const pre = el('pre', 'workbench-result-text'); pre.textContent = String(tail.text ?? ''); content.append(pre);
@@ -871,14 +873,15 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
           if (tailButton) tailButton.textContent = 'Read retained output (unverified)';
         } else tailTimer = setTimeout(() => void updateTail(), 1000);
       } catch (reason) {
-        stopTail(); if (dialog.open) content.replaceChildren(el('p', '', `Output disconnected: ${reason instanceof Error ? reason.message : 'unavailable'}. No execution is retried.`));
+        if (!dialog.open || source !== liveClient || selectedView !== 'tail' || !tailActive || generation !== tailGeneration) return;
+        stopTail(); content.replaceChildren(el('p', '', `Output disconnected: ${reason instanceof Error ? reason.message : 'unavailable'}. No execution is retried.`));
         if (tailButton) tailButton.textContent = 'Retry output read (unverified)';
       }
     };
     const tailButton = reference.kind === 'job'
       ? button('Show live output (unverified)', 'Read a bounded unverified tail of the retained job log', () => {
         if (tailActive) { stopTail(); tailButton!.textContent = 'Resume live output (unverified)'; }
-        else { tailActive = true; tailButton!.textContent = 'Pause live output'; void updateTail(); }
+        else { selectedView = 'tail'; tailActive = true; tailGeneration++; tailButton!.textContent = 'Pause live output'; void updateTail(); }
       }, 'small-button')
       : null;
     actions.append(...(tailButton ? [tailButton] : []), button('Close', 'Close focused detail', () => dialog.close(), 'small-button'));
@@ -891,18 +894,18 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
       if (!source) { content.replaceChildren(el('p', '', 'Private activity scope is not connected. No content is substituted.')); return; }
       try {
         const detail = await source.detail(reference, requestController.signal);
-        if (dialog.open && !tailActive) {
+        if (dialog.open && source === liveClient && selectedView === 'detail') {
           if (detail.mode === 'candidate_generation_diff') {
             const data = candidateDiffFromDetail(detail, reference.kind === 'candidate' && typeof reference.generation === 'number' && typeof reference.hash === 'string'
               ? { candidate_id: reference.id, generation: reference.generation, candidate_hash: reference.hash } : undefined);
             const { createCandidateDiffViewer } = await import('./candidate-diff-viewer');
-            if (!dialog.open) return;
+            if (!dialog.open || source !== liveClient || selectedView !== 'detail') return;
             diffViewer = createCandidateDiffViewer(data, { title: 'Exact historical candidate transition', selectedPath: item.target });
             content.replaceChildren(diffViewer.element);
           } else content.replaceChildren(renderDetail(detail));
         }
       } catch (reason) {
-        if (dialog.open && !tailActive) content.replaceChildren(el('p', '', `Focused detail unavailable: ${reason instanceof Error ? reason.message : 'unavailable'}. No current content is substituted for the historical reference.`));
+        if (dialog.open && source === liveClient && selectedView === 'detail') content.replaceChildren(el('p', '', `Focused detail unavailable: ${reason instanceof Error ? reason.message : 'unavailable'}. No current content is substituted for the historical reference.`));
       }
     })();
   }

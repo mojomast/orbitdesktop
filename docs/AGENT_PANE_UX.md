@@ -56,6 +56,11 @@ handoff previews still use their existing server-validated records and immutable
 context captures. The Changes and Review surfaces retain the same exact historical
 diff component and independent recorder evidence.
 
+Selecting live or retained job output is a view choice independent of whether
+tail polling is active. Completion, pause or a read failure must not let a late
+initial detail response replace that chosen output. Superseded read responses are
+ignored; changing the view never reruns the job or changes its recorded verdict.
+
 Use **Task settings** for project/task selection and the nested candidate,
 attempt and result chooser. Exactly one explicitly selected option is a label;
 an unselected option still requires a deliberate choice. **Exact scope and runtime

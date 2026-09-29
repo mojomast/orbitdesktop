@@ -43,6 +43,11 @@ const workbench = mountPaneWorkbench({
   onError: error => errors.push(error), timeline,
 });
 window.race = {
+  openJob() {
+    workbench.openLiveReference({version: 1, id: 'job-event', at: 1,
+      authority: 'observed', category: 'checks', kind: 'job', summary: 'Check race',
+      status: 'completed', reference: {kind: 'job', id: 'job-race'}});
+  },
   invalidate() {
     // Match acceptState: install the authoritative binding before invalidating.
     binding = {profileId: 'default', sessionId: 'accepted-session', bindingRevision: 1};
@@ -103,7 +108,7 @@ def main():
                 except subprocess.TimeoutExpired:
                     server.kill()
                     server.wait(timeout=5)
-    print('PASS binding invalidation during panel import restores attempt activity at cursor zero; read-only, no reselection')
+    print('PASS binding invalidation and completed tail selection survive late detail success/error; read-only, no reselection')
 
 
 def run_browser(base):
@@ -132,7 +137,7 @@ def run_browser(base):
                  'reset_required': False, 'has_more': False, 'project_generation': 1,
                  'snapshot': {'scope': 'attempt', 'attempt_id': attempt['id']},
                  'lane': {'agent_busy': False, 'job_busy': False, 'unknown': False}}
-    requests, violations, page_errors, held_imports = [], [], [], []
+    requests, violations, page_errors, held_imports, held_details = [], [], [], [], []
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True, args=['--no-sandbox'])
         context = browser.new_context(service_workers='block')
@@ -166,6 +171,13 @@ def run_browser(base):
                     route.fulfill(status=200, json={
                         'ok': True, **live_page,
                         'events': [event] if payload.get('after_sequence', 0) == 0 else [],
+                    })
+                elif key == ('/api/workbench/live', 'detail'):
+                    held_details.append(route)
+                elif key == ('/api/workbench/live', 'tail'):
+                    route.fulfill(status=200, json={
+                        'ok': True, 'status': 'completed', 'available': True,
+                        'cap_bytes': 4096, 'truncated': False, 'text': 'TAIL-WINS',
                     })
                 elif key in replies:
                     route.fulfill(status=200, json={'ok': True, **replies[key]})
@@ -220,6 +232,31 @@ def run_browser(base):
             assert state['clicks'] == state['selections'] == 0, state
             assert state['prefs']['attemptId'] == attempt['id'], state
             assert not state['errors'] and not page_errors and not violations, (state, page_errors, violations)
+            # Hold the initial detail until the user-selected completed tail has
+            # stopped polling; neither a late success nor error may replace it.
+            for failed in (False, True):
+                page.evaluate('window.race.openJob()')
+                dialog = page.locator('dialog.pane-workbench-detail:open')
+                expect(dialog).to_be_visible()
+                deadline = time.monotonic() + 10
+                while not held_details and time.monotonic() < deadline:
+                    page.wait_for_timeout(10)
+                assert len(held_details) == 1, 'Initial detail read must be held'
+                dialog.get_by_role('button', name='Read a bounded unverified tail of the retained job log').click()
+                expect(dialog).to_contain_text('TAIL-WINS')
+                expect(dialog).to_contain_text('Output observation ended.')
+                with page.expect_event('requestfinished', predicate=lambda request: (
+                    request.post_data_json or {}).get('action') == 'detail'):
+                    held_details.pop().fulfill(status=200 if not failed else 503, json={
+                        'ok': not failed, 'mode': 'job_record', 'marker': 'LATE-DETAIL',
+                        'code': 'late_detail_error',
+                    })
+                page.evaluate('() => new Promise(resolve => setTimeout(resolve, 0))')
+                expect(dialog).to_contain_text('TAIL-WINS')
+                assert 'LATE-DETAIL' not in dialog.inner_text(), dialog.inner_text()
+                assert 'Focused detail unavailable' not in dialog.inner_text(), dialog.inner_text()
+                dialog.get_by_role('button', name='Close focused detail').click()
+            assert not violations and not page_errors, (violations, page_errors)
             page.evaluate('window.race.dispose()')
         finally:
             context.close()
