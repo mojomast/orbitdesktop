@@ -60,7 +60,7 @@ class CommandAdapters(unittest.TestCase):
         with self.assertRaises(ValueError): plugin.invoke(self.context, {"action": "read"})
         with self.assertRaises(ValueError): self.cli("read")
     def test_hermes_advertises_only_real_control_actions_and_reuses_explicit_checkpoint_key(self):
-        self.assertEqual(set(plugin.ACTIONS), {"read", "describe", "arrangement", "preview", "apply", "history", "checkpoint", "restore"})
+        self.assertEqual(set(plugin.ACTIONS), {"read", "describe", "arrangement", "workbench_setup", "preview", "apply", "history", "checkpoint", "restore"})
         payload = {"action": "checkpoint", "base_revision": 5, "label": "Known", "operation_id": "stable-key", "intent": "Reviewed checkpoint"}
         with mock.patch.object(plugin.urllib.request, "build_opener") as opener:
             opener.return_value.open.return_value = Response({"checkpoint": "fixture"})
