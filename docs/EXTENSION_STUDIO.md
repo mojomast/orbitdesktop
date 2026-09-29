@@ -73,8 +73,11 @@ pre-revocation backup is a security-state rollback requiring explicit reconcilia
 Older deployments need matching pre-upgrade backups in separate runtime directories;
 never lower `user_version`.
 
-This source increment does not deploy Studio. M3's schema-10 `orbit-a15d7eb` remains
-the separately verified live release until an authorized schema-11 rollout.
+Studio was initially source-only. The separately authorized goal-first rollout
+now includes it in schema-11 release `orbit-4fec70f`; existing layouts and plugin
+configuration were preserved. Deployment makes the Studio workflow available but
+does not install a timer into the owner's workspace. See
+[the rollout evidence](MILESTONE_GOAL_FIRST_WORKBENCH.md#deployment-record).
 
 ## Verification
 

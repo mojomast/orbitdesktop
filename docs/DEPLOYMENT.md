@@ -10,7 +10,11 @@ Goal-first setup additionally stores its bounded private journal in
 `workbench-setup/`; back it up with the Workbench database, candidate directories
 and execution journals. Preparation step receipts and setup launch identities
 must remain together. An unknown setup/start is not authorization to replay work.
-The deployed M3 release remains schema 10 until separately authorized activation.
+The authorized goal-first rollout now serves `orbit-4fec70f` on schema 11. It
+preserved all 41 existing tables, 20 conversation files and three tmux panes after
+a verified stopped-writer full backup. See the goal-first milestone deployment
+record for exact release/CI evidence. M3's schema-10 binary requires its matching
+pre-upgrade backup; pointer-only rollback is incompatible with schema 11.
 Packaging now defaults to schema maximum 11. Always pass the intended release's
 explicit compatibility range when packaging a historical branch or a narrow
 hotfix. Source validation is separate from activation. Coordinate all writers and

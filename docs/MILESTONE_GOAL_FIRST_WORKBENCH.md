@@ -106,9 +106,52 @@ preservation procedure; development tests use isolated fixtures.
 
 ## Delivery boundaries
 
-The implementation is in the local integration checkout. No owner-runtime
-activation or new paid-provider acceptance was performed. The guided profile is
+The implementation is published and deployed as recorded below. No new
+paid-provider acceptance was performed. The guided profile is
 limited to discoverable Node tests. Abrupt death during filesystem candidate
 materialization before its SQLite receipt remains an explicit inspection-required
 `prepare_unknown`, not an automatically replayed copy; see
 [setup recovery](WORKBENCH_SETUP.md#recovery-and-privacy).
+
+## Deployment record
+
+The owner authorized publication and rollout after the implementation milestone.
+Source commits are `69f2a6b` (feature), `abef23b` and `630be73` (browser/Python
+fixture updates), and `4fec70f` (retained-output response-ordering fix). The last
+fix has a held-response browser regression that fails against the preceding code.
+
+Exact deployed revision: `4fec70fb991e6d84ac14ac6d60646d0b9f84ba49`.
+
+- [Plugin CI](https://github.com/mojomast/orbitdesktop/actions/runs/36504345584):
+  passed.
+- [Workbench CI](https://github.com/mojomast/orbitdesktop/actions/runs/36504345634):
+  all seven suites and aggregate gate passed. The workspace job required one
+  same-head rerun after its own focus update conflicted with fixture setup;
+  assertions were retained. Earlier candidate failures are not green evidence.
+- Updated real live journeys passed on both renderers; complete Python CI batch,
+  build and portable archive parity passed locally.
+- Immutable release `orbit-4fec70f`, schema range 10–11, was rehearsed against a
+  separate private runtime/HOME/tmux namespace and browser contexts. Existing
+  rows were preserved; no owner credentials were used to start the rehearsal.
+- After excluding the one backend writer, a full private runtime/configuration
+  backup was verified by file inventory and a separate restore/migration.
+  Activation took **1.78 seconds**, preserving all **41 tables**, **20 conversation
+  files** byte-for-byte and **three tmux panes/process identities**. The unrelated
+  legacy backend remained unchanged.
+- Local and HTTPS health returned `orbit-4fec70f`, manifest integrity
+  `bdc694d7d93c583ed9abc6897d2d4f7575975f00dc2bb440663aab514abbc96a`.
+- Fresh unauthenticated browser contexts verified the deployed setup entry and
+  composer preservation in both renderers, with zero owner-workspace mutations.
+  This is not a claim that an already-open owner tab loaded the new JavaScript.
+
+Use the owner's existing configured HTTPS entry. Existing tabs require one reload
+to load the new frontend. The live service's provider settings were preserved:
+Normal chat remains configured, but native worker configuration is absent, so
+**Start work** reports that prerequisite. Guided briefs/task preparation and the
+first Node-test profile are available; no hosted model execution was authorized
+or performed as rollout acceptance.
+
+Private activation/backup receipt is retained with
+`orbit-main-next-goal-backup-2b0cfw86` outside Git. Rollback to M3 requires its
+matching schema-10 snapshot in a separate runtime; it cannot be a pointer-only
+change. Post-backup receipts and journals must be reconciled before restoration.

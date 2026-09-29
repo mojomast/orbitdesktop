@@ -435,6 +435,12 @@ This timing precedes the new Studio browser cases.
 
 ## M4 first profile: focus timer
 
+Deployment follow-on: the separately authorized goal-first release
+`orbit-4fec70f` now includes Studio and the inline-tool chat improvements.
+[Goal-first deployment evidence](MILESTONE_GOAL_FIRST_WORKBENCH.md#deployment-record)
+records the schema-11 backup/migration, exact-head CI and preserved owner data.
+The original implementation-only evidence below remains historical.
+
 The owner selected a finite local focus-timer generator as the first end-to-end
 Studio journey. See [the frozen profile/lifecycle contract](EXTENSION_STUDIO.md).
 This is template-backed generation, not Hermes-authored arbitrary code. Public
