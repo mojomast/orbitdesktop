@@ -213,6 +213,16 @@ imported exactly, with manifest provenance in commit `9d67906`, and merged into
 the chat/Docking candidate. The existing theme matrix now covers those additions;
 activation must preserve the currently deployed themes as well as owner runtime.
 
+Exact-head CI on the first chat/Docking candidate exposed newly created Review
+and project-tool bodies with no layout boxes in Docking. Reproduction isolated
+the move of an unlaid-out new monitor; fresh windows now mount directly into the
+connected Docking surface before panes are created. Existing-window movement
+still uses the continuity-preserving path. The real candidate-review and native
+result-review browser journeys pass with that fix. CI also found a controller
+fixture racing pending UI saves: the continuity fixture now waits for identical
+persisted state and browser acknowledgement before its next CAS mutation, without
+retrying a rejected write. Theme contract coverage expects all 19 presets.
+
 - Local `npm run check`: **774 passed, 0 failed, 8 optional skips**. Final isolated
   production build passed. Publisher: **6 passed**; portable plugin checks passed.
 

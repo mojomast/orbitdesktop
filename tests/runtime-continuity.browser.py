@@ -206,7 +206,18 @@ with tempfile.TemporaryDirectory(prefix="orbit-continuity-", dir="/tmp/opencode"
 
             verify("initial")
             def apply(label, *ops):
-                before = api("read")
+                # UI view/selection edits save asynchronously. Hand authority to
+                # the controller only after those edits are persisted and acked;
+                # a CAS failure is still a failure, never a blind replay.
+                deadline = time.monotonic() + 15
+                while time.monotonic() < deadline:
+                    before = api("read")
+                    local = page.evaluate("JSON.parse(localStorage.getItem('orbit.workspace.v1'))")
+                    if before['state'] == local and before.get('observed_revision', 0) >= before['revision']:
+                        break
+                    page.wait_for_timeout(100)
+                else:
+                    raise AssertionError(f"{label}: UI edits did not settle before controller mutation")
                 result = api("apply", control=True, base_revision=before["revision"], operations=list(ops))
                 expected = result["state"]
                 try:

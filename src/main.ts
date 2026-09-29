@@ -710,8 +710,11 @@ function renderMonitor(m: Monitor) {
       if (state.selected !== m.id) choose(m.id);
     }, true);
     monitors.set(m.id, outer);
-    // A fresh host is attached before any iframe or terminal view is created.
-    desktopHost.append(outer);
+    // Mount fresh windows in their final connected host before creating panes.
+    // Moving an unlaid-out subtree into Docking with moveBefore can leave new
+    // Review/tool bodies without layout boxes in Chromium. Existing windows
+    // still use connected moves to retain their live documents.
+    (docking?.surfaces ?? desktopHost).append(outer);
   }
   const bar = el("div", "monitor-bar");
   outer.style.opacity = String(m.opacity ?? 1);
