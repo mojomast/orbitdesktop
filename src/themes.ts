@@ -1,5 +1,6 @@
 import type {Workspace} from './model';
 import {themePersonality} from './theme-personality.ts';
+import {themeKeys} from './theme-tokens.ts';
 type Theme = NonNullable<Workspace['appearance']> & {name:string;description:string};
 export const themes:Theme[] = [
  {name:'Nous Atelier',description:'Ultramarine celestial engraving, the Nous girl seal, indexed research ribbon and marginalia chat.',theme:'midnight',background:'#11112b',textColor:'#f0eeff',accentColor:'#aba8ff',cornerRadius:2},
@@ -22,4 +23,13 @@ export const themes:Theme[] = [
 export function themePatch(name:string):NonNullable<Workspace['appearance']> {
  const theme=themes.find(t=>t.name===name);if(!theme)throw Error('Unknown workspace theme');
  const {name:_,description:__,...patch}=theme;return {...patch,wallpaper:`/wallpapers/${themePersonality(theme)}.svg`,wallpaperFit:'cover'};
+}
+
+// Explicit preset tokens belong to that preset, not to the owner's custom
+// overrides. Remove only unchanged preset defaults that the next preset omits.
+export function themeResetKeys(current:Workspace['appearance'],name:string):(keyof NonNullable<Workspace['appearance']>)[] {
+ const next=themePatch(name);
+ const previous=themes.find(theme=>themePersonality(theme)===themePersonality(current));
+ if(!current||!previous)return [];
+ return (themeKeys as (keyof NonNullable<Workspace['appearance']>)[]).filter(key=>key!=='theme'&&previous[key]!==undefined&&current[key]===previous[key]&&next[key]===undefined);
 }

@@ -4,6 +4,13 @@ Themes now style Orbit's parent UI rather than only the desktop background. Wind
 
 Themes cover window title bars and borders, taskbar, Start and layout menus, sidebar, dialogs, buttons, input controls and chat surfaces. They do not inject styles into sandboxed apps, third-party iframes, native apps or terminal contents. Owner-specific per-window transparency rules remain higher-priority exceptions.
 
+When switching presets, unchanged explicit chrome defaults belonging to the
+previous preset are removed if the next preset does not define them. For example,
+MS-DOS's blue panels and monospace override must not carry into Nous Atelier.
+Fields customized away from the previous preset's values remain owner overrides.
+`tests/theme-preset-switch.browser.py` verifies that transition, custom-border
+preservation and reload on both renderers.
+
 Agent operation example:
 
 ```json

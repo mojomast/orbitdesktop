@@ -154,6 +154,7 @@ jobs:
           PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
         run: |
           /tmp/opencode/orbit-workbench-venv/bin/python tests/theme-personalities.browser.py
+          /tmp/opencode/orbit-workbench-venv/bin/python tests/theme-preset-switch.browser.py
           /tmp/opencode/orbit-workbench-venv/bin/python tests/theme-icons.browser.py
       - name: Shared live timeline and persistent Hermes mode switching
         if: ${{ !cancelled() && matrix.suite == 'chat' && steps.browser_tools.outcome == 'success' }}

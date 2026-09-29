@@ -16,7 +16,7 @@ const listen = server => new Promise(resolve => server.listen(0,'127.0.0.1',reso
 const close = server => new Promise(resolve => { server.close(resolve); server.closeAllConnections(); });
 const reply = (res,status,body) => { res.writeHead(status,{'Content-Type':'application/json'}); res.end(JSON.stringify(body)); };
 
-async function setup(t, {lost = false, legacy = false, durable = false, messages = [{role:'user',content:'Earlier'},{role:'assistant',content:'Remembered'},{role:'system',content:'not context'}]} = {}) {
+async function setup(t, {lost = false, legacy = false, durable = false, initial = {}, messages = [{role:'user',content:'Earlier'},{role:'assistant',content:'Remembered'},{role:'system',content:'not context'}]} = {}) {
   const directory = fs.mkdtempSync('/tmp/opencode/ordinary-submission-');
   const calls = [];
   let runStatus = 'running', postFault;
@@ -56,7 +56,7 @@ async function setup(t, {lost = false, legacy = false, durable = false, messages
     const response = await fetch(`${origin}/api/agent`,{method:'POST',headers:{Origin:origin,Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({workspace_id,pane_id,session_id,profile_id:'default',expected_binding_revision:0,...body})});
     return {status:response.status,body:await response.json()};
   }
-  assert.equal((await request({action:'shared_chat',initial:{session:session_id,messages:[]}})).status,200);
+  assert.equal((await request({action:'shared_chat',initial:{session:session_id,messages:[],...initial}})).status,200);
   return {request,restart,calls,directory,setMessages:value=>{messages=value;},setStatus:value=>{runStatus=value;},setPostFault:value=>{postFault=value;}};
 }
 
@@ -157,12 +157,25 @@ test('malformed history and missing selected session never dispatch; fresh Orbit
 
 test('unmarked old empty Orbit binding and malformed successful rows fail before POST', async t => {
   const f = await setup(t,{messages:'missing'});
+  await f.request({action:'shared_chat',initial:{session:session_id,messages:[],create_new:true}});
   const absent = await f.request({action:'start',input:'Do not start a replacement thread'});
   assert.equal(absent.status,409);
   assert.match(absent.body.error,/Select New chat explicitly/);
   f.setMessages([{role:'user',content:42}]);
   assert.notEqual((await f.request({action:'start',input:'Do not silently omit malformed context'})).status,202);
   assert.equal(f.calls.filter(call=>call.url==='/v1/runs').length,0);
+});
+
+test('explicit fresh-pane creation admits first message after restart without reclassifying legacy history', async t => {
+ const f=await setup(t,{messages:'missing',initial:{create_new:true}});
+ f.restart();
+ const submitted=await f.request({action:'start',input:'First message in a newly created pane'});
+ assert.equal(submitted.status,202);
+ const posted=f.calls.filter(call=>call.url==='/v1/runs');assert.equal(posted.length,1);
+ assert.deepEqual(JSON.parse(posted[0].text).conversation_history,[]);
+ const cached=await setup(t,{messages:'missing',initial:{create_new:true,messages:[{role:'user',text:'Existing cached turn'}]}});
+ assert.equal((await cached.request({action:'start',input:'Must retain prior history'})).status,409);
+ assert.equal(cached.calls.filter(call=>call.url==='/v1/runs').length,0);
 });
 
 test('latest bounded raw page retains earlier conversation through tool-heavy turns and never splits Unicode', async t => {

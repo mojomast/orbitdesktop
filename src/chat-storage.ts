@@ -1,5 +1,5 @@
 export type Message = { role: 'user' | 'assistant'; text: string };
-export type ChatState = { session: string; profile_id?: string; binding_revision?: number; messages: Message[]; run?: string; title?: string; color?: string; queue?: string[] };
+export type ChatState = { session: string; profile_id?: string; binding_revision?: number; messages: Message[]; run?: string; title?: string; color?: string; queue?: string[]; create_new?: true };
 
 const SERVER_ID = /^[A-Za-z0-9_:-]{1,128}$/;
 const PROFILE_ID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -18,6 +18,7 @@ export function validChat(value: unknown): value is ChatState {
   return typeof s.session === 'string' && SERVER_ID.test(s.session) &&
     (s.profile_id === undefined || (typeof s.profile_id === 'string' && PROFILE_ID.test(s.profile_id))) &&
     (s.binding_revision === undefined || (Number.isSafeInteger(s.binding_revision) && s.binding_revision >= 0)) &&
+    (s.create_new === undefined || s.create_new === true) &&
     Array.isArray(s.messages) && s.messages.length <= 100 && s.messages.every(m => m && ['user', 'assistant'].includes(m.role) && typeof m.text === 'string');
 }
 export function archiveChat(list: ChatState[], state: ChatState): ChatState[] {

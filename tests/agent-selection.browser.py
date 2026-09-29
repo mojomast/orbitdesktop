@@ -24,10 +24,14 @@ class Gateway(BaseHTTPRequestHandler):
         assert self.headers['Authorization'] == 'Bearer fixture-' + profile
         body = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
         assert route == 'v1/runs', route
-        assert body['session_id'] == 'shared-session', body
-        assert body['input'] == 'Draft ' + profile, body
-        run = 'run_fixture_' + profile
-        runs[run] = {'run_id': run, 'session_id': body['session_id'], 'status': 'completed', 'output': 'New answer ' + profile}
+        fresh = body['input'] == 'First message from a fresh pane'
+        if fresh:
+            assert body['session_id'].startswith('orbit-') and body.get('conversation_history') == [], body
+        else:
+            assert body['session_id'] == 'shared-session', body
+            assert body['input'] == 'Draft ' + profile, body
+        run = 'run_fixture_' + ('fresh' if fresh else profile)
+        runs[run] = {'run_id': run, 'session_id': body['session_id'], 'status': 'completed', 'output': 'Fresh pane answer' if fresh else 'New answer ' + profile}
         calls.append((profile, route))
         self.send_response(202); self.send_header('Content-Type', 'application/json'); self.end_headers()
         self.wfile.write(json.dumps({'run_id': run, 'status': 'running'}).encode())
@@ -109,6 +113,12 @@ try:
                     assert workspace_connection.value.json()['state']['monitors'], 'Workspace connection returned no layout'
                     agents = [page.locator(f'article.monitor[data-monitor-id="{w}"]') for w in windows]
                     page.wait_for_function('(panes) => panes.every(id => Number.isSafeInteger(JSON.parse(sessionStorage.getItem(`orbit-hermes-chat:${id}`) || "{}").binding_revision))', arg=panes)
+                    # A newly mounted empty pane can send its first message even
+                    # though Hermes has no upstream session/history for it yet.
+                    # No extra New chat or transcript-reset action is required.
+                    agents[0].get_by_label('Message to Hermes', exact=True).fill('First message from a fresh pane')
+                    agents[0].get_by_role('button', name='Send message to Hermes', exact=True).click()
+                    expect(agents[0].get_by_label('Hermes conversation', exact=True)).to_contain_text('Fresh pane answer', timeout=15000)
                     def settings(index):
                         agent = agents[index]
                         agent.get_by_role('button', name='Agent pane menu', exact=True).click()

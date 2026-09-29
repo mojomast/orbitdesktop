@@ -106,7 +106,7 @@ const saved = el("span", "saved", "Saved locally");
 const sidebarToggle = button('Hide panel', 'Toggle side panel', () => { state.sidebarHidden = !state.sidebarHidden; applySidebar(); save(); });
 const themesButton = button('Themes', 'Choose workspace theme', async () => {
  const {showThemes}=await import('./theme-picker');
- showThemes(()=>sessionToken, patch => {state.appearance={...state.appearance,...patch};applyAppearance(state);save();},()=>state.appearance??{});
+ showThemes(()=>sessionToken, (patch,resetKeys=[]) => {const appearance={...state.appearance};for(const key of resetKeys)delete appearance[key];state.appearance={...appearance,...patch};applyAppearance(state);save();},()=>state.appearance??{});
 });
 const orbitToolbar = el('div', 'orbit-toolbar');
 top.append(brand, orbitToolbar, saved, hostStatus);

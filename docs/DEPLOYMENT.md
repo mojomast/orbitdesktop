@@ -220,6 +220,10 @@ dependency nor a required acceptance-test environment.
 1. Identify the exact runtime directory, current binary/source revision, database
    schema, immutable app bundles, and terminal provider/socket. Do not discover
    these by dumping credentials or personal transcripts into a report.
+   Inventory operator-local served bootstrap files as well. If the deployment
+   supplies `open-main.html`/`open-main.js`, preserve those exact files in the new
+   isolated dist before generating its release manifest. They are deployment
+   inputs, not generic repository assets; never patch an already hashed release.
 2. Obtain owner authorization and schedule writer exclusion. Stop **all** old
    Orbit writers before migration, not the tmux server. Account for PTY session
    preservation before stopping a service/container. A schema gate at startup

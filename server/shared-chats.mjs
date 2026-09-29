@@ -20,7 +20,11 @@ export function createSharedChats(directory) {
   function bind(workspace,pane,initial) {
     const current = read(workspace,pane); if(current) return current;
     if(!initial || !legacySession.test(initial.session) || (initial.profile_id && initial.profile_id !== 'default')) return null;
-    return write(workspace,pane,{session:initial.session, profile_id:'default',binding_revision:0,messages:(Array.isArray(initial.messages)?initial.messages:[]).filter(m=>['user','assistant'].includes(m.role)&&typeof m.text==='string').map(m=>({role:m.role,text:m.text.slice(0,16000)})).slice(-100), ...(typeof initial.run==='string'?{run:initial.run}:{}), title:typeof initial.title==='string'?initial.title.slice(0,100):undefined});
+    // The authenticated UI explicitly requests creation for a genuinely fresh
+    // pane. Never infer this for legacy cached bindings, or replace an existing
+    // durable binding. Only an empty, non-running initial request is eligible.
+    const creating=initial.create_new===true&&Array.isArray(initial.messages)&&initial.messages.length===0&&initial.run===undefined;
+    return write(workspace,pane,{session:initial.session, profile_id:'default',binding_revision:0,messages:(Array.isArray(initial.messages)?initial.messages:[]).filter(m=>['user','assistant'].includes(m.role)&&typeof m.text==='string').map(m=>({role:m.role,text:m.text.slice(0,16000)})).slice(-100), ...(creating?{history_unstarted:true}:{}), ...(typeof initial.run==='string'?{run:initial.run}:{}), title:typeof initial.title==='string'?initial.title.slice(0,100):undefined});
   }
   function hasActive(profile, session, exceptWorkspace, exceptPane) {
     const files = fs.readdirSync(directory).filter(name => uuid.test(name.slice(0,36)) && name.endsWith('.json'));

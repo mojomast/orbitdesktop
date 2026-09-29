@@ -35,7 +35,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     history = archiveChat(history, state);
     try { sessionStorage.setItem(archiveKey, JSON.stringify(history)); } catch { progress.textContent = 'Browser storage is full; export the conversation before closing.'; }
   }
-  const fresh = (): ChatState => ({ session: `orbit-${crypto.randomUUID()}`, messages: [] });
+  const fresh = (): ChatState => ({ session: `orbit-${crypto.randomUUID()}`, messages: [], create_new: true });
   let state = fresh();
   try {
     const saved = JSON.parse(sessionStorage.getItem(storageKey) || 'null');
