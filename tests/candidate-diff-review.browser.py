@@ -107,6 +107,8 @@ def journey(renderer, page, origin, token, project):
     expect(workbench).to_be_visible()
     workbench.locator('.pane-workbench-settings > summary').click()
     workbench.get_by_label('Workbench project').select_option(project_id)
+    expect(workbench.get_by_label('Workbench task', exact=True).locator(f'option[value="{task["id"]}"]')).to_have_count(1)
+    workbench.get_by_label('Workbench task', exact=True).select_option(task['id'])
     workbench.locator('.pane-workbench-identities > summary').click()
     expect(workbench.get_by_label('Workbench candidate').locator(f'option[value="{candidate["id"]}"]')).to_have_count(1)
     workbench.get_by_label('Workbench candidate').select_option(candidate['id'])
@@ -214,6 +216,7 @@ def journey(renderer, page, origin, token, project):
     if settings.get_attribute('open') is None:
         settings.locator(':scope > summary').click()
     expect(workbench.get_by_label('Workbench project')).to_have_value(project_id)
+    expect(workbench.get_by_label('Workbench task', exact=True)).to_have_value(task['id'])
     workbench.get_by_role('tab', name='Changes').click()
     current = next(entry for entry in api('', {'action': 'list', 'workspace_id': workspace})['projects'] if entry['id'] == project_id)
     revoked = api('', {**scope, 'action': 'revoke_project', 'base_generation': current['generation']})['project']

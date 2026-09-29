@@ -269,9 +269,13 @@ def main(renderer):
                         assert preview_text.get_attribute("readonly") is not None
                         preview = result("preview")
                         assert preview["text"] == SELECTED and preview["recipient"]["session_id"] == session
-                        dialog.get_by_text("Approve", exact=True).click()
+                        with page.expect_response(lambda response: response.url == origin + "/api/workbench/context"
+                                                  and response.request.post_data_json.get("action") == "approve") as approval_response:
+                            dialog.get_by_text("Approve", exact=True).click()
                         expect(dialog.locator(".workbench-context-approval")).to_contain_text("Single-use, expiring")
-                        approval = result("approve")
+                        assert approval_response.value.status == 200, approval_response.value.json()
+                        approval = approval_response.value.json()
+                        assert approval.get("ok") is True and approval.get("approval_id"), approval
                         with page.expect_response(lambda response: response.url == origin + "/api/workbench/context"
                                                   and response.request.post_data_json.get("action") == "share"):
                             dialog.get_by_text("Share once", exact=True).click()

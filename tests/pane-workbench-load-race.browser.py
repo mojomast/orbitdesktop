@@ -115,6 +115,7 @@ def run_browser(base):
     replies = {
         ('/api/workbench', 'list'): {'projects': [project], 'bindings': []},
         ('/api/workbench/execution', 'execution_state'): execution,
+        ('/api/workbench/setup', 'state'): {'projects': [project], 'suggestions': [], 'drafts': []},
         ('/api/workbench/context', 'list'): {'attempts': [attempt], 'contexts': []},
         ('/api/workbench/native', 'list'): {'grants': []},
         ('/api/workbench/native', 'cards_list'): {'cards': []},

@@ -160,8 +160,14 @@ def main(renderer):
                     page.keyboard.press("Escape")
                     page.get_by_role("button", name="Connect local host", exact=True).click()
                     page.get_by_role("textbox", name="Host session token").fill(token)
-                    page.get_by_role("button", name="Unlock local host", exact=True).click()
-                    expect(page.locator(".saved")).to_contain_text("Workspace connected", timeout=15000)
+                    # The transient ".saved" text can be overwritten by an
+                    # unrelated timer ("Saved locally"), so synchronize on the
+                    # exact successful workspace read/sync response instead.
+                    with page.expect_response(lambda response: response.url == origin + '/api/workspace'
+                                              and response.request.post_data_json.get('action') in ('read', 'sync')
+                                              and response.status == 200) as workspace_connection:
+                        page.get_by_role("button", name="Unlock local host", exact=True).click()
+                    assert workspace_connection.value.json()['state']['monitors'], 'Workspace connection returned no layout'
 
                     pane_locator = page.locator(f'.pane[data-pane-id="{pane}"]')
                     def open_settings(scope):
@@ -349,8 +355,11 @@ def main(renderer):
                         page.wait_for_function("() => document.documentElement.dataset.dockingRenderer === 'docking'")
                     page.get_by_role("button", name="Connect local host", exact=True).click()
                     page.get_by_role("textbox", name="Host session token").fill(token)
-                    page.get_by_role("button", name="Unlock local host", exact=True).click()
-                    expect(page.locator(".saved")).to_contain_text("Workspace connected", timeout=15000)
+                    with page.expect_response(lambda response: response.url == origin + '/api/workspace'
+                                              and response.request.post_data_json.get('action') in ('read', 'sync')
+                                              and response.status == 200) as workspace_reconnection:
+                        page.get_by_role("button", name="Unlock local host", exact=True).click()
+                    assert workspace_reconnection.value.json()['state']['monitors'], 'Workspace reconnection returned no layout'
                     pane_locator = page.locator(f'.pane[data-pane-id="{pane}"]')
                     expect(pane_locator.get_by_role("button", name="Workbench Hermes mode", exact=True)).to_have_attribute("aria-pressed", "true")
                     expect(pane_locator.locator(".agent-workbench-host")).to_be_visible()
@@ -670,13 +679,21 @@ def main(renderer):
                         page.wait_for_function("() => document.documentElement.dataset.dockingRenderer === 'docking'")
                     page.get_by_role("button", name="Connect local host", exact=True).click()
                     page.get_by_role("textbox", name="Host session token").fill(token)
-                    page.get_by_role("button", name="Unlock local host", exact=True).click()
-                    expect(page.locator(".saved")).to_contain_text("Workspace connected", timeout=15000)
+                    with page.expect_response(lambda response: response.url == origin + '/api/workspace'
+                                              and response.request.post_data_json.get('action') in ('read', 'sync')
+                                              and response.status == 200) as workspace_lane_reconnection:
+                        page.get_by_role("button", name="Unlock local host", exact=True).click()
+                    assert workspace_lane_reconnection.value.json()['state']['monitors'], 'Workspace lane reconnection returned no layout'
                     pane_locator = page.locator(f'.pane[data-pane-id="{pane}"]')
                     expect(pane_locator.get_by_role("button", name="Normal Hermes mode", exact=True)).to_have_attribute("aria-pressed", "true")
                     send_button = pane_locator.get_by_role("button", name="Send message to Hermes", exact=True)
                     expect(send_button).to_be_disabled(timeout=15000)
-                    workbench_status_text = pane_locator.get_by_role("button", name="Workbench Hermes mode", exact=True).inner_text()
+                    workbench_status = pane_locator.get_by_role("button", name="Workbench Hermes mode", exact=True)
+                    # The response-based unlock synchronization resolves before the
+                    # pane's injected shared-lane poll, so bound this literal-state
+                    # check instead of reading it immediately.
+                    expect(workbench_status).to_contain_text(re.compile("Lane busy|Execution outcome unknown"), timeout=15000)
+                    workbench_status_text = workbench_status.inner_text()
                     assert ("Lane busy" in workbench_status_text) or ("Execution outcome unknown" in workbench_status_text), workbench_status_text
                     expect(pane_locator.locator(".agent-mode-control")).to_have_attribute("data-lane", re.compile("busy|unknown"))
                     send_title = (send_button.get_attribute("title") or "").lower()
@@ -727,8 +744,11 @@ def main(renderer):
                     page.reload(wait_until='domcontentloaded')
                     page.get_by_role('button',name='Connect local host',exact=True).click()
                     page.get_by_role('textbox',name='Host session token').fill(token)
-                    page.get_by_role('button',name='Unlock local host',exact=True).click()
-                    expect(page.locator('.saved')).to_contain_text('Workspace connected',timeout=15000)
+                    with page.expect_response(lambda response: response.url == origin + '/api/workspace'
+                                              and response.request.post_data_json.get('action') in ('read', 'sync')
+                                              and response.status == 200) as workspace_separate_reconnection:
+                        page.get_by_role('button',name='Unlock local host',exact=True).click()
+                    assert workspace_separate_reconnection.value.json()['state']['monitors'], 'Workspace reconnection returned no layout'
                     expect(page.locator(f'[data-pane-id="{new_pane}"] .pane-workbench')).to_be_visible()
                     expect(page.locator(f'[data-pane-id="{pane}"]').get_by_label('Message to Hermes',exact=True)).to_have_value('NORMAL-ONLY separate window draft')
                     assert page.evaluate("ids => ids.map(id=>JSON.parse(sessionStorage.getItem('orbit-hermes-chat:'+id)).session)",[pane,new_pane]) == sessions

@@ -102,8 +102,11 @@ try:
                     page.goto(origin, wait_until='networkidle'); page.keyboard.press('Escape')
                     page.get_by_role('button', name='Connect local host', exact=True).click()
                     page.get_by_role('textbox', name='Host session token').fill(token)
-                    page.get_by_role('button', name='Unlock local host', exact=True).click()
-                    expect(page.locator('.saved')).to_contain_text('Workspace connected', timeout=15000)
+                    with page.expect_response(lambda response: response.url == origin + '/api/workspace'
+                                              and response.request.post_data_json.get('action') in ('read', 'sync')
+                                              and response.status == 200) as workspace_connection:
+                        page.get_by_role('button', name='Unlock local host', exact=True).click()
+                    assert workspace_connection.value.json()['state']['monitors'], 'Workspace connection returned no layout'
                     agents = [page.locator(f'article.monitor[data-monitor-id="{w}"]') for w in windows]
                     page.wait_for_function('(panes) => panes.every(id => Number.isSafeInteger(JSON.parse(sessionStorage.getItem(`orbit-hermes-chat:${id}`) || "{}").binding_revision))', arg=panes)
                     def settings(index):
@@ -149,8 +152,11 @@ try:
                     page.reload(wait_until='networkidle')
                     page.get_by_role('button', name='Connect local host', exact=True).click()
                     page.get_by_role('textbox', name='Host session token').fill(token)
-                    page.get_by_role('button', name='Unlock local host', exact=True).click()
-                    expect(page.locator('.saved')).to_contain_text('Workspace connected', timeout=15000)
+                    with page.expect_response(lambda response: response.url == origin + '/api/workspace'
+                                              and response.request.post_data_json.get('action') in ('read', 'sync')
+                                              and response.status == 200) as workspace_reconnection:
+                        page.get_by_role('button', name='Unlock local host', exact=True).click()
+                    assert workspace_reconnection.value.json()['state']['monitors'], 'Workspace reconnection returned no layout'
                     for agent, profile in zip(agents, ('default', 'research')):
                         expect(agent.get_by_label('Hermes conversation', exact=True)).to_contain_text('Saved answer ' + profile)
                         expect(agent.get_by_label('Message to Hermes', exact=True)).to_have_value('Draft ' + profile)
