@@ -14,6 +14,13 @@ Live acceptance (`tests/browser-hermes-catalog-live.py`) retrieved 83 skills and
 
 ## Live activity and published outputs
 
+Normal agent chat exposes **Show tools / Hide tools** directly below the header.
+The preference persists per pane. Expand observations for live tool details, or
+use **Load saved details** for persisted arguments and results. The same tool view
+survives hiding and Normal/Workbench mode switches; payloads are memory-only in
+the browser. **Agent pane menu → Saved tools** also opens it. This visibility
+control never starts inference or changes the tool budget.
+
 The tools menu offers **Live activity** during an active run when the gateway advertises `run_events_sse`. It proxies the native event stream with server-side authentication and checks the run's Orbit session before subscribing. Expand event rows to inspect their payloads (up to 150 rows, 12K characters per displayed payload). This is an initial event inspector, not a polished token-by-token transcript. Closing the viewer disconnects its stream, not the agent. Normal chat status polling continues; on stream failure use Check status and saved Tool activity. Reopening is possible but replay is not guaranteed. Avoid multiple viewers for the same run: upstream stream fan-out semantics vary by Hermes version. Event payloads can contain sensitive tool data.
 
 **Apps and outputs** lists deliberately published files under Orbit's existing app publication root, never arbitrary home-directory files. HTML apps/reports, text, CSV, and common images can be opened in a sandboxed preview dialog or downloaded. The shelf is profile-wide and persists through the published files themselves, bounded to 100 app folders, 300 entries and four nested directory levels; hidden files and symlinks are excluded. Refresh updates the index. Use the existing workspace controller `publish` command to publish folders. This is not yet a separate artifact registry, PDF viewer, or draggable persistent shelf pane. Published URLs retain the existing app-serving access model; do not publish secrets.
@@ -36,13 +43,14 @@ Live acceptance: `tests/browser-hermes-jobs-live.py` displayed seven actual gate
 
 **Tool activity** in the tools menu fetches the current Orbit conversation's actual persisted tool calls, arguments, and results from Hermes. It polls every three seconds while open. Expand entries to inspect commands, file operations, and tool output. This is persisted history, not SSE streaming: in-flight tools may appear only after persistence. The latest 80 message records are queried, with bounded/truncated output. System instructions are excluded. Tool results can contain private file contents or credentials produced by tools; this owner-authenticated view is not a secrets-redaction boundary. Nothing is rendered as HTML.
 
-The server retains upstream authentication and checks that steering targets the requested Orbit session. Non-Orbit session identifiers are rejected. Tool activity is read-only; it does not rerun commands. Existing Stop and approval controls remain separate.
+The server retains upstream authentication and checks that steering targets the pane's bound profile and session. Existing non-Orbit sessions require validated owner selection through the pane controls; unbound legacy requests remain Orbit-namespaced. Tool activity is read-only; it does not rerun commands. Existing Stop and approval controls remain separate.
 
 Live verification: `tests/browser-hermes-runtime-live.py` starts a real harmless terminal tool call, sends native steering through Orbit, observes the changed final answer, and verifies the real terminal arguments/result in the activity viewer. No mocked Hermes replies were used for that acceptance test.
 
 ## Tools menu, history, and drafts
 
-The `⋯` button beside the composer opens Hermes tools without adding another header row.
+The agent header's `⋯` menu opens conversation settings, activity and troubleshooting.
+The visible History action above the conversation opens Hermes tools and recent conversations.
 
 - **Recent conversations:** New chat retains the previous completed conversation. Up to ten are kept per pane in this browser tab. Restore switches back to its original Hermes session, preserving server-side follow-up context. Switching is blocked during an active run.
 - **Draft recovery:** Unsent text survives reloads in the same tab. You can compose the next message while a run is active; Send remains disabled until that run ends. Drafts are not automatically queued or submitted.
@@ -63,11 +71,16 @@ Set these server environment variables (never Vite/client variables):
 
 - `HERMES_API_URL`: the Hermes API origin, e.g. `http://127.0.0.1:28643`.
 - `HERMES_API_KEY`: the configured profile's API_SERVER_KEY.
+- `HERMES_PROFILES_JSON` (optional): private server-side JSON allowlist of profiles. Example: `[{"id":"studio","label":"Studio","apiUrl":"http://127.0.0.1:28643/p/studio","apiKey":"REPLACE_WITH_PRIVATE_KEY"}]`. Each entry requires a unique safe ID, display label, HTTP(S) **base URL**, and matching profile key. Orbit appends API paths to this base verbatim: use `/p/studio` for a multiplexed gateway, or the dedicated profile gateway's base URL for older installations. The Orbit profile ID does not select an upstream global profile or imply a URL prefix. The legacy `HERMES_API_URL`/`HERMES_API_KEY` pair remains the `default` profile; do not duplicate `default` in JSON. Alternatively define `default` in JSON without the legacy pair. Keep this JSON in private service environment, never a Vite variable or checked-in file. Invalid configuration fails closed.
 - `ORBIT_TOKEN`: a private 32+ character Orbit access token.
-- `ORBIT_PUBLIC_ORIGIN`: exact private HTTPS origin when using Tailscale Serve.
+- `ORBIT_PUBLIC_ORIGIN`: exact externally served HTTP(S) origin when using a reverse proxy. Tailscale Serve is optional, not required for local operation or other HTTPS deployments.
 - `PORT`: loopback listener port.
 
 The existing Connect host token unlocks both shells and agent chat. Never send the Hermes API key to the browser. `.env.deploy` is chmod 0600, Git-ignored, and excluded from Docker build contexts. `HERMES_API_KEY` and `ORBIT_TOKEN` are removed from the spawned terminal's explicit environment. This is not isolation from a malicious same-UID process or Docker administrator; Orbit remains a trusted single-owner service.
+
+Each agent pane now has a server-authoritative profile/session binding and revision. The authenticated profile catalog returns IDs and labels only; bounded session listings and server-loaded user/assistant text history omit upstream private fields. Switching validates the target session upstream before committing; New chat instead issues a fresh `orbit-<UUID>` ID. Stale revisions and active runs block switches, and requests are routed with the selected profile's URL/key rather than a global active-profile mutation. Legacy clients bind only an Orbit-namespaced conversation to `default`; subsequent pane requests must carry the bound profile/session/revision. A non-Orbit Hermes session may only be used after validated pane selection. The build queue remains default-profile only.
+
+The session catalog and metadata/messages endpoints are based on the published Hermes API contract and have not been exercised against the currently installed gateway version. An unsupported catalog reports that it is unavailable; selection failures leave the original binding intact. Orbit cannot prove that an external Hermes client has no active run merely from session timestamps, nor can it guarantee recovery of a run whose creation response was lost. Reconcile uncertain actions upstream; do not use a timestamp as an active-run lock. Profile-specific endpoint deployment must be verified with the installed gateway before relying on a new profile.
 
 ## Prior container deployment (superseded)
 
@@ -93,7 +106,43 @@ The legacy builder flag works around the deployment environment's read-only defa
 
 ## History and lifecycle
 
-The installed Hermes version saves Runs transcripts but does not automatically reload them by session ID. Before each new run the bridge retrieves that Orbit session's messages and supplies bounded user/assistant text history: up to 80 messages, 16,000 characters per message, and 120,000 characters total. Tool-call internals/results are not replayed by this compatibility layer. This is conversational continuity, not unbounded archival recall.
+The explicit text-only history introduced in `8f45bce` has an efficiency tradeoff:
+prior tool arguments/results remain in Hermes storage and are inspectable through
+Tool activity, but are absent from the next turn's frozen model context. On the
+pinned runtime this replaces richer native session reconstruction for that turn,
+so follow-up work may repeat reads when the assistant's previous text did not
+capture their findings. This is a plausible contributor, not a measured diagnosis
+of an individual run. A tool-history-preserving contract needs separate validation
+of bounds, tool-call/result pairing, binding isolation and immutable handoff; simply
+removing explicit history would undo the established continuity guarantees.
+
+The pinned Hermes Runs implementation reloads session history when a selected session has no explicit history. Capability advertisements alone do not verify that behavior on another installed gateway. For pane-backed ordinary and Workbench submissions, Orbit now freezes server-loaded, bounded user/assistant text history into the exact Runs payload before dispatch, regardless of advertised continuation: up to 80 messages, 16,000 characters per message, and 120,000 characters total. Unanswered trailing user turns, tool-call internals/results, private message metadata and host-delivered result cards are excluded. A missing transcript for an established or unmarked older pane fails before submission with an explicit New chat action; only a host-marked unstarted session from New chat or explicit fresh-pane creation may have a missing upstream record. This is bounded conversational continuity, not archival recall. On pinned Hermes, nonempty explicit history overrides native SessionDB history/delivery consumption for that turn, so native detached session deliveries/wake eligibility cannot be assumed on this path.
+
+Newly mounted empty panes explicitly request fresh-session creation on their
+first authenticated binding. The host records `history_unstarted` only when no
+durable binding already exists and the request has no messages or active run.
+This allows a first message before Hermes has created its upstream session.
+The creation request cannot reclassify an existing legacy binding or discard
+cached history. Existing missing-history conversations still require explicit
+New chat; their content is never silently treated as empty.
+
+In Normal mode, **New chat** and **History** are visible above the conversation,
+beside **Show tools**. New chat switches the current pane to a separate conversation;
+History opens recent conversations for restoring an earlier thread and its draft.
+Profile/session configuration remains under **⋯ → Conversation settings**.
+Background conversation refreshes do not disable Send or New chat. Initial linking,
+real submissions, pending work and explicit conversation switches remain distinct
+states; stale server bindings reject sends while retaining the draft.
+
+Separate Normal conversations can run at the same time, subject to the configured
+Hermes gateway's concurrency limit. Another pane's active run is admitted only
+when its durable ordinary-submission receipt confirms the exact accepted run,
+conversation, binding and unchanged profile configuration. That recognition
+survives an Orbit restart. Duplicate turns in the same profile/session remain
+blocked, as do Workbench/managed-job work, unreceipted legacy runs and uncertain
+submission outcomes. Submission preparation/dispatch remains serialized locally;
+once Hermes accepts a Normal turn, an independent conversation may start while it
+is still running. Busy upstream responses are not automatically retried.
 
 The browser retains the most recent 100 displayed messages and active run ID in sessionStorage. Reloading requires unlocking again, then polling resumes. New chat starts a separate conversation but does not delete Hermes's saved history. Closing the tab or pane is not cancellation; use Stop. Stop is cooperative and cannot undo actions already performed. Replies appear after the turn completes; token streaming and file/image attachments are not implemented in this version.
 
@@ -101,9 +150,9 @@ A request that loses its network connection while creating a run may have reache
 
 ## Security
 
-Every bridge action requires exact Origin/Host validation and Orbit bearer auth. Only the configured Hermes origin is callable, redirects are rejected, and API paths/actions are allowlisted. Run status/stop/approval operations verify the upstream run belongs to the supplied Orbit-namespaced session, so they cannot operate on dashboard threads. Client-supplied models, system instructions, and histories are ignored. Payloads and request durations are bounded; upstream errors are sanitized. Only once/deny approvals are allowed, not persistent approval rules.
+Every bridge action requires exact Origin/Host validation and Orbit bearer auth. Only configured Hermes base URLs are callable, redirects are rejected, and API paths/actions are allowlisted. Run status/stop/approval operations verify the upstream run belongs to the selected profile/session and fence pane requests by binding revision. Client-supplied models, system instructions, and replay histories are ignored. Payloads and request durations are bounded; upstream errors are sanitized. Only once/deny approvals are allowed, not persistent approval rules.
 
-Hermes tools can operate on the Hermes host, beyond the terminal container. Keep the Orbit token private and limit Tailscale access to trusted devices. This is a single-owner app, not a multi-tenant permission boundary.
+Hermes tools can operate on the Hermes host, beyond the terminal container. Keep the Orbit token private and restrict any network access to trusted devices. Tailscale is one optional way to do that. This is a single-owner app, not a multi-tenant permission boundary.
 
 ## Verification
 

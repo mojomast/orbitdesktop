@@ -1,6 +1,15 @@
 # Workspace plugins v1
 
+For the finite local focus-timer draft, preview, check and exact-artifact install
+journey, see [Extension Studio](EXTENSION_STUDIO.md). Its registered-release
+revocation rules supplement this existing v1 lifecycle.
+
 This is a working sandboxed-app lifecycle and trusted built-in extension registry, not a complete conversion of Orbit into plugins.
+
+For persistent private notebooks and evidence cards, see [Project tools](PROJECT_TOOLS.md).
+These use separate project-scoped instances and trusted host rendering. They do not
+add private storage or a privileged bridge to generated v1 app frames. Existing
+v1 manifests, IDs and content-addressed bundles retain their original lifecycle.
 
 ## Partial configuration and window customization
 
@@ -24,6 +33,14 @@ Hermes tools → Workspace plugins, or Ctrl+Alt+P while the parent workspace has
 6. Publish changed files, then `plugin_update` with `plugin_id` and the new manifest. It retains plugin/window identity. Roll back with a workspace checkpoint, which restores the old entry URL and config.
 7. `plugin_disable`, `plugin_remove`, or `plugin_disable_all` detach plugin windows. Removal does not delete published assets. There is no garbage collector yet.
 
+The publisher now registers bundles in an initialized schema-3 SQLite runtime via a
+local Node refresh command. Standalone publishing without a database remains supported.
+Workspace reads use indexed versions; manual file edits require explicit refresh and
+content-addressed files that no longer match indexed digests are not served. Retention
+planning includes current state, every retained revision and every checkpoint. Cleanup
+is **dry-run only**; no referenced bundle is automatically deleted. See
+[Bundle registry](BUNDLE_REGISTRY.md) for upgrade requirements and exact limitations.
+
 All operations can be batched in the controller's existing atomic validated apply. Browser management uses authenticated `plugins_apply` with `base_revision` and `operations`; it only accepts plugin operations. Authentication and origin checks remain in the core.
 
 ## Manifest contract
@@ -44,12 +61,31 @@ Read config in the plugin with `JSON.parse(decodeURIComponent(location.hash.repl
 
 ## Recovery and boundaries
 
-The disable-all control is useful recovery, but not independent pre-boot safe mode: a bad plugin can still consume browser resources. General dependency resolution, capability-granted host APIs, persistent plugin storage, signed packages, background workers, preview/test promotion, independent recovery boot and full conversion of the pane/scene renderer are outstanding.
+The independent `/recovery` console has a persistent registered-plugin activation hold,
+separate from reversible disable-all. The owner can enter hold to disable registered
+plugins and prevent later sync, restore or enable from activating them. Layout undo
+cannot release the hold; explicit owner release does not auto-enable plugins. This is
+not a full pre-boot safe mode: cached/offline clients and already-running frames can
+still consume resources, static app URLs remain available, and backends are not stopped.
+See [Recovery](RECOVERY.md). General dependency resolution, capability-granted host
+APIs, persistent plugin storage, signed packages, background workers, arbitrary
+artifact preview/test promotion and full pane/scene conversion are outstanding.
 
 Content-addressed folders avoid overwriting through this publisher; filesystem owner edits or the older generic publisher can still mutate/delete them. These are version-pinned references, not a filesystem-enforced immutable store or disaster backup. Never rewrite published hash folders. No installer dependencies or third-party packages are executed.
 
 ## Deployment and tests
 
-Current Tailscale backend: 4333, `orbitdesktop-plugins.service`. Older services are preserved for pre-upgrade shells. Persistent unit and default.target symlink installed. New frontend needs a new page load once; subsequent plugin operations are live.
+Historical deployment notes describe a Tailscale backend on 4333 and
+`orbitdesktop-plugins.service`, with older services retained for pre-upgrade shells.
+These are not freshly verified deployment status. Do not restart or upgrade them
+without checking session preservation and obtaining deployment authorization. A new
+frontend needs a page load once; subsequent plugin operations are live.
 
-`npm run check`: 43 passing Node tests. `python3 tests/plugin-publish.test.py`: content-addressed reuse, changed-version retention and symlink rejection. `tests/browser-plugins-live.py`: real publish/install/enable, controller configure, disable and checkpoint restore, same document, no JS errors. `tests/browser-terminal-reload-live.py`: actual browser reload retains shell variable. These operate in separate temporary browser workspaces, not the owner's active layout.
+Use `npm run check` and `python3 tests/plugin-publish.test.py` for current regression
+checks, including content-addressed reuse, changed-version retention and symlink
+rejection. `tests/recovery.browser.py` and `tests/recovery-real-server.browser.py`
+exercise independent recovery in isolated runtimes/browser contexts. Fresh results
+and counts are recorded in `ORBIT_EVOLUTION_HANDOFF.md`. Older
+`browser-plugins-live.py` and `browser-terminal-reload-live.py` scripts describe earlier
+integration checks; audit their isolation before use and do not present their past
+results as fresh evidence of current renderer/session continuity.

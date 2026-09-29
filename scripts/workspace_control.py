@@ -6,45 +6,129 @@ import os
 from pathlib import Path
 import re
 import shutil
+import subprocess
 import tempfile
 import time
+import uuid
+import ipaddress
+import urllib.parse
 import urllib.request
 import urllib.error
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNTIME = Path(os.environ.get('ORBIT_RUNTIME_DIR', ROOT / '.runtime'))
+# BEGIN GENERATED WORKSPACE LIMITS
+maxOperations = 32
+maxRequestBytes = 150000
+maxResponseBytes = 2000000
+maxLabelCharacters = 120
+# END GENERATED WORKSPACE LIMITS
+
+OPERATION_ID = re.compile(r'[a-zA-Z0-9_.:-]{1,128}')
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl): return None
+
+def endpoint(api):
+    url = urllib.parse.urlsplit(api)
+    if url.scheme not in ('http', 'https') or url.username or url.password or not ipaddress.ip_address(url.hostname or '').is_loopback or url.path not in ('', '/') or url.query or url.fragment:
+        raise ValueError('Orbit API must be a numeric loopback origin without credentials')
+    _ = url.port
+    return api.rstrip('/') + '/api/workspace/control'
+
+def open_workspace(request, timeout=20):
+    return urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect()).open(request, timeout=timeout)
+
+def operation_metadata(args, action):
+    operation_id = getattr(args, 'operation_id', None)
+    intent = getattr(args, 'intent', None)
+    if operation_id is not None and not OPERATION_ID.fullmatch(operation_id):
+        raise ValueError('Invalid operation_id')
+    if intent is not None and (not isinstance(intent, str) or not 1 <= len(intent) <= 160):
+        raise ValueError('intent must contain 1–160 characters')
+    if operation_id is not None and (intent is None or getattr(args, 'base_revision', None) is None):
+        raise ValueError('operation_id requires intent and --base-revision')
+    result = {'operation_id': operation_id or str(uuid.uuid4()), 'intent': intent or f'Workspace {action}'}
+    return result
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--workspace', required=True)
     sub = p.add_subparsers(dest='command', required=True)
     sub.add_parser('read')
-    apply = sub.add_parser('apply'); apply.add_argument('operations', help='JSON operation or array; use @file.json to read a file'); apply.add_argument('--base-revision',type=int)
+    describe = sub.add_parser('describe'); describe.add_argument('--project-id'); describe.add_argument('--catalog', action='store_true')
+    arrangement = sub.add_parser('arrangement'); arrangement.add_argument('request', help='Exact arrangement request JSON or @file; retain preview and op_id when recovering a response')
+    setup = sub.add_parser('setup', aliases=['workbench_setup']); setup.add_argument('request', help='Exact workbench_setup proposal JSON or @file; proposal only, no execution, credentials or owner scope fields')
+    apply = sub.add_parser('apply'); apply.add_argument('operations', help='JSON operation or array; use @file.json to read a file'); apply.add_argument('--base-revision',type=int); apply.add_argument('--operation-id'); apply.add_argument('--intent')
     preview = sub.add_parser('preview'); preview.add_argument('operations'); preview.add_argument('--base-revision',type=int)
     sub.add_parser('history')
-    checkpoint = sub.add_parser('checkpoint'); checkpoint.add_argument('--label',default='Agent checkpoint')
-    restore = sub.add_parser('restore'); restore.add_argument('checkpoint_id'); restore.add_argument('--confirm',action='store_true'); restore.add_argument('--base-revision',type=int,required=True)
+    checkpoint = sub.add_parser('checkpoint'); checkpoint.add_argument('--label',default='Agent checkpoint'); checkpoint.add_argument('--base-revision',type=int); checkpoint.add_argument('--operation-id'); checkpoint.add_argument('--intent')
+    restore = sub.add_parser('restore'); restore.add_argument('checkpoint_id'); restore.add_argument('--confirm',action='store_true'); restore.add_argument('--base-revision',type=int,required=True); restore.add_argument('--operation-id'); restore.add_argument('--intent')
     pub = sub.add_parser('publish'); pub.add_argument('source'); pub.add_argument('slug'); pub.add_argument('--title'); pub.add_argument('--no-open', action='store_true')
     args = p.parse_args()
+    if getattr(args, 'operation_id', None) is not None and (getattr(args, 'intent', None) is None or getattr(args, 'base_revision', None) is None):
+        p.error('--operation-id requires the original --intent and --base-revision')
     if not re.fullmatch(r'[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}', args.workspace): p.error('Invalid workspace ID')
-    config = json.loads((RUNTIME / 'workspaces' / (args.workspace + '.json')).read_text())
+    if args.command in ('apply', 'preview'):
+        raw = Path(args.operations[1:]).read_text() if args.operations.startswith('@') else args.operations
+        operations = json.loads(raw)
+        if isinstance(operations, dict): operations = [operations]
+        if not isinstance(operations, list) or not 1 <= len(operations) <= maxOperations or not all(isinstance(op, dict) for op in operations):
+            p.error('Provide 1–32 operation objects')
+    projection = RUNTIME / 'workspace-access' / (args.workspace + '.json')
+    if not projection.exists() and (RUNTIME / 'workspace.sqlite').exists(): raise ValueError('Workspace connection projection unavailable; restart/reconcile the server')
+    record = projection if projection.exists() else RUNTIME / 'workspaces' / (args.workspace + '.json')
+    config = json.loads(record.read_text())
+    target = endpoint(config['api'])
+    if not isinstance(config['capability'], str) or not config['capability'] or '\n' in config['capability'] or '\r' in config['capability']: raise ValueError('Invalid workspace connection')
     def request(action, **fields):
         body = json.dumps({'workspace_id': args.workspace, 'action': action, **fields}).encode()
-        req = urllib.request.Request(config['api'] + '/api/workspace/control', data=body, headers={'Authorization': 'Bearer ' + config['capability'], 'Content-Type': 'application/json'})
+        if len(body) > maxRequestBytes: raise ValueError('Workspace request is too large')
+        req = urllib.request.Request(target, data=body, headers={'Authorization': 'Bearer ' + config['capability'], 'Content-Type': 'application/json'})
         try:
-            with urllib.request.urlopen(req, timeout=20) as r: return json.load(r)
+            with open_workspace(req, timeout=20) as r:
+                raw = r.read(maxResponseBytes + 1)
+                if len(raw) > maxResponseBytes: raise ValueError('Workspace response exceeds the size limit')
+                if config['capability'].encode() in raw: raise ValueError('Refusing a response containing the workspace capability')
+                return json.loads(raw)
         except urllib.error.HTTPError as error:
-            details = json.loads(error.read())
-            raise RuntimeError(f"Workspace request failed ({error.code}): {details.get('error', 'unknown error')}") from None
+            raise RuntimeError(f"Workspace request failed ({error.code}); read again and check authorization/schema") from None
+        except (urllib.error.URLError, TimeoutError, OSError):
+            if action == 'arrangement':
+                raise RuntimeError('Arrangement outcome unknown. Read its durable proposal/receipt; retry a commit only with its exact retained request and key.') from None
+            if 'operation_id' in fields:
+                raise RuntimeError(f"Workspace mutation outcome unknown; operation_id={fields['operation_id']}, base_revision={fields['base_revision']}. Reuse the exact key and payload; do not blindly issue a new mutation.") from None
+            raise RuntimeError('Workspace unavailable') from None
+    if args.command == 'arrangement':
+        raw = Path(args.request[1:]).read_text() if args.request.startswith('@') else args.request
+        fields = json.loads(raw)
+        if not isinstance(fields, dict) or 'workspace_id' in fields or 'actor' in fields:
+            p.error('Arrangement request must be an object without workspace_id or actor')
+        print(json.dumps(request('arrangement', request=fields), indent=2)); return
+    if args.command in ('setup', 'workbench_setup'):
+        raw = Path(args.request[1:]).read_text() if args.request.startswith('@') else args.request
+        fields = json.loads(raw)
+        if not isinstance(fields, dict) or set(fields) & {'workspace_id', 'actor', 'action', 'operations', 'pane_id', 'profile_id', 'session_id', 'credentials', 'root', 'path', 'command'}:
+            p.error('Workbench setup request must be a proposal object without owner, execution or free-form fields')
+        print(json.dumps(request('workbench_setup', request=fields), indent=2)); return
+    if args.command == 'describe':
+        fields = {'catalog': args.catalog}
+        if args.project_id: fields['project_id'] = args.project_id
+        print(json.dumps(request('describe', **fields), indent=2)); return
     current = request('read')
     if args.command == 'read': print(json.dumps(current, indent=2)); return
     if args.command == 'history': print(json.dumps(request('history'),indent=2)); return
-    if args.command == 'checkpoint': print(json.dumps(request('checkpoint',label=args.label),indent=2)); return
+    if args.command == 'checkpoint':
+        if args.base_revision is None: args.base_revision = current['revision']
+        fields = {'label': args.label, 'base_revision': args.base_revision}
+        fields.update(operation_metadata(args, 'checkpoint'))
+        print(json.dumps(request('checkpoint', **fields),indent=2)); return
     if args.command == 'restore':
         if not args.confirm: p.error('Restore requires --confirm and the revision you reviewed')
-        result=request('restore',checkpoint_id=args.checkpoint_id,confirm=True,base_revision=args.base_revision)
+        result=request('restore',checkpoint_id=args.checkpoint_id,confirm=True,base_revision=args.base_revision,**operation_metadata(args, 'restore'))
     elif args.command == 'publish':
         if not re.fullmatch(r'[a-z0-9][a-z0-9-]{0,60}', args.slug): p.error('App slug must use lowercase letters, digits, and hyphens')
+        if re.fullmatch(r'.+-[a-f0-9]{24}', args.slug): p.error('Content-addressed slugs are reserved for plugin_publish.py; never overwrite an immutable bundle')
         source = Path(args.source).resolve()
         if not (source / 'index.html').is_file(): p.error('Publish a build directory containing index.html')
         apps = RUNTIME / 'apps'; apps.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -62,6 +146,9 @@ def main():
             stage.rename(dest)
         finally:
             if stage.exists(): shutil.rmtree(stage)
+        if (RUNTIME / 'workspace.sqlite').exists():
+            completed = subprocess.run(['node', '--experimental-strip-types', str(ROOT / 'scripts/workspace_bundles.mjs'), 'refresh', '--root', str(RUNTIME.resolve())], capture_output=True, timeout=120)
+            if completed.returncode != 0: raise RuntimeError('Files published, but bundle indexing failed; review the runtime schema and explicitly refresh before opening the app')
         url = '/apps/' + args.slug + '/'
         if args.no_open: print(json.dumps({'published': True, 'url': url, 'opened': False})); return
         operations = [{'action': 'add_window', 'name': args.title or args.slug, 'kind': 'browser', 'url': url}, {'action': 'set_view', 'view': 'windows'}]
@@ -73,20 +160,20 @@ def main():
             if contains(m['layout']):
                 operations = [{'action': 'select', 'window_id': m['id']}, {'action': 'set_view', 'view': 'windows'}]
                 break
-    else:
-        raw = Path(args.operations[1:]).read_text() if args.operations.startswith('@') else args.operations
-        operations = json.loads(raw)
-        if isinstance(operations, dict): operations = [operations]
     if args.command != 'restore':
         base=getattr(args,'base_revision',None)
-        result = request('preview' if args.command=='preview' else 'apply', base_revision=current['revision'] if base is None else base, operations=operations)
+        if args.command == 'apply' and base is None: args.base_revision = current['revision']
+        extra = {} if args.command == 'preview' else operation_metadata(args, 'apply')
+        result = request('preview' if args.command=='preview' else 'apply', base_revision=current['revision'] if base is None else base, operations=operations, **extra)
     if args.command=='preview': print(json.dumps(result,indent=2)); return
     revision = result['revision']
+    receipt = result.get('command_receipt')
     for _ in range(40):
         result = request('read')
         if result['observed_revision'] >= revision: break
         time.sleep(0.25)
     result['browser_applied'] = result['observed_revision'] >= revision
+    if receipt is not None: result['command_receipt'] = receipt
     if args.command == 'publish': result['published_url'] = url
     print(json.dumps(result, indent=2))
 

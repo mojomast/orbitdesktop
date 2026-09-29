@@ -1,0 +1,11 @@
+.managed-dialog { box-sizing: border-box; width: min(680px, 94vw); max-height: 90vh; overflow: auto; padding: 1.2rem; background: #10191e; color: #d5e2df; border: 1px solid #86cccb; border-radius: 8px; }
+.managed-dialog::backdrop { background: #000a; }
+.managed-dialog h2 { margin-top: 0; }
+.managed-dialog button { margin: .25rem; cursor: pointer; }
+.managed-dialog button:disabled { cursor: wait; opacity: .6; }
+.managed-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .3rem; }
+.managed-field { display: flex; flex-direction: column; gap: .35rem; margin: .65rem 0; }
+.managed-field textarea { box-sizing: border-box; width: 100%; min-height: 5rem; background: #071216; color: #d5e2df; font: 13px monospace; resize: vertical; }
+.managed-field .managed-output { min-height: 10rem; user-select: text; white-space: pre; }
+.managed-error { color: #ffb8a6; }
+.managed-error:empty, .managed-operation:empty { display: none; }

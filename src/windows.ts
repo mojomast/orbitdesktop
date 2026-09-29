@@ -3,10 +3,10 @@ import type { Monitor } from './model';
 export function placeWindow(element: HTMLElement, m: Monitor, host: HTMLElement, index: number) {
   if (!m.frame) m.frame = { x: 24 + index * 64, y: 18 + index * 42, width: Math.max(320, Math.min(740, host.clientWidth - 60)), height: Math.max(220, Math.min(510, host.clientHeight - 90)), z: index + 1 };
   const f = m.frame;
-  // Keep the title bar reachable after viewport/sidebar changes.
-  f.x = Math.max(0, Math.min(f.x, Math.max(0, host.clientWidth - 120)));
-  f.y = Math.max(0, Math.min(f.y, Math.max(0, host.clientHeight - 48)));
-  Object.assign(element.style, { left: `${f.x}px`, top: `${f.y}px`, width: `${f.width}px`, height: `${f.height}px`, zIndex: String(f.z), transform: 'none' });
+  // Keep the displayed title bar reachable without rewriting saved geometry.
+  const x = host.clientWidth > 0 ? Math.max(0, Math.min(f.x, Math.max(0, host.clientWidth - 120))) : f.x;
+  const y = host.clientHeight > 0 ? Math.max(0, Math.min(f.y, Math.max(0, host.clientHeight - 48))) : f.y;
+  Object.assign(element.style, { left: `${x}px`, top: `${y}px`, width: `${f.width}px`, height: `${f.height}px`, zIndex: String(f.z), transform: 'none' });
 }
 
 export function wireWindow(element: HTMLElement, bar: HTMLElement, handle: HTMLElement, m: Monitor, host: HTMLElement, enabled: () => boolean, changed: () => void) {

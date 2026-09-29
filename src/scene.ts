@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { CSS3DRenderer, CSS3DObject } from 'three/addons/renderers/CSS3DRenderer.js';
+import { moveConnected } from './connected-dom';
 import type { Monitor } from './model';
 import { defaultCamera, spatialWindow, type SpatialCamera, type SpatialWindow } from './spatial-layout';
 import './spatial.css';
@@ -165,17 +166,22 @@ export class DesktopScene {
     const w=this.host.clientWidth,h=this.host.clientHeight;if(!w||!h)return;
     this.camera.aspect=w/h;this.camera.updateProjectionMatrix();this.gl?.setSize(w,h);this.css.setSize(w,h);this.updateCamera();
   }
-  update(monitors:Monitor[],elements:Map<string,HTMLElement>,selected:string,arc:number){
-    this.monitors=monitors;this.arc=arc;
+  retainWindows(monitors:Monitor[]){
+    this.monitors=monitors;
     for(const [id,o] of this.objects)if(!monitors.some(m=>m.id===id)){
       this.cssScene.remove(o.css);this.world.remove(o.edges);o.edges.geometry.dispose();(o.edges.material as THREE.Material).dispose();this.objects.delete(id);
     }
+  }
+  update(monitors:Monitor[],elements:Map<string,HTMLElement>,selected:string,arc:number){
+    this.retainWindows(monitors);this.arc=arc;
+    const newAnchors:Array<{anchor:HTMLElement;element:HTMLElement}>=[];
     for(const m of monitors){
       const s=spatialWindow(m,monitors,arc);let o=this.objects.get(m.id);
       if(!o){
-        const wrapper=document.createElement('div');wrapper.className='monitor-anchor';wrapper.dataset.anchorId=m.id;wrapper.append(elements.get(m.id)!);
+        const wrapper=document.createElement('div');wrapper.className='monitor-anchor';wrapper.dataset.anchorId=m.id;
         const css=new CSS3DObject(wrapper),edges=new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.PlaneGeometry(1,1)),new THREE.LineBasicMaterial({color:'#536357'}));
         o={css,edges};this.objects.set(m.id,o);this.cssScene.add(css);this.world.add(edges);
+        newAnchors.push({anchor:wrapper,element:elements.get(m.id)!});
       }
       o.css.position.set(s.x,s.y,s.z);o.css.rotation.set(THREE.MathUtils.degToRad(s.pitch),THREE.MathUtils.degToRad(s.yaw),0);
       // Native DOM, never a screenshot texture. Resolution is explicit and stable while navigating.
@@ -184,6 +190,27 @@ export class DesktopScene {
       const element=elements.get(m.id)!;element.classList.toggle('selected',m.id===selected);
       o.edges.visible=!element.classList.contains('window-minimized');o.edges.position.copy(o.css.position);o.edges.quaternion.copy(o.css.quaternion);o.edges.scale.set(s.width,s.height,1);
       (o.edges.material as THREE.LineBasicMaterial).color.set(m.id===selected?'#c2ed90':'#536357');
+    }
+    if(newAnchors.length){
+      // The renderer attaches empty CSS3DObjects on render. Attach the live monitor only
+      // after its anchor is in the camera layer, so its iframe never leaves the document.
+      this.css.render(this.cssScene,this.camera);
+      for(const {anchor,element} of newAnchors)moveConnected(element,anchor);
+    }
+    // Explicit layout import may replace a monitor's runtime with the same ID.
+    // Rebind the new element to an existing anchor, without stealing focused views.
+    for(const m of monitors){
+      const element=elements.get(m.id)!,anchor=this.objects.get(m.id)!.css.element;
+      if(!element.classList.contains('flat-monitor')&&element.parentElement!==anchor)moveConnected(element,anchor);
+    }
+    // CSS3DRenderer only appends objects missing from its camera layer; it does not
+    // reorder existing elements. Move the anchors in place to match navigation order.
+    let before:HTMLElement|null=null;
+    for(let i=monitors.length-1;i>=0;i--){
+      const anchor=this.objects.get(monitors[i].id)!.css.element;
+      const parent=anchor.parentElement;
+      if(parent&&anchor.nextElementSibling!==before)moveConnected(anchor,parent,before);
+      before=anchor;
     }
     if(!this.initialized)this.frameAll();else this.dirty=true;
   }

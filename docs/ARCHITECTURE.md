@@ -1,12 +1,112 @@
 # Architecture
 
+## Connected surface rendering
+
+Pane views are keyed by stable pane IDs, with kind and browser URL determining
+runtime replacement. Layout reconciliation creates connected slots and parks
+surviving views in a connected host before removing old containers; native
+`Element.moveBefore` preserves iframe document state during same-document moves.
+CSS3D anchors are connected before accepting existing views and are pruned even
+in Windows mode. The non-native fallback warns and **does not guarantee iframe
+continuity**. Explicit imports/presets intentionally replace views; checkpoints
+cannot resurrect a disposed document. See [runtime continuity](RUNTIME_CONTINUITY.md)
+for measured coverage and [docking evaluation](DOCKING_EVALUATION.md) for candidate
+research, not a selected replacement framework.
+
+Test servers can set `ORBIT_TMUX_SOCKET` to a validated private socket name and
+`ORBIT_TMUX_CONFIG=/dev/null` to avoid loading personal tmux configuration. History
+capture uses the same socket as the provider. Defaults remain `orbit-persistent`
+and normal tmux configuration; these settings do not isolate an entire host.
+
 Orbit is a single-owner agent-customizable workspace. It separates trusted core/integration code from sandboxed generated app plugins; it is not fully modular yet.
+
+`experiments/orbit-docking/` is an isolated opt-in integration fixture importing real
+pane/model/spatial modules; it does not replace the production entrypoint or extend
+v1 persistence. `server/terminal-resource-registry.mjs` is a process-local
+identity primitive used by the managed-terminal broker, not itself a grant service or tmux adapter. See
+[docking spike](ORBIT_DOCKING_SPIKE.md) and [registry](TERMINAL_RESOURCE_REGISTRY.md)
+for the historical spike evidence and current identity boundaries.
+
+`?renderer=docking` now explicitly opts the normal frontend into experimental
+Dockview placement (`src/docking-renderer.ts`, exact `dockview-core@8.3.1`). The
+default renderer remains unchanged. Existing PaneViews, workspace sync and recovery
+remain authoritative; durable tabs/floats use a separate validated placement-v1
+adjunct in SQLite schema 4, never fields in the v1 layout. Library/styles
+load dynamically only on opt-in. See [optional docking](OPTIONAL_DOCKING.md).
+
+`server/managed-terminal-provider.mjs` supports explicit adoption of existing Linux
+tmux shells through the owner-only managed-terminal routes and pane controls.
+Private fresh-session mode remains an internal provider component. Durable private
+identity metadata is separate from process-local, expiring consent grants; neither
+terminal buffers nor grants enter layout checkpoints. Its ownership/cleanup and
+kernel-identity limitations are documented in [managed terminals](MANAGED_TERMINALS.md).
 
 ## State and control
 
-`src/model.ts` validates layout, structured appearance and plugin instances. `src/workspace-ops.ts` applies targeted operations to a clone; `src/plugins.ts` implements plugin lifecycle. The service in `server/workspace.mjs` authenticates browser requests with Orbit token/origin checks, and agent requests with a workspace-scoped capability. Batches validate before commit, use revision checks and save checkpoints before controller/plugin mutations. Filesystem records live in `.runtime/workspaces`; individual writes use atomic rename, not a multi-record transaction database.
+`src/model.ts` validates layout, structured appearance and plugin instances. `src/workspace-ops.ts` applies targeted operations to a clone; `src/plugins.ts` implements plugin lifecycle. The service in `server/workspace.mjs` authenticates browser requests with Orbit token/origin checks, and agent requests with a workspace-scoped capability. Strict request schemas precede semantic checks. `SqliteWorkspaceStore` atomically commits state/revision, applicable checkpoints, keyed command receipts and metadata outbox rows in `.runtime/workspace.sqlite`. Existing JSON runtimes require an explicit offline migration; originals remain archived, never a writable fallback. Private `workspace-access` files are credential/API discovery projections only. The serialized layout remains v1; there is no normalized surface migration yet. See [Workspace store](WORKSPACE_STORE.md).
 
 `src/workspace-sync.ts` polls and tracks browser acknowledgement. An acknowledged revision does not prove a widget rendered correctly. Local layout persistence and imports remain supported. Offline changes can be saved server-side; display acknowledgement waits for the browser.
+
+`server/workspace-description.mjs` provides authenticated, bounded layout metadata
+and an opt-in operation catalog sourced directly from the workspace contract.
+Normal's workspace adapter can discover this catalog rather than embedding every
+operation in its prompt. Only existing active project bindings produce roles;
+neither role nor pane selection authorizes access to resource content. Project
+paths, credentials, terminal output and conversation content are omitted. This
+owner/controller interface is not exposed to generated frames or native
+Workbench workers. The implementation ledger is
+[Environment malleability](ENVIRONMENT_MALLEABILITY_LEDGER.md).
+
+Schema 3 adds an indexed bundle registry and workspace-scoped metadata event queries.
+Schema 4 adds transactional docking placement, revision/checkpoint copies, and
+shared workspace-revision CAS. Schema-3 databases upgrade on opening; owner
+runtimes must be backed up and tested in a separate copy before upgrade.
+Schema 5 adds separate project/resource/surface-binding records. The owner-only
+`/api/workbench` and host-owned Project Inspector use those IDs for confined,
+bounded file observations and private Git materialization. Model disclosure and
+execution are not implied by project registration. See [Project Workbench](PROJECT_WORKBENCH.md).
+Schema 6 adds private task/attempt/context/disclosure/submission/candidate/job/
+evidence/review records through `WorkbenchData`, outside layout and metadata
+events. Dedicated owner-only context and execution routes validate independent
+contracts. A shared gate fences legacy queue uncertainty and serial dispatch.
+Exact prepared Hermes payloads are durable before POST; unknown outcomes are not
+replayed. Candidate checks use approved private copies and recorder results, not
+completion markers. Worktrees and owner-UID processes are not sandboxes; reusable
+runtime tools stay blocked pending authenticated request-scope binding.
+
+Normal chat may overlap independently receipted accepted conversations. Its trusted
+adapter caller supplies a cross-conversation admission predicate that validates
+the other run's private receipt, binding and current profile fingerprint; this
+predicate is never accepted from a browser or model request. Workbench retains
+global exclusion. Preparation/dispatch uses the existing local gate, while active
+Normal runs remain durably recoverable after restart. Same-session and unknown
+outcome fences remain separate from background UI synchronization.
+Schema 7 adds bounded native task grants and authenticated private tool calls.
+Schema 8 adds private result receipts, explicit conversation-card deliveries and
+review-bound patch records. The pinned native Hermes adapter receives its packet
+on FD3 and emits only the public `final_response` through bounded, versioned FD4;
+stdout/stderr are never explanation sources. Result availability, termination,
+recorded checks and human review are independent states. Check provenance records
+the authenticated initiator, approval authority and service recorder separately;
+the recorder build identity is snapshotted at service startup. Host-delivered
+cards remain outside model conversation history and do not invoke a model.
+See [result contracts](WORKBENCH_RESULT_CONTRACT.md) and the
+[increment acceptance ledger](WORKBENCH_RESULT_INCREMENT.md) for current gates.
+Normal reads use indexed asset versions; startup/admin publication refresh performs
+filesystem scanning. Hash-addressed asset responses verify indexed bytes before serving.
+Retention plans include all saved revisions/checkpoints and are dry-run only.
+`server/workspace-events.mjs` provides authenticated bounded POST event pages, not SSE;
+`src/workspace-events.ts` keeps an in-memory reconnect cursor and triggers coalesced
+state reads. Ordinary polling remains the fallback. Neither events nor acknowledgement
+prove rendering, and no credentials or terminal/conversation content belong in events.
+
+The owner-only recovery console can persist a registered-plugin activation hold
+outside checkpoint state. Policy generation and candidate-state checks share the
+command transaction. Entering hold disables plugins and trusted project-tool
+instances; release never auto-enables them.
+Receipts from older policy generations fail closed rather than replaying an obsolete
+activation snapshot. This does not stop cached/offline frames or external backends,
+block public app files, or implement general safe boot. See [Recovery](RECOVERY.md).
 
 ## Two extension boundaries
 
@@ -14,11 +114,45 @@ Trusted built-ins use `src/workspace-extensions.ts`: typed activation entries dy
 
 Generated app plugins use a strict API-v1 manifest and config contract. `scripts/plugin_publish.py` copies static bundles to content-addressed folders. Lifecycle/config/entry references are part of workspace state and checkpoints. The existing sandboxed browser pane hosts the app; no host credentials or privileged message bridge are granted. Network access is allowed by the current app CSP. See [PLUGINS.md](PLUGINS.md) for limitations, including the absence of filesystem-enforced immutability, dependency resolution and independent safe boot.
 
+Persistent project tools are a closed set of reviewed host modules (notebook and
+recorded checks/review card), selected by an opaque browser-pane URL. Schema 10
+separates their definitions, host-release descriptors, instances, private data and
+authoritative pane bindings. The owner-only `/api/workbench/tools` route does not
+grant controller, model or generated-frame access. Notebook data has an independent
+revision CAS and never enters layout checkpoints or mutation receipts. See
+[Project tools](PROJECT_TOOLS.md) for lifecycle, hold and compatibility semantics.
+
+## Exact-artifact Studio
+
+`server/extension-studio.mjs` admits only the finite `focus-timer-v1` generator.
+Private immutable file-backed drafts/checks/proposals reference content-addressed
+publisher outputs. Installation commits the staged layout/checkpoint and command
+receipt together. Revocation uses append-only `studio-revoke` receipts, checked by
+every workspace commit before enabling a registered release. Schema 11 is a writer
+fence for those semantics; it preserves schema-10 tables and v1 layouts. Generated
+frames receive no host/private-data bridge. See [Studio](EXTENSION_STUDIO.md).
+
 ## Hermes
+
+Goal-first Workbench setup uses `server/workbench-setup.mjs` and the closed
+`contracts/workbench-setup-v1.mjs` owner API. Normal's workspace controller can
+submit only untrusted workspace suggestions; adoption binds an owner draft to the
+live pane recipient. A bounded private, fsynced setup journal records reviews and
+operation identities; preparation uses internal transactional execution step
+receipts and native launch retains its separate exact approval. Setup records do
+not enter layouts, checkpoints or workspace metadata events. See
+[Goal-first setup](WORKBENCH_SETUP.md) for the workflow and recovery boundaries.
 
 `server/agent.mjs` bridges authenticated runs, bounded server-loaded conversation history, approvals, stop, steering, activity, capabilities, catalog and job controls. `server/workspace.mjs` supplies the active workspace context and reads `docs/AGENT_GUIDE.md` into it at request time. Editing that guide updates subsequent contexts without copying instructions into several prompts. `src/agent-chat.ts` retains per-pane UI state; Hermes is a real runtime, not a chat stub.
 
 The gateway's tool environment may differ from the terminal host. Local workspace control requires access to the repository/runtime; it is not automatically available to a remote gateway. Layout metadata does not expose terminal buffers or embedded app DOM.
+
+Per-pane Hermes selection uses a server-side profile routing allowlist rather than
+changing the gateway's global active profile. Profile/session bindings belong to
+private shared-chat state, not layout checkpoints. Browser selectors receive
+profile labels and IDs, never gateway keys. See [Hermes setup](HERMES.md) for the
+configuration contract and limitations; a selectable profile does not establish
+that its tools can access this host or that an externally started run is idle.
 
 ## Terminals
 
@@ -38,8 +172,9 @@ Three.js PerspectiveCamera drives WebGL decoration plus CSS3DRenderer HTML monit
 | --- | --- |
 | State and operations | `src/model.ts`, `src/workspace-ops.ts`, `src/plugins.ts` |
 | Workspace persistence / context | `server/workspace.mjs`, `src/workspace-sync.ts` |
-| Checkpoints | `server/checkpoints.mjs`, `src/workspace-history.ts` |
+| Checkpoints / recovery policy | `server/sqlite-workspace-store.mjs`, `src/workspace-history.ts`, `public/recovery.js` |
 | Trusted extensions | `src/workspace-extensions.ts` |
+| Persistent project tools | `server/project-tools.mjs`, `server/project-tools-data.mjs`, `src/project-tool-host.ts`, `src/project-tool-manager.ts` |
 | Plugin management / publishing | `src/plugin-manager.ts`, `scripts/plugin_publish.py` |
 | Agent bridge / UI | `server/agent.mjs`, `src/agent-chat.ts` |
 | Host PTYs | `server/local-host.mjs`, `server/index.mjs`, `src/panes.ts` |

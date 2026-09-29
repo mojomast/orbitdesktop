@@ -1,0 +1,5206 @@
+{
+  "version": 1,
+  "limits": {
+    "maxOperations": 32,
+    "maxRequestBytes": 150000,
+    "maxResponseBytes": 2000000,
+    "maxLabelCharacters": 120
+  },
+  "errors": {
+    "INVALID_OPERATION": "Request does not match the workspace contract",
+    "REVISION_CONFLICT": "Workspace changed; read and reconsider",
+    "IDEMPOTENCY_CONFLICT": "Operation key was already used with a different request",
+    "RECOVERY_HOLD": "Recovery hold prevents active registered plugins",
+    "RECOVERY_POLICY_CHANGED": "Recovery policy generation changed since receipt",
+    "RESOURCE_BUSY": "Workspace store is busy; retry only with the same operation key and payload",
+    "STORE_UNAVAILABLE": "Workspace store unavailable",
+    "MIGRATION_REQUIRED": "Explicit legacy store migration required",
+    "PERMISSION_REQUIRED": "Workspace authentication required",
+    "RESOURCE_GONE": "Workspace or resource unavailable",
+    "UPGRADE_REQUIRED": "Client cannot write this workspace version",
+    "REQUEST_TOO_LARGE": "Workspace request exceeds the byte budget",
+    "BUNDLE_UNAVAILABLE": "Published bundle is missing, changed or unindexed; verify files and refresh the bundle index"
+  },
+  "operations": {
+    "set_spatial_camera": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "const": "set_spatial_camera"
+          },
+          "camera": {
+            "$ref": "#/$defs/camera"
+          }
+        },
+        "required": [
+          "action",
+          "camera"
+        ],
+        "additionalProperties": false
+      },
+      "sideEffect": "layout",
+      "permission": "workspace-write",
+      "revision": "current-base-revision",
+      "idempotency": "receipt belongs to containing command batch"
+    },
+    "arrange_spatial": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "const": "arrange_spatial"
+          },
+          "window_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          },
+          "mode": {
+            "enum": [
+              "grid",
+              "row",
+              "curve"
+            ]
+          },
+          "columns": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "gap": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 20
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "additionalProperties": false
+      },
+      "sideEffect": "layout",
+      "permission": "workspace-write",
+      "revision": "current-base-revision",
+      "idempotency": "receipt belongs to containing command batch"
+    },
+    "reset_appearance": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "const": "reset_appearance"
+          },
+          "keys": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "theme",
+                "surfaceColor",
+                "panelColor",
+                "borderColor",
+                "mutedColor",
+                "titlebarColor",
+                "titlebarTextColor",
+                "buttonColor",
+                "buttonTextColor",
+                "background",
+                "textColor",
+                "accentColor",
+                "controlRadius",
+                "titlebarHeight",
+                "uiFont",
+                "wallpaper",
+                "cornerRadius",
+                "fullViewport",
+                "headerHeight",
+                "sidebarWidth",
+                "workspaceGap",
+                "navigationPosition",
+                "wallpaperFit"
+              ]
+            }
+          }
+        },
+        "required": [
+          "action",
+          "keys"
+        ],
+        "additionalProperties": false
+      },
+      "sideEffect": "layout",
+      "permission": "workspace-write",
+      "revision": "current-base-revision",
+      "idempotency": "receipt belongs to containing command batch"
+    },
+    "set_arc": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "const": "set_arc"
+          },
+          "arc": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 30
+          }
+        },
+        "required": [
+          "action",
+          "arc"
+        ],
+        "additionalProperties": false
+      },
+      "sideEffect": "layout",
+      "permission": "workspace-write",
+      "revision": "current-base-revision",
+      "idempotency": "receipt belongs to containing command batch"
+    },
+    "reorder_windows": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "const": "reorder_windows"
+          },
+          "window_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "action",
+          "window_ids"
+        ],
+        "additionalProperties": false
+      },
+      "sideEffect": "layout",
+      "permission": "workspace-write",
+      "revision": "current-base-revision",
+      "idempotency": "receipt belongs to containing command batch"
+    },
+    "swap_panes": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "const": "swap_panes"
+          },
+          "window_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          },
+          "pane_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          },
+          "other_window_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          },
+          "other_pane_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          }
+        },
+        "required": [
+          "action",
+          "window_id",
+          "pane_id",
+          "other_window_id",
+          "other_pane_id"
+        ],
+        "additionalProperties": false
+      },
+      "sideEffect": "layout",
+      "permission": "workspace-write",
+      "revision": "current-base-revision",
+      "idempotency": "receipt belongs to containing command batch"
+    },
+    "layout_panes": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "const": "layout_panes"
+          },
+          "window_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          },
+          "layout": {
+            "$ref": "#/$defs/template"
+          }
+        },
+        "required": [
+          "action",
+          "window_id",
+          "layout"
+        ],
+        "additionalProperties": false
+      },
+      "sideEffect": "layout",
+      "permission": "workspace-write",
+      "revision": "current-base-revision",
+      "idempotency": "receipt belongs to containing command batch"
+    },
+    "arrange_windows": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "const": "arrange_windows"
+          },
+          "width": {
+            "type": "number",
+            "minimum": 280,
+            "maximum": 16000
+          },
+          "height": {
+            "type": "number",
+            "minimum": 180,
+            "maximum": 16000
+          },
+          "window_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+            },
+            "minItems": 1,
+            "uniqueItems": true
+          },
+          "columns": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "gap": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          }
+        },
+        "required": [
+          "action",
+          "width",
+          "height"
+        ],
+        "additionalProperties": false
+      },
+      "sideEffect": "layout",
+      "permission": "workspace-write",
+      "revision": "current-base-revision",
+      "idempotency": "receipt belongs to containing command batch"
+    },
+    "set_workspace": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "const": "set_workspace"
+          },
+          "state": {
+            "$ref": "#/$defs/workspace"
+          }
+        },
+        "required": [
+          "action",
+          "state"
+        ],
+        "additionalProperties": false
+      },
+      "sideEffect": "layout",
+      "permission": "workspace-write",
+      "revision": "current-base-revision",
+      "idempotency": "receipt belongs to containing command batch"
+    },
+    "patch_appearance": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "const": "patch_appearance"
+          },
+          "patch": {
+            "$ref": "#/$defs/appearance"
+          }
+        },
+        "required": [
+          "action",
+          "patch"
+        ],
+        "additionalProperties": false
+      },
+      "sideEffect": "layout",
+      "permission": "workspace-write",
+      "revision": "current-base-revision",
+      "idempotency": "receipt belongs to containing command batch"
+    },
+    "set_appearance": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "const": "set_appearance"
+          },
+          "appearance": {
+            "$ref": "#/$defs/appearance"
+          }
+        },
+        "required": [
+          "action",
+          "appearance"
+        ],
+        "additionalProperties": false
+      },
+      "sideEffect": "layout",
+      "permission": "workspace-write",
+      "revision": "current-base-revision",
+      "idempotency": "receipt belongs to containing command batch"
+    },
+    "update_split": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "const": "update_split"
+          },
+          "window_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          },
+          "path": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "first",
+                "second"
+              ]
+            },
+            "maxItems": 8
+          },
+          "ratio": {
+            "type": "number",
+            "minimum": 0.15,
+            "maximum": 0.85
+          },
+          "axis": {
+            "enum": [
+              "row",
+              "column"
+            ]
+          },
+          "swap": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "action",
+          "window_id",
+          "path"
+        ],
+        "additionalProperties": false
+      },
+      "sideEffect": "layout",
+      "permission": "workspace-write",
+      "revision": "current-base-revision",
+      "idempotency": "receipt belongs to containing command batch"
+    },
+    "set_view": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "const": "set_view"
+          },
+          "view": {
+            "enum": [
+              "windows",
+              "spatial"
+            ]
+          }
+        },
+        "required": [
+          "action",
+          "view"
+        ],
+        "additionalProperties": false
+      },
+      "sideEffect": "layout",
+      "permission": "workspace-write",
+      "revision": "current-base-revision",
+      "idempotency": "receipt belongs to containing command batch"
+    },
+    "sidebar": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "const": "sidebar"
+          },
+          "hidden": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "action",
+          "hidden"
+        ],
+        "additionalProperties": false
+      },
+      "sideEffect": "layout",
+      "permission": "workspace-write",
+      "revision": "current-base-revision",
+      "idempotency": "receipt belongs to containing command batch"
+    },
+    "select": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "const": "select"
+          },
+          "window_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          }
+        },
+        "required": [
+          "action",
+          "window_id"
+        ],
+        "additionalProperties": false
+      },
+      "sideEffect": "layout",
+      "permission": "workspace-write",
+      "revision": "current-base-revision",
+      "idempotency": "receipt belongs to containing command batch"
+    },
+    "add_window": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "const": "add_window"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 60
+          },
+          "kind": {
+            "enum": [
+              "terminal",
+              "browser",
+              "agent"
+            ]
+          },
+          "url": {
+            "type": "string",
+            "maxLength": 2048
+          },
+          "frame": {
+            "$ref": "#/$defs/frame"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "additionalProperties": false
+      },
+      "sideEffect": "layout",
+      "permission": "workspace-write",
+      "revision": "current-base-revision",
+      "idempotency": "receipt belongs to containing command batch"
+    },
+    "update_window": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "const": "update_window"
+          },
+          "window_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 60
+          },
+          "diagonal": {
+            "type": "number",
+            "minimum": 20,
+            "maximum": 9007199254740991
+          },
+          "aspect": {
+            "enum": [
+              "16:9",
+              "16:10",
+              "21:9",
+              "32:9",
+              "4:3",
+              "9:16",
+              "1:1"
+            ]
+          },
+          "height": {
+            "type": "number",
+            "minimum": -2,
+            "maximum": 3
+          },
+          "distance": {
+            "type": "number",
+            "minimum": -2,
+            "maximum": 4
+          },
+          "pitch": {
+            "type": "number",
+            "minimum": -35,
+            "maximum": 35
+          },
+          "yaw": {
+            "type": "number",
+            "minimum": -45,
+            "maximum": 45
+          },
+          "offset": {
+            "type": "number",
+            "minimum": -3,
+            "maximum": 3
+          },
+          "fontSize": {
+            "type": "number",
+            "minimum": 6,
+            "maximum": 32
+          },
+          "spatialFontSize": {
+            "type": "number",
+            "minimum": 6,
+            "maximum": 96
+          },
+          "opacity": {
+            "type": "number",
+            "minimum": 0.2,
+            "maximum": 1
+          },
+          "frame": {
+            "$ref": "#/$defs/frame"
+          },
+          "spatial": {
+            "$ref": "#/$defs/spatial"
+          }
+        },
+        "required": [
+          "action",
+          "window_id"
+        ],
+        "additionalProperties": false
+      },
+      "sideEffect": "layout",
+      "permission": "workspace-write",
+      "revision": "current-base-revision",
+      "idempotency": "receipt belongs to containing command batch"
+    },
+    "close_window": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "const": "close_window"
+          },
+          "window_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          }
+        },
+        "required": [
+          "action",
+          "window_id"
+        ],
+        "additionalProperties": false
+      },
+      "sideEffect": "layout",
+      "permission": "workspace-write",
+      "revision": "current-base-revision",
+      "idempotency": "receipt belongs to containing command batch"
+    },
+    "set_pane": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "const": "set_pane"
+          },
+          "window_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          },
+          "pane_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          },
+          "kind": {
+            "enum": [
+              "terminal",
+              "browser",
+              "agent"
+            ]
+          },
+          "url": {
+            "type": "string",
+            "maxLength": 2048
+          }
+        },
+        "required": [
+          "action",
+          "window_id",
+          "pane_id"
+        ],
+        "additionalProperties": false
+      },
+      "sideEffect": "layout",
+      "permission": "workspace-write",
+      "revision": "current-base-revision",
+      "idempotency": "receipt belongs to containing command batch"
+    },
+    "split_pane": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "const": "split_pane"
+          },
+          "window_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          },
+          "pane_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          },
+          "kind": {
+            "enum": [
+              "terminal",
+              "browser",
+              "agent"
+            ]
+          },
+          "axis": {
+            "enum": [
+              "row",
+              "column"
+            ]
+          },
+          "ratio": {
+            "type": "number",
+            "minimum": 0.15,
+            "maximum": 0.85
+          }
+        },
+        "required": [
+          "action",
+          "window_id",
+          "pane_id"
+        ],
+        "additionalProperties": false
+      },
+      "sideEffect": "layout",
+      "permission": "workspace-write",
+      "revision": "current-base-revision",
+      "idempotency": "receipt belongs to containing command batch"
+    },
+    "close_pane": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "const": "close_pane"
+          },
+          "window_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          },
+          "pane_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          }
+        },
+        "required": [
+          "action",
+          "window_id",
+          "pane_id"
+        ],
+        "additionalProperties": false
+      },
+      "sideEffect": "layout",
+      "permission": "workspace-write",
+      "revision": "current-base-revision",
+      "idempotency": "receipt belongs to containing command batch"
+    },
+    "plugin_install": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "const": "plugin_install"
+          },
+          "manifest": {
+            "$ref": "#/$defs/manifest"
+          },
+          "config": {
+            "$ref": "#/$defs/config"
+          }
+        },
+        "required": [
+          "action",
+          "manifest"
+        ],
+        "additionalProperties": false
+      },
+      "sideEffect": "plugin-registration",
+      "permission": "workspace-write",
+      "revision": "current-base-revision",
+      "idempotency": "receipt belongs to containing command batch"
+    },
+    "plugin_backend": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "const": "plugin_backend"
+          },
+          "plugin_id": {
+            "$ref": "#/$defs/manifestId"
+          },
+          "endpoint": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2048
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "confirm_host_access": {
+            "const": true
+          }
+        },
+        "required": [
+          "action",
+          "plugin_id",
+          "endpoint",
+          "confirm_host_access"
+        ],
+        "additionalProperties": false
+      },
+      "sideEffect": "trusted-backend",
+      "permission": "owner-host-code-confirmation",
+      "revision": "current-base-revision",
+      "idempotency": "receipt belongs to containing command batch"
+    },
+    "plugin_enable": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "const": "plugin_enable"
+          },
+          "plugin_id": {
+            "$ref": "#/$defs/manifestId"
+          }
+        },
+        "required": [
+          "action",
+          "plugin_id"
+        ],
+        "additionalProperties": false
+      },
+      "sideEffect": "plugin-registration",
+      "permission": "workspace-write",
+      "revision": "current-base-revision",
+      "idempotency": "receipt belongs to containing command batch"
+    },
+    "plugin_disable": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "const": "plugin_disable"
+          },
+          "plugin_id": {
+            "$ref": "#/$defs/manifestId"
+          }
+        },
+        "required": [
+          "action",
+          "plugin_id"
+        ],
+        "additionalProperties": false
+      },
+      "sideEffect": "plugin-registration",
+      "permission": "workspace-write",
+      "revision": "current-base-revision",
+      "idempotency": "receipt belongs to containing command batch"
+    },
+    "plugin_remove": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "const": "plugin_remove"
+          },
+          "plugin_id": {
+            "$ref": "#/$defs/manifestId"
+          }
+        },
+        "required": [
+          "action",
+          "plugin_id"
+        ],
+        "additionalProperties": false
+      },
+      "sideEffect": "plugin-registration",
+      "permission": "workspace-write",
+      "revision": "current-base-revision",
+      "idempotency": "receipt belongs to containing command batch"
+    },
+    "plugin_patch_config": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "const": "plugin_patch_config"
+          },
+          "plugin_id": {
+            "$ref": "#/$defs/manifestId"
+          },
+          "patch": {
+            "$ref": "#/$defs/config"
+          }
+        },
+        "required": [
+          "action",
+          "plugin_id",
+          "patch"
+        ],
+        "additionalProperties": false
+      },
+      "sideEffect": "plugin-registration",
+      "permission": "workspace-write",
+      "revision": "current-base-revision",
+      "idempotency": "receipt belongs to containing command batch"
+    },
+    "plugin_window": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "const": "plugin_window"
+          },
+          "plugin_id": {
+            "$ref": "#/$defs/manifestId"
+          },
+          "settings": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "maxLength": 60
+              },
+              "diagonal": {
+                "type": "number",
+                "minimum": 20,
+                "maximum": 9007199254740991
+              },
+              "aspect": {
+                "enum": [
+                  "16:9",
+                  "16:10",
+                  "21:9",
+                  "32:9",
+                  "4:3",
+                  "9:16",
+                  "1:1"
+                ]
+              },
+              "height": {
+                "type": "number",
+                "minimum": -2,
+                "maximum": 3
+              },
+              "distance": {
+                "type": "number",
+                "minimum": -2,
+                "maximum": 4
+              },
+              "pitch": {
+                "type": "number",
+                "minimum": -35,
+                "maximum": 35
+              },
+              "yaw": {
+                "type": "number",
+                "minimum": -45,
+                "maximum": 45
+              },
+              "offset": {
+                "type": "number",
+                "minimum": -3,
+                "maximum": 3
+              },
+              "fontSize": {
+                "type": "number",
+                "minimum": 6,
+                "maximum": 32
+              },
+              "spatialFontSize": {
+                "type": "number",
+                "minimum": 6,
+                "maximum": 96
+              },
+              "opacity": {
+                "type": "number",
+                "minimum": 0.2,
+                "maximum": 1
+              },
+              "frame": {
+                "$ref": "#/$defs/frame"
+              }
+            },
+            "required": [],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "action",
+          "plugin_id",
+          "settings"
+        ],
+        "additionalProperties": false
+      },
+      "sideEffect": "plugin-registration",
+      "permission": "workspace-write",
+      "revision": "current-base-revision",
+      "idempotency": "receipt belongs to containing command batch"
+    },
+    "plugin_configure": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "const": "plugin_configure"
+          },
+          "plugin_id": {
+            "$ref": "#/$defs/manifestId"
+          },
+          "config": {
+            "$ref": "#/$defs/config"
+          }
+        },
+        "required": [
+          "action",
+          "plugin_id",
+          "config"
+        ],
+        "additionalProperties": false
+      },
+      "sideEffect": "plugin-registration",
+      "permission": "workspace-write",
+      "revision": "current-base-revision",
+      "idempotency": "receipt belongs to containing command batch"
+    },
+    "plugin_update": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "const": "plugin_update"
+          },
+          "plugin_id": {
+            "$ref": "#/$defs/manifestId"
+          },
+          "manifest": {
+            "$ref": "#/$defs/manifest"
+          }
+        },
+        "required": [
+          "action",
+          "plugin_id",
+          "manifest"
+        ],
+        "additionalProperties": false
+      },
+      "sideEffect": "plugin-registration",
+      "permission": "workspace-write",
+      "revision": "current-base-revision",
+      "idempotency": "receipt belongs to containing command batch"
+    },
+    "plugin_disable_all": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "const": "plugin_disable_all"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "additionalProperties": false
+      },
+      "sideEffect": "plugin-registration",
+      "permission": "workspace-write",
+      "revision": "current-base-revision",
+      "idempotency": "receipt belongs to containing command batch"
+    }
+  },
+  "commands": {
+    "read": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
+            "const": "read"
+          },
+          "observed_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$ref": "#/$defs/snapshot"
+      },
+      "sideEffect": "route-dependent-client-observation",
+      "permission": "authenticated-workspace",
+      "revision": "none",
+      "idempotency": "read-only-on-control-and-recovery; browser-overwrites-observation",
+      "routeEffects": {
+        "browser": "client-observation-write",
+        "control": "read",
+        "recovery": "read"
+      }
+    },
+    "describe": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
+            "const": "describe"
+          },
+          "project_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "catalog": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "version": {
+            "const": 1
+          },
+          "editable_fields": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 100
+            },
+            "maxItems": 32
+          },
+          "surfaces": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "window_id": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                },
+                "pane_id": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                },
+                "kind": {
+                  "enum": [
+                    "terminal",
+                    "browser",
+                    "agent"
+                  ]
+                }
+              },
+              "required": [
+                "window_id",
+                "pane_id",
+                "kind"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 1000
+          },
+          "projects": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                },
+                "name": {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                "generation": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "generation"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 32
+          },
+          "bindings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                },
+                "project_id": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                },
+                "resource_id": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                },
+                "pane_id": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                },
+                "role": {
+                  "type": "string",
+                  "maxLength": 40
+                },
+                "available": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "project_id",
+                "resource_id",
+                "pane_id",
+                "role",
+                "available"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 1000
+          },
+          "extension_compatibility": {
+            "type": "object",
+            "properties": {
+              "manifest_api": {
+                "const": 1
+              },
+              "multiple_instances": {
+                "const": false
+              },
+              "private_frame_data": {
+                "const": false
+              },
+              "network": {
+                "const": "legacy-network-capable"
+              }
+            },
+            "required": [
+              "manifest_api",
+              "multiple_instances",
+              "private_frame_data",
+              "network"
+            ],
+            "additionalProperties": false
+          },
+          "unsupported": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 200
+            },
+            "maxItems": 32
+          },
+          "catalog": {
+            "type": "object"
+          },
+          "recipes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "name": {
+                  "type": "string",
+                  "maxLength": 60
+                },
+                "roles": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 40
+                  },
+                  "maxItems": 5
+                },
+                "layout": {
+                  "type": "string",
+                  "maxLength": 40
+                },
+                "renderer": {
+                  "type": "string",
+                  "maxLength": 40
+                }
+              },
+              "required": [
+                "id",
+                "version",
+                "name",
+                "roles",
+                "layout",
+                "renderer"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 1024
+          },
+          "recipe_scope": {
+            "enum": [
+              "selected-project",
+              "select-project-to-list"
+            ]
+          }
+        },
+        "required": [
+          "workspace_id",
+          "revision",
+          "version",
+          "editable_fields",
+          "surfaces",
+          "projects",
+          "bindings",
+          "extension_compatibility",
+          "unsupported",
+          "recipes",
+          "recipe_scope"
+        ],
+        "additionalProperties": false
+      },
+      "sideEffect": "read",
+      "permission": "authenticated-workspace",
+      "revision": "none",
+      "idempotency": "read-only"
+    },
+    "arrangement": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
+            "const": "arrangement"
+          },
+          "request": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "const": "recipe_list"
+                  },
+                  "project_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  }
+                },
+                "required": [
+                  "action",
+                  "project_id"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "const": "recipe_save"
+                  },
+                  "project_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 60
+                  },
+                  "roles": {
+                    "type": "array",
+                    "items": {
+                      "enum": [
+                        "primary_agent",
+                        "active_terminal",
+                        "preview",
+                        "candidate_diff",
+                        "project_files"
+                      ]
+                    },
+                    "minItems": 0,
+                    "maxItems": 5,
+                    "uniqueItems": true
+                  },
+                  "layout": {
+                    "enum": [
+                      "prioritize",
+                      "columns",
+                      "rows"
+                    ]
+                  },
+                  "renderer": {
+                    "enum": [
+                      "windows",
+                      "spatial",
+                      "docking"
+                    ]
+                  },
+                  "recipe_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "expected_version": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "op_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "intent": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 160
+                  }
+                },
+                "required": [
+                  "action",
+                  "project_id",
+                  "name",
+                  "roles",
+                  "layout",
+                  "renderer",
+                  "op_id"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "const": "recipe_preview"
+                  },
+                  "project_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "recipe": {
+                    "enum": [
+                      "project_focus",
+                      "investigate",
+                      "implement",
+                      "review",
+                      "return"
+                    ]
+                  },
+                  "recipe_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "role_choices": {
+                    "type": "object",
+                    "propertyNames": {
+                      "enum": [
+                        "primary_agent",
+                        "active_terminal",
+                        "preview",
+                        "candidate_diff",
+                        "project_files"
+                      ]
+                    },
+                    "additionalProperties": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                    },
+                    "maxProperties": 5
+                  },
+                  "renderer": {
+                    "enum": [
+                      "windows",
+                      "spatial",
+                      "docking"
+                    ]
+                  },
+                  "width": {
+                    "type": "number",
+                    "minimum": 280,
+                    "maximum": 16000
+                  },
+                  "height": {
+                    "type": "number",
+                    "minimum": 180,
+                    "maximum": 16000
+                  }
+                },
+                "required": [
+                  "action",
+                  "project_id",
+                  "recipe"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "const": "recipe_apply"
+                  },
+                  "project_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "recipe": {
+                    "enum": [
+                      "project_focus",
+                      "investigate",
+                      "implement",
+                      "review",
+                      "return"
+                    ]
+                  },
+                  "preview_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "preview_digest": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "op_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "intent": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 160
+                  },
+                  "viewport": {
+                    "type": "object",
+                    "properties": {
+                      "width": {
+                        "type": "number",
+                        "minimum": 280,
+                        "maximum": 16000
+                      },
+                      "height": {
+                        "type": "number",
+                        "minimum": 180,
+                        "maximum": 16000
+                      }
+                    },
+                    "required": [
+                      "width",
+                      "height"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "action",
+                  "project_id",
+                  "recipe",
+                  "preview_id",
+                  "preview_digest",
+                  "op_id"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "const": "proposal_list"
+                  },
+                  "project_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "recipe": {
+                    "enum": [
+                      "project_focus",
+                      "investigate",
+                      "implement",
+                      "review",
+                      "return"
+                    ]
+                  },
+                  "after_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  }
+                },
+                "required": [
+                  "action",
+                  "project_id"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "const": "proposal_get"
+                  },
+                  "project_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "proposal_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  }
+                },
+                "required": [
+                  "action",
+                  "project_id",
+                  "proposal_id"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "const": "proposal_reject"
+                  },
+                  "project_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "proposal_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "expected_version": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                },
+                "required": [
+                  "action",
+                  "project_id",
+                  "proposal_id",
+                  "expected_version"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action",
+          "request"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "description": "Arrangement service result; structural preview, committed receipt and browser acknowledgement are separate facts"
+      },
+      "sideEffect": "workspace-proposal",
+      "permission": "authenticated-workspace",
+      "revision": "service-validated",
+      "idempotency": "action-specific; recipe_apply requires the exact retained preview identity and op_id, with durable actor-scoped receipt recovery"
+    },
+    "workbench_setup": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
+            "const": "workbench_setup"
+          },
+          "request": {
+            "$ref": "#/$defs/workbenchSetupRequest"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action",
+          "request"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "sideEffect": "workspace-proposal",
+      "permission": "authenticated-workspace-capability; proposal-only, never owner, task, execution or approval authority",
+      "revision": "service-validated",
+      "idempotency": "durable proposal keyed by authenticated workspace/op_id; returns only the caller-submitted suggestion for owner review, never a setup, authorization or execution receipt"
+    },
+    "history": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
+            "const": "history"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "checkpoints": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/checkpointMetadata"
+            }
+          }
+        },
+        "required": [
+          "revision",
+          "checkpoints"
+        ],
+        "additionalProperties": false
+      },
+      "sideEffect": "read",
+      "permission": "authenticated-workspace",
+      "revision": "none",
+      "idempotency": "read-only"
+    },
+    "checkpoint": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
+            "const": "checkpoint"
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "operation_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_.:-]{1,128}$"
+          },
+          "intent": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "base_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action"
+        ],
+        "additionalProperties": false,
+        "dependencies": {
+          "operation_id": [
+            "intent",
+            "base_revision"
+          ],
+          "intent": [
+            "operation_id"
+          ]
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "checkpoint": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "command_receipt": {
+            "$ref": "#/$defs/commandReceipt"
+          }
+        },
+        "required": [
+          "checkpoint",
+          "command_receipt"
+        ],
+        "additionalProperties": false
+      },
+      "sideEffect": "checkpoint",
+      "permission": "authenticated-workspace",
+      "revision": "none",
+      "idempotency": "durable receipt by authenticated actor/workspace/operation_id within recovery policy generation; obsolete generation replay rejected; legacy missing keys are not retry-safe"
+    },
+    "placement_save": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
+            "const": "placement_save"
+          },
+          "base_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "placement": {
+            "$ref": "#/$defs/dockingPlacement"
+          },
+          "operation_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_.:-]{1,128}$"
+          },
+          "intent": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action",
+          "base_revision",
+          "placement",
+          "operation_id",
+          "intent"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$ref": "#/$defs/placementSnapshot"
+      },
+      "sideEffect": "layout",
+      "permission": "authenticated-workspace",
+      "revision": "current-base-revision",
+      "idempotency": "legacy-no-durable-receipt"
+    },
+    "restore": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
+            "const": "restore"
+          },
+          "base_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "checkpoint_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "confirm": {
+            "type": "boolean"
+          },
+          "operation_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_.:-]{1,128}$"
+          },
+          "intent": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action",
+          "base_revision",
+          "checkpoint_id"
+        ],
+        "additionalProperties": false,
+        "dependencies": {
+          "operation_id": [
+            "intent",
+            "base_revision"
+          ],
+          "intent": [
+            "operation_id"
+          ]
+        }
+      },
+      "output": {
+        "$ref": "#/$defs/committedSnapshot"
+      },
+      "sideEffect": "layout",
+      "permission": "authenticated-workspace",
+      "revision": "current-base-revision",
+      "idempotency": "durable receipt by authenticated actor/workspace/operation_id within recovery policy generation; obsolete generation replay rejected; legacy missing keys are not retry-safe"
+    },
+    "recovery_policy": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
+            "const": "recovery_policy"
+          },
+          "base_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "operation_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_.:-]{1,128}$"
+          },
+          "intent": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "confirm": {
+            "const": true
+          },
+          "held": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action",
+          "base_revision",
+          "operation_id",
+          "intent",
+          "confirm",
+          "held"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "$ref": "#/$defs/committedSnapshot"
+      },
+      "sideEffect": "recovery-policy",
+      "permission": "authenticated-owner-on-recovery-route-only",
+      "revision": "current-base-revision",
+      "idempotency": "durable receipt scoped to recovery policy generation; obsolete generation replay rejected"
+    },
+    "apply": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
+            "const": "apply"
+          },
+          "base_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "operations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/operation"
+            },
+            "minItems": 1,
+            "maxItems": 32
+          },
+          "operation_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_.:-]{1,128}$"
+          },
+          "intent": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action",
+          "base_revision",
+          "operations"
+        ],
+        "additionalProperties": false,
+        "dependencies": {
+          "operation_id": [
+            "intent",
+            "base_revision"
+          ],
+          "intent": [
+            "operation_id"
+          ]
+        }
+      },
+      "output": {
+        "$ref": "#/$defs/committedSnapshot"
+      },
+      "sideEffect": "layout",
+      "permission": "authenticated-workspace",
+      "revision": "current-base-revision",
+      "idempotency": "durable receipt by authenticated actor/workspace/operation_id within recovery policy generation; obsolete generation replay rejected; legacy missing keys are not retry-safe"
+    },
+    "preview": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
+            "const": "preview"
+          },
+          "base_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "operations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/operation"
+            },
+            "minItems": 1,
+            "maxItems": 32
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action",
+          "base_revision",
+          "operations"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "base_revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "preview": {
+            "const": true
+          },
+          "state": {
+            "$ref": "#/$defs/workspace"
+          },
+          "changed_fields": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 100
+            }
+          },
+          "warning": {
+            "type": "string",
+            "maxLength": 2048
+          }
+        },
+        "required": [
+          "workspace_id",
+          "base_revision",
+          "preview",
+          "state",
+          "changed_fields",
+          "warning"
+        ],
+        "additionalProperties": false
+      },
+      "sideEffect": "read",
+      "permission": "authenticated-workspace",
+      "revision": "current-base-revision",
+      "idempotency": "read-only"
+    },
+    "plugins_apply": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
+            "const": "plugins_apply"
+          },
+          "base_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "operations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/operation"
+            },
+            "minItems": 1,
+            "maxItems": 32
+          },
+          "operation_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_.:-]{1,128}$"
+          },
+          "intent": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action",
+          "base_revision",
+          "operations"
+        ],
+        "additionalProperties": false,
+        "dependencies": {
+          "operation_id": [
+            "intent",
+            "base_revision"
+          ],
+          "intent": [
+            "operation_id"
+          ]
+        }
+      },
+      "output": {
+        "$ref": "#/$defs/committedSnapshot"
+      },
+      "sideEffect": "plugin-registration",
+      "permission": "authenticated-workspace",
+      "revision": "current-base-revision",
+      "idempotency": "durable receipt by authenticated actor/workspace/operation_id within recovery policy generation; obsolete generation replay rejected; legacy missing keys are not retry-safe"
+    },
+    "sync": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
+            "const": "sync"
+          },
+          "state": {
+            "$ref": "#/$defs/workspace"
+          },
+          "base_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "observed_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "operation_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_.:-]{1,128}$"
+          },
+          "intent": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action",
+          "state"
+        ],
+        "additionalProperties": false,
+        "dependencies": {
+          "operation_id": [
+            "intent",
+            "base_revision"
+          ],
+          "intent": [
+            "operation_id"
+          ]
+        }
+      },
+      "output": {
+        "$ref": "#/$defs/committedSnapshot"
+      },
+      "sideEffect": "layout",
+      "permission": "authenticated-workspace",
+      "revision": "required-after-initial-connect",
+      "idempotency": "durable receipt by authenticated actor/workspace/operation_id within recovery policy generation; obsolete generation replay rejected; legacy missing keys are not retry-safe"
+    },
+    "shelf": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
+            "const": "shelf"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "title": {
+                  "type": "string",
+                  "maxLength": 2048
+                },
+                "url": {
+                  "type": "string",
+                  "maxLength": 2048
+                },
+                "kind": {
+                  "enum": [
+                    "app/report",
+                    "output"
+                  ]
+                }
+              },
+              "required": [
+                "title",
+                "url",
+                "kind"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 300
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "sideEffect": "read",
+      "permission": "authenticated-workspace",
+      "revision": "none",
+      "idempotency": "read-only"
+    },
+    "jev_suggest": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
+            "const": "jev_suggest"
+          },
+          "request": {
+            "type": "string",
+            "maxLength": 12000
+          },
+          "api_key": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "consent": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action",
+          "request",
+          "api_key",
+          "consent"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "description": "Legacy optional Jev result; provider output validation remains in server/jev.mjs"
+      },
+      "sideEffect": "external-model-request",
+      "permission": "authenticated-owner-with-external-data-consent",
+      "revision": "none",
+      "idempotency": "external-provider-request-not-retry-safe"
+    },
+    "jev_apply": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
+            "const": "jev_apply"
+          },
+          "action_id": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "base_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "confirm": {
+            "type": "boolean"
+          },
+          "operation_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_.:-]{1,128}$"
+          },
+          "intent": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action",
+          "action_id",
+          "base_revision"
+        ],
+        "additionalProperties": false,
+        "dependencies": {
+          "operation_id": [
+            "intent",
+            "base_revision"
+          ],
+          "intent": [
+            "operation_id"
+          ]
+        }
+      },
+      "output": {
+        "$ref": "#/$defs/committedSnapshot"
+      },
+      "sideEffect": "layout",
+      "permission": "authenticated-workspace",
+      "revision": "current-base-revision",
+      "idempotency": "durable receipt by authenticated actor/workspace/operation_id within recovery policy generation; obsolete generation replay rejected; legacy missing keys are not retry-safe"
+    }
+  },
+  "schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "urn:orbit:workspace-command:1",
+    "$defs": {
+      "frame": {
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "y": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "width": {
+            "type": "number",
+            "minimum": 280,
+            "maximum": 4000
+          },
+          "height": {
+            "type": "number",
+            "minimum": 180,
+            "maximum": 4000
+          },
+          "z": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100000
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "width",
+          "height",
+          "z"
+        ],
+        "additionalProperties": false
+      },
+      "spatial": {
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "number",
+            "minimum": -10000,
+            "maximum": 10000
+          },
+          "y": {
+            "type": "number",
+            "minimum": -10000,
+            "maximum": 10000
+          },
+          "z": {
+            "type": "number",
+            "minimum": -10000,
+            "maximum": 10000
+          },
+          "width": {
+            "type": "number",
+            "minimum": 0.3,
+            "maximum": 200
+          },
+          "height": {
+            "type": "number",
+            "minimum": 0.3,
+            "maximum": 200
+          },
+          "yaw": {
+            "type": "number",
+            "minimum": -360,
+            "maximum": 360
+          },
+          "pitch": {
+            "type": "number",
+            "minimum": -89,
+            "maximum": 89
+          },
+          "resolution": {
+            "enum": [
+              1280,
+              1920,
+              2560,
+              3840
+            ]
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "z",
+          "width",
+          "height",
+          "yaw",
+          "pitch",
+          "resolution"
+        ],
+        "additionalProperties": false
+      },
+      "camera": {
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "number",
+            "minimum": -10000,
+            "maximum": 10000
+          },
+          "y": {
+            "type": "number",
+            "minimum": -10000,
+            "maximum": 10000
+          },
+          "z": {
+            "type": "number",
+            "minimum": -10000,
+            "maximum": 10000
+          },
+          "azimuth": {
+            "type": "number",
+            "minimum": -6.283185307179586,
+            "maximum": 6.283185307179586
+          },
+          "elevation": {
+            "type": "number",
+            "minimum": -1.5,
+            "maximum": 1.5
+          },
+          "distance": {
+            "type": "number",
+            "minimum": 0.2,
+            "maximum": 2000
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "z",
+          "azimuth",
+          "elevation",
+          "distance"
+        ],
+        "additionalProperties": false
+      },
+      "placementFrame": {
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "y": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 10000
+          },
+          "width": {
+            "type": "number",
+            "minimum": 80,
+            "maximum": 10000
+          },
+          "height": {
+            "type": "number",
+            "minimum": 60,
+            "maximum": 10000
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "width",
+          "height"
+        ],
+        "additionalProperties": false
+      },
+      "placementGroup": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "const": "group"
+          },
+          "windows": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+            },
+            "minItems": 1,
+            "maxItems": 100,
+            "uniqueItems": true
+          },
+          "active": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          }
+        },
+        "required": [
+          "type",
+          "windows"
+        ],
+        "additionalProperties": false
+      },
+      "placementBranch": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "const": "branch"
+          },
+          "direction": {
+            "enum": [
+              "horizontal",
+              "vertical"
+            ]
+          },
+          "ratio": {
+            "type": "number",
+            "minimum": 0.05,
+            "maximum": 0.95
+          },
+          "first": {
+            "$ref": "#/$defs/placementNode"
+          },
+          "second": {
+            "$ref": "#/$defs/placementNode"
+          }
+        },
+        "required": [
+          "type",
+          "direction",
+          "ratio",
+          "first",
+          "second"
+        ],
+        "additionalProperties": false
+      },
+      "placementFloat": {
+        "type": "object",
+        "properties": {
+          "windows": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+            },
+            "minItems": 1,
+            "maxItems": 100,
+            "uniqueItems": true
+          },
+          "frame": {
+            "$ref": "#/$defs/placementFrame"
+          },
+          "active": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          }
+        },
+        "required": [
+          "windows",
+          "frame"
+        ],
+        "additionalProperties": false
+      },
+      "appearance": {
+        "type": "object",
+        "properties": {
+          "theme": {
+            "enum": [
+              "midnight",
+              "xp",
+              "classic",
+              "paper",
+              "cyberpunk"
+            ]
+          },
+          "surfaceColor": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "panelColor": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "borderColor": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "mutedColor": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "titlebarColor": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "titlebarTextColor": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "buttonColor": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "buttonTextColor": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "background": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "textColor": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "accentColor": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$"
+          },
+          "controlRadius": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 24
+          },
+          "titlebarHeight": {
+            "type": "number",
+            "minimum": 24,
+            "maximum": 64
+          },
+          "uiFont": {
+            "enum": [
+              "system",
+              "classic",
+              "mono"
+            ]
+          },
+          "wallpaper": {
+            "type": "string",
+            "maxLength": 300,
+            "pattern": "^(?:|/[a-zA-Z0-9/_-]+\\.(?:svg|png|jpg|jpeg|webp))$"
+          },
+          "cornerRadius": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 40
+          },
+          "fullViewport": {
+            "type": "boolean"
+          },
+          "headerHeight": {
+            "type": "number",
+            "minimum": 32,
+            "maximum": 80
+          },
+          "sidebarWidth": {
+            "type": "number",
+            "minimum": 200,
+            "maximum": 480
+          },
+          "workspaceGap": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 32
+          },
+          "navigationPosition": {
+            "enum": [
+              "top",
+              "bottom"
+            ]
+          },
+          "wallpaperFit": {
+            "enum": [
+              "cover",
+              "contain",
+              "auto"
+            ]
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "layout": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "pane"
+              },
+              "pane": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                  },
+                  "kind": {
+                    "enum": [
+                      "terminal",
+                      "browser",
+                      "agent"
+                    ]
+                  },
+                  "url": {
+                    "type": "string",
+                    "maxLength": 2048
+                  }
+                },
+                "required": [
+                  "id",
+                  "kind",
+                  "url"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "type",
+              "pane"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "const": "split"
+              },
+              "axis": {
+                "enum": [
+                  "row",
+                  "column"
+                ]
+              },
+              "ratio": {
+                "type": "number",
+                "minimum": 0.15,
+                "maximum": 0.85
+              },
+              "first": {
+                "$ref": "#/$defs/layout"
+              },
+              "second": {
+                "$ref": "#/$defs/layout"
+              }
+            },
+            "required": [
+              "type",
+              "axis",
+              "ratio",
+              "first",
+              "second"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "template": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "pane_id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+              }
+            },
+            "required": [
+              "pane_id"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "axis": {
+                "enum": [
+                  "row",
+                  "column"
+                ]
+              },
+              "ratio": {
+                "type": "number",
+                "minimum": 0.15,
+                "maximum": 0.85
+              },
+              "first": {
+                "$ref": "#/$defs/template"
+              },
+              "second": {
+                "$ref": "#/$defs/template"
+              }
+            },
+            "required": [
+              "axis",
+              "ratio",
+              "first",
+              "second"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "monitor": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 60
+          },
+          "diagonal": {
+            "type": "number",
+            "minimum": 20,
+            "maximum": 9007199254740991
+          },
+          "aspect": {
+            "enum": [
+              "16:9",
+              "16:10",
+              "21:9",
+              "32:9",
+              "4:3",
+              "9:16",
+              "1:1"
+            ]
+          },
+          "height": {
+            "type": "number",
+            "minimum": -2,
+            "maximum": 3
+          },
+          "distance": {
+            "type": "number",
+            "minimum": -2,
+            "maximum": 4
+          },
+          "pitch": {
+            "type": "number",
+            "minimum": -35,
+            "maximum": 35
+          },
+          "yaw": {
+            "type": "number",
+            "minimum": -45,
+            "maximum": 45
+          },
+          "offset": {
+            "type": "number",
+            "minimum": -3,
+            "maximum": 3
+          },
+          "fontSize": {
+            "type": "number",
+            "minimum": 6,
+            "maximum": 32
+          },
+          "spatialFontSize": {
+            "type": "number",
+            "minimum": 6,
+            "maximum": 96
+          },
+          "opacity": {
+            "type": "number",
+            "minimum": 0.2,
+            "maximum": 1
+          },
+          "frame": {
+            "$ref": "#/$defs/frame"
+          },
+          "spatial": {
+            "$ref": "#/$defs/spatial"
+          },
+          "layout": {
+            "$ref": "#/$defs/layout"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "diagonal",
+          "aspect",
+          "height",
+          "distance",
+          "pitch",
+          "yaw",
+          "offset",
+          "fontSize",
+          "layout"
+        ],
+        "additionalProperties": false
+      },
+      "manifest": {
+        "type": "object",
+        "properties": {
+          "apiVersion": {
+            "const": 1
+          },
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,47}$"
+          },
+          "version": {
+            "type": "string",
+            "pattern": "^\\d+\\.\\d+\\.\\d+$"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 60,
+            "minLength": 1
+          },
+          "entry": {
+            "type": "string",
+            "pattern": "^/apps/[a-z0-9-]+/[a-zA-Z0-9/_-]+\\.html$"
+          }
+        },
+        "required": [
+          "apiVersion",
+          "id",
+          "version",
+          "title",
+          "entry"
+        ],
+        "additionalProperties": false
+      },
+      "config": {
+        "type": "object",
+        "maxProperties": 32,
+        "propertyNames": {
+          "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,47}$"
+        },
+        "additionalProperties": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 4096
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            }
+          ]
+        }
+      },
+      "plugin": {
+        "type": "object",
+        "properties": {
+          "manifest": {
+            "$ref": "#/$defs/manifest"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "window": {
+            "$ref": "#/$defs/monitor"
+          },
+          "config": {
+            "$ref": "#/$defs/config"
+          },
+          "backendEndpoint": {
+            "type": "string",
+            "maxLength": 2048
+          }
+        },
+        "required": [
+          "manifest",
+          "enabled",
+          "window",
+          "config"
+        ],
+        "additionalProperties": false
+      },
+      "workspace": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "const": 1
+          },
+          "monitors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/monitor"
+            },
+            "minItems": 1
+          },
+          "selected": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+          },
+          "arc": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 30
+          },
+          "view": {
+            "enum": [
+              "windows",
+              "spatial"
+            ]
+          },
+          "sidebarHidden": {
+            "type": "boolean"
+          },
+          "appearance": {
+            "$ref": "#/$defs/appearance"
+          },
+          "plugins": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/plugin"
+            },
+            "maxItems": 32
+          },
+          "spatialCamera": {
+            "$ref": "#/$defs/camera"
+          }
+        },
+        "required": [
+          "version",
+          "monitors",
+          "selected",
+          "arc"
+        ],
+        "additionalProperties": false
+      },
+      "placementNode": {
+        "oneOf": [
+          {
+            "$ref": "#/$defs/placementGroup"
+          },
+          {
+            "$ref": "#/$defs/placementBranch"
+          }
+        ]
+      },
+      "dockingPlacement": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "const": 1
+          },
+          "layout": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/placementNode"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "floats": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/placementFloat"
+            },
+            "maxItems": 100
+          },
+          "active": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "version",
+          "layout",
+          "floats"
+        ],
+        "additionalProperties": false
+      },
+      "manifestId": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]{0,47}$"
+      },
+      "operation": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "set_spatial_camera"
+              },
+              "camera": {
+                "$ref": "#/$defs/camera"
+              }
+            },
+            "required": [
+              "action",
+              "camera"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "arrange_spatial"
+              },
+              "window_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                },
+                "minItems": 1,
+                "uniqueItems": true
+              },
+              "mode": {
+                "enum": [
+                  "grid",
+                  "row",
+                  "curve"
+                ]
+              },
+              "columns": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              "gap": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 20
+              }
+            },
+            "required": [
+              "action"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "reset_appearance"
+              },
+              "keys": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "theme",
+                    "surfaceColor",
+                    "panelColor",
+                    "borderColor",
+                    "mutedColor",
+                    "titlebarColor",
+                    "titlebarTextColor",
+                    "buttonColor",
+                    "buttonTextColor",
+                    "background",
+                    "textColor",
+                    "accentColor",
+                    "controlRadius",
+                    "titlebarHeight",
+                    "uiFont",
+                    "wallpaper",
+                    "cornerRadius",
+                    "fullViewport",
+                    "headerHeight",
+                    "sidebarWidth",
+                    "workspaceGap",
+                    "navigationPosition",
+                    "wallpaperFit"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "action",
+              "keys"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "set_arc"
+              },
+              "arc": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 30
+              }
+            },
+            "required": [
+              "action",
+              "arc"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "reorder_windows"
+              },
+              "window_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                },
+                "minItems": 1,
+                "uniqueItems": true
+              }
+            },
+            "required": [
+              "action",
+              "window_ids"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "swap_panes"
+              },
+              "window_id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+              },
+              "pane_id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+              },
+              "other_window_id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+              },
+              "other_pane_id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+              }
+            },
+            "required": [
+              "action",
+              "window_id",
+              "pane_id",
+              "other_window_id",
+              "other_pane_id"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "layout_panes"
+              },
+              "window_id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+              },
+              "layout": {
+                "$ref": "#/$defs/template"
+              }
+            },
+            "required": [
+              "action",
+              "window_id",
+              "layout"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "arrange_windows"
+              },
+              "width": {
+                "type": "number",
+                "minimum": 280,
+                "maximum": 16000
+              },
+              "height": {
+                "type": "number",
+                "minimum": 180,
+                "maximum": 16000
+              },
+              "window_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                },
+                "minItems": 1,
+                "uniqueItems": true
+              },
+              "columns": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              "gap": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
+              }
+            },
+            "required": [
+              "action",
+              "width",
+              "height"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "set_workspace"
+              },
+              "state": {
+                "$ref": "#/$defs/workspace"
+              }
+            },
+            "required": [
+              "action",
+              "state"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "patch_appearance"
+              },
+              "patch": {
+                "$ref": "#/$defs/appearance"
+              }
+            },
+            "required": [
+              "action",
+              "patch"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "set_appearance"
+              },
+              "appearance": {
+                "$ref": "#/$defs/appearance"
+              }
+            },
+            "required": [
+              "action",
+              "appearance"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "update_split"
+              },
+              "window_id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+              },
+              "path": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "first",
+                    "second"
+                  ]
+                },
+                "maxItems": 8
+              },
+              "ratio": {
+                "type": "number",
+                "minimum": 0.15,
+                "maximum": 0.85
+              },
+              "axis": {
+                "enum": [
+                  "row",
+                  "column"
+                ]
+              },
+              "swap": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "action",
+              "window_id",
+              "path"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "set_view"
+              },
+              "view": {
+                "enum": [
+                  "windows",
+                  "spatial"
+                ]
+              }
+            },
+            "required": [
+              "action",
+              "view"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "sidebar"
+              },
+              "hidden": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "action",
+              "hidden"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "select"
+              },
+              "window_id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+              }
+            },
+            "required": [
+              "action",
+              "window_id"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "add_window"
+              },
+              "name": {
+                "type": "string",
+                "maxLength": 60
+              },
+              "kind": {
+                "enum": [
+                  "terminal",
+                  "browser",
+                  "agent"
+                ]
+              },
+              "url": {
+                "type": "string",
+                "maxLength": 2048
+              },
+              "frame": {
+                "$ref": "#/$defs/frame"
+              }
+            },
+            "required": [
+              "action"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "update_window"
+              },
+              "window_id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+              },
+              "name": {
+                "type": "string",
+                "maxLength": 60
+              },
+              "diagonal": {
+                "type": "number",
+                "minimum": 20,
+                "maximum": 9007199254740991
+              },
+              "aspect": {
+                "enum": [
+                  "16:9",
+                  "16:10",
+                  "21:9",
+                  "32:9",
+                  "4:3",
+                  "9:16",
+                  "1:1"
+                ]
+              },
+              "height": {
+                "type": "number",
+                "minimum": -2,
+                "maximum": 3
+              },
+              "distance": {
+                "type": "number",
+                "minimum": -2,
+                "maximum": 4
+              },
+              "pitch": {
+                "type": "number",
+                "minimum": -35,
+                "maximum": 35
+              },
+              "yaw": {
+                "type": "number",
+                "minimum": -45,
+                "maximum": 45
+              },
+              "offset": {
+                "type": "number",
+                "minimum": -3,
+                "maximum": 3
+              },
+              "fontSize": {
+                "type": "number",
+                "minimum": 6,
+                "maximum": 32
+              },
+              "spatialFontSize": {
+                "type": "number",
+                "minimum": 6,
+                "maximum": 96
+              },
+              "opacity": {
+                "type": "number",
+                "minimum": 0.2,
+                "maximum": 1
+              },
+              "frame": {
+                "$ref": "#/$defs/frame"
+              },
+              "spatial": {
+                "$ref": "#/$defs/spatial"
+              }
+            },
+            "required": [
+              "action",
+              "window_id"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "close_window"
+              },
+              "window_id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+              }
+            },
+            "required": [
+              "action",
+              "window_id"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "set_pane"
+              },
+              "window_id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+              },
+              "pane_id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+              },
+              "kind": {
+                "enum": [
+                  "terminal",
+                  "browser",
+                  "agent"
+                ]
+              },
+              "url": {
+                "type": "string",
+                "maxLength": 2048
+              }
+            },
+            "required": [
+              "action",
+              "window_id",
+              "pane_id"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "split_pane"
+              },
+              "window_id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+              },
+              "pane_id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+              },
+              "kind": {
+                "enum": [
+                  "terminal",
+                  "browser",
+                  "agent"
+                ]
+              },
+              "axis": {
+                "enum": [
+                  "row",
+                  "column"
+                ]
+              },
+              "ratio": {
+                "type": "number",
+                "minimum": 0.15,
+                "maximum": 0.85
+              }
+            },
+            "required": [
+              "action",
+              "window_id",
+              "pane_id"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "close_pane"
+              },
+              "window_id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+              },
+              "pane_id": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+              }
+            },
+            "required": [
+              "action",
+              "window_id",
+              "pane_id"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "plugin_install"
+              },
+              "manifest": {
+                "$ref": "#/$defs/manifest"
+              },
+              "config": {
+                "$ref": "#/$defs/config"
+              }
+            },
+            "required": [
+              "action",
+              "manifest"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "plugin_backend"
+              },
+              "plugin_id": {
+                "$ref": "#/$defs/manifestId"
+              },
+              "endpoint": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 2048
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "confirm_host_access": {
+                "const": true
+              }
+            },
+            "required": [
+              "action",
+              "plugin_id",
+              "endpoint",
+              "confirm_host_access"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "plugin_enable"
+              },
+              "plugin_id": {
+                "$ref": "#/$defs/manifestId"
+              }
+            },
+            "required": [
+              "action",
+              "plugin_id"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "plugin_disable"
+              },
+              "plugin_id": {
+                "$ref": "#/$defs/manifestId"
+              }
+            },
+            "required": [
+              "action",
+              "plugin_id"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "plugin_remove"
+              },
+              "plugin_id": {
+                "$ref": "#/$defs/manifestId"
+              }
+            },
+            "required": [
+              "action",
+              "plugin_id"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "plugin_patch_config"
+              },
+              "plugin_id": {
+                "$ref": "#/$defs/manifestId"
+              },
+              "patch": {
+                "$ref": "#/$defs/config"
+              }
+            },
+            "required": [
+              "action",
+              "plugin_id",
+              "patch"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "plugin_window"
+              },
+              "plugin_id": {
+                "$ref": "#/$defs/manifestId"
+              },
+              "settings": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "maxLength": 60
+                  },
+                  "diagonal": {
+                    "type": "number",
+                    "minimum": 20,
+                    "maximum": 9007199254740991
+                  },
+                  "aspect": {
+                    "enum": [
+                      "16:9",
+                      "16:10",
+                      "21:9",
+                      "32:9",
+                      "4:3",
+                      "9:16",
+                      "1:1"
+                    ]
+                  },
+                  "height": {
+                    "type": "number",
+                    "minimum": -2,
+                    "maximum": 3
+                  },
+                  "distance": {
+                    "type": "number",
+                    "minimum": -2,
+                    "maximum": 4
+                  },
+                  "pitch": {
+                    "type": "number",
+                    "minimum": -35,
+                    "maximum": 35
+                  },
+                  "yaw": {
+                    "type": "number",
+                    "minimum": -45,
+                    "maximum": 45
+                  },
+                  "offset": {
+                    "type": "number",
+                    "minimum": -3,
+                    "maximum": 3
+                  },
+                  "fontSize": {
+                    "type": "number",
+                    "minimum": 6,
+                    "maximum": 32
+                  },
+                  "spatialFontSize": {
+                    "type": "number",
+                    "minimum": 6,
+                    "maximum": 96
+                  },
+                  "opacity": {
+                    "type": "number",
+                    "minimum": 0.2,
+                    "maximum": 1
+                  },
+                  "frame": {
+                    "$ref": "#/$defs/frame"
+                  }
+                },
+                "required": [],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "action",
+              "plugin_id",
+              "settings"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "plugin_configure"
+              },
+              "plugin_id": {
+                "$ref": "#/$defs/manifestId"
+              },
+              "config": {
+                "$ref": "#/$defs/config"
+              }
+            },
+            "required": [
+              "action",
+              "plugin_id",
+              "config"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "plugin_update"
+              },
+              "plugin_id": {
+                "$ref": "#/$defs/manifestId"
+              },
+              "manifest": {
+                "$ref": "#/$defs/manifest"
+              }
+            },
+            "required": [
+              "action",
+              "plugin_id",
+              "manifest"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "plugin_disable_all"
+              }
+            },
+            "required": [
+              "action"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "workbenchSetupRequest": {
+        "type": "object",
+        "properties": {
+          "op_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "goal": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000,
+            "pattern": "\\S"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240,
+            "pattern": "\\S"
+          },
+          "acceptance_statement": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4000,
+            "pattern": "\\S"
+          },
+          "project_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "check_definition_id": {
+            "enum": [
+              "node-test",
+              "host-regression"
+            ]
+          }
+        },
+        "required": [
+          "op_id",
+          "goal"
+        ],
+        "additionalProperties": false
+      },
+      "recoveryPolicy": {
+        "type": "object",
+        "properties": {
+          "held": {
+            "type": "boolean"
+          },
+          "generation": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "held",
+          "generation"
+        ],
+        "additionalProperties": false
+      },
+      "snapshot": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "state": {
+            "$ref": "#/$defs/workspace"
+          },
+          "observed_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "browser_seen": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "app_versions": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number"
+            }
+          },
+          "recovery_policy": {
+            "$ref": "#/$defs/recoveryPolicy"
+          },
+          "placement": {
+            "$ref": "#/$defs/dockingPlacement"
+          },
+          "placement_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "command_receipt": {
+            "$ref": "#/$defs/commandReceipt"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "revision",
+          "state",
+          "observed_revision",
+          "browser_seen"
+        ],
+        "additionalProperties": false
+      },
+      "placementSnapshot": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "placement_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "placement": {
+            "$ref": "#/$defs/dockingPlacement"
+          },
+          "observed_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "browser_seen": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "recovery_policy": {
+            "$ref": "#/$defs/recoveryPolicy"
+          },
+          "command_receipt": {
+            "$ref": "#/$defs/commandReceipt"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "revision",
+          "placement_revision",
+          "placement",
+          "command_receipt"
+        ],
+        "additionalProperties": false
+      },
+      "checkpointMetadata": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "created": {
+            "type": "number"
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 160
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "id",
+          "created",
+          "label",
+          "revision"
+        ],
+        "additionalProperties": false
+      },
+      "commandReceipt": {
+        "type": "object",
+        "properties": {
+          "operation_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_.:-]{1,128}$"
+          },
+          "legacy": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "operation_id",
+          "legacy"
+        ],
+        "additionalProperties": false
+      },
+      "committedSnapshot": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "state": {
+            "$ref": "#/$defs/workspace"
+          },
+          "observed_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "browser_seen": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "app_versions": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number"
+            }
+          },
+          "recovery_policy": {
+            "$ref": "#/$defs/recoveryPolicy"
+          },
+          "placement": {
+            "$ref": "#/$defs/dockingPlacement"
+          },
+          "placement_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "command_receipt": {
+            "$ref": "#/$defs/commandReceipt"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "revision",
+          "state",
+          "observed_revision",
+          "browser_seen",
+          "command_receipt"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "oneOf": [
+      {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
+            "const": "read"
+          },
+          "observed_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
+            "const": "describe"
+          },
+          "project_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "catalog": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
+            "const": "arrangement"
+          },
+          "request": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "const": "recipe_list"
+                  },
+                  "project_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  }
+                },
+                "required": [
+                  "action",
+                  "project_id"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "const": "recipe_save"
+                  },
+                  "project_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 60
+                  },
+                  "roles": {
+                    "type": "array",
+                    "items": {
+                      "enum": [
+                        "primary_agent",
+                        "active_terminal",
+                        "preview",
+                        "candidate_diff",
+                        "project_files"
+                      ]
+                    },
+                    "minItems": 0,
+                    "maxItems": 5,
+                    "uniqueItems": true
+                  },
+                  "layout": {
+                    "enum": [
+                      "prioritize",
+                      "columns",
+                      "rows"
+                    ]
+                  },
+                  "renderer": {
+                    "enum": [
+                      "windows",
+                      "spatial",
+                      "docking"
+                    ]
+                  },
+                  "recipe_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "expected_version": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "op_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "intent": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 160
+                  }
+                },
+                "required": [
+                  "action",
+                  "project_id",
+                  "name",
+                  "roles",
+                  "layout",
+                  "renderer",
+                  "op_id"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "const": "recipe_preview"
+                  },
+                  "project_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "recipe": {
+                    "enum": [
+                      "project_focus",
+                      "investigate",
+                      "implement",
+                      "review",
+                      "return"
+                    ]
+                  },
+                  "recipe_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "role_choices": {
+                    "type": "object",
+                    "propertyNames": {
+                      "enum": [
+                        "primary_agent",
+                        "active_terminal",
+                        "preview",
+                        "candidate_diff",
+                        "project_files"
+                      ]
+                    },
+                    "additionalProperties": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                    },
+                    "maxProperties": 5
+                  },
+                  "renderer": {
+                    "enum": [
+                      "windows",
+                      "spatial",
+                      "docking"
+                    ]
+                  },
+                  "width": {
+                    "type": "number",
+                    "minimum": 280,
+                    "maximum": 16000
+                  },
+                  "height": {
+                    "type": "number",
+                    "minimum": 180,
+                    "maximum": 16000
+                  }
+                },
+                "required": [
+                  "action",
+                  "project_id",
+                  "recipe"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "const": "recipe_apply"
+                  },
+                  "project_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "recipe": {
+                    "enum": [
+                      "project_focus",
+                      "investigate",
+                      "implement",
+                      "review",
+                      "return"
+                    ]
+                  },
+                  "preview_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "preview_digest": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "op_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "intent": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 160
+                  },
+                  "viewport": {
+                    "type": "object",
+                    "properties": {
+                      "width": {
+                        "type": "number",
+                        "minimum": 280,
+                        "maximum": 16000
+                      },
+                      "height": {
+                        "type": "number",
+                        "minimum": 180,
+                        "maximum": 16000
+                      }
+                    },
+                    "required": [
+                      "width",
+                      "height"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "action",
+                  "project_id",
+                  "recipe",
+                  "preview_id",
+                  "preview_digest",
+                  "op_id"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "const": "proposal_list"
+                  },
+                  "project_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "recipe": {
+                    "enum": [
+                      "project_focus",
+                      "investigate",
+                      "implement",
+                      "review",
+                      "return"
+                    ]
+                  },
+                  "after_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  }
+                },
+                "required": [
+                  "action",
+                  "project_id"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "const": "proposal_get"
+                  },
+                  "project_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "proposal_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  }
+                },
+                "required": [
+                  "action",
+                  "project_id",
+                  "proposal_id"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "const": "proposal_reject"
+                  },
+                  "project_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "proposal_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  },
+                  "expected_version": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                },
+                "required": [
+                  "action",
+                  "project_id",
+                  "proposal_id",
+                  "expected_version"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action",
+          "request"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
+            "const": "workbench_setup"
+          },
+          "request": {
+            "$ref": "#/$defs/workbenchSetupRequest"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action",
+          "request"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
+            "const": "history"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
+            "const": "checkpoint"
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "operation_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_.:-]{1,128}$"
+          },
+          "intent": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "base_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action"
+        ],
+        "additionalProperties": false,
+        "dependencies": {
+          "operation_id": [
+            "intent",
+            "base_revision"
+          ],
+          "intent": [
+            "operation_id"
+          ]
+        }
+      },
+      {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
+            "const": "placement_save"
+          },
+          "base_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "placement": {
+            "$ref": "#/$defs/dockingPlacement"
+          },
+          "operation_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_.:-]{1,128}$"
+          },
+          "intent": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action",
+          "base_revision",
+          "placement",
+          "operation_id",
+          "intent"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
+            "const": "restore"
+          },
+          "base_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "checkpoint_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "confirm": {
+            "type": "boolean"
+          },
+          "operation_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_.:-]{1,128}$"
+          },
+          "intent": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action",
+          "base_revision",
+          "checkpoint_id"
+        ],
+        "additionalProperties": false,
+        "dependencies": {
+          "operation_id": [
+            "intent",
+            "base_revision"
+          ],
+          "intent": [
+            "operation_id"
+          ]
+        }
+      },
+      {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
+            "const": "recovery_policy"
+          },
+          "base_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "operation_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_.:-]{1,128}$"
+          },
+          "intent": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "confirm": {
+            "const": true
+          },
+          "held": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action",
+          "base_revision",
+          "operation_id",
+          "intent",
+          "confirm",
+          "held"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
+            "const": "apply"
+          },
+          "base_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "operations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/operation"
+            },
+            "minItems": 1,
+            "maxItems": 32
+          },
+          "operation_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_.:-]{1,128}$"
+          },
+          "intent": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action",
+          "base_revision",
+          "operations"
+        ],
+        "additionalProperties": false,
+        "dependencies": {
+          "operation_id": [
+            "intent",
+            "base_revision"
+          ],
+          "intent": [
+            "operation_id"
+          ]
+        }
+      },
+      {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
+            "const": "preview"
+          },
+          "base_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "operations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/operation"
+            },
+            "minItems": 1,
+            "maxItems": 32
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action",
+          "base_revision",
+          "operations"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
+            "const": "plugins_apply"
+          },
+          "base_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "operations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/operation"
+            },
+            "minItems": 1,
+            "maxItems": 32
+          },
+          "operation_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_.:-]{1,128}$"
+          },
+          "intent": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action",
+          "base_revision",
+          "operations"
+        ],
+        "additionalProperties": false,
+        "dependencies": {
+          "operation_id": [
+            "intent",
+            "base_revision"
+          ],
+          "intent": [
+            "operation_id"
+          ]
+        }
+      },
+      {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
+            "const": "sync"
+          },
+          "state": {
+            "$ref": "#/$defs/workspace"
+          },
+          "base_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "observed_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "operation_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_.:-]{1,128}$"
+          },
+          "intent": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action",
+          "state"
+        ],
+        "additionalProperties": false,
+        "dependencies": {
+          "operation_id": [
+            "intent",
+            "base_revision"
+          ],
+          "intent": [
+            "operation_id"
+          ]
+        }
+      },
+      {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
+            "const": "shelf"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
+            "const": "jev_suggest"
+          },
+          "request": {
+            "type": "string",
+            "maxLength": 12000
+          },
+          "api_key": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "consent": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action",
+          "request",
+          "api_key",
+          "consent"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
+            "const": "jev_apply"
+          },
+          "action_id": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "base_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "confirm": {
+            "type": "boolean"
+          },
+          "operation_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_.:-]{1,128}$"
+          },
+          "intent": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action",
+          "action_id",
+          "base_revision"
+        ],
+        "additionalProperties": false,
+        "dependencies": {
+          "operation_id": [
+            "intent",
+            "base_revision"
+          ],
+          "intent": [
+            "operation_id"
+          ]
+        }
+      }
+    ]
+  }
+}

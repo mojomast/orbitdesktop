@@ -56,7 +56,10 @@ server.on('upgrade',async(req,socket,head)=>{
         const message=JSON.parse(raw.toString());
         if(!authed){
           if(message.type!=='auth'||!/^[a-f0-9-]{36}$/.test(message.pane_id||''))return client.close(1008);
-          const record=JSON.parse(fs.readFileSync(new URL(`../.runtime/workspaces/${workspace}.json`,import.meta.url),'utf8'));
+          // Read the authoritative layout without marking the desktop observed.
+          const response=await fetch(`http://127.0.0.1:${port}/api/workspace/recovery`,{method:'POST',headers:{Origin:`http://127.0.0.1:${port}`,Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({workspace_id:workspace,action:'read'}),redirect:'error',signal:AbortSignal.timeout(5000)});
+          if(!response.ok)return client.close(1008);
+          const record=await response.json();
           const contains=l=>l.type==='pane'?l.pane.id===message.pane_id&&l.pane.kind==='terminal':contains(l.first)||contains(l.second);
           if(!record.state.monitors.some(m=>contains(m.layout)))return client.close(1008);
           authed=true;clearTimeout(timeout);message.token=token;

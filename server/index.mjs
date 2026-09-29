@@ -1,5 +1,6 @@
 import http from "node:http";
 import os from 'node:os';
+import { existsSync, mkdirSync, writeFileSync, renameSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -8,7 +9,25 @@ import { WebSocketServer, WebSocket } from "ws";
 import { tokenMatches, geometry, allowedRequest, publicHost } from "./security.mjs";
 import { LocalHostProvider } from "./local-host.mjs";
 import { createAgentHandler } from "./agent.mjs";
-import { createWorkspaceService } from "./workspace.mjs";
+import { createWorkspaceService, runtimeRoot } from "./workspace.mjs";
+import { createWorkspaceEvents } from './workspace-events.mjs';
+import { createWorkbench } from './workbench.mjs';
+import {WorkbenchData} from './workbench-data.mjs';
+import {createWorkbenchGate} from './workbench-gate.mjs';
+import {legacyQueueSnapshot} from './workbench-legacy-state.mjs';
+import {workbenchOwnerRoute} from './workbench-owner-route.mjs';
+import {createWorkbenchTerminalSource} from './workbench-terminal-source.mjs';
+import {createWorkbenchContext} from './workbench-context.mjs';
+import {createWorkbenchExecution} from './workbench-execution.mjs';
+import {createWorkbenchEnvironments} from './workbench-environments.mjs';
+import {createWorkbenchWorkflow} from './workbench-workflow.mjs';
+import {createWorkbenchSetup,SETUP_PUBLIC_REASONS} from './workbench-setup.mjs';
+import {createProjectTools} from './project-tools.mjs';
+import {createExtensionStudio} from './extension-studio.mjs';
+import {createWorkbenchNative} from './workbench-native.mjs';
+import {createWorkbenchLive} from './workbench-live.mjs';
+import {createWorkbenchLiveHandler} from './workbench-live-route.mjs';
+import {createWorkbenchNativeRuntime,nativeRuntimeEnvironmentOptions,nativeRuntimeMetadata} from './workbench-native-runtime.mjs';
 const port = Number(process.env.PORT || 4318);
 if (!Number.isInteger(port) || port < 1024 || port > 65535)
   throw Error("PORT must be between 1024 and 65535");
@@ -31,6 +50,7 @@ const securityHeaders = {
   "Content-Security-Policy":
     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-src https: http:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
 };
+const releaseIdentity = await (await import('./release-identity.mjs')).pinnedReleaseIdentity();
 function reply(res, status, data) {
   res.writeHead(status, {
     "Content-Type": "application/json",
@@ -39,7 +59,123 @@ function reply(res, status, data) {
   res.end(JSON.stringify(data));
 }
 const workspaceService = createWorkspaceService({ token, port, devOrigins, reply });
-const agentHandler = createAgentHandler({ token, port, devOrigins, reply, workspaceContext: workspaceService.context });
+// Never put a configured or generated owner credential in routine service logs.
+// A generated bootstrap credential is discoverable only through this private
+// runtime file; atomic rename avoids following an existing destination symlink.
+if(!process.env.ORBIT_TOKEN){
+  const temporary=path.join(runtimeRoot,`.session-token-${randomBytes(12).toString('hex')}`);
+  writeFileSync(temporary,token+'\n',{mode:0o600,flag:'wx'});
+  renameSync(temporary,path.join(runtimeRoot,'session-token'));
+}
+const workspaceEvents = createWorkspaceEvents({store:workspaceService.store,token,port,devOrigins,reply});
+const workbenchServices={};
+const workbench = createWorkbench({store:workspaceService.store,token,port,devOrigins,reply,services:workbenchServices});
+const workbenchData=new WorkbenchData(workspaceService.store);
+const executionGate=createWorkbenchGate({legacySnapshot:legacyQueueSnapshot(runtimeRoot)});
+const agentHandler = createAgentHandler({ token, port, devOrigins, reply, workspaceContext: workspaceService.context, workspaceRead:workspaceService.read, runtimeDirectory:runtimeRoot,executionGate });
+const environments=createWorkbenchEnvironments({store:workspaceService.store,records:workbench.records,data:workbenchData,gate:executionGate});
+const execution=createWorkbenchExecution({store:workspaceService.store,records:workbench.records,data:workbenchData,gate:executionGate,environments});
+workbenchServices.execution=execution;
+// Managed terminals: strictly optional. A failure here (no tmux, readonly runtime,
+// unsupported platform) disables the route; it must never block the host server or
+// touch any existing session/server. Attach mode never creates, kills, respawns or
+// attaches anything; grants are process-local and are never restored from disk.
+const managedDirectory = path.join(runtimeRoot, "managed-terminals");
+const managedLedgerPath = path.join(managedDirectory, "identity-ledger.json");
+const managedSentinelPath = path.join(managedDirectory, "identity-ledger.json.initialized");
+const managedTerminals = await (async () => {
+  try {
+    const directory = managedDirectory;
+    mkdirSync(directory, { recursive: true, mode: 0o700 });
+    // Dynamic imports so a partial release that is missing a managed-terminal
+    // module cannot crash the host server at load time; the route degrades to a
+    // fixed 503. Full delivery is still required for the feature to be reachable.
+    const [{ ManagedTerminalIdentityLedger }, { ManagedTerminalProvider },
+      { ManagedTerminalBroker }, { createManagedTerminalHandler }] = await Promise.all([
+      import("./managed-terminal-ledger.mjs"),
+      import("./managed-terminal-provider.mjs"),
+      import("./managed-terminal-broker.mjs"),
+      import("./managed-terminal-routes.mjs"),
+    ]);
+    const ledger = new ManagedTerminalIdentityLedger({ directory, filename: "identity-ledger.json" });
+    const managedProvider = await ManagedTerminalProvider.create({
+      mode: "attach",
+      socket: provider.tmuxSocket,
+      ledger,
+      tmuxTmpDir: process.env.TMUX_TMPDIR,
+    });
+    const broker = new ManagedTerminalBroker({
+      ownerId: "owner",
+      providerId: `local-${provider.tmuxSocket}`,
+      provider: managedProvider,
+      workspaceRead: workspaceService.read,
+      journalPath: path.join(directory, "operations.json"),
+    });
+    const handler = createManagedTerminalHandler({ broker, token, port, devOrigins, reply });
+    // Reconcile only previously consented workspace references. This reads exact
+    // identities, never enumerates tmux, captures output, adopts, or grants. Do not
+    // delay HTTP startup on a suspended external tmux server.
+    void (async () => {
+      for (const workspaceId of [...new Set(ledger.list().map(entry => entry.workspaceId))].slice(0, 100)) {
+        try { await broker.reconcile({ workspaceId }); } catch { /* UI retry reports current availability. */ }
+      }
+    })();
+    return { provider: managedProvider, ledger, broker, handler };
+  } catch (error) {
+    console.error(`Managed terminals unavailable (${error && error.code ? error.code : "error"})`);
+    return null;
+  }
+})();
+const managedTerminalHandler = managedTerminals
+  ? managedTerminals.handler
+  : (req, res) => reply(res, 503, { ok: false, error: "Managed terminals unavailable", code: "unavailable" });
+// A durable sentinel with no ledger means the private ledger was lost after prior
+// initialization. Continuity cannot be proven for ANY pane, so the legacy
+// attach/create fallback is refused until an owner recovery restores the ledger.
+const managedLedgerLost = existsSync(managedSentinelPath) && !existsSync(managedLedgerPath);
+const contextSharing=createWorkbenchContext({store:workspaceService.store,records:workbench.records,data:workbenchData,hermes:agentHandler.workbench,execution,gate:executionGate,
+  terminalSource:createWorkbenchTerminalSource({store:workspaceService.store,records:workbench.records,broker:managedTerminals?.broker}),
+  retentionMs:process.env.ORBIT_CONTEXT_RETENTION_MS===undefined?undefined:Number(process.env.ORBIT_CONTEXT_RETENTION_MS)});
+workbenchServices.context=contextSharing;
+const contextHandler=workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:body=>contextSharing.dispatch(body)});
+const executionHandler=workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:body=>execution.dispatch(body)});
+const workflow=createWorkbenchWorkflow({store:workspaceService.store,records:workbench.records,data:workbenchData,execution});
+const projectTools=createProjectTools({store:workspaceService.store,records:workbench.records,data:workbenchData});
+const projectToolsHandler=workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:body=>projectTools.dispatch(body)});
+const extensionStudio=createExtensionStudio({store:workspaceService.store});
+const extensionStudioHandler=workbenchOwnerRoute({token,port,devOrigins,reply,maxBytes:16384,dispatch:body=>extensionStudio.dispatch(body)});
+const nativeOptions=nativeRuntimeEnvironmentOptions({root:path.join(runtimeRoot,'workbench-native-runtime'),gate:executionGate});
+const nativeRuntimes=new Map();
+const nativeQuarantines=new Map();
+const nativeHermes={
+  quarantineNative({grant_id}){if(!nativeQuarantines.has(grant_id))nativeQuarantines.set(grant_id,executionGate.quarantine(`native:${grant_id}`));},
+  acknowledgeNativeUnknown({grant_id}){nativeQuarantines.get(grant_id)?.();nativeQuarantines.delete(grant_id);},
+  async readBinding(body){
+    const binding=await agentHandler.workbench.readBinding(body);
+    if(!nativeOptions||binding.profile_id!==nativeOptions.profile_id)return binding;
+    const native_runtime=nativeRuntimeMetadata(nativeOptions);
+    const config_generation=binding.config_generation+':'+native_runtime.configuration_hash;
+    if(!nativeRuntimes.has(config_generation))nativeRuntimes.set(config_generation,createWorkbenchNativeRuntime({...nativeOptions,config_generation}));
+    return {...binding,config_generation,native_runtime};
+  },
+  async startNative(body){const runtime=nativeRuntimes.get(body.scope.recipient.config_generation);if(!runtime)throw Object.assign(Error('unavailable'),{code:'unavailable',native_outcome:'not_started'});if(agentHandler.workbench.hasActiveConversation({workspace_id:body.scope.workspace_id,pane_id:body.scope.recipient.pane_id}))throw Object.assign(Error('busy'),{code:'busy',native_outcome:'not_started'});return runtime.startNative(body);},
+  async stopNative(body){return Promise.all([...nativeRuntimes.values()].map(runtime=>runtime.stopNative(body)));},
+};
+const native=createWorkbenchNative({store:workspaceService.store,records:workbench.records,data:workbenchData,execution,hermes:nativeOptions?nativeHermes:{readBinding:nativeHermes.readBinding,quarantineNative:nativeHermes.quarantineNative,acknowledgeNativeUnknown:nativeHermes.acknowledgeNativeUnknown}});
+workbenchServices.native=native;workbenchServices.nativeConfigured=!!nativeOptions;
+const nativeHandler=workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:body=>native.dispatch(body)});
+const workbenchSetup=createWorkbenchSetup({store:workspaceService.store,records:workbench.records,data:workbenchData,
+  execution,hermes:agentHandler.workbench,context:contextSharing,native,gate:executionGate,nativeConfigured:!!nativeOptions});
+workspaceService.setWorkbenchSetup(workbenchSetup);
+const setupHandler=workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:body=>workbenchSetup.dispatch(body),publicReasons:SETUP_PUBLIC_REASONS});
+let workbenchLive=null;
+// A damaged observability projection must not prevent authoritative runtime
+// recovery or change the outcome of an existing worker operation.
+try{workbenchLive=createWorkbenchLive({store:workspaceService.store,records:workbench.records,data:workbenchData,gate:executionGate,execution,native});}
+catch{console.warn('Private Workbench activity projection unavailable; durable task controls remain available.');}
+const liveHandler=workbenchLive?createWorkbenchLiveHandler({token,port,devOrigins,reply,live:workbenchLive}):workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:()=>{throw Object.assign(Error('unavailable'),{code:'unavailable'});}});
+const workflowHandler=workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:body=>workflow.dispatch(body)});
+const environmentHandler=workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:body=>environments.dispatch(body),publicReasons:['dedicated_npm_cache_required','private_npm_cache_required','typescript_test_command_unsupported','typescript_dependency_shape_unsupported','typescript_toolchain_dependencies_required','development_lock_mismatch','registry_lock_entry_unsupported','registry_url_unsupported','registry_artifact_limit']});
 const server = http.createServer(async (req, res) => {
   const allowedHosts = new Set([
     `127.0.0.1:${port}`,
@@ -50,6 +186,31 @@ const server = http.createServer(async (req, res) => {
   if (!allowedHosts.has(req.headers.host))
     return reply(res, 403, { error: "Host rejected" });
   const url = new URL(req.url, "http://localhost");
+  if(url.pathname==='/api/workbench')return workbench.handle(req,res);
+  if(url.pathname==='/api/workbench/context')return contextHandler(req,res);
+  if(url.pathname==='/api/workbench/execution')return executionHandler(req,res);
+  if(url.pathname==='/api/workbench/native')return nativeHandler(req,res);
+  if(url.pathname==='/api/workbench/setup')return setupHandler(req,res);
+  if(url.pathname==='/api/workbench/live')return liveHandler(req,res);
+  if(url.pathname==='/api/workbench/workflow')return workflowHandler(req,res);
+  if(url.pathname==='/api/workbench/tools')return projectToolsHandler(req,res);
+  if(url.pathname==='/api/extension-studio')return extensionStudioHandler(req,res);
+  if(url.pathname==='/api/workbench/environments')return environmentHandler(req,res);
+  if (url.pathname === "/api/managed-terminals") return managedTerminalHandler(req, res);
+  if(url.pathname==='/api/workspace/events')return workspaceEvents(req,res);
+  if(url.pathname==='/api/workspace/control/events')return workspaceEvents(req,res,true);
+  if (url.pathname === '/api/workspace/recovery') return workspaceService.handle(req, res, false, true);
+  // Serve independently of dist/index and the normal renderer's dependency graph.
+  const recoveryAssets = {'/recovery':['recovery.html','text/html; charset=utf-8'],'/recovery.js':['recovery.js','text/javascript; charset=utf-8'],'/recovery.css':['recovery.css','text/css; charset=utf-8']};
+  if(Object.hasOwn(recoveryAssets,url.pathname)) {
+    if(!['GET','HEAD'].includes(req.method))return reply(res,405,{error:'Method not allowed'});
+    try {
+      const [file,type]=recoveryAssets[url.pathname];
+      const data=await readFile(new URL(`../public/${file}`,import.meta.url));
+      res.writeHead(200,{...securityHeaders,'Content-Type':type,'Content-Security-Policy':"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"});
+      return res.end(req.method==='HEAD'?undefined:data);
+    } catch {return reply(res,503,{error:'Recovery files unavailable'});}
+  }
   if (url.pathname === "/api/workspace") return workspaceService.handle(req, res);
   if (url.pathname === "/api/workspace/control") return workspaceService.handle(req, res, true);
   if (url.pathname.startsWith("/apps/")) return workspaceService.serveApp(req, res, url.pathname);
@@ -60,6 +221,7 @@ const server = http.createServer(async (req, res) => {
       protocol: 1,
       host: "local",
       sessions: sessions.size,
+      ...(releaseIdentity ?? {}),
     });
   if (url.pathname === "/api/auth") {
     if (req.method !== "POST" || !allowedRequest(req, port, devOrigins))
@@ -133,6 +295,7 @@ wss.on("connection", (ws) => {
   pending++;
   let shell = null,
     authed = false,
+    authenticating = false,
     closed = false,
     outstanding = 0,
     paused = false,
@@ -170,7 +333,7 @@ wss.on("connection", (ws) => {
   }, 15000);
   ws.on("pong", () => (lastSeen = Date.now()));
   let historyPane = null, historyBusy = false;
-  ws.on("message", (raw) => {
+  ws.on("message", async (raw) => {
     let m;
     try {
       m = JSON.parse(raw.toString());
@@ -184,6 +347,7 @@ wss.on("connection", (ws) => {
     }
     if (!authed) {
       if (
+        authenticating ||
         m.type !== "auth" ||
         !tokenMatches(m.token, token) ||
         !geometry(m.cols, m.rows)
@@ -192,8 +356,27 @@ wss.on("connection", (ws) => {
         return;
       }
       clearTimeout(timeout);
+      authenticating = true;
       try {
-        shell = provider.spawn(m);
+        let tmuxArguments;
+        if (typeof m.pane_id === 'string' && /^[a-f0-9-]{36}$/.test(m.pane_id)) {
+          if (!managedTerminals && (managedLedgerLost || existsSync(managedLedgerPath))) throw Error('Managed identity unavailable');
+          const sessionName = 'pane-' + m.pane_id;
+          const recorded = managedTerminals?.ledger.get(sessionName);
+          if (recorded) {
+            tmuxArguments = await managedTerminals.provider.attachmentArguments({sessionName});
+            if (!tmuxArguments) throw Error('Managed identity changed; no replacement shell was created');
+          } else if (managedTerminals) {
+            // Not recorded: refuse the legacy attach/create fallback when the exact
+            // session still carries ANY adopted markers, so a lost/partial ledger
+            // can never make an adopted shell look unmanaged. The probe is side
+            // effect free: it never captures output, adopts or creates a shell.
+            const observed = await managedTerminals.provider.observeExact({ sessionName });
+            if (observed && Object.values(observed.markers).some(value => value !== '')) throw Error('Managed identity unavailable');
+          }
+        }
+        if (closed || ws.readyState !== WebSocket.OPEN) return;
+        shell = provider.spawn(m, {tmuxArguments});
         authed = true;
         pending--;
         sessions.add(shell);
@@ -226,7 +409,7 @@ wss.on("connection", (ws) => {
     if (m.type === 'history') {
       if (historyBusy) return;
       historyBusy = true;
-      import('./local-host.mjs').then(({ captureHistory }) => captureHistory(historyPane))
+      import('./local-host.mjs').then(({ captureHistory }) => captureHistory(historyPane, provider.tmuxSocket))
         .then(text => send({ type: 'history', text }))
         .catch(() => send({ type: 'history', error: 'Retained history unavailable (legacy shell, missing session, or capture limit exceeded).' }))
         .finally(() => { historyBusy = false; });
@@ -259,12 +442,17 @@ wss.on("connection", (ws) => {
 });
 server.listen(port, "127.0.0.1", () => {
   console.log(
-    `\nOrbit Desktop\nOpen: http://127.0.0.1:${port}\nSession token: ${token}\n\nBound to loopback. Shells run as your current user.\n`,
+    `\nOrbit Desktop\nOpen: http://127.0.0.1:${port}\nOwner authentication: ${process.env.ORBIT_TOKEN?'configured token (not logged)':'generated token in the private runtime session-token file'}\n\nBound to loopback. Shells run as your current user.\n`,
   );
 });
 for (const signal of ["SIGTERM", "SIGINT"])
   process.on(signal, () => {
+    execution.close();
+    contextSharing.close?.();
+    native.close();
+    liveHandler.close?.();
+    workbenchLive?.close();
     for (const ws of wss.clients) ws.terminate();
-    server.close(() => process.exit(0));
+    server.close(() => {workspaceService.close();process.exit(0);});
     setTimeout(() => process.exit(0), 2000).unref();
   });

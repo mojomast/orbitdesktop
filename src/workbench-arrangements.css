@@ -1,0 +1,26 @@
+.workbench-arrangements{box-sizing:border-box;min-width:0;margin:.65rem 0;padding:.7rem;border:1px solid var(--theme-borderColor,#607080);border-radius:.5rem;background:var(--theme-panelColor,#17202b);color:var(--theme-textColor,#e9edf4)}
+.workbench-arrangements h3{margin:0 0 .2rem;font-size:1rem}
+.workbench-arrangement-intro,.workbench-arrangement-status{margin:.25rem 0;font-size:.85rem;line-height:1.35}
+.workbench-arrangement-choices,.workbench-arrangement-actions{display:flex;flex-wrap:wrap;gap:.35rem;margin:.45rem 0}
+.workbench-arrangements button{font:inherit;padding:.35rem .55rem;color:var(--theme-buttonTextColor,#e9edf4);background:var(--theme-buttonColor,#263546);border:1px solid var(--theme-borderColor,#607080);border-radius:.35rem;cursor:pointer}
+.workbench-arrangements button:disabled{opacity:.55;cursor:default}
+.workbench-arrangements :focus-visible{outline:2px solid var(--theme-accentColor,#78baff);outline-offset:2px}
+.workbench-arrangement-diff{margin:.3rem 0;padding-left:1.3rem;font-size:.88rem;overflow-wrap:anywhere}
+.workbench-arrangement-details{font-size:.8rem;overflow-wrap:anywhere}
+.workbench-arrangement-details summary{cursor:pointer}
+.workbench-arrangement-details p{margin:.2rem 0}
+.workbench-arrangement-saved{min-width:0;margin:.6rem 0;padding:.55rem;border:1px solid var(--theme-borderColor,#607080);border-radius:.4rem}
+.workbench-arrangement-saved h4{margin:0 0 .25rem;font-size:.9rem}
+.workbench-arrangement-saved summary,.pane-workbench-arrangements-disclosure summary{cursor:pointer;font-weight:600}
+.pane-workbench-arrangements-disclosure{margin:.4rem 0;min-width:0}
+.workbench-arrangement-saved>p,.workbench-arrangement-proposals>p{font-size:.8rem;line-height:1.35}
+.workbench-arrangement-saved>select,.workbench-arrangement-saved>input,.workbench-arrangement-bindings select,.workbench-arrangement-proposals select{box-sizing:border-box;max-width:100%;margin:.2rem;padding:.35rem;color:inherit;background:var(--theme-buttonColor,#263546);border:1px solid var(--theme-borderColor,#607080)}
+.workbench-arrangement-roles{display:flex;flex-wrap:wrap;gap:.15rem .55rem;margin:.3rem 0;font-size:.82rem}
+.workbench-arrangement-roles label{display:inline-flex;align-items:center;gap:.2rem}
+.workbench-arrangement-order{display:flex;align-items:center;flex-wrap:wrap;gap:.25rem;font-size:.82rem}
+.workbench-arrangement-order>span:not(:first-child){display:inline-flex;align-items:center;gap:.12rem;padding:.2rem;border:1px solid var(--theme-borderColor,#607080);border-radius:.3rem}
+.workbench-arrangements .workbench-arrangement-order button{padding:.1rem .25rem}
+.workbench-arrangement-bindings label{display:block;font-size:.82rem}
+.workbench-arrangement-unbound{font-size:.82rem;color:var(--theme-accentColor,#78baff)}
+.workbench-arrangement-proposals{margin:.45rem 0;font-size:.85rem}
+.workbench-arrangement-proposal-details{max-height:14rem;overflow:auto;overflow-wrap:anywhere}

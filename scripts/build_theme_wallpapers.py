@@ -8,8 +8,11 @@ palettes={
 'cyberpunk':('#090b16','#40e6ee','#ff58cf'),'aurora':('#102c40','#83eddd','#9174e9'),
 'phosphor':('#06130c','#163d24','#78ffa2'),'blueprint':('#12345a','#386287','#a9dcff'),
 'pop':('#f6d84b','#ff92c1','#201b35'),'ocean':('#092535','#145b79','#63d8ef'),
+'relay':('#0c1622','#2c4a63','#ffb347'),
+'msdos':('#0000a8','#a8a8a8','#fcfcfc'),
 'forest':('#12271f','#315440','#97dfaa'),'plum':('#291b32','#633779','#dbacf4'),
-'ember':('#302019','#854224','#ffbd80')}
+'ember':('#302019','#854224','#ffbd80'),'deepfield':('#05060a','#243056','#e8c37a'),
+'sakura':('#f7edea','#e7b7c6','#c24b6b'),'amber':('#120a00','#7a4f12','#ffb642')}
 for name,(bg,mid,fg) in palettes.items():
  art=''
  if name=='midnight':
@@ -36,6 +39,45 @@ for name,(bg,mid,fg) in palettes.items():
   art=''.join(f'<path d="M{x} 1080V{y} M{x-180} {y+400}L{x} {y}l180 400Z M{x-140} {y+240}L{x} {y-80}l140 320Z" fill="{mid if i%2 else fg}" opacity=".22"/>' for i,(x,y) in enumerate([(80,450),(360,250),(680,500),(1030,320),(1400,200),(1760,420)]))
  elif name=='plum':
   art=''.join(f'<ellipse cx="1450" cy="450" rx="{120+i*75}" ry="{80+i*45}" transform="rotate({i*18} 1450 450)" fill="none" stroke="{fg if i%2 else mid}" stroke-width="18" opacity=".25"/>' for i in range(10))
+ elif name=='relay':
+  # A relay lattice of tool nodes plus concentric broadcast rings from the beacon.
+  nodes=[(120,780),(360,660),(600,790),(860,640),(1120,730),(1380,600),(1660,710),(1840,620)]
+  art=''.join(f'<path d="M{a[0]} {a[1]}L{b[0]} {b[1]}" stroke="{mid}" stroke-width="2" opacity=".6"/>' for a,b in zip(nodes,nodes[1:]))
+  art+=''.join(f'<circle cx="{x}" cy="{y}" r="9" fill="{bg}" stroke="{fg}" stroke-width="3"/><circle cx="{x}" cy="{y}" r="3" fill="{fg}" opacity=".85"/>' for x,y in nodes)
+  art+=''.join(f'<path d="M{x} 0V1080 M0 {x}H1920" stroke="{mid}" opacity=".10"/>' for x in range(0,1920,64))
+  art+=''.join(f'<circle cx="1520" cy="380" r="{90+i*72}" fill="none" stroke="{fg if i%2 else mid}" stroke-width="2" opacity="{max(0.07,0.4-i*0.06):.2f}" stroke-dasharray="6 12"/>' for i in range(5))
+  art+=f'<text x="96" y="150" fill="{fg}" opacity=".4" font-family="monospace" font-size="26">RELAY // TOOL CHANNEL ACTIVE</text>'
+ elif name=='msdos':
+  # A single 80-column text screen: double-line box, directory listing and a block cursor.
+  rows=['C:\\>DIR',' Volume in drive C is ORBIT',' Directory of C:\\','',' AUTOEXEC BAT       512  09-28-26   3:04a',' CONFIG   SYS       384  09-28-26   3:04a',' ORBIT    EXE    148224  09-28-26   3:04a','        3 file(s)      149120 bytes','',' C:\\>']
+  art='<rect x="72" y="96" width="1300" height="640" fill="#000000" stroke="'+mid+'" stroke-width="5"/>'
+  art+='<rect x="86" y="110" width="1272" height="612" fill="none" stroke="'+mid+'" stroke-width="2"/>'
+  art+=''.join(f'<text x="132" y="{200+i*56}" fill="{fg if i>=len(rows)-1 else mid}" font-family="monospace" font-size="38">{line}</text>' for i,line in enumerate(rows))
+  art+=f'<rect x="205" y="{(200+(len(rows)-1)*56)-34}" width="26" height="42" fill="{fg}"/>'
+  art+=''.join(f'<path d="M{x} 0V1080 M0 {x}H1920" stroke="'+mid+'" opacity=".07"/>' for x in range(0,1920,48))
+  art+=f'<text x="1400" y="820" fill="{mid}" opacity=".55" font-family="monospace" font-size="28">MS-DOS 6.22</text>'
+ elif name=='deepfield':
+  # A deep-field survey plate: faint nebulae, dense faint stars and an instrument reticle.
+  art=''.join(f'<circle cx="{(i*149)%1920}" cy="{(i*271)%1080}" r="{0.7+(i%3)*0.5}" fill="{fg}" opacity="{0.2+(i%5)*0.12:.2f}"/>' for i in range(260))
+  art+=''.join(f'<circle cx="{(i*523)%1920}" cy="{(i*367)%1080}" r="{1.4+(i%2)*0.8}" fill="#ffffff" opacity=".7"/>' for i in range(40))
+  art+=f'<ellipse cx="1320" cy="380" rx="520" ry="190" transform="rotate(-18 1320 380)" fill="none" stroke="{mid}" stroke-width="3" opacity=".55"/>'
+  art+=f'<ellipse cx="1320" cy="380" rx="300" ry="110" transform="rotate(-18 1320 380)" fill="{mid}" opacity=".18"/>'
+  art+=f'<circle cx="1320" cy="380" r="70" fill="none" stroke="{fg}" stroke-width="2" opacity=".6"/><path d="M1250 380H1390 M1320 310V450" stroke="{fg}" stroke-width="1" opacity=".5"/>'
+  art+=f'<text x="96" y="150" fill="{fg}" opacity=".5" font-family="monospace" font-size="24">DEEP FIELD // OBSERVATION LOG</text>'
+ elif name=='sakura':
+  # A spring branch with drifting blossom petals on warm washi paper.
+  art=f'<path d="M-40 200 C 420 60 760 320 1180 150 C 1500 20 1800 180 1990 80" fill="none" stroke="#b98a86" stroke-width="9" opacity=".55"/>'
+  art+=''.join(f'<ellipse cx="{(i*233)%1920}" cy="{(i*311+40)%1080}" rx="{7+(i%3)*3}" ry="{4+(i%3)}" fill="{mid}" opacity="{0.45+(i%4)*0.12:.2f}" transform="rotate({(i*37)%360} {(i*233)%1920} {(i*311+40)%1080})"/>' for i in range(130))
+  art+=f'<circle cx="1520" cy="300" r="150" fill="none" stroke="{fg}" stroke-width="2" opacity=".3"/>'
+  art+=f'<text x="1450" y="308" fill="{fg}" opacity=".55" font-family="serif" font-size="34">SAKURA</text>'
+ elif name=='amber':
+  # A P1 phosphor screen: scanlines, a soft glow and a blinking command prompt.
+  rows=['AMBER CRT READY','','&gt; _']
+  art=''.join(f'<path d="M0 {y}H1920" stroke="{mid}" opacity=".28" stroke-width="2"/>' for y in range(0,1080,6))
+  art+=f'<circle cx="1450" cy="420" r="300" fill="{fg}" opacity=".06"/>'
+  art+=f'<rect x="110" y="150" width="900" height="360" fill="{bg}" stroke="{mid}" stroke-width="2" opacity=".9"/>'
+  art+=''.join(f'<text x="150" y="{230+i*64}" fill="{fg}" font-family="monospace" font-size="40" opacity=".9">{line}</text>' for i,line in enumerate(rows))
+  art+=f'<text x="96" y="1010" fill="{mid}" opacity=".6" font-family="monospace" font-size="24">PHOSPHOR P1 // 60Hz // 1.0x</text>'
  else:
   art=''.join(f'<path d="M0 {y} '+ ' '.join(f'L{x} {y+sin(x/190+i)*65}' for x in range(0,2000,40))+f'" fill="none" stroke="{fg if i%3==0 else mid}" opacity=".3" stroke-width="2"/>' for i,y in enumerate(range(160,1200,30)))
  out=ROOT/'public'/'wallpapers'/f'{name}.svg';out.parent.mkdir(exist_ok=True)

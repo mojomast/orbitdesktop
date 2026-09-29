@@ -75,6 +75,70 @@ class TransportTest(unittest.TestCase):
             self.assertFalse(self.call(action=action)["ok"])
         self.assertFalse(self.calls)
 
+    def test_describe_catalog_without_mutation_authority(self):
+        self.assertTrue(self.call(action="describe", catalog=True, project_id=WORKSPACE)["ok"])
+        self.assertEqual(self.calls[-1][2], {"action": "describe", "catalog": True, "project_id": WORKSPACE, "workspace_id": WORKSPACE})
+        for fields in ({"catalog": "true"}, {"project_id": "invalid"}, {"actor": "owner"}, {"operations": []}):
+            self.assertFalse(self.call(action="describe", **fields)["ok"])
+        self.assertEqual(len(self.calls), 1)
+
+    def test_workbench_setup_is_proposal_only_without_mutation_permission(self):
+        self.assertIn("workbench_setup", plugin.SCHEMA["parameters"]["properties"]["action"]["enum"])
+        self.assertIn("proposes a draft Workbench setup", plugin.SCHEMA["description"])
+        self.assertFalse(self.ctx.settings.get("allow_mutations", False))
+        proposal = {
+            "op_id": "22222222-2222-2222-2222-222222222222",
+            "goal": "Make the dashboard work on mobile",
+            "title": "Mobile dashboard",
+            "acceptance_statement": "Dashboard is usable at 380px",
+            "project_id": "33333333-3333-3333-3333-333333333333",
+            "check_definition_id": "node-test",
+        }
+        result = self.call(action="workbench_setup", request=proposal)
+        self.assertTrue(result["ok"])
+        self.assertEqual(self.calls[-1], ("/api/workspace/control", "Bearer test-only-capability",
+                                          {"action": "workbench_setup", "workspace_id": WORKSPACE, "request": proposal}))
+        self.assertNotIn("base_revision", self.calls[-1][2])
+
+    def test_workbench_setup_rejects_owner_execution_and_scope_spoofing(self):
+        base = {"op_id": "22222222-2222-2222-2222-222222222222", "goal": "bounded goal"}
+        for forbidden in ({"action": "task_create"}, {"pane_id": WORKSPACE}, {"profile_id": "owner-profile"},
+                          {"session_id": "owner-session"}, {"actor": "owner"}, {"operations": []},
+                          {"credentials": "secret"}, {"root": "/etc"}, {"path": "/private"}, {"command": "rm -rf /"},
+                          {"workspace_id": WORKSPACE}, {"preview_id": WORKSPACE}, {"surprise": True}):
+            with self.subTest(forbidden=forbidden):
+                self.assertFalse(self.call(action="workbench_setup", request={**base, **forbidden})["ok"])
+        self.assertFalse(self.calls)
+
+    def test_workbench_setup_rejects_malformed_and_oversized_proposals(self):
+        op = "22222222-2222-2222-2222-222222222222"
+        for bad in (None, "goal", {}, {"goal": "no op id"}, {"op_id": "not-a-uuid", "goal": "g"},
+                    {"op_id": op, "goal": ""}, {"op_id": op, "goal": "   "},
+                    {"op_id": op, "goal": "x" * (plugin.SETUP_GOAL_MAX + 1)},
+                    {"op_id": op, "goal": "g", "check_definition_id": "arbitrary-shell"},
+                    {"op_id": op, "goal": "g", "project_id": "not-a-uuid"},
+                    {"op_id": op, "goal": "g", "title": ""},
+                    {"op_id": op, "goal": "g", "acceptance_statement": "   "}):
+            with self.subTest(bad=bad):
+                self.assertFalse(self.call(action="workbench_setup", request=bad)["ok"])
+        self.assertFalse(self.calls)
+
+    def test_workbench_setup_rejects_top_level_scope_and_execution_fields(self):
+        request = {"op_id": "22222222-2222-2222-2222-222222222222", "goal": "g"}
+        for extra in ({"operations": []}, {"base_revision": 1}, {"pane_id": WORKSPACE}, {"actor": "owner"},
+                      {"confirm": True}, {"checkpoint_id": WORKSPACE}):
+            with self.subTest(extra=extra):
+                self.assertFalse(self.call(action="workbench_setup", request=request, **extra)["ok"])
+        self.assertFalse(self.calls)
+
+    def test_arrangement_scope_and_mutation_gate(self):
+        self.assertTrue(self.call(action="arrangement", request={"action": "recipe_list", "project_id": WORKSPACE})["ok"])
+        self.assertFalse(self.call(action="arrangement", request={"action": "recipe_apply", "project_id": WORKSPACE})["ok"])
+        self.ctx.settings["allow_mutations"] = True
+        for forbidden in ("actor", "workspace_id"):
+            self.assertFalse(self.call(action="arrangement", request={"action": "recipe_list", forbidden: WORKSPACE})["ok"])
+        self.assertEqual(len(self.calls), 1)
+
     def test_preview_and_apply_revision(self):
         ops = [{"action": "sidebar", "hidden": True}]
         self.assertTrue(self.call(action="preview", operations=ops, base_revision=7)["ok"])

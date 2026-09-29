@@ -1,5 +1,6 @@
 """Explicit local setup/start CLI. Importing/enabling the plugin never runs this."""
 import argparse
+import json
 import os
 from pathlib import Path
 import shutil
@@ -44,7 +45,14 @@ def main():
             parser.error('Setup requires --approve-dependencies: npm ci downloads locked dependencies and executes native build scripts')
         unpack(destination)
         subprocess.run(['npm', 'ci', '--cache', str(destination / '.npm-cache')], cwd=destination, check=True)
-        subprocess.run(['npm', 'run', 'build'], cwd=destination, check=True)
+        # Build separately, then assemble assets only into the new directory
+        # unpack() created above. Setup cannot replace an existing deployment.
+        built = json.loads(subprocess.check_output(
+            ['node', 'scripts/isolated_build.mjs', '--json'],
+            cwd=destination, text=True))
+        if built.get('ok') is not True or not Path(built['destination']).is_absolute():
+            raise ValueError('Isolated build did not return a valid output directory')
+        shutil.copytree(Path(built['destination']), destination / 'dist')
         print(f'Orbit is built in {destination}. Run this command again with start instead of setup.')
     else:
         if not (destination / 'dist/index.html').is_file():

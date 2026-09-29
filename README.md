@@ -12,6 +12,30 @@ Conversations, persistent host terminals, web apps, and optional Linux applicati
 
 [Quick start](#quick-start) · [Linux apps](docs/XPRA_APPS.md) · [Agent guide](docs/AGENT_GUIDE.md) · [Security](docs/SECURITY.md)
 
+**Testing branch:** see the [evolution testing guide](docs/TESTING_BRANCH.md) for
+the cumulative changes, verified results, isolated test commands and remaining
+gates. Optional docking is off by default; this branch is not a live-runtime
+upgrade instruction.
+
+**Comet Project Workbench:** describe a goal, review an editable brief and prepare
+a tracked task through [guided setup](docs/WORKBENCH_SETUP.md). Preparation is
+separate from approving execution. Project inspection, scoped context sharing,
+configured native workers, recorded candidate checks and human review have
+distinct authority boundaries. [Current capabilities and limits](docs/PROJECT_WORKBENCH.md)
+describe supported profiles and configuration; a working chat connection alone
+does not configure native Workbench execution.
+
+**Choosing a layout:** [Desktop and experimental Docking](docs/RENDERER_COMPARISON.md)
+arrange the same chats, terminals and apps in different ways. The default Desktop
+uses movable windows; opt-in Docking adds tiled panels and tab groups. See the
+[release readiness plan](docs/RELEASE_READINESS_PLAN.md) for the next release's
+owner walkthrough and merge gates.
+
+Local loopback operation does **not** require Tailscale. Ordinary HTTP(S) hosting
+and optional private tailnet access use the same application; see the
+[deployment and rollback guide](docs/DEPLOYMENT.md). Deployment-specific acceptance
+is documented separately from local fixture results.
+
 ## More than a chat window
 
 Most AI interfaces end at an answer. Orbit gives the agent a workspace in which to act: create a small application, place it beside your work, configure its behavior, and help you use it. You remain in control of the files, services, credentials, and deployment.
@@ -58,15 +82,34 @@ Desktop icons open existing windows, restore minimized applications, and launch 
 
 Move, resize, split, reorder, and arrange windows. Adjust supported colors, wallpaper, corners, spacing, and chrome. Full viewport hides surrounding controls; it is not browser fullscreen. Core frontend changes still require loading the updated frontend once.
 
+**Project Workbench → Workspace arrangements** previews a named, semantic diff
+before changing the desktop. Save a portable Debug recipe, resolve its roles
+against another project's existing panes, and reuse it after reload or server
+restart. Exact proposals and operation receipts are durable; a newer owner edit
+makes an old preview stale, and Undo refuses to overwrite intervening work.
+Workbench's Changes tab keeps these controls in a compact disclosure below review.
+Recipes save role order and measured grid intent, not arbitrary application data
+or a full geometry snapshot. Existing browser-local layouts can be imported as
+role order with explicit omissions while retaining the originals. See
+[arrangement contracts and limits](docs/WORKSPACE_ARRANGEMENTS_API.md).
+
 ### Recover workspace changes deliberately
 
 Revision-checked controller mutations and supported plugin changes create checkpoints. Restore layout, appearance, plugin registrations, configuration, and entry references.
+
+The independent [`/recovery` console](docs/RECOVERY.md) also offers an owner-only,
+persistent registered-plugin activation hold. Layout restore cannot release it;
+release does not automatically re-enable apps. It does not stop running backends,
+disconnected frames, cached offline pages or public app URLs. See
+[workspace store operations](docs/WORKSPACE_STORE.md) before upgrading an existing
+runtime: SQLite schema upgrades and legacy JSON migration require planned writer
+coordination, not a live mixed-version restart.
 
 Checkpoints are not filesystem backups. They do not restore documents, shell processes, conversations, container state, emails, or other external effects.
 
 ## Hermes plugin integration
 
-Orbit includes a native Hermes agent plugin in [`hermes-plugin/`](hermes-plugin/README.md). It registers one `orbit_workspace` tool for scoped workspace reads, previews, revision-checked edits, history, checkpoints and confirmed restores. It defaults to read-only and requires an explicitly configured local workspace; no credentials are pasted into chat and no services start automatically.
+Orbit includes a native Hermes agent plugin in [`hermes-plugin/`](hermes-plugin/README.md). It registers one `orbit_workspace` tool for scoped workspace reads, contract-derived discovery, durable project arrangements, previews, revision-checked edits, history, checkpoints and confirmed restores. It defaults to read-only and requires an explicitly configured local workspace; no credentials are pasted into chat and no services start automatically.
 
 The Hermes catalog submission is pending review. The plugin now bundles Orbit's reviewed source and an explicit setup/start CLI: no separate repository clone is needed. See the [activation guide](hermes-plugin/README.md) for installation, two-command setup/start, prerequisites and trust boundaries. Orbit opens in a browser, not inside the Hermes Desktop Electron renderer. Xpra and its Linux desktop shortcuts remain optionally provisioned integrations; their source and deployment instructions are included.
 
@@ -125,13 +168,24 @@ Read the [submission guide and admission policy](plugin-catalog/README.md). Refr
 
 The verified target is Linux with an ordinary user account, Node.js 22.12 or newer, npm, Python 3, and tmux at /usr/bin/tmux. Native node-pty builds may also require make and a C++ compiler.
 
-Clone https://github.com/mojomast/orbitdesktop.git, enter the repository, then run:
+For a development instance, clone https://github.com/mojomast/orbitdesktop.git,
+enter the repository, then run:
 
     npm ci
-    npm run build
-    npm start
+    npm run dev
 
-Open http://127.0.0.1:4318. Choose Connect host, enter the server's host-access token, and connect a shell. Without a configured ORBIT_TOKEN, the server generates a token on startup.
+In a second terminal, start the API with the development origins explicitly allowed:
+
+    ORBIT_DEV_ORIGINS=http://127.0.0.1:4173,http://localhost:4173 npm start
+
+Open http://127.0.0.1:4173. Choose Connect host, enter the server's host-access token,
+and connect a shell. Without a configured ORBIT_TOKEN, the server generates a token
+on startup and stores it in the private runtime's `session-token` file.
+
+`npm run build` and `npm run check` build into a separate scratch directory and
+report its path; they do not replace a served checkout's `dist/`. For a served
+release, use the explicit packaging, activation and compatible-backup procedure
+in [deployment documentation](docs/DEPLOYMENT.md).
 
 Host access grants a real shell as the server's operating-system user. Do not run Orbit as root or expose it directly to the public Internet.
 

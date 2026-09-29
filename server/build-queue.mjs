@@ -3,10 +3,13 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const terminal = new Set(['completed','failed','cancelled','interrupted']);
-export function createBuildQueue({ directory, upstream, context, interval = 3000 }) {
+export function createBuildQueue({ directory, upstream, context, interval = 3000, executionGate }) {
  mkdirSync(directory,{recursive:true,mode:0o700});
  const file=path.join(directory,'queue.json');
  let state={version:1,revision:0,enabled:false,tasks:[]}, busy=false;
+ // Process-local legacy-lane receipts. Never persisted; a restart drops them and
+ // the queue is paused anyway, so no lease can be inherited across processes.
+ const releases=new Map();
  try { state=JSON.parse(readFileSync(file,'utf8')); } catch(e) { if(e.code!=='ENOENT') throw e; }
  // Never automatically replay a request whose acceptance was not durably recorded.
  state.enabled=false;
@@ -14,6 +17,20 @@ export function createBuildQueue({ directory, upstream, context, interval = 3000
  function save(){state.revision++;const tmp=file+'.tmp';writeFileSync(tmp,JSON.stringify(state),{mode:0o600});renameSync(tmp,file);}
  save();
  function view(workspace){return {...state,tasks:state.tasks.filter(t=>t.workspace===workspace)};}
+ // Durable, input-free status: counts only, never task text, output or run payloads.
+ function unknownOutcome(t){return t.status==='blocked'&&/outcome unknown/i.test(String(t.note||''));}
+ function counts(){
+  let active=0,uncertain=0,pending=0;
+  for(const t of state.tasks){
+   if(t.status==='blocked'){if(unknownOutcome(t))uncertain++;}
+   else if(t.run&&!terminal.has(t.status))active++;
+   else if(t.status==='queued'||t.status==='starting')pending++;
+  }
+  return {active,uncertain,pending};
+ }
+ function releaseId(id){const fn=releases.get(id);if(!fn)return;releases.delete(id);try{fn();}catch(e){}}
+ function legacyStatus(){return {enabled:!!state.enabled,...counts()};}
+ if(executionGate&&typeof executionGate.setLegacyStatus==='function')executionGate.setLegacyStatus(legacyStatus);
  async function tick(){
   if(busy)return;busy=true;
   try {
@@ -26,8 +43,19 @@ export function createBuildQueue({ directory, upstream, context, interval = 3000
      active.note=run.status==='waiting_for_approval'?'Approval required. Queue paused.':String(run.last_event?.type||run.status);
      if(run.status==='waiting_for_approval')state.enabled=false;
      if(terminal.has(run.status)){
-      if(run.status!=='completed'||!active.output.trimEnd().endsWith('[WORKSHOP_DONE]')){state.enabled=false;active.status='blocked';active.note='Review required: task did not report verified completion.';}
-      else active.note='Hermes reported completion. Read its evidence; this is not independent verification.';
+      // Terminal completion ALWAYS stops the scheduler: the owner must review and
+      // explicitly press Start. The [WORKSHOP_DONE] annotation is never
+      // verification and never advances the next task by itself.
+      state.enabled=false;
+      if(run.status==='completed'){
+       const marker=active.output.trimEnd().endsWith('[WORKSHOP_DONE]');
+       active.status='completed';
+       active.note=`Agent reported completion${marker?' (with a [WORKSHOP_DONE] annotation)':''}. Not recorder-verified; review the evidence and press Start to resume.`;
+      }else{
+       active.status='blocked';
+       active.note='Run did not complete. Review; no automatic retry.';
+      }
+      releaseId(active.id);
      }
      save();
     }catch(e){state.enabled=false;active.note='Cannot confirm run status. Paused; no duplicate task will be started.';save();}
@@ -36,12 +64,26 @@ export function createBuildQueue({ directory, upstream, context, interval = 3000
    if(!state.enabled)return;
    const t=state.tasks.find(t=>t.status==='queued');
    if(!t){state.enabled=false;save();return;}
+   if(executionGate){
+    try{releases.set(t.id,executionGate.claim('legacy-agent',t.id));}
+    catch(e){
+     if(e?.code==='busy'||e?.message==='busy'){
+      state.enabled=false;
+      t.status='queued';
+      t.note='A managed Workbench job is active; queue paused with no automatic retry.';
+      save();
+      return;
+     }
+     throw e;
+    }
+   }
    t.status='starting';t.note='Submitting to Hermes';save();
    try{
     const data=await upstream('/v1/runs',{session_id:t.session,input:t.input,instructions:'You are executing an owner-approved Orbit build queue task. Follow normal tool approval policies. Work only on the requested task. Verify results with real tools. Do not claim success without evidence. If blocked or needing clarification, explain and do not emit the completion marker. Only when the requested task is fully complete and verified, finish your final response with [WORKSHOP_DONE].'+context(t.workspace)});
     if(typeof data.run_id!=='string')throw Error('Missing run ID');
     t.run=data.run_id;t.status=data.status||'running';t.note='Run accepted';
    }catch(e){
+    releaseId(t.id);
     state.enabled=false;
     t.status=e.status===429?'queued':'blocked';
     t.note=e.status===429?'Hermes is busy. Press Start queue after the current chat finishes.':'Submission outcome unknown; inspect Hermes before retrying. No automatic retry.';
@@ -63,6 +105,7 @@ export function createBuildQueue({ directory, upstream, context, interval = 3000
    }
    case 'start':
     if(body.confirm!==true)throw Error('Confirm task execution');
+    if(executionGate?.status?.()?.job===true)throw Error('A managed Workbench job is active; wait for it to finish.');
     if(state.tasks.some(t=>t.workspace!==body.workspace_id&&!terminal.has(t.status)&&t.status!=='blocked'))throw Error('Another workspace has pending tasks.');
     if(state.tasks.some(t=>t.workspace===body.workspace_id&&t.status==='blocked'))throw Error('Review and dismiss blocked tasks before continuing.');
     state.enabled=true;break;
@@ -71,6 +114,7 @@ export function createBuildQueue({ directory, upstream, context, interval = 3000
     if(!t||!['queued','blocked',...terminal].includes(t.status))throw Error('Cannot dismiss active task');
     // Unknown submissions cannot be silently retried: dismissal is explicit acknowledgement.
     if(body.confirm!==true)throw Error('Confirm dismissal');
+    releaseId(t.id);
     state.tasks=state.tasks.filter(x=>x!==t);break;
    case 'stop':
    case 'approval': {
@@ -90,5 +134,5 @@ export function createBuildQueue({ directory, upstream, context, interval = 3000
  }
  async function approvals(body){const t=state.tasks.find(t=>t.id===body.task_id&&t.workspace===body.workspace_id);if(!t||t.status!=='waiting_for_approval')return [];const d=await upstream(`/v1/approvals/pending?session_id=${encodeURIComponent(t.run)}`);return (d.approvals||[]).map(a=>({command:String(a.command||a.description||a.tool_name||'Approval requested').slice(0,4000),reason:String(a.reason||'').slice(0,1000)}));}
  const timer=interval?setInterval(()=>{tick().catch(()=>{state.enabled=false;});},interval):null;timer?.unref();
- return {action,tick,approvals,close:()=>clearInterval(timer)};
+ return {action,tick,approvals,status:()=>({revision:state.revision,...legacyStatus()}),check:()=>({enabled:!!state.enabled,counts:counts(),managed_job_active:executionGate?.status?.()?.job===true}),close:()=>{for(const id of [...releases.keys()])releaseId(id);clearInterval(timer);}};
 }

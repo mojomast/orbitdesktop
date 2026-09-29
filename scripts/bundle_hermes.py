@@ -6,8 +6,8 @@ import subprocess
 import tarfile
 
 ROOT = Path(__file__).resolve().parents[1]
-PREFIXES = ('src/', 'server/', 'scripts/', 'deploy/', 'docs/', 'public/')
-FILES = {'package.json', 'package-lock.json', 'index.html', 'tsconfig.json', 'vite.config.js', 'LICENSE', 'README.md', 'AGENTS.md'}
+PREFIXES = ('src/', 'server/', 'scripts/', 'deploy/', 'docs/', 'public/', 'contracts/')
+FILES = {'package.json', 'package-lock.json', 'index.html', 'tsconfig.json', 'vite.config.js', 'LICENSE', 'README.md', 'AGENTS.md', 'hermes-plugin/__init__.py', 'hermes-plugin/orbit.py', 'hermes-plugin/workbench.py', 'hermes-plugin/workbench-tool-schema.json', 'hermes-plugin/plugin.yaml'}
 
 def build():
     paths = subprocess.check_output(['git', 'ls-files', '-z'], cwd=ROOT).decode().split('\0')
@@ -16,7 +16,15 @@ def build():
         for name in sorted(paths):
             if name not in FILES and not name.startswith(PREFIXES):
                 continue
-            if name.startswith('docs/images/') or name == 'scripts/bundle_hermes.py':
+            # The optional, owner-specific mobile proxy has hard-coded private
+            # deployment bindings and is not imported by the portable server.
+            if name.startswith('docs/images/') or name in (
+                'scripts/bundle_hermes.py', 'server/mobile-proxy.mjs',
+                # Historical operator evidence contains deployment-specific
+                # endpoints and paths; preserve it in Git, not portable installs.
+                'docs/REAL_PROJECT_EVALUATION.md',
+                'docs/REAL_PROJECT_EVALUATION_PREFLIGHT.md',
+            ):
                 continue
             path = ROOT / name
             if path.is_symlink() or not path.is_file():

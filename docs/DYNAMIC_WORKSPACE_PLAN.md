@@ -1,6 +1,6 @@
 # Dynamic workspace architecture proposal
 
-Status: research/design, not implemented. Sources checked against official DeepSeek Harness, Hermes, and VS Code documentation. Open-web discovery used WebXNG/SearXNG.
+Status: historical broad research/design; not an implementation contract. Current source schema is 9 (schema 8 is the historical pre-arrangements baseline) and serialized workspace layout remains v1. The scoped M1/M2 arrangement release has passed its frontend/browser acceptance; see [current evidence](ENVIRONMENT_MALLEABILITY_LEDGER.md). The broader extension vision below remains unimplemented unless explicitly identified as current behavior in the plugin documentation.
 
 ## Recommendation
 
@@ -8,11 +8,11 @@ Keep Hermes as the agent runtime. Adopt a small stable Orbit host with versioned
 
 DeepSeek Harness uses Cordis for mounting/unmounting, dependencies, services and events. Its official safety notice says it is experimental, unaudited, and not a security boundary for untrusted workloads. Borrow its composition/lifecycle ideas, not unrestricted in-process execution for generated plugins.
 
-## Stable host and extension boundaries
+## Stable host and extension boundaries (broad future vision; narrowed for first release)
 
 Host-owned: authentication, permissions, snapshot/restore, asset serving, plugin registry, window/session identities, recovery UI, Hermes bridge. Plugins cannot replace these through the ordinary customization API.
 
-Contributions: pane types, dashboard widgets, sidebar sections, toolbar commands, themes, app/output viewers, data subscriptions. Convert existing tools/jobs/catalog/shelf dialogs incrementally into bundled contributions.
+The older broad contribution list (pane types, dashboard widgets, sidebar sections, toolbar commands, themes, app/output viewers and data subscriptions) is **not** the first-release scope. Initial M3 is limited to finite trusted components and private data remaining host-owned; no broad contribution types or capability-registry expansion. No general dependency solver is in scope.
 
 Three extension tiers:
 1. Declarative layout/theme/widget recipes: schema validated, no arbitrary code.
@@ -21,7 +21,7 @@ Three extension tiers:
 
 Iframe RPC must verify window/source identity, schema, channel binding and capability scope. Sandboxed opaque origins require source/channel validation rather than trusting an `origin` string alone. CSS scoping or Shadow DOM is not a security sandbox. Capabilities enforced server-side, not just declared in manifests. Raw host shell access can bypass these controls; retain it as a separately approved administrative escape hatch rather than claiming complete confinement.
 
-Manifest fields: id, immutable version/content hash, host API range, entrypoint, contributions, config schema, requested capabilities, dependencies, migration version. Track config/state outside immutable plugin bundles. Lifecycle includes mount, dispose, health, export/import state. Dispose timers, listeners, streams and pending RPC; preserve core terminal and conversation identities.
+The historical broad manifest/lifecycle sketch (dependencies, generalized contributions, capability requests and export/import lifecycle) is not approved for initial implementation. First release contracts must remain finite and explicit; private data stays host-owned. Any later plugin data contract requires separate review and tested lifecycle/migration behavior.
 
 ## First-class agent customization contract
 
@@ -51,12 +51,12 @@ Test concurrent user/agent edits, offline mutations, iframe privilege escalation
 
 Metrics: committed-to-observed latency, failure-free activation rate, checkpoint restoration success, regressions caught before promotion, lost session count, orphaned resources after disposal, snapshot storage growth. Establish baseline measurements before setting numeric SLOs.
 
-## Delivery order
+## Scoped arrangement increment and later extension work
 
-1. Revisioned theme/layout API plus automatic checkpoints, history/diff/restore and safe mode. Verify restore actually reproduces appearance and layout.
-2. Plugin SDK/manifest and lifecycle; migrate a low-risk existing widget and the app shelf. Add persistent draggable panes and safe data bindings.
-3. Staged agent plugin generation, preview/testing/promotion, permission review and immutable assets.
-4. Broader reusable recipes, model/session/jobs integrations and optional plugin sharing after the local trust model is proven.
+1. **M1/M2 backend implemented:** durable preview digest over exact staged state and placement; authenticated apply revalidates project/recovery generations, bindings/resource identities, proposal and recipe revisions under the transaction; state, placement, checkpoint, proposal and receipt commit atomically. Return is checkpoint-derived and fenced to the exact resulting workspace revision. Recipes are source-owned portable definitions that resolve role constraints against target project bindings; ambiguity requires an explicit choice. Direct small workspace operations remain supported. See [Workspace arrangements API](WORKSPACE_ARRANGEMENTS_API.md).
+2. Limits are 32 recipes per workspace, 200 proposals per project with pages of 32, and 512 append-only actor-scoped recipe-save receipts per workspace. Measured viewport belongs to preview identity. Windows/Docking support measured frames; spatial supports ordering only and rejects columns/rows geometry. Focused backend and default/Docking browser/PTY journeys passed; exact evidence and limits are in the current malleability ledger.
+3. Legacy layout import is only an adapter from saved window order to portable role-order constraints. It explicitly omits pixel frames, scaling, minimized/selected state and camera, leaving those only in the retained local layout; it does not claim exact geometry migration.
+4. **M3/M4 later and narrowed:** finite trusted components/private data remain host-owned; no general dependency solver, capability registry expansion, or broad contribution types in the initial release. No full extension model or private plugin-data feature is shipped. Any later staged artifact or extension work requires a separate frozen contract and acceptance evidence.
 
 Acceptance scenario: owner asks for compact dark workspace plus token widget; Hermes stages a revision, builds only the widget, tests it, publishes a checkpointed commit; open client updates without losing terminal/chat. Owner restores the prior checkpoint; layout/theme/widget version revert after reload too. A deliberately broken plugin must not break recovery.
 

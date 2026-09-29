@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Runtime continuity fixture</title>
+  </head>
+  <body>
+    <main>
+      <h1>Runtime continuity fixture</h1>
+      <p>Document nonce: <output id="document-nonce"></output></p>
+      <label for="draft">Unsaved draft</label>
+      <textarea id="draft" rows="8" cols="48" placeholder="Type an unsaved draft"></textarea>
+      <p id="status" role="status">Draft is empty.</p>
+    </main>
+    <script>
+      (() => {
+        const nonce = crypto.randomUUID();
+        const draft = document.querySelector("#draft");
+        const status = document.querySelector("#status");
+
+        document.querySelector("#document-nonce").textContent = nonce;
+
+        const renderStatus = () => {
+          status.textContent = draft.value
+            ? `Unsaved draft: ${draft.value.length} characters.`
+            : "Draft is empty.";
+        };
+
+        draft.addEventListener("input", renderStatus);
+        window.__continuityFixture = Object.freeze({
+          nonce,
+          get draft() { return draft.value; },
+          get status() { return status.textContent; },
+          setDraft(value) {
+            draft.value = String(value);
+            draft.dispatchEvent(new Event("input", { bubbles: true }));
+          },
+        });
+      })();
+    </script>
+  </body>
+</html>

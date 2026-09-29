@@ -5,10 +5,15 @@ author: mojomast
 homepage: https://github.com/mojomast/orbitdesktop
 provides_tools:
   - orbit_workspace
+  - orbit_workbench
 provides_hooks: []
 provides_middleware: []
 requires_env: []
 config_schema:
+  native_channel_file:
+    type: str
+    default: ""
+    description: Private dedicated-attempt channel configuration, host supplied only.
   runtime_dir:
     type: str
     default: ""

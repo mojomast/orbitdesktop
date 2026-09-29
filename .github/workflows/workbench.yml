@@ -1,0 +1,295 @@
+name: Orbit workbench browser tests
+# Owner-only Project Workbench browser gate. Runs the Node/contract regression
+# gate plus the dedicated Project Workbench browser fixture under BOTH renderers
+# (default and docking).
+#
+# Runner: GitHub-hosted ubuntu-latest. Each fixture run builds and serves its own
+# disposable temp root under /tmp/opencode; the checkout is not an owner runtime.
+# The fixture emits a synthetic failure screenshot at a fixed /tmp/opencode path
+# with any host session token masked and readiness errors redacted. No server
+# logs, temp runtimes, environment files, tokens or traces are uploaded.
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: workbench-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  checks:
+    name: Workbench / ${{ matrix.suite }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      max-parallel: 7
+      matrix:
+        suite: [core, workspace, tools, themes, chat, execution, results]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Real-project acceptance reads exact files from the pinned baseline.
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.1'
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install tmux
+        run: sudo apt-get update && sudo apt-get install -y tmux
+      - name: Prepare isolated test scratch directory
+        run: mkdir -p /tmp/opencode
+      - name: Check Python fixture syntax on the selected interpreter
+        run: |
+          python3 - <<'PY'
+          import ast
+          from pathlib import Path
+          for path in Path('tests').glob('*.py'):
+              ast.parse(path.read_text(), filename=str(path))
+          PY
+      - run: npm ci
+      - uses: astral-sh/setup-uv@v6
+        if: contains(fromJSON('["core", "execution", "results"]'), matrix.suite)
+        with:
+          version: '0.11.2'
+      - name: Prepare pinned Hermes runtime for local-model acceptance
+        if: contains(fromJSON('["core", "execution", "results"]'), matrix.suite)
+        run: |
+          git clone --no-checkout https://github.com/NousResearch/hermes-agent /tmp/opencode/orbit-hermes-native
+          git -C /tmp/opencode/orbit-hermes-native checkout --detach d0288be5b3330d2442e3907185b8e9d0958297bb
+          uv sync --project /tmp/opencode/orbit-hermes-native --frozen --python 3.14 --no-default-groups
+      - name: Provision pinned public RouteTok dependency cache
+        if: matrix.suite == 'core'
+        run: |
+          umask 077
+          git clone --no-checkout https://github.com/mojomast/routetok.git /tmp/opencode/orbit-routetok-source
+          git -C /tmp/opencode/orbit-routetok-source checkout --detach 5982efe845f99528b2facde08991d951269ec4ab
+          mkdir -p /tmp/opencode/orbit-routetok-provision/cache /tmp/opencode/orbit-routetok-provision/home
+          cp /tmp/opencode/orbit-routetok-source/package{,-lock}.json /tmp/opencode/orbit-routetok-provision/
+          touch /tmp/opencode/orbit-routetok-provision/userconfig /tmp/opencode/orbit-routetok-provision/globalconfig
+          env -i PATH="$PATH" HOME=/tmp/opencode/orbit-routetok-provision/home NPM_CONFIG_CACHE=/tmp/opencode/orbit-routetok-provision/cache NPM_CONFIG_USERCONFIG=/tmp/opencode/orbit-routetok-provision/userconfig NPM_CONFIG_GLOBALCONFIG=/tmp/opencode/orbit-routetok-provision/globalconfig npm ci --prefix /tmp/opencode/orbit-routetok-provision --ignore-scripts --include=dev --no-audit --no-fund --registry=https://registry.npmjs.org
+      - name: Contract, build and Node regression gate (actual Hermes root enabled)
+        if: matrix.suite == 'core'
+        env:
+          # The full Node gate must execute the actual-Hermes cases (result-boundary,
+          # native, real-project-native/synthetic private key), not silently skip them.
+          HERMES_NATIVE_SOURCE: /tmp/opencode/orbit-hermes-native
+          ORBIT_ROUTETOK_TEST_SOURCE: /tmp/opencode/orbit-routetok-source
+          ORBIT_ROUTETOK_TEST_CACHE: /tmp/opencode/orbit-routetok-provision/cache
+        run: npm run check
+      - name: Python adapters, publisher and portable archive parity
+        if: matrix.suite == 'core'
+        run: |
+          for test in tests/test_command_adapters.py tests/test_workspace_contract.py \
+            tests/test_workspace_batch_limit_regression.py tests/test_hermes_plugin.py \
+            tests/plugin-publish.test.py tests/orbit-catalog.test.py \
+            tests/test_orbit_bundle.py tests/test_portable_endpoints.py; do
+            python3 "$test" || exit 1
+          done
+      - name: Actual Hermes Python runtime (Node actual-Hermes cases already ran in the gate)
+        if: matrix.suite == 'core'
+        env:
+          HERMES_NATIVE_SOURCE: /tmp/opencode/orbit-hermes-native
+        run: python3 tests/test_workbench_native_runtime.py
+      - name: Real disposable release packaging and launch instance
+        if: matrix.suite == 'core'
+        env:
+          RELEASE_INSTANCE: '1'
+        run: node --experimental-strip-types --test tests/release-package-launch.test.mjs
+      - name: Install Playwright and Chromium system dependencies
+        if: matrix.suite != 'core'
+        id: browser_tools
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
+        run: |
+          python3 -m venv /tmp/opencode/orbit-workbench-venv
+          /tmp/opencode/orbit-workbench-venv/bin/pip install --disable-pip-version-check playwright==1.58.0
+          /tmp/opencode/orbit-workbench-venv/bin/python -m playwright install --with-deps chromium
+      - name: Exercise both workbench renderers on disposable fixtures
+        if: ${{ !cancelled() && matrix.suite == 'workspace' && steps.browser_tools.outcome == 'success' }}
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
+        run: |
+          test -f tests/project-workbench.browser.py || {
+            echo "::error::tests/project-workbench.browser.py is missing"
+            exit 1
+          }
+          status=0
+          for renderer in default docking; do
+            /tmp/opencode/orbit-workbench-venv/bin/python tests/project-workbench.browser.py --renderer "$renderer" || status=1
+            /tmp/opencode/orbit-workbench-venv/bin/python tests/project-workbench.browser.py --renderer "$renderer" --linked || status=1
+          done
+          exit "$status"
+      - name: Live PTY continuity and independent recovery regressions
+        if: ${{ !cancelled() && matrix.suite == 'workspace' && steps.browser_tools.outcome == 'success' }}
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
+        run: |
+          /tmp/opencode/orbit-workbench-venv/bin/python tests/runtime-continuity.browser.py --pty --renderer default
+          /tmp/opencode/orbit-workbench-venv/bin/python tests/runtime-continuity.browser.py --pty --renderer docking
+          /tmp/opencode/orbit-workbench-venv/bin/python tests/recovery-real-server.browser.py
+      - name: Durable workspace arrangements on both renderers
+        if: ${{ !cancelled() && matrix.suite == 'workspace' && steps.browser_tools.outcome == 'success' }}
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
+        run: |
+          for renderer in default docking; do
+            /tmp/opencode/orbit-workbench-venv/bin/python tests/workspace-arrangements.browser.py --renderer "$renderer" --pty
+          done
+      - name: Persistent project tools on both renderers
+        if: ${{ !cancelled() && matrix.suite == 'tools' && steps.browser_tools.outcome == 'success' }}
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
+        run: |
+          for renderer in default docking; do
+            /tmp/opencode/orbit-workbench-venv/bin/python tests/project-tools.browser.py --renderer "$renderer"
+            /tmp/opencode/orbit-workbench-venv/bin/python tests/extension-studio.browser.py --renderer "$renderer"
+          done
+      - name: Merged theme personalities and icon packs
+        if: ${{ !cancelled() && matrix.suite == 'themes' && steps.browser_tools.outcome == 'success' }}
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
+        run: |
+          /tmp/opencode/orbit-workbench-venv/bin/python tests/theme-personalities.browser.py
+          /tmp/opencode/orbit-workbench-venv/bin/python tests/theme-preset-switch.browser.py
+          /tmp/opencode/orbit-workbench-venv/bin/python tests/theme-icons.browser.py
+      - name: Shared live timeline and persistent Hermes mode switching
+        if: ${{ !cancelled() && matrix.suite == 'chat' && steps.browser_tools.outcome == 'success' }}
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
+        run: |
+          /tmp/opencode/orbit-workbench-venv/bin/python tests/agent-live-timeline.browser.py
+          for renderer in default docking; do
+            /tmp/opencode/orbit-workbench-venv/bin/python tests/pane-workbench-mode.browser.py --renderer "$renderer"
+          done
+      - name: Agent pane progressive disclosure and visual budgets
+        if: ${{ !cancelled() && matrix.suite == 'chat' && steps.browser_tools.outcome == 'success' }}
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
+        run: |
+          /tmp/opencode/orbit-workbench-venv/bin/python tests/agent-pane-ux.browser.py
+          /tmp/opencode/orbit-workbench-venv/bin/python tests/agent-selection.browser.py
+          /tmp/opencode/orbit-workbench-venv/bin/python tests/agent-selection.browser.py --renderer docking
+          /tmp/opencode/orbit-workbench-venv/bin/python tests/pane-workbench-load-race.browser.py
+      - name: Exact candidate diff review on both renderers
+        if: ${{ !cancelled() && matrix.suite == 'chat' && steps.browser_tools.outcome == 'success' }}
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
+        run: |
+          /tmp/opencode/orbit-workbench-venv/bin/python tests/candidate-diff-presentation.browser.py
+          for renderer in default docking; do
+            /tmp/opencode/orbit-workbench-venv/bin/python tests/candidate-diff-review.browser.py --renderer "$renderer"
+          done
+      - name: Real-backend cross-mode live journey on both renderers
+        if: ${{ !cancelled() && matrix.suite == 'execution' && steps.browser_tools.outcome == 'success' }}
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
+          HERMES_NATIVE_SOURCE: /tmp/opencode/orbit-hermes-native
+        run: |
+          for renderer in default docking; do
+            /tmp/opencode/orbit-workbench-venv/bin/python tests/workbench-live-journey.browser.py --renderer "$renderer"
+          done
+      - name: Context, execution and joined workflow on both renderers
+        if: ${{ !cancelled() && matrix.suite == 'execution' && steps.browser_tools.outcome == 'success' }}
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
+        run: |
+          for renderer in default docking; do
+            /tmp/opencode/orbit-workbench-venv/bin/python tests/workbench-context.browser.py --renderer "$renderer"
+            /tmp/opencode/orbit-workbench-venv/bin/python tests/workbench-execution.browser.py --renderer "$renderer"
+            /tmp/opencode/orbit-workbench-venv/bin/python tests/workbench-journey.browser.py --renderer "$renderer"
+            HERMES_NATIVE_SOURCE=/tmp/opencode/orbit-hermes-native /tmp/opencode/orbit-workbench-venv/bin/python tests/workbench-native.browser.py --renderer "$renderer"
+          done
+      - name: Goal-first setup and native worker on both renderers
+        if: ${{ !cancelled() && matrix.suite == 'execution' && steps.browser_tools.outcome == 'success' }}
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
+        run: |
+          for renderer in default docking; do
+            /tmp/opencode/orbit-workbench-venv/bin/python tests/workbench-setup.browser.py --renderer "$renderer"
+          done
+      - name: Gate 1 result delivery and host-card handoff on both renderers
+        if: ${{ !cancelled() && matrix.suite == 'results' && steps.browser_tools.outcome == 'success' }}
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
+        run: |
+          for renderer in default docking; do
+            /tmp/opencode/orbit-workbench-venv/bin/python tests/workbench-results.browser.py --renderer "$renderer"
+          done
+      - name: Gate 1 normal-UI supervised worker handoff and result review on both renderers
+        if: ${{ !cancelled() && matrix.suite == 'results' && steps.browser_tools.outcome == 'success' }}
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
+          GATE2_FINAL: '1'
+          L4_GEOMETRY: '1'
+        run: |
+          for renderer in default docking; do
+            HERMES_NATIVE_SOURCE=/tmp/opencode/orbit-hermes-native /tmp/opencode/orbit-workbench-venv/bin/python tests/workbench-results-ui.browser.py --renderer "$renderer"
+          done
+      - name: Normal-UI pending-check cancel with real providers on both renderers
+        if: ${{ !cancelled() && matrix.suite == 'results' && steps.browser_tools.outcome == 'success' }}
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
+        run: |
+          for renderer in default docking; do
+            /tmp/opencode/orbit-workbench-venv/bin/python tests/workbench-recovery-revocation.browser.py --renderer "$renderer"
+          done
+      - name: Normal-UI artifact verification cancel on both renderers
+        if: ${{ !cancelled() && matrix.suite == 'results' && steps.browser_tools.outcome == 'success' }}
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
+        run: |
+          for renderer in default docking; do
+            /tmp/opencode/orbit-workbench-venv/bin/python tests/workbench-artifact-cancel.browser.py --renderer "$renderer"
+          done
+      - name: Upload sanitized synthetic failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workbench-${{ matrix.suite }}-failure-screenshot
+          if-no-files-found: ignore
+          retention-days: 7
+          # Strict allowlist: fixture-emitted synthetic screenshots (token
+          # masked) and native fixture logs (safe() redacts secrets).
+          path: |
+            /tmp/opencode/orbit-project-workbench-default.png
+            /tmp/opencode/orbit-project-workbench-docking.png
+            /tmp/opencode/orbit-workbench-context-default.png
+            /tmp/opencode/orbit-workbench-context-docking.png
+            /tmp/opencode/orbit-workbench-execution-default.png
+            /tmp/opencode/orbit-workbench-execution-docking.png
+            /tmp/opencode/orbit-workbench-journey-default.png
+            /tmp/opencode/orbit-workbench-journey-docking.png
+            /tmp/opencode/comet-results-default-error.png
+            /tmp/opencode/comet-results-docking-error.png
+            /tmp/opencode/comet-native-browser-default.log
+            /tmp/opencode/comet-native-browser-docking.log
+            /tmp/opencode/comet-results-ui-default-error.png
+            /tmp/opencode/comet-results-ui-docking-error.png
+            /tmp/opencode/comet-recovery-revocation-default-error.png
+            /tmp/opencode/comet-recovery-revocation-docking-error.png
+            /tmp/opencode/comet-artifact-cancel-default-error.png
+            /tmp/opencode/comet-artifact-cancel-docking-error.png
+            /tmp/opencode/orbit-arrangements-default-semantic-preview-*.png
+            /tmp/opencode/orbit-arrangements-docking-semantic-preview-*.png
+            /tmp/opencode/orbit-arrangements-default-changes-collapsed-*.png
+            /tmp/opencode/orbit-arrangements-docking-changes-collapsed-*.png
+            /tmp/opencode/project-tools-default-manager-*.png
+            /tmp/opencode/project-tools-docking-manager-*.png
+            /tmp/opencode/project-tools-default-notebook-*.png
+            /tmp/opencode/project-tools-docking-notebook-*.png
+            /tmp/opencode/orbit-studio-default.png
+            /tmp/opencode/orbit-studio-docking.png
+  workbench:
+    name: workbench
+    if: always()
+    needs: checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every isolated suite to pass
+        env:
+          CHECKS_RESULT: ${{ needs.checks.result }}
+        run: test "$CHECKS_RESULT" = success

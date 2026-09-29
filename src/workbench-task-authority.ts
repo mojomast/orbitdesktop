@@ -1,0 +1,146 @@
+import {button,el} from './dom';
+import {validChat} from './chat-storage';
+type Data=Record<string,any>;
+type Readiness={ready:boolean;reason:string|null;message:string;candidate_hash:string;candidate_generation:number;acceptance_digest:string;required_checks:{definition_id:string;execution_profile_id:string|null;ready:boolean;reason:string|null;message:string}[]};
+export type WorkbenchAuthorityScope={taskId?:string|null;candidateId?:string|null;attemptId?:string|null;contextId?:string|null;paneId?:string|null};
+export function mountWorkbenchTaskAuthority(args:{container:HTMLElement;token:()=>string;workspace_id:string;project_id:string;scope?:WorkbenchAuthorityScope;onScopeChange?:(scope:{candidateId:string|null;attemptId:string|null;contextId:string|null})=>void;lane?:{busy:boolean;unknown:boolean}}){
+  let disposed=false,busy=false,grantId='',nativePreview:Data|null=null,environmentPreview:Data|null=null,profileId='',handoffEpoch=0,nativePreviewKey='';
+  const scope:WorkbenchAuthorityScope={...args.scope};
+  let lane={busy:args.lane?.busy===true,unknown:args.lane?.unknown===true};
+  const status=el('p','','Task authority: loading…'),candidates=el('select'),recipients=el('select'),contexts=el('select'),attempts=el('select'),detail=el('pre');
+  const handoff=el('section','workbench-worker-handoff');
+  let contextRecords:Data[]=[],allContextRecords:Data[]=[],freshness:Data|null=null,packetPreview:Data|null=null;
+  candidates.setAttribute('aria-label','Authority candidate');recipients.setAttribute('aria-label','Native agent recipient');contexts.setAttribute('aria-label','Native approved context packet');attempts.setAttribute('aria-label','Native task attempt');
+  const budgetCalls=el('input'),budgetChecks=el('input'),budgetSeconds=el('input');
+  for(const input of [budgetCalls,budgetChecks,budgetSeconds])input.type='number';budgetCalls.value='20';budgetChecks.value='3';budgetSeconds.value='180';
+  budgetCalls.setAttribute('aria-label','Tool call budget');budgetChecks.setAttribute('aria-label','Managed check budget');budgetSeconds.setAttribute('aria-label','Attempt duration seconds');
+  let state:Data={};
+  let acceptancePreview:Data|null=null;
+  const requireNode=el('input'),requireHost=el('input');requireNode.type='checkbox';requireHost.type='checkbox';requireNode.checked=true;
+  requireNode.setAttribute('aria-label','Require Node test suite');requireHost.setAttribute('aria-label','Require host-owned sum regression fixture');
+  const grants=el('select');grants.setAttribute('aria-label','Native consent record');
+  let unknownDigest='';
+  grants.addEventListener('change',()=>{grantId=grants.value;unknownDigest='';});
+  const row=(label:string,node:HTMLElement)=>{const wrapper=el('label','',label);wrapper.append(node);return wrapper;};
+  async function api(endpoint:string,body:Data){const response=await fetch(`/api/workbench/${endpoint}`,{method:'POST',headers:{Authorization:`Bearer ${args.token()}`,'Content-Type':'application/json'},body:JSON.stringify({workspace_id:args.workspace_id,project_id:args.project_id,...body})});const data=await response.json();if(!response.ok||data.ok!==true)throw Error(`${data.code??'unavailable'}${data.reason?`: ${data.reason}`:''}`);return data;}
+  async function act(label:string,work:()=>Promise<void>,intervention=false){if(disposed||busy&&!intervention)return;if(!intervention)busy=true;status.textContent=label;try{await work();if(!disposed)status.textContent=`${label}: complete. Refresh status to inspect current records.`;}catch(error){if(!disposed)status.textContent=`${label}: ${error instanceof Error?error.message:'unavailable'}. No automatic execution retry.`;}finally{if(!intervention)busy=false;}}
+  function choices(select:HTMLSelectElement,values:{id:string;label:string}[]){const old=select.value;select.replaceChildren();for(const value of values){const option=el('option','',value.label);option.value=value.id;select.append(option);}if(values.some(v=>v.id===old))select.value=old;}
+  function ensureBlank(select:HTMLSelectElement,label:string){if(!Array.from(select.options).some(o=>o.value==='')){const option=el('option','',label);option.value='';select.prepend(option);}}
+  const time=(value:unknown)=>{if(typeof value!=='number'||!Number.isFinite(value))return 'unknown';const age=Math.max(0,Date.now()-value),relative=age<60000?`${Math.floor(age/1000)} seconds ago`:age<3600000?`${Math.floor(age/60000)} minutes ago`:age<86400000?`${Math.floor(age/3600000)} hours ago`:`${Math.floor(age/86400000)} days ago`;return `${new Date(value).toISOString()} (${relative})`;};
+  const selectedRecipient=()=>{try{return JSON.parse(recipients.value) as Data;}catch{return null;}};
+  const selectionKey=()=>JSON.stringify([candidates.value,recipients.value,attempts.value,contexts.value,budgetCalls.value,budgetChecks.value,budgetSeconds.value,requireNode.checked,requireHost.checked]);
+  // Start is disabled immediately while the shared lane is held by another pane
+  // (Normal or Workbench). This is presentation only; the backend stays
+  // authoritative. Stop and status reads are never disabled.
+  function refreshStartState(){
+    const blocked=lane.busy||lane.unknown;
+    start.disabled=!grantId||blocked;
+    start.title=blocked?'Shared agent lane is occupied (Normal/shared agent lane run in progress). Stop and status remain available; retry when the lane is idle.':!grantId?'Approve a native task consent first.':'Start Hermes with only the approved Workbench tools';
+  }
+  // Bind an external pane selection to the mounted controls. When a scope is
+  // supplied, a missing/stale id clears to an explicit blank instead of silently
+  // falling back to the first (possibly unrelated) record. With no scope the full
+  // panel keeps its original first-record default.
+  function applyScope(){
+    const scoped=args.scope!==undefined;
+    if(scoped){ensureBlank(candidates,'Choose candidate…');ensureBlank(attempts,'Choose attempt…');ensureBlank(recipients,'Choose this pane’s conversation…');}
+    const has=(select:HTMLSelectElement,value:string|null|undefined)=>!!value&&Array.from(select.options).some(o=>o.value===value);
+    candidates.value=has(candidates,scope.candidateId)?(scope.candidateId as string):(scoped?'':candidates.value);
+    attempts.value=has(attempts,scope.attemptId)?(scope.attemptId as string):(scoped?'':attempts.value);
+    if(has(contexts,scope.contextId))contexts.value=scope.contextId as string;
+    if(scoped){
+      const match=scope.paneId?Array.from(recipients.options).find(o=>{try{return JSON.parse(o.value)?.pane_id===scope.paneId;}catch{return false;}}):undefined;
+      recipients.value=match?match.value:'';
+    }
+    refreshStartState();
+  }
+  // A scoped pane offers only packets bound to the selected attempt, so an
+  // unbound packet can never be selected as approved context. The full panel
+  // (no scope) keeps showing every packet.
+  function rebuildContexts(){
+    const boundOnly=args.scope!==undefined;
+    contextRecords=allContextRecords.filter((c:Data)=>c.source?.kind==='packet'&&(!boundOnly||(!!scope.attemptId&&c.attempt_id===scope.attemptId)));
+    choices(contexts,[{id:'',label:boundOnly&&!scope.attemptId?'Create/select an attempt to choose a bound packet':'No context read grant'},...contextRecords.map((c:Data)=>({id:c.id,label:`Packet ${c.id} · ${c.snapshot?.bytes} bytes · ${c.snapshot?.hash}`}))]);
+    applyScope();
+  }
+  function renderHandoff(){
+    const candidate=(state.candidates??[]).find((c:Data)=>c.id===candidates.value),task=(state.tasks??[]).find((t:Data)=>t.id===candidate?.task_id),recipient=selectedRecipient(),context=contextRecords.find((c:Data)=>c.id===contexts.value),packet=context?.snapshot??{},approved=nativePreview?.preview??null;
+    handoff.replaceChildren(el('h4','','Supervised worker handoff'),el('p','','Start a supervised worker for this task. It receives the approved task packet, not the whole conversation.'));
+    const taskView=el('section');taskView.append(el('h5','','Task/question'),el('p','',task?.title??'Select a candidate to identify its task.'),el('p','',task?.acceptance?.statement??'No task acceptance statement is available.'),el('p','','Prior conversation messages are not imported. The worker can read only the selected approved packet and candidate under the bounded grant.'));
+    if(context){
+      let envelope:Data|null=null;try{const parsed=JSON.parse(packetPreview?.text??'');if(parsed&&typeof parsed==='object')envelope=parsed;}catch{}
+      const question=envelope?.owner_request?.question;
+      taskView.append(el('h6','','Approved packet question'));
+      if(typeof question==='string'){const text=el('pre','workbench-handoff-question');text.textContent=question;taskView.append(text);}
+      else taskView.append(el('p','',packetPreview?.context_id===context.id?'The exact selected packet is not a structured question packet; its metadata remains bound above.':'Preview consent to read the exact owner question from this packet. No model request is sent by preview.'));
+    }
+    handoff.append(taskView);
+    const snapshotView=el('section');snapshotView.append(el('h5','','Selected snapshots and freshness'));
+    if(context){snapshotView.append(el('p','',`Packet ${context.id} · ${packet.bytes??'unknown'} bytes`),el('p','',`Captured ${time(packet.captured_at)} · retained until ${time(context.retention_until)}`),el('p','',`Capture state: ${context.expired?'expired':packet.truncated?'truncated':'available'} · ${packet.exclusions?.length??0} exclusions`));
+      if(packetPreview?.context_id===context.id)snapshotView.append(el('p','','The exact packet bytes and project generation passed recipient-bound preview checks; no model request was sent.'));
+      const packetHash=el('details'),packetHashLabel=el('summary','','Show packet content identity'),packetHashValue=el('code','',`sha256 ${packet.hash??'unknown'}`);packetHash.append(packetHashLabel,packetHashValue);snapshotView.append(packetHash);
+      const manifest=packet.manifest??{},sourceIds=packet.provenance?.context_ids??manifest.context_ids;
+      if(typeof manifest.question_bytes==='number')snapshotView.append(el('p','',`Owner question included in this immutable packet (${manifest.question_bytes} bytes).`));
+      let envelope:Data|null=null;try{const parsed=JSON.parse(packetPreview?.text??'');if(parsed&&typeof parsed==='object')envelope=parsed;}catch{}
+      const packetSources=Array.isArray(envelope?.untrusted_sources)?envelope.untrusted_sources:[];
+      if(packetSources.length){snapshotView.append(el('h6','','Included source snapshots'));for(const item of packetSources){const sourceId=item.context_id,source=allContextRecords.find((entry:Data)=>entry.id===sourceId),snap=source?.snapshot??{},entry=el('div');entry.append(el('p','',`${item.kind??source?.source?.kind??'source'} · ${sourceId??'unknown ID'} · captured ${time(item.captured_at??snap.captured_at)} · ${item.truncated===true||snap.truncated===true?'truncated':'complete'} · ${item.exclusions?.length??snap.exclusions?.length??0} exclusions`));const digest=el('details'),label=el('summary','','Show source snapshot hash');digest.append(label,el('code','',`sha256 ${item.hash??snap.hash??'unknown'}`));entry.append(digest);snapshotView.append(entry);}}
+      else if(Array.isArray(sourceIds)&&sourceIds.length){snapshotView.append(el('h6','','Included source snapshots'));for(const id of sourceIds){const source=allContextRecords.find((entry:Data)=>entry.id===id),snap=source?.snapshot??{};snapshotView.append(el('p','',source?`${source.source?.kind??'source'} · ${source.id} · ${snap.bytes??'unknown'} bytes · captured ${time(snap.captured_at)} · ${snap.truncated?'truncated':'complete'}`:`Source ${id} is no longer present in the current capture list.`));}}
+       const observedFreshness=freshness?.candidate_id===candidate?.id?freshness:null;
+       const freshnessStatus=el('p','',observedFreshness?`Candidate observation: ${observedFreshness.target_changed?'source target changed; refresh/review required':'current at consent preview'} · source ${observedFreshness.current_source_hash??'unknown'}`:'Candidate freshness will be checked in the exact native consent preview.');snapshotView.append(freshnessStatus);
+    }else snapshotView.append(el('p','','No snapshot selected. Only the task statement and approved candidate are in scope.'));
+    const readiness=(freshness?.candidate_id===candidate?.id?freshness?.readiness:null) as Readiness|null;
+    if(readiness)snapshotView.append(el('p','workbench-readiness',`Acceptance/profile readiness: ${readiness.ready?'Ready':'Needs attention'} · ${readiness.message}`),...readiness.required_checks.filter(check=>!check.ready).map(check=>el('p','workbench-readiness',`${check.definition_id}${check.execution_profile_id?` · profile ${check.execution_profile_id}`:''}: ${check.message}`)));
+    handoff.append(snapshotView);
+    const candidateView=el('section');candidateView.append(el('h5','','Candidate'),el('p','',candidate?`${candidate.id} · generation ${candidate.generation}`:'Select a candidate.'));if(candidate){const identity=el('details'),label=el('summary','','Show exact candidate identity');identity.append(label,el('code','',`sha256 ${candidate.hash}`));candidateView.append(identity);}handoff.append(candidateView);
+    const destination=approved?.recipient??null,runtime=destination?.native_runtime??{};
+    const recipientView=el('section');recipientView.append(el('h5','','Recipient and model policy'),el('p','',recipient?`${recipient.pane_id} · profile ${recipient.profile_id} · session ${recipient.session_id}`:'Select the originating agent conversation.'),el('p','',approved?`Pinned Hermes ${runtime.commit??'unknown'} · model ${runtime.model??'host configured'} · destination: ${runtime.destination??'unknown'}`:'The actual model and destination policy are resolved and shown in native consent preview.'),el('p','',approved?'Pinned native runtime configuration verified for this recipient.':'No model/profile is inferred from conversation history.'));
+    if(approved&&runtime.configuration_hash){const config=el('details'),label=el('summary','','Show runtime configuration identity');config.append(label,el('code','',runtime.configuration_hash));recipientView.append(config);}
+    if(recipient?.pane_id)recipientView.append(button('Open originating conversation','Focus the selected original agent pane',()=>window.dispatchEvent(new CustomEvent('orbit-focus-agent',{detail:recipient.pane_id}))));
+    handoff.append(recipientView);
+    const operations=approved?.required_checks??[];const scopeView=el('section');scopeView.append(el('h5','','Operations and budget'),el('p','',`Allowed operations: inspect task, read candidate, apply expected-hash candidate changes${context?`, read selected packet ${context.id}`:''}, run/status only required checks (${operations.map((c:Data)=>c.definition_id).join(', ')||'none'}), and retrieve recorded evidence. No shell or whole-conversation access.`),el('p','',`Budget: ${JSON.stringify(approved?.budget??{calls:budgetCalls.valueAsNumber,checks:budgetChecks.valueAsNumber,duration_ms:budgetSeconds.valueAsNumber*1000})}`),el('p','',`Required check definitions: ${operations.map((c:Data)=>c.definition_id).join(', ')||'none'}`));handoff.append(scopeView);
+    approveNative.disabled=!nativePreview||nativePreviewKey!==selectionKey()||freshness?.target_changed===true||freshness?.readiness?.ready!==true;
+  }
+  async function refresh(){await act('Loading task authority',async()=>{
+    const [execution,context]=await Promise.all([api('execution',{action:'execution_state'}),api('context',{action:'list'})]);if(disposed)return;state=execution;
+    const candidateRows=(execution.candidates??[]).filter((c:Data)=>!scope.taskId||c.task_id===scope.taskId);
+    choices(candidates,candidateRows.map((c:Data)=>({id:c.id,label:`${c.id} · generation ${c.generation}`})));
+    choices(attempts,(context.attempts??[]).filter((a:Data)=>!scope.taskId||a.task_id===scope.taskId).map((a:Data)=>({id:a.id,label:`${a.id} · ${a.task_id}`})));
+    applyScope();
+    allContextRecords=context.contexts??[];rebuildContexts();
+    const native=await api('native',{action:'list'});if(disposed)return;choices(grants,(native.grants??[]).map((g:Data)=>({id:g.id,label:`${g.id} · ${g.status}`})));grantId=grants.value;refreshStartState();
+    const response=await fetch('/api/workbench',{method:'POST',headers:{Authorization:`Bearer ${args.token()}`,'Content-Type':'application/json'},body:JSON.stringify({action:'list',workspace_id:args.workspace_id})});const list=await response.json();if(disposed)return;
+    const values=[];for(const pane of list.surfaces??[]){if(pane.kind!=='agent')continue;try{const saved=JSON.parse(sessionStorage.getItem(`orbit-hermes-chat:${pane.pane_id}`)||'null');if(validChat(saved))values.push({id:JSON.stringify({pane_id:pane.pane_id,profile_id:saved.profile_id??'default',session_id:saved.session}),label:`${pane.name} · ${saved.profile_id??'default'} · ${saved.session}`});}catch{}}
+    choices(recipients,values);
+    applyScope();
+    renderHandoff();
+  });}
+  const bind=button('Create bound attempt','Bind selected candidate to the selected agent conversation',()=>void act('Creating bound attempt',async()=>{const candidate=(state.candidates??[]).find((c:Data)=>c.id===candidates.value);if(!candidate||!recipients.value)throw Error('Choose a candidate and bound agent conversation');const result=await api('execution',{action:'attempt_create',candidate_id:candidate.id,task_id:candidate.task_id,...JSON.parse(recipients.value)});choices(attempts,[{id:result.attempt.id,label:result.attempt.id}]);scope.candidateId=candidates.value||null;scope.attemptId=result.attempt.id;rebuildContexts();args.onScopeChange?.({candidateId:scope.candidateId,attemptId:result.attempt.id,contextId:contexts.value||null});detail.textContent=JSON.stringify(result,null,2);}));
+   const previewNative=button('Preview native task consent','Preview candidate read/edit and approved check authority',()=>void act('Previewing native task consent',async()=>{const ticket=handoffEpoch,key=selectionKey(),candidate=(state.candidates??[]).find((c:Data)=>c.id===candidates.value),recipient=selectedRecipient();if(!candidate||!attempts.value||!recipient)throw Error('Choose a candidate, bound attempt, and originating conversation');const observed=await api('execution',{action:'candidate_get',candidate_id:candidate.id});freshness={...observed,candidate_id:candidate.id};if(disposed||ticket!==handoffEpoch||key!==selectionKey())throw Error('stale_resource');renderHandoff();const readiness=observed.readiness as Readiness|undefined;if(observed.target_changed||!readiness?.ready||readiness.candidate_hash!==candidate.hash||readiness.candidate_generation!==candidate.generation||readiness.acceptance_digest!==state.tasks?.find((task:Data)=>task.id===candidate.task_id)?.acceptance_digest)throw Error(readiness?.message??'stale_resource');if(contexts.value){const selected=contextRecords.find((item:Data)=>item.id===contexts.value),preview=await api('context',{action:'preview',context_id:contexts.value,recipient});if(!selected||preview.context_id!==selected.id||preview.hash!==selected.snapshot?.hash||typeof preview.text!=='string'||preview.recipient?.pane_id!==recipient.pane_id||preview.recipient?.profile_id!==recipient.profile_id||preview.recipient?.session_id!==recipient.session_id)throw Error('stale_resource');packetPreview=preview;}else packetPreview=null;if(disposed||ticket!==handoffEpoch||key!==selectionKey())throw Error('stale_resource');const preview=await api('native',{action:'preview',attempt_id:attempts.value,context_ids:contexts.value?[contexts.value]:[],budget:{calls:budgetCalls.valueAsNumber,checks:budgetChecks.valueAsNumber,duration_ms:budgetSeconds.valueAsNumber*1000}});if(disposed||ticket!==handoffEpoch||key!==selectionKey())throw Error('stale_resource');nativePreview=preview;nativePreviewKey=key;renderHandoff();detail.textContent=JSON.stringify(nativePreview,null,2);}));
+  const approveNative=button('Approve native task consent','Approve exactly the previewed bounded task authority',()=>void act('Approving native task consent',async()=>{if(!nativePreview||nativePreviewKey!==selectionKey())throw Error('Preview task consent again');const result=await api('native',{action:'approve',preview_id:nativePreview.preview_id,preview_digest:nativePreview.preview_digest});grantId=result.grant.id;nativePreview=null;nativePreviewKey='';refreshStartState();renderHandoff();detail.textContent=JSON.stringify(result,null,2);}));approveNative.disabled=true;
+  const start=button('Start native Hermes attempt','Start Hermes with only the approved Workbench tools',()=>void act('Starting native Hermes',async()=>{const result=await api('native',{action:'start',grant_id:grantId});detail.textContent=JSON.stringify(result,null,2);}));
+  const check=button('Read native attempt status','Read status without retrying execution',()=>void act('Reading native status',async()=>{const result=await api('native',{action:'status',grant_id:grantId});unknownDigest=result.unknown_digest??'';detail.textContent=JSON.stringify(result,null,2);},true));
+  const stop=button('Stop native attempt','Revoke native tools and request agent stop; jobs require separate cancellation',()=>void act('Stopping native attempt',async()=>{detail.textContent=JSON.stringify(await api('native',{action:'stop',grant_id:grantId}),null,2);},true));
+  const previewEnv=button('Preview offline Node environment','Preview lockfile, tarball inputs and scripts-disabled offline preparation',()=>void act('Previewing environment',async()=>{const c=(state.candidates??[]).find((c:Data)=>c.id===candidates.value);if(!c)throw Error('Choose a candidate');environmentPreview=await api('environments',{action:'profile_preview',candidate_id:c.id,required_inputs:c.files.filter((f:Data)=>['package.json','package-lock.json'].includes(f.path)||f.path.endsWith('.tgz')).map((f:Data)=>f.path)});detail.textContent=JSON.stringify(environmentPreview,null,2);}));
+  const approveEnv=button('Approve offline Node environment','Approve exactly the previewed dependency preparation',()=>void act('Approving environment',async()=>{if(!environmentPreview)throw Error('Preview environment first');const result=await api('environments',{action:'profile_approve',preview_id:environmentPreview.preview_id,preview_digest:environmentPreview.preview_digest});profileId=result.id;detail.textContent=JSON.stringify(result,null,2);}));
+  const prepare=button('Prepare locked dependencies','Run only the approved offline npm ci with lifecycle scripts disabled',()=>void act('Preparing dependencies',async()=>{detail.textContent=JSON.stringify(await api('environments',{action:'environment_prepare',profile_id:profileId}),null,2);}));
+  const previewAcceptance=button('Preview required checks','Preview the entire required check set and prepared environment binding',()=>void act('Previewing acceptance revision',async()=>{const execution=await api('execution',{action:'execution_state'}),candidate=execution.candidates.find((c:Data)=>c.id===candidates.value),task=execution.tasks.find((t:Data)=>t.id===candidate?.task_id);if(!task)throw Error('Choose a candidate');const required_checks=[];if(requireNode.checked)required_checks.push({definition_id:'node-test',...(profileId?{execution_profile_id:profileId}:{})});if(requireHost.checked)required_checks.push({definition_id:'host-regression'});acceptancePreview=await api('execution',{action:'task_acceptance_preview',candidate_id:candidate.id,task_id:task.id,expected_acceptance_digest:task.acceptance_digest,required_checks});detail.textContent=JSON.stringify(acceptancePreview,null,2);}));
+  const approveAcceptance=button('Approve required checks','Approve exactly the previewed full acceptance contract; historical evidence becomes stale',()=>void act('Approving acceptance revision',async()=>{if(!acceptancePreview)throw Error('Preview the complete check set first');const p=acceptancePreview.preview;const result=await api('execution',{action:'task_acceptance_approve',candidate_id:candidates.value,task_id:p.task_id,preview_id:acceptancePreview.preview_id,preview_digest:p.digest??p.preview_digest??acceptancePreview.preview_digest});detail.textContent=JSON.stringify(result,null,2);
+    // Keep this control's cached task current from the authoritative approve
+    // response so a later native consent preview compares the same acceptance
+    // digest instead of failing closed against a stale local copy. This does not
+    // weaken any server check; the next preview is still fully revalidated.
+    if(result&&result.task&&typeof result.task==='object'){const tasks=state.tasks??[];const index=tasks.findIndex((task:Data)=>task.id===result.task.id);if(index>=0)tasks[index]={...tasks[index],...result.task};else tasks.push(result.task);state.tasks=tasks;renderHandoff();}
+    acceptancePreview=null;nativePreview=null;}));
+  args.container.replaceChildren(el('h3','','Task authority and execution environment'),status,row('Candidate',candidates),row('Agent conversation',recipients),bind,row('Attempt',attempts),row('Packet',contexts),el('p','','Create the bound attempt, select the packet captured for this task, then review this handoff before approval. Dedicated Hermes is trusted-host execution, not a filesystem sandbox.'),row('Tool calls',budgetCalls),row('Checks',budgetChecks),row('Seconds',budgetSeconds),handoff,previewNative,approveNative,start,check,stop,previewEnv,approveEnv,prepare,button('Refresh task authority','Refresh task, packet and conversation metadata',()=>void refresh()),detail);
+  args.container.insertBefore(el('p','','Dependency profiles: local lockfile tarballs, or the locked tsx/TypeScript test toolchain using a dedicated operator-provisioned npm cache. Preparation stays offline and ignores lifecycle scripts. Registry cache provisioning is separate; missing cache entries fail without a network fallback. Approve the prepared profile in Required checks before running tests.'),previewEnv);
+  const terminated=el('input');terminated.type='checkbox';terminated.setAttribute('aria-label','I independently confirmed the unknown native process has terminated');
+  args.container.append(row('Native consent',grants),row('I independently confirmed the unknown native process has terminated',terminated),button('Acknowledge unknown native outcome','Release quarantine for this exact externally terminated run without replay',()=>void act('Acknowledging unknown outcome',async()=>{if(!terminated.checked||!unknownDigest)throw Error('Read the unknown status and independently confirm termination first');detail.textContent=JSON.stringify(await api('native',{action:'acknowledge_unknown',grant_id:grantId,expected_digest:unknownDigest,known_externally_terminated:true}),null,2);unknownDigest='';terminated.checked=false;},true)));
+  args.container.append(el('h4','','Required checks'),row('Node test suite',requireNode),row('Host-owned sum regression fixture',requireHost),previewAcceptance,approveAcceptance);
+  const invalidateHandoff=()=>{handoffEpoch++;nativePreview=null;nativePreviewKey='';environmentPreview=null;freshness=null;packetPreview=null;renderHandoff();};
+  for(const select of [attempts,contexts,candidates,recipients])select.addEventListener('change',invalidateHandoff);
+  for(const select of [attempts,candidates])select.addEventListener('change',()=>{scope.candidateId=candidates.value||null;scope.attemptId=attempts.value||null;rebuildContexts();args.onScopeChange?.({candidateId:scope.candidateId,attemptId:scope.attemptId,contextId:contexts.value||null});});
+  contexts.addEventListener('change',()=>{scope.contextId=contexts.value||null;args.onScopeChange?.({candidateId:candidates.value||null,attemptId:attempts.value||null,contextId:scope.contextId});});
+  for(const input of [budgetCalls,budgetChecks,budgetSeconds,requireNode,requireHost])input.addEventListener(input.type==='checkbox'?'change':'input',invalidateHandoff);
+  refreshStartState();
+  void refresh();return {refresh,setScope(next:WorkbenchAuthorityScope){Object.assign(scope,next);applyScope();renderHandoff();},setLane(next:{busy:boolean;unknown:boolean}){lane={busy:next.busy===true,unknown:next.unknown===true};refreshStartState();},dispose(){disposed=true;args.container.replaceChildren();}};
+}

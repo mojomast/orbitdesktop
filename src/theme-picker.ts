@@ -1,22 +1,23 @@
 import {el,button} from './dom';
-import {themes,themePatch} from './themes';
+import {themes,themePatch,themeResetKeys} from './themes';
 import {themePersonality} from './theme-personality';
 import {themeColors,validateTheme} from './theme-tokens';
 import type {Workspace} from './model';
 import {workspaceId,ensureWorkspaceSynced} from './workspace-sync';
+import {workspaceFetch} from './workspace-client';
 type Appearance=NonNullable<Workspace['appearance']>;
-export function showThemes(token:()=>string,apply:(patch:Appearance)=>void,current:()=>Appearance=()=>({})){
+export function showThemes(token:()=>string,apply:(patch:Appearance,resetKeys?:(keyof Appearance)[])=>void,current:()=>Appearance=()=>({})){
  const dialog=el('dialog','hermes-tools-dialog theme-picker');dialog.setAttribute('aria-label','Workspace themes');
  const status=el('p');status.role='status';let busy=false;
- async function save(patch:Appearance,label:string){
+  async function save(patch:Appearance,label:string,resetKeys:(keyof Appearance)[]=[]){
   if(busy)return;busy=true;status.textContent='Saving checkpoint…';
   try{
    validateTheme(patch);
    if(!token())throw Error('Connect host before applying a theme so a recovery checkpoint can be saved.');
    await ensureWorkspaceSynced();
-   const response=await fetch('/api/workspace',{method:'POST',headers:{Authorization:`Bearer ${token()}`,'Content-Type':'application/json'},body:JSON.stringify({workspace_id:workspaceId,action:'checkpoint',label:'Before theme: '+label})});
+    const response=await workspaceFetch(token(),{workspace_id:workspaceId,action:'checkpoint',label:'Before theme: '+label,intent:'Save checkpoint before applying '+label+' theme'});
    if(!response.ok)throw Error('Checkpoint failed; theme was not applied.');
-   apply(patch);status.textContent=label+' applied locally; workspace synchronization will save the change. Previous appearance is in Workspace checkpoints.';
+   apply(patch,resetKeys);status.textContent=label+' applied locally; workspace synchronization will save the change. Previous appearance is in Workspace checkpoints.';
   }catch(e){status.textContent=String(e);}finally{busy=false;}
  }
  dialog.append(el('h2','','Make Orbit yours'),el('p','','Complete interface styles for title bars, menus, taskbar, dialogs, controls and chat. Each preset includes its own wallpaper and taskbar interactions. Applying a preset replaces the current wallpaper; layout, full viewport and apps are preserved. Embedded apps and terminals keep their own themes. Wallpaper may cover the background color. Custom overrides remain until you reset them.'),button('Close','Close workspace themes',()=>dialog.close()),status);
@@ -26,7 +27,7 @@ export function showThemes(token:()=>string,apply:(patch:Appearance)=>void,curre
   const preview=el('div','theme-preview');preview.dataset.theme=theme.theme;preview.dataset.style=themePersonality(theme);preview.style.setProperty('--preview-bg',theme.background!);preview.setAttribute('aria-hidden','true');
   const win=el('div','theme-preview-window');win.append(el('div','theme-preview-title','Orbit · Your workspace'));
   const body=el('div','theme-preview-body');body.append(el('span','theme-preview-control','Create something'));win.append(body);preview.append(win);card.append(preview);
-  card.append(el('h3','',theme.name),el('p','',theme.description),button('Apply','Apply '+theme.name+' theme',()=>{void save(themePatch(theme.name),theme.name);}));grid.append(card);
+  card.append(el('h3','',theme.name),el('p','',theme.description),button('Apply','Apply '+theme.name+' theme',()=>{void save(themePatch(theme.name),theme.name,themeResetKeys(current(),theme.name));}));grid.append(card);
  }
  const details=el('details','theme-custom');details.append(el('summary','','Customize individual UI elements'));
  details.append(el('p','','Only edited fields are applied. Ask Hermes to reset individual overrides, or use Workspace checkpoints to restore the previous appearance.'));

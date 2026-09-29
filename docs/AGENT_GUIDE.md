@@ -12,6 +12,12 @@ Existing typed controls cover view/sidebar, window geometry/text/name, panes and
 
 ## Bulk composition operations
 
+Runtime continuity is capability-dependent: the connected renderer retains same-ID,
+same-kind/same-browser-URL views with native `Element.moveBefore`. Fallback browsers
+may reload embedded content. See [measured continuity coverage](RUNTIME_CONTINUITY.md);
+do not promise universal draft preservation, recovery of disposed documents, or
+continuity through explicit import/preset replacement.
+
 These use normal scoped `apply` with current base_revision and automatic pre-change checkpoints. Read state first; never fabricate IDs or viewport dimensions.
 
 - `arrange_windows`: width/height are the measured available desktop-host pixels, columns is a positive integer, gap defaults to 8 (0–100). Optional window_ids selects a subset; otherwise all windows. Tiles into a grid and switches to Windows view. Rejects cells smaller than 280×180. Does not auto-retile on resize; measure again. Existing pane IDs survive.
@@ -47,7 +53,41 @@ The separate shared XFCE/X11 desktop is in container `orbit-shared-desktop`, dis
 
 ## Default behavior
 
-Act on the workspace ID supplied by the Orbit conversation context. Never choose another workspace by scanning runtime records. Run the controller yourself rather than instructing the owner to paste commands. Read current state first. The CLI keeps capability credentials private; never print runtime JSON or `.env` files.
+### Match effort to the request
+
+Answer questions directly when the available context is sufficient. For an action,
+make the smallest change that satisfies the request and verify that specific result.
+Reuse facts already established in this conversation unless they may be stale.
+Avoid repeating broad discovery, full test suites or deployment work for a small
+layout/content change. Larger source changes still require the relevant checks.
+Finish once the requested outcome is verified; follow-on features are separate work.
+
+For a workspace operation whose contract you do not already know, use
+`python3 scripts/workspace_control.py --workspace WORKSPACE_ID describe
+--catalog` (or the Normal `orbit_workspace` tool's `describe` action with
+`catalog:true`) to discover the operation schemas from the server's own contract.
+Request the full catalog only when its schemas are needed; ordinary state reads
+and known targeted operations do not need repeated catalog discovery.
+Without `catalog`, the bounded description reports editable fields and actual
+project/pane bindings. Optional `--project-id` narrows it to one active project.
+Descriptions omit project paths, resource contents and credentials. A selected
+pane or reported role does not authorize reading its terminal, conversation or
+files. Workbench workers retain their separately admitted task capabilities;
+generated apps do not receive the owner's description or operation catalog.
+
+For project arrangements, use `arrangement '<request JSON>'` in the controller
+or `orbit_workspace` with `action:"arrangement"` and a `request` object. Discover
+the exact per-action shapes in `describe --catalog` → `catalog.arrangements`;
+the workspace scope and author are assigned by the server. List recipes and
+actual bindings, resolve missing/ambiguous roles explicitly, stage a preview and
+show its semantic diff before applying a material change. Retain its exact
+`preview_id`, `preview_digest` and apply `op_id` to recover a lost response; a new
+key is not a retry. Proposals and recipes can be read after reload/restart.
+Return stages an inverse only at the exact committed revision; a newer owner
+edit must produce a conflict. Saved state, browser acknowledgement, and visual
+inspection remain separate. See [arrangement contracts](WORKSPACE_ARRANGEMENTS_API.md).
+
+When changing the workspace, act on the workspace ID supplied by the Orbit conversation context. Never choose another workspace by scanning runtime records. Run the controller yourself rather than instructing the owner to paste commands. Read current state before a mutation. The CLI keeps capability credentials private; never print runtime JSON or `.env` files.
 
 1. `python3 scripts/workspace_control.py --workspace WORKSPACE_ID read`
 2. Pick the narrowest supported operation. Layout/appearance changes use `apply`. New widgets use the plugin publisher and lifecycle below. Preserve existing pane IDs, running terminals and unrelated configuration.
@@ -55,6 +95,34 @@ Act on the workspace ID supplied by the Orbit conversation context. Never choose
 4. Check `browser_applied` / `observed_revision`. If offline, say saved and pending display; do not claim the owner can see it. Acknowledgement proves state synchronization, not that a plugin rendered correctly. Inspect the page for visual or behavioral claims.
 
 Commands are relative to the repository; context supplies an absolute controller path. Hermes tools must have access to this repository/runtime. A remote gateway needs an explicitly provisioned adapter; do not assume its filesystem is the terminal host.
+
+## Collaborative Workbench setup
+
+When the owner wants a tracked project task, help turn the goal into a concise
+work brief: what to accomplish, what success means, and where to stop. Reuse
+facts already provided. Ask only for missing project or outcome information.
+Ordinary questions and small workspace changes do not need a Workbench task.
+
+The `orbit_workspace` action `workbench_setup` proposes a bounded **workspace
+suggestion** with a stable `request.op_id`, `goal`, and optional `title`,
+`acceptance_statement`, `project_id` and `check_definition_id`. Do not invent a
+project ID or check. Omit an unknown project so the owner can choose it. A proposal
+does not register a project, create a task, share context, approve a grant or start
+work. Tell the owner to review the suggestion in **Set up task**; do not claim it
+is already running. Reuse the exact operation key/payload after an uncertain
+proposal response. Never pass a pane/profile/session identity or owner token.
+
+If the installed tool schema does not yet list this action, the scoped controller
+supports the same proposal through
+`python3 scripts/workspace_control.py --workspace WORKSPACE_ID setup '<request JSON>'`.
+Generate and retain a UUID `op_id`; the response identifies the suggestion only.
+Use the absolute controller path supplied by the conversation context.
+
+Only suggest `node-test` when it fits the project. `host-regression` is Orbit's
+host regression check, not evidence that arbitrary user code meets its goal.
+Check support and execution readiness are validated by the host. If the existing
+executor does not support the requested work, explain that and keep discussing
+rather than fabricate commands or approval.
 
 ## New widgets: plugin-first
 
@@ -94,11 +162,11 @@ Layout operations: `add_window`, `update_window`, `close_window`, `split_pane`, 
 
 New terminal panes attach to tmux by stable pane ID. Reload → unlock host → reconnect resumes the shell. Do not delete/recreate terminal IDs to rearrange a workspace. Closing a pane detaches its persistent shell; `exit` ends it. Legacy non-tmux shells cannot be migrated automatically. Host reboot does not preserve shell processes. Layout metadata is not terminal output.
 
-Checkpoint history and confirmed restore are available in Workspace checkpoints. API actions `history`, `checkpoint`, `restore` are supported by the authenticated workspace service (control route `/api/workspace/control`); the CLI currently exposes read/apply/publish, not standalone history/restore commands. Restore requires current `base_revision`, `checkpoint_id` and `confirm:true`. Use the UI rather than inventing CLI commands. Checkpoints restore plugin registrations/config/entry references and structured layout/appearance, not emails, shell effects, conversations, image bytes or arbitrary files.
+Checkpoint history and confirmed restore are available in Workspace checkpoints, the CLI (`history`, `checkpoint --label TEXT`, `restore ID --base-revision N --confirm`), and the independent `/recovery` page. Restore requires current `base_revision`, `checkpoint_id` and `confirm:true`. Checkpoints restore plugin registrations/config/entry references and structured layout/appearance, not emails, shell effects, conversations, image bytes or arbitrary files. Recovery disable is a layout operation. The separate owner-only registered-plugin recovery hold persists outside layout undo; while held, sync/restore/enable cannot activate registered plugins. Do not bypass a hold with another surface type or a direct app URL. Only the owner can release it through recovery, and release does not automatically enable anything. Neither control terminates backend processes. See `docs/RECOVERY.md`.
 
 ## Boundaries and completion
 
-No fully modular renderer, backend plugin permissions, dependency resolver or independent safe-mode boot exists yet. Trusted built-ins use `workspace-extensions.ts`; those changes need a build and new frontend load. Ordinary workspace/plugin operations do not. Generated code stays in sandboxed app panes, never injected into the parent page.
+No fully modular renderer, backend plugin permissions, dependency resolver or full safe boot exists yet. The independent recovery page works without the normal renderer; its persistent registered-plugin activation hold does not revoke running applications, block arbitrary browser surfaces or stop cached content before connection. Trusted built-ins use `workspace-extensions.ts`; those changes need a build and new frontend load. Ordinary workspace/plugin operations do not. Generated code stays in sandboxed app panes, never injected into the parent page.
 
 Completion reports should name the operation, test evidence, checkpoint/rollback limitations and whether browser display was verified. Never replace real tests with plausible sample output. Keep current user appearance and other uncommitted work intact.
 

@@ -1,0 +1,371 @@
+/* Project Workbench tools: host-rendered notebook / checks surfaces and the
+   owner tool manager. All selectors are scoped so nothing here affects the
+   shell, terminals, conversations, plugin frames or unrelated panes. */
+
+.project-tool-host,
+.project-tool-manager {
+  box-sizing: border-box;
+  color: var(--theme-textColor, #e9edf4);
+  font-family: var(--theme-font, system-ui);
+  font-size: var(--project-tool-font-size, 1em);
+  line-height: 1.4;
+}
+
+.project-tool-host {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+  height: 100%;
+}
+
+.project-tool-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.project-tool-title {
+  margin: 0;
+  font-size: 1em;
+}
+
+.project-tool-badge {
+  font-size: 0.8em;
+  color: var(--theme-mutedColor, #abb7c6);
+}
+
+.project-tool-notebook,
+.project-tool-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+}
+
+.project-tool-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.project-tool-host button,
+.project-tool-manager button,
+.project-tool-manager input,
+.project-tool-manager select {
+  margin: 0;
+  padding: 0.4em 0.65em;
+  color: var(--theme-buttonTextColor, #e9edf4);
+  background: var(--theme-buttonColor, #263546);
+  border: 1px solid var(--theme-borderColor, #607080);
+  border-radius: 5px;
+  font: inherit;
+}
+
+.project-tool-host button:disabled,
+.project-tool-manager button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.project-tool-host :focus-visible,
+.project-tool-manager :focus-visible {
+  outline: 2px solid var(--theme-accentColor, #78baff);
+  outline-offset: 2px;
+}
+
+.project-tool-status {
+  margin: 0;
+  font-size: 0.85em;
+  overflow-wrap: anywhere;
+  color: var(--theme-mutedColor, #abb7c6);
+}
+
+.project-tool-status[data-state='error'],
+.project-tool-status[data-state='conflict'],
+.project-tool-status[data-state='unknown'] {
+  color: var(--error-color, #c33);
+}
+
+.project-tool-status[data-state='ready'],
+.project-tool-status[data-state='loading'] {
+  color: var(--theme-mutedColor, #abb7c6);
+}
+
+.project-tool-count {
+  font-size: 0.8em;
+  color: var(--theme-mutedColor, #abb7c6);
+}
+
+.project-tool-editor {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 12rem;
+  flex: 1;
+  resize: vertical;
+  padding: 0.65rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, monospace;
+  font-size: 0.9em;
+  background: var(--panel-background, #111);
+  color: inherit;
+  border: 1px solid var(--theme-borderColor, #607080);
+  border-radius: 5px;
+}
+
+.project-tool-conflict,
+.project-tool-pending,
+.project-tool-manager-pending {
+  margin: 0;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--error-color, #c33);
+  border-radius: 5px;
+  font-size: 0.85em;
+  overflow-wrap: anywhere;
+}
+
+.project-tool-pending,
+.project-tool-manager-pending {
+  border-color: var(--warning-color, #d9a441);
+}
+
+.project-tool-conflict p,
+.project-tool-pending p,
+.project-tool-manager-pending p {
+  margin: 0.25rem 0 0;
+}
+
+.project-tool-conflict[hidden],
+.project-tool-pending[hidden],
+.project-tool-manager-pending[hidden] {
+  display: none;
+}
+
+.project-tool-check-summary {
+  margin: 0;
+  font-weight: bold;
+}
+
+.project-tool-check-list {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.project-tool-check-list.is-compact {
+  gap: 0.2rem;
+}
+
+.project-tool-check {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.25rem 0.6rem;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--theme-borderColor, #607080);
+  border-radius: 5px;
+}
+
+.project-tool-check-list.is-compact .project-tool-check {
+  padding: 0.2rem 0.4rem;
+}
+
+.project-tool-verdict {
+  font-size: 0.8em;
+}
+
+.project-tool-check-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.project-tool-check-details {
+  grid-column: 1 / -1;
+  font-size: 0.78em;
+}
+
+.project-tool-check-detail {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 0.8em;
+  overflow-wrap: anywhere;
+}
+
+.project-tool-empty {
+  margin: 0;
+  color: var(--theme-mutedColor, #abb7c6);
+}
+
+.project-tool-gate {
+  margin: 0;
+  padding: 0.75rem;
+  border: 1px dashed var(--theme-borderColor, #607080);
+  border-radius: 5px;
+}
+
+.project-tool-gate.is-revoked,
+.project-tool-gate.is-error {
+  border-color: var(--error-color, #c33);
+}
+
+.project-tool-manager {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+  padding: 0.65rem;
+  border: 1px solid var(--theme-borderColor, #607080);
+  border-radius: 6px;
+}
+
+.project-tool-manager-title {
+  margin: 0;
+  font-size: 0.95em;
+}
+
+.project-tool-manager-status {
+  margin: 0;
+  font-size: 0.85em;
+  overflow-wrap: anywhere;
+  color: var(--theme-mutedColor, #abb7c6);
+}
+
+.project-tool-manager-status[data-state='error'],
+.project-tool-manager-status[data-state='conflict'] {
+  color: var(--error-color, #c33);
+}
+
+.project-tool-manager-status[data-state='unknown'] {
+  color: var(--warning-color, #d9a441);
+}
+
+.project-tool-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0.15rem 0.35rem 0.15rem 0;
+  font-size: 0.85em;
+}
+
+.project-tool-create {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.project-tool-create summary,
+.project-tool-manager-details summary,
+.project-tool-ids summary {
+  cursor: pointer;
+  font-weight: bold;
+  font-size: 0.88em;
+}
+
+.project-tool-diff {
+  margin: 0.35rem 0;
+  padding-left: 1.1rem;
+  font-size: 0.85em;
+  overflow-wrap: anywhere;
+}
+
+.project-tool-disclosure {
+  margin: 0.15rem 0;
+  font-size: 0.78em;
+  color: var(--theme-mutedColor, #abb7c6);
+  overflow-wrap: anywhere;
+}
+
+.project-tool-manager-list {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.project-tool-row {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.5rem;
+  border: 1px solid var(--theme-borderColor, #607080);
+  border-radius: 5px;
+}
+
+.project-tool-row-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.7rem;
+}
+
+.project-tool-row-title {
+  font-size: 0.95em;
+}
+
+.project-tool-row-kind,
+.project-tool-row-state,
+.project-tool-row-release {
+  font-size: 0.78em;
+  color: var(--theme-mutedColor, #abb7c6);
+}
+
+.project-tool-row-state {
+  text-transform: uppercase;
+}
+
+.project-tool-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.project-tool-row-actions button {
+  font-size: 0.82em;
+}
+
+.project-tool-config,
+.project-tool-release {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.4rem;
+  border: 1px solid var(--theme-borderColor, #607080);
+  border-radius: 5px;
+}
+
+.project-tool-config[hidden],
+.project-tool-release[hidden] {
+  display: none;
+}
+
+.project-tool-release-note {
+  margin: 0;
+  font-size: 0.78em;
+  color: var(--theme-mutedColor, #abb7c6);
+  overflow-wrap: anywhere;
+}
+
+.project-tool-ids {
+  font-size: 0.78em;
+  color: var(--theme-mutedColor, #abb7c6);
+}
+
+.project-tool-ids p {
+  margin: 0.1rem 0;
+  overflow-wrap: anywhere;
+}
+
+.project-tool-manager-details {
+  font-size: 0.8em;
+  color: var(--theme-mutedColor, #abb7c6);
+}
+
+.project-tool-manager-details p {
+  margin: 0.15rem 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 520px) {
+  .project-tool-check {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

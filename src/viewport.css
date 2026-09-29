@@ -1,6 +1,7 @@
 /* Workspace-first viewport geometry; independent of owner wallpaper/theme. */
 #app { height:100dvh; min-height:0; overflow:hidden; }
 #app .topbar { height:44px; min-height:44px; padding:0 12px; gap:12px; }
+.docking-toolbar-host:empty { display:none; }
 #app .brand strong { font-size:21px; }
 #app .brand-mark { font-size:25px; }
 #app .brand-tag { display:none; }

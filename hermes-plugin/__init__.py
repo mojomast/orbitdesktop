@@ -3,20 +3,41 @@ import ipaddress
 import json
 from pathlib import Path
 import re
+import uuid
 import urllib.error
 import urllib.parse
 import urllib.request
 
 UUID = re.compile(r"[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}")
-MAX_BYTES = 2_000_000
-ACTIONS = ("read", "preview", "apply", "history", "checkpoint", "restore")
+# BEGIN GENERATED WORKSPACE LIMITS
+maxOperations = 32
+maxRequestBytes = 150000
+maxResponseBytes = 2000000
+maxLabelCharacters = 120
+# END GENERATED WORKSPACE LIMITS
+ACTIONS = ("read", "describe", "arrangement", "workbench_setup", "preview", "apply", "history", "checkpoint", "restore")
+MUTATIONS = ("apply", "checkpoint", "restore")
+OPERATION_ID = re.compile(r"[a-zA-Z0-9_.:-]{1,128}")
+# Proposal-only setup bounds; kept equal to contracts/workspace-v1.mjs by
+# tests/test_workspace_contract.py so a stale adapter cannot widen the contract.
+SETUP_CHECKS = ("node-test", "host-regression")
+SETUP_GOAL_MAX = 4000
+SETUP_TITLE_MAX = 240
+SETUP_ACCEPTANCE_MAX = 4000
+SETUP_FIELDS = ("op_id", "goal", "title", "acceptance_statement", "project_id", "check_definition_id")
 SCHEMA = {
     "name": "orbit_workspace",
     "description": (
         "Read or edit the Orbit workspace explicitly configured for this Hermes profile. "
+        "Use describe with catalog=true to discover the validated operation schemas and actual role bindings. "
         "Read first; use actual IDs and revision. Preview before large edits. "
         "Apply/restore require base_revision; do not retry conflicts blindly. "
         "Restore requires the user's explicit rollback request and confirm=true. "
+        "workbench_setup only proposes a draft Workbench setup (op_id, goal, optional title, "
+        "acceptance_statement, project_id, check_definition_id) for the owner to review; it "
+        "never starts work, never reads private project data, and never grants task, "
+        "execution or approval authority. It is a suggestion, not owner approval or "
+        "authenticated pane evidence. "
         "State does not expose terminal buffers or iframe contents. observed_revision "
         "acknowledges synchronization, not visual correctness. Browser display may lag."
     ),
@@ -24,11 +45,16 @@ SCHEMA = {
         "type": "object",
         "properties": {
             "action": {"type": "string", "enum": list(ACTIONS)},
+            "project_id": {"type": "string"},
+            "catalog": {"type": "boolean"},
+            "request": {"type": "object", "description": "Exact arrangement request from the discovered catalog; omit workspace_id and actor. Keep op_id when recovering an unknown result. For workbench_setup, pass only {op_id, goal, title?, acceptance_statement?, project_id?, check_definition_id?}; no pane/profile/session/actor/credentials/root/command fields."},
             "base_revision": {"type": "integer", "minimum": 0},
-            "operations": {"type": "array", "items": {"type": "object"}, "minItems": 1},
-            "label": {"type": "string", "maxLength": 120},
+            "operations": {"type": "array", "items": {"type": "object"}, "minItems": 1, "maxItems": maxOperations},
+            "label": {"type": "string", "maxLength": maxLabelCharacters},
             "checkpoint_id": {"type": "string"},
             "confirm": {"type": "boolean"},
+            "operation_id": {"type": "string", "pattern": "^[a-zA-Z0-9_.:-]{1,128}$"},
+            "intent": {"type": "string", "minLength": 1, "maxLength": 160},
         },
         "required": ["action"],
         "additionalProperties": False,
@@ -54,46 +80,123 @@ def endpoint(api):
     return api.rstrip("/") + "/api/workspace/control"
 
 
+def validate_workbench_setup_request(request):
+    """Proposal-only setup input. Reject owner/execution identity before transport."""
+    if not isinstance(request, dict):
+        raise ValueError("workbench_setup requires a request object")
+    forbidden = {"action", "actor", "workspace_id", "pane_id", "profile_id", "session_id", "operations", "credentials", "root", "path", "command"}
+    if set(request) & forbidden:
+        raise ValueError("workbench_setup cannot carry owner, execution or free-form fields")
+    if set(request) - set(SETUP_FIELDS):
+        raise ValueError("Unexpected fields in workbench_setup request")
+    op_id = request.get("op_id")
+    if not isinstance(op_id, str) or not UUID.fullmatch(op_id):
+        raise ValueError("workbench_setup requires a UUID op_id")
+    goal = request.get("goal")
+    if not isinstance(goal, str) or not 1 <= len(goal) <= SETUP_GOAL_MAX or not goal.strip():
+        raise ValueError("workbench_setup goal must be 1-%d non-blank characters" % SETUP_GOAL_MAX)
+    title = request.get("title")
+    if title is not None and (not isinstance(title, str) or not 1 <= len(title) <= SETUP_TITLE_MAX or not title.strip()):
+        raise ValueError("workbench_setup title must be 1-%d non-blank characters" % SETUP_TITLE_MAX)
+    acceptance = request.get("acceptance_statement")
+    if acceptance is not None and (not isinstance(acceptance, str) or not 1 <= len(acceptance) <= SETUP_ACCEPTANCE_MAX or not acceptance.strip()):
+        raise ValueError("workbench_setup acceptance_statement must be 1-%d non-blank characters" % SETUP_ACCEPTANCE_MAX)
+    project_id = request.get("project_id")
+    if project_id is not None and (not isinstance(project_id, str) or not UUID.fullmatch(project_id)):
+        raise ValueError("workbench_setup project_id must be a UUID")
+    check = request.get("check_definition_id")
+    if check is not None and check not in SETUP_CHECKS:
+        raise ValueError("workbench_setup check_definition_id must be a supported check")
+    return {name: request[name] for name in SETUP_FIELDS if name in request}
+
+
 def invoke(ctx, params):
     if not isinstance(params, dict) or params.get("action") not in ACTIONS:
         raise ValueError("Unknown workspace action")
     action = params["action"]
     allowed = {"action"}
+    if action == "workbench_setup":
+        allowed |= {"request"}
+        validate_workbench_setup_request(params.get("request"))
+    if action == "arrangement":
+        allowed |= {"request"}
+        request = params.get("request")
+        if not isinstance(request, dict) or set(request) & {"workspace_id", "actor"}:
+            raise ValueError("Arrangement request cannot override workspace or actor")
+        if request.get("action") not in ("recipe_list", "proposal_list", "proposal_get") and ctx.get_config("allow_mutations", False) is not True:
+            raise ValueError("Workspace mutations are disabled in this profile's plugin settings")
+    if action == "describe":
+        allowed |= {"project_id", "catalog"}
+        if "catalog" in params and type(params["catalog"]) is not bool:
+            raise ValueError("catalog must be boolean")
+        if "project_id" in params and (not isinstance(params["project_id"], str) or not UUID.fullmatch(params["project_id"])):
+            raise ValueError("Invalid project_id")
     if action in ("apply", "preview"):
         allowed |= {"base_revision", "operations"}
     elif action == "restore":
         allowed |= {"base_revision", "checkpoint_id", "confirm"}
     elif action == "checkpoint":
-        allowed.add("label")
+        allowed |= {"label", "base_revision"}
+    if action in MUTATIONS:
+        allowed |= {"operation_id", "intent"}
     if set(params) - allowed:
         raise ValueError("Unexpected fields for workspace action")
-    if action in ("apply", "checkpoint", "restore") and ctx.get_config("allow_mutations", False) is not True:
+    if action in MUTATIONS and ctx.get_config("allow_mutations", False) is not True:
         raise ValueError("Workspace mutations are disabled in this profile's plugin settings")
-    if action in ("apply", "preview", "restore"):
+    if action in ("apply", "preview", "restore") or (action == "checkpoint" and "base_revision" in params):
         revision = params.get("base_revision")
         if type(revision) is not int or revision < 0:
             raise ValueError("Read the workspace first and supply its base_revision")
+    if action in MUTATIONS and action != "checkpoint" and type(params.get("base_revision")) is not int:
+        raise ValueError("Read the workspace first and supply its base_revision")
     if action in ("apply", "preview"):
         ops = params.get("operations")
-        if not isinstance(ops, list) or not ops or len(ops) > 100 or not all(isinstance(op, dict) for op in ops):
-            raise ValueError("Provide 1–100 operation objects; Orbit validates each operation")
+        if not isinstance(ops, list) or not 1 <= len(ops) <= maxOperations or not all(isinstance(op, dict) for op in ops):
+            raise ValueError("Provide 1–32 operation objects; Orbit validates each operation")
     if action == "restore" and (params.get("confirm") is not True or not isinstance(params.get("checkpoint_id"), str) or not params["checkpoint_id"]):
         raise ValueError("Restore requires checkpoint_id and explicit confirm=true")
-    if action == "checkpoint" and (not isinstance(params.get("label", ""), str) or len(params.get("label", "")) > 120):
+    if action == "checkpoint" and (not isinstance(params.get("label", ""), str) or len(params.get("label", "")) > maxLabelCharacters):
         raise ValueError("Checkpoint label must be a string of at most 120 characters")
+    if "operation_id" in params and (not isinstance(params["operation_id"], str) or not OPERATION_ID.fullmatch(params["operation_id"])):
+        raise ValueError("Invalid operation_id")
+    if "intent" in params and (not isinstance(params["intent"], str) or not 1 <= len(params["intent"]) <= 160):
+        raise ValueError("Invalid intent")
+    if "operation_id" in params and ("intent" not in params or "base_revision" not in params):
+        raise ValueError("operation_id requires intent and base_revision")
     workspace = ctx.get_config("workspace_id", "")
     runtime = ctx.get_config("runtime_dir", "")
     if not isinstance(workspace, str) or not UUID.fullmatch(workspace):
         raise ValueError("Configure this profile's explicit workspace_id; workspaces are never auto-discovered")
     if not isinstance(runtime, str) or not Path(runtime).is_absolute():
         raise ValueError("Configure this profile's absolute runtime_dir")
-    config = json.loads((Path(runtime) / "workspaces" / (workspace + ".json")).read_text())
+    projection = Path(runtime) / "workspace-access" / (workspace + ".json")
+    if not projection.exists() and (Path(runtime) / "workspace.sqlite").exists():
+        raise ValueError("Invalid Orbit connection projection; restart/reconcile the server")
+    record = projection if projection.exists() else Path(runtime) / "workspaces" / (workspace + ".json")
+    config = json.loads(record.read_text())
     target = endpoint(config["api"])
     capability = config["capability"]
     if not isinstance(capability, str) or not capability or "\n" in capability or "\r" in capability:
         raise ValueError("Invalid Orbit capability record")
-    body = json.dumps({**params, "workspace_id": workspace}).encode()
-    if len(body) > MAX_BYTES:
+    request_params = dict(params)
+    if action in MUTATIONS:
+        request_params.setdefault("operation_id", str(uuid.uuid4()))
+        request_params.setdefault("intent", action)
+        if action == "checkpoint" and "base_revision" not in request_params:
+            read_body = json.dumps({"action": "read", "workspace_id": workspace}).encode()
+            read_request = urllib.request.Request(target, data=read_body, headers={
+                "Authorization": "Bearer " + capability, "Content-Type": "application/json",
+            })
+            try:
+                with urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect()).open(read_request, timeout=20) as response:
+                    read_raw = response.read(maxResponseBytes + 1)
+            except urllib.error.HTTPError as error:
+                return {"ok": False, "status": error.code, "error": "Orbit rejected the request; check authorization and operation schema"}
+            if len(read_raw) > maxResponseBytes or capability.encode() in read_raw:
+                raise ValueError("Invalid Orbit read response")
+            request_params["base_revision"] = json.loads(read_raw)["revision"]
+    body = json.dumps({**request_params, "workspace_id": workspace}).encode()
+    if len(body) > maxRequestBytes:
         raise ValueError("Workspace request is too large")
     request = urllib.request.Request(target, data=body, headers={
         "Authorization": "Bearer " + capability, "Content-Type": "application/json",
@@ -102,14 +205,20 @@ def invoke(ctx, params):
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
     try:
         with opener.open(request, timeout=20) as response:
-            raw = response.read(MAX_BYTES + 1)
+            raw = response.read(maxResponseBytes + 1)
     except urllib.error.HTTPError as error:
         # Server error bodies may contain sensitive material; do not echo them.
         return {"ok": False, "status": error.code, "error": (
             "Revision conflict: read and reconsider the requested change" if error.code == 409
             else "Orbit rejected the request; check authorization and operation schema"
         )}
-    if len(raw) > MAX_BYTES:
+    except (urllib.error.URLError, TimeoutError, OSError):
+        if action == "arrangement":
+            return {"ok": False, "outcome": "unknown", "op_id": params["request"].get("op_id"), "error": "Arrangement response unavailable. Read its durable proposal/receipt; retry a commit only with the exact retained request and key. Do not create a new operation."}
+        if action in MUTATIONS:
+            return {"ok": False, "outcome": "unknown", "operation_id": request_params["operation_id"], "base_revision": request_params["base_revision"], "error": "Mutation outcome unknown. Reuse the exact key and payload or read before reconsidering; never blindly create a new mutation."}
+        return {"ok": False, "error": "Orbit unavailable"}
+    if len(raw) > maxResponseBytes:
         raise ValueError("Workspace response exceeds the size limit")
     if capability.encode() in raw:
         raise ValueError("Refusing a response containing the workspace capability")
@@ -117,6 +226,11 @@ def invoke(ctx, params):
 
 
 def register(ctx):
+    if ctx.get_config("native_channel_file", ""):
+        from .workbench import register as register_workbench
+        register_workbench(ctx)
+        return
+
     def handle(params, **kwargs):
         del kwargs
         try:
@@ -124,7 +238,7 @@ def register(ctx):
         except ValueError as error:
             # Only our validation messages are safe; JSON and URL parser errors are not.
             result = {"ok": False, "error": "Invalid workspace request or configuration"}
-            if type(error) is ValueError and str(error).startswith(("Unknown ", "Unexpected ", "Workspace mutations", "Read the ", "Provide ", "Restore requires", "Checkpoint label", "Configure this", "Orbit API must", "Workspace request", "Workspace response", "Refusing ", "Invalid Orbit")):
+            if type(error) is ValueError and str(error).startswith(("Unknown ", "Unexpected ", "workbench_setup ", "Workspace mutations", "Read the ", "Provide ", "Restore requires", "Checkpoint label", "Configure this", "Orbit API must", "Workspace request", "Workspace response", "Refusing ", "Invalid Orbit")):
                 result["error"] = str(error)
         except Exception:
             result = {"ok": False, "error": "Orbit unavailable or runtime record invalid; check the local deployment"}

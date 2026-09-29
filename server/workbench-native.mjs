@@ -1,0 +1,428 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import http from 'node:http';
+import {createHash,createHmac,randomBytes,randomUUID,timingSafeEqual} from 'node:crypto';
+import {nativeSchema,nativeRequests,validateNative,validateNativeTool,HERMES_NATIVE_CONTRACT} from '../contracts/workbench-native-v1.mjs';
+import {wbError} from './workbench-store.mjs';
+import {resultReceiptSchema,validateResultReceipt,RESULT_MAX_SUGGESTED_REFERENCES} from '../contracts/workbench-result-v1.mjs';
+import {workbenchBuildIdentity} from './workbench-build-identity.mjs';
+export {nativeSchema,nativeRequests};
+const digest=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
+const clone=value=>structuredClone(value);
+const publicGrant=({pending_result,...g})=>g; // Result content is a separate private record.
+const closedAttempt=a=>['closed','stopped','cancelled','completed','revoked','failed','accepted','rejected'].includes(a.status);
+const unknownDigest=g=>digest({id:g.id,run_id:g.run_id,status:g.status,authority_generation:g.authority_generation,candidate_id:g.candidate_id,project_generation:g.project_generation,calls_used:g.calls_used,checks_used:g.checks_used});
+export const NATIVE_UNKNOWN_POLICY='This native runtime outcome is unknown. Confirm only after independently establishing that the old runtime is terminated. Acknowledgement records your risk decision and releases quarantine; it never replays a run or reverses effects.';
+
+// The owner router authenticates dispatch. This private UDS authenticates tools
+// independently. The injected Hermes adapter must implement readBinding,
+// startNative and stopNative; it must share the lead's agent dispatch lease.
+export function createWorkbenchNative({store,records,data,execution,hermes,now=Date.now}={}){
+  if(!store||!records||!data||!execution)throw Error('Native Workbench dependencies required');
+  const previews=new Map(),channels=new Map(),running=new Map(),heldNativeReleases=new Map(),quarantineFailures=new Set(),resultFailures=new Set();let closed=false,server,socketDir,listenPromise;
+  const get=(kind,s,id)=>data.get(kind,s.workspace_id,s.project_id,id);
+  const update=(kind,s,id,patch)=>{const row=get(kind,s,id);return data.update(kind,s.workspace_id,s.project_id,id,row.revision,patch);};
+  // Safe request/completion metadata only. Never raw tool arguments or results:
+  // paths/ids are already schema-whitelisted, everything else stays out.
+  const safePathList=paths=>[...new Set(paths.filter(entry=>typeof entry==='string'))].sort().join(', ').slice(0,512);
+  const safeToolTarget=args=>{
+    switch(args?.action){
+      case 'read_context':return typeof args.context_id==='string'?args.context_id.slice(0,128):null;
+      case 'candidate_read':return typeof args.path==='string'?args.path.slice(0,512):null;
+      case 'candidate_patch':return Array.isArray(args.changes)?safePathList(args.changes.map(change=>change?.path)):null;
+      case 'job_start':return typeof args.definition_id==='string'?args.definition_id.slice(0,64):'default';
+      case 'job_status':case 'evidence':return typeof args.job_id==='string'?args.job_id:null;
+      default:return null;
+    }
+  };
+  const safeToolResult=(args,result)=>{
+    if(args?.action!=='candidate_patch')return null;
+    const candidate=result?.candidate;
+    if(!candidate||typeof candidate.id!=='string'||!Number.isSafeInteger(candidate.generation)||typeof candidate.hash!=='string')return null;
+    // Only after a successful apply: whitelisted per-file path/op/old(expected,
+    // already validated authoritative)/new hashes. No source content or raw args.
+    const nextHashes=new Map((Array.isArray(candidate.files)?candidate.files:[]).map(file=>[file?.path,typeof file?.hash==='string'?file.hash:null]));
+    const result_changes=[];
+    for(const change of Array.isArray(args.changes)?args.changes:[]){
+      if(result_changes.length>=32)break;
+      if(!change||typeof change.path!=='string')continue;
+      result_changes.push({path:change.path.slice(0,512),op:typeof change.op==='string'?change.op.slice(0,16):null,old_hash:typeof change.expected_hash==='string'?change.expected_hash:null,new_hash:nextHashes.has(change.path)?nextHashes.get(change.path):null});
+    }
+    return {result_candidate:{id:candidate.id,generation:candidate.generation,hash:candidate.hash},...(result_changes.length?{result_changes}:{})};
+  };
+  const receiptPatch=({id,version,revision,workspace_id,project_id,created_at,updated_at,...fields})=>fields;
+  const requireScope=s=>{if(closed)throw wbError('unavailable');store.read(s.workspace_id);return records.project(s.workspace_id,s.project_id);};
+  const historicalScope=s=>{if(closed)throw wbError('unavailable');const project=records.list(s.workspace_id).find(p=>p.id===s.project_id);if(!project)throw wbError('permission_denied');return project;};
+  const historicalGrant=g=>Object.fromEntries(['id','workspace_id','project_id','status','runtime_status','result_status','pending_digest','finalized_digest','termination_confirmed','owner_asserted_terminated','acknowledged_digest','acknowledged_at'].filter(key=>g[key]!==undefined).map(key=>[key,g[key]]));
+  const grantStatus=g=>historicalScope(g).active===false?historicalGrant(g):publicGrant(g);
+  const resultsFor=g=>data.list('results',g.workspace_id,g.project_id).filter(r=>r.grant_id===g.id);
+  const rawResult=g=>resultsFor(g).at(-1)??null;
+  const publicResult=row=>Object.fromEntries(Object.keys(resultReceiptSchema.properties).map(key=>[key,row[key]]));
+  function projectResult(r){
+    if(!r)return null;
+    const project=requireScope(r);
+    if(project.generation!==r.project_generation)throw wbError('expired');
+    if(now()>=r.retained_until){
+      if(r.text!==null)r=update('results',r,r.id,{text:null,availability:'explanation_unavailable',unavailable_reason:'expired',resolved_references:[]});
+      return publicResult({...r,availability:'explanation_unavailable',unavailable_reason:'expired',resolved_references:[]});
+    }
+    if(!r.resolved_references?.length)return publicResult(r);
+    const candidate=get('candidates',r,r.candidate_id);
+    if(candidate.hash!==r.candidate_hash||candidate.generation!==r.candidate_generation)return publicResult({...r,resolved_references:[]});
+    const evidence=data.list('evidence',r.workspace_id,r.project_id),jobs=data.list('jobs',r.workspace_id,r.project_id);
+    return publicResult({...r,resolved_references:r.resolved_references.filter(ref=>{
+      const e=evidence.find(row=>row.id===ref.evidence_id),job=jobs.find(row=>row.id===ref.job_id);
+      return e&&job&&e.job_id===job.id&&e.task_id===r.task_id&&e.project_generation===r.project_generation&&e.candidate_id===r.candidate_id&&e.candidate_hash_after===r.candidate_hash&&job.candidate_generation===r.candidate_generation&&job.candidate_hash===r.candidate_hash&&!e.revoked&&!e.superseded&&job.provenance?.initiated_by.grant_id===r.grant_id&&job.provenance.initiated_by.attempt_id===r.attempt_id;
+    })});
+  }
+  function resultGet(body){const r=get('results',body,body.result_id);return {result:projectResult(r)};}
+  function resolvedReferences(g,frame,candidate,task_id){
+    const ids=[...new Set([...frame.text.matchAll(/\bevidence:([a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})\b/g)].map(match=>match[1]))].slice(0,RESULT_MAX_SUGGESTED_REFERENCES);
+    const jobs=data.list('jobs',g.workspace_id,g.project_id);
+    const evidence=data.list('evidence',g.workspace_id,g.project_id);
+    return {model_suggested_references:ids.map(evidence_id=>({evidence_id})),resolved_references:ids.flatMap(id=>{
+      const e=evidence.find(row=>row.id===id),job=e&&jobs.find(row=>row.id===e.job_id);
+      return e&&job&&e.project_generation===g.project_generation&&e.task_id===task_id&&e.candidate_id===candidate.id&&e.candidate_hash_after===candidate.hash&&job.candidate_generation===candidate.generation&&job.candidate_hash===candidate.hash&&!e.revoked&&!e.superseded&&job.provenance?.initiated_by.kind==='native_agent'&&job.provenance.initiated_by.grant_id===g.id&&job.provenance.initiated_by.attempt_id===g.attempt_id?[{evidence_id:id,job_id:job.id,verdict:e.verdict}]:[];
+    })};
+  }
+  function resultJournal(r,ready=false){const root=path.join(store.root,'native-result-journal');fs.mkdirSync(root,{recursive:true,mode:0o700});return path.join(root,`${r.id}${ready?'.ready':''}.json`);}
+  function writeJournal(filename,value){
+    const fd=fs.openSync(filename,fs.constants.O_CREAT|fs.constants.O_EXCL|fs.constants.O_WRONLY|fs.constants.O_NOFOLLOW,0o600);
+    try{fs.writeFileSync(fd,JSON.stringify(value));fs.fsyncSync(fd);}finally{fs.closeSync(fd);}
+    const directory=fs.openSync(path.dirname(filename),fs.constants.O_RDONLY|fs.constants.O_DIRECTORY|fs.constants.O_NOFOLLOW);
+    try{fs.fsyncSync(directory);}finally{fs.closeSync(directory);}
+  }
+  function readJournal(filename){const stat=fs.statSync(filename);if(!stat.isFile()||stat.size>200000)throw wbError('invalid_request');return JSON.parse(fs.readFileSync(filename,'utf8'));}
+  function cleanJournals(r){for(const filename of [resultJournal(r,true),resultJournal(r)])try{fs.unlinkSync(filename);}catch{}}
+  function pendingResult(g,r,{status='fenced',hash=null}={}){
+    resultFailures.add(r.id);quarantine(g);
+    try{update('grants',g,g.id,{status:'result_pending',final_status:status,runtime_status:'exited',termination_confirmed:true,result_status:'result_pending',pending_digest:hash,ended_at:now()});}
+    catch{try{update('grants',g,g.id,{status:'dispatch_unknown',runtime_status:'unknown'});}catch{}}
+  }
+  function retryResult(body){
+    const historical=historicalScope(body).active===false;
+    const r=get('results',body,body.result_id),g=get('grants',r,r.grant_id);
+    if(g.result_status==='finalized'&&g.finalized_digest===body.expected_digest)return {result:historical?null:projectResult(r),replayed:true};
+    if(g.result_status!=='result_pending'||g.pending_digest!==body.expected_digest)throw wbError('stale_resource');
+    const filename=fs.existsSync(resultJournal(r,true))?resultJournal(r,true):resultJournal(r),saved=readJournal(filename);
+    if(digest(saved)!==body.expected_digest||saved.id!==r.id||saved.run_id!==r.run_id)throw wbError('stale_resource');
+    const record=saved.version===2?saved.record:{...r,availability:'explanation_unavailable',unavailable_reason:'persistence_failed',text:null,frame_hash:saved.observed?.result?.frame_hash??null,hermes_completed:saved.observed?.result?.hermes_completed??null,received_at:now(),resolved_references:[]};
+    const {revision,created_at,updated_at,...contractRecord}=record;
+    if(!validateResultReceipt(contractRecord))throw wbError('invalid_request');
+    data.db.transaction(()=>{update('results',r,r.id,receiptPatch(record));update('grants',g,g.id,{status:saved.version===2?saved.final_status:'fenced',final_status:null,result_status:'finalized',pending_digest:null,finalized_digest:body.expected_digest});}).immediate();
+    resultFailures.delete(r.id);try{hermes?.acknowledgeNativeUnknown?.({grant_id:g.id});quarantineFailures.delete(g.id);}catch{quarantineFailures.add(g.id);}
+    if(!quarantineFailures.has(g.id)){heldNativeReleases.get(g.id)?.();heldNativeReleases.delete(g.id);}
+    try{cleanJournals(r);}catch{} // Cleanup is never part of the committed receipt.
+    return {result:historical?null:projectResult(get('results',r,r.id)),replayed:false};
+  }
+  async function deliverResult(body){
+    const r=get('results',body,body.result_id),visible=projectResult(r);
+    if(visible.availability!=='available'||!visible.text||r.recipient.pane_id!==body.pane_id||r.recipient.profile_id!==body.profile_id||r.recipient.session_id!==body.session_id)throw wbError('permission_denied');
+    const attempt=get('attempts',r,r.attempt_id);
+    const recipient=get('grants',r,r.grant_id).recipient;
+    const actual=await binding(attempt,r);
+    // Binding lookup is asynchronous. Fence changes made while it was in flight
+    // before either creating a card or replaying a prior receipt.
+    if(digest(actual)!==digest(recipient)||digest(get('grants',r,r.grant_id).recipient)!==digest(recipient)||projectResult(get('results',r,r.id)).availability!=='available')throw wbError('stale_resource');
+    const matching=data.list('cards',r.workspace_id,r.project_id).find(c=>c.op_id===body.op_id);
+    if(matching){if(matching.result_id!==r.id||matching.pane_id!==body.pane_id)throw wbError('stale_resource');return {card:matching,idempotent:true};}
+    const card=data.create('cards',{workspace_id:r.workspace_id,project_id:r.project_id,project_generation:r.project_generation,op_id:body.op_id,result_id:r.id,task_id:r.task_id,attempt_id:r.attempt_id,pane_id:body.pane_id,profile_id:body.profile_id,session_id:body.session_id,recipient_digest:digest(get('grants',r,r.grant_id).recipient)});
+    return {card,idempotent:false};
+  }
+  async function cardsList(body){
+    store.read(body.workspace_id);
+    const cards=[];
+    for(const p of records.list(body.workspace_id)){
+      let active;try{active=requireScope({workspace_id:body.workspace_id,project_id:p.id});}catch{continue;}
+      for(const card of data.list('cards',body.workspace_id,p.id)){
+        if(card.project_generation!==active.generation||card.pane_id!==body.pane_id||card.profile_id!==body.profile_id||card.session_id!==body.session_id)continue;
+        const r=get('results',card,card.result_id),g=get('grants',r,r.grant_id),a=get('attempts',r,r.attempt_id);
+        let currentBinding;try{currentBinding=await binding(a,r);}catch{continue;}
+        if(digest(currentBinding)!==card.recipient_digest||requireScope(r).generation!==card.project_generation)continue;
+        const v=projectResult(r);if(v.availability==='available')cards.push({id:card.id,result_id:card.result_id,task_id:card.task_id,attempt_id:card.attempt_id,pane_id:card.pane_id,profile_id:card.profile_id,session_id:card.session_id,created_at:card.created_at,text:v.text,availability:v.availability,provenance:v.provenance,candidate_id:v.candidate_id,candidate_hash:v.candidate_hash,candidate_generation:v.candidate_generation,resolved_references:v.resolved_references});
+      }
+    }
+    cards.sort((a,b)=>b.created_at-a.created_at||b.id.localeCompare(a.id));
+    const start=body.after_id?cards.findIndex(card=>card.id===body.after_id)+1:0;
+    if(body.after_id&&start===0)throw wbError('stale_resource');
+    const page=[];let truncated=false;
+    for(const card of cards.slice(start)){
+      if(page.length>=64||Buffer.byteLength(JSON.stringify({cards:[...page,card],next_cursor:card.id,truncated:true}))>1500000){truncated=true;break;}
+      page.push(card);
+    }
+    if(!page.length&&truncated)throw wbError('limit_exceeded');
+    return {cards:page,next_cursor:truncated?page.at(-1)?.id??null:null,truncated};
+  }
+  function quarantine(g){try{if(typeof hermes?.quarantineNative!=='function')throw wbError('unavailable');hermes.quarantineNative({grant_id:g.id});quarantineFailures.delete(g.id);}catch{quarantineFailures.add(g.id);}}
+  function markUnknown(g){quarantine(g);return update('grants',g,g.id,{status:'dispatch_unknown',runtime_status:'unknown'});}
+  function health(){const unknown=data.db.prepare("SELECT id FROM wb_grants WHERE json_extract(record_json,'$.status')='dispatch_unknown' OR json_extract(record_json,'$.result_status')='result_pending'").all();return {supported:typeof hermes?.startNative==='function',healthy:typeof hermes?.startNative==='function'&&unknown.length===0&&resultFailures.size===0,cause:resultFailures.size?'native_result_persistence_failed':unknown.length?'native_dispatch_or_result_unknown':typeof hermes?.startNative==='function'?null:'native_runtime_unconfigured',unknown_runs:unknown.length,shared_quarantine:quarantineFailures.size===0,policy:NATIVE_UNKNOWN_POLICY};}
+  async function binding(attempt,s){
+    if(!attempt.recipient?.pane_id||typeof hermes?.readBinding!=='function')throw wbError('unavailable');
+    const b=await hermes.readBinding({workspace_id:s.workspace_id,pane_id:attempt.recipient.pane_id});
+    if(b?.trusted_host!==true||b.sandbox!==false||b.profile_id!==attempt.recipient.profile_id||b.session_id!==attempt.recipient.session_id||b.config_generation===undefined||b.binding_revision===undefined)throw wbError('stale_resource');
+    const n=b.native_runtime;
+    const supportedDestination=n?.destination==='loopback configured model endpoint'||(n?.destination==='DeepSeek hosted inference: https://api.deepseek.com/v1'&&n?.model==='deepseek-flash');
+    if(n?.kind!=='local-pinned'||n?.commit!==HERMES_NATIVE_CONTRACT.commit||typeof n.model!=='string'||n.model.length>200||!supportedDestination||!/^[a-f0-9]{64}$/.test(n.configuration_hash??''))throw wbError('unavailable');
+    return {pane_id:attempt.recipient.pane_id,profile_id:b.profile_id,session_id:b.session_id,config_generation:b.config_generation,binding_revision:b.binding_revision,native_runtime:{kind:n.kind,commit:n.commit,model:n.model,destination:n.destination,configuration_hash:n.configuration_hash}};
+  }
+  async function authorize(g,{active=false}={}){
+    const current=get('grants',g,g.id),project=requireScope(g),a=get('attempts',g,g.attempt_id),c=get('candidates',g,g.candidate_id),t=get('tasks',g,a.task_id);
+    if(!['approved','running'].includes(current.status)||(active&&current.status!=='running')||closedAttempt(a)||[a.project_generation,c.project_generation,t.project_generation].some(value=>value!==project.generation)||now()>=g.expires_at||project.generation!==g.project_generation||a.candidate_id!==g.candidate_id||c.task_id!==a.task_id||t.acceptance_digest!==g.acceptance_digest||t.check_definition_id!==g.definition_id||digest(await binding(a,g))!==digest(g.recipient)||current.authority_generation!==g.authority_generation)throw wbError('expired');
+    for(const context of g.contexts){const row=get('contexts',g,context.id);if(row.purged_at||row.retention_until<=now()||!row.snapshot||row.snapshot.hash!==context.hash||typeof row.snapshot.text!=='string'||digest(row.snapshot.text)!==context.text_digest)throw wbError('expired');}
+    const latest=get('grants',g,g.id);
+    if(latest.status!==current.status||latest.authority_generation!==g.authority_generation||closedAttempt(get('attempts',g,g.attempt_id))||now()>=g.expires_at||requireScope(g).generation!==g.project_generation)throw wbError('expired');
+    return latest;
+  }
+  // No await here: the host's setup guard itself awaits a binding lookup. A
+  // stop/revoke during that lookup must invalidate the authorization returned to
+  // the runtime, before it can spawn or deliver input. Keep this check AFTER the
+  // last asynchronous guard, not another asynchronous authorize() round trip.
+  function currentStartAuthority(g,status){
+    const current=get('grants',g,g.id),project=requireScope(g),a=get('attempts',g,g.attempt_id),c=get('candidates',g,g.candidate_id),t=get('tasks',g,a.task_id);
+    if(current.status!==status||current.authority_generation!==g.authority_generation||now()>=g.expires_at||closedAttempt(a)||project.generation!==g.project_generation||[a.project_generation,c.project_generation,t.project_generation].some(value=>value!==project.generation)||a.candidate_id!==g.candidate_id||c.task_id!==a.task_id||c.hash!==g.candidate_hash||t.acceptance_digest!==g.acceptance_digest||t.check_definition_id!==g.definition_id)throw wbError('expired');
+    for(const context of g.contexts){const row=get('contexts',g,context.id);if(row.purged_at||row.retention_until<=now()||!row.snapshot||row.snapshot.hash!==context.hash||typeof row.snapshot.text!=='string'||digest(row.snapshot.text)!==context.text_digest)throw wbError('expired');}
+    return current;
+  }
+  async function snapshot(body){
+    const project=requireScope(body),attempt=get('attempts',body,body.attempt_id),candidate=get('candidates',body,attempt.candidate_id),task=get('tasks',body,attempt.task_id);
+    if(closedAttempt(attempt)||[attempt.project_generation,candidate.project_generation,task.project_generation].some(value=>value!==project.generation)||candidate.task_id!==task.id||task.candidate_id!==candidate.id)throw wbError('stale_resource');
+    const recipient=await binding(attempt,body);
+    const current=await execution.dispatch({action:'candidate_get',workspace_id:body.workspace_id,project_id:body.project_id,candidate_id:candidate.id});
+    if(!current.readiness?.ready)throw Object.assign(wbError('stale_resource'),{reason:current.readiness?.reason??'acceptance_stale'});
+    const contexts=body.context_ids.map(id=>{const c=get('contexts',body,id);if(c.attempt_id!==attempt.id||c.purged_at||!Number.isFinite(c.retention_until)||c.retention_until<=now()||typeof c.snapshot?.text!=='string'||createHash('sha256').update(c.snapshot.text).digest('hex')!==c.snapshot.hash||(c.snapshot.provenance?.project_generation!==undefined&&c.snapshot.provenance.project_generation!==project.generation))throw wbError('permission_denied');return {id,hash:c.snapshot.hash,text_digest:digest(c.snapshot.text)};});
+    return {workspace_id:body.workspace_id,project_id:body.project_id,attempt_id:attempt.id,candidate_id:candidate.id,candidate_hash:candidate.hash,project_generation:project.generation,acceptance_digest:task.acceptance_digest,definition_id:task.check_definition_id,required_checks:task.acceptance.required_checks,recipient,contexts,budget:clone(body.budget),authority_generation:randomUUID()};
+  }
+  async function dispatch(body,{authorizeStart}={}){
+    if(!validateNative(body))throw wbError('invalid_request');
+    if(body.action==='cards_list')return cardsList(body);
+    if(body.action==='result_get')return resultGet(body);
+    if(body.action==='result_retry')return retryResult(body);
+    if(body.action==='result_deliver')return deliverResult(body);
+    if(body.action==='list'){historicalScope(body);return {grants:data.list('grants',body.workspace_id,body.project_id).map(grantStatus),health:health()};}
+    if(closed)throw wbError('unavailable');
+    if(body.action==='preview'){
+      for(const [id,p] of previews)if(p.expires_at<=now())previews.delete(id);
+      if(previews.size>=64)throw wbError('busy');
+      const scope=await snapshot(body),preview_id=randomUUID(),expires_at=now()+60000,preview_digest=digest(scope);
+      const p={...scope,preview_id,preview_digest,expires_at};previews.set(preview_id,p);
+      return {preview:p,preview_id,preview_digest,expires_at,repair_iteration_limit:p.budget.repair_iterations??3,output_limit_bytes:1048576,storage_policy:'Bounded candidate/file/retained-log inputs; no host disk quota or filesystem isolation',contract:HERMES_NATIVE_CONTRACT};
+    }
+    if(body.action==='approve'){
+      const p=previews.get(body.preview_id);
+      const noApproval=code=>Object.assign(wbError(code),{native_approval_outcome:'not_created'});
+      if(!p||p.workspace_id!==body.workspace_id||p.project_id!==body.project_id||p.expires_at<=now()||p.preview_digest!==body.preview_digest)throw noApproval('expired');
+      let fresh;
+      try{fresh=await snapshot({...body,attempt_id:p.attempt_id,context_ids:p.contexts.map(c=>c.id),budget:p.budget});}
+      catch(error){throw Object.assign(error,{native_approval_outcome:'not_created'});}
+      fresh.authority_generation=p.authority_generation;
+      const {preview_id,preview_digest,expires_at,...scope}=p;
+      if(digest(fresh)!==digest(scope))throw noApproval('stale_resource');
+      if(previews.get(preview_id)!==p)throw noApproval('expired');
+      previews.delete(preview_id);
+      return {grant:publicGrant(data.create('grants',{...scope,status:'approved',expires_at:now()+p.budget.duration_ms,calls_used:0,checks_used:0,run_id:null}))};
+    }
+    const g=get('grants',body,body.grant_id);
+    if(body.action==='status'){const historical=historicalScope(body).active===false;return {grant:historical?historicalGrant(g):publicGrant(g),result:historical?null:projectResult(rawResult(g)),toolcalls:historical?[]:data.list('toolcalls',body.workspace_id,body.project_id).filter(c=>c.grant_id===g.id),health:health(),...(g.status==='dispatch_unknown'?{unknown_digest:unknownDigest(g),unknown_policy:NATIVE_UNKNOWN_POLICY}:{})};}
+    if(body.action==='acknowledge_unknown'){
+      historicalScope(body);
+      if(g.status!=='dispatch_unknown'||body.expected_digest!==unknownDigest(g)||running.has(g.id))throw wbError('stale_resource');
+      if(typeof hermes?.acknowledgeNativeUnknown!=='function')throw wbError('unavailable');
+      const r=rawResult(g),observedPath=r?resultJournal(r):null;
+      let saved=null;
+      if(r?.availability==='pending'&&observedPath&&fs.existsSync(observedPath)){
+        const observed=readJournal(observedPath);
+        if(observed.id!==r.id||observed.run_id!==r.run_id||observed.observed?.termination_confirmed!==true)throw wbError('stale_resource');
+        saved=fs.existsSync(resultJournal(r,true))?readJournal(resultJournal(r,true)):observed;
+      }
+      data.db.transaction(()=>{
+        if(saved)update('grants',g,g.id,{status:'result_pending',final_status:saved.version===2?saved.final_status:'fenced',runtime_status:'exited',termination_confirmed:true,result_status:'result_pending',pending_digest:digest(saved),owner_asserted_terminated:true,acknowledged_digest:body.expected_digest,acknowledged_at:now(),authority_generation:randomUUID(),risk_policy:NATIVE_UNKNOWN_POLICY});
+        else{
+          if(r?.availability==='pending')update('results',r,r.id,{availability:'explanation_unavailable',unavailable_reason:'persistence_failed',text:null,received_at:now(),resolved_references:[]});
+          update('grants',g,g.id,{status:'acknowledged_unknown',result_status:r?'finalized':g.result_status,acknowledged_digest:body.expected_digest,owner_asserted_terminated:true,acknowledged_at:now(),authority_generation:randomUUID(),risk_policy:NATIVE_UNKNOWN_POLICY});
+        }
+      }).immediate();
+       if(saved)return {grant:grantStatus(get('grants',g,g.id)),result_pending:true,replayed:false};
+      resultFailures.delete(g.id);resultFailures.delete(r?.id);
+      hermes.acknowledgeNativeUnknown({grant_id:g.id});quarantineFailures.delete(g.id);
+      heldNativeReleases.get(g.id)?.();heldNativeReleases.delete(g.id);
+       return {grant:grantStatus(get('grants',g,g.id)),replayed:false};
+    }
+    if(body.action==='stop'){
+      historicalScope(body);
+      if(g.status==='dispatch_unknown'&&!running.has(g.id))return {grant:grantStatus(g),stop_requested:false,outcome_unknown:true};
+      if(g.runtime_status==='exited')return {grant:grantStatus(g),stop_requested:false,termination_confirmed:true};
+      channels.delete(g.id);update('grants',g,g.id,{status:g.run_id?'stop_requested':'stopped',authority_generation:randomUUID(),...(g.run_id?{}:{runtime_status:'not_started'})});
+      if(g.run_id)await hermes.stopNative({run_id:g.run_id,grant_id:g.id});
+      return {grant:grantStatus(get('grants',g,g.id)),stop_requested:!!g.run_id,termination_confirmed:!g.run_id};
+    }
+    let authorized=await authorize(g);
+    // Host-only composition hook: never a JSON/body field or model authority.
+    // Recheck after binding awaits and carry it through the runtime's actual
+    // pre-spawn authorization callback, rather than trusting admission time.
+    await authorizeStart?.();
+    authorized=currentStartAuthority(g,'approved');
+    if(authorized.status!=='approved'||typeof hermes?.startNative!=='function')throw wbError('unavailable');
+    if(get('candidates',g,g.candidate_id).hash!==g.candidate_hash)throw wbError('stale_resource');
+    if(!health().healthy)throw wbError('outcome_unknown');
+    if(data.list('grants',g.workspace_id,g.project_id).some(x=>x.id!==g.id&&x.attempt_id===g.attempt_id&&['running','dispatch_unknown'].includes(x.status)))throw wbError('busy');
+    data.update('grants',g.workspace_id,g.project_id,g.id,authorized.revision,{status:'starting'});
+    let socket;try{socket=await listen();await authorizeStart?.();currentStartAuthority(g,'starting');}catch(e){update('grants',g,g.id,{status:get('grants',g,g.id).status==='stopped'?'stopped':'failed',runtime_status:'not_started'});throw e;}
+    if(get('grants',g,g.id).status!=='starting')throw wbError('expired');
+    const secret=randomBytes(32).toString('hex'),run_id=randomUUID();
+    const a=get('attempts',g,g.attempt_id),c=get('candidates',g,g.candidate_id);
+    try{data.db.transaction(()=>{
+      data.create('results',{workspace_id:g.workspace_id,project_id:g.project_id,task_id:a.task_id,attempt_id:g.attempt_id,grant_id:g.id,run_id,project_generation:g.project_generation,candidate_id:c.id,candidate_generation:c.generation,candidate_hash:c.hash,recipient:{pane_id:g.recipient.pane_id,profile_id:g.recipient.profile_id,session_id:g.recipient.session_id},availability:'pending',unavailable_reason:null,text:null,hermes_completed:null,frame_hash:null,received_at:null,retained_until:now()+86400000,provenance:{version:1,initiated_by:{kind:'native_agent',attempt_id:g.attempt_id,grant_id:g.id,run_id},authorized_by:{kind:'owner_grant',grant_id:g.id,authority_generation:g.authority_generation},recorded_by:{kind:'comet_service',component:'workbench-native-result',build_id:workbenchBuildIdentity()}},model_suggested_references:[],resolved_references:[]});
+      update('grants',g,g.id,{status:'running',runtime_status:'running',run_id,result_status:'pending',started_at:now()});
+    }).immediate();}catch(error){try{update('grants',g,g.id,{status:'failed',runtime_status:'not_started'});}catch{markUnknown(g);}throw error;}
+    channels.set(g.id,{secret,sequence:0,busy:false,scope:clone(g)});
+    try{
+      const authorizeDispatch=async()=>{await authorize(g,{active:true});await authorizeStart?.();return currentStartAuthority(g,'running');};
+      try{await authorizeDispatch();}catch(error){throw Object.assign(error,{native_outcome:'not_started'});}
+      const handle=await hermes.startNative({scope:clone(g),run_id,channel:{socket,secret,grant_id:g.id},input:'Work only on the approved candidate. Inspect the task and context, make bounded candidate changes, and use recorded check evidence. Completion text is not verification.',authorize:authorizeDispatch});
+      if(!handle?.completion||typeof handle.completion.then!=='function')throw wbError('unavailable');
+      running.set(g.id,{...handle,scope:clone(g)});
+      Promise.resolve(handle.completion).then(outcome=>settled(g,outcome,true),error=>settled(g,error,false)).catch(()=>{
+        resultFailures.add(g.id);
+        try{markUnknown(g);}catch{quarantine(g);}
+      }).finally(()=>{
+        channels.delete(g.id);running.delete(g.id);
+        if(quarantineFailures.has(g.id))heldNativeReleases.set(g.id,handle.releaseNative);
+        else handle.releaseNative?.();
+      });
+      if(get('grants',g,g.id).status==='stop_requested')await hermes.stopNative({run_id,grant_id:g.id});
+    }catch(error){channels.delete(g.id);if(error?.native_outcome==='not_started')update('grants',g,g.id,{status:get('grants',g,g.id).status==='stop_requested'?'stopped':'failed',runtime_status:'not_started'});else markUnknown(g);throw wbError(error?.code==='busy'?'busy':'unavailable');}
+    return {grant:publicGrant(get('grants',g,g.id))};
+  }
+  async function settled(g,outcome,success){
+    if(closed)return;
+    if(outcome?.termination_confirmed!==true){markUnknown(g);return;}
+    // Stage the bounded observed frame *before* any status/scope/candidate read
+    // or async authorization can fail. This journal is private, not publication.
+    const receipt=rawResult(g);
+    if(!receipt)throw wbError('outcome_unknown');
+    const observed={version:1,id:receipt.id,run_id:receipt.run_id,observed:{termination_confirmed:true,exit_code:Number.isInteger(outcome.exit_code)?outcome.exit_code:null,result:outcome.result??null}};
+    const observedPath=resultJournal(receipt);
+    writeJournal(observedPath,observed);
+    let committed=false;
+    try{
+    let current=get('grants',g,g.id),status=current.status;
+    if(status==='stop_requested')status='stopped';
+    else if(status==='running'){
+      try{await authorize(g,{active:true});status=success?'completed':'failed';}catch{status=now()>=g.expires_at?'expired':'fenced';}
+    }
+    current=get('grants',g,g.id);
+    if(current.status==='stop_requested')status='stopped';
+    else if(current.status!=='running')status=current.status;
+    const candidate=get('candidates',g,g.candidate_id),a=get('attempts',g,g.attempt_id);
+    const parsed=outcome.result??{availability:'explanation_unavailable',reason:'missing'};
+    const published=status==='completed'&&success&&parsed.availability==='available';
+    const fenced=!['completed','failed'].includes(status);
+    const references=published?resolvedReferences(g,parsed,candidate,a.task_id):{model_suggested_references:[],resolved_references:[]};
+    const next={...receipt,candidate_generation:candidate.generation,candidate_hash:candidate.hash,availability:published?'available':'explanation_unavailable',unavailable_reason:published?null:fenced?'fenced':parsed.reason??(!success?'runtime_failed':'missing'),text:published?parsed.text:null,hermes_completed:parsed.hermes_completed??null,frame_hash:parsed.frame_hash??null,received_at:now(),...references};
+    const {revision,created_at,updated_at,...contractReceipt}=next;
+    if(!validateResultReceipt(contractReceipt))throw wbError('invalid_request');
+    // Prepared output captures the completion-time authorization decision. An
+    // observed-only journal can recover as fenced, never infer authorization.
+    const prepared={version:2,id:receipt.id,run_id:receipt.run_id,final_status:status,record:next};
+    writeJournal(resultJournal(receipt,true),prepared);
+    data.db.transaction(()=>{update('results',receipt,receipt.id,receiptPatch(next));update('grants',g,g.id,{status,runtime_status:'exited',termination_confirmed:true,exit_code:Number.isInteger(outcome.exit_code)?outcome.exit_code:null,ended_at:now(),result_status:'finalized',finalized_digest:digest(prepared)});}).immediate();
+    committed=true;
+    try{cleanJournals(receipt);}catch{}
+    }catch(error){
+      if(committed)return;
+      const readyPath=resultJournal(receipt,true),hasReady=fs.existsSync(readyPath);
+      const hash=hasReady?digest(readJournal(readyPath)):digest(observed);
+      const finalStatus=hasReady?readJournal(readyPath).final_status:'fenced';
+      pendingResult(g,receipt,{status:finalStatus,hash});
+    }
+  }
+  function pauseBudget(g){channels.delete(g.id);update('grants',g,g.id,{status:'paused_budget',reason:'calls_exhausted',authority_generation:randomUUID()});Promise.resolve(hermes.stopNative?.({run_id:get('grants',g,g.id).run_id,grant_id:g.id})).catch(()=>{});}
+  async function tool(g,args){
+    if(!validateNativeTool(args))throw wbError('invalid_request');
+    const current=await authorize(g,{active:true});
+    if(current.calls_used>=g.budget.calls){pauseBudget(g);throw wbError('limit_exceeded');}
+    if(args.action==='job_start'&&current.checks_used>=g.budget.checks)throw wbError('limit_exceeded');
+    if(args.action==='candidate_patch'&&(current.repairs_used??0)>=(g.budget.repair_iterations??3)){update('grants',g,g.id,{status:'paused_budget',reason:'repair_iterations_exhausted'});channels.delete(g.id);throw wbError('limit_exceeded');}
+    update('grants',g,g.id,{calls_used:current.calls_used+1,checks_used:current.checks_used+(args.action==='job_start'?1:0),repairs_used:(current.repairs_used??0)+(args.action==='candidate_patch'?1:0)});
+    const call=data.create('toolcalls',{workspace_id:g.workspace_id,project_id:g.project_id,grant_id:g.id,attempt_id:g.attempt_id,candidate_id:g.candidate_id,action:args.action,args_digest:digest(args),safe_target:safeToolTarget(args),status:'started'});
+    const base={workspace_id:g.workspace_id,project_id:g.project_id},candidate={...base,candidate_id:g.candidate_id};
+    try{
+      let result;
+      switch(args.action){
+        case 'inspect': {const a=get('attempts',g,g.attempt_id),t=get('tasks',g,a.task_id),c=await execution.dispatch({action:'candidate_get',...candidate});result={task:{title:t.title,acceptance:t.acceptance},candidate:c.candidate,contexts:g.contexts.map(c=>({id:c.id,hash:c.hash})),budget:g.budget};break;}
+        case 'read_context':if(!g.contexts.some(c=>c.id===args.context_id))throw wbError('permission_denied');result={snapshot:get('contexts',g,args.context_id).snapshot};break;
+        case 'candidate_read':result=await execution.dispatch({action:'candidate_read',...candidate,path:args.path});break;
+        case 'candidate_patch':result=await execution.dispatch({action:'candidate_apply',...candidate,changes:args.changes,expected_candidate_hash:args.expected_candidate_hash},{kind:'native_agent',grant_id:g.id});break;
+        case 'job_start': {const definition_id=args.definition_id??g.definition_id;if(!(g.required_checks??[{definition_id:g.definition_id}]).some(check=>check.definition_id===definition_id))throw wbError('permission_denied');const p=await execution.dispatch({action:'check_preview',...candidate,definition_id});const scope=await authorize(g,{active:true});result=await execution.dispatch({action:'check_run',...candidate,preview_id:p.preview_id,preview_digest:p.preview.spec_digest,op_id:call.id},{kind:'native_agent',grant_id:g.id,run_id:scope.run_id,authority_generation:scope.authority_generation});break;}
+        case 'job_status':case 'evidence': {const j=get('jobs',g,args.job_id);if(j.candidate_id!==g.candidate_id||!data.list('toolcalls',g.workspace_id,g.project_id).some(c=>c.grant_id===g.id&&c.id===j.op_id))throw wbError('permission_denied');result=await execution.dispatch({action:'job_get',...base,job_id:j.id});break;}
+      }
+      await authorize(g,{active:true});
+      if(Buffer.byteLength(JSON.stringify(result))>524288)throw wbError('limit_exceeded');
+      const resultMeta=safeToolResult(args,result);
+      update('toolcalls',g,call.id,{status:'completed',result_digest:digest(result),...(resultMeta??{})});
+      if(get('grants',g,g.id).calls_used>=g.budget.calls)pauseBudget(g);
+      return result;
+    }catch(e){update('toolcalls',g,call.id,{status:'failed',error:e?.code??'unavailable'});const latest=get('grants',g,g.id);if(latest.status==='running'&&latest.calls_used>=g.budget.calls)pauseBudget(g);throw e;}
+  }
+  async function listen(){
+    if(listenPromise)return listenPromise;
+    listenPromise=openSocket();return listenPromise;
+  }
+  async function openSocket(){
+    // Ephemeral authenticated transport must not inherit the durable runtime's
+    // pathname length. mkdtemp creates an exclusive private directory; no channel
+    // secrets or durable receipts are stored here, and close removes the socket.
+    socketDir=fs.mkdtempSync(path.join(os.tmpdir(),'orbit-native-'));fs.chmodSync(socketDir,0o700);
+    const socket=path.join(socketDir,'bridge.sock');if(Buffer.byteLength(socket)>100)throw wbError('unavailable');
+    server=http.createServer(async(req,res)=>{
+      res.setHeader('Content-Type','application/json');res.setHeader('Cache-Control','no-store');
+      let channel,acquired=false;
+      try{
+        if(req.method!=='POST'||req.url!=='/tool')throw wbError('permission_denied');
+        let bytes=0;const chunks=[];for await(const chunk of req){bytes+=chunk.length;if(bytes>300000)throw wbError('limit_exceeded');chunks.push(chunk);}
+        let raw;try{raw=new TextDecoder('utf-8',{fatal:true}).decode(Buffer.concat(chunks));}catch{throw wbError('invalid_request');}
+        const id=req.headers['x-orbit-grant'],seq=req.headers['x-orbit-sequence'],mac=req.headers['x-orbit-mac'];channel=channels.get(id);
+        if(!channel||channel.busy||seq!==String(channel.sequence+1)||typeof mac!=='string'||!/^[a-f0-9]{64}$/.test(mac))throw wbError('permission_denied');
+        const expected=createHmac('sha256',channel.secret).update(`${seq}\n${raw}`).digest();
+        if(!timingSafeEqual(expected,Buffer.from(mac,'hex')))throw wbError('permission_denied');
+        channel.busy=true;acquired=true;channel.sequence++;
+        // Resolve the durable scope via the server-owned channel, never body IDs.
+        const scope=channel.scope;
+        if(!scope)throw wbError('permission_denied');
+        const result=await tool(scope,JSON.parse(raw));res.end(JSON.stringify({ok:true,result}));
+      }catch(e){res.statusCode=403;res.end(JSON.stringify({ok:false,error:e?.code??'unavailable'}));}
+      finally{if(acquired)channel.busy=false;}
+    });
+    await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(socket,resolve);});fs.chmodSync(socket,0o600);return socket;
+  }
+  function close(){
+    if(closed)return;closed=true;previews.clear();
+    for(const [id,handle] of running){try{const g=get('grants',handle.scope??channels.get(id)?.scope,id);markUnknown(g);Promise.resolve(hermes.stopNative?.({run_id:g.run_id,grant_id:id})).catch(()=>{});}catch{}}
+    channels.clear();server?.close();if(socketDir){try{fs.unlinkSync(path.join(socketDir,'bridge.sock'));}catch{}try{fs.rmdirSync(socketDir);}catch{}}
+  }
+  function onRevoke(projectId){for(const [id,c] of channels)if(c.scope?.project_id===projectId)channels.delete(id);}
+  // A crash between the durable observed journal and the grant's pending flag
+  // must not silently convert a known terminated run into an unjournaled one.
+  for(const row of data.db.prepare("SELECT record_json FROM wb_results WHERE json_extract(record_json,'$.availability')='pending'").all()){
+    const r=JSON.parse(row.record_json),g=get('grants',r,r.grant_id);
+    if(!['running','starting','stop_requested'].includes(g.status)||g.run_id!==r.run_id)continue;
+    try{
+      const observed=readJournal(resultJournal(r));
+      if(observed.id!==r.id||observed.run_id!==r.run_id||observed.observed?.termination_confirmed!==true)continue;
+      const readyPath=resultJournal(r,true),saved=fs.existsSync(readyPath)?readJournal(readyPath):observed;
+      pendingResult(g,r,{status:saved.version===2?saved.final_status:'fenced',hash:digest(saved)});
+    }catch{/* no proven terminated result: existing unknown-runtime fence applies */}
+  }
+  // Losing the adapter process handle never authorizes replay. Persist the fence
+  // across server restart; status exposes it, stop cannot falsely acknowledge it.
+  for(const row of data.db.prepare("SELECT record_json FROM wb_grants WHERE json_extract(record_json,'$.status') IN ('starting','running','stop_requested') OR json_extract(record_json,'$.runtime_status')='running'").all()){
+    const g=JSON.parse(row.record_json);markUnknown(g);
+  }
+  for(const row of data.db.prepare("SELECT record_json FROM wb_grants WHERE json_extract(record_json,'$.status')='dispatch_unknown'").all())quarantine(JSON.parse(row.record_json));
+  for(const row of data.db.prepare("SELECT record_json FROM wb_grants WHERE json_extract(record_json,'$.result_status')='result_pending'").all())quarantine(JSON.parse(row.record_json));
+  for(const row of data.db.prepare("SELECT record_json FROM wb_toolcalls WHERE json_extract(record_json,'$.status')='started'").all()){
+    const call=JSON.parse(row.record_json);update('toolcalls',call,call.id,{status:'outcome_unknown'});
+  }
+  return {dispatch,close,onRevoke,health};
+}

@@ -30,4 +30,14 @@ html[data-orbit-style=forest] .desktop-shortcut:hover{border-radius:4px 28px 4px
 html[data-orbit-style=plum]{--shortcut-bg:#48273ff5;--shortcut-fg:#ffe1f5;--shortcut-radius:20px 20px 5px 5px;--shortcut-border:3px double #b67f9e;--shortcut-shadow:inset 0 0 15px #aa668333;--shortcut-hover:0 0 16px #e6a7ce88}
 html[data-orbit-style=plum] .desktop-shortcut-label{font:12px Georgia,serif}
 html[data-orbit-style=ember]{--shortcut-bg:#40291cf5;--shortcut-fg:#ffe0a0;--shortcut-radius:3px;--shortcut-border:2px ridge #ab8050;--shortcut-shadow:inset 0 2px #d0a669,0 4px 0 #1b130c;--shortcut-hover:inset 0 0 22px #d88a3e66}
+html[data-orbit-style=relay]{--shortcut-bg:#101d2cf5;--shortcut-fg:#dbe7f3;--shortcut-radius:3px;--shortcut-border:1px solid #2c455c;--shortcut-shadow:inset 3px 0 #ffb34766;--shortcut-hover:inset 0 0 0 1px #ffb347,0 0 14px #ffb34755}
+html[data-orbit-style=relay] .desktop-shortcut-label{font:11px ui-monospace,monospace;text-transform:uppercase;letter-spacing:.05em}
+html[data-orbit-style=msdos]{--shortcut-bg:#0000a8f2;--shortcut-fg:#fcfcfc;--shortcut-radius:0;--shortcut-border:2px double #a8a8a8;--shortcut-shadow:none;--shortcut-hover:inset 0 0 0 1px #ffff55,0 0 0 2px #0000a8}
+html[data-orbit-style=msdos] .desktop-shortcut-label{font:12px ui-monospace,monospace;text-transform:uppercase;letter-spacing:.05em}
+html[data-orbit-style=deepfield]{--shortcut-bg:#0b1224f5;--shortcut-fg:#cdd6f5;--shortcut-radius:4px;--shortcut-border:1px solid #2a3350;--shortcut-shadow:inset 3px 0 #e8c37a66;--shortcut-hover:inset 0 0 0 1px #e8c37a,0 0 14px #e8c37a44}
+html[data-orbit-style=deepfield] .desktop-shortcut-label{font:11px ui-monospace,monospace;letter-spacing:.05em}
+html[data-orbit-style=sakura]{--shortcut-bg:#fff8f6f5;--shortcut-fg:#7a2f47;--shortcut-radius:14px;--shortcut-border:1px solid #e2c3cb;--shortcut-shadow:2px 2px 0 #eed3da;--shortcut-hover:0 0 0 3px #c24b6b33}
+html[data-orbit-style=sakura] .desktop-shortcut-label{font:italic 12px Georgia,serif;border-bottom:1px solid #e2c3cb}
+html[data-orbit-style=amber]{--shortcut-bg:#160d00f2;--shortcut-fg:#ffb642;--shortcut-radius:0;--shortcut-border:1px solid #8a5a12;--shortcut-shadow:inset 3px 0 #ffb64266;--shortcut-hover:inset 0 0 0 1px #ffb642,0 0 14px #ffb64255}
+html[data-orbit-style=amber] .desktop-shortcut-label{font:12px ui-monospace,monospace;text-transform:uppercase;letter-spacing:.05em}
 @media(prefers-reduced-motion:reduce){html[data-orbit-style] .desktop-shortcut{transition:none}html[data-orbit-style] .desktop-shortcut:hover{transform:none}}
