@@ -205,6 +205,13 @@ with tempfile.TemporaryDirectory(prefix="orbit-continuity-", dir="/tmp/opencode"
                     assert live_output(marker) == shell_pid, f"{label}: live shell PID changed"
 
             verify("initial")
+            def persisted_state(value):
+                # Remote selection raises the browser-local stacking order.
+                value = json.loads(json.dumps(value))
+                for monitor in value['monitors']:
+                    monitor.get('frame', {}).pop('z', None)
+                return value
+
             def apply(label, *ops):
                 # UI view/selection edits save asynchronously. Hand authority to
                 # the controller only after those edits are persisted and acked;
@@ -213,7 +220,7 @@ with tempfile.TemporaryDirectory(prefix="orbit-continuity-", dir="/tmp/opencode"
                 while time.monotonic() < deadline:
                     before = api("read")
                     local = page.evaluate("JSON.parse(localStorage.getItem('orbit.workspace.v1'))")
-                    if before['state'] == local and before.get('observed_revision', 0) >= before['revision']:
+                    if persisted_state(before['state']) == persisted_state(local) and before.get('observed_revision', 0) >= before['revision']:
                         break
                     page.wait_for_timeout(100)
                 else:
