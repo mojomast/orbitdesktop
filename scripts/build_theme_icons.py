@@ -30,6 +30,9 @@ packs={
 'plum':('#ffd6f4','#713955','seal','1.8','round'),
 'ember':('#ffd58a','#65351d','plate','2.8','miter'),
 'relay':('#ffd39a','#12293f','signal','1.7','round'),
+'deepfield':('#e8c37a','#0b1224','hex','1.7','round'),
+'sakura':('#c24b6b','#fff4f1','paper','1.4','round'),
+'amber':('#ffb642','#1c1000','crt','1.7','miter'),
 'msdos':('#fcfcfc','#0000a8','dos','2','miter')}
 frames={
  'astrolabe':'<circle cx="24" cy="24" r="20"/><circle cx="24" cy="24" r="23" fill="none" stroke-dasharray="1 3"/><path d="M24 0V6M24 42V48M0 24H6M42 24H48" fill="none"/>',

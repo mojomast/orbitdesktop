@@ -19,6 +19,9 @@ export const themes:Theme[] = [
  {name:'Forest',description:'Soft green workspace.',theme:'midnight',background:'#12271f',textColor:'#e6f3e9',accentColor:'#97dfaa',cornerRadius:14},
  {name:'Plum',description:'Violet workspace.',theme:'midnight',background:'#291b32',textColor:'#f4e9fc',accentColor:'#dbacf4',cornerRadius:18},
  {name:'Ember',description:'Warm amber workspace.',theme:'midnight',background:'#302019',textColor:'#fff0df',accentColor:'#ffbd80',cornerRadius:10},
+ {name:'Deep Field',description:'Deep-space observatory: near-black instrument panels, faint nebulae and pale-gold starlight.',theme:'midnight',background:'#05060a',textColor:'#e6ebff',accentColor:'#e8c37a',cornerRadius:2},
+ {name:'Sakura',description:'Soft spring paper: warm cream canvas, ink text and drifting blossom petals.',theme:'paper',background:'#f7edea',textColor:'#3a2b2f',accentColor:'#c24b6b',cornerRadius:14},
+ {name:'Amber CRT',description:'Monochrome amber terminal: black glass, glowing phosphor, scanlines and a mono command line.',theme:'classic',background:'#120a00',textColor:'#ffb642',accentColor:'#ffd27f',cornerRadius:0,surfaceColor:'#0b0600',panelColor:'#1c1000',borderColor:'#8a5a12',mutedColor:'#b07a2a',titlebarColor:'#241300',titlebarTextColor:'#ffd9a0',buttonColor:'#26170a',buttonTextColor:'#ffcf8a',controlRadius:0,titlebarHeight:28,uiFont:'mono'},
 ];
 export function themePatch(name:string):NonNullable<Workspace['appearance']> {
  const theme=themes.find(t=>t.name===name);if(!theme)throw Error('Unknown workspace theme');

@@ -81,6 +81,22 @@ html[data-orbit-style=msdos] #app#app .scene-navigation :is(.display-tabs button
 html[data-orbit-style=msdos] #app#app .scene-navigation button:is(:hover,:focus-visible) {background:#fcfcfc!important;color:#000084!important;filter:none;}
 html[data-orbit-style=msdos] #app#app .display-tabs button {min-width:80px;max-width:190px;text-align:left;}
 html[data-orbit-style=msdos] #app#app .taskbar-status {padding:5px 8px;border-left:3px double var(--theme-borderColor,#a8a8a8);background:#000084;color:#fcfcfc;font:11px ui-monospace,monospace;text-transform:uppercase;}
+/* Deep Field: cold observatory rail with a gold instrument hairline. */
+html[data-orbit-style=deepfield] #app#app:not(.full-viewport) .scene-navigation {left:14px;right:14px;border-radius:4px;border:1px solid #2a3350;border-top:2px solid var(--theme-accentColor,#e8c37a);background:#0a0e1cee!important;box-shadow:0 -4px 18px #0009;font-family:ui-monospace,monospace;}
+html[data-orbit-style=deepfield] #app#app .display-tabs button {border:0;border-right:1px solid #2a3350;border-radius:0;box-shadow:none;font-size:12px;letter-spacing:.04em;}
+html[data-orbit-style=deepfield] #app#app .display-tabs button:is(:hover,:focus-visible) {box-shadow:inset 0 -3px var(--theme-accentColor,#e8c37a);}
+/* Sakura: soft capsule shelf with rounded blossom chips. */
+html[data-orbit-style=sakura] #app#app:not(.full-viewport) .scene-navigation {left:20px;right:20px;border-radius:20px;border:1px solid #e2c3cb;background:#fbeef1ee!important;box-shadow:0 -3px 12px #c98ea022;}
+html[data-orbit-style=sakura] #app#app .display-tabs button {border-radius:14px;border:1px solid #e2c3cb;background:#fff8f6!important;}
+html[data-orbit-style=sakura] #app#app .display-tabs button:is(:hover,:focus-visible) {translate:0 -2px;box-shadow:inset 0 -3px var(--theme-accentColor,#c24b6b);}
+/* Amber CRT: full-width phosphor status bar with block tabs and reverse-video select. */
+html[data-orbit-style=amber] #app#app:not(.full-viewport) .scene-navigation {left:0;right:0;bottom:0;border-radius:0;border:0;border-top:1px solid var(--theme-borderColor,#8a5a12);background:#160d00!important;box-shadow:none;font-family:ui-monospace,monospace;}
+html[data-orbit-style=amber] #app#app .scene-navigation :is(button,.layout-toggle) {border:0;border-right:1px solid #3a2408;border-radius:0!important;background:#160d00!important;color:#ffd9a0!important;box-shadow:none;font:12px ui-monospace,monospace;text-transform:uppercase;letter-spacing:.06em;}
+html[data-orbit-style=amber] #app#app .scene-navigation .start-button::after {content:'\2588';margin-left:2px;color:var(--theme-accentColor,#ffd27f);}
+html[data-orbit-style=amber] #app#app .scene-navigation :is(.display-tabs button.selected,.start-button[aria-expanded=true],button:active) {background:#ffb642!important;color:#120a00!important;outline:0;font-weight:bold;}
+html[data-orbit-style=amber] #app#app .scene-navigation button:is(:hover,:focus-visible) {background:#ffd27f!important;color:#120a00!important;filter:none;}
+html[data-orbit-style=amber] #app#app .display-tabs button {min-width:84px;max-width:190px;text-align:left;}
+html[data-orbit-style=amber] #app#app .taskbar-status {padding:5px 8px;border-left:1px solid var(--theme-borderColor,#8a5a12);background:#1c1000;color:#ffd9a0;font:11px ui-monospace,monospace;text-transform:uppercase;}
 @media(max-width:600px) {
  html[data-orbit-style] #app#app:not(.full-viewport) .scene-navigation {left:3px;right:3px;gap:3px;padding-left:3px;padding-right:3px;}
  html[data-orbit-style] #app#app .scene-navigation .display-tabs button {min-width:0;max-width:145px;}
