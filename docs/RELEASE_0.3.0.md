@@ -1,9 +1,10 @@
-# Orbit Desktop 0.3.0 — release candidate notes
+# Orbit Desktop / Hermes plugin 0.3.0
 
-Status: **draft**, not a published stable release. Target: `0.3.0-rc.1`, followed
-by `0.3.0` after the [release gates](RELEASE_READINESS_PLAN.md) pass. Product/plugin
-metadata still carry their previous versions pending the versioned candidate cut.
-Use the exact commit and immutable release identity when reporting a test result.
+Version 0.3.0 packages the integration merged into `main` through PR #10. Desktop
+and Hermes plugin metadata now use the same product version; workspace schema,
+API and sandboxed app-manifest formats remain independently versioned. The
+`hermes-plugin-v0.3.0` GitHub release records the exact catalog-pinned commit and
+bundled-source checksum. Catalog acceptance is a separate reviewed SHA update.
 
 ## Highlights since main
 
@@ -42,7 +43,7 @@ Use the exact commit and immutable release identity when reporting a test result
 
 ## Upgrade and compatibility
 
-The candidate uses workspace database schema **11**; the serialized workspace and
+This release uses workspace database schema **11**; the serialized workspace and
 sandboxed plugin manifest formats remain independently versioned. Read
 [Deployment](DEPLOYMENT.md) and [Workspace store](WORKSPACE_STORE.md) for supported
 migrations and full backup/restore. Preserve journals, receipts, notebooks,
@@ -53,10 +54,10 @@ Rebuilds require loading the new frontend once. A controlled service restart mus
 preserve tmux session identities and defer active/uncertain execution. Rollback
 must retain compatible data and reconcile post-backup durable writes.
 
-## Known limits and remaining acceptance
+## Known limits
 
 - Docking remains experimental; Chromium continuity tests are not cross-browser
-  or accessibility certification. The owner renderer walkthrough remains a gate.
+  or accessibility certification. Desktop remains the default renderer.
 - Native Workbench execution is optional configuration and is currently absent
   from the owner's live service. Local deterministic-model acceptance does not
   establish paid-provider behavior.
@@ -70,6 +71,15 @@ must retain compatible data and reconcile post-backup durable writes.
   them only on the supported connected-DOM path; terminal reconnection is a separate
   tmux capability.
 
-Final version metadata, exact-head CI, supported-main upgrade rehearsal, owner
-acceptance, merge-artifact verification and tagged publication must be recorded
-before these notes become a stable release announcement.
+## Verification and release identity
+
+The integration candidate passed all seven Workbench CI suites, the aggregate
+gate, plugin checks and catalog admission. Local checks reported 774 passed,
+0 failed and 8 optional skips. The deployed candidate preserved 41 database
+tables, 22 chat bindings and six tmux process identities; both-renderer HTTPS
+smoke checks passed. PR #10's merge tree matched that tested candidate exactly.
+
+The versioned package is verified separately. Its release page carries the final
+commit, checksums and packaging/installation evidence. Tests use disposable
+workspaces and deterministic model fixtures; they do not certify paid-provider
+behavior, cross-browser coverage or universal upgrades from arbitrary runtimes.

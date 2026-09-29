@@ -12,10 +12,11 @@ Conversations, persistent host terminals, web apps, and optional Linux applicati
 
 [Quick start](#quick-start) · [Linux apps](docs/XPRA_APPS.md) · [Agent guide](docs/AGENT_GUIDE.md) · [Security](docs/SECURITY.md)
 
-**Testing branch:** see the [evolution testing guide](docs/TESTING_BRANCH.md) for
-the cumulative changes, verified results, isolated test commands and remaining
-gates. Optional docking is off by default; this branch is not a live-runtime
-upgrade instruction.
+**Version 0.3.0:** see the [release notes](docs/RELEASE_0.3.0.md) and
+[Hermes plugin installation guide](hermes-plugin/README.md). Optional Docking is
+off by default. Read the [deployment guide](docs/DEPLOYMENT.md) before upgrading
+an existing runtime. The [evolution testing guide](docs/TESTING_BRANCH.md) records
+the integration's historical development and acceptance evidence.
 
 **Comet Project Workbench:** describe a goal, review an editable brief and prepare
 a tracked task through [guided setup](docs/WORKBENCH_SETUP.md). Preparation is
@@ -28,8 +29,7 @@ does not configure native Workbench execution.
 **Choosing a layout:** [Desktop and experimental Docking](docs/RENDERER_COMPARISON.md)
 arrange the same chats, terminals and apps in different ways. The default Desktop
 uses movable windows; opt-in Docking adds tiled panels and tab groups. See the
-[release readiness plan](docs/RELEASE_READINESS_PLAN.md) for the next release's
-owner walkthrough and merge gates.
+[release notes](docs/RELEASE_0.3.0.md) for compatibility and known limitations.
 
 Local loopback operation does **not** require Tailscale. Ordinary HTTP(S) hosting
 and optional private tailnet access use the same application; see the

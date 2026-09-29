@@ -1,5 +1,39 @@
 # Testing candidate deployment and rollback
 
+## Hermes plugin 0.3.0 installation and upgrade
+
+The plugin's immutable `hermes-plugin-v0.3.0` release includes the reviewed source
+archive. Use the full commit pin from its release page and the
+[`hermes-plugin` setup instructions](../hermes-plugin/README.md) to build into a
+new directory. Installing or enabling the adapter does not update an existing
+Orbit deployment or start a server.
+
+For an existing deployment, wait for active work to finish and reconcile unknown
+submissions, then stop every Orbit writer against that runtime. Preserve tmux
+servers and their configured socket. Back up the **entire** runtime, configuration
+and matching old application, including apps, conversations and execution journals.
+Copy the stopped runtime into a new, private upgrade directory; retain the original
+and backup. From the newly built 0.3.0 application, run:
+
+```sh
+node --experimental-strip-types scripts/workspace_store.mjs migrate \
+  --runtime /absolute/path/to/copied-runtime --confirm-stopped
+node --experimental-strip-types scripts/workspace_store.mjs diagnose \
+  --runtime /absolute/path/to/copied-runtime
+```
+
+`--confirm-stopped` is an operator assertion, not a stop command. Legacy JSON
+workspaces require this explicit import; schema-1–10 databases migrate to schema
+11. Verify the copied workspace/checkpoints, chat files and published bundles
+before starting the new deployment with `ORBIT_RUNTIME_DIR` pointing to that copy
+and the intended tmux socket/configuration. Reload the browser once and reconnect
+terminals. Do not run old and new writers against the same runtime.
+
+For rollback, use the matching old application and complete stopped pre-upgrade
+runtime/configuration backup. First reconcile any durable work performed after
+the backup. Never point a JSON-only or older-schema writer at the upgraded data.
+Keep the release tag/SHA, source checksum and migration evidence with the backup.
+
 ## Current source compatibility
 
 The Studio source uses SQLite schema 11; serialized workspace layout remains v1.
@@ -10,11 +44,16 @@ Goal-first setup additionally stores its bounded private journal in
 `workbench-setup/`; back it up with the Workbench database, candidate directories
 and execution journals. Preparation step receipts and setup launch identities
 must remain together. An unknown setup/start is not authorization to replay work.
-The authorized goal-first rollout now serves `orbit-4fec70f` on schema 11. It
+The historical goal-first rollout served `orbit-4fec70f` on schema 11. It
 preserved all 41 existing tables, 20 conversation files and three tmux panes after
 a verified stopped-writer full backup. See the goal-first milestone deployment
 record for exact release/CI evidence. M3's schema-10 binary requires its matching
 pre-upgrade backup; pointer-only rollback is incompatible with schema 11.
+The subsequent owner-authorized chat/Docking rollout served `orbit-c87d54a`,
+preserving all 41 tables, 22 chat bindings and six tmux process identities with a
+verified full backup. The merge into main (`6301ccb`) has the same source tree.
+That rollout's schema-11 rehearsal is separate from legacy JSON upgrade testing
+and from the plugin catalog's versioned commit pin.
 Packaging now defaults to schema maximum 11. Always pass the intended release's
 explicit compatibility range when packaging a historical branch or a narrow
 hotfix. Source validation is separate from activation. Coordinate all writers and

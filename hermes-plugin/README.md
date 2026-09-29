@@ -26,7 +26,7 @@ Updates never replace a running deployment. Install a reviewed plugin update, ru
 
 ## Install
 
-The catalog lists an earlier reviewed release. Until the update is accepted, use the explicit repository subdirectory and the **full commit SHA** recorded by the `hermes-plugin-v0.2.7` release:
+The catalog may list an earlier reviewed release. Until its update is accepted, use the explicit repository subdirectory and the **full commit SHA** recorded by the [`hermes-plugin-v0.3.0` release](https://github.com/mojomast/orbitdesktop/releases/tag/hermes-plugin-v0.3.0):
 
 ```sh
 hermes plugins install mojomast/orbitdesktop/hermes-plugin --ref FULL_40_CHARACTER_RELEASE_SHA --no-enable
@@ -58,7 +58,14 @@ The plugin reads only the configured workspace record and uses its existing scop
 
 ## Tool and workflows
 
-One tool, `orbit_workspace`, provides `read`, `describe`, `arrangement`, `workbench_setup`, `preview`, `apply`, `history`, `checkpoint`, and `restore`. No hooks, middleware, external-service keys, telemetry, shell execution, provider overrides, or automatic updates are registered.
+In an ordinary Hermes session, `orbit_workspace` provides `read`, `describe`, `arrangement`, `workbench_setup`, `preview`, `apply`, `history`, `checkpoint`, and `restore`. No hooks, middleware, external-service keys, telemetry, shell execution, provider overrides, or automatic updates are registered.
+
+The manifest also declares `orbit_workbench`, an attempt-scoped native-worker
+tool. It is registered only when Orbit provisions a private `native_channel_file`
+for an approved attempt; that worker receives `orbit_workbench` instead of the
+ordinary workspace controller. Do not populate this internal setting manually.
+Native execution requires separate host configuration and owner approval. See
+the bundled `docs/WORKBENCH_SETUP.md` and `docs/PROJECT_WORKBENCH.md`.
 
 `workbench_setup` submits an untrusted workspace suggestion for the owner to adopt
 in **Set up task**. Supply `request.op_id` (a retained UUID) and `request.goal`;
@@ -104,17 +111,30 @@ The catalog pins an immutable commit. There is no self-updater and no core monke
 
 ## Verification
 
+Version 0.3.0 aligns the desktop package and Hermes adapter versions. The release
+page publishes the immutable source commit, bundled-source SHA-256, installation
+command and catalog pin. Catalog maintainers must pin that full commit and the
+`hermes-plugin` subdirectory, not `main` or the downloadable desktop-source archive.
+The archive is the plugin's setup payload, not a standalone Hermes plugin.
+
+This release upgrades legacy JSON workspace storage to SQLite schema 11 through
+an explicit stopped-writer migration. See the bundled `docs/DEPLOYMENT.md` before
+updating an existing installation; keep its complete runtime/configuration backup.
+
 From the Orbit repository root:
 
 ```sh
 python3 -m unittest discover -s tests -p test_hermes_plugin.py -v
 npm ci
 npm run check
-hermes plugins validate hermes-plugin
 hermes plugins doctor hermes-plugin --ci
 ```
 
 Tests cover real HTTP requests, default mutation denial, revision enforcement, redirect refusal, loopback restrictions, error redaction, explicit profile/workspace scoping, plus an end-to-end test against the real Orbit workspace service exercising preview/apply/conflict/checkpoint/restore and recipe discovery/save/apply/receipt recovery/Return. No owner's running workspace is mutated by these tests.
+
+Doctor may report that the declared `orbit_workbench` tool was not registered in
+an ordinary session. This is expected without an attempt-local native channel;
+the ordinary registration is `orbit_workspace` only.
 
 ## Agent chat improvements (0.2.3)
 

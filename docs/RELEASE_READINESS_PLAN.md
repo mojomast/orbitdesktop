@@ -1,7 +1,18 @@
 # Release readiness: conversation-first Orbit
 
-Status: implementation and acceptance in progress, 2026-09-28. This is a planning/acceptance document,
-not a declaration that the branch is ready to merge or a deployment record.
+## Current disposition
+
+The owner authorized the integration merge, completed through PR #10 at `6301ccb`
+after all candidate CI passed. The same source tree is deployed as `orbit-c87d54a`.
+Version 0.3.0 now aligns desktop and Hermes plugin metadata for a separately pinned
+catalog package; see [release notes](RELEASE_0.3.0.md) and the GitHub release for
+the final immutable pin and packaging evidence. Desktop remains default, Docking
+experimental, and native Workbench execution separately configured.
+
+The plan below is the **historical assessment from 2026-09-28**, including its
+then-open decisions and baseline versions. It is retained as evidence, not a
+current deployment instruction or a claim that every proposed usability,
+performance or accessibility assessment has been completed.
 
 ## Baseline and release decision
 

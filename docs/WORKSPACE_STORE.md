@@ -1,6 +1,6 @@
 # Workspace store: compatibility, migration, and operations
 
-Orbit's workspace authority is `PATH/workspace.sqlite` (current source schema `user_version=10`; schema 9 is the pre-project-tools baseline), where `PATH` is the configured runtime directory (`ORBIT_RUNTIME_DIR`, or the repository's `.runtime` by default). `server/workspace.mjs` uses `SqliteWorkspaceStore`; this is still a single-owner workspace, not a multi-user database service. The v1 workspace state and command shapes remain defined by `contracts/workspace-v1.mjs`. Layout, docking placement, plugin registration/configuration, checkpoint state, independent recovery policy, bundle metadata, Workbench records, durable workspace arrangements, private project tools and workspace capability are stored in the database; published app bytes, terminal processes, conversations, external effects and arbitrary runtime files are not workspace snapshots. Schema numbers below are incremental historical descriptions, not claims that old versions are the current baseline.
+Orbit's workspace authority is `PATH/workspace.sqlite` (current source schema `user_version=11`), where `PATH` is the configured runtime directory (`ORBIT_RUNTIME_DIR`, or the repository's `.runtime` by default). `server/workspace.mjs` uses `SqliteWorkspaceStore`; this is still a single-owner workspace, not a multi-user database service. The v1 workspace state and command shapes remain defined by `contracts/workspace-v1.mjs`. Layout, docking placement, plugin registration/configuration, checkpoint state, independent recovery policy, bundle metadata, Workbench records, durable workspace arrangements, private project tools and workspace capability are stored in the database; published app bytes, terminal processes, conversations, external effects and arbitrary runtime files are not workspace snapshots. Schema numbers below are incremental historical descriptions, not claims that old versions are the current baseline.
 
 ## Studio writer compatibility (schema 11)
 
@@ -82,7 +82,7 @@ SQLite backup carries their private payloads; candidate directories and log file
 require a separately consistent private runtime backup. Layout checkpoints and old
 whole-state clients cannot erase these records or restore approvals. Schema-5
 binaries reject version 6; use a compatible pre-upgrade backup for rollback.
-The current restore CLI accepts schemas 1–9; `--preserve-schema` never down-converts.
+The current restore CLI accepts schemas 1–11; `--preserve-schema` never down-converts.
 
 ## Project Workbench schema upgrade (version 5; historical migration)
 
