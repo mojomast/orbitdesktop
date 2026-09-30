@@ -8,7 +8,7 @@ native prompt is accepted anywhere in the flow.
 import json
 import uuid
 from theme_fixture import theme_fixture, connect
-from playwright.sync_api import sync_playwright, expect
+from playwright.sync_api import sync_playwright, expect, TimeoutError as PlaywrightTimeoutError
 
 PLUGIN_ID = 'notes'
 MANIFEST = {'apiVersion': 1, 'id': PLUGIN_ID, 'version': '1.0.0', 'title': 'Notes', 'entry': '/apps/notes-editor/index.html'}
@@ -233,7 +233,13 @@ def main():
         assert page.locator('a[href*="feat/reviewed-plugin-catalog"]').count() == 0
         assert not native_dialogs, native_dialogs
         assert not errors, errors
-        page.screenshot(path='/tmp/opencode/orbit-plugin-editors.png')
+        # This is a diagnostic image, not a pixel assertion. Capture the tested
+        # dialog rather than the animated WebGL workspace; a compositor timeout
+        # must not replace the completed functional/validation results above.
+        try:
+            manager.screenshot(path='/tmp/opencode/orbit-plugin-editors.png', animations='disabled', timeout=10000)
+        except PlaywrightTimeoutError:
+            print('NOTE: optional plugin-editor screenshot timed out; all functional assertions passed')
         print('PASS: accessible plugin config/window editors — typing, validation, cancel, partial patch, backend notice, stable links')
         context.close(); browser.close()
 
