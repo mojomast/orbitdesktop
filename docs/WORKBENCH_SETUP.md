@@ -1,5 +1,12 @@
 # Goal-first Workbench setup
 
+Project Workbench is **experimental and off by default**. Enable it in Orbit
+settings first: open the **orbit menu** (◉) → **Orbit settings** → **Project
+Workbench**. That switch only reveals the Workbench controls; it does not
+configure a worker, approve execution or send anything. Disabling it hides the
+surface again without deleting stored tasks, candidates, results or drafts, and
+each pane's earlier Normal/Workbench preference is restored when re-enabled.
+
 The guided path turns a goal into a private task without asking the owner to
 manually assemble task, candidate, attempt and context identifiers. The existing
 manual Workbench controls remain in **Task settings**.

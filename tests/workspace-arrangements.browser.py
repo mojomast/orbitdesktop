@@ -90,7 +90,7 @@ with tempfile.TemporaryDirectory(prefix='orbit-arrangements-', dir='/tmp/opencod
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=True, args=['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'])
             context = browser.new_context(viewport={'width': 1600, 'height': 1000})
-            context.add_init_script("if(window===window.top){localStorage.setItem('orbit.onboarding.v1','done');localStorage.setItem('orbit.workspace.id'," + json.dumps(workspace) + ");localStorage.setItem('orbit.workspace.v1',JSON.stringify(" + json.dumps(state) + "));}")
+            context.add_init_script("if(window===window.top){localStorage.setItem('orbit.onboarding.v1','done');localStorage.setItem('orbit.experimental.v1','{\"version\":1,\"workbench\":true}');localStorage.setItem('orbit.workspace.id'," + json.dumps(workspace) + ");localStorage.setItem('orbit.workspace.v1',JSON.stringify(" + json.dumps(state) + "));}")
             page = context.new_page()
             errors, navigations = [], []
             terminal_sockets, terminal_data = [], []

@@ -2,10 +2,10 @@ import { el, button } from './dom';
 import './agent-activity.css';
 type Entry = {title:string; task:string; status:string; updated:number; focus:()=>void;
   mode?:'normal'|'workbench'; normalStatus?:string; workbenchStatus?:string;
-  focusMode?:(mode:'normal'|'workbench')=>void};
+  focusMode?:(mode:'normal'|'workbench')=>void; modesAvailable?:()=>boolean};
 const agents = new Map<string,Entry>();
 const listeners = new Set<()=>void>();
-export function registerActivity(id:string, focus:()=>void, options:{focusMode?:(mode:'normal'|'workbench')=>void}={}) {
+export function registerActivity(id:string, focus:()=>void, options:{focusMode?:(mode:'normal'|'workbench')=>void; modesAvailable?:()=>boolean}={}) {
   const entry:Entry = {title:'Hermes',task:'No task yet',status:'Ready',updated:Date.now(),focus,...options};
   agents.set(id,entry);
   const notify = () => listeners.forEach(fn=>fn());
@@ -30,6 +30,7 @@ export function openAgentOverview() {
       if(a.focusMode){
         const modes=el('div','agent-overview-modes');
         for(const mode of ['normal','workbench'] as const){
+          if(mode==='workbench' && a.modesAvailable && !a.modesAvailable()) continue;
           const status=mode==='normal'?(a.normalStatus??a.status):(a.workbenchStatus??'No supervised task');
           const control=button(`${mode==='normal'?'Normal':'Workbench'} · ${status}`,`Focus ${mode} mode in ${a.title}`,()=>{dialog.close();a.focus();a.focusMode?.(mode);});
           control.dataset.agentId=id;control.dataset.agentMode=mode;control.setAttribute('aria-pressed',String(a.mode===mode));modes.append(control);

@@ -1,0 +1,12 @@
+.orbit-settings { width: min(560px, 94vw); }
+.orbit-settings-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.orbit-settings-section { display: grid; gap: 8px; margin: 10px 0; }
+.orbit-settings-section h3 { margin: 0; }
+.orbit-settings-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 10px; border: 1px solid var(--theme-borderColor, #3a4a52); border-radius: 8px; }
+.orbit-settings-toggle { display: flex; align-items: flex-start; gap: 10px; cursor: pointer; min-width: 0; }
+.orbit-settings-toggle input { width: auto; flex: none; margin-top: 3px; }
+.orbit-settings-copy { display: grid; gap: 3px; min-width: 0; }
+.orbit-settings-copy small { color: var(--theme-mutedColor, #9fb3ab); line-height: 1.4; }
+.orbit-settings-state { flex: none; font-weight: 600; }
+.orbit-settings-state[data-on="true"] { color: var(--theme-accentColor, #b5f268); }
+.orbit-settings-note { margin: 0; color: var(--theme-mutedColor, #9fb3ab); }

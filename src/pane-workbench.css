@@ -81,7 +81,8 @@
 }
 
 .agent-workbench-host[hidden],
-.agent-chat-normal[hidden] {
+.agent-chat-normal[hidden],
+.agent-mode-control[hidden] {
   display: none !important;
 }
 

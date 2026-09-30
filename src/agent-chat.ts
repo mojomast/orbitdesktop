@@ -12,6 +12,8 @@ import { createLiveTimeline } from './agent-live-timeline';
 import { createNormalLiveAdapter } from './agent-live-normal';
 import type { LiveItem } from './agent-live-types';
 import { createAgentInspector } from './agent-inspector';
+import { experimentalEnabled, subscribeExperimental } from './experimental';
+import { showOrbitSettings } from './orbit-settings';
 
 import { archiveChat, validChat, transcript, chatProfileId, chatBindingKey, type ChatState } from './chat-storage';
 export function createAgentChat(body: HTMLElement, paneId: string, getToken: () => string, toolbar?: HTMLElement) {
@@ -76,6 +78,10 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   const normalTimelineHost = el('div', 'agent-live-host');
   let panePrefs: PaneWorkbenchPrefs = readPanePrefs(workspaceId, paneId);
   let paneMode: PaneMode = panePrefs.mode;
+  // The stored pane preference is preserved while the experimental surface is
+  // off; only the rendered view is gated, so re-enabling restores this pane.
+  const workbenchAvailable = () => experimentalEnabled('workbench');
+  const activeMode = (): PaneMode => (workbenchAvailable() ? paneMode : 'normal');
   let workbenchStatus = '';
   let workbenchBadge: PaneWorkbenchBadge = { mode: 'workbench', pending: 0, results: 0, laneBusy: false, status: 'Idle' };
   let workbench: ReturnType<typeof mountPaneWorkbench> | undefined;
@@ -215,9 +221,10 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   const menuEntry = (label: string, action: () => void) => {
     const entry = button(label, label, action, 'small-button');
     entry.setAttribute('role', 'menuitem'); overflowMenu.append(entry);
+    return entry;
   };
   menuEntry('Conversation settings', () => openPanel('settings', overflow));
-  menuEntry('Set up task', () => { overflowMenu.hidden = true; overflow.setAttribute('aria-expanded', 'false'); setMode('workbench'); ensureWorkbench()?.openHandoff({ statement: input.value }); });
+  const setUpTaskEntry = menuEntry('Set up task', () => { overflowMenu.hidden = true; overflow.setAttribute('aria-expanded', 'false'); setMode('workbench'); ensureWorkbench()?.openHandoff({ statement: input.value }); });
   menuEntry('Activity', () => openPanel('activity', overflow));
   menuEntry('Saved tools', () => openPanel('tools', overflow));
   menuEntry('Troubleshooting', () => openPanel('troubleshooting', overflow));
@@ -329,6 +336,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   let cardsLoading = false, cardsDigest = '';
   async function refreshTaskCards() {
     if (disposed || cardsLoading || switching) return;
+    if (!workbenchAvailable()) { taskCards.replaceChildren(); taskCards.hidden = true; cardsDigest = ''; return; }
     const token = getToken();
     if (!token) { taskCards.replaceChildren(); taskCards.hidden = true; cardsDigest = ''; return; }
     const requested = scope();
@@ -398,9 +406,9 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   const activity = registerActivity(paneId, () => {
     window.dispatchEvent(new CustomEvent('orbit-focus-agent', {detail:paneId}));
     body.scrollIntoView({block:'nearest'});
-    if (paneMode !== 'normal') setMode('normal');
+    if (activeMode() !== 'normal') setMode('normal');
     input.focus();
-  }, { focusMode: (mode) => setMode(mode) });
+  }, { focusMode: (mode) => setMode(mode), modesAvailable: () => workbenchAvailable() });
   let toolStatus = '', streamStatus = '';
   const strip = el('div','agent-activity-strip');
   // On attention, reveal the actual error instead of opening inline tools. With
@@ -419,6 +427,16 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   const activityButton = button('Ready','Show live tool details',onActivityAction,'small-button');
   const conversations = button('History', 'Open recent Hermes conversations', () => openTools(), 'small-button');
   strip.append(newChat, conversations, inlineTools.toggle, activityButton);
+  // Shown only when this pane's stored mode is Workbench while the experimental
+  // surface is off. Normal chat remains fully usable here and the preference is
+  // restored when the owner enables the feature.
+  const experimentalNotice = el('div', 'agent-experimental-notice');
+  experimentalNotice.hidden = true;
+  experimentalNotice.setAttribute('role', 'status');
+  experimentalNotice.append(
+    el('span', '', 'Project Workbench is experimental and off. This pane was last used in Workbench mode; enable it in Orbit settings to restore that surface.'),
+    button('Enable in Orbit settings', 'Enable in Orbit settings', () => showOrbitSettings(), 'small-button'),
+  );
   const workspaceAgents = button('Workspace agents','Overview of all open agents',openAgentOverview,'small-button');
   function refreshActivity() {
     const runStatus = status.textContent || 'READY';
@@ -431,7 +449,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     const observed = normalLive.counts();
     activityButton.textContent = attention ? label : observed.failures ? `${observed.failures} activity warning${observed.failures === 1 ? '' : 's'} · View` : state.run && streamStatus ? streamStatus.replace('Tool stream disconnected', 'Live updates disconnected') : `Activity · ${observed.events} events`;
     activityButton.hidden = !attention && !observed.events && !(state.run && streamStatus);
-    activity.update({title:state.title || 'Hermes',task:state.messages.filter(m=>m.role==='user').at(-1)?.text.slice(0,200) || 'No task yet',status:label,mode:paneMode,normalStatus:label,workbenchStatus});
+    activity.update({title:state.title || 'Hermes',task:state.messages.filter(m=>m.role==='user').at(-1)?.text.slice(0,200) || 'No task yet',status:label,mode:activeMode(),normalStatus:label,workbenchStatus});
     normalLive.status({ status: label, run: state.run, at: Date.now() });
     updateModeBadge();
   }
@@ -492,7 +510,8 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     el('h3', '', 'Profile and session'), bindingControls, workspaceAgents, notice);
   inspector.register('settings', 'Settings', settings);
   const troubleshooting = el('div', 'agent-troubleshooting'); troubleshooting.append(status, recovery);
-  troubleshooting.append(el('p', '', 'Unknown execution is not replayed automatically. A shared-lane warning may belong to a Workbench worker or check; inspect its authoritative record before using any recovery acknowledgement.'), button('Inspect Workbench execution', 'Open Workbench checks and recovery without acknowledging or replaying anything', () => { inspector.close(); setMode('workbench'); workbenchHost.querySelector<HTMLButtonElement>('[aria-label="Checks workbench view"]')?.click(); }, 'small-button'));
+  const inspectWorkbench = button('Inspect Workbench execution', 'Open Workbench checks and recovery without acknowledging or replaying anything', () => { inspector.close(); setMode('workbench'); workbenchHost.querySelector<HTMLButtonElement>('[aria-label="Checks workbench view"]')?.click(); }, 'small-button');
+  troubleshooting.append(el('p', '', 'Unknown execution is not replayed automatically. A shared-lane warning may belong to a Workbench worker or check; inspect its authoritative record before using any recovery acknowledgement.'), inspectWorkbench);
   inspector.register('troubleshooting', 'Troubleshooting', troubleshooting);
   const unknownAction = button('Execution outcome unknown — no automatic replay · Inspect recovery', 'Open submission receipt and recovery', () => {
     recovery.open = true; openPanel('troubleshooting', unknownAction);
@@ -631,7 +650,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     // Both statuses stay visible; the hidden mode's status keeps updating.
     const normalStatusText = status.textContent || 'READY';
     const workbenchHumanStatus = wbLane.job_busy ? 'Running check' : ({Running:'Working',Waiting:'Waiting',Failed:'Needs attention','Stop requested':'Stopping','Result pending':'Result pending'} as Record<string,string>)[workbenchBadge.status] || (workbenchLaneActive ? 'Working' : 'Ready');
-    humanStatus.textContent = laneUnknown ? 'Unknown outcome' : normalStatusText === 'WAITING FOR APPROVAL' ? 'Needs approval' : ['ATTENTION','FAILED'].includes(normalStatusText) ? 'Needs attention' : paneMode === 'workbench' ? workbenchHumanStatus : state.run || busy ? 'Working' : 'Ready';
+    humanStatus.textContent = laneUnknown ? 'Unknown outcome' : normalStatusText === 'WAITING FOR APPROVAL' ? 'Needs approval' : ['ATTENTION','FAILED'].includes(normalStatusText) ? 'Needs attention' : activeMode() === 'workbench' ? workbenchHumanStatus : state.run || busy ? 'Working' : 'Ready';
     humanStatus.title = humanStatus.textContent;
     humanStatus.setAttribute('aria-label', `${humanStatus.textContent} · Inspect agent status and activity`);
     // Prefer the explicit Workbench state (Running/Waiting/Failed/Stopped/
@@ -648,14 +667,14 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     if (workbench) workbench.status.textContent = count && workbenchLabel === 'Idle'
       ? [workbenchBadge.pending && `${workbenchBadge.pending} pending`, workbenchBadge.results && `${workbenchBadge.results} results`].filter(Boolean).join(' · ')
       : definiteWorkbench.includes(workbenchLabel) || workbenchLabel === 'Lane busy' ? workbenchLabel : '';
-    for (const [mode, entry] of modeButtons) entry.button.setAttribute('aria-pressed', String(mode === paneMode));
+    for (const [mode, entry] of modeButtons) entry.button.setAttribute('aria-pressed', String(mode === activeMode()));
     modeControl.title = `Normal: ${normalStatusText} · Workbench: ${workbenchLabel}`
       + (workbenchBadge.pending ? ` · ${workbenchBadge.pending} pending` : '')
       + (workbenchBadge.results ? ` · ${workbenchBadge.results} result(s)` : '')
       + (laneBlocked() ? ` · ${laneReason()}` : '');
     modeControl.dataset.lane = laneUnknown ? 'unknown' : workbenchLaneActive ? 'busy' : 'idle';
     // Cross-mode hidden badge: annotate the inactive button with pending counts.
-    const inactive = modeButtons.get(paneMode === 'normal' ? 'workbench' : 'normal');
+    const inactive = modeButtons.get(activeMode() === 'normal' ? 'workbench' : 'normal');
     if (inactive) inactive.button.dataset.badge = String(inactive.button.dataset.mode === 'workbench' ? count : state.queue?.length ?? 0);
   }
   function ensureWorkbench() {
@@ -694,16 +713,19 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   }
   // View toggle only: it never starts, stops, queues or drains any work. Normal
   // DOM is hidden by attribute, so the same nodes, session, draft and queue persist.
+  // While Project Workbench is disabled the stored preference above is retained
+  // and only the rendered view falls back to Normal.
   function setMode(next: PaneMode, persist = true) {
     if (disposed) return;
     paneMode = next;
     if (persist) panePrefs = writePanePrefs(workspaceId, paneId, { mode: next });
-    chatNormal.hidden = next !== 'normal';
-    workbenchHost.hidden = next !== 'workbench';
-    for (const [mode, entry] of modeButtons) entry.button.setAttribute('aria-pressed', String(mode === next));
+    const view = activeMode();
+    chatNormal.hidden = view !== 'normal';
+    workbenchHost.hidden = view !== 'workbench';
+    for (const [mode, entry] of modeButtons) entry.button.setAttribute('aria-pressed', String(mode === view));
     // Two persistent, independent timeline hosts. Switching only toggles
     // `hidden`; neither instance is moved, rebuilt, reset or reconnected.
-    if (next === 'workbench') ensureWorkbench()?.setVisible(true);
+    if (view === 'workbench') ensureWorkbench()?.setVisible(true);
     else workbench?.setVisible(false);
     updateModeBadge();
     update();
@@ -859,13 +881,31 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     window.dispatchEvent(new CustomEvent('orbit-open-workbench-window', { detail: { paneId } }));
   }, 'small-button');
   settings.append(openWorkbenchWindow);
+  // Experimental surface gate. The Workbench switch, goal handoff, separate
+  // window and task-result cards stay hidden until the owner enables Project
+  // Workbench in Orbit settings. Disabling never deletes durable tasks,
+  // candidates or results and never overwrites this pane's stored mode.
+  function applyExperimentalGates() {
+    if (disposed) return;
+    const on = workbenchAvailable();
+    modeControl.hidden = !on;
+    setUpTaskEntry.hidden = !on;
+    workbenchTask.hidden = !on;
+    openWorkbenchWindow.hidden = !on;
+    inspectWorkbench.hidden = !on;
+    experimentalNotice.hidden = on || panePrefs.mode !== 'workbench';
+    if (on) void refreshTaskCards();
+    else { taskCards.replaceChildren(); taskCards.hidden = true; cardsDigest = ''; }
+    setMode(paneMode, false);
+  }
+  const unsubscribeExperimental = subscribeExperimental(applyExperimentalGates);
   send.classList.add('chat-send');
   workbenchTask.classList.add('chat-composer-action');
   openWorkbenchWindow.classList.add('chat-composer-action');
   form.append(input, workbenchTask, send);
   form.onsubmit = e => { e.preventDefault(); void submit(); };
   input.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); void submit(); } };
-  chatNormal.append(strip, inlineTools.root, messages, taskCards, syncNotice, progress, historyRecovery, approvals, unknownAction, controls, queueList, form);
+  chatNormal.append(strip, experimentalNotice, inlineTools.root, messages, taskCards, syncNotice, progress, historyRecovery, approvals, unknownAction, controls, queueList, form);
   body.append(chatNormal, workbenchHost);
   if (toolbar) {
     toolbar.classList.add('agent-pane-head');
@@ -875,9 +915,10 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     chatNormal.prepend(badge);
   }
   render();
-  // Restore the persisted view after the DOM exists. This only reads host state
-  // (owner read APIs); it never starts a run or drains the queue.
-  setMode(paneMode, false);
+  // Restore the persisted view after the DOM exists, honoring the experimental
+  // gate. This only reads host state (owner read APIs); it never starts a run or
+  // drains the queue.
+  applyExperimentalGates();
   async function syncShared() {
     if (sharing || switching || pending || busy || polling || disposed || !getToken()) return;
     const requested = scope(), epoch = sharedEpoch;
@@ -960,13 +1001,14 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     if (state.run) void poll();
     if (getToken()) normalLive.connection('connecting', 'Connecting to activity stream');
     // A remembered Workbench project/attempt reconnects read-only lane/badge
-    // monitoring while Normal is selected, without mounting execution controls.
-    if (getToken() && panePrefs.projectId) ensureWorkbench()?.setVisible(paneMode === 'workbench');
+    // monitoring while Normal is selected, without mounting execution controls,
+    // and only while the experimental surface is enabled.
+    if (getToken() && panePrefs.projectId && workbenchAvailable()) ensureWorkbench()?.setVisible(paneMode === 'workbench');
   };
   window.addEventListener('orbit-host-connected', onUnlock);
   if (state.run) {
     progress.textContent = 'A saved run may still be active. Connect host to check its status. Closing the pane does not stop Hermes.';
     if (getToken()) void poll();
   }
-  return () => { saveDraft(); disposed = true; generation++; statusObserver.disconnect(); activity.dispose(); clearInterval(sharedTimer); stopToolFeed(); inlineTools.dispose(); workbench?.dispose(); timeline.dispose(); workbenchTimeline.dispose(); inspector.dispose(); overflowMenu.remove(); toolsDialog?.close(); liveController?.abort(); clearTimeout(timer); controller.abort(); document.removeEventListener('pointerdown', onOutsideMenu); window.removeEventListener('orbit-host-connected', onUnlock); window.removeEventListener('orbit-open-hermes-tools', onOpenTools); };
+  return () => { saveDraft(); disposed = true; generation++; unsubscribeExperimental(); statusObserver.disconnect(); activity.dispose(); clearInterval(sharedTimer); stopToolFeed(); inlineTools.dispose(); workbench?.dispose(); timeline.dispose(); workbenchTimeline.dispose(); inspector.dispose(); overflowMenu.remove(); toolsDialog?.close(); liveController?.abort(); clearTimeout(timer); controller.abort(); document.removeEventListener('pointerdown', onOutsideMenu); window.removeEventListener('orbit-host-connected', onUnlock); window.removeEventListener('orbit-open-hermes-tools', onOpenTools); };
 }

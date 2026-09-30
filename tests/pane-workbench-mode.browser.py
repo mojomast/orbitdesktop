@@ -78,6 +78,7 @@ def main(renderer):
             "if (window === window.top) {"
             "localStorage.setItem('orbit.workspace.id', %s);"
             "localStorage.setItem('orbit.workspace.v1', JSON.stringify(%s));"
+            "localStorage.setItem('orbit.experimental.v1', JSON.stringify({version:1,workbench:true}));"
             "if (!localStorage.getItem(%s)) localStorage.setItem(%s, JSON.stringify({version:1,mode:'workbench',projectId:'ghost-project',taskId:null,candidateId:null,attemptId:null,grantId:null,resultId:null,reviewId:null}));"
             "sessionStorage.setItem(%s, JSON.stringify(%s));"
             "}"

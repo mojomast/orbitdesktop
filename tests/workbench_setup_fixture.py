@@ -105,7 +105,7 @@ def setup_fixture():
 
 def seed(context, fixture):
     storage = {'orbit.workspace.id': fixture['workspace'], 'orbit.workspace.v1': json.dumps(fixture['state']),
-               'orbit.onboarded': 'true'}
+               'orbit.onboarded': 'true', 'orbit.experimental.v1': json.dumps({'version': 1, 'workbench': True})}
     chat = {'session': fixture['session'], 'profile_id': 'default', 'messages': []}
     context.add_init_script('''(() => {
       if (window !== window.top || sessionStorage.getItem('setup-fixture-seeded')) return;

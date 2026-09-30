@@ -71,6 +71,11 @@
 .agent-sync-notice { padding: 6px 12px; font-size: 12px; color: var(--theme-mutedColor, #bdc9c3); }
 .agent-history-recovery { align-self: flex-start; margin: 0 12px 6px; }
 .agent-history-recovery[hidden] { display: none; }
+/* Experimental-surface gate notice: only when this pane's stored mode is
+   Workbench while the feature is off in Orbit settings. */
+.agent-experimental-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 12px; padding: 8px 10px; border: 1px solid var(--theme-borderColor, #3a4a52); border-left-width: 4px; border-radius: 8px; background: color-mix(in srgb, var(--accent, #b5f268) 7%, transparent); font-size: 12px; }
+.agent-experimental-notice[hidden] { display: none; }
+.agent-experimental-notice span { flex: 1 1 220px; min-width: 0; }
 .agent-chat-normal .agent-activity-strip { flex-wrap: wrap; }
 .agent-chat-normal .agent-activity-strip > button { min-height: 28px; }
 

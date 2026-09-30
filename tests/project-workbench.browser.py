@@ -173,6 +173,7 @@ def main(renderer, linked=False):
                     context = browser.new_context(viewport={"width": 1800, "height": 1200})
                     context.add_init_script("if(window===window.top && !localStorage.getItem('orbit.workspace.id')) {"
                                             "localStorage.setItem('orbit.workspace.id'," + json.dumps(WORKSPACE_ID) + ");"
+                                            "localStorage.setItem('orbit.experimental.v1','{\"version\":1,\"workbench\":true}');"
                                             "localStorage.setItem('orbit.workspace.v1',JSON.stringify(" + json.dumps(state) + "));}")
                     page = context.new_page()
                     errors, responses, agent_requests, websockets = [], [], [], []

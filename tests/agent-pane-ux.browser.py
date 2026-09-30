@@ -57,6 +57,7 @@ def install_fixture(context, origin, name, width, height, theme=None):
              'grantId': 'fixture-grant' if wb else None, 'resultId': None, 'reviewId': None}
     storage = {'orbit.workspace.id': WORKSPACE, 'orbit.workspace.v1': json.dumps(layout),
                f'orbit-pane-prefs:{WORKSPACE}:{PANE}': json.dumps(prefs),
+               'orbit.experimental.v1': json.dumps({'version': 1, 'workbench': True}),
                'orbit.onboarded': 'true'}
     context.add_init_script('''(function() { const storage = %s;
       for (const [key,value] of Object.entries(storage)) localStorage.setItem(key,value);

@@ -119,7 +119,7 @@ def main(renderer):
                     chat = {"session": session, "profile_id": "default", "messages": []}
                     context.add_init_script("if(window===window.top){localStorage.setItem('orbit.workspace.id'," +
                         json.dumps(helper.WORKSPACE) + ");localStorage.setItem('orbit.workspace.v1',JSON.stringify(" +
-                        json.dumps(state) + "));sessionStorage.setItem('orbit-hermes-chat:" + helper.PANE +
+                        json.dumps(state) + "));localStorage.setItem('orbit.experimental.v1','{\"version\":1,\"workbench\":true}');sessionStorage.setItem('orbit-hermes-chat:" + helper.PANE +
                         "',JSON.stringify(" + json.dumps(chat) + "));}")
                     page = context.new_page()
                     page_errors, terminals, responses, api_responses, external = [], [], [], [], []

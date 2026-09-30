@@ -112,7 +112,8 @@ def main(renderer):
                     context = browser.new_context(viewport={"width": 1700, "height": 1100})
                     context.add_init_script(
                         "if(window===window.top){localStorage.setItem('orbit.onboarding.v1','done');localStorage.setItem('orbit.workspace.id'," + json.dumps(helper.WORKSPACE) +
-                        ");localStorage.setItem('orbit.workspace.v1',JSON.stringify(" + json.dumps(state) + "));}")
+                        ");localStorage.setItem('orbit.experimental.v1','{\"version\":1,\"workbench\":true}');" +
+                        "localStorage.setItem('orbit.workspace.v1',JSON.stringify(" + json.dumps(state) + "));}")
                     page = context.new_page()
                     page_errors = []
                     page.on("pageerror", lambda error: page_errors.append(str(error)))

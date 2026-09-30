@@ -218,7 +218,8 @@ def main(renderer):
                     chat = {"session": session, "profile_id": "default", "messages": []}
                     context.add_init_script(
                         "if(window===window.top){localStorage.setItem('orbit.onboarding.v1','done');localStorage.setItem('orbit.workspace.id'," + json.dumps(helper.WORKSPACE) +
-                        ");localStorage.setItem('orbit.workspace.v1',JSON.stringify(" + json.dumps(state) + "));sessionStorage.setItem('orbit-hermes-chat:" + helper.PANE + "',JSON.stringify(" + json.dumps(chat) + "));}")
+                        ");localStorage.setItem('orbit.experimental.v1','{\"version\":1,\"workbench\":true}');" +
+                        "localStorage.setItem('orbit.workspace.v1',JSON.stringify(" + json.dumps(state) + "));sessionStorage.setItem('orbit-hermes-chat:" + helper.PANE + "',JSON.stringify(" + json.dumps(chat) + "));}")
                     page = context.new_page()
                     page_errors, responses = [], []
                     page.on("pageerror", lambda error: page_errors.append(str(error)))

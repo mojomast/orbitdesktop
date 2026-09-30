@@ -269,7 +269,7 @@ def main(renderer):
                                 context = browser.new_context(viewport={'width': 1650, 'height': 1100})
                                 workspace = str(uuid.uuid4()); pane = str(uuid.uuid4()); monitor = str(uuid.uuid4())
                                 state = {'version': 1, 'selected': monitor, 'arc': 14, 'view': 'windows', 'monitors': [{'id': monitor, 'name': 'Workbench fixture', 'diagonal': 32, 'aspect': '16:9', 'height': 0, 'distance': 0, 'pitch': 0, 'yaw': 0, 'offset': 0, 'fontSize': 19, 'frame': {'x': 0, 'y': 0, 'width': 1050, 'height': 900, 'z': 0}, 'layout': {'type': 'pane', 'pane': {'id': pane, 'kind': 'agent', 'url': ''}}}]}
-                                context.add_init_script("if(window===window.top&&!localStorage.getItem('orbit.workspace.id')){localStorage.setItem('orbit.workspace.id'," + json.dumps(workspace) + ");localStorage.setItem('orbit.workspace.v1',JSON.stringify(" + json.dumps(state) + '));}')
+                                context.add_init_script("if(window===window.top&&!localStorage.getItem('orbit.workspace.id')){localStorage.setItem('orbit.workspace.id'," + json.dumps(workspace) + ");localStorage.setItem('orbit.experimental.v1','{\"version\":1,\"workbench\":true}');localStorage.setItem('orbit.workspace.v1',JSON.stringify(" + json.dumps(state) + '));}')
                                 page = context.new_page()
                                 try:
                                     journey(selected, page, origin, token, project)

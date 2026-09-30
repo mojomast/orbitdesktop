@@ -159,6 +159,13 @@
   border-color: var(--theme-accentColor, var(--lime, #b5f268));
 }
 
+/* Experimental gates hide items and their slots without leaving a gap. */
+#app .orbit-menu-item[hidden],
+#app .orbit-toolbar-item[hidden],
+#app .orbit-menu-item-slot[hidden] {
+  display: none !important;
+}
+
 #app .orbit-menu-foot {
   padding: 10px 12px 12px;
   border-top: 1px solid var(--theme-menuBorderColor, #2b3b3a);

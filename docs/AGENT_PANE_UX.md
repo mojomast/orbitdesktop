@@ -16,8 +16,11 @@ pending save/apply identities are reconciled explicitly against durable records;
 opening an arrangement never submits a model request or releases an execution
 lane. See [arrangement contracts](WORKSPACE_ARRANGEMENTS_API.md).
 
-Normal mode keeps the conversation title, one concise runtime status, the
-Normal/Workbench switch, and an overflow control in its permanent header. The
+Normal mode keeps the conversation title, one concise runtime status, and an
+overflow control in its permanent header. When **Project Workbench** is enabled
+in Orbit settings, the header also keeps the Normal/Workbench switch; otherwise
+the switch, goal handoff, separate Workbench window and task-result cards stay
+hidden while the pane keeps its stored preference and remains a normal chat. The
 composer has one primary Send control and compact secondary actions. Profile and
 session binding, rename/color, notification preferences, workspace-agent overview,
 healthy submission receipts belong in secondary surfaces.

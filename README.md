@@ -18,13 +18,16 @@ off by default. Read the [deployment guide](docs/DEPLOYMENT.md) before upgrading
 an existing runtime. The [evolution testing guide](docs/TESTING_BRANCH.md) records
 the integration's historical development and acceptance evidence.
 
-**Comet Project Workbench:** describe a goal, review an editable brief and prepare
-a tracked task through [guided setup](docs/WORKBENCH_SETUP.md). Preparation is
-separate from approving execution. Project inspection, scoped context sharing,
-configured native workers, recorded candidate checks and human review have
-distinct authority boundaries. [Current capabilities and limits](docs/PROJECT_WORKBENCH.md)
-describe supported profiles and configuration; a working chat connection alone
-does not configure native Workbench execution.
+**Comet Project Workbench (experimental, off by default):** enable it in
+**Orbit settings** (◉ orbit menu → Orbit settings) and then describe a goal,
+review an editable brief and prepare a tracked task through
+[guided setup](docs/WORKBENCH_SETUP.md). Preparation is separate from approving
+execution. Project inspection, scoped context sharing, configured native workers,
+recorded candidate checks and human review have distinct authority boundaries.
+[Current capabilities and limits](docs/PROJECT_WORKBENCH.md) describe supported
+profiles and configuration; a working chat connection alone does not configure
+native Workbench execution. Disabling the experimental surface hides its controls
+without deleting stored tasks, candidates or results.
 
 **Choosing a layout:** [Desktop and experimental Docking](docs/RENDERER_COMPARISON.md)
 arrange the same chats, terminals and apps in different ways. The default Desktop

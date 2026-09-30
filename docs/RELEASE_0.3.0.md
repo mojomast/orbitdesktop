@@ -6,6 +6,11 @@ API and sandboxed app-manifest formats remain independently versioned. The
 `hermes-plugin-v0.3.0` GitHub release records the exact catalog-pinned commit and
 bundled-source checksum. Catalog acceptance is a separate reviewed SHA update.
 
+> **Post-publication note (source `main` after `hermes-plugin-v0.3.0`).** Project
+> Workbench became an experimental, off-by-default surface enabled in Orbit
+> settings. The published 0.3.0 plugin pin still bundles the version described
+> above; the changed default ships in the next versioned package.
+
 ## Highlights since main
 
 - **Conversation-first Workbench:** describe a goal, edit a brief, review task

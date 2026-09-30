@@ -183,7 +183,7 @@ def main(renderer):
                                                   permissions=["clipboard-read", "clipboard-write"])
                     chat = {"session": session, "profile_id": "default", "messages": []}
                     context.add_init_script("if(window===window.top){localStorage.setItem('orbit.workspace.id'," +
-                        json.dumps(WORKSPACE) + ");localStorage.setItem('orbit.workspace.v1',JSON.stringify(" + json.dumps(state) + "));" +
+                        json.dumps(WORKSPACE) + ");localStorage.setItem('orbit.experimental.v1','{\"version\":1,\"workbench\":true}');localStorage.setItem('orbit.workspace.v1',JSON.stringify(" + json.dumps(state) + "));" +
                         "sessionStorage.setItem('orbit-hermes-chat:" + PANE + "',JSON.stringify(" + json.dumps(chat) + "));}")
                     page = context.new_page()
                     errors, responses, terminals = [], [], []

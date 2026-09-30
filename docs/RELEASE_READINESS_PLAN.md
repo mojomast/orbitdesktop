@@ -14,6 +14,15 @@ then-open decisions and baseline versions. It is retained as evidence, not a
 current deployment instruction or a claim that every proposed usability,
 performance or accessibility assessment has been completed.
 
+Post-release follow-up on `main`: Project Workbench is now an **experimental,
+off-by-default** surface enabled in **Orbit settings** (◉ orbit menu → Orbit
+settings → Experimental features → Project Workbench). All Workbench entry points
+and task-result cards stay hidden while it is off; stored tasks, candidates,
+results and per-pane mode preferences are preserved, and the server authority
+boundaries are unchanged. `tests/experimental-workbench.browser.py` covers the
+gate. This change is not part of the published 0.3.0 pin and will be included in
+the next versioned package.
+
 ## Baseline and release decision
 
 Assessment baseline: `workbench/next-integration` at `3a0262a`, compared with

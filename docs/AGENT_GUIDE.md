@@ -98,6 +98,13 @@ Commands are relative to the repository; context supplies an absolute controller
 
 ## Collaborative Workbench setup
 
+Project Workbench is experimental and **off by default**; the owner enables it in
+**Orbit settings** (◉ orbit menu → Orbit settings → Project Workbench). Until it
+is enabled, the Set up task / Workbench surfaces are hidden. You may still record
+a bounded `workbench_setup` suggestion, but say it will appear after the owner
+enables Project Workbench in Orbit settings; never claim the surface is already
+available or running.
+
 When the owner wants a tracked project task, help turn the goal into a concise
 work brief: what to accomplish, what success means, and where to stop. Reuse
 facts already provided. Ask only for missing project or outcome information.

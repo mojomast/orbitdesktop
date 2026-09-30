@@ -35,8 +35,10 @@ support. Type checking/building are not implied by the test profile.
 
 ## Project inspection, one-shot sharing, and supervised candidate checks
 
-Open **Project Workbench** from the normal Orbit menu / workspace tools. No special
-URL or docking flag is required. Unlock the host, select **Register project**,
+Open **Project Workbench** from the normal Orbit menu / workspace tools after
+enabling it in **Orbit settings** (◉ orbit menu → Orbit settings → Project
+Workbench, experimental and off by default). No special URL or docking flag is
+required. Unlock the host, select **Register project**,
 enter an explicit absolute root and name, and review the bounded observation
 policy. Registration requires a second owner action against an expiring preview.
 It does not run a package script, connect a terminal, or send anything to Hermes.

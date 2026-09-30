@@ -7,6 +7,8 @@ import { installViewport } from './viewport';
 import { installOrbitMenu, type OrbitMenuItem, type OrbitMenuSection } from './orbit-menu';
 import { workspaceExtensions } from './workspace-extensions';
 import { installStart } from './taskbar';
+import { showOrbitSettings } from './orbit-settings';
+import { experimentalEnabled, subscribeExperimental } from './experimental';
 import { showOnboarding, offerOnboarding } from './onboarding';
 window.addEventListener('load', () => offerOnboarding(), { once: true });
 import { installLayoutSwitcher } from './layout-switcher';
@@ -154,7 +156,9 @@ installStart(navigation, () => [
   { title: 'Getting started', detail: 'Tour Orbit: controls, layouts, ask Hermes and build apps', run: showOnboarding },
   ...state.monitors.map(m => ({ title: m.name, detail: 'Open window', run: () => { if (focused) focus(m.id); else choose(m.id); } })),
   { title: 'New agent chat', detail: 'Talk to Hermes', run: () => addMonitor('agent') },
-  { title: 'New Workbench window', detail: 'Separate Workbench beside Hermes', run: () => openWorkbenchWindow() },
+  ...experimentalEnabled('workbench')
+    ? [{ title: 'New Workbench window', detail: 'Separate Workbench beside Hermes', run: () => openWorkbenchWindow() }]
+    : [],
   { title: 'New terminal', detail: 'Open a host terminal pane', run: () => addMonitor('terminal') },
   { title: 'New browser', detail: 'Open an app or website', run: () => addMonitor('browser') },
   { title: 'Windows view', detail: 'Movable desktop windows', run: () => setView('windows') },
@@ -293,6 +297,19 @@ const hermesMenuItems: OrbitMenuItem[] = workspaceExtensions.map(extension => ({
       .catch(error => notify(`${extension.title} could not open: ${String(error)}`));
   }),
 }));
+// Experimental Project Workbench surfaces stay hidden until the owner enables
+// them in Orbit settings. The settings entry point itself is always available.
+const workbenchWindowMenuButton = button('New Workbench window', 'New Workbench window', () => openWorkbenchWindow());
+const orbitSettingsMenuButton = button('Orbit settings', 'Orbit settings', () => showOrbitSettings());
+const projectWorkbenchMenuButton = hermesMenuItems.find(item => item.id === 'hermes-project-workbench')?.button;
+function syncExperimentalMenuItems() {
+  const on = experimentalEnabled('workbench');
+  for (const node of [workbenchWindowMenuButton, projectWorkbenchMenuButton]) {
+    if (!node) continue;
+    node.hidden = !on;
+    node.closest<HTMLElement>('.orbit-menu-item-slot')?.toggleAttribute('hidden', !on);
+  }
+}
 function openHermesTools() {
   const target = state.monitors.find(m => m.id === (focused ?? state.selected));
   const agent = target ? leaves(target.layout).find(p => p.kind === 'agent') : undefined;
@@ -316,13 +333,19 @@ function orbitMenuSections(): OrbitMenuSection[] {
     ] },
     { id: 'hermes', title: 'Hermes', detail: 'Hermes runtime tools and conversations, reachable without opening a chat pane.', items: [
       { id: 'hermes-chat', label: 'New Hermes chat', icon: '✧', button: button('New Hermes chat', 'New Hermes chat', () => addMonitor('agent')) },
-      { id: 'hermes-workbench-window', label: 'New Workbench window', icon: '◧', button: button('New Workbench window', 'New Workbench window', () => openWorkbenchWindow()) },
+      { id: 'hermes-workbench-window', label: 'New Workbench window', icon: '◧', button: workbenchWindowMenuButton },
       { id: 'hermes-tools', label: 'Tools & conversations', icon: '⋯', button: button('Tools & conversations', 'Tools & conversations', () => openHermesTools()) },
       ...hermesMenuItems,
+    ] },
+    { id: 'settings', title: 'Settings', detail: 'Preferences saved in this browser.', items: [
+      { id: 'settings-orbit', label: 'Orbit settings', icon: '⚙', button: orbitSettingsMenuButton },
     ] },
   ];
 }
 const orbitMenu = installOrbitMenu({ toolbar: orbitToolbar, drawerHost: app, logo: logoButton, sections: orbitMenuSections });
+// Place menu items first, then apply and subscribe the experimental gates.
+syncExperimentalMenuItems();
+subscribeExperimental(syncExperimentalMenuItems);
 const scene = new DesktopScene(stage);
 scene.configureCamera(state.spatialCamera, pose => { state.spatialCamera = pose; save(); });
 installSpatialControls(stage, scene, () => state, () => { updateScene(); renderInspector(); save(); });
@@ -1084,7 +1107,13 @@ function focusPane(paneId: string): boolean {
 // Opens (or re-focuses) a dedicated Workbench agent pane beside the Normal one.
 // The new pane's mode is persisted before its first render and it starts its own
 // fresh conversation; no chat, draft, context, grant or candidate is copied.
+// The surface is experimental and off until enabled in Orbit settings.
 function openWorkbenchWindow(normalPaneId?: string) {
+  if (!experimentalEnabled('workbench')) {
+    notify('Project Workbench is experimental and off. Enable it in Orbit settings.');
+    showOrbitSettings();
+    return;
+  }
   if (normalPaneId && !paneExists(normalPaneId)) return;
   if (normalPaneId) {
     const paired = readPanePrefs(workspaceId, normalPaneId).pairedPaneId;
