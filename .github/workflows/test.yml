@@ -25,3 +25,8 @@ jobs:
         run: mkdir -p /tmp/opencode
       - run: npm run check
       - run: python3 -m unittest discover -s tests -p test_hermes_plugin.py -v
+      - name: Widget schema and publisher parity
+        run: |
+          python3 tests/plugin-config-schema.test.py
+          python3 tests/plugin-publish.test.py
+          python3 tests/test_orbit_bundle.py
