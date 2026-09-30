@@ -1,7 +1,13 @@
 name: Orbit workbench browser tests
-# Owner-only Project Workbench browser gate. Runs the Node/contract regression
-# gate plus the dedicated Project Workbench browser fixture under BOTH renderers
-# (default and docking).
+# Isolated browser/regression gate for Orbit, run under BOTH renderers (default
+# and docking).
+#
+# Scope policy (owner decision): the default gate runs core, workspace, tools,
+# themes and chat on every push, pull request and release branch. The deep
+# Project Workbench suites (execution, results) and the Project Workbench
+# registration runs are deferred because the feature is experimental and off by
+# default; they run when Workbench-related files change, on release branches and
+# tags, on a weekly schedule, and on manual dispatch. See the `changes` job.
 #
 # Runner: GitHub-hosted ubuntu-latest. Each fixture run builds and serves its own
 # disposable temp root under /tmp/opencode; the checkout is not an owner runtime.
@@ -11,21 +17,66 @@ name: Orbit workbench browser tests
 on:
   push:
   pull_request:
+  schedule:
+    # Weekly full run so the deferred Workbench suites cannot silently rot.
+    - cron: '17 5 * * 1'
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
   group: workbench-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
+  changes:
+    name: Detect Workbench scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      workbench: ${{ steps.scope.outputs.workbench }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Diffing the pushed range needs the previous commit available.
+          fetch-depth: 0
+      - id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          BEFORE: ${{ github.event.before }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          emit() { echo "workbench=$1" >> "$GITHUB_OUTPUT"; }
+          # Manual runs and the weekly schedule exercise every suite.
+          if [ "$EVENT" = "schedule" ] || [ "$EVENT" = "workflow_dispatch" ]; then emit true; exit 0; fi
+          # Releases always validate the packaged Workbench as shipped.
+          case "$REF" in
+            refs/heads/release/*|refs/tags/*) emit true; exit 0;;
+          esac
+          if [ "$EVENT" = "pull_request" ]; then
+            git fetch --depth=1 origin "$BASE_REF"
+            changed=$(git diff --name-only FETCH_HEAD...HEAD || true)
+          elif [ -n "${BEFORE:-}" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ]; then
+            changed=$(git diff --name-only "$BEFORE"...HEAD || true)
+          else
+            # New branch without a reachable previous commit: run the full gate.
+            emit true; exit 0
+          fi
+          if printf '%s\n' "$changed" | grep -qE '^(src/(workbench-|pane-workbench|candidate-diff-|project-workbench)|server/(workbench-|project-tools|project-files)|contracts/workbench-|tests/workbench[-_]|hermes-plugin/workbench)'; then
+            emit true
+          else
+            emit false
+          fi
   checks:
     name: Workbench / ${{ matrix.suite }}
+    needs: changes
     runs-on: ubuntu-latest
     timeout-minutes: 25
     strategy:
       fail-fast: false
       max-parallel: 7
       matrix:
-        suite: [core, workspace, tools, themes, chat, execution, results]
+        suite: [core, workspace, tools, themes, chat]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -52,11 +103,11 @@ jobs:
           PY
       - run: npm ci
       - uses: astral-sh/setup-uv@v6
-        if: contains(fromJSON('["core", "execution", "results"]'), matrix.suite)
+        if: matrix.suite == 'core'
         with:
           version: '0.11.2'
       - name: Prepare pinned Hermes runtime for local-model acceptance
-        if: contains(fromJSON('["core", "execution", "results"]'), matrix.suite)
+        if: matrix.suite == 'core'
         run: |
           git clone --no-checkout https://github.com/NousResearch/hermes-agent /tmp/opencode/orbit-hermes-native
           git -C /tmp/opencode/orbit-hermes-native checkout --detach d0288be5b3330d2442e3907185b8e9d0958297bb
@@ -108,8 +159,8 @@ jobs:
           python3 -m venv /tmp/opencode/orbit-workbench-venv
           /tmp/opencode/orbit-workbench-venv/bin/pip install --disable-pip-version-check playwright==1.58.0
           /tmp/opencode/orbit-workbench-venv/bin/python -m playwright install --with-deps chromium
-      - name: Exercise both workbench renderers on disposable fixtures
-        if: ${{ !cancelled() && matrix.suite == 'workspace' && steps.browser_tools.outcome == 'success' }}
+      - name: Exercise both workbench renderers on disposable fixtures (Project Workbench)
+        if: ${{ !cancelled() && matrix.suite == 'workspace' && steps.browser_tools.outcome == 'success' && needs.changes.outputs.workbench == 'true' }}
         env:
           PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
         run: |
@@ -184,6 +235,95 @@ jobs:
           for renderer in default docking; do
             /tmp/opencode/orbit-workbench-venv/bin/python tests/candidate-diff-review.browser.py --renderer "$renderer"
           done
+      - name: Upload sanitized synthetic failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workbench-${{ matrix.suite }}-failure-screenshot
+          if-no-files-found: ignore
+          retention-days: 7
+          # Strict allowlist: fixture-emitted synthetic screenshots (token
+          # masked) and native fixture logs (safe() redacts secrets).
+          path: |
+            /tmp/opencode/orbit-project-workbench-default.png
+            /tmp/opencode/orbit-project-workbench-docking.png
+            /tmp/opencode/orbit-workbench-context-default.png
+            /tmp/opencode/orbit-workbench-context-docking.png
+            /tmp/opencode/orbit-workbench-execution-default.png
+            /tmp/opencode/orbit-workbench-execution-docking.png
+            /tmp/opencode/orbit-workbench-journey-default.png
+            /tmp/opencode/orbit-workbench-journey-docking.png
+            /tmp/opencode/comet-results-default-error.png
+            /tmp/opencode/comet-results-docking-error.png
+            /tmp/opencode/comet-native-browser-default.log
+            /tmp/opencode/comet-native-browser-docking.log
+            /tmp/opencode/comet-results-ui-default-error.png
+            /tmp/opencode/comet-results-ui-docking-error.png
+            /tmp/opencode/comet-recovery-revocation-default-error.png
+            /tmp/opencode/comet-recovery-revocation-docking-error.png
+            /tmp/opencode/comet-artifact-cancel-default-error.png
+            /tmp/opencode/comet-artifact-cancel-docking-error.png
+            /tmp/opencode/orbit-arrangements-default-semantic-preview-*.png
+            /tmp/opencode/orbit-arrangements-docking-semantic-preview-*.png
+            /tmp/opencode/orbit-arrangements-default-changes-collapsed-*.png
+            /tmp/opencode/orbit-arrangements-docking-changes-collapsed-*.png
+            /tmp/opencode/project-tools-default-manager-*.png
+            /tmp/opencode/project-tools-docking-manager-*.png
+            /tmp/opencode/project-tools-default-notebook-*.png
+            /tmp/opencode/project-tools-docking-notebook-*.png
+            /tmp/opencode/orbit-studio-default.png
+            /tmp/opencode/orbit-studio-docking.png
+  workbench-heavy:
+    name: Workbench / ${{ matrix.suite }}
+    needs: changes
+    if: needs.changes.outputs.workbench == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        suite: [execution, results]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.1'
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install tmux
+        run: sudo apt-get update && sudo apt-get install -y tmux
+      - name: Prepare isolated test scratch directory
+        run: mkdir -p /tmp/opencode
+      - name: Check Python fixture syntax on the selected interpreter
+        run: |
+          python3 - <<'PY'
+          import ast
+          from pathlib import Path
+          for path in Path('tests').glob('*.py'):
+              ast.parse(path.read_text(), filename=str(path))
+          PY
+      - run: npm ci
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.11.2'
+      - name: Prepare pinned Hermes runtime for local-model acceptance
+        run: |
+          git clone --no-checkout https://github.com/NousResearch/hermes-agent /tmp/opencode/orbit-hermes-native
+          git -C /tmp/opencode/orbit-hermes-native checkout --detach d0288be5b3330d2442e3907185b8e9d0958297bb
+          uv sync --project /tmp/opencode/orbit-hermes-native --frozen --python 3.14 --no-default-groups
+      - name: Install Playwright and Chromium system dependencies
+        id: browser_tools
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
+        run: |
+          python3 -m venv /tmp/opencode/orbit-workbench-venv
+          /tmp/opencode/orbit-workbench-venv/bin/pip install --disable-pip-version-check playwright==1.58.0
+          /tmp/opencode/orbit-workbench-venv/bin/python -m playwright install --with-deps chromium
       - name: Real-backend cross-mode live journey on both renderers
         if: ${{ !cancelled() && matrix.suite == 'execution' && steps.browser_tools.outcome == 'success' }}
         env:
@@ -253,8 +393,6 @@ jobs:
           name: workbench-${{ matrix.suite }}-failure-screenshot
           if-no-files-found: ignore
           retention-days: 7
-          # Strict allowlist: fixture-emitted synthetic screenshots (token
-          # masked) and native fixture logs (safe() redacts secrets).
           path: |
             /tmp/opencode/orbit-project-workbench-default.png
             /tmp/opencode/orbit-project-workbench-docking.png
@@ -274,23 +412,22 @@ jobs:
             /tmp/opencode/comet-recovery-revocation-docking-error.png
             /tmp/opencode/comet-artifact-cancel-default-error.png
             /tmp/opencode/comet-artifact-cancel-docking-error.png
-            /tmp/opencode/orbit-arrangements-default-semantic-preview-*.png
-            /tmp/opencode/orbit-arrangements-docking-semantic-preview-*.png
-            /tmp/opencode/orbit-arrangements-default-changes-collapsed-*.png
-            /tmp/opencode/orbit-arrangements-docking-changes-collapsed-*.png
-            /tmp/opencode/project-tools-default-manager-*.png
-            /tmp/opencode/project-tools-docking-manager-*.png
-            /tmp/opencode/project-tools-default-notebook-*.png
-            /tmp/opencode/project-tools-docking-notebook-*.png
-            /tmp/opencode/orbit-studio-default.png
-            /tmp/opencode/orbit-studio-docking.png
   workbench:
     name: workbench
     if: always()
-    needs: checks
+    needs: [changes, checks, workbench-heavy]
     runs-on: ubuntu-latest
     steps:
-      - name: Require every isolated suite to pass
+      - name: Require every enabled isolated suite to pass
         env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
           CHECKS_RESULT: ${{ needs.checks.result }}
-        run: test "$CHECKS_RESULT" = success
+          HEAVY_RESULT: ${{ needs.workbench-heavy.result }}
+        run: |
+          set -euo pipefail
+          test "$CHANGES_RESULT" = success
+          test "$CHECKS_RESULT" = success
+          case "$HEAVY_RESULT" in
+            success|skipped) echo "Deferred Workbench suites: $HEAVY_RESULT";;
+            *) echo "Deferred Workbench suites failed: $HEAVY_RESULT"; exit 1;;
+          esac
