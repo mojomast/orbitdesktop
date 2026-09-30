@@ -22,9 +22,17 @@ interface EventPage {
 
 const PAGE_LIMIT = 100;
 const MAX_PAGES_PER_POLL = 4;
-const POLL_INTERVAL_MS = 1200;
 const REQUEST_TIMEOUT_MS = 15000;
 const MAX_RESPONSE_BYTES = 2_000_000;
+
+/** Foreground event-poll cadence; hidden idle pages use the backed-off value. */
+export const FOREGROUND_POLL_MS = 1200;
+export const HIDDEN_POLL_MS = 15000;
+
+/** Shared visibility policy for both the state and event polling paths. */
+export function visibilityAwarePollMs(hidden: boolean): number {
+  return hidden ? HIDDEN_POLL_MS : FOREGROUND_POLL_MS;
+}
 
 async function readPage(response: Response): Promise<unknown> {
   const reader=response.body?.getReader();
@@ -93,12 +101,14 @@ function parsePage(value: unknown, workspaceId: string, cursor: number): EventPa
 }
 
 /** Poll finite pages of advisory event metadata; the normal workspace read remains authoritative. */
-export function connectWorkspaceEvents({ workspaceId, getToken, onChange, onReset, status }: {
+export function connectWorkspaceEvents({ workspaceId, getToken, onChange, onReset, status, pollIntervalMs }: {
   workspaceId: string;
   getToken: () => string;
   onChange: (event: WorkspaceEvent) => void;
   onReset: () => void;
   status?: (message: string) => void;
+  /** Fixed or dynamic poll cadence (e.g. visibility-aware); defaults to foreground. */
+  pollIntervalMs?: number | (() => number);
 }): { close: () => void; poll: () => Promise<void> } {
   let cursor = 0;
   let lastToken = '';
@@ -109,8 +119,13 @@ export function connectWorkspaceEvents({ workspaceId, getToken, onChange, onRese
   let failed = false;
   let resetNotified = false;
 
+  function nextIntervalMs() {
+    const value = typeof pollIntervalMs === 'function' ? pollIntervalMs() : pollIntervalMs;
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : FOREGROUND_POLL_MS;
+  }
+
   function schedule() {
-    if (!closed) timer = setTimeout(() => { void poll(); }, POLL_INTERVAL_MS);
+    if (!closed) timer = setTimeout(() => { void poll(); }, nextIntervalMs());
   }
 
   function poll(): Promise<void> {

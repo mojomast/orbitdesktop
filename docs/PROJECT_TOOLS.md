@@ -207,11 +207,12 @@ payload, including a changed pane selector, cannot reuse the operation key.
 
 ## Migration, backup and rollback
 
-- A schema-9 database upgrades transactionally on open to schema 10 with all new
+- The schema-9→10 step upgrades transactionally with all new
   tables empty. Workspace/checkpoint/receipt/bundle/Workbench records and legacy
-  v1 plugins are preserved.
-- A real archived **schema-9 reader refuses schema 10**; the current reader
-  refuses schema 11. Mixed-version writers remain unsupported.
+  v1 plugins are preserved. Current source continues through the version-only
+  Studio/widget writer fences to schema 12.
+- A real archived **schema-9 reader refuses schema 10** and later schemas; the
+  current reader refuses future schema 13. Mixed-version writers remain unsupported.
 - SQLite backup/restore carries the schema-10 tables. `restore --preserve-schema`
   copies an older artifact untouched (for example a genuine schema-9 backup stays
   schema 9) and never down-converts.
@@ -222,12 +223,12 @@ payload, including a changed pane selector, cannot reuse the operation key.
 ## Verification
 
 `tests/project-tools-migration.test.mjs` covers the additive empty migration,
-new-table shape, backup round-trip, schema-9 reader refusal / schema-11 refusal
+new-table shape, backup round-trip, archived-reader refusal / future-schema refusal
 and the read-only `legacy_plugins` projection. The new-table check derives table
 names from `projectToolsSchemaSql`, so an added table such as `wb_tool_grants`
 is covered automatically without hardcoding its name. Existing schema assertions
-were bumped to 10 (and future to 11) across the Node suite, and the Project
-Workbench browser doctor fixture now expects `schema_version: 10`. The backend
+were originally bumped to 10 (and future to 11) by this increment; current tests
+and the Project Workbench doctor now expect `schema_version: 12`. The backend
 service, its grant scope/generation checks and its own behavior tests are owned
 separately (`server/project-tools.mjs`, `tests/project-tools.test.mjs`); the owner
 route and new UI are owned by the integration and frontend increments

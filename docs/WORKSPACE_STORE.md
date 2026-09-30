@@ -1,6 +1,40 @@
 # Workspace store: compatibility, migration, and operations
 
-Orbit's workspace authority is `PATH/workspace.sqlite` (current source schema `user_version=11`), where `PATH` is the configured runtime directory (`ORBIT_RUNTIME_DIR`, or the repository's `.runtime` by default). `server/workspace.mjs` uses `SqliteWorkspaceStore`; this is still a single-owner workspace, not a multi-user database service. The v1 workspace state and command shapes remain defined by `contracts/workspace-v1.mjs`. Layout, docking placement, plugin registration/configuration, checkpoint state, independent recovery policy, bundle metadata, Workbench records, durable workspace arrangements, private project tools and workspace capability are stored in the database; published app bytes, terminal processes, conversations, external effects and arbitrary runtime files are not workspace snapshots. Schema numbers below are incremental historical descriptions, not claims that old versions are the current baseline.
+Orbit's workspace authority is `PATH/workspace.sqlite` (current source schema `user_version=12`), where `PATH` is the configured runtime directory (`ORBIT_RUNTIME_DIR`, or the repository's `.runtime` by default). `server/workspace.mjs` uses `SqliteWorkspaceStore`; this is still a single-owner workspace, not a multi-user database service. The v1 workspace state and command shapes remain defined by `contracts/workspace-v1.mjs`. Layout, docking placement, plugin registration/configuration, checkpoint state, independent recovery policy, bundle metadata, Workbench records, durable workspace arrangements, private project tools and workspace capability are stored in the database; published app bytes, terminal processes, conversations, external effects and arbitrary runtime files are not workspace snapshots. Schema numbers below are incremental historical descriptions, not claims that old versions are the current baseline.
+
+## Plugin layout writer compatibility (schema 12)
+
+The 11→12 migration changes only `user_version`, preserving all existing tables,
+records, receipts (including Studio revocations), revisions and checkpoints.
+Serialized layout remains v1, with optional plugin `instance_id` and manifest
+`configSchema` fields. Schema-11 writers can silently discard these fields during
+whole-layout writes; they must refuse schema 12 on reopen with `UPGRADE_REQUIRED`.
+This startup fence does not eject already-open old connections: stop all writers
+before upgrading and retain the complete pre-upgrade backup and matching binary.
+Older browsers on a new server additionally require the browser feature fence;
+the SQLite version alone cannot establish browser compatibility.
+
+Normal restore upgrades supported older backups to 12. `--preserve-schema` retains
+the exact source version (including 10 or 11) for its matching binary; it never
+down-converts a schema-12 backup. Bundle administration requires schema 12 and
+refuses implicit upgrades. Current source refuses future schema 13.
+
+## Private continuity records outside SQLite
+
+The default workspace's new continuity features also keep bounded private records
+under the runtime root:
+
+| Directory | Contents |
+| --- | --- |
+| `conversation-private/` | Host-backed drafts and Orbit conversation names/pins/archive flags |
+| `saved-workspace-layouts/` | Named layout definitions; live placements and apply receipts remain in SQLite |
+| `output-library/` | Published-output aliases, pins and tags |
+
+Include these directories in a complete stopped-writer runtime backup. A
+`workspace.sqlite` backup or layout checkpoint alone does not include them.
+These file-backed catalogs assume a single Orbit service writer for the runtime;
+multiple browsers use the authenticated service and its conflict handling.
+Conversation records contain private text and must remain outside source control.
 
 ## Studio writer compatibility (schema 11)
 
@@ -82,7 +116,7 @@ SQLite backup carries their private payloads; candidate directories and log file
 require a separately consistent private runtime backup. Layout checkpoints and old
 whole-state clients cannot erase these records or restore approvals. Schema-5
 binaries reject version 6; use a compatible pre-upgrade backup for rollback.
-The current restore CLI accepts schemas 1–11; `--preserve-schema` never down-converts.
+The current restore CLI accepts schemas 1–12; `--preserve-schema` never down-converts.
 
 ## Project Workbench schema upgrade (version 5; historical migration)
 
@@ -179,11 +213,11 @@ node --experimental-strip-types scripts/workspace_store.mjs export-legacy --runt
 
 `diagnose` reports schema version, WAL mode, foreign keys, SQLite `quick_check`, counts of workspaces/checkpoints/receipts/events and whether a connection projection error was observed. It is a point-in-time diagnostic, not a rendering or external-resource check. The store requires WAL journaling and `synchronous=FULL`; keep the live database and its SQLite sidecars together rather than treating a raw copy of `workspace.sqlite` as a consistent online backup. `backup` uses SQLite's backup API, checks its standalone output and atomically publishes to an unused path without overwriting an existing destination. It does not copy app bundles or other runtime resources. Coordinate with writers when taking an operationally consistent whole-runtime backup.
 
-`restore` validates SQLite schemas 1–11 (`quick_check` and bootstrap marker), stages the backup, upgrades older schemas if needed, and publishes an entirely **new**, nonexistent runtime directory; it will not overwrite a runtime. Schemas 2–11 retain recovery hold and generation. SQLite backup/restore carries placement/checkpoint copies, Workbench records, private project-tool tables and Studio revocation receipts. Newer schemas refuse with `UPGRADE_REQUIRED`. Stop servers first and separately provide required bundles/other runtime resources. Restore does not restart a server. `export-legacy` refuses an active recovery hold; otherwise it writes an offline archive of current workspace/checkpoint JSON with `EXPORT_WARNING.txt`. Export cannot preserve Workbench or private project-tool tables in legacy layouts. Older consumers also lose receipts/outbox, bundle indexing, policy enforcement and newer placement semantics. Export does not remove SQLite authority or migrate bundles. Prefer a compatible pre-upgrade backup and separate runtime for rollback; never run mixed-version writers. None of these procedures undo shell, conversation, network or external effects.
+`restore` validates SQLite schemas 1–12 (`quick_check` and bootstrap marker), stages the backup, upgrades older schemas if needed, and publishes an entirely **new**, nonexistent runtime directory; it will not overwrite a runtime. Schemas 2–12 retain recovery hold and generation. SQLite backup/restore carries placement/checkpoint copies, Workbench records, private project-tool tables and Studio revocation receipts. Newer schemas refuse with `UPGRADE_REQUIRED`. Stop servers first and separately provide required bundles/other runtime resources. Restore does not restart a server. `export-legacy` refuses an active recovery hold; otherwise it writes an offline archive of current workspace/checkpoint JSON with `EXPORT_WARNING.txt`. Export cannot preserve Workbench or private project-tool tables in legacy layouts. Older consumers also lose receipts/outbox, bundle indexing, policy enforcement and newer placement semantics. Export does not remove SQLite authority or migrate bundles. Prefer a compatible pre-upgrade backup and separate runtime for rollback; never run mixed-version writers. None of these procedures undo shell, conversation, network or external effects.
 
 ### Rolling back to a pre-upgrade backup (`--preserve-schema`)
 
-`restore --preserve-schema` is the operator path for a **matching older binary** and pre-upgrade backup. It validates the backup privately and read-only (`quick_check`, bootstrap marker, `user_version` in 1–9; newer versions refuse with `UPGRADE_REQUIRED`), copies it through SQLite's backup API into a **new** runtime, checks integrity, and reports `schema_version`. It does **not** instantiate the newer store or migrate the copy; the source remains byte-identical and existing destinations are refused.
+`restore --preserve-schema` is the operator path for a **matching older binary** and pre-upgrade backup. It validates the backup privately and read-only (`quick_check`, bootstrap marker, `user_version` in 1–12; newer versions refuse with `UPGRADE_REQUIRED`), copies it through SQLite's backup API into a **new** runtime, checks integrity, and reports `schema_version`. It does **not** instantiate the newer store or migrate the copy; the source remains byte-identical and existing destinations are refused.
 
 Procedure:
 

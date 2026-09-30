@@ -28,7 +28,7 @@ export function connectWorkspace(getState: () => Workspace, apply: (state: Works
     const snapshot = changes;
     let response: Response;
     try {
-      response = await workspaceFetch(getToken(), { action, workspace_id: workspaceId, observed_revision: revision, ...(action === 'sync' ? { base_revision: revision, state: getState(), intent: 'Synchronize browser workspace changes' } : {}) });
+      response = await workspaceFetch(getToken(), { action, workspace_id: workspaceId, observed_revision: revision, ...(action === 'sync' ? { base_revision: revision, state: getState(), client_features: ['plugin-instances-v1', 'plugin-config-schema-v1'], intent: 'Synchronize browser workspace changes' } : {}) });
     } catch (error) {
       if (action === 'sync') holdLocalChanges();
       throw error;
@@ -137,8 +137,23 @@ export function connectWorkspace(getState: () => Workspace, apply: (state: Works
       if (!document.querySelector('dialog[aria-label="Workspace plugins"]')) void import('./plugin-manager').then(m => m.showPlugins(getToken)).catch(e => status(String(e)));
     }
   });
-  const startPolling=()=>setInterval(() => { if (getToken() && !pending) void sync().catch(e => status(e.message)); }, 1200);
-  let timer = startPolling(), suspended=false;
+  // Polling is visibility-aware: the foreground cadence stays responsive, while a
+  // hidden, idle page backs off. Returning to the foreground restarts the normal
+  // cadence and requests an authoritative refresh immediately. pagehide/pageshow
+  // still fully suspend and restart both paths, including event subscriptions.
+  // The values mirror `visibilityAwarePollMs` in workspace-events.ts.
+  const POLL_INTERVAL_MS = 1200, POLL_INTERVAL_HIDDEN_MS = 15000;
+  const hidden = () => typeof document !== 'undefined' && document.visibilityState === 'hidden';
+  let visibility: 'visible' | 'hidden' = hidden() ? 'hidden' : 'visible';
+  let timer: ReturnType<typeof setInterval> | undefined;
+  let suspended = false;
+  const startPolling = () => {
+    if (timer !== undefined) return timer;
+    timer = setInterval(() => { if (getToken() && !pending) void sync().catch(e => status(e.message)); }, hidden() ? POLL_INTERVAL_HIDDEN_MS : POLL_INTERVAL_MS);
+    return timer;
+  };
+  const stopPolling = () => { if (timer !== undefined) { clearInterval(timer); timer = undefined; } };
+  startPolling();
   // Events are advisory invalidation, not replacement state or acknowledgement.
   // Coalesce a page into one read, and keep ordinary polling as compatibility fallback.
   let eventRefresh: ReturnType<typeof setTimeout> | undefined;
@@ -146,12 +161,21 @@ export function connectWorkspace(getState: () => Workspace, apply: (state: Works
     if(eventRefresh!==undefined)return;
     eventRefresh=setTimeout(()=>{eventRefresh=undefined;if(getToken()&&!pending)void sync().catch(e=>status(e.message));},0);
   };
-  const startEvents=()=>connectWorkspaceEvents({workspaceId,getToken,onChange:event=>{if(event.payload.revision>revision)refreshFromEvents();},onReset:refreshFromEvents});
+  const startEvents=()=>connectWorkspaceEvents({workspaceId,getToken,pollIntervalMs:()=>hidden()?POLL_INTERVAL_HIDDEN_MS:POLL_INTERVAL_MS,onChange:event=>{if(event.payload.revision>revision)refreshFromEvents();},onReset:refreshFromEvents});
   let events=startEvents();
-  window.addEventListener('pagehide', () => {suspended=true;clearInterval(timer);if(eventRefresh!==undefined)clearTimeout(eventRefresh);eventRefresh=undefined;events.close();});
+  const applyVisibility=()=>{
+    const next=hidden()?'hidden':'visible';
+    if(next===visibility)return;
+    visibility=next;
+    if(suspended)return;
+    stopPolling();startPolling();
+    if(next==='visible'){refreshFromEvents();void events.poll?.();}
+  };
+  window.addEventListener('visibilitychange', applyVisibility);
+  window.addEventListener('pagehide', () => {suspended=true;stopPolling();if(eventRefresh!==undefined)clearTimeout(eventRefresh);eventRefresh=undefined;events.close();});
   window.addEventListener('pageshow', () => {
     if(!suspended)return;
-    suspended=false;ready=false;timer=startPolling();events=startEvents();refreshFromEvents();
+    suspended=false;ready=false;visibility=hidden()?'hidden':'visible';startPolling();events=startEvents();refreshFromEvents();
   });
   return { changed: () => { changes++; }, sync, savePlacement };
 }

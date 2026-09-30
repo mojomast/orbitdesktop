@@ -1,0 +1,6 @@
+.host-surface{box-sizing:border-box;width:100%;height:100%;overflow:auto;padding:16px;background:var(--theme-background,#141b28);color:var(--theme-textColor,#edf3ff);user-select:text}
+.host-surface h2{margin-top:0;font-size:1.2em}
+.host-surface button{white-space:normal;overflow-wrap:anywhere}
+.host-surface .outputs-list{display:grid;gap:8px;margin:12px 0}
+.host-surface .outputs-list button{text-align:left;padding:10px}
+.host-surface .agent-overview-row{width:100%;min-width:0}

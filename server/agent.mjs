@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import { randomUUID, createHash } from 'node:crypto';
 import { createSharedChats } from './shared-chats.mjs';
+import { createConversationPrivateStore } from './conversation-private-store.mjs';
 import { createWorkbenchHermes } from './workbench-hermes.mjs';
 import { automation } from './automation.mjs';
 import { tokenMatches, allowedRequest } from './security.mjs';
@@ -60,6 +61,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
   }
   let buildQueue;
   const shared = createSharedChats(path.join(runtimeDirectory,'shared-chats'));
+  const conversations = createConversationPrivateStore(path.join(runtimeDirectory, 'conversation-private'));
   // Private, bounded intent/receipt journal. Nothing here is workspace layout or
   // project data; credentials are represented only by the adapter's opaque digest.
   const journalDirectory = path.join(runtimeDirectory, 'ordinary-submissions');
@@ -135,6 +137,38 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
         if (Object.keys(body).some(key => !fields.has(key))) return reply(res,400,{error:'Unexpected submission request field.'});
       }
       if (body.action === 'profiles') return reply(res,200,{profiles:configuration.list,default_profile_id:'default'});
+      if (['conversation_library', 'conversation_metadata', 'draft_read', 'draft_write'].includes(body.action)) {
+        const fields = new Set(['action', 'workspace_id', 'profile_id', ...(body.action === 'conversation_library' ? ['offset'] : ['session_id', ...(body.action === 'draft_read' ? [] : ['expected_revision', body.action === 'draft_write' ? 'text' : 'patch'])])]);
+        if (Object.keys(body).some(key => !fields.has(key)) || !/^[a-f0-9-]{36}$/.test(body.workspace_id || '') || !configuration.get(body.profile_id)) return reply(res,400,{error:'Invalid conversation scope or fields.'});
+        if (!workspaceRead) return reply(res,503,{error:'Authoritative workspace access unavailable.'});
+        try { workspaceRead(body.workspace_id); } catch { return reply(res,404,{error:'Workspace unavailable.'}); }
+        const publicMetadata = record => ({session_id:record.session_id,profile_id:record.profile_id,title:record.title,pinned:record.pinned,archived:record.archived,revision:record.revision});
+        if (body.action === 'conversation_library') {
+          const offset = body.offset ?? 0;
+          if (!Number.isSafeInteger(offset) || offset < 0 || offset > 10000) return reply(res,400,{error:'Invalid session page.'});
+          const target = configuration.get(body.profile_id);
+          let page = {data:[],has_more:false}, supported = true;
+          try { page = sanitizeSessions(await upstreamFor(target,`/api/sessions?limit=100&offset=${offset}`)); }
+          catch (error) { if (error.status !== 404) throw error; supported = false; }
+          const metadata = conversations.list(body.workspace_id,body.profile_id).map(publicMetadata);
+          const rows = new Map(page.data.map(item => [item.id,{session_id:item.id,profile_id:body.profile_id,upstream_title:item.title,updated_at:item.updated_at,...publicMetadata(conversations.read({...body,session_id:item.id}))}]));
+          if (offset === 0) for (const item of metadata) if (!rows.has(item.session_id)) rows.set(item.session_id,{...item,upstream_title:'',catalog_missing:true});
+          return reply(res,200,{conversations:[...rows.values()],supported,has_more:offset < 10000 && (page.has_more || page.data.length === 100),note:'Search covers loaded titles and IDs, not message content. Orbit names, pins and archive flags do not modify Hermes.'});
+        }
+        if (!validSessionId(body.session_id)) return reply(res,400,{error:'Invalid conversation identity.'});
+        if (body.action === 'draft_read') return reply(res,200,{record:conversations.read(body)});
+        if (!Number.isSafeInteger(body.expected_revision) || body.expected_revision < 0) return reply(res,400,{error:'A private record revision is required.'});
+        let patch;
+        if (body.action === 'draft_write') {
+          if (typeof body.text !== 'string' || body.text.length > 100000) return reply(res,400,{error:'Draft exceeds 100,000 characters.'});
+          patch = {draft:body.text};
+        } else {
+          patch = body.patch;
+          if (!patch || typeof patch !== 'object' || Array.isArray(patch) || !Object.keys(patch).length || Object.keys(patch).some(key => !['title','pinned','archived'].includes(key)) || ('title' in patch && (typeof patch.title !== 'string' || patch.title.length > 200 || /[\x00-\x1f\x7f]/.test(patch.title))) || ['pinned','archived'].some(key => key in patch && typeof patch[key] !== 'boolean')) return reply(res,400,{error:'Invalid Orbit conversation metadata.'});
+        }
+        const result = conversations.write(body,body.expected_revision,patch);
+        return reply(res,result.conflict ? 409 : 200,{conflict:result.conflict,record:body.action === 'draft_write' ? result.record : publicMetadata(result.record)});
+      }
       const profileId = body.profile_id === undefined ? 'default' : body.profile_id;
       const profile = configuration.get(profileId);
       // A removed profile must fail closed for execution, but the owner still
@@ -162,6 +196,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
         if (body.action === 'shared_chat') {
           if(body.replace === true) return reply(res,409,{error:'Use validated session selection to change conversations.'});
           const state = shared.bind(body.workspace_id,body.pane_id,body.initial);
+          if (state) { const metadata=conversations.read({workspace_id:body.workspace_id,profile_id:state.profile_id || 'default',session_id:state.session}); if(metadata.title) state.title=metadata.title; }
           const lane=executionGate?.status?.();
           return reply(res,200,{state,...(lane?{execution_lane:{agent_busy:!!lane.agent||!!lane.legacy?.active||!!lane.legacy?.enabled,job_busy:!!lane.job,unknown:!!lane.quarantines?.length||!!lane.legacy?.uncertain}}:{})});
         }
@@ -190,7 +225,8 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
            validatePane(body);
            if (shared.locks.has(`session:${target.id}:${targetId}`) || shared.hasActive(target.id,targetId,body.workspace_id,body.pane_id)) return reply(res,409,{error:'This conversation is already running.'});
            if (current.binding_revision !== revision || current.session !== body.session_id || current.profile_id !== profileId || current.run) return reply(res,409,{error:'Conversation changed or is still running.'});
-           const state = shared.write(body.workspace_id,body.pane_id,{session:targetId,profile_id:target.id,binding_revision:revision+1,messages,title,history_unstarted:creating});
+            const display=conversations.read({workspace_id:body.workspace_id,profile_id:target.id,session_id:targetId});
+            const state = shared.write(body.workspace_id,body.pane_id,{session:targetId,profile_id:target.id,binding_revision:revision+1,messages,title:display.title || title,history_unstarted:creating});
           return reply(res,200,{state});
         }
         if(linked.session !== body.session_id || linked.profile_id !== profileId || revision !== linked.binding_revision) return reply(res,409,{error:'This pane is linked to another conversation. Wait for synchronization.'});

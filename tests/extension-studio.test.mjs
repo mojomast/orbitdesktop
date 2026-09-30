@@ -102,6 +102,6 @@ test('real schema-10 database upgrades without rewriting state; archived writer 
   const old=new Old(runtime),workspace_id=randomUUID();
   old.commit(commandIdentity({workspace_id,action:'sync',base_revision:0,operation_id:randomUUID()},'owner'),{create:()=>({id:workspace_id,revision:1,state:initial(),capability:randomUUID()})});
   const before=old.read(workspace_id);assert.equal(old.diagnostics().schema_version,10);old.close();
-  const upgraded=new SqliteWorkspaceStore(runtime);assert.equal(upgraded.diagnostics().schema_version,11);assert.deepEqual(upgraded.read(workspace_id),before);upgraded.close();
+  const upgraded=new SqliteWorkspaceStore(runtime);assert.equal(upgraded.diagnostics().schema_version,12);assert.deepEqual(upgraded.read(workspace_id),before);upgraded.close();
   assert.throws(()=>new Old(runtime),{category:'UPGRADE_REQUIRED'});
 });

@@ -15,13 +15,71 @@ v1 manifests, IDs and content-addressed bundles retain their original lifecycle.
 
 `plugin_patch_config` with `plugin_id` and `patch` merges individual primitive-valued settings while preserving omitted fields. Example: `{"action":"plugin_patch_config","plugin_id":"notes","patch":{"message":"Updated"}}`. Use `plugin_configure` only when replacing the whole config is intended.
 
-`plugin_window` with `plugin_id` and `settings` customizes name, fontSize, frame, diagonal, aspect, height, distance, pitch, yaw and offset. It works while disabled and applies saved settings when enabled. IDs/layout cannot be overwritten through this operation. The manager exposes **Window settings** as a JSON editor. All changes use the existing revision/checkpoint boundary.
+`plugin_window` with `plugin_id` and `settings` customizes name, fontSize, frame, diagonal, aspect, height, distance, pitch, yaw and offset. It works while disabled and applies saved settings when enabled. IDs/layout cannot be overwritten through this operation. The manager exposes a **Window settings** form. All changes use the existing revision/checkpoint boundary.
 
-Configuration and enable cycles now preserve window names and split trees instead of rebuilding a single browser pane. This preserves added terminal pane IDs; the plugin iframe itself may still reload. First matching app/browser pane is treated as the plugin surface; arbitrary multiple-app routing is not supported.
+The manager provides typed string/number/boolean configuration fields and an
+optional advanced JSON editor. Invalid inputs are explained inline; failed saves
+retain the draft. Ordinary config edits send only changed keys; removing a key
+uses full configuration replacement. These are forms over the existing v1
+primitive map. Optional finite author metadata is described below. For an externally
+connected backend, static-app config is not sent to that service.
+
+Configuration and enable cycles preserve window names and split trees instead of rebuilding a single browser pane. This preserves added terminal pane IDs; the plugin iframe itself may still reload. The widget surface must match exactly one browser pane with the registered URL (or its initial welcome URL); missing/ambiguous surfaces fail explicitly.
+
+## Stateless widget instances
+
+`manifest.id` identifies the app definition. A record without `instance_id` is
+the legacy **primary instance**. Additional records have a stable UUID
+`instance_id`. Existing `plugin_id` calls continue to target only that primary;
+they never silently select a remaining copy if the primary has been removed.
+Use `instance_id` for a copy, optionally alongside the matching `plugin_id`.
+Config, window settings, enable, disable and remove are instance-scoped.
+
+The manager shows separate instance cards, names and instance IDs. **Duplicate**
+uses `plugin_duplicate` with the source selector and optional `name`.
+It creates fresh instance/window/pane IDs, retains the
+source's public window settings, deep-copies public config by default, and follows
+the source's enabled status. The original window and iframe URL/identity are not
+changed. Only a single fresh sandboxed browser pane is created: terminals, agent
+sessions, split trees and private/in-memory application state are never copied.
+Maximum 32 installed instances applies across all definitions, enabled or disabled.
+
+`plugin_update` is explicitly **definition-wide**: supply `plugin_id` and the
+new manifest; every sibling receives that manifest, retaining its own identity,
+name, config and enable status. Every sibling config must be compatible or the
+atomic operation fails. Removing an instance does not remove its sibling records
+or published bundles. Checkpoints retain instance IDs/config/registration but do
+not snapshot private app data or resurrect disposed iframe documents.
+
+Duplication is for stateless/public-config widget surfaces. It creates no separate
+private storage namespace or external service. Backend-connected definitions
+cannot be duplicated or connected while they have multiple instances; the manager
+also disables Duplicate for catalog-declared backend integrations. Ordinary
+sandbox network access still exists; application-owned remote effects are not
+cloned or isolated by the host. Recovery hold and Studio revocation fence every
+instance using the existing candidate-state policy checks.
+
+## Optional finite configuration metadata
+
+A manifest may declare `configSchema: {fields: [...]}` with at most 32 fields.
+Each field has `key` and primitive `type` (`string`, `number`, `boolean`), optional
+`title`, `description`, `default`, `required`, finite string/number `enum`, and
+numeric `min`/`max`. This is declarative metadata, not executable validation or
+arbitrary JSON Schema. Unknown config keys remain permitted under the existing
+primitive-map bounds. The manager displays typed controls/help/defaults.
+
+Core operations and imported/restored states validate declared value types,
+choices and bounds, even while disabled. A disabled install may omit required
+fields without defaults so the owner can configure it first. Enabling, restoring
+active windows and editing active config require complete effective config.
+Defaults fill missing keys in the iframe's public config fragment without writing
+them into stored config; saved values take precedence. Updating default metadata
+therefore changes effective runtime config for missing keys and may reload active
+frames. Invalid config/metadata updates fail atomically for all siblings.
 
 ## User controls
 
-Hermes tools → Workspace plugins, or Ctrl+Alt+P while the parent workspace has focus. The shortcut works without a chat pane. Install a manifest (disabled first), enable/disable, edit JSON configuration, remove, or disable all. Core terminals/chat are not optional plugins. Every plugin mutation through the manager or agent controller creates a workspace checkpoint. Restore via Workspace checkpoints. Closing a plugin window also makes its displayed status disabled; enable opens it again.
+Hermes tools → Workspace plugins, or Ctrl+Alt+P while the parent workspace has focus. The shortcut works without a chat pane. Install a manifest (disabled first), enable/disable, edit configuration, remove, or disable all. Core terminals/chat are not optional plugins. Every plugin mutation through the manager or agent controller creates a workspace checkpoint. Restore via Workspace checkpoints. Closing a plugin window also makes its displayed status disabled; enable opens it again.
 
 ## Agent workflow
 
@@ -45,7 +103,7 @@ All operations can be batched in the controller's existing atomic validated appl
 
 ## Manifest contract
 
-API v1: `{"apiVersion":1,"id":"notes","version":"1.0.0","title":"Workspace notes","entry":"/apps/notes-HASH/index.html"}`. Supported fields only; arbitrary permissions, backend hooks and executable host code are rejected. Maximum 32 installed plugins, also subject to existing maximum window count.
+API v1: `{"apiVersion":1,"id":"notes","version":"1.0.0","title":"Workspace notes","entry":"/apps/notes-HASH/index.html"}`. Optional `configSchema` is supported as described above. Supported fields only; arbitrary permissions, backend hooks and executable host code are rejected. Maximum 32 installed instances, also subject to existing maximum window count.
 
 Plugins render through existing sandboxed browser panes in Windows or Spatial view. They do not receive host tokens, parent DOM access or a privileged postMessage bridge. Network access remains allowed under the existing app CSP; this is NOT a network-denying sandbox. Static published files are not private credential storage. Entry existence and app behavior must be tested before activation; manifest validation alone does not verify them. Config changes can reload the affected iframe; its in-memory state is not preserved. Workspace checkpoints do not snapshot plugin internal application data.
 

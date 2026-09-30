@@ -9,5 +9,23 @@
   "repo": "https://github.com/mojomast/orbitdesktop",
   "sha": "438044e2c1b55f13fade30e63efe23d941fea4ab",
   "path": "examples/plugins/notes",
-  "capabilities": {"network": false, "storage": false}
+  "capabilities": {"network": false, "storage": false},
+  "configSchema": {
+    "fields": [
+      {
+        "key": "title",
+        "type": "string",
+        "title": "Heading",
+        "description": "Window and page heading. Defaults to Workspace notes.",
+        "default": "Workspace notes"
+      },
+      {
+        "key": "message",
+        "type": "string",
+        "title": "Message",
+        "description": "Paragraph shown under the heading. Defaults to the configure prompt.",
+        "default": "Ask Hermes to configure this widget."
+      }
+    ]
+  }
 }

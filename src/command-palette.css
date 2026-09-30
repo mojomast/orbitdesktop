@@ -1,0 +1,9 @@
+.command-palette { width: min(640px, 94vw); max-height: 85vh; padding: 20px; color: var(--theme-textColor, #e5eee8); background: var(--theme-panelColor, #142128); border: 1px solid var(--theme-borderColor, #465952); border-radius: 12px; }
+.command-palette::backdrop { background: #0009; }
+.command-palette h2 { margin: 0 0 12px; }
+.command-palette-search { width: 100%; box-sizing: border-box; padding: 12px; }
+.command-palette-results { max-height: 50vh; overflow: auto; margin-top: 10px; }
+.command-palette-item { padding: 10px; display: grid; gap: 4px; border: 1px solid transparent; border-radius: 6px; cursor: pointer; }
+.command-palette-item[aria-selected="true"] { border-color: var(--theme-accentColor, #b5f268); background: #ffffff0b; }
+.command-palette-item[aria-disabled="true"] { opacity: .6; cursor: default; }
+.command-palette-item small, .command-palette-status { color: var(--theme-mutedColor, #a6b8b0); }

@@ -80,7 +80,11 @@ export function applyOperation(input: Workspace, operation: WorkspaceOperation):
       for (const key of keys) if (op[key] !== undefined) (m as any)[key] = op[key];
       break;
     }
-    case 'close_window': state.monitors = state.monitors.filter(m => m.id !== target().id); break;
+    case 'close_window': {
+      const m=target(),plugin=state.plugins?.find(p=>p.window.id===m.id);
+      if(plugin)plugin.window=structuredClone(m);
+      state.monitors = state.monitors.filter(window => window.id !== m.id); break;
+    }
     case 'set_pane': {
       const m = target();
       if (!leaves(m.layout).some(p => p.id === op.pane_id)) throw Error('Unknown pane_id');

@@ -94,6 +94,19 @@ test('currentSchemaVersion reads a real SQLite file through the real opener',asy
   assert.deepEqual(await currentSchemaVersion(empty),{schema_version:null,database:null});
 });
 
+test('current packaging defaults accept schema 12, refuse future 13, and schema-11 rollback is fenced',async t=>{
+  const base=root();t.after(()=>fs.rmSync(base,{recursive:true,force:true}));
+  const {dir}=fakeRelease(base,'rel-schema12');
+  const manifest=buildManifest({root:dir,release_id:'rel-schema12',revision:'test',created_at:1});
+  assert.equal(manifest.compat.schema_max,12);
+  const runtime=runtimeWithSchema(base,12);
+  const {schema_version}=await currentSchemaVersion(runtime);
+  assert.doesNotThrow(()=>checkCompatibility({manifest,schema_version}));
+  assert.throws(()=>checkCompatibility({manifest,schema_version:13}),{code:'schema_downgrade_refused'});
+  const older=buildManifest({root:dir,release_id:'rel-schema11',compat:{schema_min:7,schema_max:11},revision:'test',created_at:1});
+  assert.throws(()=>checkCompatibility({manifest:older,schema_version}),{code:'schema_downgrade_refused'});
+});
+
 test('activation refuses colliding runtime/release roots before any write',async t=>{
   const base=root();t.after(()=>fs.rmSync(base,{recursive:true,force:true}));
   const release=fakeRelease(base,'rel-sep');
@@ -293,5 +306,4 @@ test('a failed probe restores the exact pointer and a retry still works',async t
   assert.equal(repeated.idempotent,true);
   assert.deepEqual(readPointer(runtime),beforeIdempotent,'re-activating the same release preserves the previous rollback target');
 });
-
 

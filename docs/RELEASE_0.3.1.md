@@ -1,9 +1,17 @@
-# Orbit Desktop / Hermes plugin 0.3.1
+# Orbit Desktop / Hermes plugin 0.3.1 prepared baseline
 
-Version 0.3.1 is the follow-up package to 0.3.0. Desktop and Hermes plugin
-metadata use the same product version. The `hermes-plugin-v0.3.1` GitHub release
-records the exact catalog-pinned commit and bundled-source checksum; catalog
-acceptance is a separate reviewed SHA update.
+These notes describe the gate-only `release/0.3.1` baseline at `b404cf1`, the
+follow-up package to 0.3.0. Desktop and Hermes plugin metadata use the same product
+version. Publication must record the exact catalog-pinned commit and bundled-source
+checksum; catalog acceptance is a separate reviewed SHA update.
+
+The local `feat/workspace-usability-031` development branch has since added the
+[usability round](WORKSPACE_USABILITY.md) and continuity features, including
+schema-12 widget writer compatibility. The schema-11/no-migration/rollback statements
+below apply only to the prepared baseline, not to that extended source. See
+[Workspace store](WORKSPACE_STORE.md) and [Deployment](DEPLOYMENT.md) for the current
+development compatibility boundary. These feature changes have not been deployed
+by this development task.
 
 ## Highlight
 
@@ -27,7 +35,7 @@ features).
 Everything else matches 0.3.0, including SQLite schema 11, the v1 workspace
 contract and the sandboxed app-manifest format. No data migration is required.
 
-## Verification
+## Baseline verification
 
 - `npm run check`: **776 passed, 0 failed, 8 optional skips**, including the new
   `tests/experimental.test.mjs`.
@@ -38,8 +46,8 @@ contract and the sandboxed app-manifest format. No data migration is required.
 - Workbench browser suites (`pane-workbench-mode`, `workbench-setup`,
   `project-workbench`, `workbench-results-ui`, `agent-pane-ux`) pass with the
   feature explicitly enabled.
-- The exact-head CI results for this package are recorded on `release/0.3.1` and
-  its release page. No paid-provider acceptance is claimed.
+- Baseline CI results are recorded on `release/0.3.1`; release publication and
+  catalog pinning are separate steps. No paid-provider acceptance is claimed.
 
 ## Upgrade and rollback
 

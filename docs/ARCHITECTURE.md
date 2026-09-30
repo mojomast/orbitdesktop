@@ -47,6 +47,14 @@ kernel-identity limitations are documented in [managed terminals](MANAGED_TERMIN
 
 `src/workspace-sync.ts` polls and tracks browser acknowledgement. An acknowledged revision does not prove a widget rendered correctly. Local layout persistence and imports remain supported. Offline changes can be saved server-side; display acknowledgement waits for the browser.
 
+The default shell's `src/workspace-arrange.ts` uses owner-only `layout_preview` /
+`layout_apply` commands for existing-window placement, independently of Workbench
+project registration. Their contract is a restricted operation union, not general
+controller access: no creation/removal, plugin mutation or whole-state replacement.
+Apply requires an operation identity and current base revision. Checkpoint
+`checkpoint_preview` returns a bounded metadata diff through
+`server/workspace-diff.mjs`; it does not mutate, render or promise successful restore.
+
 `server/workspace-description.mjs` provides authenticated, bounded layout metadata
 and an opt-in operation catalog sourced directly from the workspace contract.
 Normal's workspace adapter can discover this catalog rather than embedding every
@@ -112,7 +120,39 @@ block public app files, or implement general safe boot. See [Recovery](RECOVERY.
 
 Trusted built-ins use `src/workspace-extensions.ts`: typed activation entries dynamically load plugin manager, checkpoints, skills catalog, outputs and jobs. Live activity is also loaded on demand. These modules run in the parent page and are reviewed application code. They are not user-installable privileged plugins.
 
+`src/host-surfaces.ts` additionally allowlists the exact browser-pane URLs
+`orbit://surface/outputs` and `orbit://surface/activity` for persistent Outputs and
+Activity windows. Mounted views dispose subscriptions and requests when their pane
+is disposed; movable pane identity and ordinary layout persistence stay in charge.
+Credentials come from the live host callback, never the URL. This does not grant a
+host bridge to generated frames. Shell discovery uses `src/workspace-commands.ts`
+with shared Start/palette command availability and experimental gates.
+
 Generated app plugins use a strict API-v1 manifest and config contract. `scripts/plugin_publish.py` copies static bundles to content-addressed folders. Lifecycle/config/entry references are part of workspace state and checkpoints. The existing sandboxed browser pane hosts the app; no host credentials or privileged message bridge are granted. Network access is allowed by the current app CSP. See [PLUGINS.md](PLUGINS.md) for limitations, including the absence of filesystem-enforced immutability, dependency resolution and independent safe boot.
+
+Optional `configSchema` is bounded declarative metadata for the existing primitive
+config map, not arbitrary JSON Schema or code. `src/plugin-config-schema.ts` and
+the publisher validate the same finite shape. Multiple stateless widget instances
+retain their manifest definition ID and add distinct instance/window/pane IDs;
+legacy ID-only operations keep their primary-instance meaning. Definition updates
+are app-wide, while configuration/window/lifecycle actions target an instance.
+Browser `sync` declares feature support and refuses unsupported old-client
+snapshots when the saved workspace contains instances or config schemas. See
+[Widget configuration](WIDGET_CONFIGURATION.md) and [Plugins](PLUGINS.md).
+
+Schema 12 is a version-only writer fence for those extended widget records. It
+adds no primary workspace tables, preserves existing rows, and prevents schema-11
+servers from opening a newer database after cutover. Restoring an older server
+requires a compatible pre-upgrade runtime backup; changing only a release pointer
+does not downgrade data. See [Workspace store](WORKSPACE_STORE.md).
+
+The output library stores private per-workspace aliases, pins and tags separately
+from immutable published files. Metadata keys include the complete content-
+addressed URL, so a changed publication cannot inherit another artifact's label.
+`src/conversation-transfer.ts` offers an explicit trusted-recipient registry and
+preview-before-insert dialog. It delivers to one chosen chat draft; it neither
+sends a model request nor creates a generated-frame bridge. See
+[Output library](OUTPUT_LIBRARY.md) and [Context handoff](CONTEXT_HANDOFF.md).
 
 Persistent project tools are a closed set of reviewed host modules (notebook and
 recorded checks/review card), selected by an opaque browser-pane URL. Schema 10

@@ -1,0 +1,110 @@
+{
+  "comment": "Shared author config schema fixtures. Both tests/plugin-config-schema.test.mjs (src/plugin-config-schema.ts) and tests/plugin-config-schema.test.py (scripts/plugin_publish.py) read this file so the JS and Python validators cannot drift.",
+  "valid": [
+    {
+      "name": "empty fields",
+      "schema": { "fields": [] },
+      "normalized": { "fields": [] }
+    },
+    {
+      "name": "all primitive metadata",
+      "schema": {
+        "fields": [
+          { "key": "title", "type": "string", "title": "Window title", "description": "Shown in the header.", "default": "Notes", "required": true },
+          { "key": "count", "type": "number", "min": 0, "max": 100, "default": 5 },
+          { "key": "pinned", "type": "boolean", "default": false },
+          { "key": "mode", "type": "string", "enum": ["light", "dark", "auto"], "default": "auto" },
+          { "key": "ratio", "type": "number", "enum": [1, 2, 3] },
+          { "key": "note", "type": "string", "required": true }
+        ]
+      },
+      "normalized": {
+        "fields": [
+          { "key": "title", "type": "string", "title": "Window title", "description": "Shown in the header.", "required": true, "default": "Notes" },
+          { "key": "count", "type": "number", "min": 0, "max": 100, "default": 5 },
+          { "key": "pinned", "type": "boolean", "default": false },
+          { "key": "mode", "type": "string", "enum": ["light", "dark", "auto"], "default": "auto" },
+          { "key": "ratio", "type": "number", "enum": [1, 2, 3] },
+          { "key": "note", "type": "string", "required": true }
+        ]
+      }
+    }
+  ],
+  "invalid": [
+    { "name": "not an object", "schema": [] },
+    { "name": "unsupported top-level property", "schema": { "fields": [], "extra": 1 } },
+    { "name": "unsupported field property", "schema": { "fields": [{ "key": "a", "type": "string", "extra": 1 }] } },
+    { "name": "non-pattern key", "schema": { "fields": [{ "key": "1bad", "type": "string" }] } },
+    { "name": "duplicate key", "schema": { "fields": [{ "key": "a", "type": "string" }, { "key": "a", "type": "number" }] } },
+    { "name": "unknown type", "schema": { "fields": [{ "key": "a", "type": "object" }] } },
+    { "name": "boolean enum", "schema": { "fields": [{ "key": "a", "type": "boolean", "enum": [true, false] }] } },
+    { "name": "enum type mismatch", "schema": { "fields": [{ "key": "a", "type": "string", "enum": ["x", 2] }] } },
+    { "name": "duplicate enum choice", "schema": { "fields": [{ "key": "a", "type": "string", "enum": ["x", "x"] }] } },
+    { "name": "empty enum", "schema": { "fields": [{ "key": "a", "type": "string", "enum": [] }] } },
+    { "name": "min on string", "schema": { "fields": [{ "key": "a", "type": "string", "min": 1 }] } },
+    { "name": "min above max", "schema": { "fields": [{ "key": "a", "type": "number", "min": 5, "max": 1 }] } },
+    { "name": "default type mismatch", "schema": { "fields": [{ "key": "a", "type": "number", "default": "x" }] } },
+    { "name": "default outside enum", "schema": { "fields": [{ "key": "a", "type": "string", "enum": ["x", "y"], "default": "z" }] } },
+    { "name": "default out of range", "schema": { "fields": [{ "key": "a", "type": "number", "min": 1, "max": 2, "default": 5 }] } },
+    { "name": "required not boolean", "schema": { "fields": [{ "key": "a", "type": "string", "required": "yes" }] } },
+    { "name": "required empty string default", "schema": { "fields": [{ "key": "a", "type": "string", "required": true, "default": "" }] } },
+    { "name": "title too long", "schema": { "fields": [{ "key": "a", "type": "string", "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" }] } },
+    { "name": "non-finite default", "schema": { "fields": [{ "key": "a", "type": "number", "default": 1e400 }] } }
+  ],
+  "configs": [
+    {
+      "name": "no schema accepts any primitive map",
+      "schema": null,
+      "config": { "anything": true, "count": 3 },
+      "errors": []
+    },
+    {
+      "name": "valid enum, range and boolean",
+      "schema": { "fields": [ { "key": "mode", "type": "string", "enum": ["light", "dark"] }, { "key": "count", "type": "number", "min": 0, "max": 100 }, { "key": "pinned", "type": "boolean" } ] },
+      "config": { "mode": "dark", "count": 50, "pinned": true },
+      "errors": []
+    },
+    {
+      "name": "wrong primitive type",
+      "schema": { "fields": [ { "key": "count", "type": "number" } ] },
+      "config": { "count": "5" },
+      "errors": ["count"]
+    },
+    {
+      "name": "number out of range",
+      "schema": { "fields": [ { "key": "count", "type": "number", "min": 0, "max": 100 } ] },
+      "config": { "count": 200 },
+      "errors": ["count"]
+    },
+    {
+      "name": "enum miss",
+      "schema": { "fields": [ { "key": "mode", "type": "string", "enum": ["light", "dark"] } ] },
+      "config": { "mode": "sepia" },
+      "errors": ["mode"]
+    },
+    {
+      "name": "missing required without default",
+      "schema": { "fields": [ { "key": "title", "type": "string", "required": true } ] },
+      "config": {},
+      "errors": ["title"]
+    },
+    {
+      "name": "required default satisfies absence",
+      "schema": { "fields": [ { "key": "title", "type": "string", "required": true, "default": "Notes" } ] },
+      "config": {},
+      "errors": []
+    },
+    {
+      "name": "required string present empty",
+      "schema": { "fields": [ { "key": "title", "type": "string", "required": true } ] },
+      "config": { "title": "" },
+      "errors": ["title"]
+    },
+    {
+      "name": "unknown keys stay allowed",
+      "schema": { "fields": [ { "key": "count", "type": "number" } ] },
+      "config": { "count": 1, "extra": "kept" },
+      "errors": []
+    }
+  ]
+}

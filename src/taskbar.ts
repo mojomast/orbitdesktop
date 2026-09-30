@@ -1,9 +1,9 @@
 import { el, button } from './dom';
 import './taskbar.css';
 import {themeIcon,iconRole} from './theme-icons';
+import type { WorkspaceCommands } from './workspace-commands';
 
-export interface StartAction { title: string; detail: string; run: () => void }
-export function installStart(navigation: HTMLElement, actions: () => StartAction[]) {
+export function installStart(navigation: HTMLElement, commands: WorkspaceCommands) {
   navigation.setAttribute('aria-label', 'Workspace taskbar');
   const launcher = el('div', 'start-launcher');
   const panel = el('section', 'start-panel');
@@ -19,7 +19,7 @@ export function installStart(navigation: HTMLElement, actions: () => StartAction
   const quick = el('div', 'start-quick');
   quick.setAttribute('aria-label', 'Quick launch');
   for (const [title, label] of [['New agent chat', '✦ Chat'], ['New terminal', '⌘ Terminal'], ['New browser', '◎ Browser']]) {
-    const launch=button(label.replace(/^[^ ]+ /,''), `Quick launch ${title}`, () => { close(); actions().find(action => action.title === title)?.run(); });
+    const launch=button(label.replace(/^[^ ]+ /,''), `Quick launch ${title}`, () => { close(); const action = commands.list().find(action => action.title === title); if (action) void commands.execute(action.id); });
     launch.prepend(themeIcon(iconRole(title)));quick.append(launch);
   }
   const start = button('', 'Open Start', () => toggle(), 'start-button');
@@ -34,9 +34,10 @@ export function installStart(navigation: HTMLElement, actions: () => StartAction
   function render() {
     results.replaceChildren();
     const query = search.value.toLocaleLowerCase().trim();
-    for (const action of actions().filter(a => `${a.title} ${a.detail}`.toLocaleLowerCase().includes(query))) {
-      const item = button('', action.title, () => { close(); action.run(); }, 'start-item');
-      item.append(el('strong', '', action.title), el('span', '', action.detail));
+    for (const action of commands.list(query)) {
+      const item = button('', action.title, () => { close(); void commands.execute(action.id); }, 'start-item');
+      item.disabled = !!action.disabledReason;
+      item.append(el('strong', '', action.title), el('span', '', action.disabledReason ?? action.detail));
       results.append(item);
     }
     if (!results.childElementCount) results.append(el('p', 'start-empty', 'No matches. Try another search.'));

@@ -1,0 +1,8 @@
+.conversation-library { width: min(760px, 90vw); }
+.conversation-library > input[type=search] { width: 100%; margin: 12px 0; }
+.conversation-library-list { display: grid; gap: 10px; max-height: 55vh; overflow: auto; }
+.conversation-library-row { border: 1px solid #536174; border-radius: 8px; padding: 12px; overflow-wrap: anywhere; }
+.conversation-library-row > small { display: block; opacity: .75; margin: 6px 0; }
+.conversation-library-row > div { display: flex; flex-wrap: wrap; gap: 6px; }
+.conversation-draft-status { font-size: 12px; padding: 4px 8px; opacity: .9; }
+.conversation-draft-status pre { white-space: pre-wrap; max-height: 160px; overflow: auto; }

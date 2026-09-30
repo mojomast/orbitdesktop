@@ -75,10 +75,12 @@ try:
         for name in ('package.json', 'index.html', 'tsconfig.json', 'vite.config.js'):
             shutil.copy2(ROOT / name, root / name)
         for name in ('runtime', 'home', 'cwd'): (root / name).mkdir()
-        subprocess.run([shutil.which('node'), str(ROOT / 'scripts/isolated_build.mjs'), '--source', str(root), '--dest', str(root / 'dist'), '--allow-source-dist'], cwd=root, check=True, capture_output=True, env={**os.environ, 'HOME': str(root / 'home')})
         with socket.socket() as probe:
             probe.bind(('127.0.0.1', 0)); port = probe.getsockname()[1]
-        origin = f'http://127.0.0.1:{port}'
+        with socket.socket() as probe:
+            probe.bind(('127.0.0.1', 0)); dev_port = probe.getsockname()[1]
+        origin = f'http://127.0.0.1:{dev_port}'
+        (root / 'vite.config.js').write_text('export default ' + json.dumps({'server': {'host': '127.0.0.1', 'port': dev_port, 'strictPort': True, 'proxy': {'/api': {'target': f'http://127.0.0.1:{port}', 'ws': True, 'changeOrigin': True}}}}))
         token, workspace = secrets.token_urlsafe(36), str(uuid.uuid4())
         windows, panes = [str(uuid.uuid4()) for _ in range(2)], [str(uuid.uuid4()) for _ in range(2)]
         state = {'version': 1, 'selected': windows[0], 'arc': 14, 'view': 'windows', 'monitors': [
@@ -88,15 +90,16 @@ try:
              'layout': {'type': 'pane', 'pane': {'id': panes[i], 'kind': 'agent', 'url': ''}}} for i in range(2)]}
         profiles = [{'id': name, 'label': name.title(), 'apiUrl': f'http://127.0.0.1:{gateway.server_port}/{name}', 'apiKey': 'fixture-' + name} for name in ('default', 'research')]
         env = {'PATH': os.environ['PATH'], 'HOME': str(root / 'home'), 'PORT': str(port), 'ORBIT_TOKEN': token,
-               'ORBIT_RUNTIME_DIR': str(root / 'runtime'), 'ORBIT_CWD': str(root / 'cwd'), 'HERMES_PROFILES_JSON': json.dumps(profiles)}
+               'ORBIT_RUNTIME_DIR': str(root / 'runtime'), 'ORBIT_CWD': str(root / 'cwd'), 'HERMES_PROFILES_JSON': json.dumps(profiles), 'ORBIT_DEV_ORIGINS': origin}
         with (root / 'server.log').open('w+') as log:
             server = subprocess.Popen([shutil.which('node'), '--experimental-strip-types', 'server/index.mjs'], cwd=root, env=env, stdout=log, stderr=log)
+            dev = subprocess.Popen(['node', str(ROOT / 'node_modules/vite/bin/vite.js'), '--config', str(root / 'vite.config.js')], cwd=root, env={**env, 'NODE_ENV': 'development'}, stdout=log, stderr=log)
             try:
                 for _ in range(100):
                     if server.poll() is not None:
                         log.seek(0); raise RuntimeError(log.read())
                     try:
-                        with urllib.request.urlopen(origin + '/api/health', timeout=1): break
+                        with urllib.request.urlopen(origin, timeout=1), urllib.request.urlopen(origin + '/api/health', timeout=1): break
                     except OSError: time.sleep(.05)
                 else: raise RuntimeError('Server readiness timeout')
                 with sync_playwright() as p:
@@ -226,6 +229,7 @@ try:
                         page.keyboard.press('Escape')
                         expect(agent.get_by_label('Hermes conversation', exact=True)).to_contain_text('Saved answer ' + profile)
                         agent.get_by_label('Message to Hermes', exact=True).fill('Draft ' + profile)
+                        expect(agent.locator('.conversation-draft-status')).to_contain_text('Draft saved on host', timeout=10000)
                     # Staging is not a rebind. Applying a different profile must not
                     # carry its predecessor's unsent text into the new conversation.
                     second = agents[1]
@@ -241,7 +245,9 @@ try:
                         panel.get_by_role('button', name='Apply selected profile and session').click()
                         page.keyboard.press('Escape')
                         expect(second.get_by_label('Hermes conversation', exact=True)).to_contain_text('Saved answer ' + profile)
-                        expect(second.get_by_label('Message to Hermes', exact=True)).to_have_value('' if profile == 'default' else 'Draft research')
+                        # The host draft is shared only by exact workspace/profile/session.
+                        # A rebind loads default's saved text, never research's staged text.
+                        expect(second.get_by_label('Message to Hermes', exact=True)).to_have_value('Draft ' + profile)
                     page.reload(wait_until='networkidle')
                     page.get_by_role('button', name='Connect local host', exact=True).click()
                     page.get_by_role('textbox', name='Host session token').fill(token)
@@ -347,6 +353,9 @@ try:
                     page.remove_listener('response', inspect_catalog)
                     context.close(); browser.close()
             finally:
+                dev.terminate()
+                try: dev.wait(timeout=10)
+                except subprocess.TimeoutExpired: dev.kill(); dev.wait()
                 server.terminate()
                 try: server.wait(timeout=10)
                 except subprocess.TimeoutExpired: server.kill(); server.wait()
