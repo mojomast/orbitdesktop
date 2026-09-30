@@ -494,7 +494,7 @@ with tempfile.TemporaryDirectory(prefix='orbit-arrangements-', dir='/tmp/opencod
             # sessionStorage. It must retrieve the shared recipe and this project's
             # pending durable proposal through authenticated UI reads.
             other=browser.new_context(viewport={'width':1000,'height':800})
-            other.add_init_script("if(window===window.top){localStorage.setItem('orbit.onboarding.v1','done');localStorage.setItem('orbit.workspace.id',"+json.dumps(workspace)+");}")
+            other.add_init_script("if(window===window.top){localStorage.setItem('orbit.onboarding.v1','done');localStorage.setItem('orbit.experimental.v1','{\"version\":1,\"workbench\":true}');localStorage.setItem('orbit.workspace.id',"+json.dumps(workspace)+");}")
             other_page=other.new_page()
             other_page.goto(origin+('/?renderer=docking' if args.renderer=='docking' else '/'))
             other_page.keyboard.press('Escape')

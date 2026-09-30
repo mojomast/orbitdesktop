@@ -731,6 +731,9 @@ def main(renderer):
                     expect(pane_locator.locator('.agent-chat-normal')).to_be_visible()
                     expect(normal_input).to_have_value("NORMAL-ONLY separate window draft")
                     assert page.evaluate("id => {const root=document.querySelector(`[data-pane-id=\"${id}\"]`);return window.__separateNormalNodes.input===root.querySelector('textarea') && window.__separateNormalNodes.messages===root.querySelector('.chat-messages');}",pane)
+                    # A fresh pane persists its chat state on its first authoritative
+                    # sync; wait for that binding rather than racing the read.
+                    page.wait_for_function("ids => ids.every(id => { const raw=sessionStorage.getItem('orbit-hermes-chat:'+id); return !!raw && !!JSON.parse(raw).session; })",[pane,new_pane],timeout=15000)
                     sessions = page.evaluate("ids => ids.map(id=>JSON.parse(sessionStorage.getItem('orbit-hermes-chat:'+id)).session)",[pane,new_pane])
                     assert sessions[0] != sessions[1]
                     expect(separate.get_by_label('Task or question excerpt',exact=True)).to_have_value('')
