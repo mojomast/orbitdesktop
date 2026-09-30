@@ -66,6 +66,16 @@ with tempfile.TemporaryDirectory(prefix='orbit-command-palette-', dir='/tmp/open
             page = context.new_page()
             errors = []
             page.on('pageerror', lambda error: errors.append(str(error)))
+            workspace_reads = []
+
+            def record_workspace_read(response):
+                if response.url != origin + '/api/workspace' or not response.ok:
+                    return
+                request = response.request.post_data_json
+                if request and request.get('action') == 'read':
+                    workspace_reads.append((request, response.json()))
+
+            page.on('response', record_workspace_read)
             page.goto(origin + ('/?renderer=docking' if args.renderer == 'docking' else '/'))
             if args.renderer == 'docking':
                 page.wait_for_function("() => document.documentElement.dataset.dockingRenderer === 'docking'")
@@ -153,20 +163,67 @@ with tempfile.TemporaryDirectory(prefix='orbit-command-palette-', dir='/tmp/open
                 search.fill(query)
                 page.keyboard.press('Enter')
 
+            def settled_workspace(pump=lambda: None):
+                # Saved locally is only the 200 ms localStorage debounce. A fresh
+                # browser read at the authoritative revision proves sync's queued
+                # layout/placement saves have completed: sync chooses read only
+                # after its placement tail and pending request, with changes sent.
+                # Require browser state equality too, rather than treating network
+                # activity or a stale status message as acknowledgement.
+                first_read = len(workspace_reads)
+                deadline = time.monotonic() + 15
+                last = None
+                while time.monotonic() < deadline:
+                    pump()
+                    last = read_workspace()
+                    local = page.evaluate("() => ({saving:document.querySelector('.saved').textContent==='Saving…',state:JSON.parse(localStorage.getItem('orbit.workspace.v1'))})")
+                    acknowledged = any(
+                        request.get('observed_revision') == result.get('revision') == last['revision']
+                        and result.get('state') == last['state']
+                        for request, result in workspace_reads[first_read:])
+                    if acknowledged and not local['saving'] and local['state'] == last['state']:
+                        return last
+                    page.wait_for_timeout(50)
+                raise AssertionError(('Workspace did not settle', last, local, workspace_reads[first_read:]))
+
             # Reference geometry is the real laid-out root before it is hidden.
             size = page.locator('.docking-root' if args.renderer == 'docking' else '.desktop-host').evaluate(
                 '(host) => ({width:host.clientWidth,height:host.clientHeight})')
             assert size['width'] >= 280 and size['height'] >= 180, size
+            settled_workspace()
+            # Hold the first Spatial save beyond the old 1 s sleep. The browser
+            # has switched while the server still has Windows; the barrier must
+            # wait for release, commit and a subsequent browser acknowledgement.
+            delayed_sync = {}
+
+            def hold_spatial_sync(route):
+                request = route.request.post_data_json
+                if (request.get('action') == 'sync' and request.get('state', {}).get('view') == 'spatial'
+                        and not delayed_sync):
+                    delayed_sync.update(route=route, started=time.monotonic())
+                else:
+                    route.continue_()
+
+            def release_spatial_sync():
+                if not delayed_sync or 'released' in delayed_sync:
+                    return
+                assert read_workspace()['state']['view'] == 'windows'
+                if time.monotonic() - delayed_sync['started'] >= 1.5:
+                    delayed_sync['route'].continue_()
+                    delayed_sync['released'] = time.monotonic()
+
+            page.route(origin + '/api/workspace', hold_spatial_sync)
             palette_command('Spatial view')
-            page.wait_for_timeout(1000)
-            assert read_workspace()['state']['view'] == 'spatial'
+            expect(page.locator('.workspace')).not_to_have_class(re.compile(r'.*windows-mode.*'))
+            assert settled_workspace(release_spatial_sync)['state']['view'] == 'spatial'
+            assert delayed_sync['released'] - delayed_sync['started'] >= 1.5
+            page.unroute(origin + '/api/workspace', hold_spatial_sync)
             for focused_mode in (False, True):
                 if focused_mode:
                     palette_command('Focus selected window')
                     expect(page.locator('.workspace')).to_have_class(re.compile(r'.*is-focused.*'))
-                    page.wait_for_timeout(1000)
                 for entrypoint in ('menu', 'palette', 'settings'):
-                    before = read_workspace()
+                    before = settled_workspace()
                     assert before['state']['view'] == 'spatial'
                     page.evaluate("() => {const pane=window.fixturePane;window.arrangeIdentity={pane,frame:pane.querySelector('iframe'),document:pane.querySelector('iframe').contentWindow};}")
                     if entrypoint == 'palette':
@@ -187,8 +244,7 @@ with tempfile.TemporaryDirectory(prefix='orbit-command-palette-', dir='/tmp/open
                     expect(arrangement.locator('.workspace-arrange-summary')).to_contain_text(f"desktop {size['width']} × {size['height']}")
                     arrangement.get_by_role('button', name='Discard workspace arrangement preview', exact=True).click()
                     arrangement.get_by_role('button', name='Close workspace arrangement', exact=True).click()
-                    page.wait_for_timeout(500)
-                    after = read_workspace()
+                    after = settled_workspace()
                     assert after['revision'] == before['revision'], (entrypoint, focused_mode, before['revision'], after['revision'])
                     assert after['state'] == before['state'], (entrypoint, focused_mode)
                     assert page.locator('.workspace').evaluate("node => node.classList.contains('is-focused')") == focused_mode
@@ -197,7 +253,7 @@ with tempfile.TemporaryDirectory(prefix='orbit-command-palette-', dir='/tmp/open
                         page.get_by_role('button', name='Close orbit menu', exact=True).click()
             # The shell opens the durable preset dialog with real measured
             # geometry, including while Spatial/Focus hides the desktop host.
-            before_saved = read_workspace()
+            before_saved = settled_workspace()
             palette_command('Saved workspace layouts')
             saved = page.get_by_role('dialog', name='Saved workspace layouts', exact=True)
             expect(saved.locator('.saved-layout-status')).to_contain_text('saved layouts')
@@ -205,7 +261,7 @@ with tempfile.TemporaryDirectory(prefix='orbit-command-palette-', dir='/tmp/open
             saved.get_by_role('button', name='Save current workspace layout', exact=True).click()
             expect(saved.locator('.saved-layout-status')).to_contain_text('1 saved layouts')
             saved.get_by_role('button', name='Close saved workspace layouts', exact=True).click()
-            after_saved = read_workspace()
+            after_saved = settled_workspace()
             assert after_saved['revision'] == before_saved['revision']
             assert after_saved['state'] == before_saved['state']
             palette_command('Saved workspace layouts')
@@ -223,14 +279,14 @@ with tempfile.TemporaryDirectory(prefix='orbit-command-palette-', dir='/tmp/open
               const selected=document.getSelection();selected.removeAllRanges();selected.addRange(range);
               document.dispatchEvent(new Event('selectionchange'));
             }''')
-            before_transfer = read_workspace()
+            before_transfer = settled_workspace()
             palette_command('Send selected text to conversation')
             transfer = page.get_by_role('dialog', name='Send text to a conversation', exact=True)
             expect(transfer.locator('.conversation-transfer-preview')).to_have_text('Explicit workspace selection <img onerror=alert(1)>')
             expect(transfer.get_by_role('button', name='Insert into draft', exact=True)).to_be_disabled()
             assert transfer.locator('img').count() == 0
             transfer.get_by_role('button', name='Cancel', exact=True).click()
-            after_transfer = read_workspace()
+            after_transfer = settled_workspace()
             assert after_transfer['revision'] == before_transfer['revision']
             assert after_transfer['state'] == before_transfer['state']
             assert not errors, errors
