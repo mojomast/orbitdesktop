@@ -12,9 +12,10 @@ Conversations, persistent host terminals, web apps, and optional Linux applicati
 
 [Quick start](#quick-start) · [Linux apps](docs/XPRA_APPS.md) · [Agent guide](docs/AGENT_GUIDE.md) · [Security](docs/SECURITY.md)
 
-**Version 0.3.0:** see the [release notes](docs/RELEASE_0.3.0.md) and
-[Hermes plugin installation guide](hermes-plugin/README.md). Optional Docking is
-off by default. Read the [deployment guide](docs/DEPLOYMENT.md) before upgrading
+**Version 0.3.1:** see the [release notes](docs/RELEASE_0.3.1.md) and
+[Hermes plugin installation guide](hermes-plugin/README.md). Project Workbench is
+experimental and off by default; enable it in Orbit settings. Optional Docking is
+also off by default. Read the [deployment guide](docs/DEPLOYMENT.md) before upgrading
 an existing runtime. The [evolution testing guide](docs/TESTING_BRANCH.md) records
 the integration's historical development and acceptance evidence.
 

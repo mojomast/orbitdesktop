@@ -26,7 +26,7 @@ Updates never replace a running deployment. Install a reviewed plugin update, ru
 
 ## Install
 
-The catalog may list an earlier reviewed release. Until its update is accepted, use the explicit repository subdirectory and the **full commit SHA** recorded by the [`hermes-plugin-v0.3.0` release](https://github.com/mojomast/orbitdesktop/releases/tag/hermes-plugin-v0.3.0):
+The catalog may list an earlier reviewed release. Until its update is accepted, use the explicit repository subdirectory and the **full commit SHA** recorded by the [`hermes-plugin-v0.3.1` release](https://github.com/mojomast/orbitdesktop/releases/tag/hermes-plugin-v0.3.1):
 
 ```sh
 hermes plugins install mojomast/orbitdesktop/hermes-plugin --ref FULL_40_CHARACTER_RELEASE_SHA --no-enable
@@ -111,11 +111,13 @@ The catalog pins an immutable commit. There is no self-updater and no core monke
 
 ## Verification
 
-Version 0.3.0 aligns the desktop package and Hermes adapter versions. The release
-page publishes the immutable source commit, bundled-source SHA-256, installation
-command and catalog pin. Catalog maintainers must pin that full commit and the
-`hermes-plugin` subdirectory, not `main` or the downloadable desktop-source archive.
-The archive is the plugin's setup payload, not a standalone Hermes plugin.
+Version 0.3.1 aligns the desktop package and Hermes adapter versions and makes
+Project Workbench an experimental, off-by-default surface enabled in Orbit
+settings. The release page publishes the immutable source commit, bundled-source
+SHA-256, installation command and catalog pin. Catalog maintainers must pin that
+full commit and the `hermes-plugin` subdirectory, not `main` or the downloadable
+desktop-source archive. The archive is the plugin's setup payload, not a
+standalone Hermes plugin.
 
 This release upgrades legacy JSON workspace storage to SQLite schema 11 through
 an explicit stopped-writer migration. See the bundled `docs/DEPLOYMENT.md` before

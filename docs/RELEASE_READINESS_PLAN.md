@@ -20,8 +20,8 @@ settings → Experimental features → Project Workbench). All Workbench entry p
 and task-result cards stay hidden while it is off; stored tasks, candidates,
 results and per-pane mode preferences are preserved, and the server authority
 boundaries are unchanged. `tests/experimental-workbench.browser.py` covers the
-gate. This change is not part of the published 0.3.0 pin and will be included in
-the next versioned package.
+gate. This change is not part of the published 0.3.0 pin; it is prepared for the
+0.3.1 package on `release/0.3.1`.
 
 ## Baseline and release decision
 
