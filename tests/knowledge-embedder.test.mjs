@@ -4,6 +4,7 @@ import fs from "node:fs";
 import { performance } from "node:perf_hooks";
 import { createEmbedder } from "../server/knowledge-embedder.mjs";
 import { createKnowledgeSearch } from "../server/knowledge-index.mjs";
+import { verifyModel } from "../server/knowledge-model.mjs";
 test("absent model means useful explicit semantic-off status and no remote fetch", async () => {
   const embedder = createEmbedder({
     modelDir: "/tmp/opencode/nonexistent-knowledge-model",
@@ -37,7 +38,12 @@ test(
     await rejected;
     const root = fs.mkdtempSync("/tmp/opencode/knowledge-real-model-");
     fs.mkdirSync(root + "/knowledge-index", { mode: 0o700 });
+    // fs.cpSync creates destination directories using the process umask, not
+    // the source directory modes. Keep this private fixture valid on CI's 0022.
+    fs.mkdirSync(root + "/knowledge-index/model", { mode: 0o700 });
+    fs.mkdirSync(root + "/knowledge-index/model/onnx", { mode: 0o700 });
     fs.cpSync(modelDir, root + "/knowledge-index/model", { recursive: true });
+    assert.equal(verifyModel(root + "/knowledge-index/model"), true);
     const svc = createKnowledgeSearch({ root, workspaceRead: () => ({}) }),
       workspace_id = "11111111-1111-1111-1111-111111111111";
     const call = (action, fields = {}) =>

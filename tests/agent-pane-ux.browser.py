@@ -78,7 +78,9 @@ def install_fixture(context, origin, name, width, height, theme=None):
               'task_id': 'fixture-task', 'attempt_id': 'fixture-attempt', 'hermes_completed': True,
               'project_generation': 1, 'received_at': NOW, 'retained_until': NOW + 86400000,
               'termination': 'completed', 'review_status': 'unreviewed'} if name == 'review' else None
-    execution = {'tasks': [{'id': 'fixture-task', 'title': 'Simplify the agent pane', 'status': 'active'}],
+    execution = {'tasks': [{'id': 'fixture-task', 'title': 'Simplify the agent pane', 'status': 'active',
+                           'acceptance': {'statement': 'Review the synthetic candidate',
+                                          'check_definition_id': 'node-test', 'policy': {}, 'required_checks': []}}],
                  'candidates': [candidate], 'definitions': [], 'jobs': [], 'reviews': [], 'evidence': [],
                  'target_changed': {}, 'review_identity': {}}
     requests_unknown = []
