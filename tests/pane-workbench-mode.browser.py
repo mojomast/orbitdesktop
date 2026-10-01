@@ -801,6 +801,9 @@ def main(renderer):
                         "attempt-bound packet (no client id, native consent preview not 403, no model call); 320px geometry; hidden busy-lane "
                         f"reconnect disables Send; page_errors={len(errors)}"
                     )
+                    # Drain route.fetch/json/fulfill handlers before disposing the
+                    # context's request client; polling may still be in flight.
+                    page.unroute_all(behavior="wait")
                     context.close()
                     browser.close()
             finally:

@@ -334,10 +334,24 @@ def run_fixture(kind='richtext'):
                 expect(host).to_have_count(0)
                 # Real owner library creates before placement; the reviewed
                 # opener event then binds a standard live document pane.
+                library_lists = []
+                def hold_library_list(route):
+                    if (route.request.post_data_json or {}).get('action') == 'list':
+                        library_lists.append(route)
+                    else:
+                        route.fallback()
+                page.route('**/api/documents', hold_library_list)
                 page.evaluate('window.dispatchEvent(new CustomEvent("orbit-open-host-surface",{detail:{id:"documents"}}))')
                 library = page.locator('[data-document-library="true"]')
                 expect(library).to_be_visible(timeout=20000)
                 library.get_by_label('Document title', exact=True).fill('Created through owner library')
+                expect(library.get_by_role('button', name='Create document', exact=True)).to_be_disabled()
+                deadline = time.monotonic() + 15
+                while not library_lists and time.monotonic() < deadline:
+                    page.wait_for_timeout(50)
+                assert len(library_lists) == 1, 'Expected the pending real initial library read'
+                page.unroute('**/api/documents', hold_library_list)
+                library_lists[0].continue_()
                 library.get_by_role('button', name='Create document', exact=True).click()
                 created = page.locator('.document-host', has=page.locator('strong', has_text='Created through owner library'))
                 expect(created.get_by_role('textbox', name='Rich document content')).to_be_visible(timeout=30000)
