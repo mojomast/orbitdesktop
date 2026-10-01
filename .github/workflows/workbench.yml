@@ -80,7 +80,9 @@ jobs:
       fail-fast: false
       max-parallel: 7
       matrix:
-        suite: [core, workspace, tools, themes, chat]
+        # Keep continuity and composition in separate bounded jobs: their combined
+        # real-browser/build workload exceeds the 25-minute hosted-runner budget.
+        suite: [core, workspace, workspace-composition, tools, themes, chat]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -213,7 +215,7 @@ jobs:
           /tmp/opencode/orbit-workbench-venv/bin/python tests/plugin-instances.browser.py
           /tmp/opencode/orbit-workbench-venv/bin/python tests/output-library.browser.py
       - name: Default workspace composition and checkpoint comparisons
-        if: ${{ !cancelled() && matrix.suite == 'workspace' && steps.browser_tools.outcome == 'success' }}
+        if: ${{ !cancelled() && matrix.suite == 'workspace-composition' && steps.browser_tools.outcome == 'success' }}
         env:
           PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
         run: |
@@ -224,7 +226,7 @@ jobs:
             /tmp/opencode/orbit-workbench-venv/bin/python tests/saved-workspace-layouts.browser.py --renderer "$renderer"
           done
       - name: Integrated workspace release acceptance
-        if: ${{ !cancelled() && matrix.suite == 'workspace' && steps.browser_tools.outcome == 'success' }}
+        if: ${{ !cancelled() && matrix.suite == 'workspace-composition' && steps.browser_tools.outcome == 'success' }}
         env:
           PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
         run: |

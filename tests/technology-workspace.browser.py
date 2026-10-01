@@ -233,9 +233,21 @@ window.__technologyCspViolations.push({uri:event.blockedURI,directive:event.effe
             page.keyboard.press('Escape')
             page.get_by_role('button', name='Connect local host', exact=True).click()
             page.get_by_role('textbox', name='Host session token').fill(f['token'])
-            page.get_by_role('button', name='Unlock local host', exact=True).click()
-            expect(page.locator('.saved')).to_contain_text('Workspace connected', timeout=20000)
-            page.wait_for_function('ids=>ids.every(id=>Number.isSafeInteger(JSON.parse(sessionStorage.getItem(`orbit-hermes-chat:${id}`)||"{}").binding_revision))', arg=f['panes'])
+            def workspace_read(response):
+                return (response.url == f['origin'] + '/api/workspace' and response.status == 200
+                        and response.request.method == 'POST'
+                        and (response.request.post_data_json or {}).get('action') == 'read'
+                        and (response.request.post_data_json or {}).get('workspace_id') == f['workspace'])
+            # The shared save label can switch to "Saved locally" after a layout
+            # render. Require a real read and the browser's subsequent revision
+            # acknowledgement instead of racing that transient presentation.
+            with page.expect_response(workspace_read, timeout=20000) as connected:
+                page.get_by_role('button', name='Unlock local host', exact=True).click()
+            saved_workspace = connected.value.json()
+            assert saved_workspace.get('state') and isinstance(saved_workspace.get('revision'), int)
+            with page.expect_response(lambda response: workspace_read(response)
+                    and (response.request.post_data_json or {}).get('observed_revision', -1) >= saved_workspace['revision'], timeout=20000):
+                page.wait_for_function('ids=>ids.every(id=>Number.isSafeInteger(JSON.parse(sessionStorage.getItem(`orbit-hermes-chat:${id}`)||"{}").binding_revision))', arg=f['panes'])
 
         def record(coverage):
             result['coverage'].append(coverage)
