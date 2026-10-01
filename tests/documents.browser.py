@@ -45,6 +45,15 @@ def run_fixture(kind='richtext'):
             shutil.copytree(ROOT / name, root / name)
         for name in ('index.html', 'package.json', 'tsconfig.json'):
             shutil.copy2(ROOT / name, root / name)
+        # Observe the real engine's imperative API only in this disposable copy.
+        # No substitute editor or production debug hook: this lets us assert the
+        # native-control/React boundary before another browser task flushes it.
+        canvas_source = root / 'src/canvas-editor.ts'
+        canvas_text = canvas_source.read_text()
+        api_hook = 'api=instance;font.disabled=readonly;'
+        assert canvas_text.count(api_hook) == 1
+        canvas_source.write_text(canvas_text.replace(api_hook,
+            'api=instance;(window as any).__fixtureCanvasApi=instance;font.disabled=readonly;'))
         (root / 'node_modules').symlink_to(ROOT / 'node_modules', target_is_directory=True)
         for name in ('home', 'cwd', 'runtime', 'tmux', 'dist'):
             (root / name).mkdir()
@@ -142,6 +151,15 @@ def run_fixture(kind='richtext'):
                     box = canvas.bounding_box(); assert box
                     page.mouse.move(box['x'] + 260, box['y'] + 230); page.mouse.down()
                     page.mouse.move(box['x'] + 470, box['y'] + 360, steps=12); page.mouse.up()
+                    font_boundary = host.get_by_label('Canvas text font', exact=True).evaluate('''select=>{
+                      const result=[];
+                      for(const id of [7,8,6,5]){
+                        select.value=String(id);select.dispatchEvent(new Event('change',{bubbles:true}));
+                        result.push({selected:id,actual:window.__fixtureCanvasApi.getAppState().currentItemFontFamily});
+                      }
+                      return result;
+                    }''')
+                    assert all(row['selected'] == row['actual'] for row in font_boundary), font_boundary
                     # The real picker must expose only the four admitted IDs,
                     # and each offered family must draw real editable text.
                     for i, (family_id, family_name) in enumerate(((5, 'Excalifont'), (6, 'Nunito'), (7, 'Lilita One'), (8, 'Comic Shanns'))):

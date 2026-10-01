@@ -9,7 +9,7 @@ export async function mountEditor(host:HTMLElement,content:string,onChange:(cont
   let current=content,disposed=false,readonly=false,api:ExcalidrawImperativeAPI|undefined,suppress=false,initialized=false;
   const initial=validateDocumentData({kind:'scene',format:'excalidraw',content});
   (window as Window & {EXCALIDRAW_ASSET_PATH?:string}).EXCALIDRAW_ASSET_PATH=CANVAS_ASSET_PATH;
-  const [React,{createRoot},{Excalidraw,convertToExcalidrawElements,CaptureUpdateAction},css]=await Promise.all([import('react'),import('react-dom/client'),import('@excalidraw/excalidraw'),import('@excalidraw/excalidraw/index.css?inline')]);
+  const [React,{createRoot},{flushSync},{Excalidraw,convertToExcalidrawElements,CaptureUpdateAction},css]=await Promise.all([import('react'),import('react-dom/client'),import('react-dom'),import('@excalidraw/excalidraw'),import('@excalidraw/excalidraw/index.css?inline')]);
   const policy=(globalThis as unknown as Record<symbol,unknown>)[Symbol.for(CANVAS_FONT_POLICY_KEY)];
   const certified=policy as {ids?:number[];source?:string;fallback?:string}|undefined;
   if(!Array.isArray(certified?.ids)||certified.ids.join(',')!==CANVAS_FONT_IDS.join(',')||!['3cfe278cb537fde73b42bbd4697b392946517d3dc02d3f3cf8487d8476f63ba2','72b54e8e9b3c17c69f1dd5e40203bfaed62313bc611b86ecb8a1625a12562e51'].includes(certified.source??'')||certified.fallback!=='same-origin')throw Error('Reviewed canvas font policy is missing from this build. Enable canvasFontPolicyPlugin before opening a canvas.');
@@ -34,7 +34,9 @@ export async function mountEditor(host:HTMLElement,content:string,onChange:(cont
     const selected=elements.filter(e=>e.type==='text'&&state.selectedElementIds[e.id]);
     const changed=convertToExcalidrawElements(selected.map(e=>({...e,type:'text' as const,text:e.type==='text'?e.originalText:'',fontFamily:family})),{regenerateIds:false});
     const replacements=new Map(changed.map(e=>[e.id,e]));
-    api.updateScene({elements:elements.map(e=>replacements.get(e.id)??e),appState:{currentItemFontFamily:family},captureUpdate:CaptureUpdateAction.IMMEDIATELY});
+    // This native control is outside React's event boundary. Commit its font
+    // before the next canvas pointer event can create text using stale state.
+    flushSync(()=>api!.updateScene({elements:elements.map(e=>replacements.get(e.id)??e),appState:{currentItemFontFamily:family},captureUpdate:CaptureUpdateAction.IMMEDIATELY}));
   });
   const mount=document.createElement('div');mount.className='canvas-root';
   const error=document.createElement('div');error.className='canvas-error';error.setAttribute('role','alert');
