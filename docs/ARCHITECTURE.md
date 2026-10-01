@@ -162,6 +162,31 @@ grant controller, model or generated-frame access. Notebook data has an independ
 revision CAS and never enters layout checkpoints or mutation receipts. See
 [Project tools](PROJECT_TOOLS.md) for lifecycle, hold and compatibility semantics.
 
+## Local technology surfaces
+
+Reviewed, lazy host surfaces add source-backed knowledge search, A2UI interactive
+results, local voice dictation, DuckDB data analysis, documents/whiteboards and run
+traces. They use stable browser-kind pane identities and owner-authenticated APIs;
+generated app frames receive no new private-data bridge. Explicit context transfer
+still previews text for one selected draft without sending it. Hermes remains the
+agent runtime and the workspace store remains the layout transaction authority.
+
+Source snapshots, rich documents, result edits, recipes and app snapshots have
+private stores independent of layout checkpoints. Search indices are rebuildable;
+the ingested snapshots they cite are authoritative. Voice models and DuckDB
+extensions are explicitly provisioned with integrity pins. Browser-side engines
+load local assets on demand, without global COOP/COEP. See
+[technology surfaces](TECHNOLOGY_FEATURES.md) and the feature-specific contracts.
+
+The optional browser copilot controls a separate disposable browser through a
+finite action API. MCP Apps renders owner-imported snapshots through a configured
+separate-origin proxy with closed capabilities. Neither implies automatic Hermes
+tool interoperability. The experimental gVisor check provider preserves the serial
+Workbench gate; its version-2 private approval records are refused by older
+environment implementations. Configuration or runtime failure cannot fall back to
+trusted-host checks. Real containment requires a separately provisioned and tested
+host. See [isolated checks](ISOLATED_CHECKS.md).
+
 ## Exact-artifact Studio
 
 `server/extension-studio.mjs` admits only the finite `focus-timer-v1` generator.

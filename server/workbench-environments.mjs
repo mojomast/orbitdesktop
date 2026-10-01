@@ -14,7 +14,7 @@ const hexMatch=new RegExp(hex.pattern);
 const base={action:{type:'string'},workspace_id:uuid,project_id:uuid};
 const strict=(properties,required=Object.keys(properties))=>({type:'object',properties,required,additionalProperties:false});
 export const environmentRequests=Object.freeze({
-  profile_preview:strict({...base,action:{const:'profile_preview'},candidate_id:uuid,required_inputs:{type:'array',minItems:2,maxItems:128,uniqueItems:true,items:{type:'string',minLength:1,maxLength:512}}}),
+  profile_preview:strict({...base,action:{const:'profile_preview'},candidate_id:uuid,execution_backend:{enum:['trusted_host','gvisor']},required_inputs:{type:'array',minItems:2,maxItems:128,uniqueItems:true,items:{type:'string',minLength:1,maxLength:512}}},['action','workspace_id','project_id','candidate_id','required_inputs']),
   profile_approve:strict({...base,action:{const:'profile_approve'},preview_id:uuid,preview_digest:hex}),
   environment_prepare:strict({...base,action:{const:'environment_prepare'},profile_id:uuid}),
   environment_status:strict({...base,action:{const:'environment_status'},profile_id:uuid}),
@@ -125,14 +125,26 @@ const runNpm=(node,npm,cwd,config,development=false)=>new Promise((resolve,rejec
   child.on('close',(code,signal)=>{code===0?resolve():reject(Object.assign(wbError(code===124||code===137||signal?'outcome_unknown':'unavailable'),{detail:output.slice(-512)}));});
 });
 
-export function createWorkbenchEnvironments({store,records,data,now=Date.now,gate,registryCache=process.env.ORBIT_WORKBENCH_NPM_CACHE}={}){
+export function createWorkbenchEnvironments({store,records,data,now=Date.now,gate,sandboxProvider,registryCache=process.env.ORBIT_WORKBENCH_NPM_CACHE}={}){
   if(!path.isAbsolute(store?.root??'')||!records?.project||!data?.get||!data?.create||!data?.update||!data?.list)throw Error('Workbench environments require store, records and data');
   const root=path.join(store.root,'workbench-environments');
   fs.mkdirSync(root,{recursive:true,mode:0o700});
   const previews=new Map(),active=new Set();
   const scope=body=>{store.read?.(body.workspace_id);return records.project(body.workspace_id,body.project_id);};
   const profile=body=>data.get('profiles',body.workspace_id,body.project_id,body.profile_id);
+  function backendContract(p){
+    // Version 2 is a record-level backward writer fence: previous servers reject
+    // these profiles instead of interpreting the guest approval as host authority.
+    if(p.execution_backend==='gvisor'){
+      if(p.profile_version!==undefined&&p.profile_version!==2)throw wbError('unsupported');
+      const status=sandboxProvider?.describe();
+      if(!status?.available)throw Object.assign(wbError('unavailable'),{reason:'sandbox_provider_unavailable'});
+      if(status.provider_identity!==p.provider_identity||stable(status)!==stable(p.provider))throw Object.assign(wbError('stale_resource'),{reason:'sandbox_provider_changed'});
+      if(stable(p.check_toolchain)!==stable({node:'/usr/local/bin/node',version:status.guest_node_version,hash:status.guest_node_sha256}))throw Object.assign(wbError('stale_resource'),{reason:'sandbox_provider_changed'});
+    }else if(p.execution_backend!==undefined&&p.execution_backend!=='trusted_host'||p.provider_identity!==undefined||p.provider!==undefined)throw wbError('unsupported');
+  }
   function current(body,p){
+    backendContract(p);
     const candidate=data.get('candidates',body.workspace_id,body.project_id,p.candidate_id);
     const observed=inspect(candidate,p.required_inputs);
     if(stable(observed.registry??null)!==stable(p.registry??null))throw Object.assign(wbError('unsupported'),{reason:'unsupported_profile_kind'});
@@ -141,7 +153,8 @@ export function createWorkbenchEnvironments({store,records,data,now=Date.now,gat
     return {candidate,observed};
   }
   function profileContract(p){
-    if(p.profile_version!==1||p.source_selection_policy!=='candidate_generation_may_change_if_dependency_inputs_remain_identical'||p.network_policy!=='offline_only'||p.lifecycle_policy!=='ignore_scripts'||p.registry&&p.registry.kind!=='locked-typescript-cache-v1')throw Object.assign(wbError('unsupported'),{reason:'unsupported_profile_kind'});
+    backendContract(p);
+    if(p.profile_version!==(p.execution_backend==='gvisor'?2:1)||p.source_selection_policy!=='candidate_generation_may_change_if_dependency_inputs_remain_identical'||p.network_policy!=='offline_only'||p.lifecycle_policy!=='ignore_scripts'||p.registry&&p.registry.kind!=='locked-typescript-cache-v1')throw Object.assign(wbError('unsupported'),{reason:'unsupported_profile_kind'});
     let chain;try{chain=toolchain();}catch{throw Object.assign(wbError('stale_resource'),{reason:'toolchain_changed'});}
     if(p.toolchain_hash!==chain.hash||p.toolchain?.node!==chain.node||p.toolchain?.npm!==chain.npm||p.toolchain?.version!==chain.version)throw Object.assign(wbError('stale_resource'),{reason:'toolchain_changed'});
     const expected=['/usr/bin/timeout','--kill-after=5s','60s',chain.node,chain.npm,'ci','--ignore-scripts','--offline','--no-audit','--no-fund',p.registry?'--include=dev':'--omit=dev','--no-package-lock=false'];
@@ -149,6 +162,7 @@ export function createWorkbenchEnvironments({store,records,data,now=Date.now,gat
   }
   function preparedContract(p){
     const prepared=p.prepared,dir=path.dirname(path.dirname(prepared.dependency_root??''));
+    if(p.execution_backend==='gvisor'&&(prepared.execution_backend!=='gvisor'||prepared.provider_identity!==p.provider_identity))throw wbError('stale_resource');
     if(path.dirname(dir)!==root||!uuidMatch.test(path.basename(dir))||prepared.dependency_root!==path.join(dir,'source','node_modules'))throw wbError('stale_resource');
     // Source may advance between profile approval and preparation when all
     // required dependency inputs remain identical; its hash is historical.
@@ -160,7 +174,7 @@ export function createWorkbenchEnvironments({store,records,data,now=Date.now,gat
     profileContract(p);preparedContract(p);
     const {candidate}=current(body,p);
     if(treeHash(p.prepared.dependency_root,!!p.registry)!==p.prepared.dependency_hash)throw wbError('stale_resource');
-    return {p,candidate,identity:{profile_id:p.id,profile_version:p.profile_version,project_generation:p.project_generation,lock_hash:p.lock_hash,toolchain_hash:p.toolchain_hash,dependency_hash:p.prepared.dependency_hash,environment_identity:p.prepared.environment_identity,network_policy:p.network_policy,lifecycle_policy:p.lifecycle_policy}};
+    return {p,candidate,identity:{profile_id:p.id,profile_version:p.profile_version,project_generation:p.project_generation,lock_hash:p.lock_hash,toolchain_hash:p.toolchain_hash,dependency_hash:p.prepared.dependency_hash,environment_identity:p.prepared.environment_identity,network_policy:p.network_policy,lifecycle_policy:p.lifecycle_policy,...(p.execution_backend==='gvisor'?{execution_backend:'gvisor',provider_identity:p.provider_identity,provider:p.provider}:{})}};
   }
   function profileReadiness(body){
     // Diagnostic projection of the same admission checks used by verifyProfile.
@@ -172,6 +186,8 @@ export function createWorkbenchEnvironments({store,records,data,now=Date.now,gat
     if(p.status!=='ready'||!p.prepared)return {ready:false,reason:'execution_profile_missing',message:'Prepare the approved execution profile before running required checks or exporting.'};
     try{return {ready:true,reason:null,message:'Execution profile is ready.',identity:readyProfile(body).identity};}
     catch(error){
+      if(error.reason==='sandbox_provider_unavailable')return {ready:false,reason:error.reason,message:'gVisor provider is unavailable; provision the approved runtime/rootfs. No host fallback is permitted.'};
+      if(error.reason==='sandbox_provider_changed')return {ready:false,reason:error.reason,message:'Sandbox runtime, rootfs or policy changed; preview, approve and prepare a fresh profile.'};
       if(error.reason==='toolchain_changed')return {ready:false,reason:'toolchain_changed',message:'Node/npm changed; approve and prepare a profile for the current toolchain.'};
       if(error.code==='unsupported')return {ready:false,reason:'unsupported_profile_kind',message:'This dependency profile is unsupported; approve and prepare a supported profile.'};
       if(['ENOENT','ENOTDIR','unavailable'].includes(error.code))return {ready:false,reason:'dependency_artifact_missing',message:'Prepared dependencies are missing; prepare the approved profile again.'};
@@ -188,6 +204,10 @@ export function createWorkbenchEnvironments({store,records,data,now=Date.now,gat
       const observed=inspect(candidate,body.required_inputs),chain=toolchain();
       if(observed.registry)privateCacheRoot(registryCache);
       const spec={candidate_id:body.candidate_id,project_generation:project.generation,required_inputs:body.required_inputs.slice().sort(),input_hashes:Object.fromEntries(observed.selected.map(file=>[file.path,file.hash])),source_hash:observed.source_hash,source_selection_policy:'candidate_generation_may_change_if_dependency_inputs_remain_identical',lock_hash:observed.lock_hash,toolchain_hash:chain.hash,toolchain:{node:chain.node,npm:chain.npm,version:chain.version},network_policy:'offline_only',lifecycle_policy:'ignore_scripts',command:['/usr/bin/timeout','--kill-after=5s','60s',chain.node,chain.npm,'ci','--ignore-scripts','--offline','--no-audit','--no-fund','--omit=dev','--no-package-lock=false']};
+      if(body.execution_backend==='gvisor'){
+        const provider=sandboxProvider?.describe();if(!provider?.available)throw Object.assign(wbError('unavailable'),{reason:'sandbox_provider_unavailable'});
+        Object.assign(spec,{execution_backend:'gvisor',provider_identity:provider.provider_identity,provider,check_toolchain:{node:'/usr/local/bin/node',version:provider.guest_node_version,hash:provider.guest_node_sha256},profile_version:2});
+      }
       if(observed.registry){spec.registry=observed.registry;spec.registry_cache=registryCache;spec.command=spec.command.map(arg=>arg==='--omit=dev'?'--include=dev':arg);}
       const preview_id=randomUUID(),preview_digest=digest(spec),expires_at=now()+60000;
       previews.set(preview_id,{...spec,preview_digest,expires_at,workspace_id:body.workspace_id,project_id:body.project_id});
@@ -200,7 +220,7 @@ export function createWorkbenchEnvironments({store,records,data,now=Date.now,gat
       if(project.generation!==p.project_generation)throw wbError('stale_resource');
       current(body,p);previews.delete(body.preview_id);
       const {preview_digest,expires_at,...fields}=p;
-      return data.create('profiles',{...fields,status:'approved',profile_version:1,approved_at:now()});
+      return data.create('profiles',{...fields,status:'approved',profile_version:fields.execution_backend==='gvisor'?2:1,approved_at:now()});
     }
     const p=profile(body);
     if(body.action==='environment_status')return p.project_generation===project.generation?p:{...p,status:'revoked',prepared:null};
@@ -228,6 +248,7 @@ export function createWorkbenchEnvironments({store,records,data,now=Date.now,gat
       if(!fs.statSync(dependency_root).isDirectory())throw wbError('unavailable');
       const dependency_hash=treeHash(dependency_root,!!p.registry);
       const prepared={dependency_root,dependency_hash,node_path:p.toolchain.node,lock_hash:p.lock_hash,toolchain_hash:p.toolchain_hash,profile_id:p.id,profile_version:p.profile_version,source_hash:candidate.hash,environment_identity:digest([p.id,p.lock_hash,p.toolchain_hash,dependency_hash,dir]),network_policy:p.network_policy,lifecycle_policy:p.lifecycle_policy};
+      if(p.execution_backend==='gvisor')Object.assign(prepared,{execution_backend:'gvisor',provider_identity:p.provider_identity});
       return data.update('profiles',body.workspace_id,body.project_id,p.id,record.revision,{status:'ready',prepared,finished_at:now()});
     }catch(error){if(record){try{data.update('profiles',body.workspace_id,body.project_id,p.id,record.revision,{status:error.code==='outcome_unknown'?'outcome_unknown':'failed',finished_at:now(),failure_code:error.code??'unavailable',private_artifact:dir});}catch{}}throw error;}
     finally{active.delete(p.id);release();}
@@ -284,7 +305,7 @@ export function createWorkbenchEnvironments({store,records,data,now=Date.now,gat
       verify();
       // Views remain private immutable artifacts for evidence/retention. No
       // generated source outputs are allowlisted by this profile version.
-      return {root:source,prepared,verify,dispose:()=>{}};
+       return {root:source,prepared,verify,execution_backend:p.execution_backend??'trusted_host',provider:p.execution_backend==='gvisor'?sandboxProvider:undefined,provider_identity:p.provider_identity,dispose:()=>{}};
     }catch(error){throw error;}
   }
   function verifyProfile({workspace_id,project_id,profile_id,candidate_id}){

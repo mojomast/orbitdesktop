@@ -36,9 +36,9 @@ if args.pty and (not shutil.which("tmux") or "ORBIT_TMUX_SOCKET" not in (ROOT / 
 
 with tempfile.TemporaryDirectory(prefix="orbit-continuity-", dir="/tmp/opencode") as temporary:
     root = Path(temporary)
-    for name in ("server", "src", "contracts", "scripts", "public"):
+    for name in ("server", "src", "contracts", "scripts", "public", "docs"):
         shutil.copytree(ROOT / name, root / name)
-    for name in ("index.html", "package.json", "tsconfig.json", "vite.config.js"):
+    for name in ("index.html", "package.json", "package-lock.json", "tsconfig.json", "vite.config.js"):
         shutil.copy2(ROOT / name, root / name)
     private_deps = os.environ.get("ORBIT_PRIVATE_DEPS") or str(ROOT / "node_modules")
     (root / "node_modules").symlink_to(private_deps, target_is_directory=True)

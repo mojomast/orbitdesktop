@@ -96,6 +96,23 @@ pointer drag; pointer resize changes actual panel geometry (not just a
 hit-testable handle). `.dv-default-tab-action` is hidden so the library cannot
 silently close a pane.
 
+### Narrow groups
+
+Dockview's assigned rectangle is also the monitor's paint and pointer boundary.
+Docked/floating monitors override the movable-Windows 280 × 180 minimum with
+zero CSS minimums and border-box sizing. Narrow groups therefore cannot cover or
+intercept neighboring host controls. Window and pane headers scroll within their
+own bounds; host controls wrap and constrain their width, and oversized content
+remains scrollable inside its surface. This does not change the placement
+compiler, v1 frames or the ordinary Windows resize minimum.
+
+`tests/docking-narrow.browser.py` exercises thirteen adjacent groups with real
+Interactive results, Voice and Lexical modules, ordinary saved-card clicks and
+`elementFromPoint` hit testing after resize and reload/unlock/palette selection.
+It also verifies iframe document/draft and Lexical editor identity across live
+selection, resize and float/return. Full reload creates fresh runtime objects;
+continuity is checked within each resulting page lifecycle.
+
 ## Persistence and recovery
 
 - Tabs, split ratios, floating frames and the active docking window are saved

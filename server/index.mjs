@@ -31,6 +31,8 @@ import {createWorkbenchNative} from './workbench-native.mjs';
 import {createWorkbenchLive} from './workbench-live.mjs';
 import {createWorkbenchLiveHandler} from './workbench-live-route.mjs';
 import {createWorkbenchNativeRuntime,nativeRuntimeEnvironmentOptions,nativeRuntimeMetadata} from './workbench-native-runtime.mjs';
+import {technologyOwnerRoute,lazyTechnologyService} from './technology-owner-route.mjs';
+import {createWorkbenchSandboxProvider} from './workbench-sandbox-provider.mjs';
 const port = Number(process.env.PORT || 4318);
 if (!Number.isInteger(port) || port < 1024 || port > 65535)
   throw Error("PORT must be between 1024 and 65535");
@@ -51,7 +53,7 @@ const securityHeaders = {
   "X-Frame-Options": "DENY",
   "Cache-Control": "no-store",
   "Content-Security-Policy":
-    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-src https: http:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+    "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-src https: http:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
 };
 const releaseIdentity = await (await import('./release-identity.mjs')).pinnedReleaseIdentity();
 // Content-hashed build assets only; enumerated from the served build at startup.
@@ -79,9 +81,10 @@ const workbenchServices={};
 const workbench = createWorkbench({store:workspaceService.store,token,port,devOrigins,reply,services:workbenchServices});
 const workbenchData=new WorkbenchData(workspaceService.store);
 const executionGate=createWorkbenchGate({legacySnapshot:legacyQueueSnapshot(runtimeRoot)});
-const agentHandler = createAgentHandler({ token, port, devOrigins, reply, workspaceContext: workspaceService.context, workspaceRead:workspaceService.read, runtimeDirectory:runtimeRoot,executionGate });
-const environments=createWorkbenchEnvironments({store:workspaceService.store,records:workbench.records,data:workbenchData,gate:executionGate});
-const execution=createWorkbenchExecution({store:workspaceService.store,records:workbench.records,data:workbenchData,gate:executionGate,environments});
+const agentHandler = createAgentHandler({ token, port, devOrigins, reply, workspaceContext: workspaceService.context, workspaceRead:workspaceService.read, runtimeDirectory:runtimeRoot,executionGate,onRunEvent:event=>observeTechnologyTrace(event,'observeAgentRunEvent') });
+const sandboxProvider=createWorkbenchSandboxProvider({root:path.join(workspaceService.store.root,'workbench-sandbox'),env:process.env});
+const environments=createWorkbenchEnvironments({store:workspaceService.store,records:workbench.records,data:workbenchData,gate:executionGate,sandboxProvider});
+const execution=createWorkbenchExecution({store:workspaceService.store,records:workbench.records,data:workbenchData,gate:executionGate,environments,sandboxProvider});
 workbenchServices.execution=execution;
 // Managed terminals: strictly optional. A failure here (no tmux, readonly runtime,
 // unsupported platform) disables the route; it must never block the host server or
@@ -183,6 +186,64 @@ catch{console.warn('Private Workbench activity projection unavailable; durable t
 const liveHandler=workbenchLive?createWorkbenchLiveHandler({token,port,devOrigins,reply,live:workbenchLive}):workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:()=>{throw Object.assign(Error('unavailable'),{code:'unavailable'});}});
 const workflowHandler=workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:body=>workflow.dispatch(body)});
 const environmentHandler=workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:body=>environments.dispatch(body),publicReasons:['dedicated_npm_cache_required','private_npm_cache_required','typescript_test_command_unsupported','typescript_dependency_shape_unsupported','typescript_toolchain_dependencies_required','development_lock_mismatch','registry_lock_entry_unsupported','registry_url_unsupported','registry_artifact_limit']});
+const technologyOptions={root:runtimeRoot,workspaceRead:workspaceService.read};
+// An optional static proxy uses its own loopback origin and never serves owner APIs.
+// A supplied external proxy origin is configuration, not an arbitrary request target.
+const mcpSandbox=await (async()=>{
+  if(process.env.ORBIT_MCP_APPS!=='1')return null;
+  try{
+    const hostOrigins=[`http://127.0.0.1:${port}`,`http://localhost:${port}`,`http://[::1]:${port}`,...devOrigins,...(process.env.ORBIT_PUBLIC_ORIGIN?[process.env.ORBIT_PUBLIC_ORIGIN]:[])];
+    const configured=process.env.ORBIT_MCP_APPS_SANDBOX_ORIGIN;
+    if(configured){const url=new URL(configured);if(url.origin!==configured||!['http:','https:'].includes(url.protocol)||url.username||url.password||hostOrigins.includes(configured))throw Error();if(!process.env.ORBIT_MCP_APPS_SANDBOX_PORT)return {origin:configured,close(){}};}
+    const sandboxPort=Number(process.env.ORBIT_MCP_APPS_SANDBOX_PORT);
+    if(!Number.isInteger(sandboxPort)||sandboxPort<1024||sandboxPort>65535||sandboxPort===port)throw Error();
+    const {createMcpAppsSandbox}=await import('./mcp-apps-sandbox.mjs');
+    const proxy=createMcpAppsSandbox({hostOrigins});
+    const listener=http.createServer((req,res)=>{
+      if(!new Set([`127.0.0.1:${sandboxPort}`,...(configured?[new URL(configured).host]:[])]).has(req.headers.host)){res.writeHead(403);res.end();return;}
+      proxy.handler(req,res);
+    });
+    await new Promise((resolve,reject)=>{listener.once('error',reject);listener.listen(sandboxPort,'127.0.0.1',resolve);});
+    return {origin:configured||`http://127.0.0.1:${sandboxPort}`,close:()=>new Promise(resolve=>listener.close(resolve))};
+  }catch{console.warn('MCP Apps sandbox unavailable');return null;}
+})();
+const technologyServices={
+  '/api/search':lazyTechnologyService(async()=> (await import('./knowledge-index.mjs')).createKnowledgeSearch(technologyOptions)),
+  '/api/interactive-results':lazyTechnologyService(async()=> (await import('./interactive-results.mjs')).createInteractiveResults(technologyOptions)),
+  '/api/data-recipes':lazyTechnologyService(async()=> (await import('./data-recipes.mjs')).createDataRecipes(technologyOptions)),
+  '/api/documents':lazyTechnologyService(async()=> (await import('./documents-store.mjs')).createDocumentsService(technologyOptions)),
+  '/api/run-traces':lazyTechnologyService(async()=> (await import('./run-traces.mjs')).createRunTraces({...technologyOptions,workbenchData,subscribeWorkbench:false})),
+  '/api/browser-copilot':lazyTechnologyService(async()=> (await import('./browser-copilot.mjs')).createBrowserCopilot({...technologyOptions,runtimeDirectory:runtimeRoot})),
+  '/api/mcp-apps':lazyTechnologyService(async()=> (await import('./mcp-apps.mjs')).createMcpApps({...technologyOptions,sandboxOrigin:mcpSandbox?.origin??''})),
+};
+// Load the derived projection on its first observed event rather than on shell
+// startup. Limit pending deliveries while an optional module is initializing.
+let pendingTraceObservations=0;
+const unsubscribeTechnologyTraces=workbenchData.subscribe(change=>{
+  observeTechnologyTrace(change,'observer');
+});
+function observeTechnologyTrace(change,method){
+  if(pendingTraceObservations>=4000)return;
+  pendingTraceObservations++;
+  void technologyServices['/api/run-traces'].get().then(traces=>traces[method](change)).catch(()=>{}).finally(()=>{pendingTraceObservations--;});
+}
+const technologyHandlers=Object.fromEntries(Object.entries(technologyServices).map(([route,service])=>[route,technologyOwnerRoute({token,port,devOrigins,reply,
+  maxBytes:route==='/api/documents'?4*1024*1024:route==='/api/mcp-apps'?2*1024*1024:['/api/browser-copilot','/api/run-traces'].includes(route)?16384:route==='/api/search'?400*1024:1024*1024,
+  maxResponseBytes:route==='/api/run-traces'?4*1024*1024+65536:route==='/api/browser-copilot'?3*1024*1024:2*1024*1024,
+  publicReasons:['recovery_hold','operation_mismatch'],dispatch:body=>service.dispatch(body),
+  publicDetail:route==='/api/search',
+  conflictDetails:route==='/api/data-recipes'?error=>{
+    const current=error.current;
+    // The service constructs this owner-only snapshot after validating stored recipes.
+    if(!current||!Number.isSafeInteger(current.revision)||current.revision<0||!Array.isArray(current.recipes)||current.recipes.length>500||typeof current.workspace_id!=='string'||!/^[a-f0-9-]{36}$/.test(current.workspace_id))return {};
+    return {current:{workspace_id:current.workspace_id,revision:current.revision,recipes:current.recipes}};
+  }:route==='/api/search'?error=>Number.isSafeInteger(error.current?.consent_generation)&&error.current.consent_generation>=0?{current:{consent_generation:error.current.consent_generation}}:{}:undefined,
+})]));
+const technologyAssets=lazyTechnologyService(async()=> (await import('./technology-assets.mjs')).createTechnologyAssets({root:path.resolve(fileURLToPath(new URL('../',import.meta.url))),runtimeRoot,securityHeaders}));
+const technologyCapabilities=technologyOwnerRoute({token,port,devOrigins,reply,maxBytes:256,dispatch:body=>{
+  if(!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).length!==1||body.action!=='capabilities')throw {code:'invalid_request'};
+  return {browser_copilot:!!process.env.ORBIT_BROWSER_EXECUTABLE&&!!process.env.ORBIT_BROWSER_ALLOWED_ORIGINS,mcp_apps:!!mcpSandbox};
+}});
 const server = http.createServer(async (req, res) => {
   const allowedHosts = new Set([
     `127.0.0.1:${port}`,
@@ -193,6 +254,11 @@ const server = http.createServer(async (req, res) => {
   if (!allowedHosts.has(req.headers.host))
     return reply(res, 403, { error: "Host rejected" });
   const url = new URL(req.url, "http://localhost");
+  if(url.pathname==='/api/technology-capabilities')return technologyCapabilities(req,res);
+  if(Object.hasOwn(technologyHandlers,url.pathname))return technologyHandlers[url.pathname](req,res);
+  if(url.pathname.startsWith('/vendor/')){
+    try{return (await technologyAssets.get()).handle(req,res,url.pathname);}catch{return reply(res,503,{ok:false,code:'unavailable'});}
+  }
   if(url.pathname==='/api/workbench')return workbench.handle(req,res);
   if(url.pathname==='/api/workbench/context')return contextHandler(req,res);
   if(url.pathname==='/api/workbench/execution')return executionHandler(req,res);
@@ -269,10 +335,14 @@ const server = http.createServer(async (req, res) => {
     const types = {
       ".html": "text/html; charset=utf-8",
       ".js": "text/javascript; charset=utf-8",
+      ".mjs": "text/javascript; charset=utf-8",
+      ".wasm": "application/wasm",
       ".css": "text/css; charset=utf-8",
       ".svg": "image/svg+xml",
       ".png": "image/png",
       ".woff2": "font/woff2",
+      ".woff": "font/woff",
+      ".ttf": "font/ttf",
     };
     const headers = {...securityHeaders};
     res.writeHead(200, {
@@ -459,11 +529,14 @@ server.listen(port, "127.0.0.1", () => {
 for (const signal of ["SIGTERM", "SIGINT"])
   process.on(signal, () => {
     execution.close();
+    sandboxProvider.close();
     contextSharing.close?.();
     native.close();
     liveHandler.close?.();
     workbenchLive?.close();
+    unsubscribeTechnologyTraces();
+    const technologyClosed=Promise.allSettled([...Object.values(technologyServices).map(service=>service.close()),technologyAssets.close(),mcpSandbox?.close()]);
     for (const ws of wss.clients) ws.terminate();
-    server.close(() => {workspaceService.close();process.exit(0);});
+    server.close(() => {void technologyClosed.finally(()=>{workspaceService.close();process.exit(0);});});
     setTimeout(() => process.exit(0), 2000).unref();
   });

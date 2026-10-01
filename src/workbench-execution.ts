@@ -1,7 +1,7 @@
 import { button, el } from './dom';
 
 type Definition = { id: string; executable: string; args: string[]; limits: unknown; policy: unknown };
-type Task = { id: string; title: string; status: string; acceptance_version: number; acceptance_digest: string; acceptance: { statement: string; check_definition_id: string; policy: unknown }; check_definition_id: string; recipient: { profile_id: string; session_id: string } | null; candidate_id: string | null; latest_evidence_id: string | null };
+type Task = { id: string; title: string; status: string; acceptance_version: number; acceptance_digest: string; acceptance: { statement: string; check_definition_id: string; policy: unknown; required_checks?:{execution_profile?:BackendIdentity}[] }; check_definition_id: string; recipient: { profile_id: string; session_id: string } | null; candidate_id: string | null; latest_evidence_id: string | null };
 type FileEntry = { path: string; hash: string; bytes: number; state: string };
 type Candidate = { id: string; task_id: string; source_manifest_hash: string; preview_digest: string; base_hash: string; generation: number; hash: string; files: FileEntry[]; exclusions: unknown; limited: boolean; total_bytes: number; head: null; status: string };
 type Job = { id: string; op_id: string; candidate_id: string; status: string; pid: number | null; process_start: string | null; started_at: number | null; ended_at: number | null; definition_id: string; spec_digest: string; supervisor?: string; command?: unknown; cancel_confirmed?: boolean; outcome_note?: string };
@@ -11,6 +11,8 @@ type Projection = { tasks: Task[]; candidates: Candidate[]; jobs: Job[]; evidenc
 type CandidatePreview = { digest: string; preview_id: string; expires_at: number; base: { manifest_hash: string; files: FileEntry[]; exclusions: unknown; limited: boolean; total_bytes: number; head: null } };
 type CheckPreview = { spec_digest: string; preview_id: string; expires_at: number; candidate_id: string; candidate_hash: string; acceptance_version: number; definition_id: string; definition_digest: string; definition_hash: string; executable: string; args: string[]; script: string; limits: unknown; policy: unknown };
 type Reply = Record<string, unknown>;
+type BackendIdentity = {execution_backend?:string;provider_identity?:string;provider?:{platform?:string}};
+const backendLabel=(identity?:BackendIdentity)=>identity?.execution_backend==='gvisor'?`Experimental gVisor runsc ${identity.provider?.platform??'systrap'} — offline`:'Trusted host — not a sandbox';
 type Readiness = {ready:boolean;reason:string|null;message:string;candidate_hash:string;candidate_generation:number;acceptance_digest:string;required_checks:{definition_id:string;execution_profile_id:string|null;ready:boolean;reason:string|null;message:string}[]};
 
 function row(label: string, value: unknown) {
@@ -125,7 +127,7 @@ export function mountWorkbenchExecution(args: {
   function schedule() {
     if (timer !== null) clearTimeout(timer);
     timer = null;
-    if (!disposed && args.container.isConnected) timer = setTimeout(() => { timer = null; void refresh(); }, 2000);
+    if (!disposed && args.container.isConnected) timer = setTimeout(() => { timer = null; void refresh(false); }, 2000);
   }
   function selectedCandidate() { return projection?.candidates.find(item => item.id === candidateSelect.value) ?? null; }
   function currentReadiness(candidate: Candidate | null) {
@@ -173,19 +175,23 @@ export function mountWorkbenchExecution(args: {
       if (refreshAfter) await project();
     } finally { pending = false; if (!disposed) { controls(); schedule(); } }
   }
-  async function project() {
+  async function project(freshReadiness=true) {
     const ticket = invalidate();
     const result = await request({ action: 'execution_state' }, ticket);
     if (!result || !current(ticket)) return;
     projection = result as unknown as Projection;
     render();
-    await loadReadiness(ticket);
+    const isolated=projection.tasks.find(task=>task.id===selectedCandidate()?.task_id)?.acceptance.required_checks?.some(check=>check.execution_profile?.execution_backend==='gvisor');
+    // Automatic display polling must not turn into repeated expensive authority
+    // probes. Explicit refresh/actions/selection still request fresh readiness;
+    // launch is always independently revalidated by the service.
+    if(freshReadiness||!isolated)await loadReadiness(ticket);
   }
-  async function refresh() {
+  async function refresh(freshReadiness=true) {
     if (disposed) return;
     if (pending) { report('Execution: busy.'); return; }
     if (timer !== null) { clearTimeout(timer); timer = null; }
-    await project();
+    await project(freshReadiness);
     schedule();
   }
 
@@ -264,7 +270,7 @@ export function mountWorkbenchExecution(args: {
       row('Files', candidatePreview.base.files.map(file => `${file.path} · ${file.hash} · ${file.bytes} bytes`).join('\n')),
       row('Exclusions', candidatePreview.base.exclusions), row('Limited', candidatePreview.base.limited), row('Total bytes', candidatePreview.base.total_bytes));
     checkView.replaceChildren(el('h3', '', 'Check preview'));
-    if (checkPreview) checkView.append(row('Spec digest', checkPreview.spec_digest), row('Candidate hash', checkPreview.candidate_hash),
+    if (checkPreview) checkView.append(row('Backend',backendLabel((checkPreview as CheckPreview & {execution_profile?:BackendIdentity}).execution_profile)),row('Spec digest', checkPreview.spec_digest), row('Candidate hash', checkPreview.candidate_hash),
       row('Acceptance version', checkPreview.acceptance_version), row('Definition', checkPreview.definition_id),
       row('Definition hash', checkPreview.definition_hash), row('Executable', checkPreview.executable), row('Args', checkPreview.args),
       row('Limits', checkPreview.limits), row('Policy', checkPreview.policy), row('Operation ID', opId));
@@ -274,6 +280,8 @@ export function mountWorkbenchExecution(args: {
     const data = projection!;
     status.textContent = data.revoked ? 'Project access revoked. Outcomes are not verified.' : `Execution: ${data.execution} · Active checks: ${data.active_count}`;
     summary.replaceChildren(el('h3', '', 'Definitions and limits'), row('Policy', data.policy), row('Execution', data.execution), row('Revoked', data.revoked));
+    const provider=(data as Projection & {provider?:{message?:string;action?:string}}).provider;
+    summary.append(row('Experimental gVisor availability',`${provider?.message??'Unavailable'} ${provider?.action??''}`));
     for (const item of data.definitions) summary.append(row(item.id, { executable: item.executable, args: item.args, limits: item.limits, policy: item.policy }));
     const oldDefinition = definition.value, oldCheck = checkDefinition.value;
     choice(definition, data.definitions.map(item => ({ id: item.id, label: item.id })), oldDefinition);
@@ -330,6 +338,7 @@ export function mountWorkbenchExecution(args: {
         }),
       );
       for (const evidence of data.evidence.filter(entry => entry.job_id === job.id)) {
+        item.append(row('Backend',backendLabel(evidence as Evidence & BackendIdentity)));
         item.append(row('Evidence', `${evidence.id} · ${evidence.revoked || data.revoked ? 'revoked — not verified' : evidence.verdict} · exit ${evidence.exit_code ?? 'none'} · signal ${evidence.signal ?? 'none'} · ${evidence.started_at}–${evidence.ended_at}`),
           row('Artifact hash', evidence.artifact_hash), row('Definition hash', evidence.definition_hash), row('Candidate hash before / after', `${evidence.candidate_hash_before} / ${evidence.candidate_hash_after}`),
           row('Superseded', evidence.superseded), el('pre', '', evidence.stdout_preview), el('pre', '', evidence.stderr_preview));

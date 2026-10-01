@@ -8,6 +8,7 @@ import {mountWorkbenchReviewHost,REVIEW_URL} from './workbench-review-host';
 import {mountProjectToolHost,PROJECT_TOOL_URL_PREFIX,projectToolId} from './project-tool-host';
 import { mountManagedTerminalControls } from './managed-terminals';
 import { hostSurfaceId, mountHostSurface } from './host-surfaces';
+import {documentSurfaceId} from './technology-surfaces';
 import { bindToolFeed } from "./tool-feed";
 import type { Pane, PaneKind } from "./model";
 export interface PaneView {
@@ -319,7 +320,16 @@ export function createPane(p: Pane, font: number, a: PaneActions): PaneView {
       term.dispose();
     };
   } else if (p.kind === 'browser' && hostSurfaceId(p.url)) {
-    cleanup=mountHostSurface(body,hostSurfaceId(p.url)!,()=>sessionToken);
+    cleanup=mountHostSurface(body,hostSurfaceId(p.url)!,()=>sessionToken,{paneId:p.id});
+  } else if (p.kind === 'browser' && documentSurfaceId(p.url)) {
+    let disposed=false;
+    let dispose=()=>{};
+    void import('./document-host').then(module=>{
+      if(disposed)return;
+      const mounted=module.mountDocumentHost(body,documentSurfaceId(p.url)!,()=>sessionToken,{paneId:p.id});
+      dispose=()=>mounted.dispose();
+    }).catch(()=>{if(!disposed)body.textContent='Document surface unavailable';});
+    cleanup=()=>{disposed=true;dispose();};
   } else if (p.kind === 'browser' && p.url === REVIEW_URL) {
     body.style.overflow='auto';
     body.style.padding='.75rem';

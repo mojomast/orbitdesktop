@@ -16,6 +16,16 @@ panes using the allowlisted `orbit://surface/outputs` and
 bridge for generated plugins. Their placement is saved with the workspace; live
 contents are reloaded from their existing authorized sources.
 
+## Local technology surfaces
+
+The subsequent [technology feature round](TECHNOLOGY_FEATURES.md) adds normal
+workspace surfaces for [source-backed search](KNOWLEDGE_SEARCH.md),
+[interactive results](INTERACTIVE_RESULTS.md), [voice dictation](VOICE_DICTATION.md),
+[data analysis](DATA_LAB.md), documents/whiteboards and [run traces](RUN_TRACES.md).
+Optional [MCP Apps](MCP_APPS.md) and [browser copilot](BROWSER_COPILOT.md) require
+their documented configuration. These integrations retain the same pane identities
+and explicit draft handoff; private content is separate from layout checkpoints.
+
 ## Plugin editing
 
 Configure and Window settings use typed forms with inline validation. Existing

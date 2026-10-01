@@ -20,9 +20,9 @@ from playwright.sync_api import expect, sync_playwright
 ROOT = Path(__file__).resolve().parents[1]
 with tempfile.TemporaryDirectory(prefix='orbit-host-surfaces-', dir='/tmp/opencode') as temporary:
     root = Path(temporary)
-    for name in ('src', 'contracts', 'public'):
+    for name in ('src', 'contracts', 'public', 'server', 'scripts', 'docs'):
         shutil.copytree(ROOT / name, root / name)
-    for name in ('index.html', 'package.json', 'tsconfig.json', 'vite.config.js'):
+    for name in ('index.html', 'package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.js'):
         shutil.copy2(ROOT / name, root / name)
     (root / 'node_modules').symlink_to(ROOT / 'node_modules', target_is_directory=True)
     with socket.socket() as probe:

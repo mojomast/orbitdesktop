@@ -1,0 +1,220 @@
+name: Orbit technology feature tests
+
+# Heavy browser engines and optional local models have their own scoped gate.
+# Weekly/manual coverage also catches upstream runner and browser changes.
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/technology.yml'
+      - 'package*.json'
+      - 'vite.config.js'
+      - 'tsconfig.json'
+      - 'src/*copilot*'
+      - 'src/*data*'
+      - 'src/duckdb*'
+      - 'src/document*'
+      - 'src/richdoc*'
+      - 'src/canvas*'
+      - 'src/interactive-result*'
+      - 'src/mcp-apps*'
+      - 'src/run-trace*'
+      - 'src/search*'
+      - 'src/voice*'
+      - 'src/technology*'
+      - 'src/main.ts'
+      - 'src/panes.ts'
+      - 'src/host-surfaces*'
+      - 'src/docking*'
+      - 'src/conversation-transfer.ts'
+      - 'server/*copilot*'
+      - 'server/data-*'
+      - 'server/documents*'
+      - 'server/interactive-results*'
+      - 'server/knowledge-*'
+      - 'server/mcp-apps*'
+      - 'server/run-trace*'
+      - 'server/voice-*'
+      - 'server/technology-*'
+      - 'server/index.mjs'
+      - 'server/agent.mjs'
+      - 'server/security.mjs'
+      - 'contracts/*-v1.mjs'
+      - 'scripts/knowledge-model.mjs'
+      - 'scripts/provision_voice_models.mjs'
+      - 'scripts/provision_data_engine.mjs'
+      - 'scripts/technology-notices.mjs'
+      - 'docs/licenses/**'
+      - 'tests/*copilot*'
+      - 'tests/data-workbench*'
+      - 'tests/documents*'
+      - 'tests/canvas*'
+      - 'tests/interactive-results*'
+      - 'tests/knowledge-*'
+      - 'tests/mcp-apps*'
+      - 'tests/run-trace*'
+      - 'tests/voice-*'
+      - 'tests/technology-*'
+      - 'tests/docking-narrow.browser.py'
+  push:
+    branches: [main, 'release/**']
+    paths:
+      - '.github/workflows/technology.yml'
+      - 'package*.json'
+      - 'vite.config.js'
+      - 'tsconfig.json'
+      - 'src/*copilot*'
+      - 'src/*data*'
+      - 'src/duckdb*'
+      - 'src/document*'
+      - 'src/richdoc*'
+      - 'src/canvas*'
+      - 'src/interactive-result*'
+      - 'src/mcp-apps*'
+      - 'src/run-trace*'
+      - 'src/search*'
+      - 'src/voice*'
+      - 'src/technology*'
+      - 'src/main.ts'
+      - 'src/panes.ts'
+      - 'src/host-surfaces*'
+      - 'src/docking*'
+      - 'src/conversation-transfer.ts'
+      - 'server/*copilot*'
+      - 'server/data-*'
+      - 'server/documents*'
+      - 'server/interactive-results*'
+      - 'server/knowledge-*'
+      - 'server/mcp-apps*'
+      - 'server/run-trace*'
+      - 'server/voice-*'
+      - 'server/technology-*'
+      - 'server/index.mjs'
+      - 'server/agent.mjs'
+      - 'server/security.mjs'
+      - 'contracts/*-v1.mjs'
+      - 'scripts/knowledge-model.mjs'
+      - 'scripts/provision_voice_models.mjs'
+      - 'scripts/provision_data_engine.mjs'
+      - 'scripts/technology-notices.mjs'
+      - 'docs/licenses/**'
+      - 'tests/*copilot*'
+      - 'tests/data-workbench*'
+      - 'tests/documents*'
+      - 'tests/canvas*'
+      - 'tests/interactive-results*'
+      - 'tests/knowledge-*'
+      - 'tests/mcp-apps*'
+      - 'tests/run-trace*'
+      - 'tests/voice-*'
+      - 'tests/technology-*'
+      - 'tests/docking-narrow.browser.py'
+  schedule:
+    - cron: '47 5 * * 2'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+concurrency:
+  group: technology-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  browser:
+    name: Technology / ${{ matrix.suite }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        suite: [knowledge, interactive, voice, data, documents, mcp, traces, browser, workspace-default, workspace-docking]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.1'
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: npm ci
+      - name: Cache pinned public embedding model
+        if: matrix.suite == 'knowledge' || startsWith(matrix.suite, 'workspace-')
+        uses: actions/cache@v4
+        with:
+          path: /tmp/opencode/orbit-knowledge-models/knowledge-index/model
+          key: knowledge-model-${{ hashFiles('server/knowledge-model.mjs') }}
+      - name: Verify actual offline embedding engine
+        if: matrix.suite == 'knowledge' || startsWith(matrix.suite, 'workspace-')
+        env:
+          ORBIT_TEST_MODEL_DIR: /tmp/opencode/orbit-knowledge-models/knowledge-index/model
+        run: |
+          mkdir -p /tmp/opencode
+          install -d -m 700 /tmp/opencode/orbit-knowledge-models /tmp/opencode/orbit-knowledge-models/knowledge-index
+          node scripts/knowledge-model.mjs provision /tmp/opencode/orbit-knowledge-models
+          node --experimental-strip-types --test tests/knowledge-*.test.mjs
+      - name: Cache pinned public speech model
+        if: matrix.suite == 'voice' || startsWith(matrix.suite, 'workspace-')
+        uses: actions/cache@v4
+        with:
+          path: /tmp/opencode/orbit-voice-models
+          key: voice-model-${{ hashFiles('server/voice-model-assets.mjs') }}
+      - name: Provision verified offline speech fixtures
+        if: matrix.suite == 'voice' || startsWith(matrix.suite, 'workspace-')
+        run: |
+          mkdir -p /tmp/opencode
+          node scripts/provision_voice_models.mjs --models-root /tmp/opencode/orbit-voice-models
+          python3 - <<'PY'
+          import hashlib, urllib.request
+          from pathlib import Path
+          url = 'https://huggingface.co/datasets/Xenova/transformers.js-docs/resolve/main/jfk.wav'
+          with urllib.request.urlopen(url, timeout=60) as response:
+              data = response.read(8 * 1024 * 1024 + 1)
+          assert len(data) <= 8 * 1024 * 1024
+          assert hashlib.sha256(data).hexdigest() == 'aa81c2552465568567e670f3823117e633900d16bd6202346a72f3c8464c74c8'
+          Path('/tmp/opencode/orbit-voice-jfk.wav').write_bytes(data)
+          PY
+      - name: Provision pinned offline data-engine extensions
+        if: matrix.suite == 'data' || startsWith(matrix.suite, 'workspace-')
+        run: |
+          mkdir -p /tmp/opencode
+          node scripts/provision_data_engine.mjs --extensions-root /tmp/opencode/orbit-duckdb-extensions
+      - name: Install isolated browser tools
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-technology-browsers
+        run: |
+          mkdir -p /tmp/opencode
+          python3 -m venv /tmp/opencode/orbit-technology-venv
+          /tmp/opencode/orbit-technology-venv/bin/pip install --disable-pip-version-check playwright==1.58.0
+          /tmp/opencode/orbit-technology-venv/bin/python -m playwright install --with-deps chromium
+      - name: Run real-engine browser fixture
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-technology-browsers
+          SUITE: ${{ matrix.suite }}
+        run: |
+          set -euo pipefail
+          python=/tmp/opencode/orbit-technology-venv/bin/python
+          case "$SUITE" in
+            knowledge) "$python" tests/knowledge-search.browser.py ;;
+            interactive) "$python" tests/interactive-results.browser.py ;;
+            voice) "$python" tests/voice-capture.browser.py --models-root /tmp/opencode/orbit-voice-models --audio-file /tmp/opencode/orbit-voice-jfk.wav ;;
+            data) "$python" tests/data-workbench.browser.py ;;
+            documents)
+              "$python" tests/documents.browser.py
+              "$python" tests/canvas.browser.py
+              ;;
+            mcp) "$python" tests/mcp-apps.browser.py ;;
+            traces) "$python" tests/run-traces.browser.py ;;
+            browser)
+              export ORBIT_BROWSER_EXECUTABLE="$("$python" -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')"
+              "$python" tests/browser-copilot.browser.py
+              ;;
+            workspace-default|workspace-docking)
+              export ORBIT_BROWSER_EXECUTABLE="$("$python" -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')"
+              if [ "$SUITE" = workspace-docking ]; then "$python" tests/docking-narrow.browser.py; fi
+              "$python" tests/technology-workspace.browser.py --renderer "${SUITE#workspace-}" --search-models /tmp/opencode/orbit-knowledge-models
+              ;;
+            *) exit 2 ;;
+          esac

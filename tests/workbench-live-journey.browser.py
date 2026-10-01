@@ -266,7 +266,7 @@ def main(renderer):
         assert root != ROOT and not str(root).startswith(str(ROOT) + os.sep)
         for name in ("server", "src", "contracts", "docs", "public", "hermes-plugin", "scripts"):
             shutil.copytree(ROOT / name, root / name)
-        for name in ("index.html", "package.json", "tsconfig.json", "vite.config.js"):
+        for name in ("index.html", "package.json", "package-lock.json", "tsconfig.json", "vite.config.js"):
             shutil.copy2(ROOT / name, root / name)
         (root / "node_modules").symlink_to(ROOT / "node_modules", target_is_directory=True)
         for name in ("runtime", "home", "cwd", "tmux"):

@@ -23,7 +23,7 @@ with tempfile.TemporaryDirectory(prefix='orbit-command-palette-', dir='/tmp/open
     root = Path(temporary)
     for name in ('server', 'src', 'contracts', 'public', 'docs', 'scripts'):
         shutil.copytree(ROOT / name, root / name)
-    for name in ('package.json', 'index.html', 'tsconfig.json', 'vite.config.js'):
+    for name in ('package.json', 'package-lock.json', 'index.html', 'tsconfig.json', 'vite.config.js'):
         shutil.copy2(ROOT / name, root / name)
     (root / 'node_modules').symlink_to(ROOT / 'node_modules', target_is_directory=True)
     for name in ('runtime', 'home', 'cwd'):
@@ -88,7 +88,10 @@ with tempfile.TemporaryDirectory(prefix='orbit-command-palette-', dir='/tmp/open
             search = palette.get_by_role('combobox', name='Search workspace commands')
             expect(search).to_be_focused()
             search.fill('Workbench')
-            expect(palette.get_by_role('option')).to_have_count(0)
+            expect(palette.get_by_role('option')).to_have_count(1)
+            expect(palette.get_by_role('option')).to_contain_text('Data workbench')
+            expect(palette.get_by_role('option').filter(has_text='New Workbench window')).to_have_count(0)
+            expect(palette.get_by_role('option').filter(has_text='Project Workbench')).to_have_count(0)
             search.fill('checkpoints')
             option = palette.get_by_role('option')
             expect(option).to_have_attribute('aria-disabled', 'true')
@@ -124,12 +127,12 @@ with tempfile.TemporaryDirectory(prefix='orbit-command-palette-', dir='/tmp/open
             trigger.focus()
             page.keyboard.press('Control+k')
             search.fill('Workbench')
-            expect(palette.get_by_role('option')).to_have_count(2)
+            expect(palette.get_by_role('option')).to_have_count(3)
             page.keyboard.press('Escape')
             # Shared Start registry exposes the same commands and gate.
             trigger.click()
             page.get_by_role('searchbox', name='Search Start').fill('Workbench')
-            expect(page.locator('.start-results button')).to_have_count(2)
+            expect(page.locator('.start-results button')).to_have_count(3)
             page.keyboard.press('Escape')
             trigger.focus()
             page.keyboard.press('Control+k')

@@ -47,7 +47,6 @@ type Diagnostic = {
 
 export async function installDockingRenderer(options: DockingOptions): Promise<DockingController | null> {
   // Only an explicit installation loads these styles, including refusal styling.
-  // @ts-expect-error stylesheet import handled by the bundler
   await import('./docking.css');
   const reason = dockingUnsupportedReason(options.getState(), supportsConnectedMove());
   if (reason !== null) {

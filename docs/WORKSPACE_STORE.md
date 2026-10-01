@@ -29,12 +29,34 @@ under the runtime root:
 | `conversation-private/` | Host-backed drafts and Orbit conversation names/pins/archive flags |
 | `saved-workspace-layouts/` | Named layout definitions; live placements and apply receipts remain in SQLite |
 | `output-library/` | Published-output aliases, pins and tags |
+| `knowledge-index/` | Authoritative ingested `snapshots.sqlite`, deletion fences and separately rebuildable search index |
+| `documents/` | Workspace-scoped rich documents and whiteboard scenes |
+| `interactive-results/` | Imported A2UI results and saved user edits |
+| `data-recipes/` | Saved SQL recipes and exact input hashes; input file bytes require explicit re-import |
+| `mcp-apps/` | Private, exact owner-imported app/result snapshots |
+| `browser-copilot/` | Disposable-browser records and bounded private evidence |
+| `run-traces.sqlite` (and live WAL/SHM) | Derived local run observations; not execution authority |
 
 Include these directories in a complete stopped-writer runtime backup. A
 `workspace.sqlite` backup or layout checkpoint alone does not include them.
 These file-backed catalogs assume a single Orbit service writer for the runtime;
 multiple browsers use the authenticated service and its conflict handling.
 Conversation records contain private text and must remain outside source control.
+
+The technology surfaces retain core schema 12. Their separate versioned records
+must not be interpreted as part of layout undo. Preserve complete stopped-writer
+runtime backups when upgrading these formats. Optional gVisor environment profiles
+use private record version 2; authentic prior environment code refuses that version
+instead of treating its sandbox approval as trusted-host authority. Retained
+`workbench-sandbox/` records may represent unknown external resources; copying or
+restoring files does not prove that those resources stopped.
+
+Provisioned `models/` and `engines/` contain reproducible pinned public assets,
+distinct from private owner content. Custom provisioning paths and optional browser
+or sandbox configuration must be retained separately for recovery. Consult the
+individual [technology feature documents](TECHNOLOGY_FEATURES.md) for exact paths,
+retention and capability requirements. A SQLite-only backup is not a complete
+backup of these features.
 
 ## Studio writer compatibility (schema 11)
 

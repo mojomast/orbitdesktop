@@ -60,6 +60,7 @@ const publicActor=row=>row.provenance?row.provenance.initiated_by.kind==='owner_
 // Private tail coordinates and their kernel identity never enter a public job projection.
 const publicJob=({pending_result,artifact_log_path,artifact_dir,artifact_log_identity,...job})=>({...job,actor:publicActor(job),provenance:job.provenance??legacyProvenance()});
 const publicEvidence=({log_path,...evidence})=>({...evidence,actor:publicActor(evidence),provenance:evidence.provenance??legacyProvenance()});
+const sandboxMetadata=record=>Object.fromEntries(['execution_backend','provider','provider_identity','provider_resource_id','resource_generation','host_identity','image_digest','policy_digest','bundle_spec_digest'].filter(key=>record[key]!==undefined).map(key=>[key,record[key]]));
 const publicAttempt=({...attempt})=>attempt;
 const publicSubmission=({...submission})=>submission;
 const publicReview=({...review})=>review;
@@ -107,6 +108,7 @@ const candidateChange={oneOf:[
 const requiredChecksSchema={type:'array',minItems:1,maxItems:8,items:strict({definition_id:definitionId,execution_profile_id:uuid},['definition_id'])};
 export const executionRequests=Object.freeze({
   execution_state:strict({...base,action:{const:'execution_state'}}),
+  provider_status:strict({...base,action:{const:'provider_status'}}),
   task_create:strict({...base,action:{const:'task_create'},title:{type:'string',minLength:1,maxLength:240},acceptance_statement:statement,check_definition_id:definitionId,required_checks:requiredChecksSchema,profile_id:profileId,session_id:sessionId,pane_id:uuid},['action','workspace_id','project_id','title','acceptance_statement','check_definition_id','profile_id','session_id']),
   task_acceptance_preview:strict({...base,action:{const:'task_acceptance_preview'},task_id:uuid,candidate_id:uuid,expected_acceptance_digest:hash64,required_checks:requiredChecksSchema}),
   task_acceptance_approve:strict({...base,action:{const:'task_acceptance_approve'},task_id:uuid,candidate_id:uuid,preview_id:uuid,preview_digest:hash64}),
@@ -135,7 +137,7 @@ export const executionSchema=Object.freeze({$schema:'http://json-schema.org/draf
 const validate=new Ajv({strict:true}).compile(executionSchema);
 export const validateExecution=body=>validate(body)===true;
 
-export function createWorkbenchExecution({store,records,data,gate,environments,now=Date.now}={}){
+export function createWorkbenchExecution({store,records,data,gate,environments,sandboxProvider,now=Date.now}={}){
   if(!records||typeof records.project!=='function')throw Error('createWorkbenchExecution requires records');
   if(!data||typeof data.create!=='function'||typeof data.get!=='function'||typeof data.list!=='function'||typeof data.update!=='function')throw Error('createWorkbenchExecution requires a WorkbenchData implementation');
   if(typeof store?.root!=='string'||!path.isAbsolute(store.root))throw Error('createWorkbenchExecution requires an absolute store runtime root');
@@ -146,6 +148,13 @@ export function createWorkbenchExecution({store,records,data,gate,environments,n
   const inFlight=new Set(),owned=new Map(),previews=new Map(),fencedJobs=new Set(),heldReleases=new Map(),memoryPending=new Map(),mutatingCandidates=new Set(),workers=new Map();
   const journalRoot=path.join(runtimeRoot,'pending');fs.mkdirSync(journalRoot,{recursive:true,mode:0o700});
   let admissionError=null;
+  if(sandboxProvider?.reconcile?.().reason==='resources_unknown'){
+    // Use the existing gate's quarantine primitive, never a new admission lane.
+    // Only operator reconciliation plus fresh service construction can release
+    // an unowned provider resource; core job acknowledgement is not proof of it.
+    serial.quarantine('sandbox-provider:resources-unknown');
+    admissionError='sandbox_resources_unknown';
+  }
   const health=()=>({healthy:admissionError===null,reason:admissionError,active_count:inFlight.size});
   let closed=false;
 
@@ -589,14 +598,14 @@ export function createWorkbenchExecution({store,records,data,gate,environments,n
         Object.assign(observed,{view_source_hash:verified.source_hash,dependency_hash:verified.dependency_hash,output_hash:verified.output_hash,verified:true});
         return {hash:source.hash};
       };
-      raw=await runCheck({definition_id:definition.id,required_test_files:required.required_test_files,candidate_root:view?.root??candidate.root,candidate_boundary:view?path.join(store.root,'workbench-environments'):runtimeRoot,workspace_id,project_id,job_id:job.id,artifact_root:runtimeRoot,rehash:observe,
+      raw=await runCheck({execution_backend:view?.execution_backend??'trusted_host',provider:view?.provider,provider_identity:view?.provider_identity,definition_id:definition.id,required_test_files:required.required_test_files,candidate_root:view?.root??candidate.root,candidate_boundary:view?path.join(store.root,'workbench-environments'):runtimeRoot,workspace_id,project_id,job_id:job.id,artifact_root:runtimeRoot,rehash:observe,
         // Trusted private artifact reference, recorded before spawn. It never
         // enters evidence and is stripped from every public job projection; the
         // live tail resolves exclusively through it.
         artifact_record:record=>{try{job=revise('jobs',workspace_id,project_id,job.id,{artifact_log_path:record.log_path,artifact_dir:record.artifact_dir,artifact_log_identity:record.artifact_log_identity});}catch{}},
         spawn_record:record=>{
         owned.set(job.id,{pid:record.pid,process_start:String(record.started_at),workspace_id,project_id});
-        job=revise('jobs',workspace_id,project_id,job.id,{status:'running',pid:record.pid,pgid:record.pgid,process_start:String(record.started_at),started_at:now(),supervisor:record.supervisor,command:record.command??null});
+        job=revise('jobs',workspace_id,project_id,job.id,{...sandboxMetadata(record),status:'running',pid:record.pid,pgid:record.pgid,process_start:String(record.started_at),started_at:now(),supervisor:record.supervisor,command:record.command??null});
       }});
       raw.execution_observation={source_before:observations[0]?.source_hash??null,source_after:observations[1]?.source_hash??null,view_source_before:observations[0]?.view_source_hash??null,view_source_after:observations[1]?.view_source_hash??null,dependency_before:observations[0]?.dependency_hash??null,dependency_after:observations[1]?.dependency_hash??null,output_hash_before:observations[0]?.output_hash??null,output_hash_after:observations[1]?.output_hash??null,allowed_outputs:[],verified_view:!!view&&observations.length===2&&observations.every(observed=>observed.verified)};
       raw.environment=view?{...required.execution_profile,source_hash:candidate.hash,execution_view_identity:view.prepared.environment_identity,execution_view_id:path.basename(path.dirname(view.root))}:null;
@@ -664,7 +673,7 @@ export function createWorkbenchExecution({store,records,data,gate,environments,n
     let revokedNow=fenced===true;
     try{revokedNow=revokedNow||records.project(workspace_id,project_id).generation!==job.project_generation;}catch{revokedNow=true;}
     const verdict=revokedNow?'inconclusive':raw.verdict;
-     const evidence=data.create('evidence',{workspace_id,project_id,project_generation:job.project_generation,acceptance_digest:job.acceptance_digest,execution_profile_id:job.execution_profile_id,execution_profile:job.execution_profile,environment:raw.environment??null,execution_observation:raw.execution_observation??null,job_id:job.id,candidate_id:candidate.id,task_id:ownerTask.id,verdict,test_results:raw.test_results??null,exit_code:Number.isInteger(raw.exit_code)?raw.exit_code:null,signal:raw.signal??null,timed_out:raw.timed_out===true,spawn_error:raw.spawn_error??null,recording_error:raw.recording_error??null,process_survival_unknown:raw.process_survival_unknown===true,started_at:raw.started_at,ended_at:raw.ended_at,candidate_hash_before:raw.candidate_hash_before,candidate_hash_after:raw.candidate_hash_after,definition_id:raw.definition_id,definition_digest:raw.definition_digest,definition_hash:raw.definition_hash,artifact_hash:raw.artifact_hash,log_hash:raw.log_hash,log_bytes:raw.log_bytes,env_fingerprint:raw.env_fingerprint,supervisor:raw.supervisor,command:raw.command,stdout_preview:raw.stdout_preview,stderr_preview:raw.stderr_preview,limits:raw.limits,superseded:false,revoked:revokedNow,actor:job.provenance?.initiated_by.kind==='native_agent'?'native_agent':job.provenance?'owner':'legacy_unknown',provenance:job.provenance??{version:1,initiated_by:{kind:'legacy_unknown'},authorized_by:{kind:'legacy_unknown'},recorded_by:{kind:'legacy_unknown'}}});
+      const evidence=data.create('evidence',{...sandboxMetadata(raw),workspace_id,project_id,project_generation:job.project_generation,acceptance_digest:job.acceptance_digest,execution_profile_id:job.execution_profile_id,execution_profile:job.execution_profile,environment:raw.environment??null,execution_observation:raw.execution_observation??null,job_id:job.id,candidate_id:candidate.id,task_id:ownerTask.id,verdict,test_results:raw.test_results??null,exit_code:Number.isInteger(raw.exit_code)?raw.exit_code:null,signal:raw.signal??null,timed_out:raw.timed_out===true,spawn_error:raw.spawn_error??null,recording_error:raw.recording_error??null,process_survival_unknown:raw.process_survival_unknown===true,started_at:raw.started_at,ended_at:raw.ended_at,candidate_hash_before:raw.candidate_hash_before,candidate_hash_after:raw.candidate_hash_after,definition_id:raw.definition_id,definition_digest:raw.definition_digest,definition_hash:raw.definition_hash,artifact_hash:raw.artifact_hash,log_hash:raw.log_hash,log_bytes:raw.log_bytes,env_fingerprint:raw.env_fingerprint,supervisor:raw.supervisor,command:raw.command,stdout_preview:raw.stdout_preview,stderr_preview:raw.stderr_preview,limits:raw.limits,superseded:false,revoked:revokedNow,actor:job.provenance?.initiated_by.kind==='native_agent'?'native_agent':job.provenance?'owner':'legacy_unknown',provenance:job.provenance??{version:1,initiated_by:{kind:'legacy_unknown'},authorized_by:{kind:'legacy_unknown'},recorded_by:{kind:'legacy_unknown'}}});
     const computed=verdict==='pass'?'completed':verdict==='fail'?'failed':raw.timed_out?'cancelled':'inconclusive';
     const currentJob=data.get('jobs',workspace_id,project_id,job.id);
     const cancelled=raw.cancelled||currentJob.status==='cancel_requested'||currentJob.status==='cancelled'||raw.spawn_error;
@@ -786,8 +795,9 @@ export function createWorkbenchExecution({store,records,data,gate,environments,n
       try{review_identity[candidate.id]=reviewIdentityFor(workspace_id,project_id,candidate,ownerTask);}catch{}
     }
     for(const job of jobs)if(job.status==='outcome_unknown'&&job.acknowledged!==true)unknown[job.id]=ackDigest(job);
-    return {tasks,candidates,jobs,evidence,reviews,review_identity,target_changed,unknown_jobs:unknown,active_count:inFlight.size,health:health(),revoked:source.project===null,definitions:Object.values(CHECK_DEFINITIONS).map(definition=>({id:definition.id,executable:definition.executable,args:[...definition.args],limits:CHECK_LIMITS,policy:CHECK_POLICY})),policy:EXECUTION_POLICY,execution:EXECUTION_POLICY};
+    return {provider:providerStatus(),tasks,candidates,jobs,evidence,reviews,review_identity,target_changed,unknown_jobs:unknown,active_count:inFlight.size,health:health(),revoked:source.project===null,definitions:Object.values(CHECK_DEFINITIONS).map(definition=>({id:definition.id,executable:definition.executable,args:[...definition.args],limits:CHECK_LIMITS,policy:CHECK_POLICY})),policy:EXECUTION_POLICY,execution:EXECUTION_POLICY};
   }
+  function providerStatus(){return sandboxProvider?.publicStatus?.()??{available:false,kind:'gvisor',reason:'disabled',message:'Experimental gVisor checks are off by default.',action:'See docs/ISOLATED_CHECKS.md for operator provisioning.'};}
 
   async function dispatch(body,principal={kind:'owner'}){
     if(closed)throw wbError('unavailable');
@@ -795,6 +805,7 @@ export function createWorkbenchExecution({store,records,data,gate,environments,n
     if(store&&typeof store.read==='function')store.read(body.workspace_id);
     switch(body.action){
       case 'execution_state':return executionState(body);
+      case 'provider_status':requireScope(body.workspace_id,body.project_id);return providerStatus();
       case 'task_create':return createTask(body);
       case 'task_acceptance_preview':return taskAcceptancePreview(body);
       case 'task_acceptance_approve':return taskAcceptanceApprove(body);

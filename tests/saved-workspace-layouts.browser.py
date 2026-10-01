@@ -23,7 +23,7 @@ with tempfile.TemporaryDirectory(prefix='orbit-saved-layout-browser-', dir='/tmp
     root = Path(temporary)
     for directory in ('src', 'server', 'contracts', 'docs', 'scripts', 'public'):
         shutil.copytree(ROOT / directory, root / directory)
-    for name in ('index.html', 'package.json', 'tsconfig.json', 'vite.config.js'):
+    for name in ('index.html', 'package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.js'):
         shutil.copy2(ROOT / name, root / name)
     (root / 'node_modules').symlink_to(ROOT / 'node_modules', target_is_directory=True)
     for directory in ('runtime', 'home', 'cwd', 'fixture'):

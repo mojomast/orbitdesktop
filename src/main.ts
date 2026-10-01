@@ -9,6 +9,8 @@ import { workspaceExtensions } from './workspace-extensions';
 import { installStart } from './taskbar';
 import { showOrbitSettings, setOrbitSettingsNavigation } from './orbit-settings';
 import { createWorkspaceCommands, type WorkspaceCommand } from './workspace-commands';
+import { HOST_SURFACE_URLS, HOST_SURFACE_LABELS, type HostSurfaceId } from './host-surfaces';
+import { TECHNOLOGY_SURFACES } from './technology-surfaces';
 import { installCommandPalette } from './command-palette';
 import { experimentalEnabled, subscribeExperimental } from './experimental';
 import { showOnboarding, offerOnboarding } from './onboarding';
@@ -324,12 +326,25 @@ function measureArrangementViewport() {
   try { return { width: measured.clientWidth, height: measured.clientHeight }; }
   finally { measurement.remove(); }
 }
-function openHostSurface(id: 'outputs' | 'activity') {
-  const url = `orbit://surface/${id}`;
+let technologyConfiguration={browser_copilot:false,mcp_apps:false};
+async function refreshTechnologyConfiguration(){
+  if(!sessionToken){technologyConfiguration={browser_copilot:false,mcp_apps:false};return;}
+  try{
+    const response=await fetch('/api/technology-capabilities',{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${sessionToken}`},body:JSON.stringify({action:'capabilities'})});
+    if(!response.ok)return;
+    const result=await response.json();
+    technologyConfiguration={browser_copilot:result.browser_copilot===true,mcp_apps:result.mcp_apps===true};
+  }catch{/* Optional configuration remains unavailable until a successful owner read. */}
+}
+window.addEventListener('orbit-host-connected',()=>{void refreshTechnologyConfiguration();});
+if(sessionToken)void refreshTechnologyConfiguration();
+function openHostSurface(id: HostSurfaceId) {
+  const url = HOST_SURFACE_URLS[id];
   let target = state.monitors.find(m => leaves(m.layout).some(p => p.kind === 'browser' && p.url === url));
   if (!target) {
+    if (state.monitors.length >= 100) { notify('Close a window before opening another surface.'); return; }
     target = monitor(state.monitors.length + 1, 'browser');
-    target.name = id === 'outputs' ? 'Apps and outputs' : 'Live activity';
+    target.name = HOST_SURFACE_LABELS[id];
     leaves(target.layout)[0].url = url;
     state.monitors.push(target);
   }
@@ -340,7 +355,23 @@ function openHostSurface(id: 'outputs' | 'activity') {
 }
 window.addEventListener('orbit-open-host-surface', event => {
   const id = (event as CustomEvent<{ id?: string }>).detail?.id;
-  if (id === 'outputs' || id === 'activity') openHostSurface(id);
+  if (typeof id==='string' && Object.hasOwn(HOST_SURFACE_URLS,id)) openHostSurface(id as HostSurfaceId);
+});
+window.addEventListener('orbit-open-document',event=>{
+  const detail=(event as CustomEvent<{id?:unknown;name?:unknown}>).detail;
+  if(typeof detail?.id!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(detail.id))return;
+  const url=`orbit://document/${detail.id}`;
+  let target=state.monitors.find(m=>leaves(m.layout).some(p=>p.kind==='browser'&&p.url===url));
+  if(!target){
+    if(state.monitors.length>=100){notify('Close a window before opening another document.');return;}
+    target=monitor(state.monitors.length+1,'browser');
+    target.name=typeof detail.name==='string'&&detail.name.trim()?detail.name.trim().slice(0,60):'Document';
+    leaves(target.layout)[0].url=url;
+    state.monitors.push(target);
+  }
+  if(focused)unfocus();state.selected=target.id;
+  if(state.view!=='windows')setView('windows');
+  renderAll();choose(target.id);save();
 });
 // Keep an explicit parent-document selection while menu/palette focus changes.
 // Generated frames and terminal buffers are never queried. The transfer dialog
@@ -362,6 +393,7 @@ async function sendSelectedContext() {
   await requestConversationContext({ text, title: 'Selected workspace text' });
 }
 const commands = createWorkspaceCommands((): WorkspaceCommand[] => [
+  ...Object.entries(TECHNOLOGY_SURFACES).map(([id,entry])=>({id:`technology-${id}`,title:entry.title,detail:entry.detail,group:'Tools',hidden:id==='copilot'&&!technologyConfiguration.browser_copilot||id==='mcp-apps'&&!technologyConfiguration.mcp_apps,disabledReason:entry.auth&&!sessionToken?'Connect host first to use this tool.':undefined,run:()=>openHostSurface(id as HostSurfaceId)})),
   { id: 'getting-started', title: 'Getting started', detail: 'Tour Orbit controls and layouts', group: 'Help', run: showOnboarding },
   { id: 'settings', title: 'Orbit settings', detail: 'Appearance, layout and browser-local experiments', group: 'Settings', run: openSettings },
   { id: 'connect-host', title: 'Connect host', detail: 'Unlock this browser session with a host token', group: 'Settings', run: connectHost },
