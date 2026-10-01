@@ -6,6 +6,7 @@ only induces a lost save response to exercise durable exact receipts.
 import copy
 import json
 import os
+import re
 import secrets
 import shutil
 import socket
@@ -143,16 +144,26 @@ def run_fixture(kind='richtext'):
                     page.mouse.move(box['x'] + 470, box['y'] + 360, steps=12); page.mouse.up()
                     # The real picker must expose only the four admitted IDs,
                     # and each offered family must draw real editable text.
-                    for i, family_id in enumerate((5, 6, 7, 8)):
+                    for i, (family_id, family_name) in enumerate(((5, 'Excalifont'), (6, 'Nunito'), (7, 'Lilita One'), (8, 'Comic Shanns'))):
                         canvas.click(position={'x': 800, 'y': 520})
                         host.locator('label:has([data-testid="toolbar-text"])').click()
+                        expect(host.locator('[data-testid="toolbar-text"]')).to_be_checked()
                         font_picker = host.get_by_label('Canvas text font', exact=True)
                         assert sorted(font_picker.locator('option').evaluate_all('(nodes)=>nodes.map(n=>Number(n.value))')) == [5, 6, 7, 8]
                         font_picker.select_option(str(family_id))
                         box = canvas.bounding_box()
                         page.mouse.click(box['x'] + 570, box['y'] + 140 + i * 80)
-                        page.keyboard.type(f'Font {family_id} real text 字')
-                        page.keyboard.press('Escape')
+                        # Native text editing mounts asynchronously. Wait for the
+                        # actual editor/font before sending keys, and for its font
+                        # to load before Escape tears down the editing textarea.
+                        text_editor = host.locator('textarea.excalidraw-wysiwyg')
+                        expect(text_editor).to_be_visible()
+                        expect(text_editor).to_have_css('font-family', re.compile(re.escape(family_name)))
+                        text_editor.press_sequentially(f'Font {family_id} real text 字')
+                        expect(text_editor).to_have_value(f'Font {family_id} real text 字')
+                        page.wait_for_function('''name=>[...document.fonts].some(face=>face.family.replaceAll('"','')===name&&face.status==='loaded')''', arg=family_name, timeout=15000)
+                        text_editor.press('Escape')
+                        expect(text_editor).to_have_count(0)
                     try:
                         page.wait_for_function('''()=>['Excalifont','Nunito','Lilita One','Comic Shanns'].every(name=>[...document.fonts].some(face=>face.family.replaceAll('"','')===name&&face.status==='loaded'))''', timeout=15000)
                     except Exception as e:
@@ -196,6 +207,9 @@ def run_fixture(kind='richtext'):
                 else:
                     assert any(e['type'] == 'rectangle' for e in json.loads(saved['data']['content'])['elements']), saved
                     assert {e['fontFamily'] for e in json.loads(saved['data']['content'])['elements'] if e['type'] == 'text'} == {5, 6, 7, 8}, saved
+                    for family_id in (5, 6, 7, 8):
+                        assert any(e.get('text') == f'Font {family_id} real text 字' and e.get('fontFamily') == family_id
+                                   for e in json.loads(saved['data']['content'])['elements']), saved
                     assert any(e.get('text') == 'Narrow pane text' for e in json.loads(saved['data']['content'])['elements']), saved
                     assert sum(e['type'] == 'rectangle' for e in json.loads(saved['data']['content'])['elements']) >= 2, saved
                     narrow_rectangle = [e for e in json.loads(saved['data']['content'])['elements'] if e['type'] == 'rectangle'][-1]
