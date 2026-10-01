@@ -317,6 +317,8 @@ jobs:
             /tmp/opencode/orbit-arrangements-docking-semantic-preview-*.png
             /tmp/opencode/orbit-arrangements-default-changes-collapsed-*.png
             /tmp/opencode/orbit-arrangements-docking-changes-collapsed-*.png
+            /tmp/opencode/orbit-arrangements-default-pty-failure.json
+            /tmp/opencode/orbit-arrangements-docking-pty-failure.json
             /tmp/opencode/project-tools-default-manager-*.png
             /tmp/opencode/project-tools-docking-manager-*.png
             /tmp/opencode/project-tools-default-notebook-*.png
