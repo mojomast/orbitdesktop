@@ -396,6 +396,10 @@ return hit===node&&hit.matches('canvas.interactive');}''', point), ('Pointer mis
                 expect(preview).to_contain_text('Synthetic selected tradeoff')
                 expect(chat(0).get_by_label('Message to Hermes', exact=True)).to_have_value('Selected durable draft')
                 preview.get_by_role('button', name='Confirm append to conversation draft', exact=True).click()
+                # Close events resolve the nested recipient promise and restore
+                # focus. Finish both before focusing a shell shortcut target.
+                expect(preview).to_have_count(0)
+                expect(transfer).to_have_count(0)
                 expect(chat(0).locator('.conversation-draft-status')).to_contain_text('Draft saved on host', timeout=15000)
                 final_draft = chat(0).get_by_label('Message to Hermes', exact=True).input_value()
                 assert 'Synthetic selected tradeoff' in final_draft and final_draft.startswith('Selected durable draft')

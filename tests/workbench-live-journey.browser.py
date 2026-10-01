@@ -33,6 +33,7 @@ from urllib.parse import parse_qs, urlsplit
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from playwright.sync_api import expect, sync_playwright
+from browser_workspace import wait_for_workspace_connection
 
 # Import the shared synthetic gateway/helper without running its main().
 sys.dont_write_bytecode = True
@@ -535,7 +536,7 @@ def main(renderer):
                         with page.expect_response(lambda response: response.url == origin + "/api/agent"
                                                   and post_json(response.request).get("action") == "shared_chat") as binding:
                             page.get_by_role("button", name="Unlock local host", exact=True).click()
-                        expect(page.locator(".saved")).to_contain_text("Workspace connected", timeout=15000)
+                        wait_for_workspace_connection(page)
                         bound = binding.value.json()
                         assert binding.value.status == 200 and bound["state"]["session"] == session, bound
 
@@ -1051,7 +1052,7 @@ def main(renderer):
                         page.get_by_role("button", name="Connect local host", exact=True).click()
                         page.get_by_role("textbox", name="Host session token").fill(token)
                         page.get_by_role("button", name="Unlock local host", exact=True).click()
-                        expect(page.locator(".saved")).to_contain_text("Workspace connected", timeout=15000)
+                        wait_for_workspace_connection(page)
                         reloaded_agent = page.locator('[data-pane-id="%s"]' % helper.PANE)
                         expect(reloaded_agent.get_by_role("button", name="Workbench Hermes mode", exact=True)).to_have_attribute("aria-pressed", "true")
                         reloaded_agent.locator('.pane-workbench-settings > summary').click()

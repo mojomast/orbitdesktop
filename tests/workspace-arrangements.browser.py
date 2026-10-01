@@ -21,6 +21,7 @@ import urllib.request
 import uuid
 
 from playwright.sync_api import expect, sync_playwright
+from browser_workspace import wait_for_workspace_connection
 
 ROOT = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser()
@@ -108,7 +109,7 @@ with tempfile.TemporaryDirectory(prefix='orbit-arrangements-', dir='/tmp/opencod
             page.get_by_role('button', name='Connect local host', exact=True).click()
             page.get_by_role('textbox', name='Host session token').fill(token)
             page.get_by_role('button', name='Unlock local host', exact=True).click()
-            expect(page.locator('.saved')).to_contain_text('Workspace connected', timeout=15000)
+            wait_for_workspace_connection(page)
             page.wait_for_function('ids => ids.every(id => !!document.querySelector(`.pane[data-pane-id="${id}"] iframe`))',arg=panes[1:3],timeout=15000)
             for i in (1, 2):
                 page.frame_locator(f'.pane[data-pane-id="{panes[i]}"] iframe').locator('#draft').fill(f'arrangement-draft-{i}')
@@ -132,7 +133,11 @@ with tempfile.TemporaryDirectory(prefix='orbit-arrangements-', dir='/tmp/opencod
                 expect(shell.locator('.connection-state')).to_contain_text('LIVE SHELL', timeout=15000)
                 assert len(terminal_sockets)==1, terminal_sockets
                 def fresh_shell(label):
-                    marker='ARRANGEMENT_'+secrets.token_hex(6).upper()
+                    # Keep the complete probe inside the smallest assigned tmux
+                    # screen. The descriptive prefix consumed scarce cells and
+                    # could scroll away before tmux emitted its redraw; retain
+                    # the same 48-bit fresh nonce, variable, PID and end marker.
+                    marker=secrets.token_hex(6).upper()
                     old_frames=len(terminal_data)
                     subprocess.run(['tmux','-L',server_env['ORBIT_TMUX_SOCKET'],'send-keys','-t','pane-'+panes[3],
                         f'printf "{marker}_%s_%s_END\\n" "$ORBIT_ARRANGEMENT_VAR" "$$"','C-m'],env=server_env,check=True,capture_output=True,timeout=5)
@@ -349,7 +354,7 @@ with tempfile.TemporaryDirectory(prefix='orbit-arrangements-', dir='/tmp/opencod
             page.get_by_role('button', name='Connect local host', exact=True).click()
             page.get_by_role('textbox', name='Host session token').fill(token)
             page.get_by_role('button', name='Unlock local host', exact=True).click()
-            expect(page.locator('.saved')).to_contain_text('Workspace connected', timeout=15000)
+            wait_for_workspace_connection(page)
             # A browser reload intentionally replaces documents. Establish a
             # new in-document continuity baseline for subsequent recipe moves.
             for i in (1,2):
@@ -516,7 +521,7 @@ with tempfile.TemporaryDirectory(prefix='orbit-arrangements-', dir='/tmp/opencod
             other_page.get_by_role('button',name='Connect local host',exact=True).click()
             other_page.get_by_role('textbox',name='Host session token').fill(token)
             other_page.get_by_role('button',name='Unlock local host',exact=True).click()
-            expect(other_page.locator('.saved')).to_contain_text('Workspace connected',timeout=15000)
+            wait_for_workspace_connection(other_page)
             other_page.get_by_role('button',name='Open orbit menu').click()
             other_page.get_by_role('button',name='Project Workbench',exact=True).click()
             other_dialog=other_page.locator('dialog.project-workbench-dialog')

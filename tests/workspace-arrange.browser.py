@@ -18,6 +18,7 @@ import urllib.error
 import urllib.request
 import uuid
 from playwright.sync_api import expect, sync_playwright
+from browser_workspace import wait_for_workspace_connection
 
 ROOT = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser()
@@ -77,7 +78,7 @@ with tempfile.TemporaryDirectory(prefix='orbit-standalone-arrange-', dir='/tmp/o
             page.get_by_role('button', name='Connect local host', exact=True).click()
             page.get_by_role('textbox', name='Host session token').fill(token)
             page.get_by_role('button', name='Unlock local host', exact=True).click()
-            expect(page.locator('.saved')).to_contain_text('Workspace connected', timeout=15000)
+            wait_for_workspace_connection(page)
             page.wait_for_function('ids=>ids.every(id=>document.querySelector(`.pane[data-pane-id="${id}"] iframe`))', arg=panes)
             for pane in panes:
                 page.frame_locator(f'.pane[data-pane-id="{pane}"] iframe').locator('#draft').fill('retained-' + pane)
@@ -150,7 +151,7 @@ with tempfile.TemporaryDirectory(prefix='orbit-standalone-arrange-', dir='/tmp/o
                 page.get_by_role('button', name='Connect local host', exact=True).click()
                 page.get_by_role('textbox', name='Host session token').fill(token)
                 page.get_by_role('button', name='Unlock local host', exact=True).click()
-            expect(page.locator('.saved')).to_contain_text('Workspace connected', timeout=15000)
+            wait_for_workspace_connection(page)
             page.get_by_role('button', name='Test arrange', exact=True).click()
             expect(apply).to_be_enabled()
             expect(preview).to_be_disabled()

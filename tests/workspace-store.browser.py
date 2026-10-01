@@ -14,6 +14,7 @@ import time
 import urllib.request
 import uuid
 from playwright.sync_api import sync_playwright, expect
+from browser_workspace import wait_for_workspace_connection
 
 ROOT = Path(__file__).resolve().parents[1]
 with tempfile.TemporaryDirectory(prefix="orbit-store-browser-") as temporary:
@@ -71,7 +72,7 @@ with tempfile.TemporaryDirectory(prefix="orbit-store-browser-") as temporary:
             page.get_by_role("button", name="Connect local host", exact=True).click()
             page.get_by_role("textbox", name="Host session token").fill(token)
             page.get_by_role("button", name="Unlock local host", exact=True).click()
-            expect(page.locator(".saved")).to_contain_text("Workspace connected", timeout=15000)
+            wait_for_workspace_connection(page)
             before = api("read")
             assert before["revision"] == 1
             page.get_by_role("button", name="Open orbit menu", exact=True).click()

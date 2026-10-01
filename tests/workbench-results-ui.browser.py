@@ -31,6 +31,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from playwright.sync_api import expect, sync_playwright
+from browser_workspace import wait_for_workspace_connection
 
 sys.dont_write_bytecode = True
 import importlib.util
@@ -256,7 +257,7 @@ def main(renderer):
                         page.get_by_role("button", name="Connect local host", exact=True).click()
                         page.get_by_role("textbox", name="Host session token").fill(token)
                         page.get_by_role("button", name="Unlock local host", exact=True).click()
-                        expect(page.locator(".saved")).to_contain_text("Workspace connected", timeout=15000)
+                        wait_for_workspace_connection(page)
                         renderer_info = page.evaluate("() => window.__orbitDocking ? {renderer: window.__orbitDocking.renderer, supported: window.__orbitDocking.supported} : null")
                         assert (renderer_info or {}).get("renderer", "default") == renderer, ("renderer", renderer, renderer_info)
                         expect(page.locator('.pane[data-pane-id="%s"] iframe' % unrelated_pane)).to_be_visible(timeout=20000)
@@ -413,7 +414,7 @@ def main(renderer):
                         page.get_by_role("button", name="Connect local host", exact=True).click()
                         page.get_by_role("textbox", name="Host session token").fill(token)
                         page.get_by_role("button", name="Unlock local host", exact=True).click()
-                        expect(page.locator(".saved")).to_contain_text("Workspace connected", timeout=15000)
+                        wait_for_workspace_connection(page)
                         expect(page.locator('.pane[data-pane-id="%s"] section.agent-task-results details[data-result-id]' % helper.PANE).first).to_be_visible(timeout=20000)
                         persisted = helper.api(origin, token, EXEC_ROUTE, {"action": "execution_state", "project_id": project_id})[1]
                         assert any(item["decision"] == "approved" for item in persisted["reviews"]), persisted["reviews"]

@@ -21,6 +21,7 @@ from urllib.parse import parse_qs, urlsplit
 import uuid
 
 from playwright.sync_api import expect, sync_playwright
+from browser_workspace import wait_for_workspace_connection
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKSPACE = "a345639c-42bb-41d0-94da-f9d9abb8fd41"
@@ -232,7 +233,7 @@ def main(renderer):
                         page.get_by_role("textbox", name="Host session token").fill(token)
                         with page.expect_response(lambda response: response.url == origin + '/api/agent' and response.request.post_data_json.get('action') == 'shared_chat') as binding:
                             page.get_by_role("button", name="Unlock local host", exact=True).click()
-                        expect(page.locator(".saved")).to_contain_text("Workspace connected", timeout=15000)
+                        wait_for_workspace_connection(page)
                         bound = binding.value.json()
                         assert binding.value.status == 200 and bound['state']['session'] == session, bound
                         # Real browser -> Orbit -> synthetic gateway, twice with the
