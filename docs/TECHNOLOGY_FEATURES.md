@@ -1,5 +1,10 @@
 # Technology feature shell integration
 
+For task-oriented examples, see [Workspace prompts](WORKSPACE_PROMPTS.md). These
+features are implemented in the development candidate; package metadata remains
+0.3.1 and no new release is implied. [Verification](VERIFICATION.md) distinguishes
+exact-head CI, deployment checks and pending owner visual acceptance.
+
 The Start menu and command palette expose Knowledge search, Interactive results,
 Data workbench, Voice transcript, Document library, Run traces, Browser copilot and
 MCP Apps (when configured). Each opens a stable, ordinary browser-kind window with an exact reviewed
@@ -27,6 +32,35 @@ execute an action or open an imported app automatically.
 These are source-development features. Provisioning a model or execution backend
 is separate from opening its UI. Automatic transcript crawling, automatic Hermes
 A2UI/MCP production, and an autonomous browser planner are not implemented.
+
+## Setup at a glance
+
+| Capability | Operator setup |
+| --- | --- |
+| Keyword search | Available without model assets; import sources explicitly |
+| Semantic search | `node scripts/knowledge-model.mjs provision /absolute/private/runtime`; use the runtime of the target service and follow the search guide's restart requirements |
+| Voice | `node scripts/provision_voice_models.mjs --models-root /absolute/private/runtime/models`; match `ORBIT_VOICE_MODELS_ROOT` when overridden |
+| JSON/Parquet data | `node scripts/provision_data_engine.mjs --extensions-root /absolute/private/runtime/engines/duckdb`; match `ORBIT_DUCKDB_EXTENSIONS_ROOT` when overridden |
+| Browser copilot | Trusted Chromium executable plus operator origin rules; inspect actual capability before launching |
+| MCP Apps | `ORBIT_MCP_APPS=1` and a reachable separate proxy origin; configure the loopback listener port as well when reverse-proxying it |
+| gVisor checks | Workbench enabled plus separately approved runsc/rootfs and functioning rootless namespaces; follow [Isolated checks](ISOLATED_CHECKS.md) |
+
+Provisioning commands explicitly download pinned assets; normal server startup
+does not. Read each guide before provisioning into an existing runtime. Configuration
+changes belong in the private service environment; packaged application updates
+follow [Deployment](DEPLOYMENT.md). Do not put credentials or models in Git.
+
+## Persistence at a glance
+
+Workspace layout/checkpoints retain pane identities and placement, not private
+feature contents. Conversation drafts and library metadata, source snapshots,
+documents/canvases, saved A2UI edits, data recipes, MCP snapshots and trace stores
+have separate lifecycles. Data recipes do not contain the chosen input files;
+browser sessions are disposable; documents require explicit Save. Preserve the
+complete runtime and configured external asset roots when making deployment
+backups. See the feature guides for exact storage and recovery behavior.
+
+## Host integration contract
 
 Owner JSON routes are POST-only, origin-checked, bearer-authenticated, strict UTF-8,
 byte-bounded and `no-store`. Optional service initialization is lazy and single-flight;

@@ -13,7 +13,31 @@ Orbit's direction is an agent-customizable workspace with reversible changes and
 - Trusted integration registry and on-demand loading of existing tool dialogs.
 - Request-time workspace operator instructions, repository agent guide and real browser verification workflows.
 
-## Next: finish the modular boundary
+## Implemented development candidate (not a new published release)
+
+The usability and technology branches now include:
+
+- Shared Start/palette discovery, incremental chat rendering, persistent Outputs/
+  Activity, typed settings, normal workspace arrangement and checkpoint comparison.
+- Saved workspace layouts, a conversation library with host-backed drafts,
+  independent stateless widget instances, declarative configuration forms,
+  output metadata/search and explicit selected-draft context insertion.
+- Source-backed keyword/optional semantic search, A2UI v0.9 imports, local voice
+  transcription, DuckDB Data Lab, Lexical documents, Excalidraw canvases and traces.
+- Configurable disposable Browser copilot, separate-origin imported MCP Apps, and
+  an optional gVisor check provider requiring suitable host acceptance.
+
+See [Usability](WORKSPACE_USABILITY.md), [Technology features](TECHNOLOGY_FEATURES.md),
+[prompt examples](WORKSPACE_PROMPTS.md) and [verification status](VERIFICATION.md).
+Owner walkthrough, merges and release-version selection remain pending. Workbench
+stays experimental/off by default. Automatic source crawling, Hermes A2UI/MCP
+discovery and autonomous browser planning are not implemented.
+
+## Continuing work: finish the modular boundary
+
+Some foundations below now have bounded implementations (connected pane retention,
+registered-plugin recovery hold, exact-artifact Studio and bundle retention plans).
+Their documented limits still apply; this list describes the broader remaining goal.
 
 1. Extract pane/rendering coordination behind tested interfaces without changing stable pane IDs or losing sessions.
 2. Add scoped, permission-reviewed service APIs for plugins that need actual host data. No ambient filesystem/shell authority.

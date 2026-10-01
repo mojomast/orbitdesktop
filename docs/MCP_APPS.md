@@ -8,8 +8,9 @@ resource URL fetch, model dispatch or tool execution.
 
 ## Setup and use
 
-Enable the optional MCP Apps surface through the host's experimental controls and
-server gate. Configure `ORBIT_MCP_APPS_SANDBOX_ORIGIN` as an exact HTTP(S) origin
+Set the server gate `ORBIT_MCP_APPS=1`; there is no separate Orbit settings toggle
+for this integration. Once configured, open **MCP Apps** from Start or the command
+palette. Configure `ORBIT_MCP_APPS_SANDBOX_ORIGIN` as an exact HTTP(S) origin
 different from the Orbit page origin. For the optional local proxy listener also
 configure `ORBIT_MCP_APPS_SANDBOX_PORT` explicitly; it binds loopback. No implicit
 `port + 1` selection or same-origin fallback is allowed. Remote deployments need a
@@ -24,7 +25,7 @@ served proxy is required. With only the port configured, the advertised origin i
 loopback (suitable for local testing). The proxy serves only its two static relay
 paths; owner APIs are never available on this origin.
 
-Without a configured origin the surface reports setup unavailable. Import JSON:
+Without a usable sandbox origin the surface reports setup unavailable. Import JSON:
 
 ```json
 {
