@@ -119,6 +119,9 @@ def fixture(args, dist, configured):
                 model = args.search_models / 'knowledge-index/model'
                 if not model.is_dir():
                     raise RuntimeError('Search fixture expects knowledge-index/model under --search-models')
+                # copytree copies the model's mode, but implicit parent creation
+                # follows the runner umask. The feature root must be private too.
+                (root / 'runtime/knowledge-index').mkdir(mode=0o700)
                 shutil.copytree(model, root / 'runtime/knowledge-index/model')
             (root / 'widget/index.html').write_text('<!doctype html><title>Synthetic widget</title><h1>Unrelated synthetic widget</h1><label>Widget draft<input id="draft"></label>')
             manifest = json.loads(subprocess.check_output(['python3', str(root / 'scripts/plugin_publish.py'),
