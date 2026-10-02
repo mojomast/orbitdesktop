@@ -112,7 +112,7 @@ workspace's projects), the *target project's* live bindings, and capabilities:
     "max_recipes": 32, "max_proposals": 200, "max_recipe_receipts": 512, "ttl_ms": 60000,
     "measured_geometry": false, "portable_constraints_only": true,
     "cross_project_recipes": true,
-     "retention": "Committed proposals and their receipts are retained for the project lifetime; expired never-committed previewed/rejected/stale proposals are reclaimed, and oldest never-committed rejected/stale proposals may be reclaimed early at capacity. No committed receipt is deleted; 200 committed proposals block new previews, including Return."
+     "retention": "Fully committed proposals are archived in place outside active preview capacity, retaining exact operation identities, original bodies and Return checkpoints. Expired never-committed previews are reclaimed; terminal never-committed previews may be reclaimed early at capacity. No committed receipt is deleted. Historical bytes are not garbage collected."
   }
 }
 ```
@@ -287,7 +287,7 @@ invalidated by drift detected during a failed apply.
 `max_recipes:32` (workspace-wide), `max_roles:5`, `role_choices ≤ 5`,
 proposal encode ≤ 2 MiB, proposal TTL 60 s (expiry gates new applies only, and is
 rechecked under the write lock; committed receipt replay is not time-limited),
-proposals ≤ 200 per project, recipe receipts ≤ 512 per workspace.
+active proposals ≤ 200 per project, recipe receipts ≤ 512 per workspace.
 Committed proposals, their checkpoints and their receipts are retained for the
 project lifetime. On each successful preview creation, reclamation runs in the
 same `IMMEDIATE` transaction as the new proposal:
@@ -296,7 +296,7 @@ same `IMMEDIATE` transaction as the new proposal:
   `now > expires_at`. At the exact expiry timestamp a preview is still valid and
   is not age-reclaimed. Terminal records use their original preview expiry, not
   an additional retention period measured from rejection or drift detection.
-- If the project still has 200 records, the oldest never-committed `rejected` or
+- If the project still has 200 active records, the oldest never-committed `rejected` or
   `stale` records (`created_at`, then `id`) are removed only as needed to admit one
   new preview, even before expiry. Unexpired `previewed` records are never evicted
   for capacity. Rapid preview/reject cycles therefore do not permanently exhaust storage.
@@ -310,11 +310,20 @@ same `IMMEDIATE` transaction as the new proposal:
   `expired`, get/reject reports `permission_denied`, and an evicted pagination
   cursor reports `stale_resource`.
 
-The total bound remains 200 proposals per project. If no eligible record can be
-reclaimed, preview creation returns `limit_exceeded`. In particular, **200 retained
-committed proposals permanently block new previews, including Return previews**;
-this fix does not archive or delete identity-bearing history. Avoiding that limit
-requires a separately designed bounded receipt/history archive and Return policy.
+The active bound is 200 proposals per project. Fully committed records with an
+operation ID, committed actor/revision and Return checkpoint are an **in-place
+history partition** outside that bound. They retain their exact rows, unique
+operation index, original response identity and Return linkage. Existing committed
+rows immediately participate without a schema rewrite. Replay uses the existing
+indexed actor/operation lookup. Lists/gets and revision-gated Return include history.
+Unknown or incomplete identity-bearing records still consume active capacity.
+If active capacity has no reclaimable preview, creation returns `limit_exceeded`.
+
+`recipe_list.capacity` reports `active`, `archived`, `retained`, `remaining`,
+`limit` and `archive:"retained_in_place"`. This removes the lifetime commit cliff,
+including Return admission, without discarding old identities. It does not compact
+historical bodies or bound database bytes. The schema stays 12: an older binary
+can still read the exact records safely, but will apply its old total-count cap.
 Recipe receipts are append-only and no committed receipt is deleted.
 A full recipe-receipt table refuses new `op_id` saves with `limit_exceeded`
 rather than deleting history.

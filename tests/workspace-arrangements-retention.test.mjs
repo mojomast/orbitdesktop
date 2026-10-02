@@ -80,7 +80,7 @@ test('reclamation across restart preserves committed replay, exact Return checkp
   const applied=await f.flow('recipe_apply',forwardRequest),source=f.all().find(p=>p.id===forward.preview_id);
   assert.ok(source.return_checkpoint_id);
   for(let index=0;index<210;index++)await f.reject(await f.preview());
-  assert.equal(f.all().length,200);f.time=forward.expires_at+1;f.restart();
+  assert.equal(f.all().length,201);f.time=forward.expires_at+1;f.restart();
   const inverse=await f.preview('return');
   assert.equal(f.all().length,2);assert.deepEqual(f.all().find(p=>p.id===forward.preview_id),source);
   assert.deepEqual(f.store.checkpointGet(f.workspace_id,source.return_checkpoint_id).state,f.before.state);
@@ -94,16 +94,23 @@ test('reclamation across restart preserves committed replay, exact Return checkp
   await assert.rejects(f.flow('recipe_apply',{...forwardRequest,intent:'Changed identity'}),{code:'conflict'});
 });
 
-test('200 committed proposals retain identities and explicitly refuse new previews including Return',async t=>{
-  const f=fixture(t);let firstRequest;
-  for(let index=0;index<200;index++){
+test('1001 committed proposals leave active capacity available across restart with exact replay and Return',async t=>{
+  const f=fixture(t);let firstRequest,firstResult,lastRequest,lastResult;
+  for(let index=0;index<1001;index++){
     const p=await f.preview(),request=f.request(p);if(index===0)firstRequest=request;
-    await f.flow('recipe_apply',request);
+    const result=await f.flow('recipe_apply',request);if(index===0)firstResult=result;lastRequest=request;lastResult=result;
+    if(index===500)f.restart();
   }
   const retained=f.all();f.time=1000000;f.restart();
-  await assert.rejects(f.preview(),{code:'limit_exceeded'});
-  await assert.rejects(f.preview('return'),{code:'limit_exceeded'});
   assert.deepEqual(f.all(),retained);assert.equal((await f.flow('recipe_apply',firstRequest)).idempotent,true);
+  assert.deepEqual((await f.flow('recipe_apply',firstRequest)).workspace,firstResult.workspace);
+  assert.deepEqual((await f.flow('recipe_apply',lastRequest)).workspace,lastResult.workspace);
+  await assert.rejects(f.flow('recipe_apply',{...firstRequest,intent:'altered'}),{code:'conflict'});
+  const capacity=(await f.flow('recipe_list')).capacity;
+  assert.equal(capacity.active,0);assert.equal(capacity.archived,1001);assert.equal(capacity.remaining,200);
+  await f.preview();const inverse=await f.preview('return');
+  await f.flow('recipe_apply',f.request(inverse,'return'));
+  f.restart();assert.equal((await f.flow('recipe_apply',firstRequest)).idempotent,true);
 });
 
 test('identity-bearing terminal records fail closed and failed creation rolls back reclamation',async t=>{

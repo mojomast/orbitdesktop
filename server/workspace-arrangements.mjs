@@ -325,7 +325,7 @@ export function createWorkspaceArrangements({store,records,data,now=Date.now}={}
     // Applies remain valid at expires_at itself; reclamation uses the same strict
     // boundary. Terminal previews share the original preview's 60-second horizon.
     data.db.prepare(`DELETE FROM wb_proposals WHERE ${scopeSql} AND json_extract(record_json,'$.status') IN ('previewed','rejected','stale') AND json_extract(record_json,'$.expires_at')<?`).run(workspaceId,projectId,now());
-    const count=data.db.prepare('SELECT count(*) AS n FROM wb_proposals WHERE workspace_id=? AND project_id=?').get(workspaceId,projectId).n;
+    const count=data.capacity('proposals',workspaceId,projectId).active;
     const needed=Math.max(0,count-WORKBENCH_RECORD_LIMITS.proposals+1);
     if(needed){
       // Under capacity pressure only terminal, never-committed previews can go
@@ -413,7 +413,7 @@ export function createWorkspaceArrangements({store,records,data,now=Date.now}={}
 
   function recipeApply(body,actor){
     scope(body);
-    const byOp=data.list('proposals',body.workspace_id,body.project_id).find(proposal=>proposal.op_id===body.op_id&&proposal.committed_actor===actor);
+    const byOp=data.proposalOperation(body.workspace_id,body.project_id,body.op_id,actor);
     if(byOp){
       if(!sameRequest(byOp,body))throw wbError('conflict');
       const intent=byOp.committed_intent??`Recipe ${byOp.recipe}`;
@@ -435,7 +435,7 @@ export function createWorkspaceArrangements({store,records,data,now=Date.now}={}
   function recipeList(body){
     const {workspace,project}=scope(body),bindings=bindingIdentity(body.workspace_id,body.project_id);
     const recipes=workspaceRecipes(body.workspace_id).sort((a,b)=>(a.created_at??0)-(b.created_at??0)||String(a.id).localeCompare(String(b.id)));
-    return {workspace_id:body.workspace_id,project_id:body.project_id,revision:workspace.revision,project_generation:project.generation,recipes:recipes.map(publicRecipe),bindings,capabilities:{roles:[...ARRANGEMENT_ROLES],layouts:[...ARRANGEMENT_LAYOUTS],renderers:[...ARRANGEMENT_RENDERERS],max_recipes:ARRANGEMENT_LIMITS.maxRecipes,max_proposals:WORKBENCH_RECORD_LIMITS.proposals,max_recipe_receipts:MAX_RECIPE_RECEIPTS,ttl_ms:TTL,measured_geometry:false,portable_constraints_only:true,cross_project_recipes:true,retention:'Committed proposals and their receipts are retained for the project lifetime; expired never-committed previewed/rejected/stale proposals are reclaimed, and oldest never-committed rejected/stale proposals may be reclaimed early at capacity. No committed receipt is deleted; 200 committed proposals block new previews, including Return.'}};
+    return {workspace_id:body.workspace_id,project_id:body.project_id,revision:workspace.revision,project_generation:project.generation,recipes:recipes.map(publicRecipe),bindings,capacity:data.capacity('proposals',body.workspace_id,body.project_id),capabilities:{roles:[...ARRANGEMENT_ROLES],layouts:[...ARRANGEMENT_LAYOUTS],renderers:[...ARRANGEMENT_RENDERERS],max_recipes:ARRANGEMENT_LIMITS.maxRecipes,max_proposals:WORKBENCH_RECORD_LIMITS.proposals,max_recipe_receipts:MAX_RECIPE_RECEIPTS,ttl_ms:TTL,measured_geometry:false,portable_constraints_only:true,cross_project_recipes:true,retention:'Fully committed proposals are archived in place outside active preview capacity, retaining exact operation identities, original bodies and Return checkpoints. Expired never-committed previews are reclaimed; terminal never-committed previews may be reclaimed early at capacity. No committed receipt is deleted. Historical bytes are not garbage collected.'}};
   }
 
   // Append-only recipe operation receipts. Read first under the same immediate
