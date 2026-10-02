@@ -30,7 +30,8 @@ exact-head CI, deployment checks and pending owner visual acceptance.
 
 The Start menu and command palette expose Knowledge search, Interactive results,
 Data workbench, Voice transcript, Document library, Run traces, Browser copilot and
-MCP Apps (when configured). Each opens a stable, ordinary browser-kind window with an exact reviewed
+MCP Apps, including setup explanations when optional services are unconfigured.
+Each opens a stable, ordinary browser-kind window with an exact reviewed
 `orbit://surface/…` URL. Document windows use `orbit://document/<uuid>`.
 URLs carry identity only. Owner credentials are supplied by the live host callback.
 The shell enforces the existing 100-window bound for these creation paths and passes

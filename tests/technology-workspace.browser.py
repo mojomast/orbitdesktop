@@ -287,11 +287,15 @@ window.__technologyCspViolations.push({uri:event.blockedURI,directive:event.effe
                     page.keyboard.press('Control+k')
                     palette = page.get_by_role('dialog', name='Workspace commands', exact=True)
                     palette.get_by_role('combobox', name='Search workspace commands').fill(SURFACES[key])
-                    expect(palette.get_by_role('option')).to_have_count(0)
+                    option = palette.get_by_role('option')
+                    expect(option).to_have_count(1)
+                    expect(option).to_have_attribute('aria-disabled', 'false')
+                    expect(option).to_contain_text('Configure browser executable and allowed origins' if key == 'copilot' else 'MCP Apps is off or proxy configuration unavailable')
+                    expect(option).to_contain_text('Checked ')
                     page.keyboard.press('Escape')
                 search = surface('search')
                 expect(search.get_by_role('status')).to_contain_text('Semantic off', timeout=20000)
-                record('unconfigured browser/MCP and absent search-model availability')
+                record('unconfigured browser/MCP remain discoverable with observed setup reasons but unavailable backends; absent search-model availability')
             else:
                 # Unrelated generated widget must survive all subsequent host features.
                 api('/api/workspace', 'plugins_apply', base_revision=snapshot()['revision'],
