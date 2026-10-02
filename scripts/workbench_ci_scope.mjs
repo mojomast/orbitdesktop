@@ -19,6 +19,10 @@ export const WORKBENCH_PATTERNS = Object.freeze([
   /^server\/(?:workbench(?:[.-]|$)|project-(?:tools|files)(?:[.-]|$))/,
   // The primary store owns the Workbench tables and writer-version fence.
   /^server\/sqlite-workspace-store\.mjs$/,
+  // Project arrangements share the workspace namespace but retain Workbench
+  // proposal/replay history and Return semantics.
+  /^server\/workspace-arrangements\.mjs$/,
+  /^tests\/workspace-arrangements(?:[.-]|$)/,
   /^contracts\/(?:workbench-|project-tools)/,
   /^tests\/(?:workbench[-_]|test_workbench|project-workbench)/,
   /^tests\/browser_workspace\.py$/,
