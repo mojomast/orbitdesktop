@@ -71,8 +71,24 @@ compatible CSVs is a binding mismatch, even when every file hash still matches. 
 analysis is the explicit escape for changed files. A CAS conflict retains the SQL
 and chosen files; refresh/resolve explicitly. An uncertain save retains its exact
 request in the mounted pane for **Retry exact save**. That retry draft does not
-survive disposal/reload; inspect saved recipes afterward. Send summary to draft
-uses the existing preview/recipient insertion flow and never submits a model run.
+survive disposal/reload; inspect saved recipes afterward.
+
+## Selected evidence and SQL proposals
+
+Choose explicit row and column checkboxes, then **Share selected result rows**.
+The final draft includes actual typed columns/values, zero-based retained-row
+indices, recipe/input fingerprint, full retained-result hash and a separate
+selected-payload hash. Decimal and bigint strings remain exact. Result truncation
+and omitted retained rows are separate fields; an oversized share is refused
+without truncating its JSON/evidence. Sorting changes display order only. SQL,
+input, query, cancellation or selection changes fence an open transfer.
+
+**Ask about schema** shares loaded table/column/type metadata and input hashes,
+with no sample rows. The schema payload includes the exact proposal format:
+`{"inputHash":"…","sql":"SELECT …"}`. Paste it into **SQL proposal JSON**
+and choose **Stage SQL proposal**. Only a matching loaded-input fingerprint and
+bounded SELECT are accepted; the editor is populated without running. Review
+then **Run SELECT** explicitly. Neither handoff submits a model request.
 
 ## Parent asset integration (required)
 

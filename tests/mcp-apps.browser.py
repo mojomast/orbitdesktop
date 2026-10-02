@@ -22,6 +22,17 @@ try:
         expect(page.locator('p[role="status"]')).to_contain_text('Ready to import')
         expect(page.get_by_label('MCP App snapshot JSON')).to_have_value(json.dumps(snapshot))
         expect(page.locator('.mcp-apps-view iframe')).to_have_count(0)
+        page.evaluate('''async snapshot=>{const {completeResultActions}=await import('/src/interactive-result-delivery.ts');document.body.append(completeResultActions(JSON.stringify({mcp_snapshot:snapshot}),{id:'complete-authenticated-fixture',version:'exact-1'},()=>true));}''',snapshot)
+        page.get_by_role('button',name='Choose an MCP Apps pane; import and execution stay explicit').click()
+        page.get_by_role('dialog').get_by_role('button',name='Deliver to this pane').click()
+        expect(page.get_by_role('dialog')).to_contain_text('Recipient has a snapshot draft')
+        page.get_by_role('dialog').get_by_role('button',name='Cancel result delivery').click()
+        expect(page.get_by_label('MCP App snapshot JSON')).to_have_value(json.dumps(snapshot))
+        page.get_by_label('MCP App snapshot JSON').fill('')
+        page.get_by_role('button',name='Choose an MCP Apps pane; import and execution stay explicit').click()
+        page.get_by_role('dialog').get_by_role('button',name='Deliver to this pane').click()
+        assert json.loads(page.get_by_label('MCP App snapshot JSON').input_value()) == snapshot
+        expect(page.locator('.mcp-apps-view iframe')).to_have_count(0)
         page.get_by_role('button',name='Import snapshot',exact=True).click()
         app=page.frame_locator('.mcp-apps-view iframe').frame_locator('iframe')
         try:

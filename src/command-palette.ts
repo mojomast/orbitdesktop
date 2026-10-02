@@ -58,6 +58,9 @@ export function installCommandPalette(commands: WorkspaceCommands) {
       select(0);
     };
     search.addEventListener('input', render);
+    const refreshDetails=()=>{const id=matches[selected]?.id;render();const index=matches.findIndex(command=>command.id===id);if(index>=0)select(index);};
+    window.addEventListener('orbit-command-details-changed',refreshDetails);
+    modal.addEventListener('close',()=>window.removeEventListener('orbit-command-details-changed',refreshDetails),{once:true});
     modal.addEventListener('keydown', event => {
       event.stopPropagation();
       if (event.key === 'Escape') { event.preventDefault(); modal.close(); }
@@ -70,6 +73,7 @@ export function installCommandPalette(commands: WorkspaceCommands) {
     modal.append(el('h2', '', 'Workspace commands'), search, results, status, button('Close', 'Close workspace commands', () => modal.close()));
     document.body.append(modal);
     modal.showModal(); render(); search.focus();
+    window.dispatchEvent(new Event('orbit-command-discovery'));
   }
   const shortcut = (event: KeyboardEvent) => {
     if (event.defaultPrevented || event.repeat || !(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'k') return;

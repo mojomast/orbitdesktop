@@ -156,12 +156,11 @@ try:
           transfer = page.get_by_role('dialog', name='Send text to a conversation', exact=True)
           expect(transfer).to_be_visible()
           transfer.get_by_role('radio').first.check()
-          transfer.get_by_role('button', name='Insert into draft', exact=True).click()
-          preview = page.get_by_role('dialog', name='Preview conversation draft', exact=True)
-          expect(preview).to_contain_text('Local conflicting draft')
-          expect(preview).to_contain_text('Saved history')
+          expect(transfer.locator('.conversation-transfer-preview')).to_contain_text('Local conflicting draft')
+          expect(transfer.locator('.conversation-transfer-preview')).to_contain_text('Saved history')
           expect(composer).to_have_value('Local conflicting draft')
-          preview.get_by_role('button', name='Confirm append to conversation draft', exact=True).click()
+          transfer.get_by_role('button', name='Insert into draft', exact=True).click()
+          expect(transfer).to_have_count(0)
           assert 'Saved history' in composer.input_value()
           expect(page.locator('.conversation-draft-status')).to_contain_text('Draft saved on host', timeout=10000)
           assert 'Saved history' in api({'action': 'draft_read', **identity})['record']['draft']
@@ -366,13 +365,11 @@ try:
             assert window_name in entry['label'], (window_name, entry)
           third_value = f'chat:{workspace}:{third_pane}'
           transfer.locator(f'input[type="radio"][value="{third_value}"]').check()
-          transfer.get_by_role('button', name='Insert into draft', exact=True).click()
-          preview = page.get_by_role('dialog', name='Preview conversation draft', exact=True)
-          expect(preview).to_contain_text('Third pane draft')
-          expect(preview).to_contain_text('Recipient identity probe')
+          expect(transfer.locator('.conversation-transfer-preview')).to_contain_text('Third pane draft')
+          expect(transfer.locator('.conversation-transfer-preview')).to_contain_text('Recipient identity probe')
           # The confirmation names the same recipient identity as the radio.
-          assert third_pane in preview.inner_text(), preview.inner_text()
-          preview.get_by_role('button', name='Confirm append to conversation draft', exact=True).click()
+          assert third_pane in transfer.inner_text(), transfer.inner_text()
+          transfer.get_by_role('button', name='Insert into draft', exact=True).click()
           expect(third.locator('.conversation-draft-status')).to_contain_text('Draft saved on host', timeout=10000)
 
           # Only the chosen pane's host draft changes. The same-title sibling

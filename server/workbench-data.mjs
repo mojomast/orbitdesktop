@@ -8,6 +8,11 @@ import {wbError} from './workbench-store.mjs';
 export const WORKBENCH_RECORD_KINDS=Object.freeze(['tasks','attempts','contexts','disclosures','submissions','candidates','jobs','evidence','reviews','grants','toolcalls','profiles','integrations','annotations','results','cards','patches','proposals','recipes']);
 const limits=Object.freeze({tasks:200,attempts:400,contexts:512,disclosures:512,submissions:512,candidates:200,jobs:512,evidence:1024,reviews:512,grants:512,toolcalls:4096,profiles:64,integrations:200,annotations:2048,results:512,cards:512,patches:200,proposals:200,recipes:32});
 export const WORKBENCH_RECORD_LIMITS=limits;
+// Logical history partition: retain the original rows and unique operation index
+// so old receipts, proposal IDs and Return links never acquire new meanings.
+// Only fully committed proposals leave active capacity; malformed/unknown rows
+// remain pinned. This additive accounting change needs no schema migration.
+export const proposalHistorySql="json_extract(record_json,'$.status')='committed' AND json_extract(record_json,'$.op_id') IS NOT NULL AND json_extract(record_json,'$.committed_actor') IS NOT NULL AND json_extract(record_json,'$.committed_revision') IS NOT NULL AND json_extract(record_json,'$.return_checkpoint_id') IS NOT NULL";
 const identifier=/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
 const table=kind=>{if(!WORKBENCH_RECORD_KINDS.includes(kind))throw wbError('invalid_request');return `wb_${kind}`;};
 const recordTableSql=kind=>`
@@ -132,7 +137,7 @@ export class WorkbenchData {
     const {workspace_id,project_id}=fields;this.#scope(workspace_id,project_id);
     for(const key of ['id','version','revision','created_at','updated_at'])if(Object.hasOwn(fields,key))throw wbError('invalid_request');
     const committed=this.db.transaction(()=>{
-      if(this.db.prepare(`SELECT count(*) AS n FROM ${name} WHERE workspace_id=? AND project_id=?`).get(workspace_id,project_id).n>=limits[kind])throw wbError('limit_exceeded');
+      if(this.capacity(kind,workspace_id,project_id).active>=limits[kind])throw wbError('limit_exceeded');
       const time=this.now();
       const value={...structuredClone(fields),id:randomUUID(),version:1,revision:1,created_at:time,updated_at:time};
       const encoded=this.#encode(kind,value);
@@ -147,6 +152,18 @@ export class WorkbenchData {
     if(!identifier.test(id||''))throw wbError('invalid_request');
     const row=this.db.prepare(`SELECT record_json FROM ${name} WHERE id=? AND workspace_id=? AND project_id=?`).get(id,workspaceId,projectId);
     if(!row)throw wbError('permission_denied');return JSON.parse(row.record_json);
+  }
+  capacity(kind,workspaceId,projectId){
+    const name=table(kind);this.#scope(workspaceId,projectId);
+    const row=this.db.prepare(`SELECT count(*) AS retained,coalesce(sum(CASE WHEN ${kind==='proposals'?proposalHistorySql:'0'} THEN 1 ELSE 0 END),0) AS archived FROM ${name} WHERE workspace_id=? AND project_id=?`).get(workspaceId,projectId);
+    const active=row.retained-row.archived;
+    return {...row,active,limit:limits[kind],remaining:Math.max(0,limits[kind]-active),archive:'retained_in_place'};
+  }
+  proposalOperation(workspaceId,projectId,opId,actor){
+    this.#scope(workspaceId,projectId);
+    // Uses the existing actor-scoped unique operation index, including history.
+    const row=this.db.prepare("SELECT record_json FROM wb_proposals WHERE workspace_id=? AND project_id=? AND json_extract(record_json,'$.op_id')=? AND json_extract(record_json,'$.committed_actor')=?").get(workspaceId,projectId,opId,actor);
+    return row?JSON.parse(row.record_json):null;
   }
   list(kind,workspaceId,projectId){
     const name=table(kind);this.#scope(workspaceId,projectId);

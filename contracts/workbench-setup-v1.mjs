@@ -12,6 +12,8 @@ export const setupRequests=Object.freeze({
   draft:owner('draft',{op_id:uuid,...brief},['title','acceptance_statement','check_definition_id']),
   preview:owner('preview',{draft_id:uuid,op_id:uuid}),
   prepare:owner('prepare',{preview_id:uuid,preview_digest:hash,op_id:uuid}),
+  wait:owner('wait',{draft_id:uuid,op_id:uuid,deadline:{type:'integer',minimum:1},budget:nativeBudgetSchema}),
+  wait_cancel:owner('wait_cancel',{intent_id:uuid,op_id:uuid}),
   launch_preview:owner('launch_preview',{draft_id:uuid,budget:nativeBudgetSchema}),
   launch:owner('launch',{draft_id:uuid,preview_id:uuid,preview_digest:hash,op_id:uuid}),
 });

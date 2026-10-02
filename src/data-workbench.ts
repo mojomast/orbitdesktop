@@ -15,6 +15,8 @@ export function mountDataWorkbench(host: HTMLElement, token: () => string, _opti
   let disposed = false, generation = 0, busy = false, timer: ReturnType<typeof setTimeout> | undefined;
   let inputs: InputMetadata[] = [], result: DataResult | undefined, resultSql = '', expected: Recipe | undefined, revision = 0, recipes: Recipe[] = [], pending: Record<string, unknown> | undefined;
   let page = 0, sort = -1, descending = false;
+  const selectedRows = new Set<number>(), selectedColumns = new Set<number>();
+  let selectionGeneration = 0;
   const abort = new AbortController();
   const say = (text: string) => { if (!disposed) status.textContent = text; };
   function action(container: string, title: string, run: () => unknown) {
@@ -22,7 +24,7 @@ export function mountDataWorkbench(host: HTMLElement, token: () => string, _opti
     button.onclick = () => { Promise.resolve().then(run).catch(error => say(String(error.message || error))); };
     q(container).append(button); return button;
   }
-  function invalidate() { result = undefined; resultsView.replaceChildren(); }
+  function invalidate() { selectionGeneration++; selectedRows.clear(); selectedColumns.clear(); result = undefined; resultsView.replaceChildren(); }
   function cancel(message = 'Cancelled; worker terminated. Choose files again to initialize.') {
     generation++; busy = false; clearTimeout(timer); engine.dispose(); inputs = []; invalidate(); say(message); showInputs();
   }
@@ -57,10 +59,32 @@ export function mountDataWorkbench(host: HTMLElement, token: () => string, _opti
     await work(async () => { const value = await engine.query(captured); if (g !== generation || disposed || captured !== sql.value) return; result = value; resultSql = captured; page = 0; sort = -1; render(); say(`${value.rows.length} bounded rows · ${value.truncated ? 'truncated' : 'complete'} · ${Math.round(value.elapsedMs)} ms · SHA-256 ${value.sha256}`); });
   });
   action('.data-actions', 'Cancel', () => cancel());
+  action('.data-actions', 'Ask about schema', async () => {
+    const capturedInputs = inputs, own = generation, credential = token();
+    if (!inputs.length) throw Error('Choose input files first.');
+    const schemas: { table: string; columns: DataResult['columns'] }[] = [];
+    await work(async () => { for (const input of capturedInputs) schemas.push({ table: input.table, columns: (await engine.query(`SELECT * FROM ${input.table} LIMIT 0`)).columns }); });
+    const inputHash = await hashJson(capturedInputs);
+    const validate = () => { if (disposed || own !== generation || inputs !== capturedInputs || credential !== token() || (localStorage.getItem('orbit.workspace.id') || workspaceId) !== workspaceId) throw Error('Loaded inputs or workspace binding changed.'); };
+    validate();
+    const text = JSON.stringify({ kind: 'schema-only', inputHash, inputs: capturedInputs, schemas, proposalFormat: { inputHash, sql: 'SELECT …' }, note: 'Return a sole JSON object with inputHash and sql. The owner stages it, then runs explicitly. No sample rows included.' }, null, 2);
+    if (text.length > 20000) throw Error('Schema exceeds the transfer limit.');
+    await requestConversationContext({ text, title: 'Local input schemas', validate });
+  });
+  const proposalInput = document.createElement('textarea'); proposalInput.setAttribute('aria-label', 'SQL proposal JSON'); q('.data-actions').after(proposalInput);
+  action('.data-actions', 'Stage SQL proposal', async () => {
+    const value = JSON.parse(proposalInput.value), capturedInputs = inputs, prior = sql.value, own = generation;
+    if (!value || Object.keys(value).sort().join() !== 'inputHash,sql' || typeof value.sql !== 'string') throw Error('Expected only inputHash and sql.');
+    boundedSql(value.sql);
+    if (!inputs.length || value.inputHash !== await hashJson(capturedInputs)) throw Error('Proposal input fingerprint does not match loaded files.');
+    if (disposed || own !== generation || inputs !== capturedInputs || sql.value !== prior) throw Error('Analysis changed while validating proposal.');
+    sql.value = value.sql; invalidate(); say('Proposed SQL staged. Review the editor, then Run SELECT explicitly.');
+  });
   action('.data-actions', 'Start new analysis', () => { expected = undefined; pending = undefined; invalidate(); showInputs(); say('New analysis: selected files retained; recipe matching cleared explicitly.'); });
   function render() {
     resultsView.replaceChildren(); if (!result) return;
     const table = document.createElement('table'), header = table.createTHead().insertRow();
+    header.append(document.createElement('th'));
     for (const [index, column] of result.columns.entries()) { const cell = document.createElement('th'), button = document.createElement('button'); button.textContent = `${column.name} (${column.type})`; button.onclick = () => { descending = sort === index ? !descending : false; sort = index; page = 0; render(); }; cell.append(button); header.append(cell); }
     const rows = [...result.rows];
     if (sort >= 0) rows.sort((a, b) => {
@@ -74,8 +98,16 @@ export function mountDataWorkbench(host: HTMLElement, token: () => string, _opti
       } else order = String(x).localeCompare(String(y));
       return order * (descending ? -1 : 1);
     });
+    Array.from(header.cells).slice(1).forEach((cell, index) => {
+      const check = document.createElement('input'); check.type = 'checkbox'; check.checked = selectedColumns.has(index); check.setAttribute('aria-label', `Share column ${result!.columns[index].name}`);
+      check.onchange = () => { selectionGeneration++; if (check.checked) selectedColumns.add(index); else selectedColumns.delete(index); }; cell.prepend(check);
+    });
     const body = table.createTBody();
-    for (const row of rows.slice(page * 100, (page + 1) * 100)) { const tr = body.insertRow(); for (const value of row) tr.insertCell().textContent = value == null ? 'NULL' : typeof value === 'object' ? JSON.stringify(value) : String(value); }
+    for (const row of rows.slice(page * 100, (page + 1) * 100)) {
+      const tr = body.insertRow(), index = result.rows.indexOf(row), check = document.createElement('input'); check.type = 'checkbox'; check.checked = selectedRows.has(index); check.setAttribute('aria-label', `Share retained row ${index + 1}`);
+      check.onchange = () => { selectionGeneration++; if (check.checked) selectedRows.add(index); else selectedRows.delete(index); }; tr.insertCell().append(check);
+      for (const value of row) tr.insertCell().textContent = value == null ? 'NULL' : typeof value === 'object' ? JSON.stringify(value) : String(value);
+    }
     const scroll = document.createElement('div'); scroll.className = 'data-table-scroll'; scroll.append(table); resultsView.append(scroll);
     const controls = document.createElement('div');
     for (const [label, delta] of [['Previous page', -1], ['Next page', 1]] as const) { const button = document.createElement('button'); button.textContent = label; button.disabled = delta < 0 ? page === 0 : (page + 1) * 100 >= rows.length; button.onclick = () => { page += delta; render(); }; controls.append(button); }
@@ -88,8 +120,11 @@ export function mountDataWorkbench(host: HTMLElement, token: () => string, _opti
   for (const format of ['CSV', 'JSON']) action('.data-actions', `Export bounded ${format}`, () => { if (!result) throw Error('Run a query first.'); download(`bounded-result.${format.toLowerCase()}`, format === 'CSV' ? resultCsv(result) : JSON.stringify({ columns: result.columns, rows: result.rows, truncated: result.truncated }), format === 'CSV' ? 'text/csv' : 'application/json'); });
   async function recipe(): Promise<Recipe> {
     if (!result || resultSql !== sql.value || !inputs.length) throw Error('Run the current query successfully before saving/exporting.');
+    const captured = result, own = generation, capturedName = name.value, id = expected?.id || crypto.randomUUID();
     const value = { engine: { name: 'duckdb-wasm' as const, npmVersion: '1.32.0' as const, engineVersion: engine.engineVersion }, sql: resultSql, params: [] as [], inputs: inputs.map(i => ({ name: i.name, table: i.table, kind: i.kind, bytes: i.bytes, sha256: i.sha256 })) };
-    return { id: expected?.id || crypto.randomUUID(), name: name.value || 'Local analysis', ...value, inputHash: await hashJson(value), result: { sha256: result.sha256, rowCount: result.rows.length, bytes: result.bytes, truncated: result.truncated } };
+    const inputHash = await hashJson(value);
+    if (disposed || generation !== own || result !== captured || sql.value !== value.sql) throw Error('Analysis changed while preparing recipe.');
+    return { id, name: capturedName || 'Local analysis', ...value, inputHash, result: { sha256: captured.sha256, rowCount: captured.rows.length, bytes: captured.bytes, truncated: captured.truncated } };
   }
   async function api(body: Record<string, unknown>) {
     await ensureWorkspaceSynced();
@@ -117,7 +152,19 @@ export function mountDataWorkbench(host: HTMLElement, token: () => string, _opti
     if (!validateRecipeImport(value) || value.inputHash !== await hashJson(recipeFingerprint(value))) throw Error('Invalid recipe or exact-input fingerprint.');
     expected = structuredClone(value); sql.value = value.sql; name.value = value.name; invalidate(); showInputs(); say('Imported recipe metadata. Re-select exact files; no query was run.');
   })().catch(error => say(error.message)); };
-  action('.data-recipe-actions', 'Send summary to draft', async () => { const r = await recipe(); await requestConversationContext({ title: r.name, source: 'Local DuckDB bounded analysis', text: JSON.stringify({ recipe: r, resultSummary: { rows: result?.rows.length, truncated: result?.truncated, sha256: result?.sha256 } }, null, 2) }); });
+  action('.data-recipe-actions', 'Share selected result rows', async () => {
+    const captured = result, own = selectionGeneration, credential = token(), scope = workspaceId;
+    if (!captured || !selectedRows.size || !selectedColumns.size) throw Error('Select rows and columns using the table checkboxes first.');
+    const indices = [...selectedRows].sort((a,b) => a-b), columns = [...selectedColumns].sort((a,b) => a-b);
+    const r = await recipe();
+    const values = { columns: columns.map(i => captured.columns[i]), retainedRowIndices: indices, rows: indices.map(i => columns.map(c => captured.rows[i][c])) };
+    const selectedPayloadSha256 = await hashJson(values);
+    const validate = () => { if (disposed || captured !== result || own !== selectionGeneration || r.sql !== sql.value || credential !== token() || scope !== workspaceId || (localStorage.getItem('orbit.workspace.id') || workspaceId) !== scope) throw Error('Analysis or selection changed; prepare a new transfer.'); };
+    validate();
+    const text = JSON.stringify({ kind: 'included-bounded-result', recipe: r, selectedPayloadSha256, resultRetainedRows: captured.rows.length, resultTruncated: captured.truncated, shareOmittedRetainedRows: captured.rows.length - indices.length, shareTruncated: false, ...values }, null, 2);
+    if (text.length > 20000) throw Error('Selected values and evidence exceed 20,000 characters. Select fewer rows/columns; nothing was truncated.');
+    await requestConversationContext({ title: r.name, source: 'Local DuckDB selected values (exact decimal/bigint strings)', text, validate });
+  });
   selection.onchange = () => { const r = recipes.find(r => r.id === selection.value); if (!r) return; expected = structuredClone(r); sql.value = r.sql; name.value = r.name; invalidate(); showInputs(); say('Recipe loaded. Re-select exact inputs; file bytes are never restored from recipes.'); };
   const dispose = () => { if (disposed) return; disposed = true; abort.abort(); cancel(); window.removeEventListener('pagehide', dispose); root.remove(); };
   window.addEventListener('pagehide', dispose);

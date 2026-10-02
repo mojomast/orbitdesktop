@@ -26,6 +26,7 @@ RUN = 'run_123456789abcdef'
 
 
 class Hermes(BaseHTTPRequestHandler):
+    posts = []
     def log_message(self, *args):
         pass
 
@@ -55,6 +56,7 @@ class Hermes(BaseHTTPRequestHandler):
         self.reply({}, 404)
 
     def do_POST(self):
+        self.posts.append(self.path)
         self.rfile.read(int(self.headers.get('Content-Length', 0)))
         if self.path == '/v1/runs':
             return self.reply({'run_id': RUN, 'status': 'running'}, 202)
@@ -152,6 +154,15 @@ def main():
                     expect(page.locator('.run-trace-pane')).not_to_contain_text('SECRET')
                     page.locator('.run-trace-row').filter(has_text='fixture_read').click()
                     expect(page.locator('.run-trace-detail')).to_contain_text('call-1')
+                    page.get_by_role('button', name='Share diagnostic summary', exact=True).click()
+                    sharing = page.get_by_role('dialog', name='Send text to a conversation', exact=True)
+                    expect(sharing).to_be_visible()
+                    expect(sharing).to_contain_text('orbit.trace-diagnostic.v1')
+                    expect(sharing).to_contain_text('not an authoritative execution receipt')
+                    expect(sharing).to_contain_text('not wall-clock run duration')
+                    expect(sharing).not_to_contain_text('SECRET')
+                    sharing.get_by_role('button', name='Cancel', exact=True).click()
+                    expect(sharing).not_to_be_visible()
                     with page.expect_download() as download:
                         page.get_by_role('button', name='Export JSON', exact=True).click()
                     assert download.value.suggested_filename == f'trace-{trace}.json'
@@ -166,6 +177,8 @@ def main():
                     page.get_by_role('button', name='Unlock local host', exact=True).click()
                     page.get_by_label('Run', exact=True).select_option(trace)
                     expect(page.locator('.run-trace-row')).to_have_count(2, timeout=15000)
+                    assert not errors, errors
+                    assert Hermes.posts == ['/v1/runs'], Hermes.posts
                     browser.close()
                 print('PASS actual Normal callback -> local SDK/SQLite -> authenticated export -> host waterfall -> reload')
             finally:

@@ -1,9 +1,11 @@
 """Real Lexical/Excalidraw + desktop + private Node API in a disposable runtime.
 
 No owner runtime, terminals, models or mocked editor engines. HTTP interception
-only induces a lost save response to exercise durable exact receipts.
+delays real module/workspace responses for source fences and drops genuinely
+committed create/save responses to exercise recovery and exact receipts.
 """
 import copy
+import hashlib
 import json
 import os
 import re
@@ -18,6 +20,7 @@ import urllib.request
 import uuid
 from pathlib import Path
 from playwright.sync_api import expect, sync_playwright
+from browser_workspace import wait_for_workspace_connection
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -65,7 +68,7 @@ def run_fixture(kind='richtext'):
         api_port, port = free_port(), free_port()
         origin, api_origin = f'http://127.0.0.1:{port}', f'http://127.0.0.1:{api_port}'
         (root / 'vite.config.js').write_text("import {canvasFontPolicyPlugin} from './server/documents-canvas-assets.mjs'; const config=" + json.dumps({'server': {
-            'host': '127.0.0.1', 'port': port, 'strictPort': True, 'fs': {'allow': [str(root), str(ROOT)]},
+            'host': '127.0.0.1', 'port': port, 'strictPort': True, 'fs': {'allow': [str(root), str(ROOT), str((ROOT / 'node_modules').resolve())]},
             'proxy': {'/api': {'target': api_origin, 'ws': True, 'changeOrigin': True}}}}) + '; config.plugins=[canvasFontPolicyPlugin()]; export default config;')
         token = secrets.token_urlsafe(32)
         env = {**os.environ, 'PORT': str(api_port), 'ORBIT_TOKEN': token,
@@ -128,11 +131,30 @@ def run_fixture(kind='richtext'):
                     page.get_by_role('button', name='Connect local host', exact=True).click()
                     page.get_by_role('textbox', name='Host session token').fill(token)
                     page.get_by_role('button', name='Unlock local host', exact=True).click()
+                    wait_for_workspace_connection(page)
 
                 unlock()
                 host = page.locator(f'[data-document-id="{document_id}"]')
                 expect(host).to_be_visible(timeout=45000)
                 expect(page.locator(f'[data-document-id="{second_id}"] .richdoc-content')).to_have_count(1, timeout=45000)
+                # The real shell must carry source freshness through its first
+                # lazy library import, not only check the button's old binding.
+                lazy_library = []
+                def hold_document_library(route):
+                    response = route.fetch()
+                    page.evaluate('window.__resultSourceCurrent=false')
+                    lazy_library.append(route.request.url)
+                    route.fulfill(response=response)
+                page.route('**/src/document-library.ts*', hold_document_library)
+                page.evaluate('''async()=>{const {requestDocumentFromResult,textDocument}=await import('/src/document-artifacts.ts');window.__resultSourceCurrent=true;window.__staleLazyResult=requestDocumentFromResult(JSON.stringify({document:{title:'Stale lazy source',...textDocument('Never create this')}}),()=>window.__resultSourceCurrent);}''')
+                deadline = time.monotonic() + 20
+                while not lazy_library and time.monotonic() < deadline:
+                    page.wait_for_timeout(50)
+                assert lazy_library, 'Expected a held real document library module import'
+                page.unroute('**/src/document-library.ts*', hold_document_library)
+                assert page.evaluate('window.__staleLazyResult')['status'] == 'rejected'
+                expect(page.get_by_role('dialog', name='Create document from reviewed content', exact=True)).to_have_count(0)
+                assert len(api('/api/documents', {'action':'list'})[1]['documents']) == 2
                 if kind == 'richtext':
                     content = host.get_by_role('textbox', name='Rich document content')
                     expect(content).to_be_visible(timeout=45000)
@@ -241,6 +263,79 @@ def run_fixture(kind='richtext'):
                             'expected_revision': saved['revision'], 'data': legacy, 'op_id': str(uuid.uuid4()), 'intent': 'Reject legacy font fixture'})
                         assert result[0] == 422 and result[1]['code'] == 'unsupported', result
                 assert api('/api/documents', {'action': 'read', 'document_id': second_id})[1]['revision'] == 1
+                # Reviewed whole snapshots use the real engines' native history.
+                # A whole-scene empty replacement also exercises removed IDs.
+                replacement = 'Reviewed replacement text' if kind == 'richtext' else json.dumps({'type':'excalidraw','version':2,'source':'Orbit','elements':[],'appState':{'viewBackgroundColor':'#ffffff'},'files':{}})
+                def stage_replacement(value, format_name):
+                    host.get_by_role('button', name='Import / review replacement', exact=True).click()
+                    dialog = page.get_by_role('dialog', name='Import document draft', exact=True)
+                    dialog.get_by_label('Import format', exact=True).select_option(format_name)
+                    dialog.get_by_label('Import content', exact=True).fill(value)
+                    dialog.get_by_role('button', name='Review replacement', exact=True).click()
+                    return page.get_by_role('dialog', name='Review whole-document replacement', exact=True)
+                proposed_data = page.evaluate('''async text=>{const {textDocument}=await import('/src/document-artifacts.ts');return textDocument(text);}''', replacement) if kind == 'richtext' else {'kind':'scene','format':'excalidraw','content':replacement}
+                proposal = {'base_revision':saved['revision'],'base_digest':hashlib.sha256(saved['data']['content'].encode()).hexdigest(),'data':proposed_data}
+                review = stage_replacement(json.dumps(proposal), 'proposal')
+                expect(review).to_be_visible()
+                review.get_by_role('button', name='Apply reviewed draft', exact=True).click()
+                expect(review).to_have_count(0)
+                if kind == 'richtext':
+                    expect(content).to_contain_text(replacement)
+                    host.get_by_role('button', name='Undo', exact=True).click()
+                    expect(content).to_contain_text('Durable heading')
+                    expect(content).not_to_contain_text(replacement)
+                else:
+                    page.wait_for_function('window.__fixtureCanvasApi.getSceneElements().length===0')
+                    canvas.click(position={'x':740,'y':480})
+                    page.keyboard.press('Control+z')
+                    page.wait_for_function('window.__fixtureCanvasApi.getSceneElements().some(e=>e.type==="rectangle")')
+                    shifted = json.loads(saved['data']['content'])
+                    moved = next(e for e in shifted['elements'] if e['type']=='rectangle')
+                    original_x, moved_id = moved['x'], moved['id']
+                    moved['x'] += 55
+                    same_id_review = stage_replacement(json.dumps(shifted), 'excalidraw')
+                    same_id_review.get_by_role('button', name='Apply reviewed draft', exact=True).click()
+                    page.wait_for_function('p=>window.__fixtureCanvasApi.getSceneElements().find(e=>e.id===p.id)?.x===p.x',arg={'id':moved_id,'x':original_x+55})
+                    canvas.click(position={'x':740,'y':480});page.keyboard.press('Control+z')
+                    page.wait_for_function('p=>window.__fixtureCanvasApi.getSceneElements().find(e=>e.id===p.id)?.x===p.x',arg={'id':moved_id,'x':original_x})
+                # Another pane/save racing a review cannot replace the local draft.
+                review = stage_replacement(replacement, 'text' if kind == 'richtext' else 'excalidraw')
+                assert api('/api/documents', {'action':'save','document_id':document_id,'pane_id':pane_id,'expected_revision':saved['revision'],'data':saved['data'],'op_id':str(uuid.uuid4()),'intent':'Change saved revision during review'})[0] == 200
+                review.get_by_role('button', name='Apply reviewed draft', exact=True).click()
+                expect(review.get_by_role('status')).to_contain_text('changed during review')
+                review.get_by_role('button', name='Cancel', exact=True).click()
+                page.once('dialog', lambda dialog: dialog.accept())
+                host.get_by_role('button', name='Reload saved document', exact=True).click()
+                expect(host.locator('.document-status')).to_contain_text('Saved revision')
+                saved = api('/api/documents', {'action':'read','document_id':document_id,'pane_id':pane_id})[1]
+                # Select through the real native engine; transfer captures only
+                # that selection plus its exact snapshot reference, never sends.
+                page.evaluate('''async()=>{const {registerConversationRecipient}=await import('/src/conversation-transfer.ts');window.__selectionReceiver=registerConversationRecipient({id:'document-fixture-recipient',title:'Synthetic recipient draft',receive:delivery=>{window.__selectedDelivery=delivery;return {accepted:true};}});}''')
+                if kind == 'richtext':
+                    content.click();page.keyboard.press('Control+a')
+                else:
+                    canvas.click(position={'x':740,'y':480});page.keyboard.press('Control+a')
+                host.get_by_role('button', name='Share selected content', exact=True).click()
+                transfer = page.get_by_role('dialog', name='Send text to a conversation', exact=True)
+                transfer.get_by_role('radio', name='Synthetic recipient draft', exact=True).check()
+                transfer.get_by_role('button', name='Insert into draft', exact=True).click()
+                shared = page.evaluate('window.__selectedDelivery.text')
+                assert document_id in shared and 'Draft SHA-256:' in shared and 'Base revision:' in shared, shared
+                assert ('Durable heading' in shared) if kind == 'richtext' else ('excalidraw-selection' in shared and 'rectangle' in shared)
+                page.evaluate('window.__selectionReceiver.dispose()')
+                # A local editor mutation while review is open invalidates its
+                # generation even if a later undo returns identical bytes.
+                review = stage_replacement(replacement, 'text' if kind == 'richtext' else 'excalidraw')
+                if kind == 'richtext':
+                    content.evaluate('''node=>{const editor=node.__lexicalEditor,state=editor.getEditorState().toJSON();state.root.children[0].children[0].text+=' Concurrent local text';editor.setEditorState(editor.parseEditorState(JSON.stringify(state)),{tag:'history-push'});}''')
+                else:
+                    page.evaluate('window.__fixtureCanvasApi.updateScene({appState:{viewBackgroundColor:"#eeeeee"}})')
+                review.get_by_role('button', name='Apply reviewed draft', exact=True).click()
+                expect(review.get_by_role('status')).to_contain_text('changed during review')
+                review.get_by_role('button', name='Cancel', exact=True).click()
+                page.once('dialog', lambda dialog: dialog.accept())
+                host.get_by_role('button', name='Reload saved document', exact=True).click()
+                expect(host.locator('.document-status')).to_contain_text('Saved revision')
                 # Stable native editor/React island across actual core renderer/focus moves.
                 page.evaluate('(id)=>{window.__documentNode=document.querySelector(`[data-document-id="${id}"]`);window.__editorNode=window.__documentNode.querySelector(".richdoc-content,.canvas-island");window.__spare=document.querySelector(`[data-pane-id="' + spare_pane + '"]`);}', document_id)
                 for _ in range(2):
@@ -277,6 +372,26 @@ def run_fixture(kind='richtext'):
                     host.get_by_role('button', name='Export JSON', exact=True).click()
                 recovered = Path(download.value.path()).read_text()
                 assert 'retained draft' in recovered if kind == 'richtext' else any(e['type'] == 'ellipse' for e in json.loads(recovered)['elements'])
+                # Split using a disposable browser sibling, never a terminal.
+                def update_layout(change):
+                    page.evaluate('async()=>{await (await import("/src/workspace-sync.ts")).ensureWorkspaceSynced();}')
+                    current_state = api('/api/workspace', {'action':'read'})[1]
+                    changed_state = copy.deepcopy(current_state['state'])
+                    change(changed_state)
+                    status_code, reply = api('/api/workspace', {'action':'sync','base_revision':current_state['revision'],'state':changed_state,'client_features':['plugin-instances-v1','plugin-config-schema-v1'],'operation_id':str(uuid.uuid4()),'intent':'Synthetic document pane binding update'})
+                    assert status_code == 200, reply
+                sibling_id = str(uuid.uuid4())
+                def split_primary(layout):
+                    primary = next(m for m in layout['monitors'] if m['id']==monitors[0]['id'])
+                    primary['layout']={'type':'split','axis':'row','ratio':.75,'first':primary['layout'],'second':{'type':'pane','pane':{'id':sibling_id,'kind':'browser','url':'orbit://welcome'}}}
+                update_layout(split_primary)
+                expect(page.locator(f'[data-pane-id="{sibling_id}"]')).to_have_count(1, timeout=15000)
+                page.locator(f'[data-pane-id="{pane_id}"]').get_by_role('button', name='Close pane', exact=True).click()
+                page.get_by_role('button', name='Confirm change', exact=True).click()
+                dirty_close = page.get_by_role('dialog', name='Close private document', exact=True)
+                expect(dirty_close).to_be_visible()
+                dirty_close.get_by_role('button', name='Keep editing', exact=True).click()
+                expect(host).to_have_count(1)
                 host.get_by_role('button', name='Keep draft on current revision', exact=True).click()
                 # Actual server commits; only the response is lost.
                 dropped = []
@@ -295,8 +410,25 @@ def run_fixture(kind='richtext'):
                 if kind == 'richtext':
                     host.get_by_role('textbox', name='Rich document content').click()
                     page.keyboard.press('Control+End'); page.keyboard.type(' newer unsaved edit')
-                page.reload(); unlock()
+                page.locator(f'[data-pane-id="{pane_id}"]').get_by_role('button', name='Close pane', exact=True).click()
+                page.get_by_role('button', name='Confirm change', exact=True).click()
+                close_review = page.get_by_role('dialog', name='Close private document', exact=True)
+                expect(close_review.get_by_role('button', name='Save and close', exact=True)).to_be_disabled()
+                close_review.get_by_role('button', name='Keep editing', exact=True).click()
+                expect(host).to_have_count(1)
+                page.locator(f'[data-pane-id="{pane_id}"]').get_by_role('button', name='Close pane', exact=True).click()
+                page.get_by_role('button', name='Confirm change', exact=True).click()
+                page.get_by_role('button', name='Retain draft and close', exact=True).click()
+                expect(host).to_have_count(0)
+                page.evaluate('window.dispatchEvent(new CustomEvent("orbit-open-host-surface",{detail:{id:"documents"}}))')
+                recovery_library = page.locator('[data-document-library="true"]')
+                try:
+                    recovery_library.get_by_role('button', name=re.compile('^Recover Synthetic ' + kind + ' · original pane ' + pane_id)).click()
+                except Exception as e:
+                    raise AssertionError({'library': recovery_library.inner_text(), 'drafts': page.evaluate('Object.fromEntries(Object.entries(sessionStorage).filter(([k])=>k.startsWith("orbit.document")))'), 'errors': errors}) from e
                 expect(host.locator('.document-status')).to_contain_text('Previous save outcome unknown', timeout=45000)
+                # Recovery changes placement but restores the original pane binding.
+                monitors[0]['id'] = host.evaluate('n=>n.closest("[data-monitor-id]").dataset.monitorId')
                 host.get_by_role('button', name='Retry exact save', exact=True).click()
                 expect(host.locator('.document-status')).to_contain_text('Saved revision')
                 assert api('/api/documents', {'action': 'read', 'document_id': document_id})[1]['revision'] == remote_save['expected_revision'] + 2
@@ -340,6 +472,10 @@ def run_fixture(kind='richtext'):
                 assert held, 'Expected a live binding request to dispose'
                 page.locator(f'.monitor[data-monitor-id="{monitors[0]["id"]}"] .window-close').click()
                 page.get_by_role('button', name='Confirm change', exact=True).click()
+                if kind == 'richtext':
+                    close_review = page.get_by_role('dialog', name='Close private document', exact=True)
+                    expect(close_review).to_be_visible()
+                    close_review.get_by_role('button', name='Retain draft and close', exact=True).click()
                 expect(host).to_have_count(0)
                 before = len(primary_resolves)
                 try:
@@ -360,6 +496,7 @@ def run_fixture(kind='richtext'):
                         route.fallback()
                 page.route('**/api/documents', hold_library_list)
                 page.evaluate('window.dispatchEvent(new CustomEvent("orbit-open-host-surface",{detail:{id:"documents"}}))')
+                page.evaluate('window.dispatchEvent(new Event("orbit-host-connected"))')
                 library = page.locator('[data-document-library="true"]')
                 expect(library).to_be_visible(timeout=20000)
                 library.get_by_label('Document title', exact=True).fill('Created through owner library')
@@ -367,20 +504,135 @@ def run_fixture(kind='richtext'):
                 deadline = time.monotonic() + 15
                 while not library_lists and time.monotonic() < deadline:
                     page.wait_for_timeout(50)
-                assert len(library_lists) == 1, 'Expected the pending real initial library read'
+                assert len(library_lists) == 1, 'Expected the pending real library read'
                 page.unroute('**/api/documents', hold_library_list)
                 library_lists[0].continue_()
                 library.get_by_role('button', name='Create document', exact=True).click()
                 created = page.locator('.document-host', has=page.locator('strong', has_text='Created through owner library'))
                 expect(created.get_by_role('textbox', name='Rich document content')).to_be_visible(timeout=30000)
                 assert len(api('/api/documents', {'action': 'list'})[1]['documents']) == 3
+                if kind == 'richtext':
+                    # Ordinary saved reopen uses a new pane, then library recovery
+                    # restores the independent original pane without stealing it.
+                    page.evaluate('window.dispatchEvent(new CustomEvent("orbit-open-host-surface",{detail:{id:"documents"}}))')
+                    library.get_by_role('button', name='Refresh documents', exact=True).click()
+                    library.get_by_role('button', name=f'Synthetic richtext · Rich document · revision {remote_save["expected_revision"] + 2}', exact=True).click()
+                    expect(page.locator(f'[data-document-id="{document_id}"]')).to_have_count(1)
+                    expect(page.locator(f'[data-document-id="{document_id}"] .richdoc-content')).not_to_contain_text('newer unsaved edit')
+                    page.evaluate('window.dispatchEvent(new CustomEvent("orbit-open-host-surface",{detail:{id:"documents"}}))')
+                    library.get_by_role('button', name=re.compile('^Recover Synthetic richtext · original pane ' + pane_id)).click()
+                    recovered_host = page.locator(f'[data-pane-id="{pane_id}"] [data-document-id="{document_id}"]')
+                    expect(recovered_host.locator('.richdoc-content')).to_contain_text('newer unsaved edit', timeout=30000)
+                    expect(page.locator(f'[data-document-id="{document_id}"]')).to_have_count(2)
+                # A source that changes during the workspace flush is refused at
+                # the final dispatch boundary, with no create or journal entry.
+                page.evaluate('''async()=>{const {requestDocumentFromResult,textDocument}=await import('/src/document-artifacts.ts');window.__resultSourceCurrent=true;window.__staleReviewedResult=requestDocumentFromResult(JSON.stringify({document:{title:'Stale reviewed source',...textDocument('Never dispatch this')}}),()=>window.__resultSourceCurrent);}''')
+                stale_review = page.get_by_role('dialog', name='Create document from reviewed content', exact=True)
+                expect(stale_review).to_be_visible()
+                workspace_reads = []
+                def hold_workspace_flush(route):
+                    if not page.evaluate('window.__reviewApplyClicked===true'):
+                        route.continue_(); return
+                    response = route.fetch()
+                    page.evaluate('window.__resultSourceCurrent=false')
+                    workspace_reads.append(route.request.post_data_json)
+                    route.fulfill(response=response)
+                page.route('**/api/workspace', hold_workspace_flush)
+                stale_review.get_by_role('button', name='Apply reviewed draft', exact=True).evaluate('b=>b.addEventListener("click",()=>{window.__reviewApplyClicked=true;},{capture:true})')
+                stale_review.get_by_role('button', name='Apply reviewed draft', exact=True).click()
+                deadline = time.monotonic() + 15
+                while not workspace_reads and time.monotonic() < deadline:
+                    page.wait_for_timeout(50)
+                assert workspace_reads
+                page.unroute('**/api/workspace', hold_workspace_flush)
+                expect(stale_review.get_by_role('status')).to_contain_text('source, workspace or host connection changed')
+                assert len(api('/api/documents', {'action':'list'})[1]['documents']) == 3
+                assert page.evaluate('Object.keys(sessionStorage).filter(k=>k.startsWith("orbit.document-create.v1:")).length') == 0
+                stale_review.get_by_role('button', name='Cancel', exact=True).click()
+
+                # Committed create response lost -> whole-page reload -> owner
+                # library exact recovery. The engine/body is not mocked.
+                creations = []
+                def lose_creation_response(route):
+                    body = route.request.post_data_json or {}
+                    if body.get('action') == 'create' and body.get('title') == 'Reviewed agent result':
+                        journal = page.evaluate('Object.fromEntries(Object.entries(sessionStorage).filter(([k])=>k.startsWith("orbit.document-create.v1:")))')
+                        assert len(journal) == 1, 'Creation dispatched before durable journal'
+                        entry = json.loads(next(iter(journal.values())))
+                        assert entry['request'] == body
+                        creations.append(body)
+                        if len(creations) == 1:
+                            response = route.fetch(); assert response.status == 200
+                            route.abort('failed'); return
+                    route.continue_()
+                page.route('**/api/documents', lose_creation_response)
+                page.evaluate('''async data=>{const {requestDocumentFromResult,importDocument}=await import('/src/document-artifacts.ts');const imported=data??await importDocument(`## Exact complete result\n\nReviewed Markdown paragraph`,'markdown');window.__resultDelivery=requestDocumentFromResult(JSON.stringify({document:{title:'Reviewed agent result',...imported}}));}''', saved['data'] if kind == 'scene' else None)
+                result_review = page.get_by_role('dialog', name='Create document from reviewed content', exact=True)
+                result_review.get_by_role('button', name='Apply reviewed draft', exact=True).click()
+                expect(result_review.get_by_role('status')).to_contain_text('Creation outcome unknown')
+                journal_entry = page.evaluate('JSON.parse(Object.entries(sessionStorage).find(([k])=>k.startsWith("orbit.document-create.v1:"))[1])')
+                delivery = {'documentId':journal_entry['request']['document_id'],'paneId':journal_entry['paneId']}
+                assert len(api('/api/documents', {'action':'list'})[1]['documents']) == 4
+                page.reload();unlock()
+                page.evaluate('async()=>{await (await import("/src/workspace-sync.ts")).ensureWorkspaceSynced();}')
+                page.evaluate('window.dispatchEvent(new CustomEvent("orbit-open-host-surface",{detail:{id:"documents"}}))')
+                library = page.locator('[data-document-library="true"]')
+                expect(library).to_be_visible(timeout=15000)
+                page.get_by_role('button', name='Focus selected display', exact=True).click()
+                library.get_by_role('button', name=re.compile('^Recover creation Reviewed agent result · document ' + delivery['documentId'])).click()
+                creation_recovery = page.get_by_role('dialog', name='Recover pending document creation', exact=True)
+                creation_recovery.get_by_role('button', name='Apply reviewed draft', exact=True).click()
+                result_host = page.locator('.document-host', has=page.locator('strong', has_text='Reviewed agent result'))
+                if kind == 'richtext':
+                    expect(result_host.locator('.richdoc-content h2')).to_contain_text('Exact complete result', timeout=30000)
+                else:
+                    expect(result_host.locator('.excalidraw__canvas.interactive')).to_be_visible(timeout=30000)
+                assert len(creations) == 2 and creations[0] == creations[1]
+                assert len(api('/api/documents', {'action':'list'})[1]['documents']) == 4
+                assert page.evaluate('Object.keys(sessionStorage).filter(k=>k.startsWith("orbit.document-create.v1:")).length') == 0
+                expect(page.locator(f'[data-pane-id="{delivery["paneId"]}"] .document-host')).to_have_count(1)
+                before_explicit_save = api('/api/documents', {'action':'read','document_id':delivery['documentId']})[1]
+                assert before_explicit_save['revision'] == 1
+                assert 'Exact complete result' not in before_explicit_save['data']['content'] if kind == 'richtext' else json.loads(before_explicit_save['data']['content'])['elements'] == []
+                result_window = result_host.evaluate('n=>n.closest("[data-monitor-id]").dataset.monitorId')
+                result_sibling = str(uuid.uuid4())
+                def split_result(layout):
+                    target = next(m for m in layout['monitors'] if m['id']==result_window)
+                    target['layout']={'type':'split','axis':'row','ratio':.75,'first':target['layout'],'second':{'type':'pane','pane':{'id':result_sibling,'kind':'browser','url':'orbit://welcome'}}}
+                update_layout(split_result)
+                expect(page.locator(f'[data-pane-id="{result_sibling}"]')).to_have_count(1, timeout=15000)
+                result_pane = page.locator(f'[data-pane-id="{delivery["paneId"]}"]')
+                result_pane.get_by_role('button', name='Close pane', exact=True).click()
+                page.get_by_role('button', name='Confirm change', exact=True).click()
+                expect(page.get_by_role('dialog', name='Close private document', exact=True)).to_be_visible()
+                def set_result_url(layout, document):
+                    target = next(m for m in layout['monitors'] if m['id']==result_window)
+                    target['layout']['first']['pane']['url']='orbit://document/' + document
+                # Change the authoritative pane binding while close is waiting.
+                # The old close approval must not remove the replacement view.
+                update_layout(lambda layout:set_result_url(layout,second_id))
+                expect(result_pane.locator(f'[data-document-id="{second_id}"]')).to_have_count(1, timeout=15000)
+                page.get_by_role('dialog', name='Close private document', exact=True).get_by_role('button', name='Retain draft and close', exact=True).click()
+                expect(result_pane.locator(f'[data-document-id="{second_id}"]')).to_have_count(1)
+                update_layout(lambda layout:set_result_url(layout,delivery['documentId']))
+                expect(result_host).to_have_count(1, timeout=15000)
+                expect(result_host.get_by_role('button', name='Save document', exact=True)).to_be_enabled(timeout=15000)
+                if page.get_by_role('button', name='Exit focus view', exact=True).is_visible():
+                    page.get_by_role('button', name='Exit focus view', exact=True).click()
+                page.locator(f'.monitor[data-monitor-id="{result_window}"] .window-close').click()
+                page.get_by_role('button', name='Confirm change', exact=True).click()
+                page.get_by_role('dialog', name='Close private document', exact=True).get_by_role('button', name='Save and close', exact=True).click()
+                expect(result_host).to_have_count(0)
+                result_saved = api('/api/documents', {'action':'read','document_id':delivery['documentId']})[1]
+                assert result_saved['revision'] == 2
+                assert 'Exact complete result' in result_saved['data']['content'] if kind == 'richtext' else any(e['type']=='rectangle' for e in json.loads(result_saved['data']['content'])['elements'])
                 assert not page.evaluate('localStorage.getItem("orbit.workspace.v1").includes("retained draft")')
                 assert page.locator('.pane iframe').count() == 0
                 assert not outside_requests, outside_requests
                 assert not excluded_font_requests, excluded_font_requests
                 assert not errors, errors
                 browser.close()
-                print('PASS', kind, ': real editing, durable CAS/conflict/cache/exact retry, exports, renderer/focus continuity, independent docs, local assets')
+                print('PASS', kind, ': real editing/Undo, split dirty+unknown close/rebind fencing, lost create/save response+reload+exact retry, stale lazy/final source no-create, explicit Save, independent recovery, local assets')
         finally:
             vite.terminate(); server.terminate()
             vite.wait(timeout=15); server.wait(timeout=15); log.close()

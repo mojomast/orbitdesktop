@@ -118,6 +118,40 @@ block public app files, or implement general safe boot. See [Recovery](RECOVERY.
 
 ## Two extension boundaries
 
+### Cross-surface content and recovery
+
+Trusted complete-result adapters offer explicit owner actions for A2UI, document
+drafts and self-contained MCP snapshots. They do not reinterpret cached transcripts
+as authenticated results. A2UI queues are bounded to a chosen workspace/pane/mount
+generation; queueing, rendering and saving have separate acknowledgements.
+`src/conversation-transfer.ts` prepares an exact final recipient draft and validates
+producer/recipient freshness at insertion. Citations and bounded selected data
+values travel in actual content, not only preview labels; insertion never sends.
+
+Documents retain separate original-pane drafts with a same-tab recovery index and
+host-owned dirty-close review. Whole-snapshot edit proposals bind saved revision
+and draft digest and apply through native editor history. The document store's
+atomic `create_content` operation is distinct from owner-reviewed draft creation.
+Current bodies/receipts are not a historical body archive. See
+[Documents](DOCUMENTS.md), [Context handoff](CONTEXT_HANDOFF.md) and
+[Resource delegation](RESOURCE_DELEGATION.md) for exact authority and recovery.
+
+Normal resource authority joins actual pinned gateway ContextVars to the exact
+accepted Orbit submission receipt, profile fingerprint and pane binding revision.
+A private per-run authenticated socket channel carries finite selected-source
+operations; grants attach to the next accepted run and do not inherit into later
+turns. The source-pinned plugin rejects environment-only/session-only identities
+and delegated child contexts. This local adapter is configured explicitly and does
+not broaden the ordinary workspace controller or generated-plugin authority.
+
+Workbench setup records operation-owned completion manifests beside copied
+candidate trees; exact recovery publishes only verified completed materialization.
+Integration publication manifests similarly permit DB-only settlement after a
+proven rename. Review-only waiting intentions and task-status snapshots reuse
+existing private stores; they do not grant execution or fabricate missed events.
+Committed arrangement replay/Return records form logical history outside active
+preview capacity. Physical compaction and other terminal graph quotas remain.
+
 Trusted built-ins use `src/workspace-extensions.ts`: typed activation entries dynamically load plugin manager, checkpoints, skills catalog, outputs and jobs. Live activity is also loaded on demand. These modules run in the parent page and are reviewed application code. They are not user-installable privileged plugins.
 
 `src/host-surfaces.ts` additionally allowlists the exact browser-pane URLs

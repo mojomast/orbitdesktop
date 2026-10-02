@@ -476,10 +476,10 @@ with tempfile.TemporaryDirectory(prefix='orbit-arrangements-', dir='/tmp/opencod
                 state=reversed_state,operation_id=str(uuid.uuid4()),intent='Synthetic local-layout order for portable import')
             assert code==200,reordered
             page.wait_for_function("ids => JSON.stringify(JSON.parse(localStorage.getItem('orbit.workspace.v1')).monitors.map(m=>m.id))===JSON.stringify(ids)",arg=[m['id'] for m in reversed_state['monitors']])
-            page.get_by_role('button',name='Choose workspace layout').click()
+            page.get_by_role('button',name='Choose browser snapshot').click()
             page.get_by_label('Layout name').fill('Local old layout')
             page.get_by_role('button',name='Create layout from current').click()
-            page.get_by_role('button',name='Close workspace layouts').click()
+            page.get_by_role('button',name='Close browser snapshots').click()
             dialog=open_inspector();dialog.get_by_role('button',name='Open project Second project').click()
             card=dialog.locator('.workbench-arrangements')
             local_before = page.evaluate("() => localStorage.getItem('orbit.layouts.'+localStorage.getItem('orbit.workspace.id'))")

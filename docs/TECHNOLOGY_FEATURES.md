@@ -1,5 +1,28 @@
 # Technology feature shell integration
 
+Owner capability discovery and controller descriptions share reviewed feature-type
+descriptors that distinguish opening a surface from private-content authority.
+The [scoped resource adapter](RESOURCE_DELEGATION.md) supports selected-source
+search/read and creation of cited editable briefs. Normal delegation binds the
+next accepted run through the configured pinned local gateway; a dedicated-local
+recipient remains available separately. Missing configuration or runtime identity
+fails closed, and feature-type discovery alone does not grant content access.
+
+Start, the palette, owner technology discovery and scoped controller `describe`
+share content-free prerequisite descriptors. Discovery performs bounded file-stat
+and configuration observations at request time, with an observation timestamp and
+30-second freshness budget. Model/extension presence is **unverified**, never a
+claim of valid checksums, inference, microphone permission, browser reachability
+or successful execution. Feature invocation independently validates these things.
+Discovery does not open private libraries or start engines. Known input formats
+and contract references accompany the observations. Owner use and separately
+granted agent tools remain distinct from opening a surface.
+
+Optional unconfigured tools remain discoverable with setup explanations; opening
+their UI does not enable the backend. Workbench and other experimental command
+gates remain unchanged. Shell observations refresh on discovery, connection,
+focus and expiry; credential/workspace changes and newer requests fence responses.
+
 For task-oriented examples, see [Workspace prompts](WORKSPACE_PROMPTS.md). These
 features are implemented in the development candidate; package metadata remains
 0.3.1 and no new release is implied. [Verification](VERIFICATION.md) distinguishes
@@ -7,7 +30,8 @@ exact-head CI, deployment checks and pending owner visual acceptance.
 
 The Start menu and command palette expose Knowledge search, Interactive results,
 Data workbench, Voice transcript, Document library, Run traces, Browser copilot and
-MCP Apps (when configured). Each opens a stable, ordinary browser-kind window with an exact reviewed
+MCP Apps, including setup explanations when optional services are unconfigured.
+Each opens a stable, ordinary browser-kind window with an exact reviewed
 `orbit://surface/…` URL. Document windows use `orbit://document/<uuid>`.
 URLs carry identity only. Owner credentials are supplied by the live host callback.
 The shell enforces the existing 100-window bound for these creation paths and passes

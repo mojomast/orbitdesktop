@@ -208,7 +208,7 @@ export function createKnowledgeSearch({ root, workspaceRead }) {
       running = false;
     }
   }
-  async function dispatch(body) {
+  async function dispatch(body, authorize = () => {}) {
     if (!valid(body)) throw fail("invalid_request");
     const ws = body.workspace_id;
     if (typeof workspaceRead !== "function") throw fail("unavailable");
@@ -217,13 +217,14 @@ export function createKnowledgeSearch({ root, workspaceRead }) {
     } catch {
       throw fail("unavailable");
     }
+    authorize();
     const db = open();
     db.reconcile(ws);
     // Resume interrupted/missing derived embeddings only from current authoritative snapshots.
     if (embedder.status().present)
       for (const s of db.sources(ws))
         if (db.needsEmbedding(ws, s.source_id)) enqueue(ws, s.source_id);
-    const ok = (data) => ({ ok: true, workspace_id: ws, ...data });
+    const ok = (data) => {authorize();return { ok: true, workspace_id: ws, ...data };};
     switch (body.action) {
       case "status":
         return ok({
@@ -312,6 +313,7 @@ export function createKnowledgeSearch({ root, workspaceRead }) {
           } catch {}
         }
         if (closed) throw fail("unavailable");
+        authorize();
         if (db.generation(ws) !== fence)
           throw fail("conflict", {
             current: { consent_generation: db.generation(ws) },
@@ -361,6 +363,14 @@ export function createKnowledgeSearch({ root, workspaceRead }) {
   }
   return {
     dispatch,
+    authorizeSources(workspace, generation, sources) {
+      const db=open();db.reconcile(workspace);
+      for(const selected of sources){
+        let current;try{current=db.source(workspace,selected.source_id);}catch{throw fail('resource_gone');}
+        if(current.content_hash!==selected.content_sha256)throw fail('stale_resource');
+      }
+      if(db.generation(workspace)!==generation)throw fail('stale_resource');
+    },
     maxBodyBytes: KNOWLEDGE_MAX_BODY_BYTES,
     async close() {
       closed = true;

@@ -4,7 +4,7 @@ import './workbench-setup.css';
 type Data = Record<string, any>;
 type Draft = { id: string; op_id?: string; project_id: string; goal: string; title: string; acceptance_statement: string; check_definition_id: string; status: string; task_id?: string; candidate_id?: string; attempt_id?: string; context_ids?: string[]; grant_id?: string };
 type Review = { preview_id: string; preview_digest: string; expires_at: number; summary?: unknown; draft?: Draft; preview?: Data; source?: Data; repair_iteration_limit?: number };
-type Phase = 'draft' | 'prepare' | 'launch';
+type Phase = 'draft' | 'prepare' | 'launch' | 'wait' | 'wait_cancel';
 
 export function createWorkbenchSetup(deps: {
   workspaceId: string; paneId: string; getToken: () => string;
@@ -48,23 +48,29 @@ export function createWorkbenchSetup(deps: {
   const retry = button('Retry exact request', 'Retry the identical saved operation and key; never create a new request', () => void retryPending(), 'small-button');
   actions.append(primary, retry, refreshButton, newTask);
   const limits = el('details'); limits.append(el('summary', '', 'Work limits'));
+  const waiting = el('section', 'workbench-setup-waiting'); waiting.setAttribute('aria-label', 'Saved waiting intentions');
+  const capacity = el('details'); capacity.append(el('summary', '', 'Setup capacity'));
+  const waitMinutes = el('input'); waitMinutes.type = 'number'; waitMinutes.min = '1'; waitMinutes.max = '1440'; waitMinutes.step = '1'; waitMinutes.value = '60'; waitMinutes.setAttribute('aria-label', 'Wait deadline in minutes');
+  const waitButton = button('Save for later review', 'Save a waiting intention without approving or starting execution', () => void saveWait());
+  const waitControls = el('div', 'workbench-setup-row'); waitControls.append(field('Review within (minutes)', waitMinutes), waitButton);
   const budgetInputs = [
     ['Tool calls', 20, 1, 100], ['Managed checks', 2, 0, 5], ['Duration (seconds)', 300, 1, 900], ['Repair iterations', 1, 0, 10],
   ].map(([label, value, min, max]) => {
     const input = el('input'); input.type = 'number'; input.value = String(value); input.min = String(min); input.max = String(max); input.step = '1'; input.setAttribute('aria-label', String(label)); limits.append(field(String(label), input)); return input;
   });
-  root.append(heading, goal, projectRow, savedDrafts, suggestionList, adjust, brief, review, limits, state, error, actions);
+  root.append(heading, goal, projectRow, savedDrafts, suggestionList, adjust, brief, review, limits, waitControls, waiting, capacity, state, error, actions);
 
   let disposed = false, generation = 0, busy = false, dirty = false, startingNew = false, draft: Draft | null = null;
   let setupReview: Review | null = null, launchReview: Review | null = null;
   let projects: { id: string; name: string }[] = [], suggestions: Data[] = [];
   let availableDrafts: Draft[] = [];
+  let waits: Data[] = [];
   let queuedGoal: { value: string; binding: string } | null = null;
   type Pending = { phase: Phase; draftId?: string; opId: string; bindingKey: string; request: Data };
   let pending: Pending | null = null;
   const bindingKey = () => JSON.stringify([deps.workspaceId, deps.paneId, deps.binding().bindingRevision, deps.binding().profileId, deps.binding().sessionId]);
   const pendingKey = `orbit-workbench-setup-pending:${deps.workspaceId}:${deps.paneId}`;
-  const readPending = (): Pending | null => { try { const saved = JSON.parse(sessionStorage.getItem(pendingKey) || 'null'); return saved?.bindingKey === bindingKey() && ['draft','prepare','launch'].includes(saved.phase) && typeof saved.opId === 'string' && saved.request?.op_id === saved.opId && saved.request?.workspace_id === deps.workspaceId && saved.request?.pane_id === deps.paneId && saved.request?.expected_binding_revision === deps.binding().bindingRevision && saved.request?.action === saved.phase ? saved as Pending : null; } catch { return null; } };
+  const readPending = (): Pending | null => { try { const saved = JSON.parse(sessionStorage.getItem(pendingKey) || 'null'); return saved?.bindingKey === bindingKey() && ['draft','prepare','launch','wait','wait_cancel'].includes(saved.phase) && typeof saved.opId === 'string' && saved.request?.op_id === saved.opId && saved.request?.workspace_id === deps.workspaceId && saved.request?.pane_id === deps.paneId && saved.request?.expected_binding_revision === deps.binding().bindingRevision && saved.request?.action === saved.phase ? saved as Pending : null; } catch { return null; } };
   const savePending = (value: typeof pending) => { pending = value; try { if (value) sessionStorage.setItem(pendingKey, JSON.stringify(value)); else sessionStorage.removeItem(pendingKey); } catch { error.textContent = 'Browser session storage unavailable. Keep this tab open; check saved state before another action.'; } };
   const wire = (body: Data) => ({ workspace_id: deps.workspaceId, pane_id: deps.paneId, expected_binding_revision: deps.binding().bindingRevision, ...body });
   const mark = (phase: Phase, body: Data) => { const opId = crypto.randomUUID(); savePending({ phase, draftId: draft?.id, opId, bindingKey: bindingKey(), request: wire({ action: phase, ...body, op_id: opId }) }); };
@@ -102,12 +108,36 @@ export function createWorkbenchSetup(deps: {
     title.value = ''; success.value = ''; check.value = ''; dirty = true; invalidate(); render(); goal.focus();
   }
   function acceptMutation(phase: Phase, response: Data) {
+    if (phase === 'wait' || phase === 'wait_cancel') {
+      if (!response.intent?.id || typeof response.intent.state !== 'string') throw Error('Waiting response incomplete. Retry only the exact request.');
+      waits = [...waits.filter(item => item.id !== response.intent.id), response.intent]; savePending(null); invalidate(); return;
+    }
     if (!response.draft?.id || typeof response.draft.status !== 'string') throw Error('Response incomplete; check saved state or retry the exact request.');
     setDraft(response.draft); savePending(null); invalidate();
     if (phase !== 'draft') deps.onPrepared({ ...response.draft, grant_id: response.draft.grant_id ?? response.grant?.id });
   }
   function render() {
     const prepared = draft?.status === 'prepared';
+    waitControls.hidden = !prepared;
+    waitMinutes.disabled = busy || !!pending;
+    waitButton.disabled = busy || !!pending || waits.some(item => item.draft_id === draft?.id && ['waiting_lane','needs_review'].includes(item.state));
+    waiting.replaceChildren(el('h3', '', 'Waiting for owner review'), el('p', '', 'Saved intentions never start automatically. Refresh saved state, review current scope and approve Start work separately. Cancelling an intention does not stop a running process.'));
+    waiting.hidden = !waits.length;
+    for (const item of waits) {
+      const card = el('div', 'workbench-setup-suggestion'); card.dataset.intentId = item.id;
+      const saved = availableDrafts.find(d => d.id === item.draft_id);
+      card.append(el('strong', '', saved?.title || `Task ${item.task_id}`), el('p', '', `${item.state.replaceAll('_', ' ')}${item.position ? ` · position ${item.position}` : ''} · deadline ${new Date(item.deadline).toLocaleString()}`), el('p', '', String(item.reason || '').replaceAll('_', ' ')));
+      if (['waiting_lane','needs_review'].includes(item.state)) {
+        const resume = button('Review waiting task', 'Revalidate current task scope and request a fresh start review', () => {
+          if (!saved || busy || pending) return; setDraft(saved); invalidate();
+          const b = item.budget; if (b) [b.calls,b.checks,b.duration_ms / 1000,b.repair_iterations ?? 1].forEach((value, index) => { budgetInputs[index].value = String(value); });
+          deps.onPrepared(saved); render(); void next();
+        }, 'small-button'); resume.disabled = busy || !!pending || !saved;
+        const cancel = button('Cancel waiting intention', 'Cancel only this saved intention; never signal a running worker', () => void waitingMutation('wait_cancel', { intent_id: item.id }), 'small-button'); cancel.disabled = busy || !!pending;
+        card.append(resume, cancel);
+      }
+      waiting.append(card);
+    }
     const complete = draft?.status === 'launched';
     const unresolved = !!draft && ['preparing','prepare_unknown','launch_unknown','failed'].includes(draft.status);
     brief.replaceChildren();
@@ -165,6 +195,27 @@ export function createWorkbenchSetup(deps: {
       && typeof value.preview_digest === 'string' && /^[a-f0-9]{64}$/.test(value.preview_digest)
       && Number.isFinite(value.expires_at) && value.expires_at > Date.now();
   }
+  function budget() {
+    const numbers = budgetInputs.map(input => input.valueAsNumber);
+    if (numbers.some((value, index) => !Number.isSafeInteger(value) || value < Number(budgetInputs[index].min) || value > Number(budgetInputs[index].max))) throw Error('Enter whole-number limits within the shown ranges.');
+    return { calls: numbers[0], checks: numbers[1], duration_ms: numbers[2] * 1000, repair_iterations: numbers[3] };
+  }
+  async function saveWait() {
+    if (!draft || busy || pending) return;
+    try {
+      const minutes = waitMinutes.valueAsNumber;
+      if (!Number.isSafeInteger(minutes) || minutes < 1 || minutes > 1440) throw Error('Choose a review deadline from 1 to 1440 minutes.');
+      await waitingMutation('wait', { draft_id: draft.id, deadline: Date.now() + minutes * 60000, budget: budget() });
+    } catch (reason) { error.textContent = reason instanceof Error ? reason.message : 'Waiting intention unavailable'; }
+  }
+  async function waitingMutation(phase: 'wait' | 'wait_cancel', fields: Data) {
+    if (busy || pending) return;
+    let completed = false;
+    const ticket = generation, key = bindingKey(); busy = true; error.textContent = ''; mark(phase, fields); render();
+    try { acceptMutation(phase, await api(pending!.request, ticket, key)); completed = true; }
+    catch (reason) { if (current(ticket, key)) { error.textContent = reason instanceof Error ? reason.message : 'Waiting outcome unknown'; if ((reason as {known?: boolean}).known) savePending(null); } }
+    finally { if (current(ticket, key)) { busy = false; render(); if (completed) void refresh(); } }
+  }
   async function next() {
     if (busy) return;
     if (draft?.status === 'launched') { root.closest('.pane-workbench')?.querySelector<HTMLButtonElement>('.pane-workbench-tab[aria-label="Live workbench view"]')?.click(); return; }
@@ -180,9 +231,7 @@ export function createWorkbenchSetup(deps: {
         mark('prepare', { preview_id: setupReview.preview_id, preview_digest: setupReview.preview_digest }); render();
         acceptMutation('prepare', await api(pending!.request, ticket, key));
       } else if (draft?.status === 'prepared') {
-        const numbers = budgetInputs.map(input => input.valueAsNumber);
-        if (numbers.some((value, index) => !Number.isSafeInteger(value) || value < Number(budgetInputs[index].min) || value > Number(budgetInputs[index].max))) throw Error('Enter whole-number limits within the shown ranges.');
-        const result = await api({ action: 'launch_preview', draft_id: draft.id, budget: { calls: numbers[0], checks: numbers[1], duration_ms: numbers[2] * 1000, repair_iterations: numbers[3] } }, ticket, key);
+        const result = await api({ action: 'launch_preview', draft_id: draft.id, budget: budget() }, ticket, key);
         if (!validReview(result)) throw Error('Start review incomplete or expired. Check saved state and review again.');
         launchReview = result as Review; showReview(launchReview, true);
       } else {
@@ -213,6 +262,12 @@ export function createWorkbenchSetup(deps: {
       const result = await api({ action: 'state' }, ticket, key);
       projects = Array.isArray(result.projects) ? result.projects : [];
       suggestions = Array.isArray(result.suggestions) ? result.suggestions : [];
+      waits = Array.isArray(result.waiting_intents) ? result.waiting_intents : [];
+      capacity.replaceChildren(el('summary', '', 'Setup capacity'));
+      if (result.capacity) {
+        capacity.append(el('p', '', `Private journal: ${result.capacity.bytes.used} / ${result.capacity.bytes.limit} bytes`));
+        for (const [kind, value] of Object.entries(result.capacity.records ?? {}) as [string, Data][]) capacity.append(el('p', '', `${kind}: ${value.remaining} slots remaining (${value.retained} / ${value.limit} retained)`));
+      }
       const selected = project.value || deps.selectedProject() || '';
       project.replaceChildren(new Option('Choose a project…', ''), ...projects.map(item => new Option(item.name, item.id)));
       if (projects.some(item => item.id === selected)) project.value = selected;
@@ -263,7 +318,7 @@ export function createWorkbenchSetup(deps: {
   render(); void refresh();
   return {
     element: root, refresh, invalidate() {
-      generation++; busy = false; draft = null; dirty = false; startingNew = false; pending = null; queuedGoal = null; projects = []; suggestions = []; availableDrafts = [];
+      generation++; busy = false; draft = null; dirty = false; startingNew = false; pending = null; queuedGoal = null; projects = []; suggestions = []; availableDrafts = []; waits = []; capacity.replaceChildren();
       goal.value = ''; title.value = ''; success.value = ''; check.replaceChildren(); project.replaceChildren();
       brief.replaceChildren(); suggestionList.replaceChildren(); draftChoice.replaceChildren(); savedDrafts.hidden = true;
       invalidate(); render(); void refresh();

@@ -4,7 +4,12 @@ The agent’s **History → Conversation library**, **Conversation settings →
 Conversation library**, and shell Conversation library entry browse the configured
 Hermes profiles. Search matches loaded upstream titles, Orbit display titles and
 session IDs. Pages contain at most 100 upstream entries; **Load more** requests the
-next page. This is not transcript/full-content search. Unsupported upstream catalogs
+next page. The library defaults to the target chat's current profile and retains
+the title query/archive filter during this workspace page session. **Search older
+titles** explicitly reads up to ten further 100-entry pages per click, with partial
+versus complete status. **Cancel search**, profile changes, refresh and close fence
+late responses. The API's 10,000 offset limit remains in force. No transcript or
+inference endpoints are used for title discovery. This is not transcript/full-content search. Unsupported upstream catalogs
 show saved Orbit metadata with an explicit unavailable notice.
 
 **Rename**, **Pin**, and **Archive** are durable, workspace-scoped Orbit metadata.
@@ -15,6 +20,17 @@ bounded history must validate, the pane binding revision must match, and active 
 unresolved runs block selection. **New window** requests a new pane from the shell
 and selects through the same path after that pane links. Selection failures retain
 the original conversation and draft.
+
+The chooser stays open while selection is waiting or has failed. Waiting for the
+initial pane binding is cancellable; Cancel or closing the chooser prevents that
+waiting choice from switching later. Newer waiting choices supersede older ones.
+Once `select_session` is submitted, the status explicitly says it cannot be
+cancelled: closing the dialog does not undo a host mutation. Success closes the
+chooser only after validation of the authoritative requested profile/session.
+Failures show the host reason and a reconciliation/retry next step. An active run,
+queued messages or approvals retain their existing selection fences; New window
+can be used when the existing pane cannot switch. Cancelling a new window's waiting
+selection leaves the newly created empty pane available.
 
 ## Drafts
 
@@ -86,17 +102,24 @@ display metadata.
 
 ## Shell interface
 
-`showConversationLibrary(getToken: () => string, targetPaneId?: string)` is exported
+`showConversationLibrary(getToken: () => string, targetPaneId?: string, activeProfile?: string)` is exported
 from `src/conversation-library.ts`. A missing target disables **Open here**.
 
 - `orbit-open-conversation-library` detail `{paneId}` opens the matching pane’s library.
 - Library **Open here** dispatches `orbit-select-conversation` detail
-  `{paneId, profileId, sessionId}`. Chat waits for initial binding readiness, then
+  `{paneId, profileId, sessionId, signal?, report?}`. The optional trusted callback
+  reports `waiting`, `opening`, `opened`, or `failed`; the AbortSignal cancels only
+  waiting work. Chat waits for initial binding readiness, then
   invokes existing validated selection; it does not assign state directly.
-- **New window** dispatches `orbit-open-conversation` detail `{profileId, sessionId}`.
+- **New window** dispatches `orbit-open-conversation` detail `{profileId, sessionId, signal?, report?}`.
   The shell creates a pane and sends the targeted selection event.
 
 These are trusted parent-page interfaces, not generated-frame bridges.
+
+`tests/everyday-ux.browser.py` verifies page-three title discovery, active-profile
+initialization, initial-link cancellation, acknowledged success and rejected
+selection in a synthetic browser fixture, alongside Start keyboard navigation and
+Spatial surface/document reveal with retained iframe state in both renderers.
 
 ## Focused verification
 

@@ -134,6 +134,20 @@ does not authorize private-data access or execution. See `docs/TECHNOLOGY_FEATUR
 for explicit optional asset/service provisioning. Updating the adapter/archive
 does not update a running immutable Orbit package.
 
+### Optional selected-resource tools
+
+`orbit_resources` is a separate finite toolset for granted source search/read and
+new cited editable briefs. To use it in Normal, the local gateway must match the
+reviewed Hermes source pin and have `normal_resource_directory` configured for its
+actual Orbit profile; the Orbit host separately configures
+`ORBIT_RESOURCE_NORMAL_PROFILES`. Choose the real linked conversation and sources
+in Knowledge search, then grant its **next accepted run**. Private keys are created
+per run and never placed in model input or tool arguments. The adapter verifies
+actual gateway ContextVars; session strings or environment values cannot substitute.
+See [Resource delegation](../docs/RESOURCE_DELEGATION.md) for exact setup, limits,
+revocation and dedicated-local fallback. A gateway without this configuration still
+has its existing layout tool; it does not gain ambient document/source access.
+
 From the Orbit repository root:
 
 ```sh
@@ -147,7 +161,9 @@ Tests cover real HTTP requests, default mutation denial, revision enforcement, r
 
 Doctor may report that the declared `orbit_workbench` tool was not registered in
 an ordinary session. This is expected without an attempt-local native channel;
-the ordinary registration is `orbit_workspace` only.
+without optional resource configuration the ordinary registration is
+`orbit_workspace` only. `orbit_resources` likewise requires its supported explicit
+channel configuration; registration itself does not grant content access.
 
 ## Agent chat improvements (0.2.3)
 

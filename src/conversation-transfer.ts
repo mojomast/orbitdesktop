@@ -10,6 +10,8 @@ export const MAX_TRANSFER_CHARS = 20000;
 
 /** Exact text a trusted caller captured. This module never reads a selection itself. */
 export interface ConversationTransferRequest {
+  /** Recheck source authority immediately before final draft insertion. */
+  validate?: () => void | Promise<void>;
   /** Exact text to transfer. Required; empty/whitespace-only text is refused. */
   text: string;
   /** Optional short label shown above the preview. Not part of the transferred text. */
@@ -39,6 +41,8 @@ export type ConversationDeliveryResult =
   | { accepted: false; reason?: string };
 
 export interface ConversationRecipientOptions {
+  /** Capture an exact final draft and a race-checked commit, without mutation. */
+  prepare?: (delivery: ConversationDelivery) => { text: string; commit: () => ConversationDeliveryResult };
   /** Stable recipient id, 1-128 characters. Re-registering replaces the entry. */
   id: string;
   /** Human label shown in the target list. */
@@ -79,6 +83,7 @@ export type ConversationTransferOutcome =
   | { status: 'busy' };
 
 interface RecipientEntry {
+  prepare?: ConversationRecipientOptions['prepare'];
   id: string;
   title: string;
   available: boolean;
@@ -114,6 +119,7 @@ export function registerConversationRecipient(options: ConversationRecipientOpti
     title: typeof options.title === 'string' && options.title ? clip(options.title, MAX_LABEL) : options.id,
     available: options.available !== false,
     receive: options.receive,
+    prepare: options.prepare,
   };
   recipients.set(entry.id, entry);
   return {
@@ -163,6 +169,7 @@ export function requestConversationContext(request: ConversationTransferRequest)
     let closed = false;
     let delivering = false;
     let selectedId = '';
+    let prepared: ReturnType<NonNullable<ConversationRecipientOptions['prepare']>> | undefined;
     // The outcome is decided when the dialog actually closes. A successful
     // delivery wins; otherwise the last insert failure is reported, or a plain
     // cancel. With no eligible recipient the only possible close is a refusal.
@@ -207,7 +214,18 @@ export function requestConversationContext(request: ConversationTransferRequest)
       radio.name = 'conversation-transfer-target';
       radio.value = entry.id;
       radio.setAttribute('aria-label', entry.title);
-      radio.addEventListener('change', () => { if (radio.checked) selectedId = entry.id; syncInsert(); });
+      radio.addEventListener('click', () => {
+        if (radio.checked) {
+          selectedId = entry.id;
+          prepared = undefined;
+          try {
+            prepared = entry.prepare?.({ text: boundedText, originalLength: rawText.length, truncated, title, source });
+            preview.textContent = prepared?.text ?? boundedText;
+            setStatus(prepared ? 'Exact final draft shown above. Existing text is included; nothing will be sent.' : 'Review the text above.');
+          } catch (error) { selectedId = ''; setStatus((error as Error).message); }
+        }
+        syncInsert();
+      });
       label.append(radio, el('span', '', entry.title));
       fieldset.append(label);
       radios.push(radio);
@@ -220,6 +238,7 @@ export function requestConversationContext(request: ConversationTransferRequest)
     function syncInsert() {
       insert.disabled = delivering || !selectedId || active.length === 0;
       cancel.disabled = delivering;
+      for (const radio of radios) radio.disabled = delivering;
     }
 
     dialog.append(el('h2', '', 'Send to conversation'));
@@ -230,7 +249,7 @@ export function requestConversationContext(request: ConversationTransferRequest)
       preview,
     );
     if (truncated) {
-      const bound = el('p', 'conversation-transfer-bound', `Only the first ${MAX_TRANSFER_CHARS} characters are shown; ${omitted} character${omitted === 1 ? '' : 's'} were omitted.`);
+      const bound = el('p', 'conversation-transfer-bound', `Only the first ${MAX_TRANSFER_CHARS} characters of transferred content are included; ${omitted} character${omitted === 1 ? '' : 's'} were omitted. The final draft may also include existing text.`);
       bound.setAttribute('role', 'status');
       dialog.append(bound);
     }
@@ -253,16 +272,18 @@ export function requestConversationContext(request: ConversationTransferRequest)
         ...(title ? { title } : {}),
         ...(source ? { source } : {}),
       };
+      const capturedPreparation = prepared;
       delivering = true;
       syncInsert();
       setStatus('Inserting into draft…');
       Promise.resolve()
-        .then(() => {
+        .then(async () => {
+          await request.validate?.();
           // The pane can disappear or rebind between the click handler and this
           // microtask. Do not even invoke a stale recipient's callback.
           if (recipients.get(captured.id) !== captured || !captured.available)
             return { accepted: false, reason: 'That conversation is no longer available.' };
-          return captured.receive(delivery);
+          return capturedPreparation ? capturedPreparation.commit() : captured.receive(delivery);
         })
         .then(result => {
           if (closed) return;

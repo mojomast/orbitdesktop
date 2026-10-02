@@ -1,6 +1,6 @@
 import {allowedRequest, tokenMatches} from './security.mjs';
 
-const statuses = Object.freeze({invalid_request:400,permission_denied:403,unauthorized:403,not_found:404,revoked:410,expired:410,stale_resource:409,conflict:409,operation_mismatch:409,submission_unknown:409,outcome_unknown:409,unsupported:422,unavailable:503,limit_exceeded:413,busy:429});
+const statuses = Object.freeze({invalid_request:400,permission_denied:403,unauthorized:403,not_found:404,resource_gone:410,revoked:410,expired:410,stale_resource:409,conflict:409,operation_mismatch:409,submission_unknown:409,outcome_unknown:409,unsupported:422,unavailable:503,limit_exceeded:413,busy:429});
 /** Owner-only JSON boundary. Public errors never include arbitrary exception text. */
 export function technologyOwnerRoute({token,port,devOrigins,reply,dispatch,maxBytes=1024*1024,maxResponseBytes=2*1024*1024,publicReasons=[],publicDetail=false,conflictDetails=()=>({})}) {
   return async (req,res) => {

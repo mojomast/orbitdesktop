@@ -4,7 +4,7 @@ import {createHash,randomUUID} from 'node:crypto';
 import Ajv from 'ajv';
 import {wbError} from './workbench-store.mjs';
 import {captureProject,openProjectRoot,readProjectFile,literalPreview,repositorySnapshot} from './project-files.mjs';
-import {previewCandidate,createCandidate,readCandidateFile,applyCandidateChanges,candidateHash as providerCandidateHash,removeCandidateWorkspace} from './workbench-candidates.mjs';
+import {previewCandidate,createCandidate,recoverSetupCandidate,readCandidateFile,applyCandidateChanges,candidateHash as providerCandidateHash,removeCandidateWorkspace} from './workbench-candidates.mjs';
 import {CHECK_LIMITS,CHECK_DEFINITIONS,checkDefinition,definitionDigest,checkSpecDigest,discoverTestFiles,runCheck,activeCheckCount,cancelCheck,acknowledgeCheck} from './workbench-checks.mjs';
 import {workbenchBuildIdentity} from './workbench-build-identity.mjs';
 import {createArtifactVerifier} from './workbench-artifact-verification.mjs';
@@ -245,6 +245,12 @@ export function createWorkbenchExecution({store,records,data,gate,environments,s
       return evidence.find(entry=>entry.job_id===latestJob.id&&entry.definition_digest===required.definition_digest&&entry.acceptance_digest===ownerTask.acceptance_digest&&entry.execution_profile_id===required.execution_profile_id&&digest(entry.execution_profile??null)===digest(required.execution_profile??null)&&entry.candidate_hash_before===candidate.hash&&entry.candidate_hash_after===candidate.hash&&entry.project_generation===candidate.project_generation&&!entry.revoked&&!entry.superseded&&entry.verdict==='pass');
     });
   };
+  function recordedAcceptance({workspace_id,project_id,task_id}){
+    const ownerTask=task(workspace_id,project_id,task_id);
+    if(!ownerTask.candidate_id)return null;
+    const candidate=candidateRecord(workspace_id,project_id,ownerTask.candidate_id),latest=latestAcceptanceEvidence(workspace_id,project_id,candidate,ownerTask);
+    return {basis:'recorded_candidate_identity',complete:latest.length>0&&latest.every(Boolean),evidence_ids:latest.filter(Boolean).map(e=>e.id),candidate_id:candidate.id,candidate_hash:candidate.hash,acceptance_digest:ownerTask.acceptance_digest,requires_current_source_review:true};
+  }
   // The candidate's source is the identified capture manifest. If the registered
   // project root no longer captures to that same identity, the target changed:
   // an approval is stale and needs a fresh candidate/review. Revocation or an
@@ -324,7 +330,7 @@ export function createWorkbenchExecution({store,records,data,gate,environments,s
     const issued=issuePreview({kind:'candidate',workspace_id,project_id,project_generation:project.generation,task_id:ownerTask.id,digest:preview.digest,base_manifest_hash:preview.base.manifest_hash});
     return {task_id:ownerTask.id,preview:{digest:preview.digest,base:preview.base},preview_id:issued.preview_id,expires_at:issued.expires_at};
   }
-  function candidateCreate({workspace_id,project_id,task_id,preview_id,preview_digest}){
+  function candidateCreate({workspace_id,project_id,task_id,preview_id,preview_digest},preparedFields){
     const ownerTask=task(workspace_id,project_id,task_id);
     const project=requireActive(workspace_id,project_id);
     if(ownerTask.project_generation!==project.generation)throw wbError('stale_resource');
@@ -334,7 +340,8 @@ export function createWorkbenchExecution({store,records,data,gate,environments,s
     // failing store never leaves an orphan filesystem candidate behind.
     if(data.list('candidates',workspace_id,project_id).length>=CANDIDATE_CAP)throw wbError('limit_exceeded');
     const capture=captureProject(project);
-    const fields=createCandidate({store,project,capture,preview_digest,now});
+    const fields=preparedFields??createCandidate({store,project,capture,preview_digest,now});
+    if(fields.source_manifest_hash!==capture.hash||fields.preview_digest!==preview_digest)throw wbError('stale_resource');
     try{
       const assembled={generation:fields.generation,base_hash:fields.base_hash,root:fields.root,files:fields.files};
       const full=rehashCandidate(assembled);
@@ -347,7 +354,7 @@ export function createWorkbenchExecution({store,records,data,gate,environments,s
       // Persistence failed after materialization (cap, DB or validation). Remove
       // ONLY the copy this call just created, bounded and via its owned root; no
       // other candidate is ever touched and no failure is silently swallowed.
-      try{removeCandidateWorkspace(store,{root:fields.root});}catch{}
+      if(!preparedFields)try{removeCandidateWorkspace(store,{root:fields.root});}catch{}
       throw error;
     }
   }
@@ -880,20 +887,31 @@ export function createWorkbenchExecution({store,records,data,gate,environments,s
     if(prior){
       if(prior.request_hash!==request_hash)throw wbError('conflict');
       if(prior.status==='completed')return prior.result;
-      if(prior.status==='materializing')throw Object.assign(wbError('outcome_unknown'),{reason:'setup_candidate_materialization_unknown'});
+      if(prior.status==='materializing'&&(!prior.materialization||step!=='candidate'))throw Object.assign(wbError('outcome_unknown'),{reason:'setup_candidate_materialization_unknown'});
     }
     if(!['task','candidate','attempt','context'].includes(step))throw wbError('invalid_request');
     let intent=prior;
-    if(step==='candidate')intent=prior?revise('annotations',workspace_id,project_id,prior.id,{status:'materializing'}):data.create('annotations',{workspace_id,project_id,kind:'setup_step',setup_id,step,request_hash,status:'materializing'});
-    let createdRoot;
+    let preparedFields,candidateIssued;
+    if(step==='candidate'){
+      candidateIssued=candidatePreview(body);
+      if(candidateIssued.preview.base.manifest_hash!==source_hash)throw wbError('stale_resource');
+      // Commit ownership BEFORE entering the filesystem. A retry only inspects
+      // its completion manifest; missing/partial copies are never re-executed.
+      if(prior?.materialization){intent=prior;preparedFields=recoverSetupCandidate({store,materialization:prior.materialization,source_hash,preview:candidateIssued.preview});}
+      else{
+        if(data.capacity('candidates',workspace_id,project_id).remaining===0)throw wbError('limit_exceeded');
+        const materialization={id:randomUUID(),setup_id,request_hash,workspace_id,project_id,source_hash};
+        intent=prior?revise('annotations',workspace_id,project_id,prior.id,{status:'materializing',materialization}):data.create('annotations',{workspace_id,project_id,kind:'setup_step',setup_id,step,request_hash,status:'materializing',materialization});
+        const project=requireActive(workspace_id,project_id);
+        preparedFields=createCandidate({store,project,capture:captureProject(project),preview_digest:candidateIssued.preview.digest,now,materialization});
+      }
+      authorize?.();
+    }
     try{return data.db.transaction(()=>{
       let result;
       if(step==='task')result=createTask({...body,expected_source_hash:source_hash});
       if(step==='candidate'){
-        const p=candidatePreview(body);
-        if(p.preview.base.manifest_hash!==source_hash)throw wbError('stale_resource');
-        result=candidateCreate({...body,preview_id:p.preview_id,preview_digest:p.preview.digest});
-        createdRoot=candidateRecord(workspace_id,project_id,result.candidate.id).root;
+        result=candidateCreate({...body,preview_id:candidateIssued.preview_id,preview_digest:candidateIssued.preview.digest},preparedFields);
       }
       if(step==='attempt')result=attemptCreate(body);
       if(step==='context')result={context:data.create('contexts',{workspace_id,project_id,attempt_id:body.attempt_id,task_id:body.task_id,source:{kind:'setup_goal',setup_id},snapshot,state:'captured',retention_until:now()+86400000})};
@@ -902,10 +920,9 @@ export function createWorkbenchExecution({store,records,data,gate,environments,s
       else data.create('annotations',{workspace_id,project_id,kind:'setup_step',setup_id,step,request_hash,status:'completed',result});
       return result;
     }).immediate();}catch(error){
-      if(createdRoot)removeCandidateWorkspace(store,{root:createdRoot});
-      if(intent)revise('annotations',workspace_id,project_id,intent.id,{status:'failed'});
+      if(intent&&step!=='candidate')revise('annotations',workspace_id,project_id,intent.id,{status:'failed'});
       throw error;
     }
   }
-  return {dispatch,setupStep,contextSource,onRevoke,close,health,recoverFinalization,startApprovedCheck,verifyPatchArtifact,retryPatchArtifact,acknowledgePatchArtifactUnknown,cancelPatchArtifact,patchArtifactRecovery,activeCount:()=>inFlight.size,activeChecks:()=>activeCheckCount(),unknownJobDigest:(workspaceId,projectId)=>unknownJobs(workspaceId,projectId).map(ackDigest),records:data};
+  return {dispatch,setupStep,recordedAcceptance,contextSource,onRevoke,close,health,recoverFinalization,startApprovedCheck,verifyPatchArtifact,retryPatchArtifact,acknowledgePatchArtifactUnknown,cancelPatchArtifact,patchArtifactRecovery,activeCount:()=>inFlight.size,activeChecks:()=>activeCheckCount(),unknownJobDigest:(workspaceId,projectId)=>unknownJobs(workspaceId,projectId).map(ackDigest),records:data};
 }

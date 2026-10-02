@@ -10,6 +10,25 @@ or commands such as settings, themes, plugins, checkpoints and arrangement from
 one entrypoint. Commands retain their experimental gates and report when a
 prerequisite is missing.
 
+Start keeps unavailable commands visible with their prerequisite, but Up/Down
+skips disabled buttons. Enter in its search field chooses the first enabled
+result; empty or all-disabled results do nothing, and Escape returns to Start.
+Opening an existing or new built-in surface/document preserves Windows or Spatial
+mode. Spatial approaches the selected window using the existing camera controls;
+Focus remains a temporary full-size presentation. Surviving pane views retain
+their identity (iframe continuity still requires native `moveBefore`).
+
+Getting started begins with Chat, Voice and Data goals and explicit next actions.
+It reports token presence separately from actual readiness: the existing chat or
+tool checks its connection, models and engines. It never automatically records,
+downloads assets or sends a message. Closing pauses the tour at its current step
+in this tab; finishing records completion separately.
+
+The browser-local switcher is labelled **Browser snapshots — auto-updated here**.
+Edits overwrite its active snapshot automatically in this browser. Its **Host
+saved layouts** link opens the separate explicit capture/preview/apply collection;
+neither collection stores private feature contents.
+
 Outputs and Workspace Activity can be opened as persistent host-owned browser
 panes using the allowlisted `orbit://surface/outputs` and
 `orbit://surface/activity` URLs. These are reviewed host modules, not a privileged
@@ -120,7 +139,8 @@ publication because the bundler intentionally includes tracked files only.
 
 Project-bound Workbench arrangement previews now reclaim expired never-committed
 records and, under capacity pressure, cancelled/stale never-committed records.
-Committed replay identities and Return references are retained. The existing
-200-record bound still blocks a project with 200 retained committed proposals;
-solving that case needs a separate history/archive design. The new normal
+Committed replay identities and Return references are retained as logical history
+and no longer consume the 200 active-preview slots. Malformed or incomplete
+identity-bearing records remain pinned. Capacity diagnostics distinguish active
+and historical records; this is not physical history compaction. The normal
 workspace arranger uses ordinary workspace receipts, not this proposal table.

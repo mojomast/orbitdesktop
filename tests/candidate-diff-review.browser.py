@@ -139,9 +139,9 @@ def journey(renderer, page, origin, token, project):
     changes.get_by_role('button', name='Previous file').click()
     expect(changes.locator('.cdv-file-title')).to_have_text('config.json')
     assert len([item for item in requests if item == ('live', 'detail')]) == before_reads, 'Presentation navigation fetched source again'
-    workbench.get_by_label('Candidate comparison').select_option('previous')
+    workbench.get_by_label('Candidate comparison', exact=True).select_option('previous')
     expect(workbench.locator('.pane-workbench-changes-diff')).to_contain_text('Latest transition → generation 4')
-    workbench.get_by_label('Candidate comparison').select_option('initial')
+    workbench.get_by_label('Candidate comparison', exact=True).select_option('initial')
     workbench.get_by_role('tab', name='Live').click()
     event_row = workbench.locator('.pane-workbench-live-timeline .alt-row').filter(has_text='Candidate generation 2').first
     expect(event_row).to_be_visible()

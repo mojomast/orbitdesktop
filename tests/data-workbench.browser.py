@@ -28,12 +28,15 @@ with tempfile.TemporaryDirectory(prefix='orbit-data-browser-', dir='/tmp/opencod
 import {mountDataWorkbench} from './src/data-workbench';
 import {connectWorkspace} from './src/workspace-sync';
 import {LocalDuckDB} from './src/duckdb-client';
+import {registerConversationRecipient} from './src/conversation-transfer';
 import * as duckdb from '@duckdb/duckdb-wasm';
 import workerURL from '@duckdb/duckdb-wasm/dist/duckdb-browser-eh.worker.js?url';
 import wasmURL from '@duckdb/duckdb-wasm/dist/duckdb-eh.wasm?url';
 const state={version:1,selected:'',arc:14,view:'windows',monitors:[]};
 connectWorkspace(()=>state,()=>{},()=> 'fixture-token',()=>{});
 mountDataWorkbench(document.querySelector('#host'),()=> 'fixture-token');
+const draft=document.createElement('textarea');draft.setAttribute('aria-label','Data conversation draft');document.body.append(draft);
+registerConversationRecipient({id:'data-chat',title:'Data conversation',receive:d=>{draft.value=d.text;return {accepted:true};}});
 window.client=new LocalDuckDB();
 window.fixtureParquet=async()=>{
  const worker=new Worker(workerURL), db=new duckdb.AsyncDuckDB(new duckdb.VoidLogger(),worker);
@@ -108,7 +111,7 @@ export default {server:{headers:{'Content-Security-Policy':"default-src 'self'; 
             page.locator('.data-sql').fill(binding_sql)
             page.get_by_role('button', name='Run SELECT', exact=True).click()
             expect(page.locator('.data-status')).to_contain_text('1 bounded rows', timeout=30000)
-            assert page.locator('tbody').inner_text() == '32'
+            assert page.locator('tbody').inner_text().strip() == '32'
             page.locator('.data-name').fill('Binding regression')
             page.get_by_role('button', name='Refresh recipes', exact=True).click()
             expect(page.locator('.data-status')).to_contain_text('Private recipes loaded.')
@@ -128,7 +131,7 @@ export default {server:{headers:{'Content-Security-Policy':"default-src 'self'; 
             page.locator('.data-sql').fill(golden)
             page.get_by_role('button', name='Run SELECT', exact=True).click()
             expect(page.locator('.data-status')).to_contain_text('2 bounded rows', timeout=30000)
-            assert page.locator('tbody').inner_text() == 'A\t90\nB\t20', page.locator('tbody').inner_text()
+            assert [line.strip() for line in page.locator('tbody').inner_text().splitlines() if line.strip()] == ['A\t90','B\t20']
             selected_inputs = page.locator('.data-inputs').inner_text()
             page.locator('.data-sql').fill('SET enable_external_access=true')
             page.get_by_role('button', name='Run SELECT', exact=True).click()
@@ -138,7 +141,24 @@ export default {server:{headers:{'Content-Security-Policy':"default-src 'self'; 
             page.locator('.data-sql').fill(golden)
             page.get_by_role('button', name='Run SELECT', exact=True).click()
             expect(page.locator('.data-status')).to_contain_text('2 bounded rows', timeout=30000)
-            assert page.locator('tbody').inner_text() == 'A\t90\nB\t20'
+            assert [line.strip() for line in page.locator('tbody').inner_text().splitlines() if line.strip()] == ['A\t90','B\t20']
+            page.get_by_label('Share retained row 1', exact=True).check()
+            page.get_by_label('Share column total', exact=True).check()
+            page.get_by_role('button',name='Share selected result rows',exact=True).click()
+            page.get_by_role('radio',name='Data conversation').check()
+            page.get_by_role('button',name='Insert into draft',exact=True).click()
+            shared = json.loads(page.get_by_label('Data conversation draft').input_value())
+            assert shared['rows'] == [['90']] and shared['columns'][0]['name'] == 'total', shared
+            assert shared['shareOmittedRetainedRows'] == 1 and len(shared['selectedPayloadSha256']) == 64
+            page.get_by_role('button',name='Share selected result rows',exact=True).click()
+            page.get_by_role('radio',name='Data conversation').check()
+            page.locator('.data-sql').evaluate('(node)=>{node.value="SELECT 1";node.dispatchEvent(new Event("input"));}')
+            page.get_by_role('button',name='Insert into draft',exact=True).click()
+            expect(page.locator('.conversation-transfer-status')).to_contain_text('Analysis or selection changed')
+            page.get_by_role('dialog').get_by_role('button',name='Cancel',exact=True).click()
+            page.locator('.data-sql').fill(golden)
+            page.get_by_role('button',name='Run SELECT',exact=True).click()
+            expect(page.locator('.data-status')).to_contain_text('2 bounded rows',timeout=30000)
             page.get_by_role('button', name='Refresh recipes', exact=True).click()
             expect(page.locator('.data-status')).to_contain_text('Private recipes loaded.')
             page.get_by_role('button', name='Save recipe', exact=True).click()
@@ -178,6 +198,26 @@ export default {server:{headers:{'Content-Security-Policy':"default-src 'self'; 
             assert page.evaluate('window.client.query("SELECT sum(x) FROM (VALUES(1),(2)) t(x)").then(r=>r.rows)') == [['3']]
             context.set_offline(False)
             page.evaluate('window.client.dispose()')
+            page.locator('.data-sql').fill('SELECT 9007199254740993::BIGINT AS exact_integer, 1234567890.12::DECIMAL(20,2) AS exact_decimal')
+            page.get_by_role('button',name='Run SELECT',exact=True).click()
+            expect(page.locator('.data-status')).to_contain_text('1 bounded rows',timeout=30000)
+            page.get_by_label('Share retained row 1',exact=True).check()
+            page.get_by_label('Share column exact_integer',exact=True).check()
+            page.get_by_label('Share column exact_decimal',exact=True).check()
+            page.get_by_role('button',name='Share selected result rows',exact=True).click()
+            page.get_by_role('radio',name='Data conversation').check()
+            page.get_by_role('button',name='Insert into draft',exact=True).click()
+            assert json.loads(page.get_by_label('Data conversation draft').input_value())['rows'] == [['9007199254740993','1234567890.12']]
+            page.get_by_role('button',name='Ask about schema',exact=True).click()
+            page.get_by_role('radio',name='Data conversation').check()
+            page.get_by_role('button',name='Insert into draft',exact=True).click()
+            schema = json.loads(page.get_by_label('Data conversation draft').input_value())
+            assert len(schema['schemas']) == 3 and 'rows' not in schema
+            page.get_by_label('SQL proposal JSON').fill(json.dumps({'inputHash':schema['inputHash'],'sql':'SELECT 42 AS proposed'}))
+            page.get_by_role('button',name='Stage SQL proposal',exact=True).click()
+            expect(page.locator('.data-status')).to_contain_text('Proposed SQL staged')
+            expect(page.locator('.data-sql')).to_have_value('SELECT 42 AS proposed')
+            assert page.locator('tbody').count() == 0
             page.reload()
             page.get_by_label('Import recipe JSON (metadata only)').set_input_files(exported)
             expect(page.locator('.data-status')).to_contain_text('Imported recipe metadata')
@@ -198,7 +238,7 @@ export default {server:{headers:{'Content-Security-Policy':"default-src 'self'; 
             expect(page.locator('.data-status')).to_contain_text('truncated')
             assert page.locator('tbody tr').count() == 100
             page.get_by_role('button', name='Next page', exact=True).click()
-            assert page.locator('tbody tr').first.inner_text() == '100'
+            assert page.locator('tbody tr').first.inner_text().strip() == '100'
             page.locator('.data-sql').fill('SELECT sum(a.i*b.i) FROM range(1000000) a(i), range(1000000) b(i)')
             page.get_by_role('button', name='Run SELECT', exact=True).click()
             page.get_by_role('button', name='Cancel', exact=True).click()

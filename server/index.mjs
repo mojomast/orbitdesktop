@@ -10,6 +10,8 @@ import { tokenMatches, geometry, allowedRequest, publicHost } from "./security.m
 import { LocalHostProvider } from "./local-host.mjs";
 import { createAgentHandler } from "./agent.mjs";
 import { createWorkspaceService, runtimeRoot } from "./workspace.mjs";
+import {observeFeatureReadiness} from './feature-readiness.mjs';
+import {featureCapabilities} from '../contracts/feature-capabilities.mjs';
 import { createWorkspaceLayouts } from './workspace-layouts.mjs';
 import { createOutputLibrary } from './output-library.mjs';
 import { createWorkspaceEvents } from './workspace-events.mjs';
@@ -65,7 +67,8 @@ function reply(res, status, data) {
   });
   res.end(JSON.stringify(data));
 }
-const workspaceService = createWorkspaceService({ token, port, devOrigins, reply });
+const capabilityDescription=audience=>featureCapabilities({audience,observation:observeFeatureReadiness({root:fileURLToPath(new URL('../',import.meta.url)),runtimeRoot,mcpConfigured:!!mcpSandbox})});
+const workspaceService = createWorkspaceService({ token, port, devOrigins, reply, capabilityDescription });
 const workspaceLayouts = createWorkspaceLayouts({ store: workspaceService.store, token, port, devOrigins, reply, root: runtimeRoot });
 const outputLibrary = createOutputLibrary({ store: workspaceService.store, workspaceRead: workspaceService.read, token, port, devOrigins, reply, root: runtimeRoot });
 // Never put a configured or generated owner credential in routine service logs.
@@ -81,7 +84,8 @@ const workbenchServices={};
 const workbench = createWorkbench({store:workspaceService.store,token,port,devOrigins,reply,services:workbenchServices});
 const workbenchData=new WorkbenchData(workspaceService.store);
 const executionGate=createWorkbenchGate({legacySnapshot:legacyQueueSnapshot(runtimeRoot)});
-const agentHandler = createAgentHandler({ token, port, devOrigins, reply, workspaceContext: workspaceService.context, workspaceRead:workspaceService.read, runtimeDirectory:runtimeRoot,executionGate,onRunEvent:event=>observeTechnologyTrace(event,'observeAgentRunEvent') });
+let normalResources;
+const agentHandler = createAgentHandler({ token, port, devOrigins, reply, workspaceContext: workspaceService.context, workspaceRead:workspaceService.read, runtimeDirectory:runtimeRoot,executionGate,onRunEvent:event=>observeTechnologyTrace(event,'observeAgentRunEvent'),onNormalAccepted:record=>normalResources?.normalAccepted(record) });
 const sandboxProvider=createWorkbenchSandboxProvider({root:path.join(workspaceService.store.root,'workbench-sandbox'),env:process.env});
 const environments=createWorkbenchEnvironments({store:workspaceService.store,records:workbench.records,data:workbenchData,gate:executionGate,sandboxProvider});
 const execution=createWorkbenchExecution({store:workspaceService.store,records:workbench.records,data:workbenchData,gate:executionGate,environments,sandboxProvider});
@@ -208,6 +212,7 @@ const mcpSandbox=await (async()=>{
   }catch{console.warn('MCP Apps sandbox unavailable');return null;}
 })();
 const technologyServices={
+  '/api/resource-grants':lazyTechnologyService(async()=> normalResources=await (await import('./resource-delegation.mjs')).createResourceDelegation({...technologyOptions,normalBindings:agentHandler.resourceBindings,knowledge:await technologyServices['/api/search'].get(),documents:await technologyServices['/api/documents'].get()})),
   '/api/search':lazyTechnologyService(async()=> (await import('./knowledge-index.mjs')).createKnowledgeSearch(technologyOptions)),
   '/api/interactive-results':lazyTechnologyService(async()=> (await import('./interactive-results.mjs')).createInteractiveResults(technologyOptions)),
   '/api/data-recipes':lazyTechnologyService(async()=> (await import('./data-recipes.mjs')).createDataRecipes(technologyOptions)),
@@ -240,9 +245,9 @@ const technologyHandlers=Object.fromEntries(Object.entries(technologyServices).m
   }:route==='/api/search'?error=>Number.isSafeInteger(error.current?.consent_generation)&&error.current.consent_generation>=0?{current:{consent_generation:error.current.consent_generation}}:{}:undefined,
 })]));
 const technologyAssets=lazyTechnologyService(async()=> (await import('./technology-assets.mjs')).createTechnologyAssets({root:path.resolve(fileURLToPath(new URL('../',import.meta.url))),runtimeRoot,securityHeaders}));
-const technologyCapabilities=technologyOwnerRoute({token,port,devOrigins,reply,maxBytes:256,dispatch:body=>{
+const technologyCapabilities=technologyOwnerRoute({token,port,devOrigins,reply,maxBytes:256,dispatch:async body=>{
   if(!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).length!==1||body.action!=='capabilities')throw {code:'invalid_request'};
-  return {browser_copilot:!!process.env.ORBIT_BROWSER_EXECUTABLE&&!!process.env.ORBIT_BROWSER_ALLOWED_ORIGINS,mcp_apps:!!mcpSandbox};
+  return {browser_copilot:!!process.env.ORBIT_BROWSER_EXECUTABLE&&!!process.env.ORBIT_BROWSER_ALLOWED_ORIGINS,mcp_apps:!!mcpSandbox,descriptors:capabilityDescription('owner')};
 }});
 const server = http.createServer(async (req, res) => {
   const allowedHosts = new Set([

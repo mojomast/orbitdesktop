@@ -202,6 +202,32 @@ with tempfile.TemporaryDirectory(prefix='orbit-conversation-transfer-', dir='/tm
             assert page.evaluate('window.__open6') == {'status': 'no-recipient'}
             assert page.evaluate('window.__calls.length') == 0
 
+            # Exact final draft review, source validation and changed-draft races.
+            page.evaluate('''()=>{
+              window.ownerDraft='existing';window.revoked=false;
+              window.transfer.registerConversationRecipient({id:'prepared',title:'Prepared chat',receive:()=>{throw Error('Legacy receive must not run');},prepare:delivery=>{
+                const original=window.ownerDraft, text=original+'\\n\\n'+delivery.text;
+                return {text,commit:()=>{if(window.ownerDraft!==original)return {accepted:false,reason:'Draft changed'};window.ownerDraft=text;return {accepted:true};}};
+              }});
+              window.transfer.requestConversationContext({text:'evidence',validate:()=>{if(window.revoked)throw Error('Source revoked');}});
+            }''')
+            dialog = page.locator('dialog.conversation-transfer')
+            dialog.get_by_role('radio',name='Prepared chat').check()
+            expect(dialog.locator('.conversation-transfer-preview')).to_have_text('existing\n\nevidence')
+            page.evaluate('window.revoked=true')
+            dialog.get_by_role('button',name='Insert into draft').click()
+            expect(dialog.locator('.conversation-transfer-status')).to_contain_text('Source revoked')
+            assert page.evaluate('window.ownerDraft') == 'existing'
+            page.evaluate("window.revoked=false;window.ownerDraft='new edit'")
+            dialog.get_by_role('button',name='Insert into draft').click()
+            expect(dialog.locator('.conversation-transfer-status')).to_contain_text('Draft changed')
+            assert page.evaluate('window.ownerDraft') == 'new edit'
+            dialog.get_by_role('radio',name='Prepared chat').click()
+            expect(dialog.locator('.conversation-transfer-preview')).to_have_text('new edit\n\nevidence')
+            dialog.get_by_role('button',name='Insert into draft').click()
+            expect(dialog).to_have_count(0)
+            assert page.evaluate('window.ownerDraft') == 'new edit\n\nevidence'
+
             # 7. No network request, no model send and no private persistence.
             assert page.evaluate('window.__fetchCalls') == 0, 'Transfer issued a fetch'
             assert api_calls == [], api_calls

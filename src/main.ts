@@ -11,10 +11,11 @@ import { showOrbitSettings, setOrbitSettingsNavigation } from './orbit-settings'
 import { createWorkspaceCommands, type WorkspaceCommand } from './workspace-commands';
 import { HOST_SURFACE_URLS, HOST_SURFACE_LABELS, type HostSurfaceId } from './host-surfaces';
 import { TECHNOLOGY_SURFACES } from './technology-surfaces';
+import {createTechnologyReadiness} from './technology-readiness';
 import { installCommandPalette } from './command-palette';
 import { experimentalEnabled, subscribeExperimental } from './experimental';
 import { showOnboarding, offerOnboarding } from './onboarding';
-window.addEventListener('load', () => offerOnboarding(), { once: true });
+window.addEventListener('load', () => offerOnboarding(onboardingActions), { once: true });
 import { installLayoutSwitcher } from './layout-switcher';
 import './unified-taskbar.css';
 import { xpraApps } from './xpra-apps';
@@ -326,18 +327,21 @@ function measureArrangementViewport() {
   try { return { width: measured.clientWidth, height: measured.clientHeight }; }
   finally { measurement.remove(); }
 }
-let technologyConfiguration={browser_copilot:false,mcp_apps:false};
-async function refreshTechnologyConfiguration(){
-  if(!sessionToken){technologyConfiguration={browser_copilot:false,mcp_apps:false};return;}
-  try{
-    const response=await fetch('/api/technology-capabilities',{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${sessionToken}`},body:JSON.stringify({action:'capabilities'})});
-    if(!response.ok)return;
-    const result=await response.json();
-    technologyConfiguration={browser_copilot:result.browser_copilot===true,mcp_apps:result.mcp_apps===true};
-  }catch{/* Optional configuration remains unavailable until a successful owner read. */}
+const technologyReadiness=createTechnologyReadiness(()=>({token:sessionToken,workspace:workspaceId}),()=>window.dispatchEvent(new Event('orbit-command-details-changed')));
+window.addEventListener('orbit-host-connected',()=>{void technologyReadiness.refresh(true);});
+window.addEventListener('orbit-command-discovery',()=>{void technologyReadiness.refresh(true);});
+window.addEventListener('focus',()=>{void technologyReadiness.refresh();});
+window.setInterval(()=>{void technologyReadiness.refresh();},30000);
+if(sessionToken)void technologyReadiness.refresh();
+function revealSurface(id: string) {
+  const inFocus = !!focused;
+  if (focused) unfocus();
+  state.selected = id;
+  renderAll();
+  if (inFocus) focus(id);
+  else { choose(id); if (state.view === 'spatial') scene.frameWindow(id); }
+  save();
 }
-window.addEventListener('orbit-host-connected',()=>{void refreshTechnologyConfiguration();});
-if(sessionToken)void refreshTechnologyConfiguration();
 function openHostSurface(id: HostSurfaceId) {
   const url = HOST_SURFACE_URLS[id];
   let target = state.monitors.find(m => leaves(m.layout).some(p => p.kind === 'browser' && p.url === url));
@@ -348,30 +352,36 @@ function openHostSurface(id: HostSurfaceId) {
     leaves(target.layout)[0].url = url;
     state.monitors.push(target);
   }
-  if (focused) unfocus();
-  state.selected = target.id;
-  if (state.view !== 'windows') setView('windows');
-  renderAll(); choose(target.id); save();
+  revealSurface(target.id);
 }
 window.addEventListener('orbit-open-host-surface', event => {
   const id = (event as CustomEvent<{ id?: string }>).detail?.id;
   if (typeof id==='string' && Object.hasOwn(HOST_SURFACE_URLS,id)) openHostSurface(id as HostSurfaceId);
 });
+window.addEventListener('orbit-review-document-result',event=>{
+  const detail=(event as CustomEvent).detail;
+  if(!detail||typeof detail.title!=='string'||typeof detail.respond!=='function'||typeof detail.isCurrent!=='function'||detail.workspaceId!==workspaceId)return;
+  event.preventDefault();
+  const credential=sessionToken;
+  const current=()=>detail.workspaceId===workspaceId&&sessionToken===credential&&detail.isCurrent();
+  void import('./document-library').then(module=>current()?module.reviewCreateDocument(()=>sessionToken,detail.title,detail.data,current):{status:'rejected' as const,reason:'Document result source, workspace or host connection changed before review.'}).then(detail.respond).catch(()=>detail.respond({status:'rejected',reason:'Document result could not be reviewed.'}));
+});
 window.addEventListener('orbit-open-document',event=>{
-  const detail=(event as CustomEvent<{id?:unknown;name?:unknown}>).detail;
+  const detail=(event as CustomEvent<{id?:unknown;name?:unknown;paneId?:unknown}>).detail;
   if(typeof detail?.id!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(detail.id))return;
   const url=`orbit://document/${detail.id}`;
-  let target=state.monitors.find(m=>leaves(m.layout).some(p=>p.kind==='browser'&&p.url===url));
+  const recoveryPane=typeof detail.paneId==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(detail.paneId)?detail.paneId:undefined;
+  if(recoveryPane&&state.monitors.some(m=>leaves(m.layout).some(p=>p.id===recoveryPane&&(p.kind!=='browser'||p.url!==url)))){notify('Original pane identity is now used by another surface. Draft remains in the library.');return;}
+  let target=state.monitors.find(m=>leaves(m.layout).some(p=>p.kind==='browser'&&p.url===url&&(!recoveryPane||p.id===recoveryPane)));
   if(!target){
     if(state.monitors.length>=100){notify('Close a window before opening another document.');return;}
     target=monitor(state.monitors.length+1,'browser');
     target.name=typeof detail.name==='string'&&detail.name.trim()?detail.name.trim().slice(0,60):'Document';
     leaves(target.layout)[0].url=url;
+    if(recoveryPane)leaves(target.layout)[0].id=recoveryPane;
     state.monitors.push(target);
   }
-  if(focused)unfocus();state.selected=target.id;
-  if(state.view!=='windows')setView('windows');
-  renderAll();choose(target.id);save();
+  revealSurface(target.id);
 });
 // Keep an explicit parent-document selection while menu/palette focus changes.
 // Generated frames and terminal buffers are never queried. The transfer dialog
@@ -392,16 +402,17 @@ async function sendSelectedContext() {
   const { requestConversationContext } = await import('./conversation-transfer');
   await requestConversationContext({ text, title: 'Selected workspace text' });
 }
+const onboardingActions = {connected:()=>!!sessionToken,run:(id:string)=>{void commands.execute(id);}};
 const commands = createWorkspaceCommands((): WorkspaceCommand[] => [
-  ...Object.entries(TECHNOLOGY_SURFACES).map(([id,entry])=>({id:`technology-${id}`,title:entry.title,detail:entry.detail,group:'Tools',hidden:id==='copilot'&&!technologyConfiguration.browser_copilot||id==='mcp-apps'&&!technologyConfiguration.mcp_apps,disabledReason:entry.auth&&!sessionToken?'Connect host first to use this tool.':undefined,run:()=>openHostSurface(id as HostSurfaceId)})),
-  { id: 'getting-started', title: 'Getting started', detail: 'Tour Orbit controls and layouts', group: 'Help', run: showOnboarding },
+  ...Object.entries(TECHNOLOGY_SURFACES).map(([id,entry])=>({id:`technology-${id}`,title:entry.title,detail:technologyReadiness.detail(HOST_SURFACE_URLS[id as HostSurfaceId],entry.detail),group:'Tools',disabledReason:entry.auth&&!sessionToken?'Connect host first to use this tool.':undefined,run:async()=>{const token=sessionToken,workspace=workspaceId;await technologyReadiness.refresh(true);if(token===sessionToken&&workspace===workspaceId)openHostSurface(id as HostSurfaceId);}})),
+  { id: 'getting-started', title: 'Getting started', detail: 'Choose a task, check readiness or tour Orbit', group: 'Help', run: () => showOnboarding(onboardingActions) },
   { id: 'settings', title: 'Orbit settings', detail: 'Appearance, layout and browser-local experiments', group: 'Settings', run: openSettings },
   { id: 'connect-host', title: 'Connect host', detail: 'Unlock this browser session with a host token', group: 'Settings', run: connectHost },
   { id: 'connection-passwords', title: 'Connection passwords', detail: 'View host connection details', group: 'Settings', disabledReason: !sessionToken ? 'Connect host first to view connection details.' : undefined, run: () => showConnectionPasswords(() => sessionToken) },
   { id: 'export-layout', title: 'Export workspace layout', detail: 'Download the current workspace layout', group: 'Layout', run: exportLayout },
   { id: 'import-layout', title: 'Import workspace layout', detail: 'Choose a layout file and review replacement confirmation', group: 'Layout', run: () => importInput.click() },
   { id: 'saved-layouts', title: 'Saved workspace layouts', detail: 'Save and preview reusable window arrangements', group: 'Layout', disabledReason: !sessionToken ? 'Connect host first to use saved workspace layouts.' : undefined, run: openSavedWorkspaceLayouts },
-  { id: 'browser-layouts', title: 'Browser layout snapshots', detail: 'Manage legacy layouts saved in this browser', group: 'Layout', run: () => navigation.querySelector<HTMLButtonElement>('[aria-label="Choose workspace layout"]')?.click() },
+  { id: 'browser-layouts', title: 'Browser layout snapshots', detail: 'Browser-local snapshots — active snapshot auto-updates here', group: 'Layout', run: () => navigation.querySelector<HTMLButtonElement>('[aria-label="Choose browser snapshot"]')?.click() },
   ...state.monitors.map(m => ({ id: `window:${m.id}`, title: m.name, detail: 'Open or restore window', group: 'Windows', run: () => { if (focused) focus(m.id); else choose(m.id); } })),
   { id: 'new-agent', title: 'New agent chat', detail: 'Talk to Hermes', group: 'Create', run: () => addMonitor('agent') },
   { id: 'new-workbench', title: 'New Workbench window', detail: 'Separate Workbench beside Hermes', group: 'Create', hidden: !experimentalEnabled('workbench'), run: () => openWorkbenchWindow() },
@@ -472,13 +483,15 @@ async function openConversationLibrary() {
 }
 let openingConversation = false;
 window.addEventListener('orbit-open-conversation', event => {
-  const detail = (event as CustomEvent<{profileId?: string; sessionId?: string}>).detail;
+  const detail = (event as CustomEvent<import('./conversation-selection').ConversationSelection>).detail;
   if (!detail || typeof detail.profileId !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(detail.profileId) ||
       typeof detail.sessionId !== 'string' || !/^[A-Za-z0-9_:-]{1,128}$/.test(detail.sessionId)) return;
   const {profileId, sessionId} = detail;
-  if (openingConversation) { notify('A conversation window is already opening.'); return; }
-  if (!sessionToken) { notify('Connect host first to open a saved conversation.'); return; }
-  if (state.monitors.length >= 100) { notify('Close a window before opening another conversation.'); return; }
+  if(detail.signal?.aborted)return;
+  const fail=(message:string)=>{notify(message);detail.report?.('failed',message);};
+  if (openingConversation) { fail('A conversation window is already opening.'); return; }
+  if (!sessionToken) { fail('Connect host first to open a saved conversation.'); return; }
+  if (state.monitors.length >= 100) { fail('Close a window before opening another conversation.'); return; }
   openingConversation = true;
   void (async () => {
     if (focused) unfocus();
@@ -487,11 +500,12 @@ window.addEventListener('orbit-open-conversation', event => {
     const pane = target && leaves(target.layout).find(p => p.kind === 'agent');
     if (!pane) throw Error('New conversation pane unavailable.');
     await ensureWorkspaceSynced();
+    if(detail.signal?.aborted)return;
     if (!paneExists(pane.id)) throw Error('Conversation pane closed before it could link.');
     window.dispatchEvent(new CustomEvent('orbit-select-conversation', {
-      detail: {paneId: pane.id, profileId, sessionId},
+      detail: {...detail, paneId: pane.id, profileId, sessionId},
     }));
-  })().catch(error => notify(`Conversation window could not open: ${String(error)}`))
+  })().catch(error => fail(`Conversation window could not open: ${String(error)}`))
     .finally(() => { openingConversation = false; });
 });
 function orbitMenuSections(): OrbitMenuSection[] {
@@ -773,7 +787,8 @@ function paneView(p: ReturnType<typeof leaves>[number], m: Monitor): PaneView {
         kind: (id, kind) => {
           confirmChange(
             "Switching this pane replaces its current view and unsaved content. Persistent terminal shells may continue detached.",
-            () => {
+            async () => {
+              if(!await (await import('./document-drafts')).requestDocumentClose([id]))return;
               const m = livePaneMonitor(id);
               if (!m) return;
               views.get(id)?.dispose();
@@ -814,9 +829,13 @@ function paneView(p: ReturnType<typeof leaves>[number], m: Monitor): PaneView {
           }
           confirmChange(
             "Closing this pane discards its unsaved view content and disconnects it. Persistent terminal shells may continue detached.",
-            () => {
-              const m = livePaneMonitor(id);
-              if (!m) return;
+            async () => {
+              const closingMonitor=livePaneMonitor(id),closingPane=closingMonitor&&leaves(closingMonitor.layout).find(p=>p.id===id),closingView=views.get(id);
+              if(!closingMonitor||!closingPane)return;
+              const signature=paneSignature(closingPane);
+              if(!await (await import('./document-drafts')).requestDocumentClose([id]))return;
+              const m=livePaneMonitor(id),p=m&&leaves(m.layout).find(p=>p.id===id);
+              if(!m||m!==closingMonitor||!p||paneSignature(p)!==signature||views.get(id)!==closingView){notify('Pane placement or content binding changed during close review. Please close it again.');return;}
               if (leaves(m.layout).length <= 1) {
                 notify('Pane placement changed; keep at least one pane on each display.');
                 return;
@@ -1344,7 +1363,10 @@ function deleteMonitor() {
     return;
   }
   const m = current();
-  confirmChange(`Remove ${m.name} and close all its panes?`, () => {
+  confirmChange(`Remove ${m.name} and close all its panes?`, async () => {
+    const closingPaneIds=leaves(m.layout).map(p=>p.id);
+    if(!await (await import('./document-drafts')).requestDocumentClose(closingPaneIds))return;
+    if(!state.monitors.includes(m)||JSON.stringify(leaves(m.layout).map(p=>p.id))!==JSON.stringify(closingPaneIds)){notify('Window placement changed during close review. Please close it again.');return;}
     unfocus();
     leaves(m.layout).forEach((p) => {
       views.get(p.id)?.dispose();
@@ -1606,7 +1628,7 @@ layoutSwitcher = installLayoutSwitcher(navigation, `orbit.layouts.${workspaceId}
       if (hidden.includes(m.id)) minimizer.hide(m.id, element); else minimizer.restore(m.id, element);
     }
     setView(state.view || 'windows'); renderTabs();
-  }, notify);
+  }, notify, () => {void commands.execute('saved-layouts');});
 // Optional, page-scoped WebMCP: no terminal input or credentials are exposed.
 const modelContext = (
   document as Document & {

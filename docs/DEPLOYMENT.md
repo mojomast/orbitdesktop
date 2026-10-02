@@ -82,6 +82,16 @@ a live migration/restart.
 
 ### Technology candidate data and optional services
 
+The agency evolution retains schema 12 and package version 0.3.1. Backups must also
+include resource-delegation grant/operation journals, credential-free workspace
+adapter request envelopes, operation-owned candidate completion manifests beside
+candidate directories, and integration publication manifests. Preserve these with
+their associated database and source trees so exact recovery remains possible.
+Ephemeral authenticated channels do not survive server restart. Unsaved document
+recovery is browser-tab storage, separate from server backups and saved documents.
+See [Resource delegation](RESOURCE_DELEGATION.md) and
+[Workbench setup](WORKBENCH_SETUP.md) for the current lifecycle and writer limits.
+
 Back up the **entire** private runtime, not just `workspace.sqlite`. This includes
 conversation bindings/drafts/library metadata, output metadata, saved layouts,
 knowledge source snapshots and index sidecars, document/canvas records and

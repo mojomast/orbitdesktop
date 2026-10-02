@@ -287,11 +287,15 @@ window.__technologyCspViolations.push({uri:event.blockedURI,directive:event.effe
                     page.keyboard.press('Control+k')
                     palette = page.get_by_role('dialog', name='Workspace commands', exact=True)
                     palette.get_by_role('combobox', name='Search workspace commands').fill(SURFACES[key])
-                    expect(palette.get_by_role('option')).to_have_count(0)
+                    option = palette.get_by_role('option')
+                    expect(option).to_have_count(1)
+                    expect(option).to_have_attribute('aria-disabled', 'false')
+                    expect(option).to_contain_text('Configure browser executable and allowed origins' if key == 'copilot' else 'MCP Apps is off or proxy configuration unavailable')
+                    expect(option).to_contain_text('Checked ')
                     page.keyboard.press('Escape')
                 search = surface('search')
                 expect(search.get_by_role('status')).to_contain_text('Semantic off', timeout=20000)
-                record('unconfigured browser/MCP and absent search-model availability')
+                record('unconfigured browser/MCP remain discoverable with observed setup reasons but unavailable backends; absent search-model availability')
             else:
                 # Unrelated generated widget must survive all subsequent host features.
                 api('/api/workspace', 'plugins_apply', base_revision=snapshot()['revision'],
@@ -390,15 +394,11 @@ return hit===node&&hit.matches('canvas.interactive');}''', point), ('Pointer mis
                 assert page.evaluate('document.activeElement.closest("dialog")!==null')
                 page.screenshot(path=str(EVIDENCE / f'{args.renderer}-recipient-390.png'))
                 page.set_viewport_size({'width': 1600, 'height': 1100})
-                transfer.get_by_role('button', name='Insert into draft', exact=True).click()
-                preview = page.get_by_role('dialog', name='Preview conversation draft', exact=True)
-                expect(preview).to_contain_text('Selected durable draft')
-                expect(preview).to_contain_text('Synthetic selected tradeoff')
+                expect(transfer.locator('.conversation-transfer-preview')).to_contain_text('Selected durable draft')
+                expect(transfer.locator('.conversation-transfer-preview')).to_contain_text('Synthetic selected tradeoff')
                 expect(chat(0).get_by_label('Message to Hermes', exact=True)).to_have_value('Selected durable draft')
-                preview.get_by_role('button', name='Confirm append to conversation draft', exact=True).click()
-                # Close events resolve the nested recipient promise and restore
-                # focus. Finish both before focusing a shell shortcut target.
-                expect(preview).to_have_count(0)
+                transfer.get_by_role('button', name='Insert into draft', exact=True).click()
+                # Complete the single exact-draft review before shell shortcuts.
                 expect(transfer).to_have_count(0)
                 expect(chat(0).locator('.conversation-draft-status')).to_contain_text('Draft saved on host', timeout=15000)
                 final_draft = chat(0).get_by_label('Message to Hermes', exact=True).input_value()
@@ -422,7 +422,7 @@ return hit===node&&hit.matches('canvas.interactive');}''', point), ('Pointer mis
                 data.locator('.data-sql').fill('SELECT "group", sum(amount) AS total FROM input_1 GROUP BY "group" ORDER BY "group"')
                 data.get_by_role('button', name='Run SELECT', exact=True).click()
                 expect(data.locator('.data-status')).to_contain_text('2 bounded rows', timeout=30000)
-                assert data.locator('tbody').inner_text() == 'A\t30\nB\t5'
+                assert data.locator('tbody tr').evaluate_all('(rows)=>rows.map(row=>[...row.cells].slice(1).map(cell=>cell.textContent))') == [['A', '30'], ['B', '5']]
                 data.get_by_role('button', name='Refresh recipes', exact=True).click()
                 expect(data.locator('.data-status')).to_contain_text('Private recipes loaded.')
                 data.get_by_role('button', name='Save recipe', exact=True).click()

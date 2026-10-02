@@ -3,6 +3,18 @@ import { workspaceId, ensureWorkspaceSynced } from './workspace-sync';
 // @ts-expect-error Shared runtime contract is JavaScript, validated at the API boundary.
 import { validateMcpSnapshot } from '../contracts/mcp-apps-v1.mjs';
 
+const snapshotTargets = new Map<string, { generation: string; stage: (snapshot: unknown, source: { id: string; version: string }) => void }>();
+export function mcpSnapshotTargets() { return [...snapshotTargets].filter(([key]) => key.startsWith(workspaceId + ':')).map(([key, value]) => ({ paneId: key.slice(workspaceId.length + 1), generation: value.generation })); }
+export function stageMcpSnapshot(snapshot: unknown, source: { id: string; version: string }, target: { paneId: string; generation: string }) {
+  try {
+    validateMcpSnapshot(snapshot);
+    const recipient = snapshotTargets.get(workspaceId + ':' + target.paneId);
+    if (!recipient || recipient.generation !== target.generation) throw Error('Recipient mount changed.');
+    recipient.stage(snapshot, source);
+    return { status: 'staged', deliveryId: crypto.randomUUID() };
+  } catch (error) { return { status: 'unavailable', reason: (error as Error).message }; }
+}
+
 export function mountMcpApps(host: HTMLElement, token: () => string, _options?: { paneId?: string }) {
   const abort = new AbortController();
   let bindingAbort = new AbortController(), bindingEpoch = 0, boundToken = '', boundWorkspace = workspaceId;
@@ -18,6 +30,16 @@ export function mountMcpApps(host: HTMLElement, token: () => string, _options?: 
   const save = button('Import snapshot'), refresh = button('Refresh saved snapshots'), cancel = button('Cancel app'), stop = button('Close app');
   const list = document.createElement('div'), view = document.createElement('div'); view.className = 'mcp-apps-view';
   root.append(heading, help, draft, save, refresh, cancel, stop, status, log, list, view); host.append(root);
+  const targetKey = workspaceId + ':' + (_options?.paneId ?? 'library');
+  const recipient = { generation: crypto.randomUUID(), stage: (snapshot: unknown, source: { id: string; version: string }) => {
+    const own = recipient.generation;
+    syncBinding();
+    if (disposed || own !== recipient.generation || !boundToken || boundWorkspace !== workspaceId) throw Error('Recipient is disconnected or binding changed.');
+    if (draft.value.trim()) throw Error('Recipient has a snapshot draft. Import or clear it first; it was not replaced.');
+    draft.value = JSON.stringify(snapshot, null, 2);
+    status.textContent = `Staged from ${source.id} @ ${source.version}. Capability requirements unknown: snapshot declares none. Logging only; no tools, model, links or network. Review JSON then Import snapshot explicitly.`;
+  }};
+  snapshotTargets.set(targetKey, recipient);
   let sandboxOrigin = '', bridge: import('@modelcontextprotocol/ext-apps/app-bridge').AppBridge | undefined;
   function button(label: string) { const element = document.createElement('button'); element.textContent = label; return element; }
   function liveBinding() {
@@ -32,6 +54,7 @@ export function mountMcpApps(host: HTMLElement, token: () => string, _options?: 
     bindingAbort.abort(); bindingAbort = new AbortController(); bindingEpoch++; generation++;
     needsRefresh = true;
     boundToken = live.credential; boundWorkspace = live.scope;
+    recipient.generation = crypto.randomUUID();
     release?.(); revision = ''; sandboxOrigin = ''; list.replaceChildren(); log.textContent = ''; save.disabled = true;
     return true;
   }
@@ -152,5 +175,5 @@ export function mountMcpApps(host: HTMLElement, token: () => string, _options?: 
   window.addEventListener('storage', event => { if (event.key === 'orbit.workspace.id') void reconnect(true); }, { signal: abort.signal });
   const bindingTimer = window.setInterval(() => { void reconnect(); }, 500);
   void reconnect(true);
-  return { dispose() { if (disposed) return; disposed = true; generation++; clearInterval(bindingTimer); bindingAbort.abort(); abort.abort(); release?.(); root.hidden = true; setTimeout(() => root.remove(), 350); } };
+  return { dispose() { if (disposed) return; disposed = true; if (snapshotTargets.get(targetKey) === recipient) snapshotTargets.delete(targetKey); generation++; clearInterval(bindingTimer); bindingAbort.abort(); abort.abort(); release?.(); root.hidden = true; setTimeout(() => root.remove(), 350); } };
 }

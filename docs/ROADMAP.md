@@ -26,12 +26,26 @@ The usability and technology branches now include:
   transcription, DuckDB Data Lab, Lexical documents, Excalidraw canvases and traces.
 - Configurable disposable Browser copilot, separate-origin imported MCP Apps, and
   an optional gVisor check provider requiring suitable host acceptance.
+- Predictable Start keyboard navigation and Spatial tool reveal; acknowledged
+  conversation selection, bounded older-title search and goal-first onboarding.
+- One exact-final-draft handoff with full citations and selected data values;
+  explicit complete-result delivery to A2UI, document and MCP snapshot surfaces.
+- Same-tab closed-document recovery, reviewed imports, selected-content sharing,
+  digest/revision-bound proposals and native editor Undo.
+- Logical arrangement history outside active-preview capacity, recovery of proven
+  completed setup copies and published integrations, review-only durable waits and
+  authoritative task-status snapshots.
+- Selected-resource local adapter grants and atomic cited editable-brief creation;
+  actual recipient support and configuration are in [Resource delegation](RESOURCE_DELEGATION.md).
 
 See [Usability](WORKSPACE_USABILITY.md), [Technology features](TECHNOLOGY_FEATURES.md),
 [prompt examples](WORKSPACE_PROMPTS.md) and [verification status](VERIFICATION.md).
 Owner walkthrough, merges and release-version selection remain pending. Workbench
 stays experimental/off by default. Automatic source crawling, Hermes A2UI/MCP
-discovery and autonomous browser planning are not implemented.
+server discovery and autonomous browser planning are not implemented. The
+[agency evolution](AGENCY_EVOLUTION.md) records cross-feature outcome acceptance.
+Physical task/history compaction, automatic recurring dispatch and a durable
+historical task-transition stream remain separate work.
 
 ## Continuing work: finish the modular boundary
 

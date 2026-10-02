@@ -227,7 +227,7 @@ ownership is retained; a saved recipe can be reused in another project only by
 resolving roles against that target's actual bindings, with explicit choices for
 ambiguity. Roles/layouts remain data-free arrangement constraints; they do not
 authorize resource access or expose resource contents. Direct small workspace
-operations remain available. Limits are 32 recipes per workspace, 200 proposals
+operations remain available. Limits are 32 recipes per workspace, 200 active proposals
 per project with newest-first pagination of 32, and 512 append-only actor-scoped
 recipe-save receipts per workspace. See [Workspace arrangements API](WORKSPACE_ARRANGEMENTS_API.md)
 for request, authorization, expiry, viewport, geometry and retry semantics.
@@ -315,6 +315,59 @@ native consent records are fenced after restart rather than reissued. Retention
 inventory exposes reference counts and a dry-run plan; automatic artifact deletion
 is not implemented. Native homes, copied dependency environments and integration
 stages remain private retained artifacts, including incomplete/unknown operations.
+
+`retention_inventory.capacity` includes every authoritative Workbench record kind,
+with retained/active/archived counts, limits and remaining slots. Arrangement history
+is retained in place outside active preview capacity. Task graph archival and
+physical tree reclamation remain unavailable: active, unknown, review-linked and
+historical operation identities are preserved. Setup's separate private journal
+reports its own byte and record capacity through its owner `state` action.
+
+### Integration receipt recovery and reconnect status
+
+The owner workflow API accepts `integration_finalize_retry` with `integration_id`
+and the exact `expected_recovery_digest` returned by integration metadata. New
+publications save a flushed complete-file manifest (including Git metadata), root
+identity, operation identity and both commit IDs before the staging rename. If a
+published artifact's final SQLite receipt fails, retry verifies the entire retained
+artifact and updates only the database. No Git command, publication, check or model
+execution occurs. Tampered or missing artifacts fail closed; an unpublished stage
+is retained for inspection. Older pending receipts without that journal cannot be
+recovered by guessing. Revoked projects can settle historical metadata; the retry
+response contains IDs/status/commit IDs, never artifact paths or bytes. Layout
+Return does not reverse a private integration publication.
+
+`task_status_snapshot` returns one authoritative current item per task, with
+independent job/grant status, termination confirmation, result availability,
+recorded evidence, reviews and integration status. Categories are `pending`,
+`completed` (latest native runtime termination observed), or `review_needed`.
+Completion is not verification: `check_acceptance` reuses execution's latest
+required-evidence calculation for the recorded candidate identity (or is null when
+no candidate is available). It includes its evidence IDs and explicitly still
+requires current source/review inspection. Missing heartbeat/trace data never
+establishes termination.
+Result prose is not returned by this projection. Targets identify existing Live,
+Checks and Result views.
+
+Each item has a revision-derived `notification_id`. `task_status_read` takes
+`task_id` and `expected_notification_id`, stores one durable read marker per task,
+and rejects a stale acknowledgment. Reconnect always requests a complete snapshot
+(`reset:true`, `snapshot_digest`); repeated reads do not duplicate items. This is a
+current-state inbox API, not a historical transition stream or missed-SSE backfill.
+The existing per-pane task view embeds **Task status inbox**, with an explicit
+refresh, exact **Mark status read** acknowledgment and links to that task's Live,
+Checks and Result views. **Record capacity** shows active/archive counts and
+remaining slots. A stale acknowledgment asks for a new snapshot rather than
+silently marking an unseen status read. Completion, result availability, recorded
+checks, review and publication are displayed separately.
+
+Under Changes → **Verified patch and integration actions**, saved integration
+receipts expose **Finalize integration receipt** only when a recovery digest is
+recorded. It submits that exact digest and reports historical settlement separately
+from publication or authorization. Missing/tampered artifacts remain fenced; an
+unconfirmed response instructs the owner to inspect/refresh retained receipts,
+never create another integration as a retry. Workbench remains experimental and
+off by default. These controls use the same owner-only APIs.
 
 ### Explicit local Hermes configuration
 

@@ -1,4 +1,8 @@
 name: Orbit technology feature tests
+env:
+  # These hosted fixtures use bundled CPU ONNX/WASM; do not fetch optional CUDA
+  # and TensorRT providers from NuGet on CPU-only runners.
+  ONNXRUNTIME_NODE_INSTALL: skip
 
 # Heavy browser engines and optional local models have their own scoped gate.
 # Weekly/manual coverage also catches upstream runner and browser changes.
@@ -26,6 +30,10 @@ on:
       - 'src/host-surfaces*'
       - 'src/docking*'
       - 'src/conversation-transfer.ts'
+      - 'src/agent-chat.ts'
+      - 'src/*delegation*'
+      - 'src/*capabilit*'
+      - 'src/resource-*'
       - 'server/*copilot*'
       - 'server/data-*'
       - 'server/documents*'
@@ -35,10 +43,17 @@ on:
       - 'server/run-trace*'
       - 'server/voice-*'
       - 'server/technology-*'
+      - 'server/*delegation*'
+      - 'server/*capabilit*'
+      - 'server/feature-readiness.mjs'
+      - 'server/resource-*'
+      - 'hermes-plugin/resources.py'
+      - 'hermes-plugin/normal_resources.py'
       - 'server/index.mjs'
       - 'server/agent.mjs'
       - 'server/security.mjs'
       - 'contracts/*-v1.mjs'
+      - 'contracts/feature-capabilities.*'
       - 'scripts/knowledge-model.mjs'
       - 'scripts/provision_voice_models.mjs'
       - 'scripts/provision_data_engine.mjs'
@@ -54,6 +69,12 @@ on:
       - 'tests/run-trace*'
       - 'tests/voice-*'
       - 'tests/technology-*'
+      - 'tests/*delegation*'
+      - 'tests/*capabilit*'
+      - 'tests/feature-readiness*'
+      - 'tests/resource-*'
+      - 'tests/normal-resources*'
+      - 'tests/research-handoffs.browser.py'
       - 'tests/docking-narrow.browser.py'
   push:
     branches: [main, 'release/**']
@@ -79,6 +100,10 @@ on:
       - 'src/host-surfaces*'
       - 'src/docking*'
       - 'src/conversation-transfer.ts'
+      - 'src/agent-chat.ts'
+      - 'src/*delegation*'
+      - 'src/*capabilit*'
+      - 'src/resource-*'
       - 'server/*copilot*'
       - 'server/data-*'
       - 'server/documents*'
@@ -88,10 +113,17 @@ on:
       - 'server/run-trace*'
       - 'server/voice-*'
       - 'server/technology-*'
+      - 'server/*delegation*'
+      - 'server/*capabilit*'
+      - 'server/feature-readiness.mjs'
+      - 'server/resource-*'
+      - 'hermes-plugin/resources.py'
+      - 'hermes-plugin/normal_resources.py'
       - 'server/index.mjs'
       - 'server/agent.mjs'
       - 'server/security.mjs'
       - 'contracts/*-v1.mjs'
+      - 'contracts/feature-capabilities.*'
       - 'scripts/knowledge-model.mjs'
       - 'scripts/provision_voice_models.mjs'
       - 'scripts/provision_data_engine.mjs'
@@ -107,6 +139,12 @@ on:
       - 'tests/run-trace*'
       - 'tests/voice-*'
       - 'tests/technology-*'
+      - 'tests/*delegation*'
+      - 'tests/*capabilit*'
+      - 'tests/feature-readiness*'
+      - 'tests/resource-*'
+      - 'tests/normal-resources*'
+      - 'tests/research-handoffs.browser.py'
       - 'tests/docking-narrow.browser.py'
   schedule:
     - cron: '47 5 * * 2'
@@ -140,6 +178,17 @@ jobs:
         with:
           python-version: '3.11'
       - run: npm ci
+      - uses: astral-sh/setup-uv@v6
+        if: matrix.suite == 'knowledge'
+        with:
+          version: '0.11.2'
+      - name: Prepare pinned local gateway for source-grant acceptance
+        if: matrix.suite == 'knowledge'
+        run: |
+          mkdir -p /tmp/opencode
+          git clone --no-checkout https://github.com/NousResearch/hermes-agent /tmp/opencode/orbit-hermes-native
+          git -C /tmp/opencode/orbit-hermes-native checkout --detach d0288be5b3330d2442e3907185b8e9d0958297bb
+          uv sync --project /tmp/opencode/orbit-hermes-native --frozen --python 3.14 --no-default-groups
       - name: Cache pinned public embedding model
         if: matrix.suite == 'knowledge' || startsWith(matrix.suite, 'workspace-')
         uses: actions/cache@v4
@@ -197,8 +246,16 @@ jobs:
           set -euo pipefail
           python=/tmp/opencode/orbit-technology-venv/bin/python
           case "$SUITE" in
-            knowledge) "$python" tests/knowledge-search.browser.py ;;
-            interactive) "$python" tests/interactive-results.browser.py ;;
+            knowledge)
+              "$python" tests/feature-readiness.browser.py
+              "$python" tests/knowledge-search.browser.py
+              "$python" tests/resource-grants.browser.py
+              HERMES_PINNED_SOURCE=/tmp/opencode/orbit-hermes-native HERMES_PINNED_PYTHON=/tmp/opencode/orbit-hermes-native/.venv/bin/python "$python" tests/resource-grants.browser.py --normal
+              ;;
+            interactive)
+              "$python" tests/interactive-results.browser.py
+              "$python" tests/research-handoffs.browser.py
+              ;;
             voice) "$python" tests/voice-capture.browser.py --models-root /tmp/opencode/orbit-voice-models --audio-file /tmp/opencode/orbit-voice-jfk.wav ;;
             data) "$python" tests/data-workbench.browser.py ;;
             documents)

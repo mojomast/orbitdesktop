@@ -1,5 +1,7 @@
 import './run-trace-pane.css';
 import {createRunTraceClient,type RunTrace,type TraceSpan} from './run-trace-client';
+import {requestConversationContext} from './conversation-transfer';
+import {traceDiagnosticSummary} from './run-trace-summary';
 
 export function mountRunTracePane(host:HTMLElement,token:()=>string,_options?:{paneId?:string}):{dispose():void}{
   const client=createRunTraceClient(token);let disposed=false,busy=false,selected='',spans=new Map<string,TraceSpan>(),cursor=0,generation=0;
@@ -48,6 +50,19 @@ export function mountRunTracePane(host:HTMLElement,token:()=>string,_options?:{p
   }
   button('Refresh',()=>{void refresh();});
   button('First failure',()=>{const first=[...spans.values()].find(s=>s.status==='error');if(first)rows.querySelector<HTMLElement>(`[data-span-id="${first.span_id}"]`)?.focus();});
+  button('Share diagnostic summary',()=>{void (async()=>{
+    if(!selected){message.textContent='Select a run before sharing diagnostics.';return;}
+    const id=selected,version=generation;
+    // Read a fresh bounded snapshot rather than treating a stale waterfall as a
+    // complete trace. The owner reviews this captured snapshot before insertion.
+    const listing=await client.request<{traces:RunTrace[]}>('list');
+    const trace=listing.traces.find(value=>value.trace_id===id);
+    if(!trace)throw Error('This trace is no longer available. Refresh the list.');
+    const page=await client.request<{spans:TraceSpan[];has_more:boolean;partial:boolean;status:string}>('page',{trace_id:id,after_sequence:0,limit:500});
+    if(disposed||version!==generation||id!==selected)return;
+    const outcome=await requestConversationContext({title:'Run diagnostic snapshot',source:'Private derived timing metadata',text:traceDiagnosticSummary({...trace,status:page.status,partial:page.partial},page.spans,page.has_more)});
+    if(!disposed&&version===generation)message.textContent=outcome.status==='delivered'?'Diagnostic snapshot inserted into the selected draft; no message was sent.':`Diagnostic sharing: ${outcome.status}.`;
+  })().catch(report);});
   button('Export JSON',()=>{if(!selected)return;void client.request<{resource_spans:unknown;filename:string}>('export',{trace_id:selected}).then(data=>{if(disposed)return;const url=URL.createObjectURL(new Blob([JSON.stringify(data.resource_spans,null,2)],{type:'application/json'}));const link=document.createElement('a');link.href=url;link.download=data.filename;link.click();URL.revokeObjectURL(url);}).catch(report);});
   button('Remove trace',()=>{if(!selected||!confirm('Remove this derived local trace?'))return;void client.request('remove',{trace_id:selected}).then(()=>{selected='';cursor=0;spans.clear();generation++;render();void refresh();}).catch(report);});
   button('Retention preview',()=>{void client.request<{eligible:number}>('retention',{dry_run:true}).then(data=>{if(!disposed)message.textContent=`${data.eligible} traces older than seven days eligible for removal.`;}).catch(report);});

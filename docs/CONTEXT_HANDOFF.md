@@ -10,10 +10,11 @@ The transfer is deliberately narrow:
 
 - One caller supplies the exact text. The module never reads a selection, a
   terminal buffer, an iframe document or a source URL itself.
-- The host dialog bounds the preview to `MAX_TRANSFER_CHARS` (20000) and reports
-  the omitted count instead of silently truncating.
+- The host bounds transferred content to `MAX_TRANSFER_CHARS` (20000) and reports
+  the omitted count instead of silently truncating. A prepared final preview also
+  includes the recipient's existing draft (Normal's total bound is 100,000).
 - The user explicitly chooses one registered, currently available recipient.
-- Only the chosen recipient's `receive` callback is invoked. There is no
+- Only the chosen recipient's prepared commit (or legacy `receive`) is invoked. There is no
   broadcast, no `postMessage`, no custom event carrying the text and no global
   registry fan-out.
 - Delivery is an async acceptance. The recipient validates its own exact
@@ -28,6 +29,8 @@ The transfer is deliberately narrow:
 export const MAX_TRANSFER_CHARS = 20000;
 
 export interface ConversationTransferRequest {
+  /** Revalidate source availability immediately before final commit. */
+  validate?: () => void | Promise<void>;
   /** Exact text to transfer; required. Empty/whitespace-only text is refused. */
   text: string;
   /** Optional short label shown above the preview. Not part of the text. */
@@ -54,6 +57,11 @@ export type ConversationDeliveryResult =
   | { accepted: false; reason?: string };
 
 export interface ConversationRecipientOptions {
+  /** Capture the exact final draft without changing it. Commit checks all races. */
+  prepare?: (delivery: ConversationDelivery) => {
+    text: string;
+    commit: () => ConversationDeliveryResult;
+  };
   /** Stable recipient id, 1–128 chars. Re-registering replaces the entry. */
   id: string;
   /** Human label shown in the target list. */
@@ -119,7 +127,13 @@ export function requestConversationContext(
   the same entry object and still `available`. If not, it records a `stale`
   failure, reports the target as no longer available, and leaves the preview
   open.
-- Otherwise it awaits `receive(delivery)`. `{ accepted: true }` closes the
+- Selecting a Normal chat calls `prepare` and shows its exact final draft,
+  including existing text, in this same dialog. Final insertion awaits the
+  producer's `validate`, rechecks registration, then runs the captured commit.
+  Chat checks original draft, credential, pane and conversation binding again.
+  No second confirmation dialog is opened. A changed draft requires selecting
+  the recipient again to review a fresh final draft.
+- Legacy recipients without `prepare` await `receive(delivery)`. `{ accepted: true }` closes the
   dialog and resolves `{ status: 'delivered', recipientId }`. `{ accepted:
   false }` or a thrown/rejected promise records a `rejected` failure and keeps
   the dialog and preview open with the reason.
@@ -144,35 +158,16 @@ export function requestConversationContext(
 - Only the single user-chosen recipient's `receive` runs. The registry never
   delivers to every pane.
 
-## Chat pane integration (owned by the agent-chat work)
+## Chat pane integration
 
-On mount, register once and dispose in the pane cleanup:
-
-```ts
-import { registerConversationRecipient } from './conversation-transfer';
-import { chatBindingKey } from './chat-storage';
-
-const captured = { key: chatBindingKey(state), paneId };
-const recipient = registerConversationRecipient({
-  id: `chat:${paneId}`,
-  title: state.title || 'Hermes conversation',
-  available: bindingReady,
-  async receive({ text }) {
-    if (disposed || chatBindingKey(state) !== captured.key || state.run) {
-      return { accepted: false, reason: 'This conversation changed; the text was not inserted.' };
-    }
-    // Explicit draft insertion only. Never call submit() from here.
-    input.value = input.value ? `${input.value}\n${text}` : text;
-    saveDraft();
-    return { accepted: true };
-  },
-});
-// On binding change: recipient.update({ available: bindingReady, title: ... });
-// In the returned cleanup: recipient.dispose();
-```
-
-The pane must update `available` when it loses or regains its host binding, and
-must not call `submit`/`start` from `receive`.
+`src/agent-chat.ts` registers `chat:<workspace>:<pane>` against the exact live
+profile/session/binding revision and mount generation. Its `prepare` snapshots
+the current input and credential, calculates the appended draft, and refuses a
+draft over 100,000 characters. Its synchronous commit repeats the live checks
+and original-input comparison before calling the existing draft-save path.
+The registry is refreshed as eligibility changes and disposed with the pane.
+Clicking the selected recipient again refreshes the final preview after a refused
+draft-change race. Neither preparation nor commit calls `submit` or `start`.
 
 ## Parent shell command (owned by the command/selection work)
 

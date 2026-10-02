@@ -84,6 +84,24 @@ workspace. Disposal aborts requests and removes the binding timer/listeners.
 
 ## Private records and retention
 
+### Owner-mediated research handoff
+
+After **Snapshot selected target**, select text in **Observation text**, then
+**Share selected observation**. The final draft contains the excerpt, exact
+session/target/revision, URL hash, observation digest, UTF-16 offsets, bounded
+capture time, up to 20 control descriptions with an omitted-control count, and
+truncation flag. Screenshot bytes are not shared.
+Observation text is labelled untrusted historical evidence; it is not a guarantee
+that the live DOM is unchanged. Local binding/snapshot changes fence insertion.
+
+Paste one proposed operation into **Proposed action JSON**, for example
+`{"kind":"fill","ref":"EXACT_OBSERVED_REF","text":"Reviewed text"}`.
+**Stage proposed action** accepts only the existing finite operation shapes and
+observed references and populates controls. It clears the old proposal and makes
+no backend action call. Review the controls, then use the ordinary **Preview
+action** and **Execute reviewed action once** sequence. All server DOM/URL/revision
+checks still apply. This is explicit owner mediation, not a browser planner.
+
 Back up the optional `<root>/browser-copilot/` directory with the private runtime.
 It contains `receipts/*.json` and `evidence/{SHA256}.json|png` only; no layout,
 checkpoint, workspace event, public app artifact or model payload receives page

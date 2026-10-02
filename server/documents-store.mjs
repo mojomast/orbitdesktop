@@ -45,9 +45,10 @@ export function createDocumentsService({root,workspaceRead}) {
     for(const monitor of state?.monitors??[]) {const p=walk(monitor.layout);if(p)return p;}
     return null;
   }
-  async function dispatch(body) {
+  async function dispatch(body, authorize = () => {}) {
     if(!validate(body)) fail('invalid_request');
     const snapshot=await workspaceRead(body.workspace_id);
+    authorize(); // Internal trusted delegation hook; never a JSON request field.
     if(!snapshot) fail('unavailable');
     const state=snapshot.state??snapshot;
     if(body.pane_id) {const p=pane(state,body.pane_id);if(p?.kind!=='browser'||p.url!==`orbit://document/${body.document_id}`) fail('permission_denied');}
@@ -67,10 +68,11 @@ export function createDocumentsService({root,workspaceRead}) {
     }
     const digest=hash(body), previous=r?.receipts.find(x=>x.op_id===body.op_id);
     if(previous) {if(previous.digest!==digest)fail('conflict',{reason:'operation_mismatch'});return previous.result;}
-    if(body.action==='create') {
+    if(body.action==='create'||body.action==='create_content') {
       if(r) fail('conflict',{revision:r.revision});
       if(fs.readdirSync(folder(w)).filter(n=>n.endsWith('.json')).length>=DOCUMENT_LIMITS.documents)fail('limit_exceeded');
       r={version:1,id:body.document_id,workspace_id:w,title:body.title,revision:0,updated_at:'',data:{kind:body.kind,format:body.kind==='richtext'?'lexical':'excalidraw',content:body.kind==='richtext'?EMPTY_RICHDOC:EMPTY_CANVAS},receipts:[]};
+      if(body.action==='create_content'){validateDocumentData(body.data);r.data=body.data;}
     } else {
       if(!r)fail('unavailable');
       if(r.revision!==body.expected_revision)fail('conflict',{revision:r.revision});
@@ -81,7 +83,7 @@ export function createDocumentsService({root,workspaceRead}) {
     r.revision++;r.updated_at=new Date().toISOString();
     const result={document_id:r.id,revision:r.revision,data_schema_version:1};
     r.receipts=[...r.receipts,{op_id:body.op_id,digest,result}].slice(-DOCUMENT_LIMITS.receipts);
-    write(w,r);return result;
+    authorize();write(w,r);return result;
   }
   return {dispatch};
 }

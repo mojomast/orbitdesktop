@@ -24,9 +24,19 @@ type Draft = {
 const drafts = new Map<string, Draft>();
 const importTargets = new Map<
   string,
-  (messages: any[], source: Source) => void
+  { generation: string; notify: () => void; current: () => boolean }
 >();
-let pending: { messages: any[]; source: Source; paneId?: string } | undefined;
+export type InteractiveDeliveryAcknowledgement = { status: 'rendered' | 'discarded' | 'stale'; deliveryId: string; workspaceId: string; paneId: string; generation: string };
+type PendingResult = { id: string; messages: any[]; source: Source; generation: string; acknowledge: (status: InteractiveDeliveryAcknowledgement['status']) => void };
+const pending = new Map<string, PendingResult[]>();
+function invalidatePending(key: string) {
+  const queue = pending.get(key) ?? [];
+  pending.delete(key);
+  for (const item of queue) item.acknowledge('stale');
+}
+export function interactiveResultTargets() {
+  return [...importTargets].filter(([key]) => key.startsWith(workspaceId + ':')).map(([key, value]) => ({ paneId: key.slice(workspaceId.length + 1), generation: value.generation }));
+}
 
 /** Parent calls explicitly for an authenticated, complete tool/result text snapshot.
  * It must pass the exact source ID/version; truncated activity is not a producer.
@@ -34,7 +44,7 @@ let pending: { messages: any[]; source: Source; paneId?: string } | undefined;
 export function queueInteractiveResult(
   text: string,
   source: Source,
-  options?: { paneId?: string },
+  options?: { paneId?: string; generation?: string; onAcknowledgement?: (ack: InteractiveDeliveryAcknowledgement) => void },
 ) {
   const extracted = extractInteractiveResult(text);
   if (extracted.status === "ok") {
@@ -50,18 +60,20 @@ export function queueInteractiveResult(
         status: "unavailable" as const,
         reason: "Exact source ID and version are required.",
       };
-    const target = options?.paneId
-      ? importTargets.get(options.paneId)
-      : importTargets.size === 1
-        ? [...importTargets.values()][0]
-        : undefined;
-    if (target) target(extracted.messages, { ...source });
-    else
-      pending = {
-        messages: extracted.messages,
-        source: { ...source },
-        paneId: options?.paneId,
-      };
+    const key = workspaceId + ':' + options?.paneId, target = importTargets.get(key);
+    if (!target || !target.current() || (options?.generation && target.generation !== options.generation))
+      return { status: 'unavailable' as const, reason: 'Choose a currently mounted results pane.' };
+    const queue = pending.get(key) ?? [];
+    if (queue.length >= 8) return { status: 'unavailable' as const, reason: 'Recipient inbox is full (8 results). Open or discard an entry first.' };
+    const id = crypto.randomUUID();
+    const scope = workspaceId, paneId = options!.paneId!, generation = target.generation;
+    let acknowledged = false;
+    queue.push({ id, messages: extracted.messages, source: { ...source }, generation, acknowledge: status => {
+      if (acknowledged) return; acknowledged = true;
+      try { options?.onAcknowledgement?.({ status, deliveryId: id, workspaceId: scope, paneId, generation }); } catch { /* Acknowledgement UI cannot change delivery outcome. */ }
+    } });
+    pending.set(key, queue); target.notify();
+    return { status: 'queued' as const, deliveryId: id, paneId: options!.paneId!, generation: target.generation };
   }
   return extracted;
 }
@@ -117,6 +129,11 @@ export function mountInteractiveResults(
       nextRefresh = 0;
       boundToken = credential;
       boundWorkspace = scope;
+      if (importTargets.get(key) === acceptImport) {
+        invalidatePending(key);
+        acceptImport.generation = crypto.randomUUID();
+        acceptImport.notify();
+      }
       summaryDialog?.close();
       library.replaceChildren();
     }
@@ -583,6 +600,7 @@ export function mountInteractiveResults(
   }
   async function summary() {
     if (!draft || !processor) throw Error("Import a result first.");
+    const transferBinding = liveBinding();
     const captured = structuredClone(draft),
       own = generation;
     if (captured.id) {
@@ -646,62 +664,22 @@ export function mountInteractiveResults(
       text,
       title: captured.title,
       source: "Interactive result (explicit owner preview)",
+      validate: async () => {
+        const live = liveBinding();
+        if (live.credential !== transferBinding.credential || live.scope !== transferBinding.scope || live.scope !== workspaceId) throw Error('Result host binding changed.');
+        if (disposed || own !== generation || canonical(captured) !== canonical(draft)) throw Error('Result changed since preview.');
+        if (captured.id) {
+          const { record } = await api({ action: 'read', id: captured.id });
+          if (record.revision !== captured.revision || canonical(record.source) !== canonical(captured.source) || canonical(record.messages) !== canonical(captured.messages)) throw Error('Saved result changed since preview.');
+        }
+        if (disposed || own !== generation || canonical(captured) !== canonical(draft)) throw Error('Result changed since preview.');
+      },
     });
     const dialog = document.querySelector<HTMLDialogElement>(
       "dialog.conversation-transfer",
     );
     if (dialog && dialog !== existing) {
       summaryDialog = dialog;
-      let verified = false;
-      dialog.addEventListener(
-        "click",
-        (event) => {
-          if (
-            !(event.target instanceof Element) ||
-            !event.target.closest(".conversation-transfer-insert") ||
-            verified
-          )
-            return;
-          event.preventDefault();
-          event.stopImmediatePropagation();
-          void (async () => {
-            if (
-              disposed ||
-              own !== generation ||
-              canonical(captured) !== canonical(draft)
-            )
-              throw Error(
-                "Result changed since preview; prepare a fresh summary.",
-              );
-            if (captured.id) {
-              const { record } = await api({ action: "read", id: captured.id });
-              if (
-                record.revision !== captured.revision ||
-                canonical(record.source) !== canonical(captured.source) ||
-                canonical(record.messages) !== canonical(captured.messages)
-              )
-                throw Error(
-                  "Source/version changed since preview; reopen the result.",
-                );
-            }
-            if (
-              disposed ||
-              own !== generation ||
-              canonical(captured) !== canonical(draft)
-            )
-              throw Error("Result changed since preview.");
-            verified = true;
-            dialog
-              .querySelector<HTMLButtonElement>(".conversation-transfer-insert")
-              ?.click();
-            verified = false;
-          })().catch((error) => {
-            dialog.close();
-            report(error);
-          });
-        },
-        { capture: true, signal: abort.signal },
-      );
     }
     await transfer;
     if (summaryDialog === dialog) summaryDialog = undefined;
@@ -794,29 +772,42 @@ export function mountInteractiveResults(
     },
     { signal: abort.signal },
   );
-  if (options?.initialResult)
-    queueInteractiveResult(
-      options.initialResult.text,
-      options.initialResult.source,
-      { paneId: options?.paneId ?? "library" },
-    );
-  if (
-    pending &&
-    (!pending.paneId || pending.paneId === (options?.paneId ?? "library"))
-  ) {
-    const next = pending;
-    pending = undefined;
-    void replace(next.messages, next.source).catch(report);
-  } else if (draft) {
+  if (draft) {
     title.value = draft.title;
     void render().catch(report);
   }
-  const targetId = options?.paneId ?? "library";
-  const acceptImport = (messages: any[], source: Source) => {
-    summaryDialog?.close();
-    void replace(messages, source).catch(report);
-  };
+  const targetId = key;
+  const inbox = document.createElement('div'); inbox.setAttribute('aria-label', 'Incoming interactive results'); root.prepend(inbox);
+  const acceptImport = { generation: crypto.randomUUID(), current: (): boolean => {
+    const live = liveBinding();
+    return importTargets.get(key) === acceptImport && !disposed && !!boundToken && live.credential === boundToken && live.scope === boundWorkspace && boundWorkspace === workspaceId;
+  }, notify: () => {
+    inbox.replaceChildren();
+    for (const incoming of pending.get(key) ?? []) {
+      const row = document.createElement('div'); row.textContent = `Queued ${incoming.source.id} @ ${incoming.source.version} · ${incoming.id} `;
+      for (const label of ['Open queued result', 'Discard queued result']) {
+        const b = document.createElement('button'); b.textContent = label;
+        b.onclick = () => { void (async () => {
+          syncBinding();
+          if (!acceptImport.current() || incoming.generation !== acceptImport.generation) throw Error('Recipient binding changed.');
+          if (label === 'Open queued result') {
+            if (draft && !confirm('Replace the displayed result? Save your current edits first to retain them in the private library.')) return;
+            const rendering = replace(incoming.messages, incoming.source), capturedDraft = draft;
+            await rendering;
+            if (!acceptImport.current() || incoming.generation !== acceptImport.generation || draft !== capturedDraft) throw Error('Delivery render was superseded; no render acknowledgement.');
+            say(`Rendered delivery ${incoming.id} in pane ${options?.paneId ?? 'library'}. Save remains explicit.`);
+          }
+          pending.set(key, (pending.get(key) ?? []).filter(item => item !== incoming)); acceptImport.notify();
+          incoming.acknowledge(label === 'Open queued result' ? 'rendered' : 'discarded');
+        })().catch(report); };
+        row.append(b);
+      }
+      inbox.append(row);
+    }
+  }};
   importTargets.set(targetId, acceptImport);
+  syncBinding();
+  if (options?.initialResult) queueInteractiveResult(options.initialResult.text, options.initialResult.source, { paneId: options?.paneId ?? 'library', generation: acceptImport.generation });
   window.addEventListener(
     "orbit-host-connected",
     () => {
@@ -847,8 +838,10 @@ export function mountInteractiveResults(
       if (disposed) return;
       retain();
       disposed = true;
-      if (importTargets.get(targetId) === acceptImport)
+      if (importTargets.get(targetId) === acceptImport) {
         importTargets.delete(targetId);
+        invalidatePending(key);
+      }
       ++generation;
       summaryDialog?.close();
       clearInterval(reconnectTimer);

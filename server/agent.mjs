@@ -14,7 +14,7 @@ const sessionPattern = /^orbit-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[
 const runPattern = /^run_[a-zA-Z0-9_-]{8,100}$/;
 const instructions = 'You are Hermes, accessed through the owner’s Comet/Orbit Desktop agent chat. This pane uses its explicitly selected profile and conversation, which may resume a saved Hermes session. Orbit terminal panes run as the owner on the host. Your agent tools still run in the configured Hermes environment. Use plain text in replies. Do not claim to see screen pixels, iframe contents, or terminal buffers unless supplied. Follow normal tool approval policies.';
 
-export function createAgentHandler({ token, port, devOrigins, reply, workspaceContext, workspaceRead, runtimeDirectory = process.env.ORBIT_RUNTIME_DIR || fileURLToPath(new URL('../.runtime/', import.meta.url)), apiUrl = process.env.HERMES_API_URL, apiKey = process.env.HERMES_API_KEY, profiles, profilesJson = process.env.HERMES_PROFILES_JSON, fetchImpl = fetch, executionGate, onRunEvent }) {
+export function createAgentHandler({ token, port, devOrigins, reply, workspaceContext, workspaceRead, runtimeDirectory = process.env.ORBIT_RUNTIME_DIR || fileURLToPath(new URL('../.runtime/', import.meta.url)), apiUrl = process.env.HERMES_API_URL, apiKey = process.env.HERMES_API_KEY, profiles, profilesJson = process.env.HERMES_PROFILES_JSON, fetchImpl = fetch, executionGate, onRunEvent, onNormalAccepted }) {
   // Derived observation only, using the exact run-trace contract. Never await or
   // let an observer alter a receipt, response, approval or dispatch outcome.
   const observeStatus=(binding,run)=>{
@@ -381,6 +381,9 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
             shared.locks.delete(paneLock); paneLock = undefined;
             const data = await agent.workbench.dispatchExact({...args,payload:record.payload,submission_id:receiptId,preservePending:true,idempotency_key:prepared.caps.idempotent_submit ? receiptId : undefined,onAccepted: data => {
                record.run_id = data.run_id; record.state = 'accepted'; saveSubmission(record);
+               // Host-only observer receives the durable exact receipt, never UI
+               // identity assertions. A grant setup failure cannot replay a run.
+               try { onNormalAccepted?.(structuredClone(record)); } catch {}
                observeStatus({workspace_id:record.workspace_id,profile_id:record.recipient.profile_id,session_id:record.recipient.session_id,run_id:record.run_id},data);
              }}, allowConcurrent);
             return reply(res,202,{...data,...publicReceipt(record)});
@@ -472,5 +475,51 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
     }
   };
   agent.workbench = createWorkbenchHermes({ configuration, shared, locks: shared.locks, upstreamFor, validatePane, workspaceRead, runtimeDirectory });
+  const resourceFailure=code=>{throw Object.assign(Error(code),{code});};
+  function resourceRecipient({workspace_id,pane_id}) {
+    try{validatePane({workspace_id,pane_id});}catch(error){resourceFailure(error.status===404?'resource_gone':'unavailable');}
+    const linked=shared.read(workspace_id,pane_id),profile=configuration?.get(linked?.profile_id);
+    if(!linked||!profile)resourceFailure('unavailable');
+    return {pane_id,profile_id:profile.id,session_id:linked.session,binding_revision:linked.binding_revision,
+      config_generation:createHash('sha256').update(`${profile.id}\0${profile.apiUrl || ''}\0${profile.apiKey || ''}`).digest('hex'),
+      destination:new URL(profile.apiUrl).origin,profile_label:profile.label??profile.id};
+  }
+  agent.resourceBindings={
+    current:resourceRecipient,
+    retirementReason(workspace_id,normal){
+      let current;
+      try{current=resourceRecipient({workspace_id,pane_id:normal.recipient.pane_id});}
+      catch(error){if(error.code==='resource_gone')return 'resource_gone';throw error;}
+      if(['profile_id','session_id','binding_revision','config_generation'].some(key=>current[key]!==normal.recipient[key]))return 'binding_changed';
+      if(!normal.run_id)return null;
+      const linked=shared.read(workspace_id,current.pane_id);
+      if(linked?.ordinary_submission_id&&linked.ordinary_submission_id!==normal.receipt_id)return 'superseded';
+      // Only a reconciled accepted receipt with BOTH activity markers cleared
+      // proves completion. Unknown/preparing submissions must retain their fence.
+      if(linked?.ordinary_submission_id===normal.receipt_id&&!linked.run&&!linked.workbench_pending&&readSubmission({workspace_id,pane_id:current.pane_id},linked)?.state==='accepted')return 'completed';
+      return null;
+    },
+    list(workspace_id){
+      const result=[];const walk=node=>{if(node.type==='pane'){if(node.pane.kind==='agent'){try{result.push(resourceRecipient({workspace_id,pane_id:node.pane.id}));}catch{}}}else{walk(node.first);walk(node.second);}};
+      for(const monitor of workspaceRead(workspace_id).state.monitors)walk(monitor.layout);return result;
+    },
+    authorize(workspace_id,normal){
+      const current=resourceRecipient({workspace_id,pane_id:normal.recipient.pane_id});
+      for(const key of ['profile_id','session_id','binding_revision','config_generation'])if(current[key]!==normal.recipient[key])resourceFailure('stale_resource');
+      if(!normal.run_id||!normal.receipt_id)resourceFailure('permission_denied');
+      const record=readSubmission({workspace_id,pane_id:current.pane_id});
+      if(!record||record.state!=='accepted'||record.receipt_id!==normal.receipt_id||record.run_id!==normal.run_id||record.payload_hash!==normal.payload_hash||createHash('sha256').update(JSON.stringify(record.payload)).digest('hex')!==normal.payload_hash)resourceFailure('permission_denied');
+      for(const key of ['profile_id','session_id','binding_revision','config_generation'])if(record.recipient[key]!==current[key])resourceFailure('stale_resource');
+      return current;
+    },
+    async validateRun(workspace_id,normal){
+      const current=this.authorize(workspace_id,normal),profile=configuration.get(current.profile_id);
+      const run=await upstreamFor(profile,`/v1/runs/${normal.run_id}`);
+      this.authorize(workspace_id,normal);
+      if(run.run_id!==normal.run_id||run.session_id!==current.session_id)resourceFailure('permission_denied');
+      if(['completed','failed','cancelled','interrupted'].includes(run.status))throw Object.assign(Error('permission_denied'),{code:'permission_denied',channel_retirement:'completed'});
+      if(!['queued','running','waiting_for_approval'].includes(run.status))resourceFailure('permission_denied');
+    },
+  };
   return agent;
 }
