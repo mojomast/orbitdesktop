@@ -178,9 +178,14 @@ it remains outside layout checkpoints. Browser synchronization and actual render
 inspection remain separate evidence.
 
 Normal's existing workspace adapter also retains credential-free mutation envelopes
-before dispatch under `workspace-adapter-requests/<workspace>`, capped at 128 records,
+before dispatch under `workspace-adapter-requests/<workspace>`, capped at 128 unresolved records,
 and preserves safe allowlisted server categories rather than treating every HTTP
-409 as a revision conflict. Only resolved records should be explicitly archived.
+409 as a revision conflict. An exact successful `command_receipt.operation_id`
+moves its immutable envelope into retained `completed/` history without consuming
+unresolved capacity. Historical exact retries remain valid; changed payloads with
+old keys are refused. Missing/mismatched receipts, errors and unknown effects stay
+pinned. Physical history removal is not automatic. A failed history move reports
+`retention: archive_pending` without turning a known response into an unknown effect.
 
 ## Discovery and verification
 

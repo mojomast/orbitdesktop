@@ -143,7 +143,7 @@ jobs:
         if: matrix.suite == 'core'
         run: |
           for test in tests/test_command_adapters.py tests/test_workspace_contract.py \
-            tests/test_workspace_batch_limit_regression.py tests/test_hermes_plugin.py \
+            tests/test_workspace_batch_limit_regression.py tests/test_hermes_plugin.py tests/test_normal_resource_retention.py \
             tests/plugin-publish.test.py tests/orbit-catalog.test.py \
             tests/test_orbit_bundle.py tests/test_portable_endpoints.py; do
             python3 "$test" || exit 1

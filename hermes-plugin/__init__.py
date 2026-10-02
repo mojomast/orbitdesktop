@@ -112,6 +112,11 @@ def retain_mutation(runtime, workspace, params):
     # Fixed digest filename, never a model-controlled path.
     filename = directory / (hashlib.sha256(params["operation_id"].encode()).hexdigest() + ".json")
     raw = json.dumps(params, sort_keys=True, separators=(",", ":")).encode()
+    archived = directory / "completed" / filename.name
+    if archived.exists():
+        if archived.read_bytes() != raw:
+            raise ValueError("Invalid Orbit retained operation payload")
+        return
     if filename.exists():
         if filename.read_bytes() != raw:
             raise ValueError("Invalid Orbit retained operation payload")
@@ -123,6 +128,39 @@ def retain_mutation(runtime, workspace, params):
         stream.write(raw)
         stream.flush()
         os.fsync(stream.fileno())
+    fd = os.open(directory, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def archive_mutation(runtime, workspace, params, result):
+    """An exact successful command receipt frees unresolved capacity, not history."""
+    if not isinstance(result, dict) or not isinstance(result.get("command_receipt"), dict):
+        return
+    if result["command_receipt"].get("operation_id") != params["operation_id"]:
+        return
+    directory = Path(runtime) / "workspace-adapter-requests" / workspace
+    filename = directory / (hashlib.sha256(params["operation_id"].encode()).hexdigest() + ".json")
+    completed = directory / "completed"
+    completed.mkdir(mode=0o700, exist_ok=True)
+    os.chmod(completed, 0o700)
+    target = completed / filename.name
+    raw = json.dumps(params, sort_keys=True, separators=(",", ":")).encode()
+    if not target.exists():
+        try:
+            os.link(filename, target)
+        except FileExistsError:
+            pass
+    if target.read_bytes() != raw:
+        raise ValueError("Invalid Orbit retained operation payload")
+    fd = os.open(completed, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    filename.unlink(missing_ok=True)
     fd = os.open(directory, os.O_RDONLY)
     try:
         os.fsync(fd)
@@ -283,7 +321,16 @@ def invoke(ctx, params):
         raise ValueError("Workspace response exceeds the size limit")
     if capability.encode() in raw:
         raise ValueError("Refusing a response containing the workspace capability")
-    return {"ok": True, "result": json.loads(raw), **({"operation_id": request_params["operation_id"], "request_digest": hashlib.sha256(json.dumps(request_params, sort_keys=True, separators=(",", ":")).encode()).hexdigest()} if action in MUTATIONS else {})}
+    result = json.loads(raw)
+    retention = {}
+    if action in MUTATIONS:
+        try:
+            archive_mutation(runtime, workspace, request_params, result)
+        except (OSError, ValueError):
+            # A known response must not become unknown because housekeeping
+            # failed. The original envelope remains available for exact replay.
+            retention = {"retention": "archive_pending"}
+    return {"ok": True, "result": result, **retention, **({"operation_id": request_params["operation_id"], "request_digest": hashlib.sha256(json.dumps(request_params, sort_keys=True, separators=(",", ":")).encode()).hexdigest()} if action in MUTATIONS else {})}
 
 
 def register(ctx):
