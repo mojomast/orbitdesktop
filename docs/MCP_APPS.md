@@ -58,6 +58,19 @@ listeners, stops binding checks, aborts requests and closes the frame transport.
 
 ## Capability and sandbox boundary
 
+### Complete-result snapshot staging
+
+A complete authenticated Normal reply or available Workbench delivery card may
+contain the sole-key envelope `{"mcp_snapshot":{…exact snapshot fields above…}}`.
+**Stage MCP snapshot** selects one mounted MCP pane, validates the closed snapshot
+contract and inserts exact JSON into its empty import editor. A populated editor,
+stale mount or changed host binding refuses delivery without replacing text.
+The pane reports source ID/version and unknown capability requirements (the
+current snapshot schema declares none); it does not claim ecosystem compatibility.
+Review and **Import snapshot** explicitly to store/open through the existing CAS
+and sandbox. Staging neither fetches a resource URI nor runs an app. Imported HTML
+still needs a genuine self-contained SDK implementation to initialize.
+
 The AppBridge uses `null` for its MCP client and advertises only `{logging:{}}`.
 Initialization negotiates the SDK protocol; host context supplies theme and inline
 display mode. Resize is bounded to 120–1600 pixels. Tools, resource access,

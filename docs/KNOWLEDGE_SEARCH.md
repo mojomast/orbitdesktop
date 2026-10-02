@@ -1,5 +1,12 @@
 # Local source search
 
+**Preview passage into draft** includes the selected excerpt and its full opaque
+source ID, extractor version, content/text SHA-256 and exact UTF-16 offsets in
+the actual draft text. The source is reread and verified again at final insertion;
+removal or changed bytes keeps the reviewed draft unchanged. This is an included
+snapshot excerpt, not a promise to retrieve changed upstream content. Later source
+deletion does not retract copies already inserted into drafts.
+
 The reviewed `orbit://surface/search` host surface searches **explicitly ingested
 owner snapshots**, scoped to the current existing workspace. Paste text, a
 selection or a conversation excerpt, or choose a small UTF-8 `.txt`, `.md`, `.csv`
@@ -246,7 +253,8 @@ advances the real service generation from another owner request, disables the
 10-second UI poll, deliberately fails metadata refresh, and verifies that an
 explicit deletion retry uses the reported generation immediately. Pending title,
 text, chosen-file and query inputs remain intact. Its workspace-sync response and
-recipient are synthetic fixtures; its search HTTP service and renderer are real.
+agent API are synthetic fixtures; its search HTTP service, renderer and Normal
+chat recipient are real. Final insertion revalidation is exercised after review.
 This does not establish a live owner workspace/browser acknowledgement.
 
 The parent reported its integrated combined check passing 946 of 956 tests with

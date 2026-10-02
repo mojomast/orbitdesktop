@@ -21,6 +21,7 @@ import type { ConversationSelection } from './conversation-selection';
 import { createConversationDraft } from './conversation-draft';
 import { conversationRequest } from './conversation-client';
 import { registerConversationRecipient, type ConversationRecipientHandle } from './conversation-transfer';
+import { completeResultActions } from './interactive-result-delivery';
 
 import { archiveChat, validChat, transcript, chatProfileId, chatBindingKey, type ChatState } from './chat-storage';
 export function createAgentChat(body: HTMLElement, paneId: string, getToken: () => string, toolbar?: HTMLElement) {
@@ -387,6 +388,8 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
         text.textContent = card.availability === 'available' && typeof card.text === 'string'
           ? card.text : 'Agent explanation unavailable. Recorded checks and human review remain separate.';
         item.append(text, el('p', '', `Task ${String(card.task_id || '')} · Attempt ${String(card.attempt_id || '')}`));
+        if (card.availability === 'available' && typeof card.text === 'string' && typeof card.result_id === 'string')
+          item.append(completeResultActions(card.text, { id: card.result_id, version: String(card.candidate_hash || card.created_at) }, () => current(requested) && getToken() === token));
         item.append(el('p', '', 'The worker’s explanation is untrusted text. Consult Recorded checks and Human review in Project Workbench for verification and acceptance.'));
         taskCards.append(item);
       }
@@ -705,25 +708,17 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
       conversationRecipient?.dispose();recipientBinding=key;
       const requested=scope();
       conversationRecipient=registerConversationRecipient({id:`chat:${workspaceId}:${paneId}`,title:conversationRecipientLabel(),available,
-        receive:delivery=>{
-          if(!current(requested) || !bindingReady || switching || busy || pending || !getToken())return {accepted:false,reason:'The conversation binding changed or is busy.'};
+        prepare:delivery=>{
+          if(!current(requested) || !bindingReady || switching || busy || pending || !getToken())throw Error('The conversation binding changed or is busy.');
           const original=input.value;
+          const credential=getToken();
           const appended=original ? `${original}\n\n${delivery.text}` : delivery.text;
-          if(appended.length>100000)return {accepted:false,reason:'Appending would exceed the draft limit. Shorten the draft first.'};
-          return new Promise(resolve=>{
-            const dialog=el('dialog','hermes-tools-dialog');dialog.setAttribute('aria-label','Preview conversation draft');
-            const preview=el('pre','',appended);preview.style.whiteSpace='pre-wrap';preview.style.maxHeight='50vh';preview.style.overflow='auto';
-            let accepted=false;
-            dialog.append(el('h2','','Preview draft insertion'),el('p','',`Recipient: ${conversationRecipientLabel()}. Existing text is preserved; nothing will be sent.`),preview,
-              button('Append to draft','Confirm append to conversation draft',()=>{
-                if(!current(requested) || switching || busy || pending || input.value!==original || !getToken()){dialog.close();return;}
-                input.value=appended;saveDraft();sizeComposer();accepted=true;setMode('normal');dialog.close();
-              }),button('Cancel','Cancel draft insertion',()=>dialog.close()));
-            const abort=()=>dialog.close();controller.signal.addEventListener('abort',abort,{once:true});
-            dialog.addEventListener('close',()=>{controller.signal.removeEventListener('abort',abort);dialog.remove();resolve(accepted?{accepted:true}:{accepted:false,reason:'Insertion cancelled or recipient draft/binding changed.'});if(accepted)input.focus();},{once:true});
-            document.body.append(dialog);dialog.showModal();
-          });
-        }});
+          if(appended.length>100000)throw Error('Appending would exceed the draft limit. Shorten the draft first.');
+          return {text:appended,commit:()=>{
+            if(!current(requested) || !bindingReady || switching || busy || pending || input.value!==original || getToken()!==credential)return {accepted:false,reason:'Recipient draft or binding changed. Select the recipient again to review.'};
+            input.value=appended;saveDraft();sizeComposer();setMode('normal');input.focus();return {accepted:true};
+          }};
+        },receive:()=>({accepted:false,reason:'Review the exact final draft first.'})});
     }else conversationRecipient.update({title:conversationRecipientLabel(),available});
   }
   function laneBlocked() {
@@ -915,10 +910,12 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
         progress.textContent = data.status === 'completed' ? '' : String(data.error || `Run ${data.status}. Check the conversation and troubleshooting details.`);
         if(data.status==='completed'&&typeof data.output==='string'){
           const completeOutput=data.output;
+          const credential=getToken();
+          progress.append(completeResultActions(completeOutput,{id:run,version:'completed'},()=>current(requested)&&getToken()===credential));
           void import('./document-artifacts').then(({extractDocumentResult,requestDocumentFromResult})=>{
-            if(disposed||!current(requested)||state.run||!extractDocumentResult(completeOutput))return;
+            if(disposed||!current(requested)||getToken()!==credential||state.run||!extractDocumentResult(completeOutput))return;
             progress.append(button('Create document from result','Review this complete reply as a new private document draft',async()=>{
-              if(disposed||!current(requested))return;
+              if(disposed||!current(requested)||getToken()!==credential)return;
               const result=await requestDocumentFromResult(completeOutput);
               if(!disposed&&current(requested))progress.textContent=result.status==='created-draft'?'Document draft created. Open/recover it in Document library; Save remains explicit.':result.reason||'Document review cancelled.';
             }));

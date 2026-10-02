@@ -23,9 +23,10 @@ const code = (Array.isArray(bundle) ? bundle[0] : bundle).output.find(item => it
 const snapshot = { title: 'Reference snapshot', resource_uri: 'ui://orbit/reference', html: `<script type="module">${code.replaceAll('</script', '<\\/script')}</script>`, arguments: { fixture: true }, result: { content: [{ type: 'text', text: 'Exact saved result' }] } };
 const sandbox = http.createServer(); await new Promise(resolve => sandbox.listen(0, '127.0.0.1', resolve));
 const sandboxOrigin = `http://127.0.0.1:${sandbox.address().port}`;
-const vite = await createServer({ configFile: false, root: repo, logLevel: 'error', server: { middlewareMode: true, hmr: false, fs: { allow: [repo, root] } } });
+const server = http.createServer();
+const vite = await createServer({ configFile: false, root: repo, logLevel: 'error', server: { middlewareMode: true, hmr: { server }, fs: { allow: [repo, root] } } });
 let service;
-const server = http.createServer(async (req,res) => {
+server.on('request', async (req,res) => {
   if (req.url === '/' || req.url.startsWith('/?')) { res.setHeader('Content-Type','text/html'); res.end(`<button id="unlock">Unlock fixture host</button><button id="lock">Lock fixture host</button><button id="rotate">Rotate fixture token</button><div id="host"></div><script type="module">import {mountMcpApps} from '/src/mcp-apps-host.ts';import {connectWorkspace} from '/src/workspace-sync.ts';let credential=new URL(location.href).searchParams.has('locked')?'':'fixture-token';const connection=connectWorkspace(()=>({version:1,monitors:[]}),()=>{},()=>credential,()=>{});const mounted=mountMcpApps(document.querySelector('#host'),()=>credential);for(const [id,value]of [['unlock','fixture-token'],['lock',''],['rotate','fixture-token-rotated']])document.querySelector('#'+id).onclick=()=>{credential=value;if(id!=='rotate')window.dispatchEvent(new Event('orbit-host-connected'));};document.querySelector('#host').addEventListener('detach',()=>mounted.dispose());</script>`); return; }
   if (req.url === '/fixture-snapshot') { res.setHeader('Content-Type','application/json');res.end(JSON.stringify(snapshot));return; }
   if (req.url.startsWith('/api/')) {

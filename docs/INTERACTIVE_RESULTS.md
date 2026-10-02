@@ -17,6 +17,19 @@ saves show an error and retain the current card and edits.
 
 ## Producer format (honest boundary)
 
+Complete authenticated Normal replies and available Workbench delivery cards
+offer **Open interactive result** when the adapter accepts the exact text. Choose
+one already-open results pane; its inbox acknowledges a unique queued delivery.
+**Open queued result** renders it, with explicit confirmation before replacing a
+displayed card; save existing edits first. Each workspace/pane inbox holds at most
+eight entries. Concurrent deliveries remain separate, and overflow refuses rather
+than replacing entries. Disposal or credential/workspace rebinding discards the
+ephemeral inbox and invalidates old mount-generation selectors. Optional trusted
+`onAcknowledgement` callbacks receive `rendered`, `discarded` or `stale` with the
+exact delivery/workspace/pane/generation identity, at most once. Rendering and
+private saving are separate acknowledgements. Normal actions are attached to the
+just-completed response; cached transcript text alone is not authenticated anew.
+
 The renderer is pinned `@a2ui/lit@0.12.0` and
 `@a2ui/web_core@0.12.0`, imported through **`/v0_9`**, not their deprecated v0.8
 root entrypoints. `@a2ui/markdown-it@0.2.0` satisfies the package peer; Orbit does
@@ -218,10 +231,10 @@ const result = queueInteractiveResult(
     id: resultId,
     version: exactResultVersion,
   },
-  { paneId },
+  { paneId, generation: selectedTarget.generation },
 );
-if (result.status === "ok") {
-  // Parent opens/focuses orbit://surface/interactive-results for this pane.
+if (result.status === "queued") {
+  // deliveryId/paneId/generation acknowledge queueing, not rendering or saving.
 }
 
 // Trusted host-surface mount:
@@ -235,9 +248,11 @@ view.dispose();
 `src/interactive-result-adapter.ts`. Helpers are ordinary reviewed module exports;
 there is no global browser entrypoint or generated-frame bridge. The host URL
 carries no token, source ID, JSON, arbitrary component or code.
-`queueInteractiveResult` delivers to the specified mounted pane or queues for its
-next mount. Without `paneId`, it uses a sole mounted results pane or queues for the
-next mount; it never broadcasts result contents to multiple panes.
+`interactiveResultTargets()` lists mounted targets with their generation.
+`queueInteractiveResult` requires a selected mounted pane. It never guesses a
+recipient or retains content for an unrelated future mount. Trusted callers must
+retain and pass the selected generation. No automatic producer update is inferred
+from another complete result; use the existing explicit incremental-stream path.
 
 **Prepare summary** captures bounded rendered text and current field values,
 including the exact source ID/version. For a saved document it checks the saved

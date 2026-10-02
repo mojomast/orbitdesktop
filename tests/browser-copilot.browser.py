@@ -92,11 +92,25 @@ try:
             print(page.locator('body').inner_text())
             raise
         expect(page.locator('.bc-evidence img')).to_have_count(1)
+        page.get_by_role('button',name='Snapshot selected target',exact=True).click()
+        expect(page.get_by_label('Observation text (select an excerpt to share)')).to_have_value(__import__('re').compile('Counter 0'))
+        page.evaluate('''async()=>{const {registerConversationRecipient}=await import('/src/conversation-transfer.ts');registerConversationRecipient({id:'browser-evidence',title:'Browser evidence recipient',receive:d=>{window.evidenceDelivery=d;return {accepted:true};}});}''')
+        page.get_by_role('button',name='Share selected observation',exact=True).click()
+        page.get_by_role('dialog').get_by_role('radio').check()
+        page.get_by_role('button',name='Insert into draft',exact=True).click()
+        shared=json.loads(page.evaluate('window.evidenceDelivery.text'))
+        assert 'Counter 0' in shared['text'] and len(shared['observation_sha256'])==64 and shared['captured_at']>0
+        assert 'data_base64' not in shared
         # The controls operate through the real authenticated Node driver route.
         page.get_by_label('Action',exact=True).select_option('click')
         options=page.get_by_label('Snapshot control reference').locator('option')
         ref=next(o.get_attribute('value') for o in options.all() if 'Increment' in o.inner_text())
-        page.get_by_label('Snapshot control reference').select_option(ref)
+        count=len(calls)
+        page.get_by_label('Proposed action JSON (stages controls only)').fill(json.dumps({'kind':'click','ref':ref}))
+        page.get_by_role('button',name='Stage proposed action',exact=True).click()
+        expect(page.locator('.bc-preview')).to_contain_text('Suggestion staged in controls only')
+        assert len(calls)==count
+        expect(page.get_by_label('Snapshot control reference')).to_have_value(ref)
         page.get_by_role('button',name='Preview action',exact=True).click()
         expect(page.locator('.bc-preview')).to_contain_text('Review exact action',timeout=15000)
         page.get_by_role('button',name='Execute reviewed action once',exact=True).click()

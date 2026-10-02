@@ -8,6 +8,8 @@ import {
   type SourceSnapshot,
 } from "./search-client";
 import { requestConversationContext } from "./conversation-transfer";
+import { sourceSelectionOffsets, formatKnowledgeExcerpt } from './search-evidence';
+import { workspaceId } from './workspace-sync';
 import "./search-surface.css";
 
 export function mountSearchSurface(
@@ -260,21 +262,27 @@ export function mountSearchSurface(
         () =>
           void run(async () => {
             // Revalidate citation bytes at delivery time; a removed source is never silently reused.
+            const credential = token(), scope = localStorage.getItem('orbit.workspace.id') || workspaceId;
+            const current = () => !disposed && credential === token() && scope === workspaceId && scope === (localStorage.getItem('orbit.workspace.id') || workspaceId);
             const snap = await request<SourceSnapshot>("get_source", {
               source_id: r.source_id,
             });
-            if (disposed) return;
+            if (!current()) return;
             if (
               snap.text_sha256 !== r.text_sha256 ||
+              snap.content_sha256 !== r.content_sha256 || snap.extractor_version !== r.extractor_version ||
               snap.text.slice(r.char_start, r.char_end) !== r.snippet
             )
               throw Error("Citation snapshot changed; search again.");
-            const start = passage.selectionStart,
-              end = passage.selectionEnd;
-            const selected =
-              end > start ? r.snippet.slice(start, end) : r.snippet;
+            const [start, end] = sourceSelectionOffsets(r.snippet, passage.selectionStart, passage.selectionEnd);
+            const selected = r.snippet.slice(start, end);
             const result = await requestConversationContext({
-              text: selected,
+              text: formatKnowledgeExcerpt(selected, { sourceId: r.source_id, extractor: r.extractor_version, textSha256: r.text_sha256, contentSha256: snap.content_sha256, start: r.char_start + start, end: r.char_start + end }),
+              validate: async () => {
+                const fresh = await request<SourceSnapshot>('get_source', { source_id: r.source_id });
+                if (!current() || fresh.text_sha256 !== r.text_sha256 || fresh.content_sha256 !== snap.content_sha256 || fresh.extractor_version !== r.extractor_version || fresh.text.slice(r.char_start, r.char_end) !== r.snippet)
+                  throw Error('Citation snapshot changed or was removed; search again.');
+              },
               title: r.title,
               source: `Snapshot ${r.source_id.slice(0, 16)} · UTF-16 [${r.char_start + (end > start ? start : 0)}, ${r.char_start + (end > start ? end : r.snippet.length)})`,
             });

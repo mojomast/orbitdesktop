@@ -65,9 +65,10 @@ process.on('SIGTERM',async()=>{{server.close();await service.close();process.exi
 import {{connectWorkspace}} from '/src/workspace-sync.ts';
 import {{mountSearchSurface}} from '/src/search-surface.ts';
 import {{registerConversationRecipient}} from '/src/conversation-transfer.ts';
+import {{createAgentChat}} from '/src/agent-chat.ts';
 window.deliveries=[];
-registerConversationRecipient({{id:'synthetic-chat',title:'Chosen synthetic chat',receive:d=>{{window.deliveries.push(d);return {{accepted:true}};}}}});
 connectWorkspace(()=>({json.dumps(state)}),()=>{{}},()=>{json.dumps(TOKEN)},()=>{{}});
+const chat=document.createElement('div');document.body.append(chat);createAgentChat(chat,'research-chat',()=>{json.dumps(TOKEN)});
 window.surface=mountSearchSurface(document.querySelector('#host'),()=>{json.dumps(TOKEN)});
 </script></body></html>""")
     api = subprocess.Popen(['node', str(root / 'server.mjs')], cwd=root, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
@@ -82,15 +83,28 @@ window.surface=mountSearchSurface(document.querySelector('#host'),()=>{json.dump
             # Conflict recovery must work without the search surface's 10-second poll.
             context.add_init_script("const originalInterval=window.setInterval; window.setInterval=(fn,ms,...args)=>ms===10000?0:originalInterval(fn,ms,...args);")
             page = context.new_page()
+            agent_calls = []
+            def agent_fixture(route):
+                body = route.request.post_data_json
+                agent_calls.append(body['action'])
+                action = body['action']
+                if action == 'shared_chat': data = {'state': {**body.get('initial', {}), 'binding_revision': 1}}
+                elif action == 'draft_read': data = {'record': {'revision': 0, 'draft': '', 'metadata': {}}}
+                elif action == 'draft_write': data = {'record': {'revision': 1, 'draft': body.get('text', ''), 'metadata': {}}}
+                elif action == 'profiles': data = {'profiles': [{'id': 'default', 'label': 'Default'}]}
+                elif action == 'sessions': data = {'sessions': []}
+                else: data = {}
+                route.fulfill(status=200, content_type='application/json', body=json.dumps(data))
+            page.route('**/api/agent', agent_fixture)
             errors = []
             page.on('pageerror',lambda e: errors.append(str(e)))
             page.goto(origin + '/test.html')
-            expect(page.get_by_role('status')).to_contain_text('Semantic off')
+            expect(page.locator('.knowledge-status')).to_contain_text('Semantic off')
             malicious = '<img src=x onerror="window.xss=1"> Observatory telescope studies distant planets.'
             page.get_by_label('Source title').fill('Public astronomy')
             page.get_by_label('Source text',exact=True).fill(malicious)
             page.get_by_role('button',name='Add text',exact=True).click()
-            expect(page.get_by_role('status')).to_contain_text('1 sources')
+            expect(page.locator('.knowledge-status')).to_contain_text('1 sources')
             page.get_by_label('Search query').fill('planets')
             page.get_by_role('button',name='Search',exact=True).click()
             expect(page.get_by_label('Passage from Public astronomy')).to_have_value(malicious)
@@ -103,13 +117,28 @@ window.surface=mountSearchSurface(document.querySelector('#host'),()=>{json.dump
                 page.get_by_role('button',name='Download original bytes').click()
             assert Path(info.value.path()).read_bytes() == malicious.encode()
             passage = page.get_by_label('Passage from Public astronomy')
+            expect(page.get_by_role('button',name='Send message to Hermes',exact=True)).to_be_enabled(timeout=15000)
             passage.evaluate('(node)=>node.setSelectionRange(node.value.indexOf("Observatory"), node.value.indexOf("Observatory")+11)')
             result.get_by_role('button',name='Preview passage into draft').click()
-            expect(page.get_by_label('Text to transfer')).to_have_text('Observatory')
-            page.get_by_label('Chosen synthetic chat',exact=True).check()
+            expect(page.get_by_label('Text to transfer')).to_contain_text('Observatory\n\n[Knowledge included-excerpt]')
+            page.get_by_role('radio').check()
             page.get_by_role('button',name='Insert into draft',exact=True).click()
             expect(page.get_by_role('dialog')).to_have_count(0)
-            assert page.evaluate('window.deliveries[0].text') == 'Observatory'
+            composer = page.get_by_label('Message to Hermes', exact=True)
+            delivered = composer.input_value()
+            assert delivered.startswith('Observatory\n\n[Knowledge included-excerpt]')
+            assert 'Text SHA256:' in delivered and 'Content SHA256:' in delivered and 'UTF-16 offsets:' in delivered
+            assert 'submit' not in agent_calls and 'run' not in agent_calls
+            # Final source revalidation occurs after the owner has reviewed the exact appended draft.
+            result.get_by_role('button',name='Preview passage into draft').click()
+            page.get_by_role('radio').check()
+            expect(page.get_by_label('Text to transfer')).to_contain_text(delivered)
+            page.route('**/api/search', lambda route: route.fulfill(status=404,content_type='application/json',body='{"ok":false,"code":"not_found"}') if route.request.post_data_json.get('action') == 'get_source' else route.continue_())
+            page.get_by_role('button',name='Insert into draft',exact=True).click()
+            expect(page.locator('.conversation-transfer-status')).to_contain_text('could not accept')
+            expect(composer).to_have_value(delivered)
+            page.get_by_role('button',name='Cancel',exact=True).click()
+            page.unroute('**/api/search')
             # An HTTP/CAS failure preserves input and exposes the current conflict.
             page.route('**/api/search',lambda route: route.fulfill(status=409,content_type='application/json',body=json.dumps({'ok':False,'code':'conflict','current':{'consent_generation':99}})) if route.request.post_data_json.get('action') == 'ingest_text' else route.continue_())
             page.get_by_label('Source text',exact=True).fill('Preserve this draft on conflict')
@@ -119,7 +148,7 @@ window.surface=mountSearchSurface(document.querySelector('#host'),()=>{json.dump
             page.unroute('**/api/search')
             page.get_by_label('Choose source file').set_input_files({'name':'public.txt','mimeType':'text/plain','buffer':b'Garden roses are blooming.'})
             page.get_by_role('button',name='Add chosen file',exact=True).click()
-            expect(page.get_by_role('status')).to_contain_text('2 sources')
+            expect(page.locator('.knowledge-status')).to_contain_text('2 sources')
             page.get_by_text('Sources and retention',exact=True).click()
             page.on('dialog',lambda d:d.accept())
             # Another owner request advances the real generation while this UI still holds zero.
@@ -151,16 +180,16 @@ window.surface=mountSearchSurface(document.querySelector('#host'),()=>{json.dump
             assert page.get_by_label('Choose source file').evaluate('(node)=>node.files[0].name') == 'pending.txt'
             hold_refresh = False
             page.locator('.knowledge-source').filter(has_text='Public astronomy').get_by_role('button',name='Remove source').click()
-            expect(page.get_by_role('status')).to_contain_text('1 sources')
+            expect(page.locator('.knowledge-status')).to_contain_text('1 sources')
             assert [body['base_consent_generation'] for body in delete_requests] == [0,1]
             page.unroute('**/api/search',conflict_refresh)
             page.get_by_label('Search query').fill('planets')
             page.get_by_role('button',name='Search',exact=True).click()
             expect(page.get_by_label('Search results')).to_contain_text('No matching passages')
             page.get_by_role('button',name='Rebuild derived index').click()
-            expect(page.get_by_role('status')).to_contain_text('1 sources')
+            expect(page.locator('.knowledge-status')).to_contain_text('1 sources')
             page.get_by_role('button',name='Purge ingested snapshots').click()
-            expect(page.get_by_role('status')).to_contain_text('0 sources')
+            expect(page.locator('.knowledge-status')).to_contain_text('0 sources')
             assert not errors, errors
             page.evaluate('window.surface.dispose()')
             expect(page.get_by_role('region',name='Local source search')).to_have_count(0)
