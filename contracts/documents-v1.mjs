@@ -16,6 +16,7 @@ const action = (name, properties, required=Object.keys(properties)) => ({type:'o
 export const documentsRequestSchema = {oneOf:[
   action('list',base),
   action('create',{...base,...mutation,document_id:id,title,kind:{enum:['richtext','scene']}}),
+  action('create_content',{...base,...mutation,document_id:id,title,data}),
   action('resolve',selection),
   // The authenticated owner library can read without a pane; a supplied pane
   // selector must always match the exact live URL, including for exact retries.
