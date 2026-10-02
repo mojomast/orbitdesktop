@@ -37,7 +37,8 @@ export async function normalFixture(t){
   const workspaceRead=()=>({state:{monitors:panes.map(id=>({layout:{type:'pane',pane:{id,kind:'agent'}}}))}});
   handler=createAgentHandler({token,port:host.address().port,devOrigins:[],reply,runtimeDirectory:root,workspaceRead,workspaceContext:()=>'',apiUrl:'',apiKey:'',profilesJson:JSON.stringify([{id:'default',label:'Main model',apiUrl:gatewayOrigin,apiKey:'synthetic-default-key'},{id:'other',label:'Other model',apiUrl:gatewayOrigin+'/other',apiKey:'synthetic-other-key'}]),onNormalAccepted:r=>grants.normalAccepted(r)});
   const knowledge=createKnowledgeSearch({root,workspaceRead}),documents=createDocumentsService({root,workspaceRead});
-  grants=await createResourceDelegation({root,workspaceRead,knowledge,documents,normalBindings:handler.resourceBindings,normalProfiles:{default:'',other:'other'}});
+  let clock=Date.now();const grantOptions={root,workspaceRead,knowledge,documents,now:()=>clock,normalBindings:handler.resourceBindings,normalProfiles:{default:'',other:'other'}};
+  grants=await createResourceDelegation(grantOptions);
   grantRoute=technologyOwnerRoute({token,port:host.address().port,devOrigins:[],reply,dispatch:b=>grants.dispatch(b)});
   t.after(async()=>{await grants.close();await knowledge.close();await close(host);await close(gateway);fs.rmSync(root,{recursive:true,force:true});});
   async function request(action,fields={},route='/api/agent'){
@@ -56,7 +57,7 @@ export async function normalFixture(t){
     const filename=path.join(root,'resource-delegation','normal',profile,`${run_id}.json`);const c=JSON.parse(fs.readFileSync(filename));let sequence=100;
     return {filename,call(body){return new Promise((resolve,reject)=>{const raw=Buffer.from(JSON.stringify(body)),seq=String(++sequence),mac=createHmac('sha256',c.secret).update(`${seq}\n`).update(raw).digest('hex');const req=http.request({socketPath:c.socket,path:'/tool',method:'POST',headers:{'X-Orbit-Recipient':c.recipient_id,'X-Orbit-Sequence':seq,'X-Orbit-Mac':mac}},res=>{let text='';res.on('data',b=>text+=b);res.on('end',()=>resolve(JSON.parse(text)));});req.on('error',reject);req.end(raw);});}};
   }
-  return {root,origin,request,owner,grant,channel,runs,submissions,source,documents,handler,setRunReadHook:fn=>{runReadHook=fn;},removePane:()=>{panes=[otherPane];}};
+  return {root,origin,request,owner,grant,channel,runs,submissions,source,documents,handler,expire:()=>{clock+=3600001;},restartGrants:async(beforeOpen=()=>{})=>{await grants.close();beforeOpen();grants=await createResourceDelegation(grantOptions);},setRunReadHook:fn=>{runReadHook=fn;},removePane:()=>{panes=[otherPane];}};
 }
 test('Normal grant binds next accepted receipted run, not another session/run; revoke and switch fence effects',async t=>{
   const f=await normalFixture(t),grant=await f.grant();
@@ -72,7 +73,7 @@ test('Normal grant binds next accepted receipted run, not another session/run; r
   assert.equal((await channel.call({action:'read_source',source_id:f.source.source_id})).code,'permission_denied');
   await f.request('status',{run_id:accepted.body.run_id});
   const switched=await f.request('select_session',{target_profile_id:'other',target_session_id:`orbit-${randomUUID()}`});assert.equal(switched.status,200,JSON.stringify(switched.body));
-  f.runs.get(accepted.body.run_id).status='running';assert.equal((await channel.call(request)).code,'stale_resource');
+  f.runs.get(accepted.body.run_id).status='running';assert.equal((await channel.call(request)).code,'permission_denied');
   assert.equal((await f.owner('prepare_normal',{pane_id:pane,expected_binding_revision:0})).body.code,'stale_resource');
   await f.owner('revoke',{recipient_id:grant.recipient_id});assert.ok(!fs.existsSync(channel.filename));
   assert.equal((await f.documents.dispatch({action:'list',workspace_id:ws})).documents.length,1);
@@ -109,5 +110,50 @@ test('actual pinned gateway context and registry execute Normal source-to-brief 
   assert.equal(result.saved.saved,true);assert.equal(result.saved.opened,false);assert.equal(result.concurrent_isolation,true);assert.equal(result.no_env_fallback,true);assert.equal(result.no_child_inheritance,true);
   const doc=await f.documents.dispatch({action:'read',workspace_id:ws,document_id:result.saved.document_id});assert.match(doc.data.content,/Mars has two moons/);assert.match(doc.data.content,new RegExp(f.source.source_id));
   const retained=f.channel(accepted.body.run_id);await f.owner('revoke',{recipient_id:grant.recipient_id});
-  assert.equal((await retained.call({action:'read_source',source_id:f.source.source_id})).code,'revoked');
+  assert.equal((await retained.call({action:'read_source',source_id:f.source.source_id})).code,'permission_denied');
+});
+test('more than 64 completed/revoked/expired Normal grants across restart preserve committed and unknown receipts',async t=>{
+  const f=await normalFixture(t),ids=[],operations=[];
+  for(let i=0;i<75;i++){
+    if(i===35)await f.restartGrants();
+    const grant=await f.grant();ids.push(grant.recipient_id);
+    const accepted=await f.request('start',{input:`Retention turn ${i}`});assert.equal(accepted.status,202);
+    const channel=f.channel(accepted.body.run_id);
+    assert.equal((await channel.call({action:'describe'})).ok,true);
+    if(i<2){
+      const request={action:'create_document',op_id:randomUUID(),title:'Retain operation',text:'One artifact per operation',citations:[]};
+      const dispatch=f.documents.dispatch;
+      if(i===1)f.documents.dispatch=async(...args)=>{await dispatch(...args);throw Error('Lost response after document commit');};
+      const saved=await channel.call(request);f.documents.dispatch=dispatch;
+      assert.equal(saved.outcome,i===0?'committed':'unknown');
+      operations.push({recipient_id:grant.recipient_id,op_id:request.op_id});
+    }
+    if(i%3===1)await f.owner('revoke',{recipient_id:grant.recipient_id});
+    if(i%3===2)f.expire();
+    f.runs.get(accepted.body.run_id).status='completed';await f.request('status',{run_id:accepted.body.run_id});
+    const list=(await f.owner('list')).body;
+    assert.equal(list.capacity.active_channels,0);assert.equal(list.capacity.available_slots,64);assert.equal(list.capacity.retained_records,i+1);
+    assert.ok(list.recipients.length<=32);assert.equal(fs.existsSync(channel.filename),false);
+  }
+  await f.restartGrants();
+  const seen=new Map();let after;
+  do{const list=(await f.owner('list',after?{history_after:after}:{})).body;for(const row of list.recipients)seen.set(row.recipient_id,row);after=list.history.next_after;}while(after);
+  assert.equal(seen.size,75);assert.deepEqual(new Set(seen.keys()),new Set(ids));
+  for(const [index,op] of operations.entries()){
+    const stored=JSON.parse(fs.readFileSync(path.join(f.root,'resource-delegation',`${op.recipient_id}.json`)));
+    assert.ok(stored.operations[op.op_id].document_id);assert.ok(stored.operations[op.op_id].digest);
+    assert.equal(seen.get(op.recipient_id).operations[0].outcome,index===0?'committed':'unknown');
+    assert.equal((await f.owner('grant',{recipient_id:op.recipient_id,source_ids:[],verbs:['create_document']})).status,403);
+  }
+  assert.equal((await f.documents.dispatch({action:'list',workspace_id:ws})).documents.length,2);
+  // New capacity after restart neither recreates old files nor retries an unknown effect.
+  assert.equal((await f.owner('prepare',{destination:'New recipient after retained history'})).status,200);
+});
+test('restart invalidates orphaned Normal key projections without deleting grant history',async t=>{
+  const f=await normalFixture(t),grant=await f.grant(),accepted=await f.request('start',{input:'Active when host exited'}),channel=f.channel(accepted.body.run_id);
+  const key=fs.readFileSync(channel.filename),file=path.join(f.root,'resource-delegation',`${grant.recipient_id}.json`),record=fs.readFileSync(file);
+  await f.restartGrants(()=>fs.writeFileSync(channel.filename,key,{mode:0o600})); // Simulate an unclean exit's surviving key.
+  assert.equal(fs.existsSync(channel.filename),false);assert.deepEqual(fs.readFileSync(file),record);
+  const list=(await f.owner('list')).body;assert.equal(list.capacity.active_channels,0);assert.equal(list.capacity.available_slots,64);assert.equal(list.recipients[0].state,'channel_offline');
+  assert.equal((await f.owner('prepare',{destination:'Fresh capacity after restart'})).status,200);
 });

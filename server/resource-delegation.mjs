@@ -18,6 +18,19 @@ const codes=new Set(['invalid_request','permission_denied','expired','revoked','
 export async function createResourceDelegation({root,workspaceRead,knowledge,documents,now=Date.now,normalBindings,normalProfiles=JSON.parse(process.env.ORBIT_RESOURCE_NORMAL_PROFILES||'{}')}) {
   if(!normalProfiles||typeof normalProfiles!=='object'||Array.isArray(normalProfiles)||Object.entries(normalProfiles).some(([id,name])=>!/^[a-zA-Z0-9_-]{1,64}$/.test(id)||typeof name!=='string'||name.length>100||/[\x00-\x1f]/.test(name)))fail('invalid_request');
   const dir=path.join(root,'resource-delegation');fs.mkdirSync(dir,{recursive:true,mode:0o700});fs.chmodSync(dir,0o700);
+  // This root has one authoritative host writer. A restart never restores keys,
+  // including projections left by an abrupt exit. Historical grant JSON is not
+  // touched; only the fixed disposable key-file namespaces are invalidated.
+  for(const name of fs.readdirSync(dir))if(name.endsWith('.channel.json')&&uuid.test(name.slice(0,-13)))fs.rmSync(path.join(dir,name),{force:true});
+  const normalDir=path.join(dir,'normal');
+  if(fs.existsSync(normalDir)){
+    const stat=fs.lstatSync(normalDir);if(!stat.isDirectory()||stat.isSymbolicLink())fail('unavailable');
+    for(const profile of fs.readdirSync(normalDir,{withFileTypes:true})){
+      if(!profile.isDirectory()||!/^[a-zA-Z0-9_-]{1,64}$/.test(profile.name))continue;
+      const folder=path.join(normalDir,profile.name);
+      for(const name of fs.readdirSync(folder))if(/^run_[a-zA-Z0-9_-]{8,100}\.json$/.test(name))fs.rmSync(path.join(folder,name),{force:true});
+    }
+  }
   // Durable runtime paths can exceed Unix socket limits. Like native Workbench
   // channels, keep only the ephemeral listener in a private short temp directory.
   const socketDir=fs.mkdtempSync(path.join(os.tmpdir(),'orbit-resource-'));fs.chmodSync(socketDir,0o700);
@@ -27,11 +40,43 @@ export async function createResourceDelegation({root,workspaceRead,knowledge,doc
   const file=id=>path.join(dir,`${id}.json`);
   function persist(record){const temp=file(record.id)+'.tmp';const fd=fs.openSync(temp,'w',0o600);try{fs.writeFileSync(fd,JSON.stringify(record));fs.fsyncSync(fd);}finally{fs.closeSync(fd);}fs.renameSync(temp,file(record.id));const d=fs.openSync(dir,'r');try{fs.fsyncSync(d);}finally{fs.closeSync(d);}}
   function read(id){if(!uuid.test(id??''))fail('invalid_request');let r;try{const f=file(id),s=fs.lstatSync(f);if(!s.isFile()||s.isSymbolicLink()||s.size>4*1024*1024)fail('unavailable');r=JSON.parse(fs.readFileSync(f,'utf8'));}catch{fail('unavailable');}if(r.version!==1||r.id!==id)fail('unavailable');return r;}
-  const publicRecord=r=>({recipient_id:r.id,destination:r.destination,normal:r.normal?{...r.normal.recipient,run_id:r.normal.run_id??null}:null,expires_at:r.expires_at,generation:r.generation,state:r.revoked?'revoked':!active.has(r.id)?'channel_offline':now()>=r.expires_at?'expired':r.grant?r.normal&&!r.normal.run_id?'awaiting_next_normal_run':'granted':'awaiting_grant',grant:r.grant?{source_ids:r.grant.sources.map(s=>s.source_id),verbs:r.grant.verbs,source_generation:r.grant.source_generation}:null,remaining:{calls:L.calls-r.calls,read_bytes:L.readBytes-r.read_bytes,documents:L.documents-Object.keys(r.operations).length}});
+  const publicRecord=r=>({recipient_id:r.id,destination:r.destination,normal:r.normal?{...r.normal.recipient,run_id:r.normal.run_id??null}:null,expires_at:r.expires_at,generation:r.generation,state:r.revoked?'revoked':r.channel_closed?.reason??(now()>=r.expires_at?'expired':!active.has(r.id)?'channel_offline':r.grant?r.normal&&!r.normal.run_id?'awaiting_next_normal_run':'granted':'awaiting_grant'),grant:r.grant?{source_ids:r.grant.sources.map(s=>s.source_id),verbs:r.grant.verbs,source_generation:r.grant.source_generation}:null,operations:Object.entries(r.operations).map(([op_id,op])=>({op_id,request_digest:op.digest,document_id:op.document_id,outcome:op.result?'committed':'unknown'})),remaining:{calls:L.calls-r.calls,read_bytes:L.readBytes-r.read_bytes,documents:L.documents-Object.keys(r.operations).length}});
+  function retire(id,reason){
+    const r=read(id),entry=active.get(id);
+    if(!r.channel_closed){r.channel_closed={reason,at:now()};persist(r);}
+    // Only disposable authority is removed. Grant, artifact ID, digest and all
+    // pending/committed operation receipts remain in the durable record forever.
+    if(entry?.channel_file)fs.rmSync(entry.channel_file,{force:true});
+    if(entry)entry.closing=true;
+    if(entry&&!entry.busy)active.delete(id);
+  }
+  function reap(){
+    for(const [id] of active){
+      const r=read(id);let reason=r.channel_closed?.reason??(r.revoked?'revoked':now()>=r.expires_at?'expired':null);
+      if(!reason&&r.normal){try{reason=normalBindings?.retirementReason?.(r.workspace_id,r.normal);}catch{/* Unknown status is not retirement evidence. */}}
+      if(reason)retire(id,reason);
+    }
+  }
+  function listing(workspace,after){
+    const current=[],history=[];let retained=0,historical=0;
+    const directory=fs.opendirSync(dir);
+    try{for(let entry;(entry=directory.readSync());){
+      if(!entry.name.endsWith('.json')||!uuid.test(entry.name.slice(0,-5)))continue;
+      const r=read(entry.name.slice(0,-5));if(r.workspace_id!==workspace)continue;retained++;
+      if(active.has(r.id)&&!r.channel_closed){current.push(publicRecord(r));continue;}
+      historical++;
+      if(after&&r.id<=after)continue;
+      history.push(publicRecord(r));history.sort((a,b)=>a.recipient_id.localeCompare(b.recipient_id));
+      if(history.length>L.historyPage+1)history.pop();
+    }}finally{directory.closeSync();}
+    const more=history.length>L.historyPage;if(more)history.pop();
+    return {recipients:[...current,...history],capacity:{active_channels:active.size,closing_channels:[...active.values()].filter(entry=>entry.closing).length,limit:L.recipients,available_slots:L.recipients-active.size,retained_records:retained},history:{total:historical,page_size:L.historyPage,shown:history.length,next_after:more?history.at(-1).recipient_id:null}};
+  }
   function authorize(id,generation,verb){
     const r=read(id);
     if(closed||!active.has(id))fail('permission_denied');
     if(r.revoked)fail('revoked');if(now()>=r.expires_at)fail('expired');
+    if(r.channel_closed)fail('permission_denied');
     if(r.generation!==generation)fail('stale_resource');
     if(!r.grant||verb&&!r.grant.verbs.includes(verb))fail('permission_denied');
     if(r.normal)normalBindings.authorize(r.workspace_id,r.normal);
@@ -39,13 +84,15 @@ export async function createResourceDelegation({root,workspaceRead,knowledge,doc
     return r;
   }
   async function owner(body){
-    fields(body,['action','workspace_id','recipient_id','source_ids','verbs','destination','pane_id','expected_binding_revision']);
+    fields(body,['action','workspace_id','recipient_id','source_ids','verbs','destination','pane_id','expected_binding_revision','history_after']);
     if(!uuid.test(body.workspace_id??'')||!await workspaceRead(body.workspace_id))fail('permission_denied');
     const ws=body.workspace_id;
+    reap();
     if(body.action==='list'){
-      fields(body,['action','workspace_id']);
+      fields(body,['action','workspace_id','history_after']);
+      if(body.history_after!==undefined&&!uuid.test(body.history_after))fail('invalid_request');
       const normal_recipients=(normalBindings?.list(ws)??[]).filter(r=>Object.hasOwn(normalProfiles,r.profile_id)).map(r=>({...r,adapter_directory:path.join(dir,'normal',r.profile_id),hermes_profile:normalProfiles[r.profile_id]}));
-      return {recipients:fs.readdirSync(dir).filter(n=>uuid.test(n.slice(0,-5))&&n.endsWith('.json')).map(n=>read(n.slice(0,-5))).filter(r=>r.workspace_id===ws).map(publicRecord),normal_recipients,normal_gateway:{availability:normal_recipients.length?'configured_unverified':'not_configured',reason:'Requires pinned local gateway adapter and explicit profile mapping; installation is verified only by successful authenticated tool use. Grants bind only the next accepted Normal run'},limits:L};
+      return {...listing(ws,body.history_after),normal_recipients,normal_gateway:{availability:normal_recipients.length?'configured_unverified':'not_configured',reason:'Requires pinned local gateway adapter and explicit profile mapping; installation is verified only by successful authenticated tool use. Grants bind only the next accepted Normal run'},limits:L};
     }
     if(body.action==='prepare'||body.action==='prepare_normal'){
       let normal=null,destination=body.destination;
@@ -61,28 +108,27 @@ export async function createResourceDelegation({root,workspaceRead,knowledge,doc
         fields(body,['action','workspace_id','destination']);
         if(typeof destination!=='string'||!destination.trim()||destination.length>200||/[\x00-\x1f]/.test(destination))fail('invalid_request');
       }
-      if(fs.readdirSync(dir).filter(n=>n.endsWith('.json')&&!n.endsWith('.channel.json')).length>=L.recipients)fail('limit_exceeded');
+      if(active.size>=L.recipients)fail('limit_exceeded');
       const id=randomUUID(),secret=randomBytes(32).toString('hex');
       const r={version:1,id,workspace_id:ws,destination,...(normal?{normal}:{}),expires_at:now()+L.ttlMs,generation:0,revoked:false,grant:null,calls:0,read_bytes:0,operations:{}};persist(r);
       const channel_file=normal?null:path.join(dir,`${id}.channel.json`);
-      if(channel_file)fs.writeFileSync(channel_file,JSON.stringify({version:1,socket,secret,recipient_id:id}),{mode:0o600,flag:'wx'});
+      if(channel_file)fs.writeFileSync(channel_file,JSON.stringify({version:1,socket,secret,recipient_id:id,expires_at:r.expires_at}),{mode:0o600,flag:'wx'});
       active.set(id,{secret,sequence:0,busy:false,channel_file});
       return {...publicRecord(r),channel_file,notice:'Configure resource_channel_file only in a dedicated one-run local Hermes process. Never configure a shared Normal gateway profile.'};
     }
     const r=read(body.recipient_id);if(r.workspace_id!==ws)fail('permission_denied');
     if(body.action==='revoke'){
       fields(body,['action','workspace_id','recipient_id']);r.revoked=true;r.generation++;persist(r);
-      const entry=active.get(r.id);if(entry?.channel_file)fs.rmSync(entry.channel_file,{force:true});
-      return publicRecord(r);
+      retire(r.id,'revoked');return publicRecord(read(r.id));
     }
     if(body.action!=='grant')fail('invalid_request');
     fields(body,['action','workspace_id','recipient_id','source_ids','verbs']);
-    if(r.revoked||r.grant||!active.has(r.id)||now()>=r.expires_at)fail('permission_denied');
+    if(r.revoked||r.channel_closed||r.grant||!active.has(r.id)||now()>=r.expires_at)fail('permission_denied');
     if(!Array.isArray(body.source_ids)||body.source_ids.length>L.sources||new Set(body.source_ids).size!==body.source_ids.length||body.source_ids.some(id=>typeof id!=='string'||!/^[a-f0-9]{64}$/.test(id)))fail('invalid_request');
     if(!Array.isArray(body.verbs)||!body.verbs.length||new Set(body.verbs).size!==body.verbs.length||body.verbs.some(v=>!['search','read_source','create_document'].includes(v)))fail('invalid_request');
     const listed=await knowledge.dispatch({action:'list_sources',workspace_id:ws});
     const sources=body.source_ids.map(id=>{const s=listed.sources.find(s=>s.source_id===id);if(!s)fail('resource_gone');return {source_id:id,content_sha256:s.content_sha256};});
-    const current=read(r.id);if(current.generation!==r.generation||current.revoked||current.grant)fail('stale_resource');
+    const current=read(r.id);if(current.generation!==r.generation||current.revoked||current.channel_closed||current.grant||!active.has(r.id)||now()>=current.expires_at)fail('stale_resource');
     if(current.normal){const bound=normalBindings.current({workspace_id:ws,pane_id:current.normal.recipient.pane_id});for(const key of ['profile_id','session_id','binding_revision','config_generation'])if(bound[key]!==current.normal.recipient[key])fail('stale_resource');}
     knowledge.authorizeSources(ws,listed.consent_generation,sources);
     current.generation++;current.grant={sources,source_generation:listed.consent_generation,verbs:body.verbs};persist(current);return publicRecord(current);
@@ -144,18 +190,20 @@ export async function createResourceDelegation({root,workspaceRead,knowledge,doc
       try{body=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(raw));}catch{fail('invalid_request');}
       const result=await tool(id,body);res.end(JSON.stringify(result));
     }catch(error){
+      if(owned&&error.channel_retirement==='completed')try{retire(req.headers['x-orbit-recipient'],'completed');}catch{/* Retain the slot/receipt on cleanup IO failure. */}
       const code=codes.has(error.code)?error.code:'unavailable';let outcome='refused';
       if(owned&&body?.action==='create_document'&&uuid.test(body.op_id??'')&&!['operation_mismatch','invalid_request','permission_denied','limit_exceeded'].includes(code)){
         try{const op=read(req.headers['x-orbit-recipient']).operations[body.op_id];if(op&&!op.result)outcome='unknown';}catch{}
       }
       res.statusCode=400;res.end(JSON.stringify({ok:false,code,outcome,...(owned&&uuid.test(body?.op_id??'')?{op_id:body.op_id}:{} )}));
     }
-    finally{if(owned)entry.busy=false;}
+    finally{if(owned){entry.busy=false;try{reap();}catch{/* Retain uncertain channels; owner refresh reports cleanup failure. */}}}
   });
   server.requestTimeout=10000;server.headersTimeout=10000;
   try{await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(socket,resolve);});fs.chmodSync(socket,0o600);}catch(error){fs.rmSync(socketDir,{recursive:true,force:true});throw error;}
   function normalAccepted(receipt){
     if(closed||!/^run_[a-zA-Z0-9_-]{8,100}$/.test(receipt.run_id??''))return;
+    reap();
     for(const [id,entry] of active){
       const r=read(id);
       if(!r.normal||r.normal.run_id||!r.grant||r.revoked||r.expires_at<=now()||r.workspace_id!==receipt.workspace_id)continue;
@@ -166,7 +214,7 @@ export async function createResourceDelegation({root,workspaceRead,knowledge,doc
       const folder=path.join(dir,'normal',normal.recipient.profile_id);fs.mkdirSync(folder,{recursive:true,mode:0o700});fs.chmodSync(folder,0o700);
       const channel_file=path.join(folder,`${normal.run_id}.json`),temp=path.join(folder,`${randomUUID()}.tmp`);
       if(fs.existsSync(channel_file))fail('conflict'); // Never alias a second receipt onto an existing run channel.
-      fs.writeFileSync(temp,JSON.stringify({version:1,socket,secret:entry.secret,recipient_id:id,run_id:normal.run_id,session_id:normal.recipient.session_id,hermes_profile:normal.hermes_profile}),{mode:0o600,flag:'wx'});
+      fs.writeFileSync(temp,JSON.stringify({version:1,socket,secret:entry.secret,recipient_id:id,run_id:normal.run_id,session_id:normal.recipient.session_id,hermes_profile:normal.hermes_profile,expires_at:r.expires_at}),{mode:0o600,flag:'wx'});
       fs.renameSync(temp,channel_file);entry.channel_file=channel_file;
     }
   }

@@ -62,10 +62,29 @@ def register(ctx):
     channels = {}
     lock = threading.Lock()
 
+    def inactive(entry):
+        if entry["expires_at"] is not None and time.time() * 1000 >= entry["expires_at"]:
+            return True
+        try:
+            entry["filename"].stat()
+        except FileNotFoundError:
+            return True
+        except OSError:
+            pass  # A transient IO/permission failure does not prove retirement.
+        return False
+
+    def reap():
+        # Never evict a live or in-flight handler: its lock and sequence are the
+        # transport identity. Removed/expired key files cannot create new authority.
+        for key, entry in list(channels.items()):
+            if entry["in_flight"] == 0 and inactive(entry):
+                del channels[key]
+
     def handle(params, **kwargs):
         del kwargs  # Handler session/task strings never choose authority.
         if not verified:
             return json.dumps({"ok": False, "code": "normal_context_unavailable", "outcome": "not_started"})
+        leased = None
         try:
             identity = trusted_context()
             run, session, profile = identity
@@ -79,15 +98,20 @@ def register(ctx):
                     raise ValueError("No grant for this run")
                 time.sleep(.1)
             with lock:
+                reap()
                 stat = filename.lstat()
                 if filename.is_symlink() or not filename.is_file() or stat.st_mode & 0o077 or stat.st_size > 8192:
                     raise ValueError("Invalid private channel")
                 channel = json.loads(filename.read_text())
                 if (channel.get("run_id"), channel.get("session_id"), channel.get("hermes_profile")) != identity:
                     raise ValueError("Run/profile/session mismatch")
+                expires = channel.get("expires_at")
+                if expires is not None and (type(expires) not in (int, float) or not 0 < expires < 2**53 or time.time() * 1000 >= expires):
+                    raise ValueError("Expired or invalid channel lifetime")
+                fingerprint = hashlib.sha256(json.dumps(channel, sort_keys=True).encode()).hexdigest()
                 if identity not in channels:
                     if len(channels) >= 64:
-                        raise ValueError("Adapter channel retention exhausted")
+                        return json.dumps({"ok": False, "code": "normal_channel_capacity", "outcome": "not_started"})
                     class ChannelContext:
                         def get_config(self, key, default=None):
                             return str(filename) if key == "resource_channel_file" else default
@@ -95,13 +119,24 @@ def register(ctx):
                             self.handler = tool["handler"]
                     local = ChannelContext()
                     register_channel(local)
-                    channels[identity] = local.handler
-                handler = channels[identity]
+                    channels[identity] = {"handler": local.handler, "filename": filename,
+                        "expires_at": expires, "fingerprint": fingerprint, "in_flight": 0}
+                entry = channels[identity]
+                if entry["fingerprint"] != fingerprint:
+                    raise ValueError("Channel changed; never reset an active sequence")
+                entry["in_flight"] += 1
+                leased = entry
+                handler = entry["handler"]
             if trusted_context() != identity:
                 raise ValueError("Run context changed")
             return handler(params)
         except Exception:
             return json.dumps({"ok": False, "code": "normal_grant_unavailable", "outcome": "not_started"})
+        finally:
+            if leased is not None:
+                with lock:
+                    leased["in_flight"] -= 1
+                    reap()
 
     schema = {**SCHEMA, "description": SCHEMA["description"].replace("dedicated local recipient's", "authenticated Normal run's") + " Authority is bound to this exact accepted run by the pinned gateway's private ContextVars. A grant for another run or conversation is unavailable."}
     ctx.register_tool(name="orbit_resources", toolset="orbit_resources", schema=schema, handler=handle)

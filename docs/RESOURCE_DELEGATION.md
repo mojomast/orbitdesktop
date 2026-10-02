@@ -99,9 +99,48 @@ source consent generation, independently selected verbs, declared disclosure
 destination, expiry, and budgets. Limits are 32 sources, one hour, 100 content/effect
 calls, 1 MiB cumulative JSON read results, ten new documents, and 100,000 UTF-8
 bytes of brief text. `describe` and receipt lookups do not spend the execution
-budget. At most 64 recipient records are retained; exhaustion requires explicit
-operator archival of resolved records. There is no silent eviction or replay of
-expired creates.
+budget. The host admits at most **64 live or closing channels**, across workspaces,
+including prepared grants awaiting their next run. Historical grant records and
+operation identities do **not** consume those slots. No historical record or
+committed/unknown create identity is physically garbage-collected by this feature.
+
+### Channel and history retention
+
+Cleanup is demand-driven on owner operations, accepted Normal runs and tool-call
+completion. Revoked/expired channels retire, as do Normal channels whose trusted
+host binding was superseded or whose accepted run was reconciled as completed.
+An authenticated terminal gateway status can also retire its exact channel.
+Unavailability, an unknown submission, or an unobserved run outcome is not proof
+of completion: the channel remains bounded by its expiry until authoritative
+reconciliation. Retirement removes the disposable key file and releases in-memory
+authority, while retaining the complete grant and operation journal. A retired
+call still in flight keeps its capacity slot until it returns; its commit and
+disclosure fences still apply. An unknown create is never automatically retried.
+
+On restart, old disposable key projections (including files left by an abrupt
+exit) are invalidated. Grant history is not reopened as authority. This assumes
+the existing single authoritative host writer per runtime root. Short private
+ephemeral Unix socket directories remain independent of durable runtime path length.
+
+The Normal adapter's 64-entry limit likewise applies to live/in-flight channel
+handlers. On calls, idle cached handlers can be removed only when their host key
+file has been removed or their immutable expiry has passed. Transient file-access
+errors do not prove retirement. Live/in-flight handlers keep their sequence and
+lock; capacity pressure never evicts them, resets their sequence or causes an
+effect retry. Exhaustion of genuinely live entries returns
+`normal_channel_capacity`, with no mutation started. Older key files without an
+expiry remain supported and are eligible for eviction when the host removes them.
+
+Owner **Refresh delegated recipients** displays live/closing capacity and retained
+history separately, with available slots. Each response includes all current
+workspace channels plus at most 32 historical records. **Next retained history
+page** and **First retained history page** use an exclusive UUID cursor, ordered
+by recipient ID (not chronology); refresh the first page to see newly retired
+records that sort before a previous cursor. Scanning history retains only a bounded
+page of record projections in memory. **Retained operation receipts** shows exact
+operation ID, request digest, document identity and `committed` versus `unknown`.
+This is observation, not permission to replay an old operation or regrant a closed
+recipient. The full private receipt records remain on disk across restart.
 
 Supported tools are `describe`, `search`, `read_source`, `create_document`, and
 `receipt`. Search is keyword-only and intersects the exact source set **before**

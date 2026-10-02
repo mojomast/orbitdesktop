@@ -486,6 +486,19 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
   }
   agent.resourceBindings={
     current:resourceRecipient,
+    retirementReason(workspace_id,normal){
+      let current;
+      try{current=resourceRecipient({workspace_id,pane_id:normal.recipient.pane_id});}
+      catch(error){if(error.code==='resource_gone')return 'resource_gone';throw error;}
+      if(['profile_id','session_id','binding_revision','config_generation'].some(key=>current[key]!==normal.recipient[key]))return 'binding_changed';
+      if(!normal.run_id)return null;
+      const linked=shared.read(workspace_id,current.pane_id);
+      if(linked?.ordinary_submission_id&&linked.ordinary_submission_id!==normal.receipt_id)return 'superseded';
+      // Only a reconciled accepted receipt with BOTH activity markers cleared
+      // proves completion. Unknown/preparing submissions must retain their fence.
+      if(linked?.ordinary_submission_id===normal.receipt_id&&!linked.run&&!linked.workbench_pending&&readSubmission({workspace_id,pane_id:current.pane_id},linked)?.state==='accepted')return 'completed';
+      return null;
+    },
     list(workspace_id){
       const result=[];const walk=node=>{if(node.type==='pane'){if(node.pane.kind==='agent'){try{result.push(resourceRecipient({workspace_id,pane_id:node.pane.id}));}catch{}}}else{walk(node.first);walk(node.second);}};
       for(const monitor of workspaceRead(workspace_id).state.monitors)walk(monitor.layout);return result;
@@ -503,7 +516,9 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
       const current=this.authorize(workspace_id,normal),profile=configuration.get(current.profile_id);
       const run=await upstreamFor(profile,`/v1/runs/${normal.run_id}`);
       this.authorize(workspace_id,normal);
-      if(run.run_id!==normal.run_id||run.session_id!==current.session_id||!['queued','running','waiting_for_approval'].includes(run.status))resourceFailure('permission_denied');
+      if(run.run_id!==normal.run_id||run.session_id!==current.session_id)resourceFailure('permission_denied');
+      if(['completed','failed','cancelled','interrupted'].includes(run.status))throw Object.assign(Error('permission_denied'),{code:'permission_denied',channel_retirement:'completed'});
+      if(!['queued','running','waiting_for_approval'].includes(run.status))resourceFailure('permission_denied');
     },
   };
   return agent;

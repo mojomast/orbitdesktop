@@ -1,4 +1,4 @@
-export const RESOURCE_LIMITS=Object.freeze({recipients:64,sources:32,calls:100,readBytes:1048576,documentBytes:100000,documents:10,ttlMs:3600000});
+export const RESOURCE_LIMITS=Object.freeze({recipients:64,historyPage:32,sources:32,calls:100,readBytes:1048576,documentBytes:100000,documents:10,ttlMs:3600000});
 const op={type:'string',pattern:'^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$'};
 export const resourceToolSchema={type:'object',additionalProperties:false,required:['action'],properties:{
   action:{enum:['describe','search','read_source','create_document','receipt']},

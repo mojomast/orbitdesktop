@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import path from 'node:path';
 import http from 'node:http';
 import {createHmac,randomUUID} from 'node:crypto';
 import {createResourceDelegation} from '../server/resource-delegation.mjs';
@@ -62,9 +63,9 @@ test('cross-recipient HMAC, guessed identities, revoke, expiry and restart fail 
   const f=await fixture(t),a=await f.ingest('Shared corpus'),one=await f.recipient([a]),two=await f.recipient([a]);
   assert.equal((await one.call({action:'describe'},{'X-Orbit-Recipient':two.recipient_id})).code,'permission_denied');
   await assert.rejects(f.owner('revoke',{recipient_id:one.recipient_id},other),{code:'permission_denied'});
-  await f.owner('revoke',{recipient_id:one.recipient_id});assert.equal((await one.call({action:'describe'})).code,'revoked');
+  await f.owner('revoke',{recipient_id:one.recipient_id});assert.equal((await one.call({action:'describe'})).code,'permission_denied');
   f.expire();assert.equal((await two.call({action:'describe'})).code,'expired');
-  await f.restart();const listing=await f.owner('list');assert.equal(listing.recipients.find(r=>r.recipient_id===one.recipient_id).state,'revoked');assert.equal(listing.recipients.find(r=>r.recipient_id===two.recipient_id).state,'channel_offline');
+  await f.restart();const listing=await f.owner('list');assert.equal(listing.recipients.find(r=>r.recipient_id===one.recipient_id).state,'revoked');assert.equal(listing.recipients.find(r=>r.recipient_id===two.recipient_id).state,'expired');
 });
 test('revocation around asynchronous read prevents disclosure; deletion invalidates exact access',async t=>{
   const f=await fixture(t),a=await f.ingest('Revocable text'),r=await f.recipient([a]);
@@ -106,4 +107,23 @@ test('bounded context is valid JSON and feature discovery contains only reviewed
   const context=boundedWorkspaceContext({id:ws,revision:7,state:{monitors:Array.from({length:100},()=>({id:randomUUID(),name:'private '.repeat(1000)}))}});
   assert.ok(Buffer.byteLength(context)<=24000);const parsed=JSON.parse(context);assert.equal(parsed.truncated,true);assert.equal(parsed.counts.windows,100);assert.ok(!context.includes('private'));
   const descriptors=featureCapabilities();assert.equal(descriptors.features.find(f=>f.feature_id==='knowledge-search').surface_uri,'orbit://surface/search');assert.ok(descriptors.features.every(f=>f.content.availability==='not_granted'));
+});
+test('64 live slots exclude historical receipts but include revoked calls still in flight',async t=>{
+  const f=await fixture(t),recipients=[];
+  for(let i=0;i<64;i++)recipients.push(await f.recipient([],['create_document']));
+  await assert.rejects(f.owner('prepare',{destination:'Over active capacity'}),{code:'limit_exceeded'});
+  let enter,release;const entered=new Promise(resolve=>{enter=resolve;}),hold=new Promise(resolve=>{release=resolve;});
+  let first=true;f.setHook(async()=>{if(first){first=false;enter();await hold;}});
+  const op_id=randomUUID(),writing=recipients[0].call({action:'create_document',op_id,title:'Do not replay',text:'Pending effect',citations:[]});
+  await entered;await f.owner('revoke',{recipient_id:recipients[0].recipient_id});
+  const closing=await f.owner('list');assert.equal(closing.capacity.active_channels,64);assert.equal(closing.capacity.closing_channels,1);
+  await assert.rejects(f.owner('prepare',{destination:'Still draining'}),{code:'limit_exceeded'});
+  release();assert.equal((await writing).code,'revoked');f.setHook(()=>{});
+  const before=JSON.parse(fs.readFileSync(path.join(f.root,'resource-delegation',`${recipients[0].recipient_id}.json`)));
+  assert.ok(before.operations[op_id].document_id);assert.equal(before.operations[op_id].result,undefined);
+  await f.owner('prepare',{destination:'New live slot'});const listed=await f.owner('list');
+  assert.equal(listed.capacity.active_channels,64);assert.equal(listed.capacity.retained_records,65);
+  assert.equal((await recipients[1].call({action:'describe'})).ok,true);assert.equal((await recipients[1].call({action:'describe'})).ok,true);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(f.root,'resource-delegation',`${recipients[0].recipient_id}.json`))).operations,before.operations);
+  assert.equal((await f.documents.dispatch({action:'list',workspace_id:ws})).documents.length,0);
 });

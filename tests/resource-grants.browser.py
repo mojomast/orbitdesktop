@@ -133,10 +133,15 @@ window.openDoc=id=>mountDocumentHost(document.querySelector('#doc'),id,()=>{json
             editor.click();page.keyboard.press('Control+End');page.keyboard.type(' Owner-edited.')
             page.get_by_role('button',name='Save document',exact=True).click();expect(page.locator('.document-status')).to_contain_text('Saved')
             grant.get_by_role('button',name='Revoke this recipient',exact=True).click();expect(grant.get_by_role('status')).to_contain_text('Revoked')
+            expect(grant.get_by_role('status')).to_contain_text('0/64 active or closing channels')
+            expect(grant.get_by_role('status')).to_contain_text('64 slots available')
+            grant.get_by_text('Retained operation receipts',exact=True).click()
+            expect(grant).to_contain_text(saved['document_id'])
+            expect(grant).to_contain_text('committed')
             if NORMAL:
                 assert not files[0].exists()
             else:
-                assert call({'action':'read_source','source_id':citation['source_id']})['code']=='revoked'
+                assert call({'action':'read_source','source_id':citation['source_id']})['code']=='permission_denied'
             assert not errors,errors
             browser.close()
         print('PASS real disposable browser: '+('Normal recipient + actual pinned gateway context; ' if NORMAL else '')+'selected-source consent, real Python private adapter, isolated search/read, cited saved Lexical brief, owner edit/save, revoke; no provider calls')
