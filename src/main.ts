@@ -365,9 +365,11 @@ window.addEventListener('orbit-open-host-surface', event => {
 });
 window.addEventListener('orbit-review-document-result',event=>{
   const detail=(event as CustomEvent).detail;
-  if(!detail||typeof detail.title!=='string'||typeof detail.respond!=='function'||detail.workspaceId!==workspaceId)return;
+  if(!detail||typeof detail.title!=='string'||typeof detail.respond!=='function'||typeof detail.isCurrent!=='function'||detail.workspaceId!==workspaceId)return;
   event.preventDefault();
-  void import('./document-library').then(module=>detail.workspaceId===workspaceId?module.reviewCreateDocument(()=>sessionToken,detail.title,detail.data):{status:'rejected' as const,reason:'Workspace changed before document review.'}).then(detail.respond).catch(()=>detail.respond({status:'rejected',reason:'Document result could not be reviewed.'}));
+  const credential=sessionToken;
+  const current=()=>detail.workspaceId===workspaceId&&sessionToken===credential&&detail.isCurrent();
+  void import('./document-library').then(module=>current()?module.reviewCreateDocument(()=>sessionToken,detail.title,detail.data,current):{status:'rejected' as const,reason:'Document result source, workspace or host connection changed before review.'}).then(detail.respond).catch(()=>detail.respond({status:'rejected',reason:'Document result could not be reviewed.'}));
 });
 window.addEventListener('orbit-open-document',event=>{
   const detail=(event as CustomEvent<{id?:unknown;name?:unknown;paneId?:unknown}>).detail;
@@ -832,9 +834,13 @@ function paneView(p: ReturnType<typeof leaves>[number], m: Monitor): PaneView {
           }
           confirmChange(
             "Closing this pane discards its unsaved view content and disconnects it. Persistent terminal shells may continue detached.",
-            () => {
-              const m = livePaneMonitor(id);
-              if (!m) return;
+            async () => {
+              const closingMonitor=livePaneMonitor(id),closingPane=closingMonitor&&leaves(closingMonitor.layout).find(p=>p.id===id),closingView=views.get(id);
+              if(!closingMonitor||!closingPane)return;
+              const signature=paneSignature(closingPane);
+              if(!await (await import('./document-drafts')).requestDocumentClose([id]))return;
+              const m=livePaneMonitor(id),p=m&&leaves(m.layout).find(p=>p.id===id);
+              if(!m||m!==closingMonitor||!p||paneSignature(p)!==signature||views.get(id)!==closingView){notify('Pane placement or content binding changed during close review. Please close it again.');return;}
               if (leaves(m.layout).length <= 1) {
                 notify('Pane placement changed; keep at least one pane on each display.');
                 return;

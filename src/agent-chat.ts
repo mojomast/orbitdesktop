@@ -916,8 +916,8 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
             if(disposed||!current(requested)||getToken()!==credential||state.run||!extractDocumentResult(completeOutput))return;
             progress.append(button('Create document from result','Review this complete reply as a new private document draft',async()=>{
               if(disposed||!current(requested)||getToken()!==credential)return;
-              const result=await requestDocumentFromResult(completeOutput);
-              if(!disposed&&current(requested))progress.textContent=result.status==='created-draft'?'Document draft created. Open/recover it in Document library; Save remains explicit.':result.reason||'Document review cancelled.';
+              const result=await requestDocumentFromResult(completeOutput,()=>current(requested)&&getToken()===credential);
+              if(!disposed&&current(requested)&&getToken()===credential)progress.textContent=result.status==='created-draft'?'Document draft created. Open/recover it in Document library; Save remains explicit.':result.reason||'Document review cancelled.';
             }));
           });
         }
