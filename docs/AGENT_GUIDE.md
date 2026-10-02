@@ -206,6 +206,14 @@ work brief: what to accomplish, what success means, and where to stop. Reuse
 facts already provided. Ask only for missing project or outcome information.
 Ordinary questions and small workspace changes do not need a Workbench task.
 
+The setup UI can save a durable review-only waiting intention, cancel it and
+refresh its state. This neither queues unattended execution nor inherits approval.
+The task chooser's Task status inbox shows current authoritative records and
+links to Live/Checks/Result; marking an exact status read is not approval. An
+observed runtime exit, an available explanation, passing recorded checks and human
+review remain independent. Proven publication journals can be finalized without
+repeating checks or publication; preserve the exact recovery digest.
+
 The `orbit_workspace` action `workbench_setup` proposes a bounded **workspace
 suggestion** with a stable `request.op_id`, `goal`, and optional `title`,
 `acceptance_statement`, `project_id` and `check_definition_id`. Do not invent a

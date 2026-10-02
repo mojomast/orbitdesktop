@@ -49,6 +49,8 @@ with tempfile.TemporaryDirectory(prefix='orbit-everyday-ux-', dir='/tmp/opencode
                 tour.get_by_role('button', name='Next tour step', exact=True).click()
                 page.get_by_role('button', name='Close getting started', exact=True).click()
                 page.wait_for_function("!document.querySelector('.orbit-onboarding')")
+                page.evaluate("async()=>{const {offerOnboarding}=await import('/src/onboarding.ts');offerOnboarding();}")
+                expect(page.locator('.orbit-onboarding')).to_have_count(0)
                 page.evaluate('()=>{window.tour();}')
                 expect(page.get_by_role('heading', name='Your everyday controls')).to_be_visible()
                 page.get_by_role('button', name='Previous tour step').click()

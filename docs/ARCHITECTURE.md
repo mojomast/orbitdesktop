@@ -136,6 +136,14 @@ Current bodies/receipts are not a historical body archive. See
 [Documents](DOCUMENTS.md), [Context handoff](CONTEXT_HANDOFF.md) and
 [Resource delegation](RESOURCE_DELEGATION.md) for exact authority and recovery.
 
+Normal resource authority joins actual pinned gateway ContextVars to the exact
+accepted Orbit submission receipt, profile fingerprint and pane binding revision.
+A private per-run authenticated socket channel carries finite selected-source
+operations; grants attach to the next accepted run and do not inherit into later
+turns. The source-pinned plugin rejects environment-only/session-only identities
+and delegated child contexts. This local adapter is configured explicitly and does
+not broaden the ordinary workspace controller or generated-plugin authority.
+
 Workbench setup records operation-owned completion manifests beside copied
 candidate trees; exact recovery publishes only verified completed materialization.
 Integration publication manifests similarly permit DB-only settlement after a

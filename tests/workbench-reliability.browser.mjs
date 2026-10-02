@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import {spawn} from 'node:child_process';
 import {once} from 'node:events';
@@ -11,9 +10,8 @@ const child=spawn(process.execPath,['--experimental-strip-types','tests/workbenc
 let browser;
 try{
   for(let n=0;!fs.existsSync(path.join(root,'ready.json'));n++){if(child.exitCode!==null||n>200)throw Error(fs.readFileSync(path.join(root,'server.log'),'utf8'));await new Promise(r=>setTimeout(r,100));}
-  const config=JSON.parse(fs.readFileSync(path.join(root,'ready.json'))),cache=path.join(os.homedir(),'.cache/ms-playwright');
-  const available=fs.readdirSync(cache).filter(n=>n.startsWith('chromium_headless_shell-')).sort((a,b)=>Number(b.split('-').at(-1))-Number(a.split('-').at(-1)));
-  const executable=process.env.ORBIT_TEST_CHROMIUM??path.join(cache,available[0],'chrome-headless-shell-linux64/chrome-headless-shell');
+  const config=JSON.parse(fs.readFileSync(path.join(root,'ready.json')));
+  const executable=process.env.ORBIT_TEST_CHROMIUM??chromium.executablePath();
   browser=await chromium.launch({headless:true,executablePath:executable,args:['--no-sandbox']});
   const context=await browser.newContext({viewport:{width:980,height:1000}});let page=await context.newPage();const errors=[],requests=[];
   const observe=p=>{p.on('pageerror',e=>errors.push(e.message));p.on('request',r=>{if(r.url().includes('/api/workbench/'))requests.push(r.postDataJSON());});};observe(page);

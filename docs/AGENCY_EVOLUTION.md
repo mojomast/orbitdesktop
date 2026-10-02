@@ -29,6 +29,46 @@ Feature guides describe the implemented contracts. This page records the common
 goals and acceptance method; an intended outcome is not a claim that a deployed
 Hermes profile supports it.
 
+## Implemented cross-feature workflows
+
+- **Discover and resume:** Start skips unavailable actions for keyboard execution;
+  built-in tools preserve Spatial view. Conversation selection is acknowledged,
+  initial-link waiting is cancellable, and older-title search is bounded and explicit.
+- **Share exact evidence:** one recipient review includes the existing draft and
+  exact inserted text. Knowledge keeps full citation/hash/range provenance; Data Lab
+  shares selected values and numeric precision, with schema-only and SQL-proposal
+  paths. Final source/draft/recipient changes refuse stale insertion.
+- **Use complete results:** authenticated completed replies offer reviewed A2UI,
+  document and self-contained MCP snapshot actions. Queues are ephemeral and
+  mount-bound; creating a document draft is distinct from saving its imported body.
+- **Recover and edit:** whole-window and split-pane closes honor dirty-document
+  review. Original-pane drafts and journalled uncertain creations are recoverable
+  through Document library after same-tab reload. Reviewed snapshot edits bind
+  revision/digest, preserve concurrent changes and use native Undo.
+- **Delegate useful content work:** the configured source-pinned local Normal
+  adapter binds selected sources and finite create-new-brief authority to the next
+  accepted run of an actual conversation. A dedicated-local fallback remains
+  separate. Source bodies and saved document contents stay outside layout snapshots.
+- **Recover durable work:** committed arrangements no longer consume active-preview
+  capacity. Complete operation-owned candidate copies and retained publication
+  manifests can settle without repeating side effects. Review-only waiting and
+  authoritative current task state reuse the existing Workbench authority. Setup
+  exposes waiting/review/cancel controls; the existing task chooser embeds the
+  status inbox, capacity diagnostics and exact read acknowledgments, while the
+  workflow surface offers retained-publication receipt finalization.
+
+See [Resource delegation](RESOURCE_DELEGATION.md), [Documents](DOCUMENTS.md),
+[Context handoff](CONTEXT_HANDOFF.md), [Interactive results](INTERACTIVE_RESULTS.md),
+[Data Lab](DATA_LAB.md), [Workbench setup](WORKBENCH_SETUP.md) and
+[Project Workbench](PROJECT_WORKBENCH.md) for precise controls and limits.
+
+This increment does not add autonomous browser planning, arbitrary MCP resource
+connections, recurring unattended dispatch, physical task/history garbage
+collection, durable historical transition replay or cross-device unsaved editor
+drafts. Browser and SQL suggestions stage existing owner controls. Model capability
+acceptance and owner-workspace visual acceptance remain distinct from the isolated
+engine/context tests below.
+
 ## Outcome-oriented acceptance
 
 Use disposable workspaces with synthetic data. Check authoritative saved state

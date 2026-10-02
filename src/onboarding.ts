@@ -70,13 +70,18 @@ export function showOnboarding(actions?:OnboardingActions) {
     heading.focus(); content.scrollTop = 0;
   }
   dialog.addEventListener('cancel', event => { event.preventDefault(); dialog.close(); });
-  dialog.addEventListener('close', () => { dialog.remove(); active = undefined; if (previous?.isConnected) previous.focus(); });
+  dialog.addEventListener('close', () => {
+    // Dismissal is not completion, but must not interrupt the next reconnect.
+    // Getting started still resumes the separately retained step on demand.
+    try { if(localStorage.getItem(key)!=='done')localStorage.setItem(key,'dismissed'); } catch {}
+    dialog.remove(); active = undefined; if (previous?.isConnected) previous.focus();
+  });
   dialog.append(top, heading, content, status, footer);
   document.body.append(dialog); dialog.showModal(); render();
 }
 
 export function offerOnboarding(actions?:OnboardingActions) {
   let seen = false;
-  try { seen = localStorage.getItem(key) === 'done'; } catch { /* Nonpersistent first run. */ }
+  try { seen = ['done','dismissed'].includes(localStorage.getItem(key) || ''); } catch { /* Nonpersistent first run. */ }
   if (!seen) showOnboarding(actions);
 }

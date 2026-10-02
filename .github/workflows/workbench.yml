@@ -252,6 +252,11 @@ jobs:
           for renderer in default docking; do
             /tmp/opencode/orbit-workbench-venv/bin/python tests/pane-workbench-mode.browser.py --renderer "$renderer"
           done
+      - name: Durable waiting task inbox and receipt recovery
+        if: ${{ !cancelled() && matrix.suite == 'chat' && steps.browser_tools.outcome == 'success' && needs.changes.outputs.workbench == 'true' }}
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
+        run: node --experimental-strip-types tests/workbench-reliability.browser.mjs
       - name: Workspace commands and settings navigation
         if: ${{ !cancelled() && matrix.suite == 'themes' && steps.browser_tools.outcome == 'success' }}
         env:

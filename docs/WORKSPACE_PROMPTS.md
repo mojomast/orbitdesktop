@@ -187,6 +187,17 @@ Guides: [Plugins](PLUGINS.md), [Widget configuration](WIDGET_CONFIGURATION.md).
 > criteria and a stopping point. Propose setup for my review; preparation is not
 > approval to execute.
 
+> Save this prepared task for later review while the execution lane is busy.
+> When I return, show its current task status, checks and review state. Keep
+> starting work separate from saving the waiting intention.
+
+Setup offers **Save for later review**, status, cancellation and fresh review.
+The existing Workbench task chooser includes a **Task status inbox** with exact
+read acknowledgment and Live/Checks/Result links. Completion labels mean observed
+runtime exit, not passing checks or human approval. A retained publication with a
+complete verified journal can use **Finalize integration receipt** to settle its
+metadata without rerunning work; unknown or tampered effects remain unresolved.
+
 Workbench remains experimental and off by default in Orbit settings. Optional
 gVisor runs only approved `node-test` checks on a separately provisioned compatible
 host. A displayed capability is not approval; unavailable isolation cannot fall
