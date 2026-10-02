@@ -35,6 +35,87 @@ remove unsaved drafts. An invalid or oversized cached record is never passed to 
 editor engine. Session storage contains private document bytes and is accessible
 to reviewed same-origin parent code; it is not an encrypted vault.
 
+### Close and recover
+
+Closing a document pane/window through the shell offers **Save and close**,
+**Keep editing**, or **Retain draft and close**. Save-and-close refuses to close
+when the outcome is unknown, a conflict occurs, or newer edits remain. An
+unresolved save can be retained, but is never labelled saved. Failed recovery
+storage blocks deliberate retain-and-close; export while the pane is still open.
+Remote layout replacement/disposal still retains the cache without pretending
+that a local close dialog can veto a server workspace operation.
+
+Open **Document library → Recoverable drafts · this browser tab** (or Refresh
+documents if the library was already open). Each entry identifies the document,
+original pane UUID, base revision, and unknown-save status. Recovery restores the
+original pane identity: this is necessary for exact-save receipt replay. A normal
+saved-document reopen may create a new pane; recovering the older pane does not
+overwrite that new pane or merge its edits. Two divergent drafts stay separate.
+If the original UUID is occupied by a different surface, recovery refuses rather
+than replacing it. Recovery remains same-tab storage, not a server draft archive.
+
+### Reviewed imports, results and co-editing
+
+The library's **Review new document from content** accepts plain text, finite
+Markdown, canonical Lexical JSON and supported `.excalidraw` JSON. Existing panes
+offer **Import / review replacement**, including an owner-picked file. Validation
+precedes engine admission. Markdown is converted using the pinned Lexical
+transformers and then the same document validator; HTML imports are rejected.
+Unknown nodes, binary files and unsupported canvas fonts remain rejected.
+
+Review shows both whole snapshots as literal structured content, including scene
+element identities and properties. **Apply reviewed draft** changes only the
+editor draft. It does not Save. New-content creation first receipts an empty
+document and retains the reviewed content in the original-pane cache; opening
+the editor and saving its body are distinct operations. A failed creation can be
+retried with the same operation while its review is open. Cancelling an uncertain
+creation can leave an empty saved document in the library; it is not proof of a
+saved imported body. A window-capacity failure leaves the imported draft available
+for recovery in the library.
+
+The trusted producer seam is `requestDocumentFromResult(completeReply)` in
+`src/document-artifacts.ts`. It accepts exactly this sole-key JSON object, optionally
+inside one whole-reply `orbit-document` fence:
+
+```json
+{"document":{"title":"Report","kind":"richtext","format":"lexical","content":"<serialized editor-state JSON>"}}
+```
+
+Canvas uses `kind: "scene"`, `format: "excalidraw"`. Prose around the envelope,
+unsupported schemas and oversized inputs are refused. Up to eight independent
+parent-memory reviews can be outstanding; deliveries never overwrite a singleton
+pending slot. The returned acknowledgement is `created-draft`, `cancelled`, or
+`rejected`; `created-draft` includes document/pane IDs and means record creation
+plus draft retention, **not editor visibility or a saved imported body**. The
+shell event is trusted-parent-only, not a generated-frame capability. Newly
+completed Normal replies and available completed Workbench results expose a
+**Create document from result** action when this exact adapter accepts them.
+No model is invoked by review or creation.
+
+**Share selected content** captures the native Lexical text selection or selected
+Excalidraw elements. Its literal text includes document/pane IDs, base revision,
+draft SHA-256 and a saved-base/unsaved snapshot label. Only the selected content
+is included; no whole-document read is implied. Select fewer items if the complete
+payload with provenance exceeds 20,000 characters. The existing recipient review
+inserts into one chosen conversation draft and never sends a turn. This is a fixed
+captured excerpt, not a live selection that changes while the transfer is open.
+
+A proposed whole-document replacement can be imported using **proposal** format:
+
+```json
+{"base_revision":2,"base_digest":"<SHA-256 of exact current draft content>","data":{"kind":"richtext","format":"lexical","content":"<replacement editor-state JSON>"}}
+```
+
+The proposal must match both saved base revision and current draft digest.
+Applying rechecks the live saved revision, exact draft and local edit generation.
+Typing, drawing, Undo, reload, rebase or Save while review is open invalidates it;
+unresolved saves block replacement. Save still performs authoritative server CAS,
+so another pane saving after the review check produces the normal retained-draft
+conflict. Accepted replacements use native editor history, not load/reset history.
+Lexical runtime node keys are not durable serialized IDs: this first version does
+whole-snapshot replacement, not invented key-addressed block patches. The store
+retains only the current body and bounded receipts, not historical revision bodies.
+
 ## Exact routes and integration
 
 `src/document-library.ts` exports:
@@ -43,9 +124,10 @@ to reviewed same-origin parent code; it is not an encrypted vault.
 mountDocumentLibrary(host, token, options?: {paneId?: string}): {dispose(): void}
 ```
 
-It dispatches `window` event **`orbit-open-document`**, detail `{id, name}`. The
+It dispatches `window` event **`orbit-open-document`**, detail `{id, name, paneId?}`. The
 parent validates the UUID/title and opens `kind: 'browser'` with the standard
-window operation. Content, credentials and file paths never enter that event.
+window operation. Optional `paneId` restores the exact original recovery identity.
+Content, credentials and file paths never enter that event.
 
 `src/document-host.ts` exports:
 

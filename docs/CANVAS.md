@@ -57,6 +57,32 @@ the same as rich documents. No collaboration service, CDN application build,
 automatic graph links or content-derived edges are introduced. PNG export is not
 part of this surface.
 
+## Reviewed scene replacement and selected sharing
+
+**Import / review replacement** accepts canonical `.excalidraw` JSON (empty
+`files`, supported elements/fonts) or a revision-and-draft-digest-bound proposal;
+see [Documents](DOCUMENTS.md). Review displays literal before/after scene elements
+and properties, then changes the draft only. The real public `updateScene` API
+captures an immediate native-history entry. Removed elements receive tombstones;
+incoming elements retain IDs/bindings and receive fresh version metadata so native
+Undo can observe changed elements. No call to `history.clear()` occurs on proposal
+application. Explicit saved-content reload still resets history.
+
+Native snapshot Undo restores visible scene content, not a byte-identical archived
+JSON document: Excalidraw owns version/versionNonce metadata, history deltas and
+transient selection. It is not a merge protocol, element-level conflict resolver,
+or cross-reload history. Full-document proposals bind the whole current draft
+digest; stale drafts or saved revisions are refused before application. Save and
+its independent CAS/exact receipt remain separate.
+
+**Share selected content** includes exactly the selected elements and their IDs
+as a labelled scene-selection excerpt. Bindings to unselected elements may remain
+as references; the excerpt is not advertised as a standalone importable scene and
+does not silently disclose the rest of the canvas. The bounded literal payload
+includes draft digest/base revision and previews into one selected chat draft.
+Dirty/unknown-save close recovery restores the original pane UUID from Document
+library, preserving exact pending operation identities and divergent pane drafts.
+
 ## Local asset contract and actual licenses
 
 Before importing Excalidraw the host sets:

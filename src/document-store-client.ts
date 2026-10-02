@@ -19,4 +19,4 @@ export function downloadDocument(content:string,name:string,type='application/js
   const url=URL.createObjectURL(new Blob([content],{type})),a=document.createElement('a');
   a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
-export interface MountedDocumentEditor {getContent():string;setContent(content:string):void;setReadOnly(readonly:boolean):void;exportMarkdown?():string;dispose():void}
+export interface MountedDocumentEditor {getContent():string;setContent(content:string):void;applySnapshot(content:string):void;selectedContent():string;setReadOnly(readonly:boolean):void;exportMarkdown?():string;dispose():void}
