@@ -124,6 +124,15 @@ pages; row removal is not secure erasure.
 
 ## UI and verification
 
+**Share diagnostic summary** captures fresh bounded metadata for the selected run
+and opens the selected-conversation draft review. The actual draft includes trace
+and run identity, observed status, gap/open/error counts, timing provenance and an
+explicit snapshot caveat. It includes at most 500 spans in its aggregate and marks
+omitted pages; summed spans may overlap and are not wall-clock duration. Tool names,
+arguments, results, arbitrary attributes and paths are not copied. Insertion never
+sends a message and does not grant access to the referenced run. The summary is a
+derived observation, not an execution verdict or authoritative receipt.
+
 `mountRunTracePane(host,token,options?)` returns `{dispose()}`. It lazily requests
 the current workspace, lists method/status filters, renders at most 500 visible
 waterfall rows, labels timing provenance/open/partial states, exposes opaque
