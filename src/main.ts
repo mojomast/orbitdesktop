@@ -363,16 +363,25 @@ window.addEventListener('orbit-open-host-surface', event => {
   const id = (event as CustomEvent<{ id?: string }>).detail?.id;
   if (typeof id==='string' && Object.hasOwn(HOST_SURFACE_URLS,id)) openHostSurface(id as HostSurfaceId);
 });
+window.addEventListener('orbit-review-document-result',event=>{
+  const detail=(event as CustomEvent).detail;
+  if(!detail||typeof detail.title!=='string'||typeof detail.respond!=='function'||detail.workspaceId!==workspaceId)return;
+  event.preventDefault();
+  void import('./document-library').then(module=>module.reviewCreateDocument(()=>sessionToken,detail.title,detail.data)).then(detail.respond).catch(()=>detail.respond({status:'rejected',reason:'Document result could not be reviewed.'}));
+});
 window.addEventListener('orbit-open-document',event=>{
-  const detail=(event as CustomEvent<{id?:unknown;name?:unknown}>).detail;
+  const detail=(event as CustomEvent<{id?:unknown;name?:unknown;paneId?:unknown}>).detail;
   if(typeof detail?.id!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(detail.id))return;
   const url=`orbit://document/${detail.id}`;
-  let target=state.monitors.find(m=>leaves(m.layout).some(p=>p.kind==='browser'&&p.url===url));
+  const recoveryPane=typeof detail.paneId==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(detail.paneId)?detail.paneId:undefined;
+  if(recoveryPane&&state.monitors.some(m=>leaves(m.layout).some(p=>p.id===recoveryPane&&(p.kind!=='browser'||p.url!==url)))){notify('Original pane identity is now used by another surface. Draft remains in the library.');return;}
+  let target=state.monitors.find(m=>leaves(m.layout).some(p=>p.kind==='browser'&&p.url===url&&(!recoveryPane||p.id===recoveryPane)));
   if(!target){
     if(state.monitors.length>=100){notify('Close a window before opening another document.');return;}
     target=monitor(state.monitors.length+1,'browser');
     target.name=typeof detail.name==='string'&&detail.name.trim()?detail.name.trim().slice(0,60):'Document';
     leaves(target.layout)[0].url=url;
+    if(recoveryPane)leaves(target.layout)[0].id=recoveryPane;
     state.monitors.push(target);
   }
   revealSurface(target.id);
@@ -781,7 +790,8 @@ function paneView(p: ReturnType<typeof leaves>[number], m: Monitor): PaneView {
         kind: (id, kind) => {
           confirmChange(
             "Switching this pane replaces its current view and unsaved content. Persistent terminal shells may continue detached.",
-            () => {
+            async () => {
+              if(!await (await import('./document-drafts')).requestDocumentClose([id]))return;
               const m = livePaneMonitor(id);
               if (!m) return;
               views.get(id)?.dispose();
@@ -1352,7 +1362,10 @@ function deleteMonitor() {
     return;
   }
   const m = current();
-  confirmChange(`Remove ${m.name} and close all its panes?`, () => {
+  confirmChange(`Remove ${m.name} and close all its panes?`, async () => {
+    const closingPaneIds=leaves(m.layout).map(p=>p.id);
+    if(!await (await import('./document-drafts')).requestDocumentClose(closingPaneIds))return;
+    if(!state.monitors.includes(m)||JSON.stringify(leaves(m.layout).map(p=>p.id))!==JSON.stringify(closingPaneIds)){notify('Window placement changed during close review. Please close it again.');return;}
     unfocus();
     leaves(m.layout).forEach((p) => {
       views.get(p.id)?.dispose();
