@@ -48,7 +48,10 @@ class CatalogTests(unittest.TestCase):
             catalog.source(entry, Path(temp), backend=True)
 
     def test_example(self):
-        self.assertEqual(catalog.validate(copy.deepcopy(ENTRY), 'notes.json')['id'], 'notes')
+        entry = catalog.validate(copy.deepcopy(ENTRY), 'notes.json')
+        self.assertEqual(entry['id'], 'notes')
+        # The pinned Notes example declares exactly its supported primitive keys.
+        self.assertEqual([field['key'] for field in entry['configSchema']['fields']], ['title', 'message'])
 
     def test_mutable_pins(self):
         for sha in ['main', 'v1.0.0', '1234567', 'A' * 40, None]:
@@ -138,6 +141,92 @@ class CatalogTests(unittest.TestCase):
             catalog.materialize([], root / 'runtime', output, None)
             self.assertEqual(json.loads(output.read_text())['entries'], [])
             self.assertTrue((root / 'runtime' / result['entries'][0]['manifest']['entry'].lstrip('/')).is_file())
+
+    INLINE_SCHEMA = {'fields': [
+        {'key': 'mode', 'type': 'string', 'title': 'Mode', 'description': 'Pick one.', 'enum': ['light', 'dark'], 'default': 'light', 'required': True},
+        {'key': 'count', 'type': 'number', 'min': 0, 'max': 10, 'default': 3},
+    ]}
+
+    def test_inline_config_schema_is_validated_and_normalized(self):
+        entry = catalog.validate(copy.deepcopy(dict(ENTRY, configSchema=self.INLINE_SCHEMA)))
+        self.assertEqual(entry['configSchema'], self.INLINE_SCHEMA)
+        # Validation is a pure metadata check; the bundle fields are untouched.
+        self.assertEqual(entry['path'], ENTRY['path'])
+
+    def test_invalid_inline_config_schema_is_rejected(self):
+        cases = {
+            'enum-type-mismatch': {'fields': [{'key': 'a', 'type': 'string', 'enum': ['x', 2]}]},
+            'default-outside-enum': {'fields': [{'key': 'a', 'type': 'string', 'enum': ['x'], 'default': 'z'}]},
+            'default-type-mismatch': {'fields': [{'key': 'a', 'type': 'number', 'default': 'x'}]},
+            'default-out-of-range': {'fields': [{'key': 'a', 'type': 'number', 'min': 1, 'max': 2, 'default': 5}]},
+            'unknown-field-property': {'fields': [{'key': 'a', 'type': 'string', 'regex': '.*'}]},
+            'unknown-top-property': {'fields': [], 'url': 'https://evil/schema.json'},
+            'required-empty-default': {'fields': [{'key': 'a', 'type': 'string', 'required': True, 'default': ''}]},
+            'boolean-enum': {'fields': [{'key': 'a', 'type': 'boolean', 'enum': [True, False]}]},
+            'url-string': 'https://evil.example/schema.json',
+        }
+        for name, schema in cases.items():
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                catalog.validate(copy.deepcopy(dict(ENTRY, configSchema=schema)))
+
+    def test_materialize_preserves_schema_with_deterministic_identity(self):
+        def static_source(entry, folder):
+            (folder / 'index.html').write_text('<h1>Catalog schema unit fixture</h1>')
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            runtime = root / 'runtime'
+            with patch.object(catalog, 'source', static_source):
+                entry = catalog.validate(copy.deepcopy(dict(ENTRY, configSchema=self.INLINE_SCHEMA)))
+                with_schema = catalog.materialize([entry], runtime, root / 'with.json', 'a' * 40)
+                manifest = with_schema['entries'][0]['manifest']
+                self.assertEqual(manifest['configSchema'], self.INLINE_SCHEMA)
+                self.assertEqual(with_schema['entries'][0]['provenance']['configSchema'], self.INLINE_SCHEMA)
+                # Deterministic output and no schema file inside the served bundle.
+                first_bytes = (root / 'with.json').read_bytes()
+                catalog.materialize([entry], runtime, root / 'with.json', 'a' * 40)
+                self.assertEqual(first_bytes, (root / 'with.json').read_bytes())
+                bundle = runtime / manifest['entry'].lstrip('/')
+                self.assertEqual(sorted(item.name for item in bundle.parent.iterdir()), ['index.html'])
+                # The same source without a schema keeps an identical content identity.
+                plain_entry = {key: value for key, value in ENTRY.items() if key != 'configSchema'}
+                plain = catalog.materialize([catalog.validate(copy.deepcopy(plain_entry))], runtime, root / 'without.json', 'a' * 40)
+                self.assertEqual(plain['entries'][0]['manifest']['entry'], manifest['entry'])
+                self.assertNotIn('configSchema', plain['entries'][0]['manifest'])
+                # An invalid schema can never reach the publisher temp file.
+                with self.assertRaises(ValueError):
+                    catalog.validate(copy.deepcopy(dict(ENTRY, configSchema={'fields': [{'key': 'a', 'type': 'object'}]})))
+
+    def test_packaged_catalog_schema_is_valid_and_reserved(self):
+        schema = json.loads((ROOT / 'plugin-catalog/schema.json').read_text())
+        self.assertEqual(schema['$schema'], 'https://json-schema.org/draft/2020-12/schema')
+        self.assertEqual(schema['properties']['configSchema']['properties']['fields']['maxItems'], catalog.publish.MAX_SCHEMA_FIELDS)
+        self.assertIn('schema.json', catalog.RESERVED_CATALOG_FILES)
+
+    def test_schema_file_is_reserved_not_an_entry(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            (folder / 'notes.json').write_text(json.dumps(ENTRY))
+            (folder / 'removed.json').write_text('[]')
+            (folder / 'schema.json').write_text('{"title":"catalog entry schema"}')
+            self.assertEqual([entry['id'] for entry in catalog.load_catalog(folder)], ['notes'])
+
+    def test_reviewed_catalog_skips_reserved_files(self):
+        sha = 'b' * 40
+        def fetch(url, limit):
+            if '/commits/main' in url:
+                return json.dumps({'sha': sha}).encode()
+            if '/contents/' in url:
+                return json.dumps([
+                    {'name': 'notes.json', 'type': 'file'},
+                    {'name': 'schema.json', 'type': 'file'},
+                    {'name': 'removed.json', 'type': 'file'},
+                ]).encode()
+            return json.dumps(ENTRY).encode()
+        with tempfile.TemporaryDirectory() as temp, patch.object(catalog, 'fetch', fetch):
+            destination = Path(temp)
+            self.assertEqual(catalog.reviewed_catalog(destination), sha)
+            self.assertTrue((destination / 'notes.json').is_file())
+            self.assertFalse((destination / 'schema.json').exists())
 
     def test_catalog_snapshot_pins_all_reads(self):
         sha = 'a' * 40

@@ -13,6 +13,7 @@ import { commandIdentity } from './command-identity.mjs';
 import { isContentAddressedBundle } from './bundle-registry.mjs';
 import { describeWorkspace } from './workspace-description.mjs';
 import { createArrangementControl } from './workspace-arrangement-control.mjs';
+import { checkpointChanges } from './workspace-diff.mjs';
 
 export const runtimeRoot = path.resolve(process.env.ORBIT_RUNTIME_DIR || fileURLToPath(new URL('../.runtime/', import.meta.url)));
 const slugPattern = /^[a-z0-9][a-z0-9-]{0,60}$/;
@@ -51,6 +52,7 @@ export function createWorkspaceService({ token, port, devOrigins, reply: sendRep
       validateWorkspaceRequest(body);
       // Recovery policy is owner-only and cannot be set through workspace control.
       if(body.action==='recovery_policy'&&!recovery)return reply(res,403,{error:'Action unavailable on this route'});
+      if(['layout_preview','layout_apply'].includes(body.action)&&(control||recovery))return reply(res,403,{error:'Action unavailable on this route'});
       if(recovery && (!['read','history','restore','plugins_apply','recovery_policy'].includes(body.action) || (body.action==='plugins_apply' && (body.operations.length!==1 || body.operations[0].action!=='plugin_disable_all'))))return reply(res,403,{error:'Action unavailable in recovery'});
       let record;
       try { record = read(body.workspace_id); } catch (e) {
@@ -78,25 +80,42 @@ export function createWorkspaceService({ token, port, devOrigins, reply: sendRep
         return reply(res, 200, { ...result, base_revision: record.revision });
       }
       if (body.action === 'history') return reply(res, 200, { checkpoints: store.checkpointList(record.id), revision: record.revision });
-      if (control && body.action==='preview') {
+      if (body.action === 'checkpoint_preview') {
+        if(body.base_revision!==record.revision)return reply(res,409,{error:'Workspace changed; preview again',...safe(record)});
+        const checkpoint=store.checkpointGet(record.id,body.checkpoint_id);
+        const {id,created,label,revision}=checkpoint;
+        return reply(res,200,{workspace_id:record.id,base_revision:record.revision,preview:true,checkpoint:{id,created,label,revision},...checkpointChanges(record,checkpoint),warning:'Layout comparison only, not a rendered preview. Conversations, files, live processes and external effects are not restored. Restore remains subject to current recovery policy and bundle availability.'});
+      }
+      if ((control && body.action==='preview') || body.action==='layout_preview') {
         if (body.base_revision !== record.revision) return reply(res, 409, { error: 'Workspace changed; read and retry', ...safe(record) });
         let next = record.state;
         for (const op of body.operations) next = applyOperation(next, op);
         return reply(res,200,{workspace_id:record.id,base_revision:record.revision,preview:true,state:next,changed_fields:Object.keys(next).filter(key=>JSON.stringify(next[key])!==JSON.stringify(record.state[key])),warning:'Validation only; no files, browser rendering or external effects were tested. Reapply operations against this base revision to commit.'});
       }
-      if(['sync','apply','plugins_apply','restore','checkpoint','jev_apply','recovery_policy','placement_save'].includes(body.action)) {
+      if(['sync','apply','layout_apply','plugins_apply','restore','checkpoint','jev_apply','recovery_policy','placement_save'].includes(body.action)) {
         if((control && !['apply','restore','checkpoint','placement_save'].includes(body.action)) || (!control && body.action==='apply'))return reply(res,403,{error:'Action unavailable on this route'});
         if(['restore','jev_apply'].includes(body.action)&&body.confirm!==true)return reply(res,409,{error:'Explicit confirmation against the current revision is required'});
         if(body.action==='plugins_apply'&&body.operations.some(op=>!op.action.startsWith('plugin_')))throw Error('Expected plugin operations');
         const identity=commandIdentity(body,control?`workspace-controller:${body.workspace_id}`:'owner');
         // Filesystem indexing is still legacy here, but never runs under a write lock.
         const versions=recovery?null:appVersions();
-        const labels={sync:'Before browser workspace change',apply:'Before agent layout change',plugins_apply:'Before plugin change',restore:'Before restore',jev_apply:'Before confirmed Jev quick action',checkpoint:body.label||'Checkpoint',recovery_policy:'Before recovery policy change',placement_save:'Before docking placement change'};
+        const labels={sync:'Before browser workspace change',apply:'Before agent layout change',layout_apply:'Before workspace arrangement',plugins_apply:'Before plugin change',restore:'Before restore',jev_apply:'Before confirmed Jev quick action',checkpoint:body.label||'Checkpoint',recovery_policy:'Before recovery policy change',placement_save:'Before docking placement change'};
         const change={
           authorize:current=>!control||tokenMatches(credential,current?.capability),
           create:body.action==='sync'?()=>({id:body.workspace_id,capability:randomBytes(32).toString('base64url'),revision:1,state:validate(structuredClone(body.state)),api:`http://127.0.0.1:${port}`,observed_revision:1,browser_seen:Date.now()}):undefined,
           apply:current=>{
-            if(body.action==='sync')return validate(structuredClone(body.state));
+            if(body.action==='sync') {
+              // Older browser validators can reject a newer snapshot after taking
+              // its revision. Never let a subsequent stale local snapshot erase
+              // instance identity or declared config metadata at that revision.
+              const features = new Set(body.client_features ?? []);
+              const plugins = current.state.plugins ?? [];
+              if (plugins.some(p => p.instance_id !== undefined) && !features.has('plugin-instances-v1') ||
+                  plugins.some(p => p.manifest.configSchema !== undefined) && !features.has('plugin-config-schema-v1')) {
+                throw Object.assign(Error('Reload Orbit before editing this workspace: this browser does not support its widget features.'), { category: 'UPGRADE_REQUIRED' });
+              }
+              return validate(structuredClone(body.state));
+            }
             if(body.action==='placement_save')return current.state;
             if(body.action==='restore') {
               const checkpoint=store.checkpointGet(current.id,body.checkpoint_id);
@@ -145,7 +164,7 @@ export function createWorkspaceService({ token, port, devOrigins, reply: sendRep
       const status={REVISION_CONFLICT:409,IDEMPOTENCY_CONFLICT:409,RECOVERY_HOLD:409,RECOVERY_POLICY_CHANGED:409,STUDIO_RELEASE_REVOKED:409,BUNDLE_UNAVAILABLE:409,UPGRADE_REQUIRED:409,PERMISSION_REQUIRED:403,RESOURCE_GONE:404,RESOURCE_BUSY:503,STORE_UNAVAILABLE:503,REQUEST_TOO_LARGE:413}[category]||400;
       let current={};
       if(category==='REVISION_CONFLICT')try {current=safe(read(body.workspace_id),!recovery);} catch {}
-      return reply(res,status,{error:category==='REVISION_CONFLICT'?'Workspace changed; read and reconsider':category==='BUNDLE_UNAVAILABLE'?'Published bundle is unavailable or changed; verify files and refresh the bundle index':'Workspace request could not be completed',category,...current});
+      return reply(res,status,{error:category==='REVISION_CONFLICT'?'Workspace changed; read and reconsider':category==='BUNDLE_UNAVAILABLE'?'Published bundle is unavailable or changed; verify files and refresh the bundle index':category==='UPGRADE_REQUIRED'?'This workspace requires a newer client or server. Reload Orbit before editing.':'Workspace request could not be completed',category,...current});
     }
   }
   function context(id) {

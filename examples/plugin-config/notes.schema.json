@@ -1,0 +1,18 @@
+{
+  "fields": [
+    {
+      "key": "title",
+      "type": "string",
+      "title": "Heading",
+      "description": "Window and page heading. Defaults to Workspace notes.",
+      "default": "Workspace notes"
+    },
+    {
+      "key": "message",
+      "type": "string",
+      "title": "Message",
+      "description": "Paragraph shown under the heading. Defaults to the configure prompt.",
+      "default": "Ask Hermes to configure this widget."
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+.workspace-arrange { width: min(720px, 92vw); max-height: 88vh; overflow: auto; color: var(--theme-textColor, #e8edf5); background: var(--theme-panelColor, #18202e); border: 1px solid var(--theme-borderColor, #53617a); border-radius: 12px; padding: 22px; }
+.workspace-arrange::backdrop { background: #0009; }
+.workspace-arrange button, .workspace-arrange select, .workspace-arrange input[type=number] { margin: 6px; padding: 8px; color: inherit; background: var(--theme-buttonColor, #29354a); border: 1px solid var(--theme-borderColor, #53617a); border-radius: 5px; }
+.workspace-arrange button:disabled { opacity: .5; }
+.workspace-arrange-windows { display: grid; gap: 8px; max-height: 220px; overflow: auto; margin: 16px 0; }
+.workspace-arrange-windows label { display: flex; align-items: center; gap: 10px; overflow-wrap: anywhere; }
+.workspace-arrange-status { min-height: 2em; }
+.workspace-arrange-preview:empty { display: none; }
+.workspace-arrange-preview { position: relative; width: 100%; background: #0c111b; border: 1px solid #53617a; }
+.workspace-arrange-tile { position: absolute; box-sizing: border-box; border: 2px solid #83b7ff; background: #263d59; padding: 6px; overflow: hidden; font-size: 12px; }

@@ -317,8 +317,21 @@ export function createWorkspaceArrangements({store,records,data,now=Date.now}={}
     return {recipe:'return',recipe_id:null,recipe_version:null,recipe_source_project_id:null,layout:'prioritize',renderer:body.renderer??'windows',roles:[],role_choices:{},unbound:[],operations:[{action:'set_workspace',state}],state,placement:checkpoint.placement??emptyPlacement(),geometry:'none',viewport:null,return_of:source.id,restore_revision:checkpoint.revision,warning:RETURN_WARNING};
   }
 
-  function pruneExpiredPreviews(workspaceId,projectId){
-    try{data.db.prepare("DELETE FROM wb_proposals WHERE workspace_id=? AND project_id=? AND json_extract(record_json,'$.status')='previewed' AND json_extract(record_json,'$.op_id') IS NULL AND json_extract(record_json,'$.expires_at')<=?").run(workspaceId,projectId,now());}catch{}
+  function reclaimPreviews(workspaceId,projectId){
+    // Called only inside recipePreview's IMMEDIATE transaction. Never reclaim
+    // identity-bearing records, even if their status is unexpectedly terminal.
+    const uncommitted=['op_id','committed_actor','committed_intent','committed_revision','committed_viewport','return_checkpoint_id','committed_at','returned_at'].map(key=>`json_extract(record_json,'$.${key}') IS NULL`).join(' AND ');
+    const scopeSql=`workspace_id=? AND project_id=? AND ${uncommitted}`;
+    // Applies remain valid at expires_at itself; reclamation uses the same strict
+    // boundary. Terminal previews share the original preview's 60-second horizon.
+    data.db.prepare(`DELETE FROM wb_proposals WHERE ${scopeSql} AND json_extract(record_json,'$.status') IN ('previewed','rejected','stale') AND json_extract(record_json,'$.expires_at')<?`).run(workspaceId,projectId,now());
+    const count=data.db.prepare('SELECT count(*) AS n FROM wb_proposals WHERE workspace_id=? AND project_id=?').get(workspaceId,projectId).n;
+    const needed=Math.max(0,count-WORKBENCH_RECORD_LIMITS.proposals+1);
+    if(needed){
+      // Under capacity pressure only terminal, never-committed previews can go
+      // early. Keep live previews and all replay/Return sources, oldest first.
+      data.db.prepare(`DELETE FROM wb_proposals WHERE id IN (SELECT id FROM wb_proposals WHERE ${scopeSql} AND json_extract(record_json,'$.status') IN ('rejected','stale') ORDER BY json_extract(record_json,'$.created_at'),id LIMIT ?)`).run(workspaceId,projectId,needed);
+    }
   }
 
   function recipePreview(body,actor){
@@ -332,7 +345,7 @@ export function createWorkspaceArrangements({store,records,data,now=Date.now}={}
       else if(body.recipe_id){const found=findRecipe(body.workspace_id,body.recipe_id);if(!found)throw wbError('stale_resource');staged=compileSaved(body,{workspace,bindings},found);}
       else staged=compileBuiltin(body,{workspace,bindings});
       staged=finalize(staged,workspace);
-      pruneExpiredPreviews(body.workspace_id,body.project_id);
+      reclaimPreviews(body.workspace_id,body.project_id);
       const identity={version:1,workspace_id:body.workspace_id,project_id:body.project_id,recipe:body.recipe,recipe_id:staged.recipe_id??null,recipe_version:staged.recipe_version??null,project_generation:project.generation,recovery_generation:workspace.recovery_policy?.generation??0,base_revision:workspace.revision,bindings,layout:staged.layout,renderer:staged.renderer,role_choices:staged.role_choices,unbound:staged.unbound,operations:staged.operations,state:staged.state,placement:staged.placement,viewport:staged.viewport??null,geometry:staged.geometry??'none'};
       const preview_digest=digest(identity);
       const created=data.create('proposals',{workspace_id:body.workspace_id,project_id:body.project_id,recipe:body.recipe,recipe_id:staged.recipe_id??null,recipe_version:staged.recipe_version??null,recipe_source_project_id:staged.recipe_source_project_id??null,layout:staged.layout,renderer:staged.renderer,base_revision:workspace.revision,project_generation:project.generation,recovery_generation:workspace.recovery_policy?.generation??0,actor,bindings,roles:staged.roles,role_choices:staged.role_choices,unbound:staged.unbound,operations:staged.operations,staged_state:staged.state,staged_placement:staged.placement,semantic_diff:staged.semantic_diff,geometry:staged.geometry??'none',viewport:staged.viewport??null,preview_digest,status:'previewed',op_id:null,committed_actor:null,committed_intent:null,committed_revision:null,committed_viewport:null,return_checkpoint_id:null,return_of:staged.return_of??null,returned_at:null,expires_at:now()+TTL,rendered:false,tested:false,changed:staged.changed,warning:staged.warning});
@@ -422,7 +435,7 @@ export function createWorkspaceArrangements({store,records,data,now=Date.now}={}
   function recipeList(body){
     const {workspace,project}=scope(body),bindings=bindingIdentity(body.workspace_id,body.project_id);
     const recipes=workspaceRecipes(body.workspace_id).sort((a,b)=>(a.created_at??0)-(b.created_at??0)||String(a.id).localeCompare(String(b.id)));
-    return {workspace_id:body.workspace_id,project_id:body.project_id,revision:workspace.revision,project_generation:project.generation,recipes:recipes.map(publicRecipe),bindings,capabilities:{roles:[...ARRANGEMENT_ROLES],layouts:[...ARRANGEMENT_LAYOUTS],renderers:[...ARRANGEMENT_RENDERERS],max_recipes:ARRANGEMENT_LIMITS.maxRecipes,max_proposals:WORKBENCH_RECORD_LIMITS.proposals,max_recipe_receipts:MAX_RECIPE_RECEIPTS,ttl_ms:TTL,measured_geometry:false,portable_constraints_only:true,cross_project_recipes:true,retention:'Committed proposals and their receipts are retained for the project lifetime; expired uncommitted previews may be pruned. No committed receipt is deleted.'}};
+    return {workspace_id:body.workspace_id,project_id:body.project_id,revision:workspace.revision,project_generation:project.generation,recipes:recipes.map(publicRecipe),bindings,capabilities:{roles:[...ARRANGEMENT_ROLES],layouts:[...ARRANGEMENT_LAYOUTS],renderers:[...ARRANGEMENT_RENDERERS],max_recipes:ARRANGEMENT_LIMITS.maxRecipes,max_proposals:WORKBENCH_RECORD_LIMITS.proposals,max_recipe_receipts:MAX_RECIPE_RECEIPTS,ttl_ms:TTL,measured_geometry:false,portable_constraints_only:true,cross_project_recipes:true,retention:'Committed proposals and their receipts are retained for the project lifetime; expired never-committed previewed/rejected/stale proposals are reclaimed, and oldest never-committed rejected/stale proposals may be reclaimed early at capacity. No committed receipt is deleted; 200 committed proposals block new previews, including Return.'}};
   }
 
   // Append-only recipe operation receipts. Read first under the same immediate

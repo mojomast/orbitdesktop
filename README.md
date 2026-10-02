@@ -86,6 +86,21 @@ Desktop icons open existing windows, restore minimized applications, and launch 
 
 Move, resize, split, reorder, and arrange windows. Adjust supported colors, wallpaper, corners, spacing, and chrome. Full viewport hides surrounding controls; it is not browser fullscreen. Core frontend changes still require loading the updated frontend once.
 
+The current usability development branch adds a searchable command palette,
+pinnable Outputs and Activity panels, typed plugin settings, a normal-workspace
+arranger and checkpoint comparisons. These build on the existing workspace
+operations; Project Workbench remains experimental and off by default. See
+[workspace usability](docs/WORKSPACE_USABILITY.md) for scope and compatibility.
+
+The next feature round extends this with [reusable saved layouts](docs/SAVED_WORKSPACE_LAYOUTS.md),
+a [conversation library with host-backed drafts](docs/CONVERSATION_LIBRARY.md), independent stateless widget instances,
+[author-declared configuration forms](docs/WIDGET_CONFIGURATION.md), a
+[searchable output library](docs/OUTPUT_LIBRARY.md), and explicit
+[context handoffs](docs/CONTEXT_HANDOFF.md) into a chosen conversation draft.
+Context insertion does not send a message. The extended widget records use a
+schema-12 writer fence; see [store compatibility](docs/WORKSPACE_STORE.md) before
+upgrading an existing runtime.
+
 **Project Workbench → Workspace arrangements** previews a named, semantic diff
 before changing the desktop. Save a portable Debug recipe, resolve its roles
 against another project's existing panes, and reuse it after reload or server
@@ -100,6 +115,10 @@ role order with explicit omissions while retaining the originals. See
 ### Recover workspace changes deliberately
 
 Revision-checked controller mutations and supported plugin changes create checkpoints. Restore layout, appearance, plugin registrations, configuration, and entry references.
+
+The Workspace checkpoints dialog compares a selected checkpoint with the current
+layout before restoring it. A changed revision requires a fresh comparison; the
+preview does not render embedded applications or roll back external effects.
 
 The independent [`/recovery` console](docs/RECOVERY.md) also offers an owner-only,
 persistent registered-plugin activation hold. Layout restore cannot release it;

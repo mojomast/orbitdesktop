@@ -197,12 +197,31 @@ def main(renderer):
 
                     page.on("response", record)
 
-                    def result(action):
-                        matches = [(status, body) for request, status, body in responses if request.get("action") == action]
-                        assert matches, (action, responses)
-                        status, body = matches[-1]
-                        assert status == 200 and body.get("ok") is True, (action, status, body)
-                        return body
+                    def api_response(action, click, endpoint="/api/workbench/context", **fields):
+                        """Run `click` and return the exactly correlated (response, body).
+
+                        Reading bodies back out of the async `response` collector is racy:
+                        the browser can render the post-response DOM state before the
+                        protocol response event is dispatched to Python. Wait for the
+                        correlated response explicitly (including identifying fields such
+                        as disclosure_id), then parse it exactly once.
+                        """
+
+                        def matches(response):
+                            request = response.request.post_data_json or {}
+                            return (
+                                response.url == origin + endpoint
+                                and request.get("action") == action
+                                and all(request.get(key) == value for key, value in fields.items())
+                            )
+
+                        with page.expect_response(matches) as captured:
+                            click()
+                        response = captured.value
+                        assert response.status == 200, (action, response.status)
+                        body = response.json()
+                        assert body.get("ok") is True, (action, body)
+                        return response, body
 
                     try:
                         page.goto(origin + ("?renderer=docking" if renderer == "docking" else ""), wait_until="domcontentloaded")
@@ -245,9 +264,11 @@ def main(renderer):
                         workbench.get_by_label("Project name").fill("synthetic-context-project")
                         workbench.get_by_role("button", name="Preview project registration").click()
                         expect(workbench.get_by_role("button", name="Confirm project registration")).to_be_enabled()
-                        workbench.get_by_role("button", name="Confirm project registration").click()
+                        _, registration = api_response("register_commit",
+                            lambda: workbench.get_by_role("button", name="Confirm project registration").click(),
+                            endpoint="/api/workbench")
                         expect(workbench.get_by_role("button", name="Open project synthetic-context-project")).to_be_visible()
-                        project_id = result("register_commit")["project"]["id"]
+                        project_id = registration["project"]["id"]
                         workbench.get_by_role("button", name="Open project synthetic-context-project").click()
                         expect(workbench.locator(".workbench-status")).to_contain_text("Inspected synthetic-context-project")
                         workbench.get_by_role("button", name="Open file app.py").click()
@@ -259,15 +280,16 @@ def main(renderer):
                         dialog = page.locator("dialog.workbench-context-dialog")
                         expect(dialog.get_by_label("Agent recipient", exact=True).locator("option")).to_have_count(1)
                         dialog.get_by_label("Agent recipient", exact=True).select_option(index=0)
-                        dialog.get_by_text("Capture context", exact=True).click()
+                        capture_response, capture = api_response("capture",
+                            lambda: dialog.get_by_text("Capture context", exact=True).click())
                         expect(dialog.locator(".workbench-context-status")).to_contain_text("metadata captured")
-                        capture = result("capture")
                         assert "text" not in capture["context"]["snapshot"]
-                        dialog.get_by_text("Preview for selected recipient", exact=True).click()
+                        captured_source = capture_response.request.post_data_json["source"]
+                        _, preview = api_response("preview",
+                            lambda: dialog.get_by_text("Preview for selected recipient", exact=True).click())
                         preview_text = dialog.get_by_role("textbox", name="Exact context preview text (read-only)")
                         expect(preview_text).to_have_value(SELECTED)
                         assert preview_text.get_attribute("readonly") is not None
-                        preview = result("preview")
                         assert preview["text"] == SELECTED and preview["recipient"]["session_id"] == session
                         with page.expect_response(lambda response: response.url == origin + "/api/workbench/context"
                                                   and response.request.post_data_json.get("action") == "approve") as approval_response:
@@ -276,10 +298,8 @@ def main(renderer):
                         assert approval_response.value.status == 200, approval_response.value.json()
                         approval = approval_response.value.json()
                         assert approval.get("ok") is True and approval.get("approval_id"), approval
-                        with page.expect_response(lambda response: response.url == origin + "/api/workbench/context"
-                                                  and response.request.post_data_json.get("action") == "share"):
-                            dialog.get_by_text("Share once", exact=True).click()
-                        share = result("share")
+                        _, share = api_response("share",
+                            lambda: dialog.get_by_text("Share once", exact=True).click())
                         expect(dialog.locator(".workbench-context-outcome")).to_contain_text("run_synthetic_fixture_0003")
                         expect(dialog.get_by_text("Share once", exact=True)).to_be_disabled()
                         assert len(gateway.posts) == 3
@@ -316,19 +336,23 @@ def main(renderer):
                         # Unknown live status then reconciliation: a status outage, not an
                         # ambiguous initial submission. Neither operation may resend bytes.
                         gateway.fail_status = True
-                        dialog.get_by_text("Check status", exact=True).click()
+                        _, unavailable = api_response("status",
+                            lambda: dialog.get_by_text("Check status", exact=True).click(),
+                            disclosure_id=share["disclosure"]["id"])
                         expect(dialog.locator(".workbench-context-outcome")).to_contain_text("No context was re-sent")
-                        unavailable = result("status")
                         assert unavailable["output_released"] is False
                         assert unavailable["submission"]["state"] == "dispatched"
                         status, reconciled = context_api("reconcile")
                         assert status == 200 and reconciled["ok"] is True, (status, reconciled)
                         assert len(gateway.posts) == 3
                         gateway.fail_status = False
-                        dialog.get_by_text("Check status", exact=True).click()
+                        _, recovered = api_response("status",
+                            lambda: dialog.get_by_text("Check status", exact=True).click(),
+                            disclosure_id=share["disclosure"]["id"])
                         response_text = dialog.get_by_role("textbox", name="Agent response (read-only)")
                         expect(response_text).to_have_value("synthetic agent reply\n")
                         assert response_text.get_attribute("readonly") is not None
+                        assert recovered["output_released"] is True and recovered["output"] == "synthetic agent reply\n"
                         dialog.get_by_text("Copy response", exact=True).click()
                         assert page.evaluate("navigator.clipboard.readText()") == "synthetic agent reply\n"
                         dialog.get_by_text("Close", exact=True).click()
@@ -346,14 +370,16 @@ def main(renderer):
                         status, history = context_api("list")
                         assert status == 200 and history["disclosures"][0]["id"] == share["disclosure"]["id"]
                         assert "text" not in history["contexts"][0]["snapshot"]
-                        activity.get_by_text("Stop agent run (jobs are not cancelled)", exact=True).click()
+                        _, stop_result = api_response("stop",
+                            lambda: activity.get_by_text("Stop agent run (jobs are not cancelled)", exact=True).click(),
+                            disclosure_id=share["disclosure"]["id"])
                         expect(activity.locator(".workbench-context-status")).to_contain_text("Stop requested")
-                        assert result("stop")["stop_requested"] is True
+                        assert stop_result["stop_requested"] is True
                         assert len(gateway.stops) == 1
                         status, withheld = context_api("status", disclosure_id=share["disclosure"]["id"])
                         assert status == 200 and withheld["output_released"] is False and not withheld["output"]
                         expect(activity.locator(".workbench-context-response")).to_have_value("")
-                        source = next(request["source"] for request, _, _ in responses if request.get("action") == "capture")
+                        source = captured_source
                         status, denied = context_api("capture", source=source)
                         assert status == 403 and denied["code"] == "permission_denied", (status, denied)
                         status, denied = context_api("share", preview_id=preview["preview_id"], approval_id=approval["approval_id"])

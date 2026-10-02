@@ -1,6 +1,7 @@
+import { pluginSelector } from '../src/plugins.ts';
 export function jevCandidates(state) {
  const candidates={hermes:{description:'Anything ambiguous, compound, requiring new code, unsupported parameters or outside the listed actions',operations:[]},windows:{description:'Switch to flat windows view',operations:[{action:'set_view',view:'windows'}]},spatial:{description:'Switch to spatial 3D view',operations:[{action:'set_view',view:'spatial'}]},hide_sidebar:{description:'Hide workspace sidebar',operations:[{action:'sidebar',hidden:true}]},show_sidebar:{description:'Show workspace sidebar',operations:[{action:'sidebar',hidden:false}]}};
- for(const [i,p] of (state.plugins||[]).entries())candidates['plugin_'+i]={description:`${p.enabled?'Disable':'Enable'} installed plugin ${p.manifest.title} (${p.manifest.id})`,operations:[{action:p.enabled?'plugin_disable':'plugin_enable',plugin_id:p.manifest.id}]};
+ for(const [i,p] of (state.plugins||[]).entries())candidates['plugin_'+i]={description:`${p.enabled?'Disable':'Enable'} installed plugin ${p.window?.name||p.manifest.title} (${p.manifest.id}${p.instance_id?` / ${p.instance_id}`:''})`,operations:[{action:p.enabled?'plugin_disable':'plugin_enable',...pluginSelector(p)}]};
  return candidates;
 }
 export async function jevSuggest(state, request, key, consent, transport=fetch) {

@@ -7,7 +7,9 @@ name: Orbit workbench browser tests
 # Project Workbench suites (execution, results) and the Project Workbench
 # registration runs are deferred because the feature is experimental and off by
 # default; they run when Workbench-related files change, on release branches and
-# tags, on a weekly schedule, and on manual dispatch. See the `changes` job.
+# tags, on pull requests targeting a release branch, on a weekly schedule, and on
+# manual dispatch. A failed diff resolves to the full gate, never a silent skip.
+# See the `changes` job.
 #
 # Runner: GitHub-hosted ubuntu-latest. Each fixture run builds and serves its own
 # disposable temp root under /tmp/opencode; the checkout is not an owner runtime.
@@ -45,28 +47,30 @@ jobs:
           BEFORE: ${{ github.event.before }}
           BASE_REF: ${{ github.base_ref }}
         run: |
-          set -euo pipefail
-          emit() { echo "workbench=$1" >> "$GITHUB_OUTPUT"; }
-          # Manual runs and the weekly schedule exercise every suite.
-          if [ "$EVENT" = "schedule" ] || [ "$EVENT" = "workflow_dispatch" ]; then emit true; exit 0; fi
-          # Releases always validate the packaged Workbench as shipped.
-          case "$REF" in
-            refs/heads/release/*|refs/tags/*) emit true; exit 0;;
-          esac
+          set -uo pipefail
+          changed="$(mktemp)"
+          diff_error=0
           if [ "$EVENT" = "pull_request" ]; then
-            git fetch --depth=1 origin "$BASE_REF"
-            changed=$(git diff --name-only FETCH_HEAD...HEAD || true)
+            git fetch --depth=1 origin "$BASE_REF" || diff_error=1
+            git diff --name-only FETCH_HEAD...HEAD > "$changed" 2>/dev/null || diff_error=1
           elif [ -n "${BEFORE:-}" ] && [ "$BEFORE" != "0000000000000000000000000000000000000000" ]; then
-            changed=$(git diff --name-only "$BEFORE"...HEAD || true)
+            git diff --name-only "$BEFORE" HEAD > "$changed" 2>/dev/null || diff_error=1
           else
             # New branch without a reachable previous commit: run the full gate.
-            emit true; exit 0
+            : > "$changed"
+            diff_error=1
           fi
-          if printf '%s\n' "$changed" | grep -qE '^(src/(workbench-|pane-workbench|candidate-diff-|project-workbench)|server/(workbench-|project-tools|project-files)|contracts/workbench-|tests/workbench[-_]|hermes-plugin/workbench)'; then
-            emit true
+          # A failed diff resolves to the full gate, never a silent skip.
+          if result="$(node scripts/workbench_ci_scope.mjs \
+            --event "$EVENT" --ref "$REF" \
+            --base-ref "${BASE_REF:-}" --before "${BEFORE:-}" \
+            $([ "$diff_error" = 1 ] && printf -- '--diff-error') < "$changed")"; then
+            :
           else
-            emit false
+            echo "::error::Workbench scope detector failed; running the full gate."
+            result="workbench=true"
           fi
+          printf '%s\n' "$result" >> "$GITHUB_OUTPUT"
   checks:
     name: Workbench / ${{ matrix.suite }}
     needs: changes
@@ -199,6 +203,34 @@ jobs:
             /tmp/opencode/orbit-workbench-venv/bin/python tests/project-tools.browser.py --renderer "$renderer"
             /tmp/opencode/orbit-workbench-venv/bin/python tests/extension-studio.browser.py --renderer "$renderer"
           done
+      - name: Typed plugin editors and conflict-preserved drafts
+        if: ${{ !cancelled() && matrix.suite == 'tools' && steps.browser_tools.outcome == 'success' }}
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
+        run: |
+          /tmp/opencode/orbit-workbench-venv/bin/python tests/plugin-editors.browser.py
+          /tmp/opencode/orbit-workbench-venv/bin/python tests/plugin-config-schema.browser.py
+          /tmp/opencode/orbit-workbench-venv/bin/python tests/plugin-instances.browser.py
+          /tmp/opencode/orbit-workbench-venv/bin/python tests/output-library.browser.py
+      - name: Default workspace composition and checkpoint comparisons
+        if: ${{ !cancelled() && matrix.suite == 'workspace' && steps.browser_tools.outcome == 'success' }}
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
+        run: |
+          /tmp/opencode/orbit-workbench-venv/bin/python tests/checkpoint-preview.browser.py
+          /tmp/opencode/orbit-workbench-venv/bin/python tests/host-surfaces.browser.py
+          for renderer in default docking; do
+            /tmp/opencode/orbit-workbench-venv/bin/python tests/workspace-arrange.browser.py --renderer "$renderer"
+            /tmp/opencode/orbit-workbench-venv/bin/python tests/saved-workspace-layouts.browser.py --renderer "$renderer"
+          done
+      - name: Integrated workspace release acceptance
+        if: ${{ !cancelled() && matrix.suite == 'workspace' && steps.browser_tools.outcome == 'success' }}
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
+        run: |
+          for renderer in default docking; do
+            /tmp/opencode/orbit-workbench-venv/bin/python tests/workspace-release-acceptance.browser.py --renderer "$renderer"
+          done
       - name: Merged theme personalities and icon packs
         if: ${{ !cancelled() && matrix.suite == 'themes' && steps.browser_tools.outcome == 'success' }}
         env:
@@ -215,6 +247,14 @@ jobs:
           /tmp/opencode/orbit-workbench-venv/bin/python tests/agent-live-timeline.browser.py
           for renderer in default docking; do
             /tmp/opencode/orbit-workbench-venv/bin/python tests/pane-workbench-mode.browser.py --renderer "$renderer"
+          done
+      - name: Workspace commands and settings navigation
+        if: ${{ !cancelled() && matrix.suite == 'themes' && steps.browser_tools.outcome == 'success' }}
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
+        run: |
+          for renderer in default docking; do
+            /tmp/opencode/orbit-workbench-venv/bin/python tests/command-palette.browser.py --renderer "$renderer"
           done
       - name: Agent pane progressive disclosure and visual budgets
         if: ${{ !cancelled() && matrix.suite == 'chat' && steps.browser_tools.outcome == 'success' }}
@@ -235,6 +275,14 @@ jobs:
           for renderer in default docking; do
             /tmp/opencode/orbit-workbench-venv/bin/python tests/candidate-diff-review.browser.py --renderer "$renderer"
           done
+      - name: Chat reading continuity and safe formatting
+        if: ${{ !cancelled() && matrix.suite == 'chat' && steps.browser_tools.outcome == 'success' }}
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-workbench-browsers
+        run: |
+          /tmp/opencode/orbit-workbench-venv/bin/python tests/chat-message-browser.py
+          /tmp/opencode/orbit-workbench-venv/bin/python tests/conversation-transfer.browser.py
+          /tmp/opencode/orbit-workbench-venv/bin/python tests/conversation-library.browser.py
       - name: Upload sanitized synthetic failure diagnostics
         if: failure()
         uses: actions/upload-artifact@v4
@@ -255,6 +303,8 @@ jobs:
             /tmp/opencode/orbit-workbench-journey-docking.png
             /tmp/opencode/comet-results-default-error.png
             /tmp/opencode/comet-results-docking-error.png
+            /tmp/opencode/orbit-release-acceptance/*.png
+            /tmp/opencode/orbit-release-acceptance/*-result.json
             /tmp/opencode/comet-native-browser-default.log
             /tmp/opencode/comet-native-browser-docking.log
             /tmp/opencode/comet-results-ui-default-error.png
@@ -385,7 +435,8 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: workbench-${{ matrix.suite }}-failure-screenshot
+          # Static job, no matrix: use an explicit name so uploads cannot collide.
+          name: workbench-heavy-failure-screenshot
           if-no-files-found: ignore
           retention-days: 7
           path: |

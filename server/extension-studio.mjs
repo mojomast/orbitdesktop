@@ -12,6 +12,7 @@ import {studioSchema,STUDIO_PROFILE} from '../contracts/extension-studio-v1.mjs'
 import {focusTimerArtifact,bundleDigest,hash} from './extension-studio-artifact.mjs';
 import {canonicalJson,commandIdentity} from './command-identity.mjs';
 import {applyOperation} from '../src/workspace-ops.ts';
+import {pluginSelector} from '../src/plugins.ts';
 import {wbError} from './workbench-store.mjs';
 
 const valid=new Ajv({strict:true}).compile(studioSchema),execute=promisify(execFile);
@@ -129,7 +130,7 @@ export function createExtensionStudio({store,now=Date.now}){
     if(body.action==='revoke'){
       const d=artifact(w,body.draft_id);
       const result=store.commit(commandIdentity({...body,intent:'Revoke Studio release'},'studio-revoke'),{
-        apply:r=>{let state=r.state;for(const p of state.plugins??[])if(p.manifest.entry===d.manifest.entry)state=applyOperation(state,{action:'plugin_disable',plugin_id:p.manifest.id});return state;},
+        apply:r=>{let state=r.state;for(const p of state.plugins??[])if(p.manifest.entry===d.manifest.entry)state=applyOperation(state,{action:'plugin_disable',...pluginSelector(p)});return state;},
         checkpointLabel:'Before Studio release revocation',
         response:r=>({revision:r.revision,revoked_entry:d.manifest.entry,artifact_digest:d.artifact_digest,operation_id:body.operation_id}),
       });return {...result.result,replayed:result.replayed};

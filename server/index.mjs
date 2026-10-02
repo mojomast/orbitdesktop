@@ -10,7 +10,10 @@ import { tokenMatches, geometry, allowedRequest, publicHost } from "./security.m
 import { LocalHostProvider } from "./local-host.mjs";
 import { createAgentHandler } from "./agent.mjs";
 import { createWorkspaceService, runtimeRoot } from "./workspace.mjs";
+import { createWorkspaceLayouts } from './workspace-layouts.mjs';
+import { createOutputLibrary } from './output-library.mjs';
 import { createWorkspaceEvents } from './workspace-events.mjs';
+import { assetCacheControl, loadImmutableAssetManifest } from './static-cache.mjs';
 import { createWorkbench } from './workbench.mjs';
 import {WorkbenchData} from './workbench-data.mjs';
 import {createWorkbenchGate} from './workbench-gate.mjs';
@@ -51,6 +54,8 @@ const securityHeaders = {
     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-src https: http:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
 };
 const releaseIdentity = await (await import('./release-identity.mjs')).pinnedReleaseIdentity();
+// Content-hashed build assets only; enumerated from the served build at startup.
+const immutableAssets = await loadImmutableAssetManifest(root);
 function reply(res, status, data) {
   res.writeHead(status, {
     "Content-Type": "application/json",
@@ -59,6 +64,8 @@ function reply(res, status, data) {
   res.end(JSON.stringify(data));
 }
 const workspaceService = createWorkspaceService({ token, port, devOrigins, reply });
+const workspaceLayouts = createWorkspaceLayouts({ store: workspaceService.store, token, port, devOrigins, reply, root: runtimeRoot });
+const outputLibrary = createOutputLibrary({ store: workspaceService.store, workspaceRead: workspaceService.read, token, port, devOrigins, reply, root: runtimeRoot });
 // Never put a configured or generated owner credential in routine service logs.
 // A generated bootstrap credential is discoverable only through this private
 // runtime file; atomic rename avoids following an existing destination symlink.
@@ -212,6 +219,8 @@ const server = http.createServer(async (req, res) => {
     } catch {return reply(res,503,{error:'Recovery files unavailable'});}
   }
   if (url.pathname === "/api/workspace") return workspaceService.handle(req, res);
+  if (url.pathname === '/api/workspace-layouts') return workspaceLayouts.handle(req, res);
+  if (url.pathname === '/api/output-library') return outputLibrary.handle(req, res);
   if (url.pathname === "/api/workspace/control") return workspaceService.handle(req, res, true);
   if (url.pathname.startsWith("/apps/")) return workspaceService.serveApp(req, res, url.pathname);
   if (url.pathname === "/api/agent") return agentHandler(req, res);
@@ -269,6 +278,8 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, {
       ...headers,
       "Content-Type": types[ext] || "application/octet-stream",
+      // Overrides the no-store default only for enumerated content-hashed assets.
+      "Cache-Control": assetCacheControl(decoded, immutableAssets),
     });
     res.end(req.method === "HEAD" ? undefined : await readFile(file));
   } catch {

@@ -1,9 +1,14 @@
 # Testing candidate deployment and rollback
 
-## Hermes plugin 0.3.0 installation and upgrade
+## Hermes plugin installation and upgrade
 
-The plugin's immutable `hermes-plugin-v0.3.0` release includes the reviewed source
-archive. Use the full commit pin from its release page and the
+The published `hermes-plugin-v0.3.0` release includes its reviewed source archive.
+The 0.3.1 package is prepared on `release/0.3.1` — same SQLite schema 11, v1
+workspace contract and sandboxed app-manifest format, plus the off-by-default
+experimental Project Workbench gate. It has **no published tag or release page
+yet**, so select a version by its full commit pin only after its release page
+exists; do not install an untagged prepared package as though it were published.
+Use that pin and the
 [`hermes-plugin` setup instructions](../hermes-plugin/README.md) to build into a
 new directory. Installing or enabling the adapter does not update an existing
 Orbit deployment or start a server.
@@ -13,7 +18,7 @@ submissions, then stop every Orbit writer against that runtime. Preserve tmux
 servers and their configured socket. Back up the **entire** runtime, configuration
 and matching old application, including apps, conversations and execution journals.
 Copy the stopped runtime into a new, private upgrade directory; retain the original
-and backup. From the newly built 0.3.0 application, run:
+and backup. From the newly built application, run:
 
 ```sh
 node --experimental-strip-types scripts/workspace_store.mjs migrate \
@@ -36,9 +41,14 @@ Keep the release tag/SHA, source checksum and migration evidence with the backup
 
 ## Current source compatibility
 
-The Studio source uses SQLite schema 11; serialized workspace layout remains v1.
-Schema 11 fences older writers that cannot enforce Studio release revocations;
-no tables or existing rows are rewritten by the 10→11 migration. Backups must
+Current source uses SQLite schema 12; serialized workspace layout remains v1.
+The 11→12 migration changes only the writer version, preserving all tables,
+records, receipts and checkpoints. It fences schema-11 writers that would erase
+optional plugin `instance_id` and manifest `configSchema` layout fields. Old
+binaries refuse 12 on reopen; already-open writers must be stopped before upgrade.
+Older browsers also need the separate browser feature fence on the new server.
+Schema 11 remains the preceding fence for Studio release revocations;
+no tables or existing rows were rewritten by the 10→11 migration. Backups must
 include private `extension-studio/` proposals as well as retained `apps/` bundles.
 Goal-first setup additionally stores its bounded private journal in
 `workbench-setup/`; back it up with the Workbench database, candidate directories
@@ -54,10 +64,16 @@ preserving all 41 tables, 22 chat bindings and six tmux process identities with 
 verified full backup. The merge into main (`6301ccb`) has the same source tree.
 That rollout's schema-11 rehearsal is separate from legacy JSON upgrade testing
 and from the plugin catalog's versioned commit pin.
-Packaging now defaults to schema maximum 11. Always pass the intended release's
+Packaging now defaults to schema maximum 12. Always pass the intended release's
 explicit compatibility range when packaging a historical branch or a narrow
 hotfix. Source validation is separate from activation. Coordinate all writers and
-retain a pre-upgrade backup; schema-10 and earlier binaries refuse schema 11.
+retain a pre-upgrade backup; schema-11 and earlier binaries refuse schema 12.
+Normal restore upgrades supported schemas 1–11 to 12. For rollback, restore the
+pre-upgrade backup with `--preserve-schema` into a new runtime and use its matching
+binary; schema-10/11 backups retain their exact version in that mode. Never lower
+`user_version` or point a schema-11 binary at schema-12 data. This source change
+does not change the historical 0.3.0/0.3.1 package declarations above or authorize
+a live migration/restart.
 
 ## Provisioning the RouteTok TypeScript cache
 

@@ -29,13 +29,40 @@ The tools menu offers **Live activity** during an active run when the gateway ad
 
 ## Scheduled tasks
 
-Open ⋯ → Scheduled tasks to inspect this gateway profile's real cron jobs through Hermes `/api/jobs?include_disabled=true`. The view shows task names/IDs, available state, schedule, next/last run timestamps and last result. It refreshes every 15 seconds while open, supports filtering and manual refresh, and marks refresh failures as potentially stale data. Timestamps retain the upstream timezone. This is profile-wide, not limited to tasks created by the current chat.
+Open the orbit menu (◉) → **Hermes** → **Scheduled tasks**, or agent pane **⋯** →
+**Hermes tools and conversations** → **Scheduled tasks**, to inspect this gateway
+profile's real cron jobs through Hermes `/api/jobs?include_disabled=true`. The view
+shows task names/IDs, available state, schedule, next/last run timestamps and last
+result. It refreshes every 15 seconds while open, supports filtering and manual
+refresh, and marks refresh failures as potentially stale data. Timestamps retain
+the upstream timezone. This is profile-wide, not limited to tasks created by the
+current chat.
 
-Pause and Resume call the native Hermes job endpoints after a confirmation dialog. Pausing prevents future scheduled executions; it does not cancel an active task. Orbit does not create, run-now, or delete jobs. Tasks continue on the gateway independently of Orbit. The authenticated server allowlists metadata fields and excludes job prompts and delivery destinations; up to 200 jobs are displayed. No extra inference is used. Closing the dialog stops polling. Errors preserve uncertainty: refresh job state before retrying a timed-out mutation.
+**New automation**, **Edit**, **Duplicate**, **Pause**/**Resume**, **Run now** and
+**Delete** act on the real Hermes schedule. Every mutation asks for confirmation,
+and the server requires an explicit confirm in the request. Pausing
+prevents future executions without cancelling an active task; Run now may incur
+costs and external effects; Delete is permanent and cannot be restored from a
+workspace checkpoint. Orbit loads prompts and delivery targets only when you open
+Edit or Duplicate, keeps them out of browser storage and stores no secrets. Tasks
+continue on the gateway independently of Orbit. The authenticated server
+allowlists task fields (name, prompt, schedule, delivery target, skills), validates
+IDs, and excludes prompts and delivery destinations from the list response; up to
+200 tasks are displayed. No extra inference is used. Closing the dialog stops
+polling. Errors preserve uncertainty: refresh task state before retrying a
+timed-out or unconfirmed mutation, and check the task list before repeating a
+create to avoid duplicates.
 
-Control verification: backend tests exercise exact endpoint forwarding, confirmation, authentication, and rejection of unsupported operations/path traversal. Browser tests exercise cancellation and both confirmation flows with intercepted mutation responses, while listing real jobs. Production schedules were not modified; successful real gateway mutations have not been tested in this pass.
+Control verification: backend tests exercise exact endpoint forwarding, method and
+field allowlisting, confirmation requirements, ID/path-traversal rejection, and
+detail filtering. Browser tests exercise cancellation and both pause/resume
+confirmation flows with intercepted mutation responses while listing real jobs.
+Production schedules were not modified; successful real gateway mutations have not
+been tested in this pass.
 
-Live acceptance: `tests/browser-hermes-jobs-live.py` displayed seven actual gateway tasks and checked filtering, refresh, close, omitted private fields, and browser JavaScript errors. No production schedules were modified.
+Live acceptance: `tests/browser-hermes-jobs-live.py` displayed seven actual gateway
+tasks and checked filtering, refresh, close, omitted private fields, and browser
+JavaScript errors. No production schedules were modified.
 
 ## Direct Hermes runtime integration
 

@@ -10,3 +10,5 @@
 .orbit-settings-state { flex: none; font-weight: 600; }
 .orbit-settings-state[data-on="true"] { color: var(--theme-accentColor, #b5f268); }
 .orbit-settings-note { margin: 0; color: var(--theme-mutedColor, #9fb3ab); }
+.orbit-settings-link { display: grid; gap: 4px; text-align: left; padding: 10px; }
+.orbit-settings-link small { color: var(--theme-mutedColor, #9fb3ab); }

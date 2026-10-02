@@ -1,0 +1,10 @@
+.chat-message-header, .chat-code-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.chat-message-header .chat-copy, .chat-code-header .chat-copy { flex: none; font-size: 11px; }
+.chat-rich-text { white-space: normal; overflow-wrap: anywhere; }
+.chat-rich-text p { white-space: pre-wrap; margin: 8px 0; }
+.chat-rich-text a { color: var(--accent, #b5f268); text-decoration: underline; }
+.chat-code-block { margin: 10px 0; border: 1px solid #ffffff26; border-radius: 6px; overflow: hidden; }
+.chat-code-header { padding: 5px 8px; font-size: 11px; background: #ffffff08; }
+.chat-code-block pre { margin: 0; padding: 10px; overflow-x: auto; white-space: pre; max-height: 420px; }
+.chat-jump-latest { align-self: center; flex: none; margin: 4px; }
+.chat-jump-latest[hidden] { display: none; }

@@ -8,6 +8,12 @@ Agent controller `apply` and browser `plugins_apply` save prior state in the sam
 
 Restore requires explicit confirmation and the current revision. It validates the saved state, creates a before-restore checkpoint, then persists a new revision. The connected browser synchronizes without requiring document reload. Restore can remove panes; persistent tmux shells detach, while legacy direct shells may exit.
 
+The Workspace checkpoints dialog first shows a bounded semantic comparison of
+windows, panes, appearance, plugins and Docking placement against the current
+revision. This is a layout comparison, not a rendered preview. An intervening
+workspace edit rejects restore and requires a fresh comparison. Recovery holds,
+revoked releases and missing bundles are still checked at restore time.
+
 ## Not included
 
 Arbitrary CSS/theme source, wallpaper image bytes, plugin internal data, conversation contents, live processes, filesystem edits, sent messages and remote API effects are not snapshotted. Plugin rollback restores old entry references; it only restores the previous app code if that bundle is still present and unchanged. Use content-addressed publication and retain old assets. Checkpoints are not a disaster backup.
@@ -19,6 +25,10 @@ There is no retention pruning yet; monitor database growth. SQLite transactions 
 Authenticated `/api/workspace` and capability-scoped `/api/workspace/control` actions:
 
 - `history`: checkpoint metadata and current revision.
+- `checkpoint_preview`: `checkpoint_id` and `base_revision`; read-only bounded
+  semantic differences, checkpoint metadata and the current revision. It neither
+  creates a checkpoint nor acknowledges a browser revision. The independent
+  recovery route retains its existing, narrower action allowlist.
 - `checkpoint`: optional `label`; new clients send `base_revision`, `operation_id`, `intent`; returns checkpoint ID and receipt.
 - `restore`: `checkpoint_id`, `base_revision`, `confirm:true`.
 

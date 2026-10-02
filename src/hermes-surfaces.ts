@@ -1,17 +1,21 @@
 import { el, button } from './dom';
-import { workspaceId, ensureWorkspaceSynced } from './workspace-sync';
+import { workspaceId } from './workspace-sync';
+import { requestOpenHostSurface } from './host-surfaces';
+import { mountOutputLibrary } from './output-library';
 function surface(title:string) {
  const d=el('dialog','hermes-tools-dialog');d.setAttribute('aria-label',title);d.style.width='min(1000px, 94vw)';
  d.append(el('h2','',title),button('Close',`Close ${title}`,()=>d.close()));d.addEventListener('close',()=>d.remove());document.body.append(d);d.showModal();return d;
 }
+// The shelf view (search/filter/type plus durable owner rename/pin/tags) lives in
+// src/output-library.ts. These exports keep the persistent host-surface lifecycle
+// and the owner shelf API stable for existing callers.
+export function mountShelf(host:HTMLElement, token:()=>string, heading=true) {
+ return mountOutputLibrary(host,token,heading);
+}
 export async function showShelf(token:()=>string) {
- const d=surface('Published apps and outputs');const list=el('div');const note=el('p','','Only deliberately published app folders are indexed. Up to 300 files.');d.append(note,list);
- async function load(){try{
- await ensureWorkspaceSynced();const r=await fetch('/api/workspace',{method:'POST',headers:{Authorization:`Bearer ${token()}`,'Content-Type':'application/json'},body:JSON.stringify({action:'shelf',workspace_id:workspaceId})});const data=await r.json();if(!r.ok)throw Error(data.error);if(!d.open)return;list.replaceChildren();
- for(const item of data.items){list.append(button(item.title,`Open published ${item.title}`,()=>{const preview=surface(item.title);const frame=el('iframe');frame.title=item.title;frame.setAttribute('sandbox','allow-scripts allow-forms allow-downloads');frame.src=item.url;frame.style.cssText='width:100%;height:65vh;border:0;background:white';preview.append(frame);const link=el('a','','Download file');link.href=item.url;link.download='';preview.append(link);}));}
- if(!data.items.length)list.textContent='No published outputs yet.';
- }catch(e){note.textContent=e instanceof Error?e.message:'Shelf unavailable';}}
- d.append(button('Refresh','Refresh published outputs',()=>{void load();}));await load();
+ const d=surface('Published apps and outputs');
+ d.append(button('Open as window','Open Outputs as window',()=>{requestOpenHostSurface('outputs');d.close();}));
+ const view=mountOutputLibrary(d,token,false);d.addEventListener('close',view.dispose,{once:true});await view.ready;
 }
 export async function showLive(token:()=>string,session:string,run:string,profileId:string,paneId:string,bindingSignal?:AbortSignal,bindingRevision=0) {
   const d=surface('Live Hermes activity');const note=el('p','','Connecting to Hermes event stream…');const log=el('div');d.append(note,log);const abort=new AbortController();d.addEventListener('close',()=>abort.abort());

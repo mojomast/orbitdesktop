@@ -20,7 +20,7 @@ workspace controller.
    result; browser acknowledgement appears separately. Inspect the workspace to
    confirm the resulting placement.
 4. Reopen the project after reload or server restart. **Recorded proposals**
-   retains the history; **Undo arrangement** previews Return only when no newer
+   retains committed history; **Undo arrangement** previews Return only when no newer
    workspace revision intervened. A conflict requires a new plan, not a reset.
 5. Select a second registered project and choose the same named recipe. It
    resolves that project's bindings. Definitions are edited from their source
@@ -112,7 +112,7 @@ workspace's projects), the *target project's* live bindings, and capabilities:
     "max_recipes": 32, "max_proposals": 200, "max_recipe_receipts": 512, "ttl_ms": 60000,
     "measured_geometry": false, "portable_constraints_only": true,
     "cross_project_recipes": true,
-    "retention": "Committed proposals and their receipts are retained for the project lifetime; expired uncommitted previews may be pruned. No committed receipt is deleted."
+     "retention": "Committed proposals and their receipts are retained for the project lifetime; expired never-committed previewed/rejected/stale proposals are reclaimed, and oldest never-committed rejected/stale proposals may be reclaimed early at capacity. No committed receipt is deleted; 200 committed proposals block new previews, including Return."
   }
 }
 ```
@@ -289,8 +289,33 @@ proposal encode ≤ 2 MiB, proposal TTL 60 s (expiry gates new applies only, and
 rechecked under the write lock; committed receipt replay is not time-limited),
 proposals ≤ 200 per project, recipe receipts ≤ 512 per workspace.
 Committed proposals, their checkpoints and their receipts are retained for the
-project lifetime. Expired `previewed` proposals with no `op_id` are pruned to
-make room; recipe receipts are append-only and no committed receipt is deleted.
+project lifetime. On each successful preview creation, reclamation runs in the
+same `IMMEDIATE` transaction as the new proposal:
+
+- Never-committed `previewed`, `rejected` and `stale` records are removed when
+  `now > expires_at`. At the exact expiry timestamp a preview is still valid and
+  is not age-reclaimed. Terminal records use their original preview expiry, not
+  an additional retention period measured from rejection or drift detection.
+- If the project still has 200 records, the oldest never-committed `rejected` or
+  `stale` records (`created_at`, then `id`) are removed only as needed to admit one
+  new preview, even before expiry. Unexpired `previewed` records are never evicted
+  for capacity. Rapid preview/reject cycles therefore do not permanently exhaust storage.
+- Every candidate must have no operation ID, committed actor/intent/revision/
+  viewport/timestamp, Return checkpoint or returned timestamp. Identity-bearing
+  records are protected regardless of status. Committed Return records and their
+  forward sources are preserved, including exact operation-key replay.
+- Reclamation is project-scoped and lazy, not background cleanup. A failed preview
+  transaction rolls back deletions as well as creation. Lists/gets do not trigger
+  reclamation. A reclaimed proposal disappears from history; its apply reports
+  `expired`, get/reject reports `permission_denied`, and an evicted pagination
+  cursor reports `stale_resource`.
+
+The total bound remains 200 proposals per project. If no eligible record can be
+reclaimed, preview creation returns `limit_exceeded`. In particular, **200 retained
+committed proposals permanently block new previews, including Return previews**;
+this fix does not archive or delete identity-bearing history. Avoiding that limit
+requires a separately designed bounded receipt/history archive and Return policy.
+Recipe receipts are append-only and no committed receipt is deleted.
 A full recipe-receipt table refuses new `op_id` saves with `limit_exceeded`
 rather than deleting history.
 
