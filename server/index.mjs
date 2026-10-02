@@ -208,6 +208,7 @@ const mcpSandbox=await (async()=>{
   }catch{console.warn('MCP Apps sandbox unavailable');return null;}
 })();
 const technologyServices={
+  '/api/resource-grants':lazyTechnologyService(async()=> (await import('./resource-delegation.mjs')).createResourceDelegation({...technologyOptions,knowledge:await technologyServices['/api/search'].get(),documents:await technologyServices['/api/documents'].get()})),
   '/api/search':lazyTechnologyService(async()=> (await import('./knowledge-index.mjs')).createKnowledgeSearch(technologyOptions)),
   '/api/interactive-results':lazyTechnologyService(async()=> (await import('./interactive-results.mjs')).createInteractiveResults(technologyOptions)),
   '/api/data-recipes':lazyTechnologyService(async()=> (await import('./data-recipes.mjs')).createDataRecipes(technologyOptions)),
@@ -240,9 +241,9 @@ const technologyHandlers=Object.fromEntries(Object.entries(technologyServices).m
   }:route==='/api/search'?error=>Number.isSafeInteger(error.current?.consent_generation)&&error.current.consent_generation>=0?{current:{consent_generation:error.current.consent_generation}}:{}:undefined,
 })]));
 const technologyAssets=lazyTechnologyService(async()=> (await import('./technology-assets.mjs')).createTechnologyAssets({root:path.resolve(fileURLToPath(new URL('../',import.meta.url))),runtimeRoot,securityHeaders}));
-const technologyCapabilities=technologyOwnerRoute({token,port,devOrigins,reply,maxBytes:256,dispatch:body=>{
+const technologyCapabilities=technologyOwnerRoute({token,port,devOrigins,reply,maxBytes:256,dispatch:async body=>{
   if(!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).length!==1||body.action!=='capabilities')throw {code:'invalid_request'};
-  return {browser_copilot:!!process.env.ORBIT_BROWSER_EXECUTABLE&&!!process.env.ORBIT_BROWSER_ALLOWED_ORIGINS,mcp_apps:!!mcpSandbox};
+  return {browser_copilot:!!process.env.ORBIT_BROWSER_EXECUTABLE&&!!process.env.ORBIT_BROWSER_ALLOWED_ORIGINS,mcp_apps:!!mcpSandbox,descriptors:(await import('../contracts/feature-capabilities.mjs')).featureCapabilities({audience:'owner'})};
 }});
 const server = http.createServer(async (req, res) => {
   const allowedHosts = new Set([

@@ -11,6 +11,7 @@ import { requestConversationContext } from "./conversation-transfer";
 import { sourceSelectionOffsets, formatKnowledgeExcerpt } from './search-evidence';
 import { workspaceId } from './workspace-sync';
 import "./search-surface.css";
+import { mountResourceGrants } from './resource-grants';
 
 export function mountSearchSurface(
   host: HTMLElement,
@@ -24,6 +25,8 @@ export function mountSearchSurface(
     generation = 0,
     queryVersion = 0;
   const root = el("section", "knowledge-search");
+  const grantsHost=el('div');
+  const grants=mountResourceGrants(grantsHost,token);
   root.setAttribute("aria-label", "Local source search");
   const status = el("p", "knowledge-status", "Connecting…");
   status.setAttribute("role", "status");
@@ -165,6 +168,7 @@ export function mountSearchSurface(
     ]);
     if (disposed) return;
     generation = list.consent_generation;
+    grants.updateSources(list.sources);
     status.textContent = `${info.source_count} sources · ${info.semantic_chunk_count}/${info.chunk_count} passages embedded · Semantic ${info.semantic.present && info.semantic.vector_available && !info.semantic.error ? "on (local MiniLM)" : "off"}${info.indexing ? " · Indexing…" : ""}. ${info.semantic.note}`;
     sourceList.replaceChildren();
     for (const s of list.sources) {
@@ -440,6 +444,7 @@ export function mountSearchSurface(
     resultList,
     snapshotHost,
     manage,
+    grantsHost,
   );
   host.append(root);
   void run(refresh);
@@ -452,6 +457,7 @@ export function mountSearchSurface(
       queryVersion++;
       clearInterval(timer);
       controller.abort();
+      grants.dispose();
       root.remove();
     },
   };
