@@ -40,6 +40,8 @@ test('request-time metadata observes assets/config without private libraries or 
     assert.notEqual(before.observed_at,after.observed_at);
     const owner=featureCapabilities({audience:'owner',observation:after}), controller=featureCapabilities({observation:after});
     assert.deepEqual(owner.features.map(x=>x.readiness),controller.features.map(x=>x.readiness));
+    assert.equal(controller.features.find(x=>x.feature_id==='run-traces').surface_uri,'orbit://surface/traces');
+    assert.equal(controller.features.find(x=>x.feature_id==='browser-copilot').surface_uri,'orbit://surface/browser-copilot');
     for(const item of controller.features){assert.equal(item.content.availability,'not_granted');assert.equal(item.execution_verified,false);assert.notEqual(item.delegated.availability,'granted');if(item.schema_ref)assert.ok(fs.existsSync(item.schema_ref));}
     assert.ok(!JSON.stringify(owner).includes('PRIVATE'));assert.ok(!JSON.stringify(owner).includes(root));
     assert.deepEqual(fs.readdirSync(root).sort(),['PRIVATE-EXECUTABLE','engines','knowledge-index','models','node_modules']);
@@ -54,11 +56,11 @@ test('shell rejects credential/workspace/overlapping responses and expired obser
   const response=detail=>({ok:true,json:async()=>({descriptors:{observed_at:new Date(clock).toISOString(),features:[{surface_uri:'orbit://surface/voice',readiness:{detail},formats:['audio']}]}})});
   const first=client.refresh();identity={token:'second',workspace:'B'};const second=client.refresh();
   pending[1](response('current'));await second;pending[0](response('obsolete'));await first;
-  assert.match(client.detail('voice','fallback'),/current/);assert.doesNotMatch(client.detail('voice','fallback'),/obsolete/);
+  assert.match(client.detail('orbit://surface/voice','fallback'),/current/);assert.doesNotMatch(client.detail('orbit://surface/voice','fallback'),/obsolete/);
   const older=client.refresh(true),newer=client.refresh(true);pending[3](response('new config'));await newer;pending[2](response('old config'));await older;
-  assert.match(client.detail('voice','fallback'),/new config/);
-  clock+=30001;assert.match(client.detail('voice','fallback'),/Prerequisites unknown/);
+  assert.match(client.detail('orbit://surface/voice','fallback'),/new config/);
+  clock+=30001;assert.match(client.detail('orbit://surface/voice','fallback'),/Prerequisites unknown/);
   const stale=client.refresh(true);pending[4]({ok:true,json:async()=>({descriptors:{observed_at:new Date(0).toISOString(),features:[]}})});await stale;
-  assert.match(client.detail('voice','fallback'),/Prerequisites unknown/);
-  identity={token:'',workspace:'B'};assert.doesNotMatch(client.detail('voice','fallback'),/new config/);
+  assert.match(client.detail('orbit://surface/voice','fallback'),/Prerequisites unknown/);
+  identity={token:'',workspace:'B'};assert.doesNotMatch(client.detail('orbit://surface/voice','fallback'),/new config/);
 });

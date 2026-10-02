@@ -5,8 +5,8 @@ export const FEATURE_CAPABILITIES = Object.freeze([
   ['interactive-results','interactive-results','import/read/edit',['A2UI v0.9 JSON','NDJSON'],'contracts/interactive-results-v1.mjs'],
   ['data-workbench','data','select/query',['CSV','JSON','Parquet'],'contracts/data-recipes-v1.mjs'],
   ['voice-transcript','voice','transcribe',['audio'],null],
-  ['run-traces','trace','read/export',['JSON'],'contracts/run-trace-v1.mjs'],
-  ['browser-copilot','copilot','observe/execute',['bounded browser actions'],'contracts/browser-copilot-v1.mjs'],
+  ['run-traces','traces','read/export',['JSON'],'contracts/run-trace-v1.mjs'],
+  ['browser-copilot','browser-copilot','observe/execute',['bounded browser actions'],'contracts/browser-copilot-v1.mjs'],
   ['mcp-apps','mcp-apps','import/open',['self-contained HTML snapshot'],'contracts/mcp-apps-v1.mjs'],
 ]);
 export function featureCapabilities({audience='controller',observation=null}={}) {

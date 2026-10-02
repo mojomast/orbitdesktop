@@ -20,6 +20,7 @@ import urllib.request
 import uuid
 from pathlib import Path
 from playwright.sync_api import expect, sync_playwright
+from browser_workspace import wait_for_workspace_connection
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -130,6 +131,7 @@ def run_fixture(kind='richtext'):
                     page.get_by_role('button', name='Connect local host', exact=True).click()
                     page.get_by_role('textbox', name='Host session token').fill(token)
                     page.get_by_role('button', name='Unlock local host', exact=True).click()
+                    wait_for_workspace_connection(page)
 
                 unlock()
                 host = page.locator(f'[data-document-id="{document_id}"]')

@@ -1,4 +1,7 @@
 name: Orbit workbench browser tests
+env:
+  # CPU ONNX is bundled in npm; optional CUDA/TensorRT downloads are unnecessary.
+  ONNXRUNTIME_NODE_INSTALL: skip
 # Isolated browser/regression gate for Orbit, run under BOTH renderers (default
 # and docking).
 #

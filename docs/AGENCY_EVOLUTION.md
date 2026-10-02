@@ -32,6 +32,8 @@ Hermes profile supports it.
 ## Implemented cross-feature workflows
 
 - **Discover and resume:** Start skips unavailable actions for keyboard execution;
+  Start/palette and controller discovery share timestamped content-free prerequisite
+  observations, exact surface URIs and supported formats without launching engines;
   built-in tools preserve Spatial view. Conversation selection is acknowledged,
   initial-link waiting is cancellable, and older-title search is bounded and explicit.
 - **Share exact evidence:** one recipient review includes the existing draft and

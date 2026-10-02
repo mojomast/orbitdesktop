@@ -8,6 +8,10 @@ ordinary browser-kind panes at the exact URLs below, not generated plugins.
 Discover `add_window`/`set_pane` shapes through the workspace catalog, read current
 IDs, reuse a suitable existing pane or add a window without replacing owner work.
 Opening a surface does not import data, provision a model or execute its actions.
+Controller discovery and Start/palette share content-free observed prerequisites,
+formats and schema hints. Observations carry a timestamp and 30-second freshness;
+present files/configuration are not proof of asset integrity, browser permission,
+successful inference or execution. Invocation rechecks the actual prerequisites.
 
 | Tool | Exact pane URL | Workflow and guide |
 | --- | --- | --- |

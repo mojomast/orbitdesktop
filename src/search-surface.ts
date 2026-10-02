@@ -40,6 +40,8 @@ export function mountSearchSurface(
   function action(label: string, fn: () => void) {
     const b = el("button", "", label);
     b.type = "button";
+    b.dataset.searchAction = "true";
+    b.disabled = busy;
     b.onclick = fn;
     return b;
   }
@@ -78,6 +80,7 @@ export function mountSearchSurface(
     if (busy || disposed) return;
     busy = true;
     root.setAttribute("aria-busy", "true");
+    root.querySelectorAll<HTMLButtonElement>('button[data-search-action]').forEach(button=>{button.disabled=true;});
     error.textContent = "";
     try {
       await fn();
@@ -97,6 +100,7 @@ export function mountSearchSurface(
     } finally {
       busy = false;
       root.removeAttribute("aria-busy");
+      root.querySelectorAll<HTMLButtonElement>('button[data-search-action]').forEach(button=>{button.disabled=false;});
     }
   }
   const title = el("input");

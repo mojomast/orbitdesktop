@@ -404,7 +404,7 @@ async function sendSelectedContext() {
 }
 const onboardingActions = {connected:()=>!!sessionToken,run:(id:string)=>{void commands.execute(id);}};
 const commands = createWorkspaceCommands((): WorkspaceCommand[] => [
-  ...Object.entries(TECHNOLOGY_SURFACES).map(([id,entry])=>({id:`technology-${id}`,title:entry.title,detail:technologyReadiness.detail(id,entry.detail),group:'Tools',disabledReason:entry.auth&&!sessionToken?'Connect host first to use this tool.':undefined,run:async()=>{const token=sessionToken,workspace=workspaceId;await technologyReadiness.refresh(true);if(token===sessionToken&&workspace===workspaceId)openHostSurface(id as HostSurfaceId);}})),
+  ...Object.entries(TECHNOLOGY_SURFACES).map(([id,entry])=>({id:`technology-${id}`,title:entry.title,detail:technologyReadiness.detail(HOST_SURFACE_URLS[id as HostSurfaceId],entry.detail),group:'Tools',disabledReason:entry.auth&&!sessionToken?'Connect host first to use this tool.':undefined,run:async()=>{const token=sessionToken,workspace=workspaceId;await technologyReadiness.refresh(true);if(token===sessionToken&&workspace===workspaceId)openHostSurface(id as HostSurfaceId);}})),
   { id: 'getting-started', title: 'Getting started', detail: 'Choose a task, check readiness or tour Orbit', group: 'Help', run: () => showOnboarding(onboardingActions) },
   { id: 'settings', title: 'Orbit settings', detail: 'Appearance, layout and browser-local experiments', group: 'Settings', run: openSettings },
   { id: 'connect-host', title: 'Connect host', detail: 'Unlock this browser session with a host token', group: 'Settings', run: connectHost },

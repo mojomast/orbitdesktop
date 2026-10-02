@@ -186,10 +186,16 @@ window.surface=mountSearchSurface(document.querySelector('#host'),()=>{json.dump
             page.get_by_label('Search query').fill('planets')
             page.get_by_role('button',name='Search',exact=True).click()
             expect(page.get_by_label('Search results')).to_contain_text('No matching passages')
+            def inspect_busy_actions(route):
+                if (route.request.post_data_json or {}).get('action') == 'reset_index':
+                    assert page.get_by_role('button',name='Purge ingested snapshots').is_disabled(), 'Busy actions must not silently accept then drop another operation'
+                route.continue_()
+            page.route('**/api/search',inspect_busy_actions)
             page.get_by_role('button',name='Rebuild derived index').click()
             expect(page.locator('.knowledge-status')).to_contain_text('1 sources')
             page.get_by_role('button',name='Purge ingested snapshots').click()
             expect(page.locator('.knowledge-status')).to_contain_text('0 sources')
+            page.unroute('**/api/search',inspect_busy_actions)
             assert not errors, errors
             page.evaluate('window.surface.dispose()')
             expect(page.get_by_role('region',name='Local source search')).to_have_count(0)

@@ -25,7 +25,7 @@ export function createTechnologyReadiness(identity:()=>{token:string;workspace:s
   function detail(surface:string,fallback:string){
     if(binding!==key())invalidate();
     const fresh=snapshot&&now()-received<30000&&Math.abs(now()-Date.parse(snapshot.observed_at))<30000;
-    const descriptor=fresh?snapshot?.features.find(item=>item.surface_uri===`orbit://surface/${surface}`):null;
+    const descriptor=fresh?snapshot?.features.find(item=>item.surface_uri===surface):null;
     const observed=descriptor?`${descriptor.readiness.detail} Formats: ${descriptor.formats.join(', ')}. Checked ${snapshot!.observed_at}.`:`${fallback}. Prerequisites unknown; refresh on connection or action.`;
     const authority=descriptor?.delegated?.availability==='unsupported'?'Agent tools unsupported':descriptor?.delegated?.availability==='not_granted'?'Agent tools require a separate grant':'Agent authority not granted';
     return `Open surface · Owner use checked on action · ${authority}. ${observed}`;

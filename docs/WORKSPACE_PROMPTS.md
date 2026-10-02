@@ -12,6 +12,11 @@ private feature actions still use the owner UI or documented trusted adapters.
 > task. Reuse the built-in tools where possible. Tell me which need configuration
 > before making changes.
 
+Start and the command palette show shared prerequisite observations and supported
+formats, refreshed on discovery/connection. Configured assets remain unverified
+until use; microphone permissions, browser launch and inference are checked only
+when the corresponding action is requested. Metadata alone grants no resource access.
+
 > Put my existing terminal beside this conversation and the document library.
 > Preserve pane IDs, running shells and other windows. Preview the layout change,
 > checkpoint it, and verify browser acknowledgement. Distinguish saved state from

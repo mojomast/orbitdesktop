@@ -1,4 +1,6 @@
 name: Orbit plugin tests
+env:
+  ONNXRUNTIME_NODE_INSTALL: skip
 on:
   push:
   pull_request:

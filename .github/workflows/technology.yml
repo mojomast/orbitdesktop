@@ -1,4 +1,8 @@
 name: Orbit technology feature tests
+env:
+  # These hosted fixtures use bundled CPU ONNX/WASM; do not fetch optional CUDA
+  # and TensorRT providers from NuGet on CPU-only runners.
+  ONNXRUNTIME_NODE_INSTALL: skip
 
 # Heavy browser engines and optional local models have their own scoped gate.
 # Weekly/manual coverage also catches upstream runner and browser changes.
@@ -41,6 +45,7 @@ on:
       - 'server/technology-*'
       - 'server/*delegation*'
       - 'server/*capabilit*'
+      - 'server/feature-readiness.mjs'
       - 'server/resource-*'
       - 'hermes-plugin/resources.py'
       - 'hermes-plugin/normal_resources.py'
@@ -66,6 +71,7 @@ on:
       - 'tests/technology-*'
       - 'tests/*delegation*'
       - 'tests/*capabilit*'
+      - 'tests/feature-readiness*'
       - 'tests/resource-*'
       - 'tests/normal-resources*'
       - 'tests/research-handoffs.browser.py'
@@ -109,6 +115,7 @@ on:
       - 'server/technology-*'
       - 'server/*delegation*'
       - 'server/*capabilit*'
+      - 'server/feature-readiness.mjs'
       - 'server/resource-*'
       - 'hermes-plugin/resources.py'
       - 'hermes-plugin/normal_resources.py'
@@ -134,6 +141,7 @@ on:
       - 'tests/technology-*'
       - 'tests/*delegation*'
       - 'tests/*capabilit*'
+      - 'tests/feature-readiness*'
       - 'tests/resource-*'
       - 'tests/normal-resources*'
       - 'tests/research-handoffs.browser.py'
@@ -239,6 +247,7 @@ jobs:
           python=/tmp/opencode/orbit-technology-venv/bin/python
           case "$SUITE" in
             knowledge)
+              "$python" tests/feature-readiness.browser.py
               "$python" tests/knowledge-search.browser.py
               "$python" tests/resource-grants.browser.py
               HERMES_PINNED_SOURCE=/tmp/opencode/orbit-hermes-native HERMES_PINNED_PYTHON=/tmp/opencode/orbit-hermes-native/.venv/bin/python "$python" tests/resource-grants.browser.py --normal
