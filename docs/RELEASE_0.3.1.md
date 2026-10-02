@@ -5,13 +5,14 @@ follow-up package to 0.3.0. Desktop and Hermes plugin metadata use the same prod
 version. Publication must record the exact catalog-pinned commit and bundled-source
 checksum; catalog acceptance is a separate reviewed SHA update.
 
-The local `feat/workspace-usability-031` development branch has since added the
-[usability round](WORKSPACE_USABILITY.md) and continuity features, including
-schema-12 widget writer compatibility. The schema-11/no-migration/rollback statements
-below apply only to the prepared baseline, not to that extended source. See
-[Workspace store](WORKSPACE_STORE.md) and [Deployment](DEPLOYMENT.md) for the current
-development compatibility boundary. These feature changes have not been deployed
-by this development task.
+The current source has since integrated the [usability round](WORKSPACE_USABILITY.md),
+[workspace technologies](TECHNOLOGY_FEATURES.md) and [agency evolution](AGENCY_EVOLUTION.md),
+including schema-12 widget writer compatibility. PRs #11, #12 and #13 were merged
+into `release/0.3.1` with owner authorization. The schema-11/no-migration/rollback
+statements below apply only to the historical `b404cf1` baseline. See
+[Workspace store](WORKSPACE_STORE.md), [Deployment](DEPLOYMENT.md) and
+[Verification](VERIFICATION.md) for current compatibility and deployment evidence.
+Retaining package metadata 0.3.1 does not publish a new release.
 
 ## Highlight
 

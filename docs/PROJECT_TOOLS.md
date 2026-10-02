@@ -1,7 +1,8 @@
 # Project tools (schema 10)
 
-Status: **additive M3 increment, schema 10, not deployed.** This document is the
-frozen contract for finite, trusted, host-rendered project tools. It does not
+Status: **implemented additive M3 contract, introduced in schema 10.** Current
+source uses schema 12; see [Verification](VERIFICATION.md) for deployment evidence.
+This document is the contract for finite, trusted, host-rendered project tools. It does not
 authorize an owner runtime migration, deployment, a model call, or any general
 extension/broker behavior. Read [Workspace store](WORKSPACE_STORE.md),
 [Plugins](PLUGINS.md) and [Resource authority proposal](RESOURCE_AUTHORITY_PROPOSAL.md)

@@ -53,9 +53,10 @@ execute an action or open an imported app automatically.
 | Browser copilot | [Browser](BROWSER_COPILOT.md) | Configured disposable browser, exact selected target and explicit owner actions |
 | MCP Apps | [Apps](MCP_APPS.md) | Owner-imported self-contained app/result snapshots in a separate-origin sandbox |
 
-These are source-development features. Provisioning a model or execution backend
-is separate from opening its UI. Automatic transcript crawling, automatic Hermes
-A2UI/MCP production, and an autonomous browser planner are not implemented.
+Provisioning a model or execution backend is separate from opening its UI.
+Authenticated completed Hermes replies can offer explicitly reviewed A2UI, document
+and self-contained MCP snapshot actions. This does not provide automatic transcript
+crawling, unattended A2UI/MCP generation or an autonomous browser planner.
 
 ## Setup at a glance
 

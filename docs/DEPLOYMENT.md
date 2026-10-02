@@ -3,12 +3,12 @@
 ## Hermes plugin installation and upgrade
 
 The next paragraphs describe the historical prepared 0.3.1 baseline (schema 11).
-The current usability/technology candidate still has package version 0.3.1 but
+The current usability/technology/agency source still has package version 0.3.1 but
 uses **schema 12**; use [current source compatibility](#current-source-compatibility)
 and the actual selected commit's tooling when upgrading this branch.
 
 The published `hermes-plugin-v0.3.0` release includes its reviewed source archive.
-The 0.3.1 package is prepared on `release/0.3.1` — same SQLite schema 11, v1
+The historical 0.3.1 baseline at `b404cf1` prepared on `release/0.3.1` used SQLite schema 11, v1
 workspace contract and sandboxed app-manifest format, plus the off-by-default
 experimental Project Workbench gate. It has **no published tag or release page
 yet**, so select a version by its full commit pin only after its release page
@@ -33,8 +33,9 @@ node --experimental-strip-types scripts/workspace_store.mjs diagnose \
 ```
 
 `--confirm-stopped` is an operator assertion, not a stop command. Legacy JSON
-workspaces require this explicit import; schema-1–10 databases migrate to schema
-11. Verify the copied workspace/checkpoints, chat files and published bundles
+workspaces require this explicit import. The historical baseline migrated schema
+1–10 to 11; current source migrates supported schemas 1–11 to 12. Verify the copied
+workspace/checkpoints, chat files and published bundles
 before starting the new deployment with `ORBIT_RUNTIME_DIR` pointing to that copy
 and the intended tmux socket/configuration. Reload the browser once and reconnect
 terminals. Do not run old and new writers against the same runtime.
@@ -197,7 +198,7 @@ channel messages still require the attempt secret, sequence and grant checks.
 The directory contains no durable receipt state and is removed on normal close;
 after a crash, orphan cleanup is an operator task, never automatic replay.
 
-## Result-delivery increment (schema 8; not deployed)
+## Historical result-delivery increment (schema 8)
 
 ### Recreating the native acceptance environment
 

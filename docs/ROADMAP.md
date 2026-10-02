@@ -15,7 +15,7 @@ Orbit's direction is an agent-customizable workspace with reversible changes and
 
 ## Implemented development candidate (not a new published release)
 
-The usability and technology branches now include:
+The integrated usability, technology and agency source now includes:
 
 - Shared Start/palette discovery, incremental chat rendering, persistent Outputs/
   Activity, typed settings, normal workspace arrangement and checkpoint comparison.

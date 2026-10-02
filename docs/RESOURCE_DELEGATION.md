@@ -70,6 +70,36 @@ destination is derived from the configured gateway/profile; that gateway chooses
 its configured model/provider. This source change does not configure a live gateway
 or authorize provider inference.
 
+### Separate compatible testing gateway
+
+When the existing Hermes gateway differs from the eight adapter source pins,
+provision a separate checkout of `NousResearch/hermes-agent` at
+`d0288be5b3330d2442e3907185b8e9d0958297bb`, with its own frozen Python environment,
+private `HERMES_HOME`, workspace, API key and unused loopback port. Follow the
+[pinned-runtime provisioning procedure](DEPLOYMENT.md#recreating-the-native-acceptance-environment).
+Do not modify the pinned context/gateway files or point this test gateway at the
+existing Hermes home. Disable profile multiplexing and configure only its API
+server platform. Install the reviewed Orbit plugin into that home's plugin
+directory and enable `orbit_resources` in the API-server toolsets.
+
+Add a separately named Orbit profile through `HERMES_PROFILES_JSON`, retaining all
+existing entries and the ordinary `HERMES_API_URL`/`HERMES_API_KEY` default. For an
+Orbit profile named `agency-test` served at the new gateway's root, use
+`ORBIT_RESOURCE_NORMAL_PROFILES={"agency-test":""}` and set that gateway plugin's
+`normal_resource_directory` to
+`<Orbit-runtime>/resource-delegation/normal/agency-test`. The empty upstream name
+is the isolated gateway's default context; it is not the Orbit display label.
+Store API/provider credentials only in private operator configuration.
+
+Before switching a conversation, verify exact source hashes, plugin registration,
+authenticated session/model discovery, refusal without authentication, loopback
+binding and the observed Orbit profile list. Use a new test conversation and
+synthetic sources for the first delegated run. A healthy listener and a configured
+profile do not establish authenticated grant consumption or provider task quality;
+record those separately. Provider configuration does not authorize an automated
+billable inference test. Gateway rollback removes the new profile after its runs
+settle and stops only the dedicated test service.
+
 ## Dedicated-local fallback setup
 
 After owner consent, the UI shows a private `resource_channel_file` path. A trusted

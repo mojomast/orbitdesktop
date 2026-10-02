@@ -26,7 +26,13 @@ Updates never replace a running deployment. Install a reviewed plugin update, ru
 
 ## Install
 
-The catalog may list an earlier reviewed release. Until its update is accepted, use the explicit repository subdirectory and the **full commit SHA** recorded by the [`hermes-plugin-v0.3.1` release](https://github.com/mojomast/orbitdesktop/releases/tag/hermes-plugin-v0.3.1):
+The catalog submission remains pending and pins the earlier 0.3.0 plugin. The
+published release is [`hermes-plugin-v0.3.0`](https://github.com/mojomast/orbitdesktop/releases/tag/hermes-plugin-v0.3.0).
+Current source retains package metadata 0.3.1 but has no 0.3.1 tag or release page.
+For a published install, use the explicit repository subdirectory and the **full
+commit SHA** recorded by the selected published release. Testing current source
+instead requires a separately reviewed exact commit and the schema-12
+[deployment procedure](../docs/DEPLOYMENT.md); it is not a published 0.3.1 install:
 
 ```sh
 hermes plugins install mojomast/orbitdesktop/hermes-plugin --ref FULL_40_CHARACTER_RELEASE_SHA --no-enable
