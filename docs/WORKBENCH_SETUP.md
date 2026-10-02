@@ -94,8 +94,16 @@ Deadline expiration becomes `expired`. The owner must still request a fresh
 marked `reviewed`. Queue order is informative, not an unattended dispatcher or an
 authority to prevent an owner explicitly reviewing another task. Budgets must be
 reviewed again in that native launch preview. Setup state includes journal byte
-and per-record capacity diagnostics. These are API additions; the guided browser
-surface has no waiting-inbox control yet.
+and per-record capacity diagnostics.
+
+In guided setup, **Save for later review** saves the reviewed task's requested work
+limits and a deadline from 1 to 1440 minutes. **Check saved state** refreshes the
+waiting list; **Review waiting task** selects that saved task and requests a fresh
+start review. **Cancel waiting intention** only cancels the saved intention.
+Unknown save/cancel responses retain the exact request across page reload in the
+browser session, with an explicit **Retry exact request** action. No reconnect
+automatically retries a mutation. **Setup capacity** shows journal bytes and
+remaining record slots. Expired and cancelled intentions remain visible as history.
 
 ## Scope and verification
 

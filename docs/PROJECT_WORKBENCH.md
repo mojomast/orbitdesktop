@@ -354,8 +354,20 @@ Each item has a revision-derived `notification_id`. `task_status_read` takes
 and rejects a stale acknowledgment. Reconnect always requests a complete snapshot
 (`reset:true`, `snapshot_digest`); repeated reads do not duplicate items. This is a
 current-state inbox API, not a historical transition stream or missed-SSE backfill.
-These new workflow actions are owner-only API capabilities; dedicated UI controls
-have not yet been added. Workbench remains experimental and off by default.
+The existing per-pane task view embeds **Task status inbox**, with an explicit
+refresh, exact **Mark status read** acknowledgment and links to that task's Live,
+Checks and Result views. **Record capacity** shows active/archive counts and
+remaining slots. A stale acknowledgment asks for a new snapshot rather than
+silently marking an unseen status read. Completion, result availability, recorded
+checks, review and publication are displayed separately.
+
+Under Changes → **Verified patch and integration actions**, saved integration
+receipts expose **Finalize integration receipt** only when a recovery digest is
+recorded. It submits that exact digest and reports historical settlement separately
+from publication or authorization. Missing/tampered artifacts remain fenced; an
+unconfirmed response instructs the owner to inspect/refresh retained receipts,
+never create another integration as a retry. Workbench remains experimental and
+off by default. These controls use the same owner-only APIs.
 
 ### Explicit local Hermes configuration
 
