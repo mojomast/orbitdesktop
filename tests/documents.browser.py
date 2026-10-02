@@ -268,6 +268,15 @@ def run_fixture(kind='richtext'):
                     canvas.click(position={'x':740,'y':480})
                     page.keyboard.press('Control+z')
                     page.wait_for_function('window.__fixtureCanvasApi.getSceneElements().some(e=>e.type==="rectangle")')
+                    shifted = json.loads(saved['data']['content'])
+                    moved = next(e for e in shifted['elements'] if e['type']=='rectangle')
+                    original_x, moved_id = moved['x'], moved['id']
+                    moved['x'] += 55
+                    same_id_review = stage_replacement(json.dumps(shifted), 'excalidraw')
+                    same_id_review.get_by_role('button', name='Apply reviewed draft', exact=True).click()
+                    page.wait_for_function('p=>window.__fixtureCanvasApi.getSceneElements().find(e=>e.id===p.id)?.x===p.x',arg={'id':moved_id,'x':original_x+55})
+                    canvas.click(position={'x':740,'y':480});page.keyboard.press('Control+z')
+                    page.wait_for_function('p=>window.__fixtureCanvasApi.getSceneElements().find(e=>e.id===p.id)?.x===p.x',arg={'id':moved_id,'x':original_x})
                 # Another pane/save racing a review cannot replace the local draft.
                 review = stage_replacement(replacement, 'text' if kind == 'richtext' else 'excalidraw')
                 assert api('/api/documents', {'action':'save','document_id':document_id,'pane_id':pane_id,'expected_revision':saved['revision'],'data':saved['data'],'op_id':str(uuid.uuid4()),'intent':'Change saved revision during review'})[0] == 200
@@ -475,20 +484,24 @@ def run_fixture(kind='richtext'):
                     expect(recovered_host.locator('.richdoc-content')).to_contain_text('newer unsaved edit', timeout=30000)
                     expect(page.locator(f'[data-document-id="{document_id}"]')).to_have_count(2)
                 # Complete explicit result -> reviewed creation -> real native editor.
-                page.evaluate('''async()=>{const {requestDocumentFromResult,textDocument}=await import('/src/document-artifacts.ts');window.__resultDelivery=requestDocumentFromResult(JSON.stringify({document:{title:'Reviewed agent result',...textDocument('Exact complete result')}}));}''')
+                page.evaluate('''async data=>{const {requestDocumentFromResult,importDocument}=await import('/src/document-artifacts.ts');const imported=data??await importDocument(`## Exact complete result\n\nReviewed Markdown paragraph`,'markdown');window.__resultDelivery=requestDocumentFromResult(JSON.stringify({document:{title:'Reviewed agent result',...imported}}));}''', saved['data'] if kind == 'scene' else None)
                 result_review = page.get_by_role('dialog', name='Create document from reviewed content', exact=True)
                 result_review.get_by_role('button', name='Apply reviewed draft', exact=True).click()
                 delivery = page.evaluate('window.__resultDelivery')
                 assert delivery['status'] == 'created-draft'
                 result_host = page.locator('.document-host', has=page.locator('strong', has_text='Reviewed agent result'))
-                expect(result_host.locator('.richdoc-content')).to_contain_text('Exact complete result', timeout=30000)
+                if kind == 'richtext':
+                    expect(result_host.locator('.richdoc-content h2')).to_contain_text('Exact complete result', timeout=30000)
+                else:
+                    expect(result_host.locator('.excalidraw__canvas.interactive')).to_be_visible(timeout=30000)
                 result_window = result_host.evaluate('n=>n.closest("[data-monitor-id]").dataset.monitorId')
                 page.locator(f'.monitor[data-monitor-id="{result_window}"] .window-close').click()
                 page.get_by_role('button', name='Confirm change', exact=True).click()
                 page.get_by_role('dialog', name='Close private document', exact=True).get_by_role('button', name='Save and close', exact=True).click()
                 expect(result_host).to_have_count(0)
                 result_saved = api('/api/documents', {'action':'read','document_id':delivery['documentId']})[1]
-                assert result_saved['revision'] == 2 and 'Exact complete result' in result_saved['data']['content']
+                assert result_saved['revision'] == 2
+                assert 'Exact complete result' in result_saved['data']['content'] if kind == 'richtext' else any(e['type']=='rectangle' for e in json.loads(result_saved['data']['content'])['elements'])
                 assert not page.evaluate('localStorage.getItem("orbit.workspace.v1").includes("retained draft")')
                 assert page.locator('.pane iframe').count() == 0
                 assert not outside_requests, outside_requests

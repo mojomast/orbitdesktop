@@ -21,6 +21,11 @@ test('divergent recovery is keyed by document and original pane; unknown payload
   assert.equal(readDocumentDraft(invalidKey),undefined,'pending pane may not be transplanted');
   retainDocumentDraft(draftKey(workspace,other,document),{...first,dirty:false,pending:undefined});
   assert.equal(listDocumentDrafts(workspace).length,1);
+  const scene={kind:'scene',format:'excalidraw',content:JSON.stringify({type:'excalidraw',version:2,source:'Orbit',elements:[0,1].map(i=>({id:`text-${i}`,type:'text',x:0,y:0,width:1,height:1,angle:0,version:1,seed:1,versionNonce:1,isDeleted:false,fontFamily:5,fontSize:20,text:'\\'.repeat(60000),originalText:'\\'.repeat(60000)})),appState:{},files:{}})};
+  const large={version:1,data:scene,revision:2,dirty:true,pending:{...pending,intent:'Large exact scene',data:scene}};
+  assert.ok(JSON.stringify(large).length>1500000,'valid pending scene exceeds the old cache envelope cap');
+  const largeKey=draftKey(workspace,pane,document);retainDocumentDraft(largeKey,large);
+  assert.equal(readDocumentDraft(largeKey).pending.data.content,scene.content);
 });
 test('close guards preserve cancellation and only a current registration can unregister',async()=>{
   const id=randomUUID(),old=registerDocumentClose(id,async()=>true),current=registerDocumentClose(id,async()=>false);old();

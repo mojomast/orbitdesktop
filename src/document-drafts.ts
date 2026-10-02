@@ -15,7 +15,9 @@ export function readDocumentDraft(key:string):DocumentDraft|undefined {
     const [workspace,pane,id]=key.slice(prefix.length).split(':');
     if(!key.startsWith(prefix)||![workspace,pane,id].every(v=>uuid.test(v)))return;
     const text=memory.has(key)?JSON.stringify(memory.get(key)):sessionStorage.getItem(key);
-    if(!text||text.length>1500000)return;
+    // A cached draft can contain both the newer body and the exact pending
+    // save's body, each JSON-escaped. Do not strand valid maximum-size scenes.
+    if(!text||text.length>8*1024*1024)return;
     const d=JSON.parse(text) as DocumentDraft;validateDocumentData(d.data);
     if(d.version!==1||!Number.isSafeInteger(d.revision)||d.revision<1||typeof d.dirty!=='boolean')return;
     if(d.pending){const p=d.pending;if(p.action!=='save'||p.document_id!==id||p.pane_id!==pane||typeof p.op_id!=='string'||!uuid.test(p.op_id)||!Number.isSafeInteger(p.expected_revision))return;validateDocumentData(p.data);}
