@@ -1,13 +1,14 @@
-# Selected sources and editable briefs: explicit local adapter
+# Selected sources and editable briefs
 
-This development candidate implements a **dedicated local recipient channel**, not
-private-content tools in Normal gateway conversations. In Knowledge search, expand
-**Delegate selected sources to a dedicated local Hermes run**, select exact source
-snapshots, declare the model/provider disclosure destination configured for that
-process, and optionally allow creation of new editable briefs. Granting does not
-start inference. The UI lists scopes, remaining budgets, expiry, and Revoke.
+This development candidate supports **one-run Normal conversation grants through
+the pinned local Hermes gateway**, plus a dedicated-local recipient fallback.
+In Knowledge search, choose an actual linked conversation, select exact source
+snapshots and optionally permit creation of new editable briefs. A Normal grant
+attaches only to that binding's next accepted run; granting does not start inference
+or add authority to an already-running turn. The UI lists scope, budgets, expiry
+and Revoke. Host and gateway configuration are explicit prerequisites.
 
-## Runtime identity and the Normal blocker
+## Authenticated Normal identity
 
 The inspected upstream checkout is Hermes
 `d0288be5b3330d2442e3907185b8e9d0958297bb`, matching
@@ -20,37 +21,64 @@ The inspected upstream checkout is Hermes
   These are observability/session context, not an Orbit admission credential or a
   gateway-authenticated binding to the durable Orbit submission receipt.
 - `gateway/platforms/api_server_runs.py` creates its `run_id` and launches with
-  the selected `session_id`. Orbit's `server/workbench-hermes.mjs` freezes the
-  Runs payload and receives the accepted run ID later. There is no verified
-  per-submission private plugin configuration/credential handoff in this path.
-- Importantly, `_RunLaunch.approval_session_key` **is** the gateway `run_id`, and
-  `_run_agent_sync` sets it in `tools.approval_context` using a `ContextVar`.
-  `effective_task_id` is instead `session_id or run_id`, so handler `task_id`
-  is conversation-scoped for ordinary Orbit submissions. The internal approval
-  context is a plausible future authenticated adapter seam; this increment has
-  **not** validated its propagation through every plugin/concurrent execution
-  path or joined it to Orbit's accepted submission receipts and profile identity.
-  Normal's remaining gap is that integration/verification, not proof that upstream
-  has no internal run identity. It is not safe to substitute model arguments.
+  the selected `session_id`. `_RunLaunch.approval_session_key` is the run ID;
+  `_run_agent_sync` sets its ContextVar and binds the API session/profile context.
+  `effective_task_id` is instead `session_id or run_id` and is not run authority.
+- `hermes-plugin/normal_resources.py` pins eight relevant upstream source files,
+  reads direct gateway/approval ContextVars and requires matching run keys,
+  session, profile and `api_server` platform. It rejects inherited child-agent
+  contexts and environment-only identity. Actual pinned thread/context propagation
+  and registry dispatch are exercised by the acceptance test; no handler kwargs or
+  model-provided identity can select a grant.
 - The existing native Workbench adapter uses a dedicated local process and private
   socket precisely because generic gateway plugin registration is not attempt
   authorization. This implementation reuses that transport pattern without
   modifying Workbench authority or execution.
 
-Consequently Normal's workspace-scoped credential is **never accepted** by the new
-channel. A model's conversation, pane, profile, task, or workspace argument cannot
-select authority. The adapter ignores handler kwargs. No owner token is loaded by
-`hermes-plugin/resources.py`.
+After `server/agent.mjs` durably saves the accepted submission receipt, a trusted
+callback consumes the exact pending grant and publishes a private per-run channel
+file. Admission checks current pane generation, profile fingerprint, accepted
+receipt/run and recalculated payload hash. It verifies active status/session at
+the original configured gateway and reauthorizes after the awaited read. Subsequent
+turns, switched bindings, unknown receipts, disposed panes and revoked scopes cannot
+inherit authority. A bounded adapter wait permits channel publication after a fast
+gateway starts; it never retries an effect automatically.
 
-## Explicit adapter setup
+Normal's workspace-scoped credential is **never accepted** by this channel. Neither
+adapter loads an owner token. Run-specific keys stay in private files, not prompts,
+model arguments, Runs payloads or shared process environment variables.
+
+## Configure the pinned local Normal gateway
+
+1. Set host `ORBIT_RESOURCE_NORMAL_PROFILES` to an explicit JSON map from Orbit
+   profile IDs to actual upstream API profile context names, for example
+   `{"default":"","studio":"studio"}`. The default upstream context is `""`;
+   `/p/studio` uses `"studio"`. Do not infer context names from display labels.
+2. In that local pinned gateway profile's Orbit plugin configuration, set
+   `normal_resource_directory` to the private profile directory shown by the owner
+   grant panel: `<runtime>/resource-delegation/normal/<Orbit-profile-id>`.
+3. Enable `orbit_resources` alongside the desired existing toolsets. This directory
+   is a locator, not a shared grant key. The adapter selects a separate run file
+   solely from trusted runtime context. Do not configure the fallback's
+   `resource_channel_file` in a shared Normal profile.
+
+The gateway must share the provisioned filesystem/Unix-socket access. Remote
+gateways without that adapter and unverified Hermes source versions are unavailable;
+there is no session-ID or environment fallback. Owner readiness remains
+`configured_unverified` until successful authenticated use. Normal disclosure
+destination is derived from the configured gateway/profile; that gateway chooses
+its configured model/provider. This source change does not configure a live gateway
+or authorize provider inference.
+
+## Dedicated-local fallback setup
 
 After owner consent, the UI shows a private `resource_channel_file` path. A trusted
 operator supplies this setting to the Orbit plugin in a **dedicated, one-run local
 Hermes process/profile** using the pinned supported `register(ctx)` and
 `ctx.get_config` API. Enable only `orbit_resources` for that process. Do not put
 the setting into a shared gateway profile, copy the key into a prompt, or reuse
-the profile for another recipient. There is no automated provider launcher or
-Normal conversation attachment in this increment. The destination label is the
+the profile for another recipient. There is no automated provider launcher for
+this fallback. The destination label is the
 owner's declaration of the configured recipient's model destination, not a probe
 or cryptographic attestation of its provider configuration.
 
@@ -59,8 +87,10 @@ and monotonically increasing transport sequence authenticate calls on a mode-060
 Unix socket inside a mode-0700 directory. Tool arguments contain neither key nor
 recipient selector. This is same-UID trusted execution, not an OS sandbox. Server
 restart invalidates all channels; retained grants cannot resurrect themselves.
-Existing revoked records stay revoked. Paths longer than the bounded Unix socket
-limit report unavailable rather than falling back to a TCP/owner-token route.
+Existing revoked records stay revoked. The ephemeral listener uses an exclusive
+mode-0700 `orbit-resource-*` temporary directory, keeping long durable runtime paths
+within Unix socket limits. Normal shutdown removes that directory; crash-orphan
+cleanup is an operator task. There is no TCP/owner-token fallback.
 
 ## Finite authority and content
 
@@ -129,5 +159,11 @@ expiry/restart, deletion, byte budgets, ranking isolation, create-only authority
 and lost-response recovery. `tests/resource-grants.browser.py` uses a disposable
 workspace, real owner HTTP route, shipped Python adapter, and real Lexical renderer:
 select → grant → search/read → cited brief → owner edit/save → revoke. It makes no
-provider calls. This is adapter/UI acceptance, not acceptance of Normal gateway
-delegation or an actual model-authored response.
+provider calls. With `--normal` and the pinned Hermes source/interpreter configured,
+the browser fixture also exercises real Normal recipient selection, accepted host
+submission, actual gateway-context adapter execution, cited brief/edit/save and
+revoke. `tests/normal-resources.test.mjs` covers cross-run/profile/session fences,
+subsequent turns, terminal status, tampered receipts and awaited revocation. Its
+pinned Python driver uses actual gateway lifecycle, registry and thread-context
+code with a deterministic agent body. These are transport/context/UI checks, not
+evidence of an actual model-authored response or live provider quality.

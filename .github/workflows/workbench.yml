@@ -134,6 +134,8 @@ jobs:
           # The full Node gate must execute the actual-Hermes cases (result-boundary,
           # native, real-project-native/synthetic private key), not silently skip them.
           HERMES_NATIVE_SOURCE: /tmp/opencode/orbit-hermes-native
+          HERMES_PINNED_SOURCE: /tmp/opencode/orbit-hermes-native
+          HERMES_PINNED_PYTHON: /tmp/opencode/orbit-hermes-native/.venv/bin/python
           ORBIT_ROUTETOK_TEST_SOURCE: /tmp/opencode/orbit-routetok-source
           ORBIT_ROUTETOK_TEST_CACHE: /tmp/opencode/orbit-routetok-provision/cache
         run: npm run check

@@ -132,6 +132,15 @@ planner. Experimental **gVisor isolated checks** require a suitable separately
 provisioned host. Setup, persistence and capability boundaries are in the
 [technology guide](docs/TECHNOLOGY_FEATURES.md).
 
+The [agency evolution](docs/AGENCY_EVOLUTION.md) connects these existing tools:
+one exact draft review carries citations and selected data values; complete replies
+can offer explicit interactive-card, document and MCP snapshot actions. Documents
+support reviewed imports, digest-bound edit proposals, native Undo and discoverable
+same-tab recovery after closing a dirty pane. Opening tools preserves Spatial view.
+Selected-source grants use the supported authenticated recipient channels described
+in [Resource delegation](docs/RESOURCE_DELEGATION.md); opening a surface alone does
+not let an agent read its private contents.
+
 **Project Workbench → Workspace arrangements** previews a named, semantic diff
 before changing the desktop. Save a portable Debug recipe, resolve its roles
 against another project's existing panes, and reuse it after reload or server

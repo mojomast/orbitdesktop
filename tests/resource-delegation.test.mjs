@@ -9,12 +9,12 @@ import {createDocumentsService} from '../server/documents-store.mjs';
 import {boundedWorkspaceContext} from '../server/workspace-description.mjs';
 import {featureCapabilities} from '../contracts/feature-capabilities.mjs';
 const ws='11111111-1111-1111-1111-111111111111',other='22222222-2222-2222-2222-222222222222';
-async function fixture(t){
-  const root=fs.mkdtempSync('/tmp/opencode/agency-');let clock=Date.now(),hook=()=>{};
+async function fixture(t,longRoot=false){
+  const temp=fs.mkdtempSync('/tmp/opencode/agency-'),root=longRoot?`${temp}/${'long-runtime-name-'.repeat(8)}`:temp;fs.mkdirSync(root,{recursive:true,mode:0o700});let clock=Date.now(),hook=()=>{};
   const workspaceRead=async()=>{await hook();return {state:{monitors:[]}};};
   const knowledge=createKnowledgeSearch({root,workspaceRead}),documents=createDocumentsService({root,workspaceRead});
   let service=await createResourceDelegation({root,workspaceRead,knowledge,documents,now:()=>clock});
-  t.after(async()=>{await service.close();await knowledge.close();fs.rmSync(root,{recursive:true,force:true});});
+  t.after(async()=>{await service.close();await knowledge.close();fs.rmSync(temp,{recursive:true,force:true});});
   const owner=(action,fields={},workspace_id=ws)=>service.dispatch({action,workspace_id,...fields});
   const ingest=(text,title='Selected source')=>knowledge.dispatch({action:'ingest_text',workspace_id:ws,kind:'owner_text',title,text});
   async function recipient(sources,verbs=['search','read_source','create_document']){
@@ -47,6 +47,16 @@ test('selected sources -> exact citation -> saved editable brief; retries and re
   assert.equal((await f.documents.dispatch({action:'list',workspace_id:ws})).documents.length,1);
   const doc=await f.documents.dispatch({action:'read',workspace_id:ws,document_id:saved.document_id});assert.match(doc.data.content,/Mars has two moons/);assert.match(doc.data.content,new RegExp(a.source_id));
   assert.equal((await recipient.call({action:'read_document',document_id:saved.document_id})).code,'invalid_request');
+});
+test('long durable runtime paths retain short private sockets and invalidate them on restart',async t=>{
+  const f=await fixture(t,true),source=await f.ingest('Long-path source'),r=await f.recipient([source]);
+  assert.ok(Buffer.byteLength(f.root)>100);
+  assert.ok(Buffer.byteLength(r.channel.socket)<100);
+  assert.equal(fs.statSync(r.channel.socket).mode&0o777,0o600);
+  assert.equal(fs.statSync(new URL('.',`file://${r.channel.socket}`)).mode&0o777,0o700);
+  assert.equal((await r.call({action:'read_source',source_id:source.source_id})).result.text,'Long-path source');
+  await f.restart();assert.equal(fs.existsSync(r.channel.socket),false);
+  assert.equal(fs.existsSync(r.channel_file),false);
 });
 test('cross-recipient HMAC, guessed identities, revoke, expiry and restart fail closed',async t=>{
   const f=await fixture(t),a=await f.ingest('Shared corpus'),one=await f.recipient([a]),two=await f.recipient([a]);

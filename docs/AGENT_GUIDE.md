@@ -86,9 +86,11 @@ no fallback to trusted-host execution is permitted. See `docs/ISOLATED_CHECKS.md
 
 For selected-source authority, consult `docs/RESOURCE_DELEGATION.md` and the actual
 recipient channel's `describe` result. Feature-type discovery alone grants no
-private content access. A dedicated local adapter grant is not a Normal gateway
-conversation grant. Never configure its channel file in a shared profile or put
-credentials into model input. Successful document creation returns a real saved
+private content access. Normal grants require the configured pinned local gateway
+adapter and attach only to the selected binding's next accepted run. A dedicated
+fallback grant is not interchangeable with a Normal grant. Never configure the
+fallback's channel file in a shared profile or put credentials into model input.
+Successful document creation returns a real saved
 artifact URI; opening it and browser acknowledgement are separate operations.
 
 Owner-facing example prompts are in `docs/WORKSPACE_PROMPTS.md`. Use the feature

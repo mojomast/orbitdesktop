@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import http from 'node:http';
 import {randomUUID,randomBytes,createHmac,timingSafeEqual} from 'node:crypto';
 import Ajv from 'ajv';
@@ -17,8 +18,11 @@ const codes=new Set(['invalid_request','permission_denied','expired','revoked','
 export async function createResourceDelegation({root,workspaceRead,knowledge,documents,now=Date.now,normalBindings,normalProfiles=JSON.parse(process.env.ORBIT_RESOURCE_NORMAL_PROFILES||'{}')}) {
   if(!normalProfiles||typeof normalProfiles!=='object'||Array.isArray(normalProfiles)||Object.entries(normalProfiles).some(([id,name])=>!/^[a-zA-Z0-9_-]{1,64}$/.test(id)||typeof name!=='string'||name.length>100||/[\x00-\x1f]/.test(name)))fail('invalid_request');
   const dir=path.join(root,'resource-delegation');fs.mkdirSync(dir,{recursive:true,mode:0o700});fs.chmodSync(dir,0o700);
-  const socket=path.join(dir,`s-${randomBytes(4).toString('hex')}.sock`);
-  if(Buffer.byteLength(socket)>100)fail('unavailable');
+  // Durable runtime paths can exceed Unix socket limits. Like native Workbench
+  // channels, keep only the ephemeral listener in a private short temp directory.
+  const socketDir=fs.mkdtempSync(path.join(os.tmpdir(),'orbit-resource-'));fs.chmodSync(socketDir,0o700);
+  const socket=path.join(socketDir,'tool.sock');
+  if(Buffer.byteLength(socket)>100){fs.rmSync(socketDir,{recursive:true,force:true});fail('unavailable');}
   const active=new Map();let closed=false;
   const file=id=>path.join(dir,`${id}.json`);
   function persist(record){const temp=file(record.id)+'.tmp';const fd=fs.openSync(temp,'w',0o600);try{fs.writeFileSync(fd,JSON.stringify(record));fs.fsyncSync(fd);}finally{fs.closeSync(fd);}fs.renameSync(temp,file(record.id));const d=fs.openSync(dir,'r');try{fs.fsyncSync(d);}finally{fs.closeSync(d);}}
@@ -149,7 +153,7 @@ export async function createResourceDelegation({root,workspaceRead,knowledge,doc
     finally{if(owned)entry.busy=false;}
   });
   server.requestTimeout=10000;server.headersTimeout=10000;
-  await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(socket,resolve);});fs.chmodSync(socket,0o600);
+  try{await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(socket,resolve);});fs.chmodSync(socket,0o600);}catch(error){fs.rmSync(socketDir,{recursive:true,force:true});throw error;}
   function normalAccepted(receipt){
     if(closed||!/^run_[a-zA-Z0-9_-]{8,100}$/.test(receipt.run_id??''))return;
     for(const [id,entry] of active){
@@ -166,5 +170,5 @@ export async function createResourceDelegation({root,workspaceRead,knowledge,doc
       fs.renameSync(temp,channel_file);entry.channel_file=channel_file;
     }
   }
-  return {dispatch:owner,normalAccepted,async close(){closed=true;for(const entry of active.values())if(entry.channel_file)fs.rmSync(entry.channel_file,{force:true});active.clear();await new Promise(resolve=>server.close(resolve));fs.rmSync(socket,{force:true});}};
+  return {dispatch:owner,normalAccepted,async close(){closed=true;for(const entry of active.values())if(entry.channel_file)fs.rmSync(entry.channel_file,{force:true});active.clear();await new Promise(resolve=>server.close(resolve));fs.rmSync(socketDir,{recursive:true,force:true});}};
 }

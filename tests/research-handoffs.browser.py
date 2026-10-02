@@ -32,6 +32,9 @@ window.two=mountInteractiveResults(document.querySelector('#two'),()=> 'fixture-
 mountMcpApps(document.querySelector('#mcp'),()=> 'fixture-token',{paneId:'mcp'});
 window.remount=()=>{window.one.dispose();window.one=mountInteractiveResults(document.querySelector('#one'),()=> 'fixture-token',{paneId:'one'});};
 window.mcpResult=()=>document.body.append(completeResultActions(JSON.stringify({mcp_snapshot:{title:'Synthetic SDK snapshot',resource_uri:'ui://fixture',html:'<p>snapshot</p>',arguments:{exact:42},result:{content:[{type:'text',text:'exact result'}]}}}),{id:'authenticated-fixture',version:'1'},()=>true));
+// Observe the actual Normal source seam; document engine/storage acceptance is
+// independently exercised by documents.browser.py and canvas.browser.py.
+window.addEventListener('orbit-review-document-result',event=>{event.preventDefault();window.documentRequest={title:event.detail.title,data:event.detail.data};event.detail.respond({status:'rejected',reason:'Synthetic source-seam acknowledgement; no record created.'});});
 ''')
     with socket.socket() as probe: probe.bind(('127.0.0.1',0)); port=probe.getsockname()[1]
     origin=f'http://127.0.0.1:{port}'
@@ -42,7 +45,7 @@ window.mcpResult=()=>document.body.append(completeResultActions(JSON.stringify({
             except OSError: time.sleep(.1)
         with sync_playwright() as p:
             browser=p.chromium.launch(headless=True,args=['--no-sandbox'])
-            page=browser.new_page(viewport={'width':1280,'height':900}); errors=[]; actions=[]; completed=False
+            page=browser.new_page(viewport={'width':1280,'height':900}); errors=[]; actions=[]; completed=False; output=EXAMPLE
             page.on('pageerror',lambda e:errors.append(str(e)))
             def api(route):
                 global completed
@@ -55,7 +58,7 @@ window.mcpResult=()=>document.body.append(completeResultActions(JSON.stringify({
                         if not completed: state['run']='fixture-complete-run'
                         data={'state':state}
                     elif action=='status':
-                        completed=True; data={'run_id':'fixture-complete-run','status':'completed','output':EXAMPLE}
+                        completed=True; data={'run_id':'fixture-complete-run','status':'completed','output':output}
                     elif action=='profiles': data={'profiles':[{'id':'default','label':'Default'}]}
                     elif action=='sessions': data={'sessions':[]}
                     elif action in ('draft_read','draft_write'): data={'record':{'revision':1,'draft':body.get('text',''),'metadata':{}}}
@@ -96,6 +99,15 @@ window.mcpResult=()=>document.body.append(completeResultActions(JSON.stringify({
             snapshot=json.loads(page.get_by_label('MCP App snapshot JSON').input_value())
             assert snapshot['arguments']=={'exact':42} and snapshot['result']['content'][0]['text']=='exact result'
             assert page.locator('#mcp iframe').count()==0
+            # A second authenticated complete reply reaches the document adapter
+            # after integration of the independent result-action branches.
+            document={'title':'Cited synthetic brief','kind':'richtext','format':'lexical','content':json.dumps({'root':{'type':'root','version':1,'format':'','indent':0,'direction':None,'children':[{'type':'paragraph','version':1,'format':'','indent':0,'direction':None,'children':[{'type':'text','version':1,'text':'Exact synthetic brief','format':0,'style':'','mode':'normal','detail':0}]}]}})}
+            output=json.dumps({'document':document}); completed=False
+            page.reload()
+            page.get_by_role('button',name='Review this complete reply as a new private document draft',exact=True).click()
+            page.wait_for_function('window.documentRequest !== undefined')
+            assert page.evaluate('window.documentRequest') == {'title':document['title'],'data':{key:document[key] for key in ('kind','format','content')}}
+            expect(page.locator('.agent-progress')).to_contain_text('Synthetic source-seam acknowledgement')
             assert 'submit' not in actions and 'run' not in actions,actions
             assert not errors,errors
             browser.close()

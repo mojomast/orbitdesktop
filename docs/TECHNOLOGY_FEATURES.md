@@ -2,9 +2,11 @@
 
 Owner capability discovery and controller descriptions share reviewed feature-type
 descriptors that distinguish opening a surface from private-content authority.
-The [dedicated resource adapter](RESOURCE_DELEGATION.md) supports selected-source
-search/read and creation of cited editable briefs; Normal gateway delegation remains
-blocked on authenticated per-run plugin binding.
+The [scoped resource adapter](RESOURCE_DELEGATION.md) supports selected-source
+search/read and creation of cited editable briefs. Normal delegation binds the
+next accepted run through the configured pinned local gateway; a dedicated-local
+recipient remains available separately. Missing configuration or runtime identity
+fails closed, and feature-type discovery alone does not grant content access.
 
 For task-oriented examples, see [Workspace prompts](WORKSPACE_PROMPTS.md). These
 features are implemented in the development candidate; package metadata remains

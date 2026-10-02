@@ -418,7 +418,7 @@ return hit===node&&hit.matches('canvas.interactive');}''', point), ('Pointer mis
                 data.locator('.data-sql').fill('SELECT "group", sum(amount) AS total FROM input_1 GROUP BY "group" ORDER BY "group"')
                 data.get_by_role('button', name='Run SELECT', exact=True).click()
                 expect(data.locator('.data-status')).to_contain_text('2 bounded rows', timeout=30000)
-                assert data.locator('tbody').inner_text() == 'A\t30\nB\t5'
+                assert data.locator('tbody tr').evaluate_all('(rows)=>rows.map(row=>[...row.cells].slice(1).map(cell=>cell.textContent))') == [['A', '30'], ['B', '5']]
                 data.get_by_role('button', name='Refresh recipes', exact=True).click()
                 expect(data.locator('.data-status')).to_contain_text('Private recipes loaded.')
                 data.get_by_role('button', name='Save recipe', exact=True).click()

@@ -268,7 +268,7 @@ document store. Full combined checks and distribution asset/license packaging
 are integration-owned.
 ## Agent-created new briefs
 
-An explicitly granted dedicated local resource adapter can atomically create a
+An explicitly granted Normal or dedicated-local resource adapter can atomically create a
 new rich-text document with content and a receipt. This authority does not include
 library reads or edits to existing documents. Results distinguish saved from opened
 and browser acknowledgement. See [Resource delegation](RESOURCE_DELEGATION.md).

@@ -43,10 +43,12 @@ on:
       - 'server/*capabilit*'
       - 'server/resource-*'
       - 'hermes-plugin/resources.py'
+      - 'hermes-plugin/normal_resources.py'
       - 'server/index.mjs'
       - 'server/agent.mjs'
       - 'server/security.mjs'
       - 'contracts/*-v1.mjs'
+      - 'contracts/feature-capabilities.*'
       - 'scripts/knowledge-model.mjs'
       - 'scripts/provision_voice_models.mjs'
       - 'scripts/provision_data_engine.mjs'
@@ -65,6 +67,7 @@ on:
       - 'tests/*delegation*'
       - 'tests/*capabilit*'
       - 'tests/resource-*'
+      - 'tests/normal-resources*'
       - 'tests/research-handoffs.browser.py'
       - 'tests/docking-narrow.browser.py'
   push:
@@ -108,10 +111,12 @@ on:
       - 'server/*capabilit*'
       - 'server/resource-*'
       - 'hermes-plugin/resources.py'
+      - 'hermes-plugin/normal_resources.py'
       - 'server/index.mjs'
       - 'server/agent.mjs'
       - 'server/security.mjs'
       - 'contracts/*-v1.mjs'
+      - 'contracts/feature-capabilities.*'
       - 'scripts/knowledge-model.mjs'
       - 'scripts/provision_voice_models.mjs'
       - 'scripts/provision_data_engine.mjs'
@@ -130,6 +135,7 @@ on:
       - 'tests/*delegation*'
       - 'tests/*capabilit*'
       - 'tests/resource-*'
+      - 'tests/normal-resources*'
       - 'tests/research-handoffs.browser.py'
       - 'tests/docking-narrow.browser.py'
   schedule:
@@ -164,6 +170,17 @@ jobs:
         with:
           python-version: '3.11'
       - run: npm ci
+      - uses: astral-sh/setup-uv@v6
+        if: matrix.suite == 'knowledge'
+        with:
+          version: '0.11.2'
+      - name: Prepare pinned local gateway for source-grant acceptance
+        if: matrix.suite == 'knowledge'
+        run: |
+          mkdir -p /tmp/opencode
+          git clone --no-checkout https://github.com/NousResearch/hermes-agent /tmp/opencode/orbit-hermes-native
+          git -C /tmp/opencode/orbit-hermes-native checkout --detach d0288be5b3330d2442e3907185b8e9d0958297bb
+          uv sync --project /tmp/opencode/orbit-hermes-native --frozen --python 3.14 --no-default-groups
       - name: Cache pinned public embedding model
         if: matrix.suite == 'knowledge' || startsWith(matrix.suite, 'workspace-')
         uses: actions/cache@v4
@@ -224,6 +241,7 @@ jobs:
             knowledge)
               "$python" tests/knowledge-search.browser.py
               "$python" tests/resource-grants.browser.py
+              HERMES_PINNED_SOURCE=/tmp/opencode/orbit-hermes-native HERMES_PINNED_PYTHON=/tmp/opencode/orbit-hermes-native/.venv/bin/python "$python" tests/resource-grants.browser.py --normal
               ;;
             interactive)
               "$python" tests/interactive-results.browser.py

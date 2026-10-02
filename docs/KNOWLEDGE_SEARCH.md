@@ -262,9 +262,10 @@ The parent reported its integrated combined check passing 946 of 956 tests with
 for the conflict change; it did not repeat the combined check. Offline `npm ci`, non-Linux native packaging,
 large-corpus recall/memory, complete-runtime backup/secure erasure and live
 deployment/restart have not been verified by this feature agent.
-## Dedicated source delegation
+## Selected-source delegation
 
-The Knowledge surface now has an explicit selected-source grant/revoke panel for
-a dedicated local Hermes adapter. Normal gateway content tools remain unavailable
-until authenticated per-run binding exists. See [Resource delegation](RESOURCE_DELEGATION.md)
+The Knowledge surface has an explicit selected-source grant/revoke panel for
+linked Normal conversations using the configured pinned local gateway, plus a
+dedicated-local adapter fallback. Normal grants bind the selected conversation's
+next accepted run, not all turns or profile users. See [Resource delegation](RESOURCE_DELEGATION.md)
 for exact scopes, destination disclosure, budgets, citations and restart behavior.

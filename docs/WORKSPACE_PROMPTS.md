@@ -62,6 +62,16 @@ has its own authenticated channel and explicit scope; see
 [Resource delegation](RESOURCE_DELEGATION.md) for supported recipient types.
 Guide: [Knowledge search](KNOWLEDGE_SEARCH.md).
 
+> Use the sources I delegated to this conversation's next run to write a cited
+> project brief. Read only that scope, create a new saved editable document, and
+> open its returned URI beside chat. Distinguish saved content from browser
+> acknowledgement; preserve my other documents and panes.
+
+This requires the configured pinned local Normal resource adapter. Select the
+actual linked conversation and grant sources before sending the request. Repeated
+reads within that run need no repeated dialogs; another turn needs a new grant.
+If the channel is unavailable, use explicit cited draft handoffs instead.
+
 ## Interactive result cards
 
 > Open Interactive results and help me use Load editable comparison. I want to
