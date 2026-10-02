@@ -11,6 +11,10 @@ provides_hooks: []
 provides_middleware: []
 requires_env: []
 config_schema:
+  normal_resource_directory:
+    type: str
+    default: ""
+    description: Profile-specific host-issued per-run channel directory for the exact pinned local Normal gateway. Contains no shared grant secret; never a model argument.
   resource_channel_file:
     type: str
     default: ""

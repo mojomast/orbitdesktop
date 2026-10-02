@@ -296,6 +296,10 @@ def register(ctx):
         register_workbench(ctx)
         return
 
+    if ctx.get_config("normal_resource_directory", ""):
+        from .normal_resources import register as register_normal_resources
+        register_normal_resources(ctx)
+
     def handle(params, **kwargs):
         del kwargs
         try:
