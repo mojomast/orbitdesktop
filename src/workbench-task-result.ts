@@ -119,6 +119,14 @@ export function mountWorkbenchTaskResult(args:Args):{refresh():Promise<void>;set
       evidence.append(checkDetails);
     }
     view.replaceChildren(...sections);
+    if(result.availability==='available'&&result.hermes_completed===true&&typeof result.text==='string')void import('./document-artifacts').then(({extractDocumentResult,requestDocumentFromResult})=>{
+      if(!isCurrent(auth.ticket,auth.token,auth.grantId,result.id)||!extractDocumentResult(result.text))return;
+      explanation.append(button('Create document from result','Review this recorded result as a new private document draft',async()=>{
+        if(!isCurrent(auth.ticket,auth.token,auth.grantId,result.id))return;
+        const outcome=await requestDocumentFromResult(result.text);
+        if(isCurrent(auth.ticket,auth.token,auth.grantId,result.id))status.textContent=outcome.status==='created-draft'?'Document draft created; Save remains explicit.':outcome.reason||'Document review cancelled.';
+      }));
+    });
   }
   async function retryPersistence(result:Json,grant:Json,auth:{ticket:number;token:string;grantId:string}){
     const expected_digest=grant.pending_digest as string;

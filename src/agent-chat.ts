@@ -913,6 +913,17 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
         const finishedRun = state.run;
         state.run = undefined; save(); render();
         progress.textContent = data.status === 'completed' ? '' : String(data.error || `Run ${data.status}. Check the conversation and troubleshooting details.`);
+        if(data.status==='completed'&&typeof data.output==='string'){
+          const completeOutput=data.output;
+          void import('./document-artifacts').then(({extractDocumentResult,requestDocumentFromResult})=>{
+            if(disposed||!current(requested)||state.run||!extractDocumentResult(completeOutput))return;
+            progress.append(button('Create document from result','Review this complete reply as a new private document draft',async()=>{
+              if(disposed||!current(requested))return;
+              const result=await requestDocumentFromResult(completeOutput);
+              if(!disposed&&current(requested))progress.textContent=result.status==='created-draft'?'Document draft created. Open/recover it in Document library; Save remains explicit.':result.reason||'Document review cancelled.';
+            }));
+          });
+        }
         notifyReply(finishedRun, data.status === 'completed');
         // Ordinary normal-run completion may auto-drain only when the shared lane
         // is idle and not unknown. A Workbench-held queue stays held until the
