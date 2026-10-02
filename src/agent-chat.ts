@@ -4,6 +4,8 @@ import { createInlineTools } from './inline-tools';
 import { registerActivity, openAgentOverview } from './agent-activity';
 import './hermes-tools.css';
 import './agent-toolbar.css';
+import './chat-message.css';
+import { createChatMessageRenderer } from './chat-message-renderer';
 import { el, button } from './dom';
 import { workspaceId, ensureWorkspaceSynced } from './workspace-sync';
 import { readPanePrefs, writePanePrefs, type PaneMode, type PaneWorkbenchPrefs } from './pane-prefs';
@@ -14,13 +16,19 @@ import type { LiveItem } from './agent-live-types';
 import { createAgentInspector } from './agent-inspector';
 import { experimentalEnabled, subscribeExperimental } from './experimental';
 import { showOrbitSettings } from './orbit-settings';
+import { showConversationLibrary } from './conversation-library';
+import type { ConversationSelection } from './conversation-selection';
+import { createConversationDraft } from './conversation-draft';
+import { conversationRequest } from './conversation-client';
+import { registerConversationRecipient, type ConversationRecipientHandle } from './conversation-transfer';
+import { completeResultActions } from './interactive-result-delivery';
 
 import { archiveChat, validChat, transcript, chatProfileId, chatBindingKey, type ChatState } from './chat-storage';
 export function createAgentChat(body: HTMLElement, paneId: string, getToken: () => string, toolbar?: HTMLElement) {
   const storageKey = `orbit-hermes-chat:${paneId}`;
   const archiveKey = `${storageKey}:archive`, legacyDraftKey = `${storageKey}:draft`;
   const draftKey = () => `${legacyDraftKey}:${chatBindingKey(state)}`;
-  function saveDraft() { try { sessionStorage.setItem(draftKey(), input.value); } catch {} }
+  function saveDraft() { try { sessionStorage.setItem(draftKey(), input.value); } catch {} durableDraft?.edit(); }
   function loadDraft() { try {
     if (chatProfileId(state) === 'default') {
       const legacy = sessionStorage.getItem(legacyDraftKey);
@@ -56,6 +64,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   let generation = 0, pending = 0, sharedEpoch = 0;
   // A cached revision is not proof that this mount has linked to the host.
   let bindingReady = false;
+  let conversationRecipient: ConversationRecipientHandle | undefined, recipientBinding = '';
   class StaleRequest extends Error {}
   const scope = () => ({ session_id: state.session, profile_id: chatProfileId(state), workspace_id: workspaceId, pane_id: paneId, generation, revision: state.binding_revision });
   type Scope = ReturnType<typeof scope>;
@@ -139,7 +148,18 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   updateNotifications();
   const titleInput = el('input'); titleInput.placeholder = 'Hermes'; titleInput.maxLength = 100;
   titleInput.setAttribute('aria-label', 'Conversation title');
-  titleInput.addEventListener('input', () => { state.title = titleInput.value; heading.textContent = state.title || 'Hermes'; save(); });
+  async function saveConversationTitle(title:string) {
+    const requested=scope(), identity={workspace_id:requested.workspace_id,profile_id:requested.profile_id,session_id:requested.session_id};
+    try {
+      const {record}=await conversationRequest(getToken,{action:'draft_read',...identity});
+      if(!current(requested))return;
+      const result=await conversationRequest(getToken,{action:'conversation_metadata',...identity,expected_revision:record.revision,patch:{title}});
+      if(!current(requested))return;
+      if(result.conflict)throw Error('Conversation metadata changed. Refresh the library before renaming again.');
+      state.title=title;save();render();
+    }catch(error){if(current(requested))showError(error);}
+  }
+  titleInput.addEventListener('change', () => { void saveConversationTitle(titleInput.value.trim()); });
   const colorInput = el('input'); colorInput.type = 'color'; colorInput.title = 'Conversation color theme';
   colorInput.setAttribute('aria-label', 'Conversation color theme');
   colorInput.addEventListener('input', () => { state.color = colorInput.value; save(); render(); });
@@ -154,7 +174,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     form.append(el('h2', '', 'Rename agent conversation'),
       el('p', '', 'This changes the display name for this conversation, not the underlying agent or model.'),
       name, commit, button('Cancel', 'Cancel rename', () => dialog.close()));
-    form.onsubmit = event => { event.preventDefault(); if (current(requested)) { state.title = name.value.trim(); save(); render(); } dialog.close(); };
+    form.onsubmit = event => { event.preventDefault(); if (current(requested)) void saveConversationTitle(name.value.trim()); dialog.close(); };
     dialog.append(form); dialog.addEventListener('close', () => dialog.remove());
     document.body.append(dialog); dialog.showModal(); name.focus(); name.select();
   }, 'small-button');
@@ -328,6 +348,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     await submit(state.queue[0]);
   }
   const messages = el('div', 'chat-messages');
+  const messageRenderer = createChatMessageRenderer(messages);
   // Host-authored task receipts are deliberately outside ChatState.messages:
   // displaying one must never add an assistant turn or trigger model inference.
   const taskCards = el('section', 'agent-task-results');
@@ -367,6 +388,8 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
         text.textContent = card.availability === 'available' && typeof card.text === 'string'
           ? card.text : 'Agent explanation unavailable. Recorded checks and human review remain separate.';
         item.append(text, el('p', '', `Task ${String(card.task_id || '')} · Attempt ${String(card.attempt_id || '')}`));
+        if (card.availability === 'available' && typeof card.text === 'string' && typeof card.result_id === 'string')
+          item.append(completeResultActions(card.text, { id: card.result_id, version: String(card.candidate_hash || card.created_at) }, () => current(requested) && getToken() === token));
         item.append(el('p', '', 'The worker’s explanation is untrusted text. Consult Recorded checks and Human review in Project Workbench for verification and acceptance.'));
         taskCards.append(item);
       }
@@ -508,6 +531,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   const titleSettings = el('div', 'agent-settings-row'); titleSettings.append(titleInput, rename, colorInput);
   settings.append(el('h3', '', 'Conversation'), titleSettings, notificationButton,
     el('h3', '', 'Profile and session'), bindingControls, workspaceAgents, notice);
+  settings.append(button('Conversation library', 'Browse saved conversations', () => showConversationLibrary(getToken, paneId, chatProfileId(state)), 'small-button'));
   inspector.register('settings', 'Settings', settings);
   const troubleshooting = el('div', 'agent-troubleshooting'); troubleshooting.append(status, recovery);
   const inspectWorkbench = button('Inspect Workbench execution', 'Open Workbench checks and recovery without acknowledging or replaying anything', () => { inspector.close(); setMode('workbench'); workbenchHost.querySelector<HTMLButtonElement>('[aria-label="Checks workbench view"]')?.click(); }, 'small-button');
@@ -519,14 +543,31 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   unknownAction.hidden = true;
   const form = el('form', 'chat-form');
   const input = el('textarea');
+  let durableDraft: ReturnType<typeof createConversationDraft> | undefined;
+  let draftLinked = false, draftEditedBeforeLink = false;
   input.placeholder = 'Ask Hermes… (up to 100,000 characters)'; input.rows = 2; input.maxLength = 100000;
   input.setAttribute('aria-label', 'Message to Hermes');
   loadDraft();
+  const draftStatus = el('div', 'conversation-draft-status'); draftStatus.setAttribute('role', 'status');
+  durableDraft = createConversationDraft({cacheNamespace:paneId,token:getToken,value:()=>input.value,
+    restore:text=>{input.value=text;try{sessionStorage.setItem(draftKey(),text);}catch{}sizeComposer();},
+    status:(text,conflict)=>{
+      draftStatus.replaceChildren(el('span','',text));
+      if(conflict) {
+        const preview=el('details');preview.append(el('summary','','Compare preserved drafts'),el('h4','','This tab'),el('pre','',conflict.local),el('h4','','Host'),el('pre','',conflict.remote));
+        draftStatus.append(preview,button('Use host draft','Replace composer with host draft',conflict.useRemote),button('Keep my draft','Save this tab draft over reviewed host draft',conflict.keepLocal));
+      }
+    },
+  });
+  const selectDraft = () => {
+    durableDraft?.select({workspace_id:workspaceId,profile_id:chatProfileId(state),session_id:state.session},input.value,draftEditedBeforeLink);
+    draftLinked=true;draftEditedBeforeLink=false;
+  };
   function sizeComposer() {
     input.style.height = '64px';
     input.style.height = `${Math.min(96, Math.max(64, input.scrollHeight))}px`;
   }
-  input.addEventListener('input', () => { saveDraft(); sizeComposer(); });
+  input.addEventListener('input', () => { if(!draftLinked)draftEditedBeforeLink=true; saveDraft(); sizeComposer(); });
   let toolsDialog: HTMLDialogElement | undefined;
   function openTools() {
     toolsDialog?.close();
@@ -563,7 +604,9 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     }
     dialog.append(button('Tool activity', 'Inspect actual Hermes tool calls and results', () => { clearTimeout(activityTimer); void loadActivity(); }), activity);
     dialog.addEventListener('close', () => clearTimeout(activityTimer));
-    dialog.append(el('p', '', 'History and drafts stay in this browser tab. Exports may contain private conversation content.'));
+    dialog.append(el('h3', '', 'Hermes conversation history'),
+      el('p', '', 'Open the conversation library for Hermes titles and IDs, Orbit names, pins and archives. Drafts save privately on the host with a tab recovery cache. Recent transcripts below are tab-local. Exports may contain private conversation content.'),
+      button('Conversation library', 'Browse durable Hermes sessions by profile', () => { dialog.close(); showConversationLibrary(getToken,paneId,chatProfileId(state)); }));
     dialog.append(button('Export conversation', 'Download this Hermes conversation', () => {
       const blob = new Blob([transcript(state)], { type: 'text/plain;charset=utf-8' });
       const url = URL.createObjectURL(blob); const a = document.createElement('a');
@@ -573,8 +616,9 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     for (const [label, prompt] of [
       ['Inspect workspace', 'Inspect this workspace using the workspace controller. Summarize its current windows, panes, layout, and available controls. Do not change anything yet.'],
       ['Organize windows', 'Inspect this workspace and organize the existing windows for readability. Preserve all pane IDs, conversations, and running shells. Use live workspace controls and verify the browser acknowledgement.'],
-      ['Build an app', 'Build and publish an app inside this workspace. First ask me what the app should do, then use the workspace publishing workflow to open it here.'],
-      ['Change appearance', 'Help me change the workspace appearance. First ask what look I want. Use the no-reload appearance workflow in docs/WORKSPACE_CONTROL.md, preserve unrelated customizations, and do not restart services.'],
+      ['Explore built-in tools', 'Help me choose from Orbit’s built-in search, interactive results, voice transcript, Data workbench, document library, run traces and optional browser/MCP Apps surfaces. Use docs/TECHNOLOGY_FEATURES.md and ask what I want to accomplish if it is not yet clear. Explain configuration prerequisites and explicit import/draft steps; do not claim you can read private contents from layout context.'],
+      ['Build an app', 'Help me build a tool in this workspace. Use my stated goal, or ask what it should do if that is missing. Reuse a suitable built-in surface when possible; otherwise build, test and publish a content-addressed sandboxed plugin. Preserve existing windows and use independent widget instances when appropriate.'],
+      ['Change appearance', 'Help me change the workspace appearance. Use my stated preferences, or ask what look I want if that is missing. Use the no-reload appearance workflow in docs/WORKSPACE_CONTROL.md, preserve unrelated customizations, and do not restart services.'],
     ]) dialog.append(button(label, label, () => { input.value = prompt; input.dispatchEvent(new Event('input')); dialog.close(); input.focus(); }));
     dialog.append(el('p', '', 'Shortcuts prepare a draft; nothing is sent until you press Send.'));
     dialog.append(el('h3', '', 'Recent conversations'));
@@ -596,6 +640,31 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     if ((event as CustomEvent<{ paneId?: string }>).detail?.paneId === paneId) openTools();
   };
   window.addEventListener('orbit-open-hermes-tools', onOpenTools);
+  const onOpenLibrary = (event:Event) => {if((event as CustomEvent<{paneId?:string}>).detail?.paneId===paneId)showConversationLibrary(getToken,paneId,chatProfileId(state));};
+  let requestedSelection: ConversationSelection | undefined;
+  const failRequestedSelection = (message:string) => { requestedSelection?.report?.('failed',message);requestedSelection=undefined; };
+  const applyRequestedSelection = () => {
+    if(requestedSelection?.signal?.aborted){requestedSelection=undefined;return;}
+    if(!requestedSelection || !bindingReady || disposed || pending || busy || polling || switching)return;
+    const target=requestedSelection;requestedSelection=undefined;
+    void switchConversation(target.profileId,target.sessionId,target.report);
+  };
+  const onSelectConversation = (event:Event) => {
+    const detail=(event as CustomEvent<ConversationSelection>).detail;
+    if(detail?.paneId!==paneId || typeof detail.profileId!=='string' || typeof detail.sessionId!=='string')return;
+    if(detail.signal?.aborted)return;
+    requestedSelection?.report?.('failed','Replaced by a newer conversation choice.');
+    if(bindingReady && (switching || state.run || state.queue?.length || approvals.childElementCount)){
+      requestedSelection=undefined;void switchConversation(detail.profileId,detail.sessionId,detail.report);return;
+    }
+    requestedSelection=detail;
+    detail.report?.('waiting',`Waiting for pane ${paneId} to link and finish synchronizing. You can cancel this choice.`);
+    applyRequestedSelection();
+  };
+  const flushDraft = () => durableDraft?.flush();
+  window.addEventListener('orbit-open-conversation-library',onOpenLibrary);
+  window.addEventListener('orbit-select-conversation',onSelectConversation);
+  window.addEventListener('pagehide',flushDraft);
   const send = button('↑', 'Send message to Hermes', () => { void submit(); });
   function update() {
     // The single native/runtime lane is global: while it is held by another
@@ -618,6 +687,39 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     stop.hidden = !state.run; resume.hidden = !state.run; steer.hidden = !state.run;
     // Allow composing the next message while Hermes works; Send remains disabled.
     input.disabled = false;
+    refreshConversationRecipient();
+  }
+  // Stable, recognizable recipient identity, used identically on registration,
+  // update and the confirmation dialog. The pane discriminator leads so the
+  // registry's 200-character title bound can never clip it, and every segment is
+  // bounded so duplicate window names or conversation titles stay distinguishable.
+  function conversationRecipientLabel() {
+    const windowName = (body.closest('.monitor')?.querySelector('.monitor-bar strong')?.textContent ?? '').trim().slice(0, 24);
+    const conversation = (state.title || state.session).slice(0, 36);
+    const profile = chatProfileId(state).slice(0, 20);
+    // Imported pane IDs can share prefixes; retain the complete validated ID
+    // (at most 100 characters), with the full label still below 200 characters.
+    return [`pane ${paneId}`, windowName || 'chat pane', conversation, profile].join(' · ');
+  }
+  function refreshConversationRecipient() {
+    const key=JSON.stringify(scope());
+    const available=!disposed && bindingReady && !!getToken() && !switching && !busy && !pending;
+    if(!conversationRecipient || recipientBinding!==key) {
+      conversationRecipient?.dispose();recipientBinding=key;
+      const requested=scope();
+      conversationRecipient=registerConversationRecipient({id:`chat:${workspaceId}:${paneId}`,title:conversationRecipientLabel(),available,
+        prepare:delivery=>{
+          if(!current(requested) || !bindingReady || switching || busy || pending || !getToken())throw Error('The conversation binding changed or is busy.');
+          const original=input.value;
+          const credential=getToken();
+          const appended=original ? `${original}\n\n${delivery.text}` : delivery.text;
+          if(appended.length>100000)throw Error('Appending would exceed the draft limit. Shorten the draft first.');
+          return {text:appended,commit:()=>{
+            if(!current(requested) || !bindingReady || switching || busy || pending || input.value!==original || getToken()!==credential)return {accepted:false,reason:'Recipient draft or binding changed. Select the recipient again to review.'};
+            input.value=appended;saveDraft();sizeComposer();setMode('normal');input.focus();return {accepted:true};
+          }};
+        },receive:()=>({accepted:false,reason:'Review the exact final draft first.'})});
+    }else conversationRecipient.update({title:conversationRecipientLabel(),available});
   }
   function laneBlocked() {
     // The shared native lane is global; when it is held by another pane's
@@ -749,15 +851,8 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
       queueList.prepend(el('small', '', 'Queued in order · keep this tab open. Errors or Stop pause delivery.'));
       if (!state.run && !busy) queueList.append(drainButton);
     }
-    messages.replaceChildren();
-    if (!state.messages.length) messages.append(el('div', 'chat-message assistant', 'Hi, I’m Hermes. Connect host with your Orbit token, then send me a message. This pane has its own conversation.'));
-    for (const m of state.messages) {
-      const node = el('div', `chat-message ${m.role}`);
-      node.append(el('small', '', m.role === 'user' ? 'YOU' : 'HERMES'), el('p', '', m.text));
-      messages.append(node);
-    }
+    messageRenderer.render(state.messages, chatBindingKey(state));
     inlineTools.sync(chatBindingKey(state), state.run);
-    messages.scrollTop = messages.scrollHeight;
     sizeComposer();
     update();
   }
@@ -813,6 +908,19 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
         const finishedRun = state.run;
         state.run = undefined; save(); render();
         progress.textContent = data.status === 'completed' ? '' : String(data.error || `Run ${data.status}. Check the conversation and troubleshooting details.`);
+        if(data.status==='completed'&&typeof data.output==='string'){
+          const completeOutput=data.output;
+          const credential=getToken();
+          progress.append(completeResultActions(completeOutput,{id:run,version:'completed'},()=>current(requested)&&getToken()===credential));
+          void import('./document-artifacts').then(({extractDocumentResult,requestDocumentFromResult})=>{
+            if(disposed||!current(requested)||getToken()!==credential||state.run||!extractDocumentResult(completeOutput))return;
+            progress.append(button('Create document from result','Review this complete reply as a new private document draft',async()=>{
+              if(disposed||!current(requested)||getToken()!==credential)return;
+              const result=await requestDocumentFromResult(completeOutput,()=>current(requested)&&getToken()===credential);
+              if(!disposed&&current(requested)&&getToken()===credential)progress.textContent=result.status==='created-draft'?'Document draft created. Open/recover it in Document library; Save remains explicit.':result.reason||'Document review cancelled.';
+            }));
+          });
+        }
         notifyReply(finishedRun, data.status === 'completed');
         // Ordinary normal-run completion may auto-drain only when the shared lane
         // is idle and not unknown. A Workbench-held queue stays held until the
@@ -905,7 +1013,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   form.append(input, workbenchTask, send);
   form.onsubmit = e => { e.preventDefault(); void submit(); };
   input.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); void submit(); } };
-  chatNormal.append(strip, experimentalNotice, inlineTools.root, messages, taskCards, syncNotice, progress, historyRecovery, approvals, unknownAction, controls, queueList, form);
+  chatNormal.append(strip, experimentalNotice, inlineTools.root, messages, messageRenderer.latest, taskCards, syncNotice, progress, historyRecovery, approvals, unknownAction, controls, queueList, draftStatus, form);
   body.append(chatNormal, workbenchHost);
   if (toolbar) {
     toolbar.classList.add('agent-pane-head');
@@ -941,9 +1049,10 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
         sharedLanePresent = true;
         recomputeLane();
       }
-      if (!data.state) { setSyncNotice('Open this chat on the desktop and reload once to link its existing conversation. Your draft is preserved.'); return; }
+      if (!data.state) { setSyncNotice('Open this chat on the desktop and reload once to link its existing conversation. Your draft is preserved.');failRequestedSelection('The target pane could not link. Reconnect or reload the pane, then choose the conversation again.'); return; }
       if (validChat(data.state)) {
         bindingReady = Number.isSafeInteger(data.state.binding_revision);
+        if(!bindingReady)failRequestedSelection('The backend did not supply an authoritative binding revision. Reconnect to a supported host before retrying.');
         setSyncNotice(bindingReady ? '' : 'This backend did not supply a conversation revision. Reconnect to a supported host.');
         const next = data.state as ChatState;
         if (chatBindingKey(next) !== chatBindingKey(state) && (state.run || state.queue?.length)) {
@@ -951,17 +1060,19 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
         }
         if (chatBindingKey(next) === chatBindingKey(state)) {
           next.queue = state.queue;
-          next.title = state.title ?? next.title;
+          next.title = next.title ?? state.title;
           next.color = state.color ?? next.color;
         }
         if (JSON.stringify(next) !== JSON.stringify(state)) {
           acceptState(next);
           if(state.run) schedule();
         }
-        if (!catalogRequested) void loadProfiles();
+        selectDraft(); durableDraft?.retry(); applyRequestedSelection();
+        if (!catalogRequested && !switching) void loadProfiles();
       } else throw Error('The backend returned an invalid chat binding. The current conversation is preserved.');
     } catch (e) {
       if (current(requested) && epoch === sharedEpoch && !(e instanceof StaleRequest)) {
+        failRequestedSelection('The target pane could not refresh its binding. Check the host connection and choose the conversation again.');
         setSyncNotice(bindingReady ? 'Conversation refresh unavailable. Your draft is saved; sending still checks the current conversation with the host.' : 'Could not link this conversation. Check the host connection; your draft is preserved.');
       }
     } finally { sharing = false; if (!disposed) update(); }
@@ -977,22 +1088,27 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     if (changed) {
       workbench?.invalidateBinding();
       loadDraft(); resetBindingControls(); status.textContent = state.run ? 'WORKING' : 'READY'; progress.textContent = ''; historyRecovery.hidden = true;
+      selectDraft();
       // A binding change resets the shared timeline (Normal feed and idle Workbench scope).
       normalLive.reset(chatBindingKey(state));
     }
     save(); render();
   }
-  async function switchConversation(targetProfile: string, targetSession?: string) {
-    if (switchBlocked()) { showError(Error('Wait for pending work, approvals, and queued messages before switching.')); return; }
-    if (!Number.isSafeInteger(state.binding_revision)) { showError(Error('Session switching is unsupported until the backend supplies an authoritative binding revision. Refresh the connection first.')); return; }
+  async function switchConversation(targetProfile: string, targetSession?: string, report?: ConversationSelection['report']) {
+    if(requestedSelection){requestedSelection.report?.('failed','Replaced by a newer conversation choice.');requestedSelection=undefined;}
+    const reject = (message: string) => { showError(Error(message)); report?.('failed',message); };
+    if (switchBlocked()) { reject(state.run ? 'Wait for the current run or unresolved outcome to finish, or use New window.' : state.queue?.length ? 'Send or remove queued messages before switching, or use New window.' : approvals.childElementCount ? 'Resolve pending approvals before switching, or use New window.' : 'Wait for the pane to finish linking or synchronizing, then retry.'); return; }
+    if (!Number.isSafeInteger(state.binding_revision)) { reject('Session switching is unsupported until the backend supplies an authoritative binding revision. Refresh the connection first.'); return; }
     const requested = scope();
     switching = true; sharedEpoch++; update();
+    report?.('opening','Opening conversation on the host… This submitted selection cannot be cancelled.');
     try {
       const data = await api({action:'select_session',target_profile_id:targetProfile,...(targetSession ? {target_session_id:targetSession} : {}),expected_binding_revision:requested.revision}, requested);
       if (!validChat(data.state) || !Number.isSafeInteger(data.state.binding_revision) || chatProfileId(data.state) !== targetProfile || (targetSession && data.state.session !== targetSession)) throw Error('Session switching is unsupported: the backend did not return the requested authoritative binding. Refresh before any further actions.');
       remember(); acceptState(data.state);
+      report?.('opened',`Opened ${targetProfile} · ${state.session}.`);
       if (state.run) schedule();
-    } catch(e) {showError(e);} finally { switching = false; if (!disposed) { update(); if (!catalogRequested) void loadProfiles(); } }
+    } catch(e) {showError(e);report?.('failed',`${String(e)} Refresh the pane to reconcile the host binding before retrying.`);} finally { switching = false; if (!disposed) { update(); if (!catalogRequested) void loadProfiles(); } }
   }
   const sharedTimer = setInterval(() => {void syncShared(); void refreshTaskCards();}, 1800);
   void syncShared();
@@ -1010,5 +1126,5 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     progress.textContent = 'A saved run may still be active. Connect host to check its status. Closing the pane does not stop Hermes.';
     if (getToken()) void poll();
   }
-  return () => { saveDraft(); disposed = true; generation++; unsubscribeExperimental(); statusObserver.disconnect(); activity.dispose(); clearInterval(sharedTimer); stopToolFeed(); inlineTools.dispose(); workbench?.dispose(); timeline.dispose(); workbenchTimeline.dispose(); inspector.dispose(); overflowMenu.remove(); toolsDialog?.close(); liveController?.abort(); clearTimeout(timer); controller.abort(); document.removeEventListener('pointerdown', onOutsideMenu); window.removeEventListener('orbit-host-connected', onUnlock); window.removeEventListener('orbit-open-hermes-tools', onOpenTools); };
+  return () => { messageRenderer.dispose(); saveDraft(); durableDraft?.dispose(); disposed = true; conversationRecipient?.dispose(); generation++; unsubscribeExperimental(); statusObserver.disconnect(); activity.dispose(); clearInterval(sharedTimer); stopToolFeed(); inlineTools.dispose(); workbench?.dispose(); timeline.dispose(); workbenchTimeline.dispose(); inspector.dispose(); overflowMenu.remove(); toolsDialog?.close(); liveController?.abort(); clearTimeout(timer); controller.abort(); document.removeEventListener('pointerdown', onOutsideMenu); window.removeEventListener('orbit-host-connected', onUnlock); window.removeEventListener('orbit-open-hermes-tools', onOpenTools); window.removeEventListener('orbit-open-conversation-library',onOpenLibrary);window.removeEventListener('orbit-select-conversation',onSelectConversation);window.removeEventListener('pagehide',flushDraft); };
 }

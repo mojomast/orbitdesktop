@@ -26,7 +26,13 @@ Updates never replace a running deployment. Install a reviewed plugin update, ru
 
 ## Install
 
-The catalog may list an earlier reviewed release. Until its update is accepted, use the explicit repository subdirectory and the **full commit SHA** recorded by the [`hermes-plugin-v0.3.0` release](https://github.com/mojomast/orbitdesktop/releases/tag/hermes-plugin-v0.3.0):
+The catalog submission remains pending and pins the earlier 0.3.0 plugin. The
+published release is [`hermes-plugin-v0.3.0`](https://github.com/mojomast/orbitdesktop/releases/tag/hermes-plugin-v0.3.0).
+Current source retains package metadata 0.3.1 but has no 0.3.1 tag or release page.
+For a published install, use the explicit repository subdirectory and the **full
+commit SHA** recorded by the selected published release. Testing current source
+instead requires a separately reviewed exact commit and the schema-12
+[deployment procedure](../docs/DEPLOYMENT.md); it is not a published 0.3.1 install:
 
 ```sh
 hermes plugins install mojomast/orbitdesktop/hermes-plugin --ref FULL_40_CHARACTER_RELEASE_SHA --no-enable
@@ -111,15 +117,42 @@ The catalog pins an immutable commit. There is no self-updater and no core monke
 
 ## Verification
 
-Version 0.3.0 aligns the desktop package and Hermes adapter versions. The release
-page publishes the immutable source commit, bundled-source SHA-256, installation
-command and catalog pin. Catalog maintainers must pin that full commit and the
-`hermes-plugin` subdirectory, not `main` or the downloadable desktop-source archive.
-The archive is the plugin's setup payload, not a standalone Hermes plugin.
+Version 0.3.1 aligns the desktop package and Hermes adapter versions and makes
+Project Workbench an experimental, off-by-default surface enabled in Orbit
+settings. The release page publishes the immutable source commit, bundled-source
+SHA-256, installation command and catalog pin. Catalog maintainers must pin that
+full commit and the `hermes-plugin` subdirectory, not `main` or the downloadable
+desktop-source archive. The archive is the plugin's setup payload, not a
+standalone Hermes plugin.
 
-This release upgrades legacy JSON workspace storage to SQLite schema 11 through
-an explicit stopped-writer migration. See the bundled `docs/DEPLOYMENT.md` before
-updating an existing installation; keep its complete runtime/configuration backup.
+The prepared 0.3.1 baseline used SQLite schema 11. This development branch keeps
+the same package version but bundles the usability/technology candidate with
+**schema 12**. Use the bundled `docs/DEPLOYMENT.md` and exact source commit for
+stopped-writer migration; keep the complete runtime/configuration backup. These
+new features are not a newly published catalog release.
+
+The bundled `docs/WORKSPACE_PROMPTS.md` contains workflows for saved layouts,
+conversations/drafts, widgets, search, A2UI, voice, data, documents/canvases, traces
+and optional browser/MCP Apps. `docs/AGENT_GUIDE.md` supplies workspace-aware chat
+instructions. The adapter's `orbit_workspace` tool retains its scoped operation
+contract; owner-only feature APIs are not exposed through it. Opening a surface
+does not authorize private-data access or execution. See `docs/TECHNOLOGY_FEATURES.md`
+for explicit optional asset/service provisioning. Updating the adapter/archive
+does not update a running immutable Orbit package.
+
+### Optional selected-resource tools
+
+`orbit_resources` is a separate finite toolset for granted source search/read and
+new cited editable briefs. To use it in Normal, the local gateway must match the
+reviewed Hermes source pin and have `normal_resource_directory` configured for its
+actual Orbit profile; the Orbit host separately configures
+`ORBIT_RESOURCE_NORMAL_PROFILES`. Choose the real linked conversation and sources
+in Knowledge search, then grant its **next accepted run**. Private keys are created
+per run and never placed in model input or tool arguments. The adapter verifies
+actual gateway ContextVars; session strings or environment values cannot substitute.
+See [Resource delegation](../docs/RESOURCE_DELEGATION.md) for exact setup, limits,
+revocation and dedicated-local fallback. A gateway without this configuration still
+has its existing layout tool; it does not gain ambient document/source access.
 
 From the Orbit repository root:
 
@@ -134,7 +167,9 @@ Tests cover real HTTP requests, default mutation denial, revision enforcement, r
 
 Doctor may report that the declared `orbit_workbench` tool was not registered in
 an ordinary session. This is expected without an attempt-local native channel;
-the ordinary registration is `orbit_workspace` only.
+without optional resource configuration the ordinary registration is
+`orbit_workspace` only. `orbit_resources` likewise requires its supported explicit
+channel configuration; registration itself does not grant content access.
 
 ## Agent chat improvements (0.2.3)
 

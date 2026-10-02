@@ -1,5 +1,6 @@
 import importlib.util
 from pathlib import Path
+import subprocess
 import tempfile
 import tarfile
 import unittest
@@ -8,6 +9,10 @@ ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('orbit_launcher', ROOT / 'hermes-plugin/orbit.py')
 launcher = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(launcher)
+
+bundle_spec = importlib.util.spec_from_file_location('bundle_hermes', ROOT / 'scripts/bundle_hermes.py')
+bundler = importlib.util.module_from_spec(bundle_spec)
+bundle_spec.loader.exec_module(bundler)
 
 class BundleTest(unittest.TestCase):
     def test_unpack_complete_and_private(self):
@@ -35,6 +40,18 @@ class BundleTest(unittest.TestCase):
                 self.assertNotIn('node_modules', member.name)
                 self.assertNotIn('apps/', member.name[:5])
                 self.assertEqual(archive.extractfile(member).read(), (ROOT / member.name).read_bytes(), member.name)
+
+    def test_bundle_contains_every_policy_member(self):
+        # Reverse completeness against the authoritative bundler policy: every
+        # tracked file scripts/bundle_hermes.py would include must be in the
+        # archive, and the archive must not carry anything the policy excludes.
+        tracked = subprocess.check_output(['git', 'ls-files', '-z'], cwd=ROOT).decode().split('\0')
+        expected = {name for name in tracked if name and bundler.included(name)}
+        with tarfile.open(ROOT / 'hermes-plugin/orbit-source.tar.gz') as archive:
+            actual = {member.name for member in archive.getmembers() if member.isfile()}
+        self.assertEqual(sorted(expected - actual), [], 'policy files missing from the bundle')
+        self.assertEqual(sorted(actual - expected), [], 'bundle members outside the inclusion policy')
+        self.assertEqual(len(actual), len(expected), 'bundle member count must match the policy')
 
 if __name__ == '__main__':
     unittest.main()

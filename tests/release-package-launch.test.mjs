@@ -27,7 +27,7 @@ const EXTERNAL_DEPS=process.env.RELEASE_EXTERNAL_DEPS?path.resolve(process.env.R
 test('packaging allowlist excludes credentials and includes the runtime module closure',()=>{
   const inputs=releaseInputs({sourceRoot:SOURCE});
   assert.ok(inputs.includes('server/index.mjs'));
-  assert.ok(inputs.includes('server/release-identity.mjs')||true,'release-identity may be parent-owned/uncommitted');
+  assert.ok(inputs.includes('server/release-identity.mjs'),'release-identity is packaged for the startup identity guard');
   assert.ok(inputs.some(file=>file.startsWith('contracts/')));
   assert.ok(inputs.some(file=>file.startsWith('scripts/')),'scripts/ is required by the startup guard');
   assert.ok(inputs.includes('package-lock.json'));

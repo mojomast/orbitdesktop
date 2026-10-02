@@ -18,6 +18,7 @@ import urllib.request
 import uuid
 
 from playwright.sync_api import expect, sync_playwright
+from browser_workspace import wait_for_workspace_connection
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('docking_workspace_helpers', ROOT / 'tests/docking-workspace.browser.py')
@@ -115,7 +116,7 @@ def main():
                             page.get_by_role('button', name='Connect local host', exact=True).click()
                             page.get_by_role('textbox', name='Host session token', exact=True).fill(token)
                             page.get_by_role('button', name='Unlock local host', exact=True).click()
-                            expect(page.locator('.saved')).to_contain_text('Workspace connected', timeout=15000)
+                            wait_for_workspace_connection(page)
 
                         unlock()
                         page.get_by_label('Docking layout controls', exact=True).click()

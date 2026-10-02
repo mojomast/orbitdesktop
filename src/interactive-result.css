@@ -1,0 +1,83 @@
+.interactive-results {
+  box-sizing: border-box;
+  height: 100%;
+  overflow: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  color: inherit;
+  background: var(--panel-bg, transparent);
+  font: 14px/1.45 system-ui;
+  min-width: 0;
+  --a2ui-color-primary: var(--lime, #5470da);
+  --a2ui-color-input: var(--input-bg, light-dark(#f7f8fa, #182025));
+  --a2ui-color-on-input: var(--text-color, light-dark(#222, #dfe6e7));
+  --a2ui-color-surface: var(--panel-bg, light-dark(#fff, #182025));
+  --a2ui-color-on-surface: var(--text-color, light-dark(#222, #dfe6e7));
+  --a2ui-color-on-background: var(--text-color, light-dark(#222, #dfe6e7));
+  --a2ui-border: 1px solid #8888;
+  --a2ui-spacing-m: 8px;
+}
+.interactive-results h2,
+.interactive-results p {
+  margin: 0;
+}
+.interactive-results input,
+.interactive-results textarea,
+.interactive-results button {
+  font: inherit;
+  box-sizing: border-box;
+  max-width: 100%;
+  color: inherit;
+  background: var(--input-bg, transparent);
+  border: 1px solid #8888;
+  border-radius: 5px;
+  padding: 7px;
+}
+.interactive-results textarea {
+  min-height: 100px;
+  width: 100%;
+  resize: vertical;
+}
+.interactive-result-toolbar,
+.interactive-result-library {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.interactive-results button {
+  cursor: pointer;
+  white-space: normal;
+}
+.interactive-results button:focus-visible,
+.interactive-results input:focus-visible,
+.interactive-results textarea:focus-visible {
+  outline: 2px solid var(--accent-color, #5470da);
+  outline-offset: 2px;
+}
+.interactive-result-canvas {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  padding: 10px;
+  border: 1px solid #8885;
+  border-radius: 8px;
+}
+.interactive-result-canvas:empty {
+  display: none;
+}
+.interactive-result-canvas a2ui-surface {
+  display: block;
+  max-width: 100%;
+}
+.interactive-results [role="alert"]:not(:empty) {
+  padding: 8px;
+  border: 1px solid #d99b32;
+  border-radius: 5px;
+}
+.interactive-results [role="status"] {
+  min-height: 1.45em;
+}
+.interactive-result-toolbar input[type="file"] {
+  width: 100%;
+}

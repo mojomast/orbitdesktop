@@ -18,6 +18,7 @@ import { candidateDiffFromDetail } from './candidate-diff-adapter';
 import type { CandidateDiffData } from './candidate-diff-types';
 import type { PaneMode, PaneWorkbenchPrefs } from './pane-prefs';
 import { createWorkbenchSetup } from './workbench-setup';
+import { createWorkbenchTaskInbox } from './workbench-task-inbox';
 import './pane-workbench.css';
 
 type Data = Record<string, any>;
@@ -360,7 +361,13 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
       void load();
     },
   });
-  root.append(guided.element, header, error, staleNote, tabBar, panels.live, panels.changes, panels.checks, panels.result);
+  const inbox = createWorkbenchTaskInbox({ workspaceId: deps.workspaceId, projectId: () => projectId, getToken: deps.getToken, open(taskId, view, candidateId) {
+    if (!taskCache.some(task => task.id === taskId)) { void load(); return; }
+    taskSelect.value = taskId; taskSelect.dispatchEvent(new Event('change'));
+    if (candidateId && candidateCache.some(candidate => candidate.id === candidateId)) { candidateSelect.value = candidateId; candidateSelect.dispatchEvent(new Event('change')); }
+    showTab(view, true);
+  } });
+  root.append(guided.element, header, inbox.element, error, staleNote, tabBar, panels.live, panels.changes, panels.checks, panels.result);
   deps.body.replaceChildren(root);
   showTab('live');
   // Restore only after the pane's caches and adapters have been initialized.
@@ -661,6 +668,7 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
     busy = true;
     error.textContent = '';
     if (!deps.getToken()) {
+      void inbox.refresh();
       status.textContent = 'Workbench: connect host to read projects.';
       options(projectSelect, 'Connect host', [], null);
       busy = false;
@@ -684,6 +692,7 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
       projectId = prefs.projectId && projectIds.has(prefs.projectId) ? prefs.projectId : null;
       projectName = projects.find((project) => String(project.id) === projectId)?.name ?? null;
       options(projectSelect, 'Choose project…', projects.map((project) => ({ id: String(project.id), label: String(project.name ?? project.id) })), projectId);
+      void inbox.refresh();
 
       let tasks: Data[] = [];
       let candidates: Data[] = [];
@@ -1279,6 +1288,7 @@ export function mountPaneWorkbench(deps: PaneWorkbenchDeps): {
       stopLive();
       disposePanels();
       guided.dispose();
+      inbox.dispose();
       deps.body.replaceChildren();
     },
   };

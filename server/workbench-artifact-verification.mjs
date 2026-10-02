@@ -216,7 +216,7 @@ export function createArtifactVerifier({store,records,data,gate,verifyCurrent,en
         const starting=data.get('patches',workspace_id,project_id,artifact_id);
         revise(scope,artifact_id,{verification:{...starting.verification,process:{job_id,state:'starting'},status:'verifying'}});
         launchedAttempt=true;
-        const raw=await runCheck({definition_id:check.definition_id,required_test_files:check.required_test_files,candidate_root:executionView?.root??view,candidate_boundary:executionView?path.join(store.root,'workbench-environments'):root,workspace_id,project_id,job_id,artifact_root:root,rehash:observe,spawn_record:process=>{
+        const raw=await runCheck({execution_backend:executionView?.execution_backend??'trusted_host',provider:executionView?.provider,provider_identity:executionView?.provider_identity,definition_id:check.definition_id,required_test_files:check.required_test_files,candidate_root:executionView?.root??view,candidate_boundary:executionView?path.join(store.root,'workbench-environments'):root,workspace_id,project_id,job_id,artifact_root:root,rehash:observe,spawn_record:process=>{
           observed=true;activeRuns.set(artifact_id,{job_id,pid:process.pid,started_at:String(process.started_at)});
           const current=data.get('patches',workspace_id,project_id,artifact_id);
           revise(scope,artifact_id,{verification:{...current.verification,process:{job_id,pid:process.pid,pgid:process.pgid,started_at:String(process.started_at),supervisor:process.supervisor},status:'running'}});

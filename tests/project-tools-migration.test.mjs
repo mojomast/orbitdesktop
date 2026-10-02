@@ -61,10 +61,10 @@ function resolveDispatch(created){
   if(typeof created==='function')return created;
   return created.dispatch;
 }
-/** Current reader includes schema-10 tool tables and the schema-11 writer fence. */
+/** Current reader includes schema-10 tool tables and the schema-12 writer fence. */
 function schemaTenStore(root){
   const store=new SqliteWorkspaceStore(root);
-  if(store.diagnostics().schema_version===11)return store;
+  if(store.diagnostics().schema_version===12)return store;
   store.close();
   return null;
 }
@@ -76,7 +76,7 @@ test('schema 10 is additive: new tables land empty while workspace, checkpoints,
   if(!store){t.skip('schema-10 store not available yet; run once the lead migration lands');return;}
   t.after(()=>store.close());
   const {workspaceId,applied}=seedLegacyWorkspace(store);
-  assert.equal(store.diagnostics().schema_version,11);
+  assert.equal(store.diagnostics().schema_version,12);
   const checkpointBefore=store.checkpointList(workspaceId);
   const receiptBefore=store.db.prepare('SELECT * FROM receipts ORDER BY operation_id LIMIT 1').get();
   const bundleBefore=store.db.prepare('SELECT slug,digest,status,version FROM bundles WHERE slug=?').get('notes-0123456789abcdef01234567');
@@ -108,7 +108,7 @@ test('schema 10 is additive: new tables land empty while workspace, checkpoints,
   assert.deepEqual(store.db.prepare('SELECT slug,digest,status,version FROM bundles WHERE slug=?').get('notes-0123456789abcdef01234567'),bundleBefore);
 });
 
-test('an archived schema-9 reader refuses current schema 11, and the current reader refuses schema 12',async t=>{
+test('an archived schema-9 reader refuses current schema 12, and the current reader refuses schema 13',async t=>{
   const root=tempRoot('orbit-project-tools-future-');
   t.after(()=>clean(root));
   const store=schemaTenStore(root);
@@ -122,14 +122,14 @@ test('an archived schema-9 reader refuses current schema 11, and the current rea
   const Schema9Store=await loadArchivedSchema9Reader(t);
   assert.throws(()=>new Schema9Store(oldRoot),error=>error.category==='UPGRADE_REQUIRED');
   const untouched=new Database(path.join(root,'workspace.sqlite'),{readonly:true});
-  try{assert.equal(untouched.pragma('user_version',{simple:true}),11);}finally{untouched.close();}
+  try{assert.equal(untouched.pragma('user_version',{simple:true}),12);}finally{untouched.close();}
 
-  // No schema-12 implementation exists, so the marker is simulated; the current
+  // No schema-13 implementation exists, so the marker is simulated; the current
   // reader must still refuse it without modifying the database.
-  const db=new Database(path.join(root,'workspace.sqlite'));db.pragma('user_version=12');db.close();
+  const db=new Database(path.join(root,'workspace.sqlite'));db.pragma('user_version=13');db.close();
   assert.throws(()=>new SqliteWorkspaceStore(root),error=>error.category==='UPGRADE_REQUIRED');
   const verify=new Database(path.join(root,'workspace.sqlite'),{readonly:true});
-  try{assert.equal(verify.pragma('user_version',{simple:true}),12);}finally{verify.close();}
+  try{assert.equal(verify.pragma('user_version',{simple:true}),13);}finally{verify.close();}
 });
 
 test('schema-10 SQLite backup restores the additive tables and legacy plugin facts without a second writable copy',async t=>{
@@ -148,7 +148,7 @@ test('schema-10 SQLite backup restores the additive tables and legacy plugin fac
   fs.copyFileSync(backup,path.join(restoredRoot,'workspace.sqlite'));
   const restored=new SqliteWorkspaceStore(restoredRoot);
   try{
-    assert.equal(restored.diagnostics().schema_version,11);
+    assert.equal(restored.diagnostics().schema_version,12);
     assert.deepEqual(restored.read(workspaceId),applied);
     assert.equal(restored.read(workspaceId).state.plugins[0].manifest.id,PLUGIN_ID);
     assert.equal(restored.read(workspaceId).state.plugins[0].manifest.version,'1.0.0');

@@ -38,7 +38,7 @@ def main(renderer):
         root = Path(temporary)
         for name in ("server", "src", "contracts", "docs", "scripts"):
             shutil.copytree(ROOT / name, root / name)
-        for name in ("index.html", "package.json", "tsconfig.json", "vite.config.js"):
+        for name in ("index.html", "package.json", "package-lock.json", "tsconfig.json", "vite.config.js"):
             shutil.copy2(ROOT / name, root / name)
         (root / "node_modules").symlink_to(ROOT / "node_modules", target_is_directory=True)
         for name in ("runtime", "home", "cwd"):
@@ -801,6 +801,9 @@ def main(renderer):
                         "attempt-bound packet (no client id, native consent preview not 403, no model call); 320px geometry; hidden busy-lane "
                         f"reconnect disables Send; page_errors={len(errors)}"
                     )
+                    # Drain route.fetch/json/fulfill handlers before disposing the
+                    # context's request client; polling may still be in flight.
+                    page.unroute_all(behavior="wait")
                     context.close()
                     browser.close()
             finally:

@@ -70,10 +70,49 @@ class TransportTest(unittest.TestCase):
         self.assertEqual(self.calls[0], ("/api/workspace/control", "Bearer test-only-capability", {"action": "read", "workspace_id": WORKSPACE}))
         self.assertNotIn("test-only-capability", json.dumps(result))
 
+    def test_conflict_categories_and_retained_identity(self):
+        self.ctx.settings['allow_mutations'] = True
+        self.status = 409
+        for category in ('RECOVERY_HOLD', 'IDEMPOTENCY_CONFLICT', 'RECOVERY_POLICY_CHANGED', 'RESOURCE_BUSY', 'REVISION_CONFLICT'):
+            self.reply = {'category': category, 'error': 'private server text must not escape'}
+            result = self.call(action='checkpoint', label='Recovery test', base_revision=7)
+            self.assertEqual(result['category'], category)
+            self.assertEqual(result['operation_id'], self.calls[-1][2]['operation_id'])
+            self.assertNotIn('private server text', json.dumps(result))
+            self.assertEqual(result['outcome'], 'refused')
+        records = list((Path(self.temp.name) / 'workspace-adapter-requests' / WORKSPACE).glob('*.json'))
+        self.assertEqual(len(records), 5)
+        for record in records:
+            self.assertNotIn('capability', record.read_text())
+            self.assertEqual(record.stat().st_mode & 0o777, 0o600)
+
     def test_default_deny_mutations(self):
         for action in ("apply", "checkpoint", "restore"):
             self.assertFalse(self.call(action=action)["ok"])
         self.assertFalse(self.calls)
+
+    def test_completed_mutations_do_not_exhaust_unresolved_capacity(self):
+        self.ctx.settings['allow_mutations'] = True
+        for index in range(130):
+            op = f'completed-{index}'
+            self.reply = {'revision': 7, 'command_receipt': {'operation_id': op}}
+            result = self.call(action='checkpoint', label='Retained', base_revision=7, intent='checkpoint', operation_id=op)
+            self.assertTrue(result['ok'], result)
+        directory = Path(self.temp.name) / 'workspace-adapter-requests' / WORKSPACE
+        self.assertEqual(len(list(directory.glob('*.json'))), 0)
+        self.assertEqual(len(list((directory / 'completed').glob('*.json'))), 130)
+        # Re-registration simulates process restart; historical exact requests
+        # reach server receipt lookup, altered payloads never do.
+        plugin.register(self.ctx)
+        self.reply = {'revision': 7, 'command_receipt': {'operation_id': 'completed-0'}}
+        self.assertTrue(self.call(action='checkpoint', label='Retained', base_revision=7, intent='checkpoint', operation_id='completed-0')['ok'])
+        calls = len(self.calls)
+        self.assertFalse(self.call(action='checkpoint', label='Changed', base_revision=7, intent='checkpoint', operation_id='completed-0')['ok'])
+        self.assertEqual(len(self.calls), calls)
+        # An unrelated receipt cannot free an unresolved request.
+        self.reply = {'revision': 7, 'command_receipt': {'operation_id': 'other'}}
+        self.assertTrue(self.call(action='checkpoint', label='Pending', base_revision=7, intent='checkpoint', operation_id='pending')['ok'])
+        self.assertEqual(len(list(directory.glob('*.json'))), 1)
 
     def test_describe_catalog_without_mutation_authority(self):
         self.assertTrue(self.call(action="describe", catalog=True, project_id=WORKSPACE)["ok"])

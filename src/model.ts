@@ -1,5 +1,5 @@
 import { themeKeys, validateTheme } from './theme-tokens.ts';
-import { validatePlugins, type PluginInstance } from './plugins.ts';
+import { validatePlugins, validateInstanceConfig, type PluginInstance } from './plugins.ts';
 import { validSpatial, validCamera, type SpatialWindow, type SpatialCamera } from './spatial-layout.ts';
 export type PaneKind = "terminal" | "browser" | "agent";
 export interface Pane {
@@ -196,9 +196,26 @@ export function validate(value: unknown): Workspace {
     if (a.wallpaper !== undefined && (typeof a.wallpaper !== 'string' || a.wallpaper.length > 300 || (a.wallpaper !== '' && (!/^\/[a-zA-Z0-9/_-]+\.(svg|png|jpg|jpeg|webp)$/.test(a.wallpaper) || a.wallpaper.startsWith('//'))))) throw Error('Use a local wallpaper asset path');
   }
   validatePlugins(s.plugins);
+  const reserved = new Map<string,{window:string;instance:boolean}>();
+  for (const plugin of s.plugins || []) {
+    for (const value of [plugin.window.id, ...leaves(plugin.window.layout).map(p=>p.id)]) {
+      const prior=reserved.get(value);
+      if(prior&&(plugin.instance_id!==undefined||prior.instance))throw Error('Plugin saved window identifiers collide');
+      reserved.set(value,{window:plugin.window.id,instance:plugin.instance_id!==undefined});
+    }
+  }
+  for(const m of s.monitors)for(const value of [m.id,...leaves(m.layout).map(p=>p.id)]) {
+    const owner=reserved.get(value);
+    if(owner&&owner.window!==m.id&&(owner.instance||value===owner.window))throw Error('Plugin window identifier belongs to another window');
+  }
+  for(const plugin of s.plugins||[])if(plugin.instance_id!==undefined) {
+    if(ids.has(plugin.instance_id)||reserved.has(plugin.instance_id))throw Error('Plugin instance identifier collides with a surface');
+    ids.add(plugin.instance_id);
+  }
   for (const plugin of s.plugins || []) {
     validate({ ...s, plugins: undefined, monitors: [plugin.window], selected: plugin.window.id });
     plugin.enabled = s.monitors.some(m => m.id === plugin.window.id);
+    validateInstanceConfig(plugin);
   }
   return s;
 }

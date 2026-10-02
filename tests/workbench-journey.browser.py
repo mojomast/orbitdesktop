@@ -22,6 +22,7 @@ import urllib.request
 import uuid
 
 from playwright.sync_api import expect, sync_playwright
+from browser_workspace import wait_for_workspace_connection
 
 # Import the shared fixture without executing main or writing checkout bytecode.
 sys.dont_write_bytecode = True
@@ -60,7 +61,7 @@ def main(renderer):
         root = Path(temp)
         for name in ("server", "src", "contracts", "docs", "public", "scripts"):
             shutil.copytree(ROOT / name, root / name)
-        for name in ("index.html", "package.json", "tsconfig.json", "vite.config.js"):
+        for name in ("index.html", "package.json", "package-lock.json", "tsconfig.json", "vite.config.js"):
             shutil.copy2(ROOT / name, root / name)
         (root / "node_modules").symlink_to(ROOT / "node_modules", target_is_directory=True)
         for name in ("runtime", "home", "cwd", "tmux", "project", "second-project"):
@@ -185,7 +186,7 @@ def main(renderer):
                         page.get_by_role("textbox", name="Host session token").fill(token)
                         with page.expect_response(lambda response: response.url == origin + '/api/agent' and response.request.post_data_json.get('action') == 'shared_chat') as binding:
                             page.get_by_role("button", name="Unlock local host", exact=True).click()
-                        expect(page.locator(".saved")).to_contain_text("Workspace connected", timeout=15000)
+                        wait_for_workspace_connection(page)
                         bound = binding.value.json()
                         assert binding.value.status == 200 and bound['state']['session'] == session, bound
                         step = "register and create owner task/candidate"

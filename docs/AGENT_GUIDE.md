@@ -1,5 +1,105 @@
 # Hermes workspace operator guide
 
+## Current tools: prefer the built-in surface
+
+Start and the command palette discover the current tools. Before building a
+replacement, use the reviewed surface that fits the owner's request. These are
+ordinary browser-kind panes at the exact URLs below, not generated plugins.
+Discover `add_window`/`set_pane` shapes through the workspace catalog, read current
+IDs, reuse a suitable existing pane or add a window without replacing owner work.
+Opening a surface does not import data, provision a model or execute its actions.
+Controller discovery and Start/palette share content-free observed prerequisites,
+formats and schema hints. Observations carry a timestamp and 30-second freshness;
+present files/configuration are not proof of asset integrity, browser permission,
+successful inference or execution. Invocation rechecks the actual prerequisites.
+
+| Tool | Exact pane URL | Workflow and guide |
+| --- | --- | --- |
+| Outputs | `orbit://surface/outputs` | Published files, aliases/pins/tags and selected-draft references; `docs/OUTPUT_LIBRARY.md` |
+| Workspace Activity | `orbit://surface/activity` | Observed live activity; `docs/HERMES_LIVE_VIEW.md` |
+| Knowledge search | `orbit://surface/search` | Explicit source snapshots and exact citations; keyword search without a model, optional pinned local embeddings; `docs/KNOWLEDGE_SEARCH.md` |
+| Interactive results | `orbit://surface/interactive-results` | Import actual A2UI v0.9 JSON/NDJSON, edit/save/pin/export; `docs/INTERACTIVE_RESULTS.md` |
+| Voice transcript | `orbit://surface/voice` | Explicit microphone/audio selection, local transcription, editable text and chosen draft; `docs/VOICE_DICTATION.md` |
+| Data workbench | `orbit://surface/data` | Owner-selected CSV/JSON/Parquet, local SELECT queries, exact-input recipes and bounded exports; `docs/DATA_LAB.md` |
+| Document library | `orbit://surface/documents` | Create rich text or canvas; open returned `orbit://document/<uuid>` identities; `docs/DOCUMENTS.md`, `docs/CANVAS.md` |
+| Run traces | `orbit://surface/traces` | Redacted timing of observed events, not authoritative receipts; `docs/RUN_TRACES.md` |
+| Browser copilot | `orbit://surface/browser-copilot` | Configured disposable Chromium and explicit staged owner actions; `docs/BROWSER_COPILOT.md` |
+| MCP Apps | `orbit://surface/mcp-apps` | Configured separate-origin host for imported self-contained snapshots; `docs/MCP_APPS.md` |
+
+Owner-only feature APIs are not added to `orbit_workspace` or the scoped
+controller. Use the documented owner UI or an explicitly supported trusted
+adapter; never extract owner credentials to bypass that boundary. Layout context
+does not reveal source text, documents, queries, transcripts or page contents.
+Search imports are explicit snapshots, not permission to crawl the filesystem or
+conversation archive. Complete authenticated replies can offer explicit reviewed
+A2UI, document and self-contained MCP snapshot actions through the documented
+producer envelopes; plain prose and cached history are not automatically imported.
+Hermes does not automatically discover MCP servers or their resources.
+Browser copilot is not an autonomous planner or the Shared Chromium profile;
+it does not support logged-in sessions, WebSockets, uploads, downloads or passwords.
+
+Local MiniLM/Moonshine models and DuckDB JSON/Parquet extensions need explicit
+hash-verified provisioning. Read capability/error results instead of inferring
+availability from a menu item. gVisor checks are experimental, off by default,
+limited to the approved `node-test` backend and require tested rootless support;
+no fallback to trusted-host execution is permitted. See `docs/ISOLATED_CHECKS.md`.
+
+## Everyday persistence and sharing
+
+- **Conversation library:** search configured profile/session titles and IDs,
+  rename/pin/archive Orbit metadata, and select validated sessions. It is not
+  transcript search or upstream deletion. Host-backed drafts follow workspace,
+  profile and session identity; conflict/uncertain writes retain local recovery.
+  Switching remains fenced during active or unresolved work. See
+  `docs/CONVERSATION_LIBRARY.md`.
+- **Send to conversation:** preview content and choose one recipient draft. This
+  neither sends nor grants execution authority. Do not claim the model received
+  it until the owner submits it. The single review shows the exact final draft,
+  including existing text; source and recipient changes can refuse insertion.
+  Knowledge citations and selected Data Lab values are in the actual inserted
+  text, not just preview labels. See `docs/CONTEXT_HANDOFF.md`.
+- **Saved workspace layouts:** preserve existing-window geometry/order/view and
+  Docking placement, with explicit mapping of missing IDs. They do not create or
+  close panes, save contents or capture shell state. They are distinct from the
+  older browser-local layout collection and Workbench role recipes. See
+  `docs/SAVED_WORKSPACE_LAYOUTS.md`.
+- **Widget instances:** stateless widgets can have independent instance/window/
+  pane IDs and configuration. Updates affect the definition; lifecycle/config
+  changes can target one instance. Discover current operation shapes and preserve
+  siblings. Use author-declared typed forms where available. See
+  `docs/WIDGET_CONFIGURATION.md` and `docs/PLUGINS.md`.
+- **Checkpoint comparison:** compare before a confirmed full restore; it is not
+  selective undo. Documents/canvases use explicit saves and their own revisions;
+  sources, conversations/drafts, result edits, recipes and traces are private data
+  outside layout checkpoints. Full runtime backups must include those stores.
+- **Document recovery and review:** closing a dirty built-in document offers Keep
+  editing, Save and close, or Retain draft and close. Recover retained drafts in
+  Document library using their original pane identity. Recovery is browser-tab
+  local, not a durable server revision archive. Reviewed whole-document proposals
+  bind saved revision and draft digest; concurrent edits require a new proposal.
+  Applying a proposal changes the draft and supports native Undo; Save is separate.
+  See `docs/DOCUMENTS.md` and `docs/CANVAS.md`.
+- **Result handoffs:** use A2UI for finite interactive decisions, documents/canvas
+  for editable durable artifacts, and compatible self-contained MCP snapshots for
+  SDK UI. A2UI/MCP delivery requires a mounted chosen pane; queued/rendered/saved
+  outcomes are distinct. Data and browser JSON suggestions only populate reviewed
+  controls; query Run and browser Preview/Execute remain separate owner actions.
+- **Diagnostics:** a selected trace can share a bounded redacted timing summary
+  into a draft. Preserve gap/open/local-observation labels; summed span durations
+  are not wall-clock runtime, and trace state is not authoritative completion.
+
+For selected-source authority, consult `docs/RESOURCE_DELEGATION.md` and the actual
+recipient channel's `describe` result. Feature-type discovery alone grants no
+private content access. Normal grants require the configured pinned local gateway
+adapter and attach only to the selected binding's next accepted run. A dedicated
+fallback grant is not interchangeable with a Normal grant. Never configure the
+fallback's channel file in a shared profile or put credentials into model input.
+Successful document creation returns a real saved
+artifact URI; opening it and browser acknowledgement are separate operations.
+
+Owner-facing example prompts are in `docs/WORKSPACE_PROMPTS.md`. Use the feature
+guides for precise contracts rather than inventing generic tool authority.
+
 ## Optional Jev quick actions
 
 The user can opt into Hermes tools → Jev quick actions using their TypeSafe API key and explicit external-data consent. This is an experimental separate fast path for view/sidebar and installed plugin enable/disable only. It does not accelerate your ordinary tool calls automatically. Never request keys in chat, read stored secrets to activate it, or send workspace data externally without consent. Complex requests remain your responsibility using normal controller tools. No real provider latency/quality benchmark has been established; do not promise speedups. Read `docs/JEV.md` for the exact payload and boundaries.
@@ -109,6 +209,14 @@ When the owner wants a tracked project task, help turn the goal into a concise
 work brief: what to accomplish, what success means, and where to stop. Reuse
 facts already provided. Ask only for missing project or outcome information.
 Ordinary questions and small workspace changes do not need a Workbench task.
+
+The setup UI can save a durable review-only waiting intention, cancel it and
+refresh its state. This neither queues unattended execution nor inherits approval.
+The task chooser's Task status inbox shows current authoritative records and
+links to Live/Checks/Result; marking an exact status read is not approval. An
+observed runtime exit, an available explanation, passing recorded checks and human
+review remain independent. Proven publication journals can be finalized without
+repeating checks or publication; preserve the exact recovery digest.
 
 The `orbit_workspace` action `workbench_setup` proposes a bounded **workspace
 suggestion** with a stable `request.op_id`, `goal`, and optional `title`,

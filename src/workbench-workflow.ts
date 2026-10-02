@@ -17,6 +17,31 @@ export function mountWorkbenchWorkflow(args:{container:HTMLElement;arrangementCo
   const integration=el('section'),patch=el('section'),recipes=el('section'),retention=el('section');
   const candidateSelect=el('select');candidateSelect.setAttribute('aria-label','Approved candidate and review');
   const previewView=el('div'),patchView=el('div'),recipeView=el('div'),patchInventory=el('div','workbench-patch-inventory');
+  const integrationReceipts=el('div','workbench-integration-receipts'),integrationRecovery=el('p');integrationRecovery.setAttribute('role','status');
+  function showIntegrationReceipts(records:Reply[]){
+    integrationReceipts.replaceChildren(el('h4','','Saved integration receipts'));
+    for(const record of records){
+      const row=el('article');row.dataset.integrationId=String(record.id);
+      row.append(field('Integration',record.id),field('Status',record.status));
+      if(record.status==='integrated')row.append(field('Recorded candidate commit',record.candidate_commit),el('p','','Private publication recorded. This does not apply changes to the original project or authorize execution.'));
+      if(record.status==='receipt_pending'){
+        row.append(el('p','','Publication outcome needs verification. Finalization verifies the retained artifact and records historical metadata only; it never republishes or reruns checks.'));
+        if(typeof record.recovery_digest==='string'){
+          const digest=record.recovery_digest,id=String(record.id);
+          const finalize=button('Finalize integration receipt','Verify this exact retained publication and update only its database receipt',()=>{
+            finalize.disabled=true;integrationRecovery.textContent='Verifying retained artifact; no publication is being repeated…';
+            void requestIndependent({action:'integration_finalize_retry',integration_id:id,expected_recovery_digest:digest}).then(reply=>{
+              if(closed)return;
+              if(reply){integrationRecovery.textContent=`Historical receipt ${reply.status}${reply.idempotent?' (already finalized)':''}. Commit ${reply.candidate_commit}. No artifact was republished; no execution was authorized.`;void refresh();}
+              else{report('Integration receipt not finalized. Refresh retained receipts; do not republish.');integrationRecovery.textContent='Finalization unconfirmed or refused. Refresh receipts and inspect the retained artifact. Missing or tampered artifacts stay fenced; do not create another integration to retry.';finalize.disabled=false;}
+            });
+          });row.append(field('Exact recovery digest',digest),finalize);
+        }else row.append(el('p','','No recoverable publication manifest is recorded. Retain the artifact for inspection; finalization cannot guess its identity.'));
+      }
+      integrationReceipts.append(row);
+    }
+    if(!records.length)integrationReceipts.append(el('p','','No saved integrations.'));
+  }
   let integrationPreview:Preview|null=null,recipePreview:RecipePreview|null=null,recipeName:Recipe='investigate';
   let savedRecipes:SavedRecipe[]=[],bindings:Binding[]=[],proposalRows:Reply[]=[],selectedSavedId='',recipeListGeneration=0,recipeOperationId='',previewSurface='',recovered=false,proposalAfter:string|null=null,proposalNext:string|null=null,proposalTotal=0;
   const proposalBefore:(string|null)[]=[];
@@ -509,7 +534,7 @@ export function mountWorkbenchWorkflow(args:{container:HTMLElement;arrangementCo
     window.dispatchEvent(new CustomEvent('orbit-open-workbench-review',{detail:{workspace_id:args.workspace_id,project_id:args.project_id}}));
   });
   candidateSelect.addEventListener('change',()=>{integrationPreview=null;confirmIntegration.disabled=true;previewView.replaceChildren();patchPreview=null;patchArtifactId='';confirmPatch.disabled=true;downloadPatch.disabled=true;patchView.replaceChildren();});
-  integration.append(el('h3','','Private Git integration'),candidateSelect,previewIntegration,previewView,confirmIntegration);
+   integration.append(el('h3','','Private Git integration'),candidateSelect,previewIntegration,previewView,confirmIntegration,button('Refresh integration receipts','Read retained integration state without publishing',()=>void refresh()),integrationRecovery,integrationReceipts);
    patch.append(el('h3','','Verified patch handoff'),el('p','','Exports only the reviewed captured source-to-candidate change. Excluded paths are never inferred as deletions. A disposable exact-base round trip and all frozen required checks are required; unsupported or oversized artifacts are refused.'),previewPatch,patchView,confirmPatch,patchInventory);
     recipeChoices.append(button('Investigate','Preview Investigate arrangement',()=>previewRecipe('investigate')),button('Implement','Preview Implement arrangement',()=>previewRecipe('implement')),button('Review','Preview Review arrangement',()=>previewRecipe('review')),button('Undo arrangement','Preview return arrangement',()=>previewRecipe('return')),button('Debug template','Prepare a portable Debug recipe for explicit save and preview',()=>{
        clearRecipe();savedSelect.value='';selectedSavedId='';recipeNameInput.value='Debug';roleOrder=['primary_agent','active_terminal','preview','project_files'];
@@ -529,13 +554,14 @@ export function mountWorkbenchWorkflow(args:{container:HTMLElement;arrangementCo
       requestIndependent({action:'integration_list'}),requestIndependent({action:'retention_plan'}),requestIndependent({action:'patch_list',...(patchAfterId?{after_id:patchAfterId}:{})}),
     ]);
     if(closed||ticket!==refreshGeneration)return;
+    if(state)showIntegrationReceipts((state.integrations??[]) as Reply[]);
     if(patches)installPatchList(patches,undefined,!state||!inventory);
     if(!state||!inventory){
        clearRecipe();clearAck();recipeStatus.textContent='Project access unavailable. Arrangements require an active project.';
       integrationPreview=null;patchPreview=null;candidateSelect.replaceChildren();candidateSelect.disabled=true;
       previewIntegration.disabled=true;confirmIntegration.disabled=true;previewPatch.disabled=true;confirmPatch.disabled=true;downloadPatch.disabled=true;
-      previewView.replaceChildren();patchView.replaceChildren();retention.replaceChildren(el('h3','','Retention inventory'),el('p','','Active project details are unavailable. Only scoped historical patch receipt recovery is shown.'));
-      status.textContent='Project access unavailable · historical patch recovery only.';return;
+      previewView.replaceChildren();patchView.replaceChildren();retention.replaceChildren(el('h3','','Retention inventory'),el('p','','Active project details are unavailable. Scoped historical receipt recovery remains available where identity can be verified.'));
+      status.textContent='Project access unavailable · historical receipt recovery only.';return;
     }
     if(!patches)return;
     candidateSelect.disabled=false;previewIntegration.disabled=true;previewPatch.disabled=true;
@@ -549,7 +575,7 @@ export function mountWorkbenchWorkflow(args:{container:HTMLElement;arrangementCo
     const preferred=args.candidate?.();candidateSelect.value=selected||`${preferred?.id??''}:${preferred?.review_id??''}`;
      if(!candidateSelect.value&&candidateSelect.options.length)candidateSelect.selectedIndex=0;
       previewIntegration.disabled=!candidateSelect.value;previewPatch.disabled=!candidateSelect.value;
-      retention.replaceChildren(el('h3','','Retention inventory'),field('Private record counts',inventory.counts),field('Private integration artifacts',state.integrations),field('Cleanup plan',inventory.reason),field('Deletions',inventory.deletions));
+      retention.replaceChildren(el('h3','','Retention inventory'),...Object.entries((inventory.capacity??{}) as Record<string,Reply>).map(([kind,value])=>field(kind,`${value.remaining} slots remaining · ${value.active} active / ${value.limit} · ${value.archived} archived · ${value.retained} retained`)),field('Cleanup plan',inventory.reason),field('Deletions',inventory.deletions));
     if(!busy)status.textContent='Workflow ready. Actions require explicit preview and confirmation.';
   }
   void refresh();

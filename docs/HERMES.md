@@ -2,9 +2,9 @@
 
 ## Workspace operator guidance
 
-The bridge now injects `docs/AGENT_GUIDE.md` into workspace-aware run context alongside the active workspace ID, controller path and bounded state metadata. It is read at context-generation time, so subsequent requests pick up guide edits. The guide teaches plugin-first publication/lifecycle, safe config replacement, checkpoint limits, persistent terminal identity and acknowledgement-based verification. `AGENTS.md` covers repository work. This is guidance, not a guarantee of model compliance; inspect actual changes and tests.
+The bridge injects `docs/AGENT_GUIDE.md` into workspace-aware run context alongside the active workspace ID, controller path and bounded state metadata. It is read at context-generation time, so subsequent requests use the guide in that deployed package. The guide covers built-in technology surfaces, private-data and draft boundaries, saved layouts, widget instances, plugin-first publication, checkpoint limits, persistent terminal identity and acknowledgement-based verification. [Example prompts](WORKSPACE_PROMPTS.md) cover owner workflows; `AGENTS.md` covers repository work. Updating a checkout or bundled archive does not update a separately packaged running deployment. This is guidance, not a guarantee of model compliance; inspect actual changes and tests.
 
-The current plugin-oriented architecture is documented in [PLUGINS.md](PLUGINS.md) and [ARCHITECTURE.md](ARCHITECTURE.md). The current private backend is `orbitdesktop-plugins.service` on 4333; older deployment port notes below are historical. A live read-only browser test verified the embedded agent used the workspace controller and correctly identified the plugin publisher, install operation, browser acknowledgement and tmux persistence. The first live attempt reached ATTENTION; a retry passed, so this is not a claim of infallible availability.
+The current plugin-oriented architecture is documented in [PLUGINS.md](PLUGINS.md) and [ARCHITECTURE.md](ARCHITECTURE.md). Service names and ports are deployment-specific; the 4333 and 4327 deployments mentioned in historical evidence are not universal defaults. A historical live read-only browser test verified the embedded agent used the workspace controller and correctly identified the plugin publisher, install operation, browser acknowledgement and tmux persistence. The first live attempt reached ATTENTION; a retry passed, so this is not a claim of infallible availability.
 
 ## Skills and toolsets
 
@@ -29,13 +29,40 @@ The tools menu offers **Live activity** during an active run when the gateway ad
 
 ## Scheduled tasks
 
-Open ⋯ → Scheduled tasks to inspect this gateway profile's real cron jobs through Hermes `/api/jobs?include_disabled=true`. The view shows task names/IDs, available state, schedule, next/last run timestamps and last result. It refreshes every 15 seconds while open, supports filtering and manual refresh, and marks refresh failures as potentially stale data. Timestamps retain the upstream timezone. This is profile-wide, not limited to tasks created by the current chat.
+Open the orbit menu (◉) → **Hermes** → **Scheduled tasks**, or agent pane **⋯** →
+**Hermes tools and conversations** → **Scheduled tasks**, to inspect this gateway
+profile's real cron jobs through Hermes `/api/jobs?include_disabled=true`. The view
+shows task names/IDs, available state, schedule, next/last run timestamps and last
+result. It refreshes every 15 seconds while open, supports filtering and manual
+refresh, and marks refresh failures as potentially stale data. Timestamps retain
+the upstream timezone. This is profile-wide, not limited to tasks created by the
+current chat.
 
-Pause and Resume call the native Hermes job endpoints after a confirmation dialog. Pausing prevents future scheduled executions; it does not cancel an active task. Orbit does not create, run-now, or delete jobs. Tasks continue on the gateway independently of Orbit. The authenticated server allowlists metadata fields and excludes job prompts and delivery destinations; up to 200 jobs are displayed. No extra inference is used. Closing the dialog stops polling. Errors preserve uncertainty: refresh job state before retrying a timed-out mutation.
+**New automation**, **Edit**, **Duplicate**, **Pause**/**Resume**, **Run now** and
+**Delete** act on the real Hermes schedule. Every mutation asks for confirmation,
+and the server requires an explicit confirm in the request. Pausing
+prevents future executions without cancelling an active task; Run now may incur
+costs and external effects; Delete is permanent and cannot be restored from a
+workspace checkpoint. Orbit loads prompts and delivery targets only when you open
+Edit or Duplicate, keeps them out of browser storage and stores no secrets. Tasks
+continue on the gateway independently of Orbit. The authenticated server
+allowlists task fields (name, prompt, schedule, delivery target, skills), validates
+IDs, and excludes prompts and delivery destinations from the list response; up to
+200 tasks are displayed. No extra inference is used. Closing the dialog stops
+polling. Errors preserve uncertainty: refresh task state before retrying a
+timed-out or unconfirmed mutation, and check the task list before repeating a
+create to avoid duplicates.
 
-Control verification: backend tests exercise exact endpoint forwarding, confirmation, authentication, and rejection of unsupported operations/path traversal. Browser tests exercise cancellation and both confirmation flows with intercepted mutation responses, while listing real jobs. Production schedules were not modified; successful real gateway mutations have not been tested in this pass.
+Control verification: backend tests exercise exact endpoint forwarding, method and
+field allowlisting, confirmation requirements, ID/path-traversal rejection, and
+detail filtering. Browser tests exercise cancellation and both pause/resume
+confirmation flows with intercepted mutation responses while listing real jobs.
+Production schedules were not modified; successful real gateway mutations have not
+been tested in this pass.
 
-Live acceptance: `tests/browser-hermes-jobs-live.py` displayed seven actual gateway tasks and checked filtering, refresh, close, omitted private fields, and browser JavaScript errors. No production schedules were modified.
+Live acceptance: `tests/browser-hermes-jobs-live.py` displayed seven actual gateway
+tasks and checked filtering, refresh, close, omitted private fields, and browser
+JavaScript errors. No production schedules were modified.
 
 ## Direct Hermes runtime integration
 
@@ -53,15 +80,16 @@ The agent header's `⋯` menu opens conversation settings, activity and troubles
 The visible History action above the conversation opens Hermes tools and recent conversations.
 
 - **Recent conversations:** New chat retains the previous completed conversation. Up to ten are kept per pane in this browser tab. Restore switches back to its original Hermes session, preserving server-side follow-up context. Switching is blocked during an active run.
-- **Draft recovery:** Unsent text survives reloads in the same tab. You can compose the next message while a run is active; Send remains disabled until that run ends. Drafts are not automatically queued or submitted.
+- **Conversation library:** History, Conversation settings and the shell entry browse configured profiles and bounded upstream session pages. Search loaded titles/IDs; rename, pin and archive workspace-scoped Orbit metadata. Open here/New window uses validated owner selection and respects active/unresolved-run fences. This does not delete or rename upstream Hermes sessions.
+- **Draft recovery:** Host-backed drafts follow `(workspace, profile, session)` across panes/devices, with revision checks, explicit conflict handling and a separate tab recovery cache. You can compose while a run is active; restored text is never automatically queued or submitted. See [Conversation library and private drafts](CONVERSATION_LIBRARY.md).
 - **Export conversation:** Downloads a plain-text copy of the currently retained transcript (up to 100 messages), not the entire server history. Exports can contain sensitive content; choose where to store them accordingly.
-- **Workspace shortcuts:** Inspect workspace, Organize windows, Build an app, and Change appearance prepare an editable prompt. They never execute without Send. The appearance/build prompts ask Hermes to clarify the desired result first.
+- **Workspace shortcuts:** Inspect workspace, Organize windows, Explore built-in tools, Build an app, and Change appearance prepare an editable prompt. They never execute without Send. Clarification is for missing requirements; supplied goals should be used directly. See [feature prompts](WORKSPACE_PROMPTS.md).
 
-History and drafts use sessionStorage, not a global Hermes session browser or cross-device archive. Closing the browser tab can discard them; export important conversations. Existing active-run restoration, Stop, and explicit approval controls remain available. No upstream API credentials enter the browser.
+The older ten-entry recent-conversation list and displayed transcript cache remain tab-local. They are distinct from the host-backed library metadata and drafts. Closing the tab can discard unsaved local recovery; a library listing is not a full transcript archive. Existing active-run restoration, Stop, and explicit approval controls remain available. No upstream API credentials enter the browser.
 
 Verification: `tests/browser-hermes-tools-live.py` exercises draft reload, a shortcut, real Hermes response, New chat/archive/restore, a follow-up recalling the original conversation's code, and transcript download. It completed without browser JavaScript errors. Unit tests cover bounded/deduplicated archives, exclusion of active runs, malformed storage, and plain-text export.
 
-Current deployment: the native mojo user service on loopback 4327 replaces the container deployment below. It provides real host shells, movable windows, a hideable sidebar, and agent-driven workspace control/app previews. See [WORKSPACE_CONTROL.md](WORKSPACE_CONTROL.md) for the current operational guide.
+Historical deployment: a native user service on loopback 4327 replaced the container deployment below. See [DEPLOYMENT.md](DEPLOYMENT.md) for current packaging and [WORKSPACE_CONTROL.md](WORKSPACE_CONTROL.md) for workspace operations; inspect the target service before deployment work.
 
 Orbit's agent pane connects to the owner's existing Hermes profile via a server-side bridge. It does not inherit another dashboard thread or impersonate an already-running turn. Each pane gets an unpredictable `orbit-<UUID>` conversation ID. Requests go to Hermes Runs; polling provides status and final replies, Stop, and explicit allow-once/deny approvals. Text replies are rendered as text, not HTML.
 
@@ -144,7 +172,7 @@ submission outcomes. Submission preparation/dispatch remains serialized locally;
 once Hermes accepts a Normal turn, an independent conversation may start while it
 is still running. Busy upstream responses are not automatically retried.
 
-The browser retains the most recent 100 displayed messages and active run ID in sessionStorage. Reloading requires unlocking again, then polling resumes. New chat starts a separate conversation but does not delete Hermes's saved history. Closing the tab or pane is not cancellation; use Stop. Stop is cooperative and cannot undo actions already performed. Replies appear after the turn completes; token streaming and file/image attachments are not implemented in this version.
+The browser retains the most recent 100 displayed messages and active run ID in sessionStorage. Reloading requires unlocking again, then polling resumes. New chat starts a separate conversation but does not delete Hermes's saved history. Closing the tab or pane is not cancellation; use Stop. Stop is cooperative and cannot undo actions already performed. Message rendering updates incrementally without rebuilding unchanged transcript nodes. Supported Normal live events can update the running view; polling/final reconciliation remains authoritative and universal token streaming is not promised. See [Hermes live view](HERMES_LIVE_VIEW.md). General chat file/image attachments are not implemented; importing a source, data file or recording in a dedicated surface is a separate action.
 
 A request that loses its network connection while creating a run may have reached Hermes. Do not blindly resend an ambiguous action. Use the Hermes dashboard to reconcile such cases. The upstream API limits concurrent runs; a busy response is shown without automatically submitting another run.
 

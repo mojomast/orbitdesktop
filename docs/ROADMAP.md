@@ -13,7 +13,45 @@ Orbit's direction is an agent-customizable workspace with reversible changes and
 - Trusted integration registry and on-demand loading of existing tool dialogs.
 - Request-time workspace operator instructions, repository agent guide and real browser verification workflows.
 
-## Next: finish the modular boundary
+## Implemented development candidate (not a new published release)
+
+The integrated usability, technology and agency source now includes:
+
+- Shared Start/palette discovery, incremental chat rendering, persistent Outputs/
+  Activity, typed settings, normal workspace arrangement and checkpoint comparison.
+- Saved workspace layouts, a conversation library with host-backed drafts,
+  independent stateless widget instances, declarative configuration forms,
+  output metadata/search and explicit selected-draft context insertion.
+- Source-backed keyword/optional semantic search, A2UI v0.9 imports, local voice
+  transcription, DuckDB Data Lab, Lexical documents, Excalidraw canvases and traces.
+- Configurable disposable Browser copilot, separate-origin imported MCP Apps, and
+  an optional gVisor check provider requiring suitable host acceptance.
+- Predictable Start keyboard navigation and Spatial tool reveal; acknowledged
+  conversation selection, bounded older-title search and goal-first onboarding.
+- One exact-final-draft handoff with full citations and selected data values;
+  explicit complete-result delivery to A2UI, document and MCP snapshot surfaces.
+- Same-tab closed-document recovery, reviewed imports, selected-content sharing,
+  digest/revision-bound proposals and native editor Undo.
+- Logical arrangement history outside active-preview capacity, recovery of proven
+  completed setup copies and published integrations, review-only durable waits and
+  authoritative task-status snapshots.
+- Selected-resource local adapter grants and atomic cited editable-brief creation;
+  actual recipient support and configuration are in [Resource delegation](RESOURCE_DELEGATION.md).
+
+See [Usability](WORKSPACE_USABILITY.md), [Technology features](TECHNOLOGY_FEATURES.md),
+[prompt examples](WORKSPACE_PROMPTS.md) and [verification status](VERIFICATION.md).
+Owner walkthrough, merges and release-version selection remain pending. Workbench
+stays experimental/off by default. Automatic source crawling, Hermes A2UI/MCP
+server discovery and autonomous browser planning are not implemented. The
+[agency evolution](AGENCY_EVOLUTION.md) records cross-feature outcome acceptance.
+Physical task/history compaction, automatic recurring dispatch and a durable
+historical task-transition stream remain separate work.
+
+## Continuing work: finish the modular boundary
+
+Some foundations below now have bounded implementations (connected pane retention,
+registered-plugin recovery hold, exact-artifact Studio and bundle retention plans).
+Their documented limits still apply; this list describes the broader remaining goal.
 
 1. Extract pane/rendering coordination behind tested interfaces without changing stable pane IDs or losing sessions.
 2. Add scoped, permission-reviewed service APIs for plugins that need actual host data. No ambient filesystem/shell authority.

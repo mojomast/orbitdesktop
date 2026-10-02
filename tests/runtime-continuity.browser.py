@@ -24,6 +24,7 @@ import urllib.error
 import uuid
 
 from playwright.sync_api import expect, sync_playwright
+from browser_workspace import wait_for_workspace_connection
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -36,9 +37,9 @@ if args.pty and (not shutil.which("tmux") or "ORBIT_TMUX_SOCKET" not in (ROOT / 
 
 with tempfile.TemporaryDirectory(prefix="orbit-continuity-", dir="/tmp/opencode") as temporary:
     root = Path(temporary)
-    for name in ("server", "src", "contracts", "scripts", "public"):
+    for name in ("server", "src", "contracts", "scripts", "public", "docs"):
         shutil.copytree(ROOT / name, root / name)
-    for name in ("index.html", "package.json", "tsconfig.json", "vite.config.js"):
+    for name in ("index.html", "package.json", "package-lock.json", "tsconfig.json", "vite.config.js"):
         shutil.copy2(ROOT / name, root / name)
     private_deps = os.environ.get("ORBIT_PRIVATE_DEPS") or str(ROOT / "node_modules")
     (root / "node_modules").symlink_to(private_deps, target_is_directory=True)
@@ -132,7 +133,7 @@ with tempfile.TemporaryDirectory(prefix="orbit-continuity-", dir="/tmp/opencode"
             page.get_by_role("button", name="Connect local host", exact=True).click()
             page.get_by_role("textbox", name="Host session token").fill(token)
             page.get_by_role("button", name="Unlock local host", exact=True).click()
-            expect(page.locator(".saved")).to_contain_text("Workspace connected", timeout=15000)
+            wait_for_workspace_connection(page)
 
             def iframe(pid):
                 return page.locator(f'.pane[data-pane-id="{pid}"] iframe')

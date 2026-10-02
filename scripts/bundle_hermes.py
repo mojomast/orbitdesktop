@@ -7,24 +7,23 @@ import tarfile
 
 ROOT = Path(__file__).resolve().parents[1]
 PREFIXES = ('src/', 'server/', 'scripts/', 'deploy/', 'docs/', 'public/', 'contracts/')
-FILES = {'package.json', 'package-lock.json', 'index.html', 'tsconfig.json', 'vite.config.js', 'LICENSE', 'README.md', 'AGENTS.md', 'hermes-plugin/__init__.py', 'hermes-plugin/orbit.py', 'hermes-plugin/workbench.py', 'hermes-plugin/workbench-tool-schema.json', 'hermes-plugin/plugin.yaml'}
+FILES = {'package.json', 'package-lock.json', 'index.html', 'tsconfig.json', 'vite.config.js', 'LICENSE', 'README.md', 'AGENTS.md', 'hermes-plugin/__init__.py', 'hermes-plugin/orbit.py', 'hermes-plugin/workbench.py', 'hermes-plugin/resources.py', 'hermes-plugin/normal_resources.py', 'hermes-plugin/workbench-tool-schema.json', 'hermes-plugin/plugin.yaml'}
+
+def included(name):
+    """Single inclusion policy used by publication and reverse-completeness checks."""
+    # The optional mobile proxy and historical operator evidence carry private
+    # deployment bindings; preserve those in Git, not portable installs.
+    return (name in FILES or name.startswith(PREFIXES)) and not name.startswith('docs/images/') and name not in (
+        'scripts/bundle_hermes.py', 'server/mobile-proxy.mjs',
+        'docs/REAL_PROJECT_EVALUATION.md', 'docs/REAL_PROJECT_EVALUATION_PREFLIGHT.md',
+    )
 
 def build():
     paths = subprocess.check_output(['git', 'ls-files', '-z'], cwd=ROOT).decode().split('\0')
     output = io.BytesIO()
     with tarfile.open(fileobj=output, mode='w', format=tarfile.PAX_FORMAT) as archive:
         for name in sorted(paths):
-            if name not in FILES and not name.startswith(PREFIXES):
-                continue
-            # The optional, owner-specific mobile proxy has hard-coded private
-            # deployment bindings and is not imported by the portable server.
-            if name.startswith('docs/images/') or name in (
-                'scripts/bundle_hermes.py', 'server/mobile-proxy.mjs',
-                # Historical operator evidence contains deployment-specific
-                # endpoints and paths; preserve it in Git, not portable installs.
-                'docs/REAL_PROJECT_EVALUATION.md',
-                'docs/REAL_PROJECT_EVALUATION_PREFLIGHT.md',
-            ):
+            if not included(name):
                 continue
             path = ROOT / name
             if path.is_symlink() or not path.is_file():

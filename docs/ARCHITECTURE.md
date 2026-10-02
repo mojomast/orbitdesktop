@@ -47,6 +47,14 @@ kernel-identity limitations are documented in [managed terminals](MANAGED_TERMIN
 
 `src/workspace-sync.ts` polls and tracks browser acknowledgement. An acknowledged revision does not prove a widget rendered correctly. Local layout persistence and imports remain supported. Offline changes can be saved server-side; display acknowledgement waits for the browser.
 
+The default shell's `src/workspace-arrange.ts` uses owner-only `layout_preview` /
+`layout_apply` commands for existing-window placement, independently of Workbench
+project registration. Their contract is a restricted operation union, not general
+controller access: no creation/removal, plugin mutation or whole-state replacement.
+Apply requires an operation identity and current base revision. Checkpoint
+`checkpoint_preview` returns a bounded metadata diff through
+`server/workspace-diff.mjs`; it does not mutate, render or promise successful restore.
+
 `server/workspace-description.mjs` provides authenticated, bounded layout metadata
 and an opt-in operation catalog sourced directly from the workspace contract.
 Normal's workspace adapter can discover this catalog rather than embedding every
@@ -110,9 +118,75 @@ block public app files, or implement general safe boot. See [Recovery](RECOVERY.
 
 ## Two extension boundaries
 
+### Cross-surface content and recovery
+
+Trusted complete-result adapters offer explicit owner actions for A2UI, document
+drafts and self-contained MCP snapshots. They do not reinterpret cached transcripts
+as authenticated results. A2UI queues are bounded to a chosen workspace/pane/mount
+generation; queueing, rendering and saving have separate acknowledgements.
+`src/conversation-transfer.ts` prepares an exact final recipient draft and validates
+producer/recipient freshness at insertion. Citations and bounded selected data
+values travel in actual content, not only preview labels; insertion never sends.
+
+Documents retain separate original-pane drafts with a same-tab recovery index and
+host-owned dirty-close review. Whole-snapshot edit proposals bind saved revision
+and draft digest and apply through native editor history. The document store's
+atomic `create_content` operation is distinct from owner-reviewed draft creation.
+Current bodies/receipts are not a historical body archive. See
+[Documents](DOCUMENTS.md), [Context handoff](CONTEXT_HANDOFF.md) and
+[Resource delegation](RESOURCE_DELEGATION.md) for exact authority and recovery.
+
+Normal resource authority joins actual pinned gateway ContextVars to the exact
+accepted Orbit submission receipt, profile fingerprint and pane binding revision.
+A private per-run authenticated socket channel carries finite selected-source
+operations; grants attach to the next accepted run and do not inherit into later
+turns. The source-pinned plugin rejects environment-only/session-only identities
+and delegated child contexts. This local adapter is configured explicitly and does
+not broaden the ordinary workspace controller or generated-plugin authority.
+
+Workbench setup records operation-owned completion manifests beside copied
+candidate trees; exact recovery publishes only verified completed materialization.
+Integration publication manifests similarly permit DB-only settlement after a
+proven rename. Review-only waiting intentions and task-status snapshots reuse
+existing private stores; they do not grant execution or fabricate missed events.
+Committed arrangement replay/Return records form logical history outside active
+preview capacity. Physical compaction and other terminal graph quotas remain.
+
 Trusted built-ins use `src/workspace-extensions.ts`: typed activation entries dynamically load plugin manager, checkpoints, skills catalog, outputs and jobs. Live activity is also loaded on demand. These modules run in the parent page and are reviewed application code. They are not user-installable privileged plugins.
 
+`src/host-surfaces.ts` additionally allowlists the exact browser-pane URLs
+`orbit://surface/outputs` and `orbit://surface/activity` for persistent Outputs and
+Activity windows. Mounted views dispose subscriptions and requests when their pane
+is disposed; movable pane identity and ordinary layout persistence stay in charge.
+Credentials come from the live host callback, never the URL. This does not grant a
+host bridge to generated frames. Shell discovery uses `src/workspace-commands.ts`
+with shared Start/palette command availability and experimental gates.
+
 Generated app plugins use a strict API-v1 manifest and config contract. `scripts/plugin_publish.py` copies static bundles to content-addressed folders. Lifecycle/config/entry references are part of workspace state and checkpoints. The existing sandboxed browser pane hosts the app; no host credentials or privileged message bridge are granted. Network access is allowed by the current app CSP. See [PLUGINS.md](PLUGINS.md) for limitations, including the absence of filesystem-enforced immutability, dependency resolution and independent safe boot.
+
+Optional `configSchema` is bounded declarative metadata for the existing primitive
+config map, not arbitrary JSON Schema or code. `src/plugin-config-schema.ts` and
+the publisher validate the same finite shape. Multiple stateless widget instances
+retain their manifest definition ID and add distinct instance/window/pane IDs;
+legacy ID-only operations keep their primary-instance meaning. Definition updates
+are app-wide, while configuration/window/lifecycle actions target an instance.
+Browser `sync` declares feature support and refuses unsupported old-client
+snapshots when the saved workspace contains instances or config schemas. See
+[Widget configuration](WIDGET_CONFIGURATION.md) and [Plugins](PLUGINS.md).
+
+Schema 12 is a version-only writer fence for those extended widget records. It
+adds no primary workspace tables, preserves existing rows, and prevents schema-11
+servers from opening a newer database after cutover. Restoring an older server
+requires a compatible pre-upgrade runtime backup; changing only a release pointer
+does not downgrade data. See [Workspace store](WORKSPACE_STORE.md).
+
+The output library stores private per-workspace aliases, pins and tags separately
+from immutable published files. Metadata keys include the complete content-
+addressed URL, so a changed publication cannot inherit another artifact's label.
+`src/conversation-transfer.ts` offers an explicit trusted-recipient registry and
+preview-before-insert dialog. It delivers to one chosen chat draft; it neither
+sends a model request nor creates a generated-frame bridge. See
+[Output library](OUTPUT_LIBRARY.md) and [Context handoff](CONTEXT_HANDOFF.md).
 
 Persistent project tools are a closed set of reviewed host modules (notebook and
 recorded checks/review card), selected by an opaque browser-pane URL. Schema 10
@@ -121,6 +195,31 @@ authoritative pane bindings. The owner-only `/api/workbench/tools` route does no
 grant controller, model or generated-frame access. Notebook data has an independent
 revision CAS and never enters layout checkpoints or mutation receipts. See
 [Project tools](PROJECT_TOOLS.md) for lifecycle, hold and compatibility semantics.
+
+## Local technology surfaces
+
+Reviewed, lazy host surfaces add source-backed knowledge search, A2UI interactive
+results, local voice dictation, DuckDB data analysis, documents/whiteboards and run
+traces. They use stable browser-kind pane identities and owner-authenticated APIs;
+generated app frames receive no new private-data bridge. Explicit context transfer
+still previews text for one selected draft without sending it. Hermes remains the
+agent runtime and the workspace store remains the layout transaction authority.
+
+Source snapshots, rich documents, result edits, recipes and app snapshots have
+private stores independent of layout checkpoints. Search indices are rebuildable;
+the ingested snapshots they cite are authoritative. Voice models and DuckDB
+extensions are explicitly provisioned with integrity pins. Browser-side engines
+load local assets on demand, without global COOP/COEP. See
+[technology surfaces](TECHNOLOGY_FEATURES.md) and the feature-specific contracts.
+
+The optional browser copilot controls a separate disposable browser through a
+finite action API. MCP Apps renders owner-imported snapshots through a configured
+separate-origin proxy with closed capabilities. Neither implies automatic Hermes
+tool interoperability. The experimental gVisor check provider preserves the serial
+Workbench gate; its version-2 private approval records are refused by older
+environment implementations. Configuration or runtime failure cannot fall back to
+trusted-host checks. Real containment requires a separately provisioned and tested
+host. See [isolated checks](ISOLATED_CHECKS.md).
 
 ## Exact-artifact Studio
 

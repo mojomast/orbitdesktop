@@ -1,0 +1,10 @@
+.saved-workspace-layouts { width:min(760px,92vw); max-height:85vh; overflow:auto; padding:24px; color:var(--text,#eee); background:var(--panel,#20242c); border:1px solid #666; border-radius:12px; }
+.saved-workspace-layouts::backdrop { background:#0008; }
+.saved-layout-list { display:flex; flex-wrap:wrap; gap:8px; }
+.saved-layout-list select,.saved-layout-list input { min-width:220px; padding:8px; }
+.saved-layout-list button { padding:8px 12px; }
+.saved-layout-status,.saved-layout-summary { overflow-wrap:anywhere; }
+.saved-layout-mappings label { display:block; margin:10px 0; }
+.saved-layout-mappings select { display:block; width:100%; }
+.saved-layout-drawing { position:relative; overflow:hidden; background:#10151b; margin-top:16px; }
+.saved-layout-tile { position:absolute; box-sizing:border-box; border:1px solid #91b1df; background:#385577aa; padding:4px; overflow:hidden; font-size:12px; }

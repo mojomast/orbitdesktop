@@ -7,16 +7,22 @@ import { installViewport } from './viewport';
 import { installOrbitMenu, type OrbitMenuItem, type OrbitMenuSection } from './orbit-menu';
 import { workspaceExtensions } from './workspace-extensions';
 import { installStart } from './taskbar';
-import { showOrbitSettings } from './orbit-settings';
+import { showOrbitSettings, setOrbitSettingsNavigation } from './orbit-settings';
+import { createWorkspaceCommands, type WorkspaceCommand } from './workspace-commands';
+import { HOST_SURFACE_URLS, HOST_SURFACE_LABELS, type HostSurfaceId } from './host-surfaces';
+import { TECHNOLOGY_SURFACES } from './technology-surfaces';
+import {createTechnologyReadiness} from './technology-readiness';
+import { installCommandPalette } from './command-palette';
 import { experimentalEnabled, subscribeExperimental } from './experimental';
 import { showOnboarding, offerOnboarding } from './onboarding';
-window.addEventListener('load', () => offerOnboarding(), { once: true });
+window.addEventListener('load', () => offerOnboarding(onboardingActions), { once: true });
 import { installLayoutSwitcher } from './layout-switcher';
 import './unified-taskbar.css';
 import { xpraApps } from './xpra-apps';
 import { installDesktopIcons } from './desktop-icons';
 import { showConnectionPasswords } from './connection-passwords';
 import { workspaceId, ensureWorkspaceSynced } from './workspace-sync';
+import { pluginSelector, type PluginInstance } from './plugins';
 import { readPanePrefs, writePanePrefs } from './pane-prefs';
 import { workspaceFetch } from './workspace-client';
 import { installMinimize } from './minimize';
@@ -152,19 +158,6 @@ navigation.append(button('▦ Desktop', 'Show desktop shortcuts', () => {
   if(focused)unfocus();setView('windows');
   state.monitors.forEach(m=>{const element=monitors.get(m.id);if(element)minimizer.hide(m.id,element);});renderTabs();
 }));
-installStart(navigation, () => [
-  { title: 'Getting started', detail: 'Tour Orbit: controls, layouts, ask Hermes and build apps', run: showOnboarding },
-  ...state.monitors.map(m => ({ title: m.name, detail: 'Open window', run: () => { if (focused) focus(m.id); else choose(m.id); } })),
-  { title: 'New agent chat', detail: 'Talk to Hermes', run: () => addMonitor('agent') },
-  ...experimentalEnabled('workbench')
-    ? [{ title: 'New Workbench window', detail: 'Separate Workbench beside Hermes', run: () => openWorkbenchWindow() }]
-    : [],
-  { title: 'New terminal', detail: 'Open a host terminal pane', run: () => addMonitor('terminal') },
-  { title: 'New browser', detail: 'Open an app or website', run: () => addMonitor('browser') },
-  { title: 'Windows view', detail: 'Movable desktop windows', run: () => setView('windows') },
-  { title: 'Spatial view', detail: 'Explore your 3D workspace', run: () => setView('spatial') },
-  { title: 'Toggle side panel', detail: 'Workspace layout and settings', run: () => { state.sidebarHidden = !state.sidebarHidden; applySidebar(); save(); } },
-]);
 const focusHost = el("div", "focus-host");
 // Connected parking keeps surviving panes alive while their previous layout
 // containers are removed (including source-first cross-window edits).
@@ -183,13 +176,13 @@ const desktopIcons = installDesktopIcons(desktopHost, () => [
     state.monitors.push(m);state.selected=m.id;state.view='windows';
     work.classList.add('windows-mode');renderAll();choose(m.id);
   }})),
-  {id:'plugin-manager',title:'Plugin Manager',icon:'🧩',pinned:true,run:()=>{void import('./plugin-manager').then(m=>m.showPlugins(()=>sessionToken));}},
-  {id:'connection-passwords',title:'Connection passwords',icon:'🔑',run:()=>showConnectionPasswords(()=>sessionToken)},
+  {id:'plugin-manager',title:'Plugin Manager',icon:'🧩',pinned:true,run:()=>{void commands.execute('hermes-plugins');}},
+  {id:'connection-passwords',title:'Connection passwords',icon:'🔑',run:()=>{void commands.execute('connection-passwords');}},
   ...state.monitors.filter(m=>!leaves(m.layout).some(p=>xpraApps.some(a=>a.url===p.url))).map(m => ({id:m.id, title:m.name, icon:leaves(m.layout).some(p=>p.kind==='terminal')?'⌘':leaves(m.layout).some(p=>p.kind==='agent')?'✦':'▣', run:()=>{if(focused)unfocus();choose(m.id);}})),
-  ...(state.plugins || []).filter(p=>!p.enabled).map(p=>({id:p.manifest.id,title:p.manifest.title,icon:'◈',run:()=>{void launchDesktopPlugin(p.manifest.id);}})),
-  {id:'new-terminal',title:'New terminal',icon:'>_',run:()=>addMonitor('terminal')},
-  {id:'new-agent',title:'New Hermes chat',icon:'✦',run:()=>addMonitor('agent')},
-  {id:'new-browser',title:'New browser',icon:'◎',run:()=>addMonitor('browser')},
+  ...(state.plugins || []).filter(p=>!p.enabled).map(p=>({id:p.instance_id??p.manifest.id,title:p.window.name||p.manifest.title,icon:'◈',run:()=>{void launchDesktopPlugin(p);}})),
+  {id:'new-terminal',title:'New terminal',icon:'>_',run:()=>{void commands.execute('new-terminal');}},
+  {id:'new-agent',title:'New Hermes chat',icon:'✦',run:()=>{void commands.execute('new-agent');}},
+  {id:'new-browser',title:'New browser',icon:'◎',run:()=>{void commands.execute('new-browser');}},
 ]);
 const focusBack = button(
   "←  Back to spatial view",
@@ -288,19 +281,177 @@ function menuAgentApi(payload: Record<string, unknown>): Promise<any> {
   });
 }
 const hermesIcons: Record<string, string> = { 'shared-browser': '🖥', 'build-queue': '🛠', jev: '⚡', plugins: '🧩', checkpoints: '⛁', catalog: '✦', outputs: '🗂', jobs: '⏱' };
+setOrbitSettingsNavigation({
+    appearance: [
+      { title: 'Themes', detail: 'Workspace colors and appearance', run: () => commands.execute('themes') },
+      { title: 'Global transparency', detail: 'Opacity across current windows', run: () => commands.execute('transparency') },
+      { title: 'Toggle wallpaper', detail: 'Show or hide the desktop wallpaper', run: () => commands.execute('wallpaper') },
+      { title: 'Toggle full viewport', detail: 'Use all available browser space', run: () => commands.execute('viewport') },
+    ],
+    layout: [
+      { title: 'Arrange workspace', detail: 'Arrange existing windows', run: () => commands.execute('arrange') },
+      { title: 'Saved workspace layouts', detail: 'Save and preview reusable window arrangements', run: () => commands.execute('saved-layouts') },
+      { title: 'Selected window settings', detail: 'Name, text size and opacity', run: () => commands.execute('window-settings') },
+      { title: 'Display and layout controls', detail: 'Shape, scale, position and layout presets', run: () => commands.execute('display-controls') },
+    ],
+});
+function openSettings() { showOrbitSettings(); }
+async function openWorkspaceArrange() {
+  const { showWorkspaceArrange } = await import('./workspace-arrange');
+  showWorkspaceArrange(() => sessionToken, measureArrangementViewport);
+}
+async function openSavedWorkspaceLayouts() {
+  const { showSavedWorkspaceLayouts } = await import('./saved-workspace-layouts');
+  showSavedWorkspaceLayouts(() => sessionToken, measureArrangementViewport);
+}
+function measureArrangementViewport() {
+  const root = docking ? desktopHost.querySelector<HTMLElement>('.docking-root') : null;
+  const target = root ?? desktopHost;
+  if (target.clientWidth && target.clientHeight) return { width: target.clientWidth, height: target.clientHeight };
+  // A shallow, invisible measurement host resolves the same CSS insets against
+  // the actual workspace. No live pane moves, view/focus changes or saves occur.
+  const measurement = desktopHost.cloneNode(false) as HTMLElement;
+  measurement.removeAttribute('id');
+  measurement.removeAttribute('hidden');
+  measurement.setAttribute('aria-hidden', 'true');
+  measurement.style.setProperty('display', 'block', 'important');
+  measurement.style.setProperty('visibility', 'hidden', 'important');
+  measurement.style.setProperty('pointer-events', 'none', 'important');
+  const measured = root ? root.cloneNode(false) as HTMLElement : measurement;
+  if (measured !== measurement) {
+    measured.removeAttribute('id'); measured.removeAttribute('hidden');
+    measured.style.setProperty('display', 'block', 'important');
+    measurement.append(measured);
+  }
+  work.append(measurement);
+  try { return { width: measured.clientWidth, height: measured.clientHeight }; }
+  finally { measurement.remove(); }
+}
+const technologyReadiness=createTechnologyReadiness(()=>({token:sessionToken,workspace:workspaceId}),()=>window.dispatchEvent(new Event('orbit-command-details-changed')));
+window.addEventListener('orbit-host-connected',()=>{void technologyReadiness.refresh(true);});
+window.addEventListener('orbit-command-discovery',()=>{void technologyReadiness.refresh(true);});
+window.addEventListener('focus',()=>{void technologyReadiness.refresh();});
+window.setInterval(()=>{void technologyReadiness.refresh();},30000);
+if(sessionToken)void technologyReadiness.refresh();
+function revealSurface(id: string) {
+  const inFocus = !!focused;
+  if (focused) unfocus();
+  state.selected = id;
+  renderAll();
+  if (inFocus) focus(id);
+  else { choose(id); if (state.view === 'spatial') scene.frameWindow(id); }
+  save();
+}
+function openHostSurface(id: HostSurfaceId) {
+  const url = HOST_SURFACE_URLS[id];
+  let target = state.monitors.find(m => leaves(m.layout).some(p => p.kind === 'browser' && p.url === url));
+  if (!target) {
+    if (state.monitors.length >= 100) { notify('Close a window before opening another surface.'); return; }
+    target = monitor(state.monitors.length + 1, 'browser');
+    target.name = HOST_SURFACE_LABELS[id];
+    leaves(target.layout)[0].url = url;
+    state.monitors.push(target);
+  }
+  revealSurface(target.id);
+}
+window.addEventListener('orbit-open-host-surface', event => {
+  const id = (event as CustomEvent<{ id?: string }>).detail?.id;
+  if (typeof id==='string' && Object.hasOwn(HOST_SURFACE_URLS,id)) openHostSurface(id as HostSurfaceId);
+});
+window.addEventListener('orbit-review-document-result',event=>{
+  const detail=(event as CustomEvent).detail;
+  if(!detail||typeof detail.title!=='string'||typeof detail.respond!=='function'||typeof detail.isCurrent!=='function'||detail.workspaceId!==workspaceId)return;
+  event.preventDefault();
+  const credential=sessionToken;
+  const current=()=>detail.workspaceId===workspaceId&&sessionToken===credential&&detail.isCurrent();
+  void import('./document-library').then(module=>current()?module.reviewCreateDocument(()=>sessionToken,detail.title,detail.data,current):{status:'rejected' as const,reason:'Document result source, workspace or host connection changed before review.'}).then(detail.respond).catch(()=>detail.respond({status:'rejected',reason:'Document result could not be reviewed.'}));
+});
+window.addEventListener('orbit-open-document',event=>{
+  const detail=(event as CustomEvent<{id?:unknown;name?:unknown;paneId?:unknown}>).detail;
+  if(typeof detail?.id!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(detail.id))return;
+  const url=`orbit://document/${detail.id}`;
+  const recoveryPane=typeof detail.paneId==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(detail.paneId)?detail.paneId:undefined;
+  if(recoveryPane&&state.monitors.some(m=>leaves(m.layout).some(p=>p.id===recoveryPane&&(p.kind!=='browser'||p.url!==url)))){notify('Original pane identity is now used by another surface. Draft remains in the library.');return;}
+  let target=state.monitors.find(m=>leaves(m.layout).some(p=>p.kind==='browser'&&p.url===url&&(!recoveryPane||p.id===recoveryPane)));
+  if(!target){
+    if(state.monitors.length>=100){notify('Close a window before opening another document.');return;}
+    target=monitor(state.monitors.length+1,'browser');
+    target.name=typeof detail.name==='string'&&detail.name.trim()?detail.name.trim().slice(0,60):'Document';
+    leaves(target.layout)[0].url=url;
+    if(recoveryPane)leaves(target.layout)[0].id=recoveryPane;
+    state.monitors.push(target);
+  }
+  revealSurface(target.id);
+});
+// Keep an explicit parent-document selection while menu/palette focus changes.
+// Generated frames and terminal buffers are never queried. The transfer dialog
+// shows the exact captured text and requires a recipient and insertion click.
+let selectedWorkspaceText = '';
+document.addEventListener('selectionchange', () => {
+  const selection = document.getSelection();
+  if (!selection || selection.isCollapsed) return;
+  const element = (node: Node | null) => node instanceof Element ? node : node?.parentElement;
+  if ([selection.anchorNode, selection.focusNode].some(node => element(node)?.closest('dialog, input, textarea, [contenteditable], .xterm'))) return;
+  const text = selection.toString();
+  if (text.trim()) selectedWorkspaceText = text.length <= 20000 ? text : '';
+});
+window.addEventListener('pagehide', () => { selectedWorkspaceText = ''; });
+async function sendSelectedContext() {
+  const text = selectedWorkspaceText;
+  if (!text) throw Error('Select up to 20,000 characters of workspace text first.');
+  const { requestConversationContext } = await import('./conversation-transfer');
+  await requestConversationContext({ text, title: 'Selected workspace text' });
+}
+const onboardingActions = {connected:()=>!!sessionToken,run:(id:string)=>{void commands.execute(id);}};
+const commands = createWorkspaceCommands((): WorkspaceCommand[] => [
+  ...Object.entries(TECHNOLOGY_SURFACES).map(([id,entry])=>({id:`technology-${id}`,title:entry.title,detail:technologyReadiness.detail(HOST_SURFACE_URLS[id as HostSurfaceId],entry.detail),group:'Tools',disabledReason:entry.auth&&!sessionToken?'Connect host first to use this tool.':undefined,run:async()=>{const token=sessionToken,workspace=workspaceId;await technologyReadiness.refresh(true);if(token===sessionToken&&workspace===workspaceId)openHostSurface(id as HostSurfaceId);}})),
+  { id: 'getting-started', title: 'Getting started', detail: 'Choose a task, check readiness or tour Orbit', group: 'Help', run: () => showOnboarding(onboardingActions) },
+  { id: 'settings', title: 'Orbit settings', detail: 'Appearance, layout and browser-local experiments', group: 'Settings', run: openSettings },
+  { id: 'connect-host', title: 'Connect host', detail: 'Unlock this browser session with a host token', group: 'Settings', run: connectHost },
+  { id: 'connection-passwords', title: 'Connection passwords', detail: 'View host connection details', group: 'Settings', disabledReason: !sessionToken ? 'Connect host first to view connection details.' : undefined, run: () => showConnectionPasswords(() => sessionToken) },
+  { id: 'export-layout', title: 'Export workspace layout', detail: 'Download the current workspace layout', group: 'Layout', run: exportLayout },
+  { id: 'import-layout', title: 'Import workspace layout', detail: 'Choose a layout file and review replacement confirmation', group: 'Layout', run: () => importInput.click() },
+  { id: 'saved-layouts', title: 'Saved workspace layouts', detail: 'Save and preview reusable window arrangements', group: 'Layout', disabledReason: !sessionToken ? 'Connect host first to use saved workspace layouts.' : undefined, run: openSavedWorkspaceLayouts },
+  { id: 'browser-layouts', title: 'Browser layout snapshots', detail: 'Browser-local snapshots — active snapshot auto-updates here', group: 'Layout', run: () => navigation.querySelector<HTMLButtonElement>('[aria-label="Choose browser snapshot"]')?.click() },
+  ...state.monitors.map(m => ({ id: `window:${m.id}`, title: m.name, detail: 'Open or restore window', group: 'Windows', run: () => { if (focused) focus(m.id); else choose(m.id); } })),
+  { id: 'new-agent', title: 'New agent chat', detail: 'Talk to Hermes', group: 'Create', run: () => addMonitor('agent') },
+  { id: 'new-workbench', title: 'New Workbench window', detail: 'Separate Workbench beside Hermes', group: 'Create', hidden: !experimentalEnabled('workbench'), run: () => openWorkbenchWindow() },
+  { id: 'new-terminal', title: 'New terminal', detail: 'Open a host terminal pane', group: 'Create', run: () => addMonitor('terminal') },
+  { id: 'new-browser', title: 'New browser', detail: 'Open an app or website', group: 'Create', run: () => addMonitor('browser') },
+  { id: 'windows', title: 'Windows view', detail: 'Movable desktop windows', group: 'Layout', run: () => windowsButton.click() },
+  { id: 'spatial', title: 'Spatial view', detail: 'Explore your 3D workspace', group: 'Layout', run: () => sceneButton.click() },
+  { id: 'focus', title: 'Focus selected window', detail: 'Expand the selected display', group: 'Layout', run: () => flatButton.click() },
+  { id: 'arrange', title: 'Arrange workspace', detail: 'Arrange existing windows', group: 'Layout', disabledReason: !sessionToken ? 'Connect host first to arrange workspace.' : undefined, run: openWorkspaceArrange },
+  { id: 'panel', title: 'Toggle side panel', detail: 'Workspace layout and settings', group: 'Layout', run: () => sidebarToggle.click() },
+  { id: 'display-controls', title: 'Display and layout controls', detail: 'Shape, scale, position and layout presets', group: 'Settings', run: () => { state.sidebarHidden = false; applySidebar(); save(); inspector.querySelector<HTMLElement>('input, button, select')?.focus(); } },
+  { id: 'themes', title: 'Themes', detail: 'Choose workspace theme', group: 'Appearance', run: () => themesButton.click() },
+  { id: 'viewport', title: 'Toggle full viewport', detail: 'Use all available browser space', group: 'Appearance', run: () => viewportToggle.click() },
+  { id: 'wallpaper', title: 'Toggle wallpaper', detail: 'Show or hide wallpaper', group: 'Appearance', run: () => wallpaperToggle.click() },
+  { id: 'transparency', title: 'Global transparency', detail: 'Adjust current windows opacity', group: 'Appearance', run: showGlobalTransparency },
+  { id: 'window-settings', title: 'Selected window settings', detail: 'Name, text size and opacity', group: 'Windows', run: () => openWindowOptions(state.selected) },
+  { id: 'hermes-tools', title: 'Tools & conversations', detail: 'Tools for selected Hermes chat', group: 'Hermes', run: openHermesTools },
+  { id: 'conversation-library', title: 'Conversation library', detail: 'Find, pin and resume Hermes conversations', group: 'Hermes', disabledReason: !sessionToken ? 'Connect host first to browse conversations.' : undefined, run: openConversationLibrary },
+  { id: 'send-selection', title: 'Send selected text to conversation', detail: 'Review recently selected workspace text and choose a draft; never sends automatically', group: 'Hermes', disabledReason: !selectedWorkspaceText ? 'Select up to 20,000 characters of workspace text first.' : undefined, run: sendSelectedContext },
+  { id: 'activity', title: 'Live activity', detail: 'Open host activity window', group: 'Hermes', run: () => openHostSurface('activity') },
+  ...workspaceExtensions.map(extension => ({
+    id: `hermes-${extension.id}`, title: extension.title, detail: extension.label, group: 'Hermes',
+    hidden: extension.id === 'project-workbench' && !experimentalEnabled('workbench'),
+    disabledReason: !sessionToken && extension.id !== 'outputs' ? 'Connect host first to use this tool.' : undefined,
+    run: () => extension.id === 'outputs' ? openHostSurface('outputs') : extension.activate({ token: () => sessionToken, api: menuAgentApi }),
+  })),
+], notify);
+installStart(navigation, commands);
+const commandPalette = installCommandPalette(commands);
 const hermesMenuItems: OrbitMenuItem[] = workspaceExtensions.map(extension => ({
   id: `hermes-${extension.id}`,
   label: extension.title,
   icon: hermesIcons[extension.id] || '✦',
-  button: button(extension.title, extension.title, () => {
-    void extension.activate({ token: () => sessionToken, api: menuAgentApi })
-      .catch(error => notify(`${extension.title} could not open: ${String(error)}`));
-  }),
+  button: button(extension.title, extension.title, () => { void commands.execute(`hermes-${extension.id}`); }),
 }));
 // Experimental Project Workbench surfaces stay hidden until the owner enables
 // them in Orbit settings. The settings entry point itself is always available.
-const workbenchWindowMenuButton = button('New Workbench window', 'New Workbench window', () => openWorkbenchWindow());
-const orbitSettingsMenuButton = button('Orbit settings', 'Orbit settings', () => showOrbitSettings());
+const workbenchWindowMenuButton = button('New Workbench window', 'New Workbench window', () => { void commands.execute('new-workbench'); });
+const orbitSettingsMenuButton = button('Orbit settings', 'Orbit settings', () => { void commands.execute('settings'); });
 const projectWorkbenchMenuButton = hermesMenuItems.find(item => item.id === 'hermes-project-workbench')?.button;
 function syncExperimentalMenuItems() {
   const on = experimentalEnabled('workbench');
@@ -317,12 +468,54 @@ function openHermesTools() {
   if (focused !== target.id) focus(target.id);
   window.dispatchEvent(new CustomEvent('orbit-open-hermes-tools', { detail: { paneId: agent.id } }));
 }
+async function openConversationLibrary() {
+  let target = state.monitors.find(m => m.id === (focused ?? state.selected) && leaves(m.layout).some(p => p.kind === 'agent'))
+    ?? state.monitors.find(m => leaves(m.layout).some(p => p.kind === 'agent'));
+  if (!target) {
+    addMonitor('agent');
+    target = state.monitors.find(m => m.id === state.selected);
+  }
+  const pane = target && leaves(target.layout).find(p => p.kind === 'agent');
+  if (!target || !pane) throw Error('Conversation pane unavailable.');
+  await ensureWorkspaceSynced();
+  if (!paneExists(pane.id)) throw Error('Conversation pane closed before the library opened.');
+  window.dispatchEvent(new CustomEvent('orbit-open-conversation-library', { detail: { paneId: pane.id } }));
+}
+let openingConversation = false;
+window.addEventListener('orbit-open-conversation', event => {
+  const detail = (event as CustomEvent<import('./conversation-selection').ConversationSelection>).detail;
+  if (!detail || typeof detail.profileId !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(detail.profileId) ||
+      typeof detail.sessionId !== 'string' || !/^[A-Za-z0-9_:-]{1,128}$/.test(detail.sessionId)) return;
+  const {profileId, sessionId} = detail;
+  if(detail.signal?.aborted)return;
+  const fail=(message:string)=>{notify(message);detail.report?.('failed',message);};
+  if (openingConversation) { fail('A conversation window is already opening.'); return; }
+  if (!sessionToken) { fail('Connect host first to open a saved conversation.'); return; }
+  if (state.monitors.length >= 100) { fail('Close a window before opening another conversation.'); return; }
+  openingConversation = true;
+  void (async () => {
+    if (focused) unfocus();
+    addMonitor('agent');
+    const target = state.monitors.find(m => m.id === state.selected);
+    const pane = target && leaves(target.layout).find(p => p.kind === 'agent');
+    if (!pane) throw Error('New conversation pane unavailable.');
+    await ensureWorkspaceSynced();
+    if(detail.signal?.aborted)return;
+    if (!paneExists(pane.id)) throw Error('Conversation pane closed before it could link.');
+    window.dispatchEvent(new CustomEvent('orbit-select-conversation', {
+      detail: {...detail, paneId: pane.id, profileId, sessionId},
+    }));
+  })().catch(error => fail(`Conversation window could not open: ${String(error)}`))
+    .finally(() => { openingConversation = false; });
+});
 function orbitMenuSections(): OrbitMenuSection[] {
   return [
     { id: 'view', title: 'Workspace view', detail: 'Choose how your windows are arranged.', items: [
       { id: 'windows', label: 'Windows', icon: '▤', button: windowsButton },
       { id: 'spatial', label: 'Spatial', icon: '◈', button: sceneButton },
       { id: 'focus', label: 'Focus', icon: '▣', button: flatButton },
+      { id: 'arrange', label: 'Arrange workspace', icon: '▦', button: button('Arrange workspace', 'Arrange workspace', () => { void commands.execute('arrange'); }) },
+      { id: 'saved-layouts', label: 'Saved workspace layouts', icon: '▦', button: button('Saved workspace layouts', 'Saved workspace layouts', () => { void commands.execute('saved-layouts'); }) },
     ] },
     { id: 'appearance', title: 'Panels & appearance', detail: 'Panel, themes, full viewport, wallpaper and transparency.', items: [
       { id: 'themes', label: 'Themes', icon: '✦', button: themesButton },
@@ -332,12 +525,16 @@ function orbitMenuSections(): OrbitMenuSection[] {
       { id: 'transparency', label: 'Transparency', icon: '◐', button: globalTransparency },
     ] },
     { id: 'hermes', title: 'Hermes', detail: 'Hermes runtime tools and conversations, reachable without opening a chat pane.', items: [
-      { id: 'hermes-chat', label: 'New Hermes chat', icon: '✧', button: button('New Hermes chat', 'New Hermes chat', () => addMonitor('agent')) },
+      { id: 'hermes-chat', label: 'New Hermes chat', icon: '✧', button: button('New Hermes chat', 'New Hermes chat', () => { void commands.execute('new-agent'); }) },
       { id: 'hermes-workbench-window', label: 'New Workbench window', icon: '◧', button: workbenchWindowMenuButton },
-      { id: 'hermes-tools', label: 'Tools & conversations', icon: '⋯', button: button('Tools & conversations', 'Tools & conversations', () => openHermesTools()) },
+      { id: 'hermes-tools', label: 'Tools & conversations', icon: '⋯', button: button('Tools & conversations', 'Tools & conversations', () => { void commands.execute('hermes-tools'); }) },
+      { id: 'conversation-library', label: 'Conversation library', icon: '☷', button: button('Conversation library', 'Conversation library', () => { void commands.execute('conversation-library'); }) },
+      { id: 'send-selection', label: 'Send selected text to conversation', icon: '↗', button: button('Send selected text to conversation', 'Send selected text to conversation', () => { void commands.execute('send-selection'); }) },
+      { id: 'activity', label: 'Live activity', icon: '↻', button: button('Live activity', 'Live activity', () => { void commands.execute('activity'); }) },
       ...hermesMenuItems,
     ] },
     { id: 'settings', title: 'Settings', detail: 'Preferences saved in this browser.', items: [
+      { id: 'commands', label: 'Commands', icon: '⌘', button: button('Commands', 'Open workspace commands (Ctrl or Cmd K)', commandPalette.open) },
       { id: 'settings-orbit', label: 'Orbit settings', icon: '⚙', button: orbitSettingsMenuButton },
     ] },
   ];
@@ -590,7 +787,8 @@ function paneView(p: ReturnType<typeof leaves>[number], m: Monitor): PaneView {
         kind: (id, kind) => {
           confirmChange(
             "Switching this pane replaces its current view and unsaved content. Persistent terminal shells may continue detached.",
-            () => {
+            async () => {
+              if(!await (await import('./document-drafts')).requestDocumentClose([id]))return;
               const m = livePaneMonitor(id);
               if (!m) return;
               views.get(id)?.dispose();
@@ -631,9 +829,13 @@ function paneView(p: ReturnType<typeof leaves>[number], m: Monitor): PaneView {
           }
           confirmChange(
             "Closing this pane discards its unsaved view content and disconnects it. Persistent terminal shells may continue detached.",
-            () => {
-              const m = livePaneMonitor(id);
-              if (!m) return;
+            async () => {
+              const closingMonitor=livePaneMonitor(id),closingPane=closingMonitor&&leaves(closingMonitor.layout).find(p=>p.id===id),closingView=views.get(id);
+              if(!closingMonitor||!closingPane)return;
+              const signature=paneSignature(closingPane);
+              if(!await (await import('./document-drafts')).requestDocumentClose([id]))return;
+              const m=livePaneMonitor(id),p=m&&leaves(m.layout).find(p=>p.id===id);
+              if(!m||m!==closingMonitor||!p||paneSignature(p)!==signature||views.get(id)!==closingView){notify('Pane placement or content binding changed during close review. Please close it again.');return;}
               if (leaves(m.layout).length <= 1) {
                 notify('Pane placement changed; keep at least one pane on each display.');
                 return;
@@ -1069,7 +1271,7 @@ window.addEventListener('orbit-open-shared-browser', () => {
   state.selected=m.id;renderAll();choose(m.id);save();
 });
 let desktopLaunchBusy = false;
-async function launchDesktopPlugin(id:string) {
+async function launchDesktopPlugin(plugin:PluginInstance) {
   if (!sessionToken) { connectHost(); return; }
   if (desktopLaunchBusy) return;
   desktopLaunchBusy = true;
@@ -1080,7 +1282,7 @@ async function launchDesktopPlugin(id:string) {
       const data = await response.json(); if(!response.ok)throw Error(data.error || 'App launch failed'); return data;
     };
     const current = await api({action:'read'});
-     await api({action:'plugins_apply',base_revision:current.revision,operations:[{action:'plugin_enable',plugin_id:id}],intent:`Enable desktop plugin ${id}`});
+     await api({action:'plugins_apply',base_revision:current.revision,operations:[{action:'plugin_enable',...pluginSelector(plugin)}],intent:`Enable desktop plugin ${plugin.manifest.id}`});
     notify('App enabled; workspace is synchronizing.');
   } catch(e) { notify(String(e)); } finally { desktopLaunchBusy = false; }
 }
@@ -1111,7 +1313,7 @@ function focusPane(paneId: string): boolean {
 function openWorkbenchWindow(normalPaneId?: string) {
   if (!experimentalEnabled('workbench')) {
     notify('Project Workbench is experimental and off. Enable it in Orbit settings.');
-    showOrbitSettings();
+    openSettings();
     return;
   }
   if (normalPaneId && !paneExists(normalPaneId)) return;
@@ -1161,7 +1363,10 @@ function deleteMonitor() {
     return;
   }
   const m = current();
-  confirmChange(`Remove ${m.name} and close all its panes?`, () => {
+  confirmChange(`Remove ${m.name} and close all its panes?`, async () => {
+    const closingPaneIds=leaves(m.layout).map(p=>p.id);
+    if(!await (await import('./document-drafts')).requestDocumentClose(closingPaneIds))return;
+    if(!state.monitors.includes(m)||JSON.stringify(leaves(m.layout).map(p=>p.id))!==JSON.stringify(closingPaneIds)){notify('Window placement changed during close review. Please close it again.');return;}
     unfocus();
     leaves(m.layout).forEach((p) => {
       views.get(p.id)?.dispose();
@@ -1423,7 +1628,7 @@ layoutSwitcher = installLayoutSwitcher(navigation, `orbit.layouts.${workspaceId}
       if (hidden.includes(m.id)) minimizer.hide(m.id, element); else minimizer.restore(m.id, element);
     }
     setView(state.view || 'windows'); renderTabs();
-  }, notify);
+  }, notify, () => {void commands.execute('saved-layouts');});
 // Optional, page-scoped WebMCP: no terminal input or credentials are exposed.
 const modelContext = (
   document as Document & {

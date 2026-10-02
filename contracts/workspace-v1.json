@@ -796,15 +796,45 @@
           },
           "confirm_host_access": {
             "const": true
+          },
+          "instance_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
           }
         },
         "required": [
           "action",
-          "plugin_id",
           "endpoint",
           "confirm_host_access"
         ],
-        "additionalProperties": false
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "anyOf": [
+              {
+                "properties": {
+                  "plugin_id": {
+                    "$ref": "#/$defs/manifestId"
+                  }
+                },
+                "required": [
+                  "plugin_id"
+                ]
+              },
+              {
+                "properties": {
+                  "instance_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  }
+                },
+                "required": [
+                  "instance_id"
+                ]
+              }
+            ]
+          }
+        ]
       },
       "sideEffect": "trusted-backend",
       "permission": "owner-host-code-confirmation",
@@ -820,13 +850,43 @@
           },
           "plugin_id": {
             "$ref": "#/$defs/manifestId"
+          },
+          "instance_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
           }
         },
         "required": [
-          "action",
-          "plugin_id"
+          "action"
         ],
-        "additionalProperties": false
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "anyOf": [
+              {
+                "properties": {
+                  "plugin_id": {
+                    "$ref": "#/$defs/manifestId"
+                  }
+                },
+                "required": [
+                  "plugin_id"
+                ]
+              },
+              {
+                "properties": {
+                  "instance_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  }
+                },
+                "required": [
+                  "instance_id"
+                ]
+              }
+            ]
+          }
+        ]
       },
       "sideEffect": "plugin-registration",
       "permission": "workspace-write",
@@ -842,13 +902,43 @@
           },
           "plugin_id": {
             "$ref": "#/$defs/manifestId"
+          },
+          "instance_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
           }
         },
         "required": [
-          "action",
-          "plugin_id"
+          "action"
         ],
-        "additionalProperties": false
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "anyOf": [
+              {
+                "properties": {
+                  "plugin_id": {
+                    "$ref": "#/$defs/manifestId"
+                  }
+                },
+                "required": [
+                  "plugin_id"
+                ]
+              },
+              {
+                "properties": {
+                  "instance_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  }
+                },
+                "required": [
+                  "instance_id"
+                ]
+              }
+            ]
+          }
+        ]
       },
       "sideEffect": "plugin-registration",
       "permission": "workspace-write",
@@ -864,13 +954,43 @@
           },
           "plugin_id": {
             "$ref": "#/$defs/manifestId"
+          },
+          "instance_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
           }
         },
         "required": [
-          "action",
-          "plugin_id"
+          "action"
         ],
-        "additionalProperties": false
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "anyOf": [
+              {
+                "properties": {
+                  "plugin_id": {
+                    "$ref": "#/$defs/manifestId"
+                  }
+                },
+                "required": [
+                  "plugin_id"
+                ]
+              },
+              {
+                "properties": {
+                  "instance_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  }
+                },
+                "required": [
+                  "instance_id"
+                ]
+              }
+            ]
+          }
+        ]
       },
       "sideEffect": "plugin-registration",
       "permission": "workspace-write",
@@ -889,14 +1009,44 @@
           },
           "patch": {
             "$ref": "#/$defs/config"
+          },
+          "instance_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
           }
         },
         "required": [
           "action",
-          "plugin_id",
           "patch"
         ],
-        "additionalProperties": false
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "anyOf": [
+              {
+                "properties": {
+                  "plugin_id": {
+                    "$ref": "#/$defs/manifestId"
+                  }
+                },
+                "required": [
+                  "plugin_id"
+                ]
+              },
+              {
+                "properties": {
+                  "instance_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  }
+                },
+                "required": [
+                  "instance_id"
+                ]
+              }
+            ]
+          }
+        ]
       },
       "sideEffect": "plugin-registration",
       "permission": "workspace-write",
@@ -982,14 +1132,44 @@
             },
             "required": [],
             "additionalProperties": false
+          },
+          "instance_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
           }
         },
         "required": [
           "action",
-          "plugin_id",
           "settings"
         ],
-        "additionalProperties": false
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "anyOf": [
+              {
+                "properties": {
+                  "plugin_id": {
+                    "$ref": "#/$defs/manifestId"
+                  }
+                },
+                "required": [
+                  "plugin_id"
+                ]
+              },
+              {
+                "properties": {
+                  "instance_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  }
+                },
+                "required": [
+                  "instance_id"
+                ]
+              }
+            ]
+          }
+        ]
       },
       "sideEffect": "plugin-registration",
       "permission": "workspace-write",
@@ -1008,14 +1188,44 @@
           },
           "config": {
             "$ref": "#/$defs/config"
+          },
+          "instance_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
           }
         },
         "required": [
           "action",
-          "plugin_id",
           "config"
         ],
-        "additionalProperties": false
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "anyOf": [
+              {
+                "properties": {
+                  "plugin_id": {
+                    "$ref": "#/$defs/manifestId"
+                  }
+                },
+                "required": [
+                  "plugin_id"
+                ]
+              },
+              {
+                "properties": {
+                  "instance_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  }
+                },
+                "required": [
+                  "instance_id"
+                ]
+              }
+            ]
+          }
+        ]
       },
       "sideEffect": "plugin-registration",
       "permission": "workspace-write",
@@ -1042,6 +1252,62 @@
           "manifest"
         ],
         "additionalProperties": false
+      },
+      "sideEffect": "plugin-registration",
+      "permission": "workspace-write",
+      "revision": "current-base-revision",
+      "idempotency": "receipt belongs to containing command batch"
+    },
+    "plugin_duplicate": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "const": "plugin_duplicate"
+          },
+          "plugin_id": {
+            "$ref": "#/$defs/manifestId"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 60
+          },
+          "instance_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "anyOf": [
+              {
+                "properties": {
+                  "plugin_id": {
+                    "$ref": "#/$defs/manifestId"
+                  }
+                },
+                "required": [
+                  "plugin_id"
+                ]
+              },
+              {
+                "properties": {
+                  "instance_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                  }
+                },
+                "required": [
+                  "instance_id"
+                ]
+              }
+            ]
+          }
+        ]
       },
       "sideEffect": "plugin-registration",
       "permission": "workspace-write",
@@ -1258,7 +1524,7 @@
                 "const": 1
               },
               "multiple_instances": {
-                "const": false
+                "const": true
               },
               "private_frame_data": {
                 "const": false
@@ -1777,6 +2043,121 @@
       "revision": "none",
       "idempotency": "read-only"
     },
+    "checkpoint_preview": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
+            "const": "checkpoint_preview"
+          },
+          "base_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "checkpoint_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action",
+          "base_revision",
+          "checkpoint_id"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "base_revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "preview": {
+            "const": true
+          },
+          "checkpoint": {
+            "$ref": "#/$defs/checkpointMetadata"
+          },
+          "changes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "target": {
+                  "enum": [
+                    "workspace",
+                    "window",
+                    "pane",
+                    "plugin",
+                    "docking"
+                  ]
+                },
+                "kind": {
+                  "enum": [
+                    "added",
+                    "removed",
+                    "changed"
+                  ]
+                },
+                "label": {
+                  "type": "string",
+                  "maxLength": 160
+                },
+                "fields": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "maxLength": 60
+                  },
+                  "maxItems": 32
+                }
+              },
+              "required": [
+                "target",
+                "kind",
+                "label",
+                "fields"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 300
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "warning": {
+            "type": "string",
+            "maxLength": 2048
+          }
+        },
+        "required": [
+          "workspace_id",
+          "base_revision",
+          "preview",
+          "checkpoint",
+          "changes",
+          "truncated",
+          "warning"
+        ],
+        "additionalProperties": false
+      },
+      "sideEffect": "read",
+      "permission": "authenticated-workspace",
+      "revision": "current-base-revision",
+      "idempotency": "read-only"
+    },
     "checkpoint": {
       "input": {
         "type": "object",
@@ -2137,6 +2518,467 @@
       "revision": "current-base-revision",
       "idempotency": "read-only"
     },
+    "layout_preview": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
+            "const": "layout_preview"
+          },
+          "base_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "operations": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "const": "arrange_windows"
+                    },
+                    "width": {
+                      "type": "number",
+                      "minimum": 280,
+                      "maximum": 16000
+                    },
+                    "height": {
+                      "type": "number",
+                      "minimum": 180,
+                      "maximum": 16000
+                    },
+                    "window_ids": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                      },
+                      "minItems": 1,
+                      "uniqueItems": true
+                    },
+                    "columns": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 9007199254740991
+                    },
+                    "gap": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 100
+                    }
+                  },
+                  "required": [
+                    "action",
+                    "width",
+                    "height"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "const": "arrange_spatial"
+                    },
+                    "window_ids": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                      },
+                      "minItems": 1,
+                      "uniqueItems": true
+                    },
+                    "mode": {
+                      "enum": [
+                        "grid",
+                        "row",
+                        "curve"
+                      ]
+                    },
+                    "columns": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 9007199254740991
+                    },
+                    "gap": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 20
+                    }
+                  },
+                  "required": [
+                    "action"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "const": "reorder_windows"
+                    },
+                    "window_ids": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                      },
+                      "minItems": 1,
+                      "uniqueItems": true
+                    }
+                  },
+                  "required": [
+                    "action",
+                    "window_ids"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "const": "select"
+                    },
+                    "window_id": {
+                      "type": "string",
+                      "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                    }
+                  },
+                  "required": [
+                    "action",
+                    "window_id"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "const": "set_view"
+                    },
+                    "view": {
+                      "enum": [
+                        "windows",
+                        "spatial"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "action",
+                    "view"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "const": "update_window"
+                    },
+                    "window_id": {
+                      "type": "string",
+                      "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                    },
+                    "frame": {
+                      "$ref": "#/$defs/frame"
+                    }
+                  },
+                  "required": [
+                    "action",
+                    "window_id",
+                    "frame"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 32
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action",
+          "base_revision",
+          "operations"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "base_revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "preview": {
+            "const": true
+          },
+          "state": {
+            "$ref": "#/$defs/workspace"
+          },
+          "changed_fields": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 100
+            }
+          },
+          "warning": {
+            "type": "string",
+            "maxLength": 2048
+          }
+        },
+        "required": [
+          "workspace_id",
+          "base_revision",
+          "preview",
+          "state",
+          "changed_fields",
+          "warning"
+        ],
+        "additionalProperties": false
+      },
+      "sideEffect": "read",
+      "permission": "authenticated-owner-on-workspace-route-only",
+      "revision": "current-base-revision",
+      "idempotency": "read-only"
+    },
+    "layout_apply": {
+      "input": {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
+            "const": "layout_apply"
+          },
+          "base_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "operations": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "const": "arrange_windows"
+                    },
+                    "width": {
+                      "type": "number",
+                      "minimum": 280,
+                      "maximum": 16000
+                    },
+                    "height": {
+                      "type": "number",
+                      "minimum": 180,
+                      "maximum": 16000
+                    },
+                    "window_ids": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                      },
+                      "minItems": 1,
+                      "uniqueItems": true
+                    },
+                    "columns": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 9007199254740991
+                    },
+                    "gap": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 100
+                    }
+                  },
+                  "required": [
+                    "action",
+                    "width",
+                    "height"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "const": "arrange_spatial"
+                    },
+                    "window_ids": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                      },
+                      "minItems": 1,
+                      "uniqueItems": true
+                    },
+                    "mode": {
+                      "enum": [
+                        "grid",
+                        "row",
+                        "curve"
+                      ]
+                    },
+                    "columns": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 9007199254740991
+                    },
+                    "gap": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 20
+                    }
+                  },
+                  "required": [
+                    "action"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "const": "reorder_windows"
+                    },
+                    "window_ids": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                      },
+                      "minItems": 1,
+                      "uniqueItems": true
+                    }
+                  },
+                  "required": [
+                    "action",
+                    "window_ids"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "const": "select"
+                    },
+                    "window_id": {
+                      "type": "string",
+                      "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                    }
+                  },
+                  "required": [
+                    "action",
+                    "window_id"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "const": "set_view"
+                    },
+                    "view": {
+                      "enum": [
+                        "windows",
+                        "spatial"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "action",
+                    "view"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "const": "update_window"
+                    },
+                    "window_id": {
+                      "type": "string",
+                      "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                    },
+                    "frame": {
+                      "$ref": "#/$defs/frame"
+                    }
+                  },
+                  "required": [
+                    "action",
+                    "window_id",
+                    "frame"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 32
+          },
+          "operation_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_.:-]{1,128}$"
+          },
+          "intent": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action",
+          "base_revision",
+          "operations",
+          "operation_id",
+          "intent"
+        ],
+        "additionalProperties": false,
+        "dependencies": {
+          "operation_id": [
+            "intent",
+            "base_revision"
+          ],
+          "intent": [
+            "operation_id"
+          ]
+        }
+      },
+      "output": {
+        "$ref": "#/$defs/committedSnapshot"
+      },
+      "sideEffect": "layout",
+      "permission": "authenticated-owner-on-workspace-route-only",
+      "revision": "current-base-revision",
+      "idempotency": "durable receipt by authenticated actor/workspace/operation_id within recovery policy generation; obsolete generation replay rejected; legacy missing keys are not retry-safe"
+    },
     "plugins_apply": {
       "input": {
         "type": "object",
@@ -2219,6 +3061,17 @@
             "type": "integer",
             "minimum": 0,
             "maximum": 9007199254740991
+          },
+          "client_features": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "plugin-instances-v1",
+                "plugin-config-schema-v1"
+              ]
+            },
+            "maxItems": 2,
+            "uniqueItems": true
           },
           "operation_id": {
             "type": "string",
@@ -3033,6 +3886,9 @@
           "entry": {
             "type": "string",
             "pattern": "^/apps/[a-z0-9-]+/[a-zA-Z0-9/_-]+\\.html$"
+          },
+          "configSchema": {
+            "$ref": "#/$defs/configSchema"
           }
         },
         "required": [
@@ -3070,6 +3926,10 @@
         "properties": {
           "manifest": {
             "$ref": "#/$defs/manifest"
+          },
+          "instance_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
           },
           "enabled": {
             "type": "boolean"
@@ -3195,6 +4055,156 @@
           "version",
           "layout",
           "floats"
+        ],
+        "additionalProperties": false
+      },
+      "configSchemaField": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "key": {
+                "type": "string",
+                "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,47}$"
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 60,
+                "pattern": "^[^\\u0000-\\u001f]*$",
+                "minLength": 1
+              },
+              "description": {
+                "type": "string",
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f]*$"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "type": {
+                "const": "string"
+              },
+              "default": {
+                "type": "string",
+                "maxLength": 4096,
+                "pattern": "^[^\\u0000-\\u001f]*$"
+              },
+              "enum": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "maxLength": 4096,
+                  "pattern": "^[^\\u0000-\\u001f]*$"
+                },
+                "minItems": 1,
+                "maxItems": 32,
+                "uniqueItems": true
+              }
+            },
+            "required": [
+              "key",
+              "type"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "key": {
+                "type": "string",
+                "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,47}$"
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 60,
+                "pattern": "^[^\\u0000-\\u001f]*$",
+                "minLength": 1
+              },
+              "description": {
+                "type": "string",
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f]*$"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "type": {
+                "const": "number"
+              },
+              "default": {
+                "type": "number"
+              },
+              "enum": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 1,
+                "maxItems": 32,
+                "uniqueItems": true
+              },
+              "min": {
+                "type": "number"
+              },
+              "max": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "key",
+              "type"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "key": {
+                "type": "string",
+                "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,47}$"
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 60,
+                "pattern": "^[^\\u0000-\\u001f]*$",
+                "minLength": 1
+              },
+              "description": {
+                "type": "string",
+                "maxLength": 200,
+                "pattern": "^[^\\u0000-\\u001f]*$"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "type": {
+                "const": "boolean"
+              },
+              "default": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "key",
+              "type"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "configSchema": {
+        "type": "object",
+        "properties": {
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/configSchemaField"
+            },
+            "maxItems": 32
+          }
+        },
+        "required": [
+          "fields"
         ],
         "additionalProperties": false
       },
@@ -3845,15 +4855,45 @@
               },
               "confirm_host_access": {
                 "const": true
+              },
+              "instance_id": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
               }
             },
             "required": [
               "action",
-              "plugin_id",
               "endpoint",
               "confirm_host_access"
             ],
-            "additionalProperties": false
+            "additionalProperties": false,
+            "allOf": [
+              {
+                "anyOf": [
+                  {
+                    "properties": {
+                      "plugin_id": {
+                        "$ref": "#/$defs/manifestId"
+                      }
+                    },
+                    "required": [
+                      "plugin_id"
+                    ]
+                  },
+                  {
+                    "properties": {
+                      "instance_id": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                      }
+                    },
+                    "required": [
+                      "instance_id"
+                    ]
+                  }
+                ]
+              }
+            ]
           },
           {
             "type": "object",
@@ -3863,13 +4903,43 @@
               },
               "plugin_id": {
                 "$ref": "#/$defs/manifestId"
+              },
+              "instance_id": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
               }
             },
             "required": [
-              "action",
-              "plugin_id"
+              "action"
             ],
-            "additionalProperties": false
+            "additionalProperties": false,
+            "allOf": [
+              {
+                "anyOf": [
+                  {
+                    "properties": {
+                      "plugin_id": {
+                        "$ref": "#/$defs/manifestId"
+                      }
+                    },
+                    "required": [
+                      "plugin_id"
+                    ]
+                  },
+                  {
+                    "properties": {
+                      "instance_id": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                      }
+                    },
+                    "required": [
+                      "instance_id"
+                    ]
+                  }
+                ]
+              }
+            ]
           },
           {
             "type": "object",
@@ -3879,13 +4949,43 @@
               },
               "plugin_id": {
                 "$ref": "#/$defs/manifestId"
+              },
+              "instance_id": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
               }
             },
             "required": [
-              "action",
-              "plugin_id"
+              "action"
             ],
-            "additionalProperties": false
+            "additionalProperties": false,
+            "allOf": [
+              {
+                "anyOf": [
+                  {
+                    "properties": {
+                      "plugin_id": {
+                        "$ref": "#/$defs/manifestId"
+                      }
+                    },
+                    "required": [
+                      "plugin_id"
+                    ]
+                  },
+                  {
+                    "properties": {
+                      "instance_id": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                      }
+                    },
+                    "required": [
+                      "instance_id"
+                    ]
+                  }
+                ]
+              }
+            ]
           },
           {
             "type": "object",
@@ -3895,13 +4995,43 @@
               },
               "plugin_id": {
                 "$ref": "#/$defs/manifestId"
+              },
+              "instance_id": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
               }
             },
             "required": [
-              "action",
-              "plugin_id"
+              "action"
             ],
-            "additionalProperties": false
+            "additionalProperties": false,
+            "allOf": [
+              {
+                "anyOf": [
+                  {
+                    "properties": {
+                      "plugin_id": {
+                        "$ref": "#/$defs/manifestId"
+                      }
+                    },
+                    "required": [
+                      "plugin_id"
+                    ]
+                  },
+                  {
+                    "properties": {
+                      "instance_id": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                      }
+                    },
+                    "required": [
+                      "instance_id"
+                    ]
+                  }
+                ]
+              }
+            ]
           },
           {
             "type": "object",
@@ -3914,14 +5044,44 @@
               },
               "patch": {
                 "$ref": "#/$defs/config"
+              },
+              "instance_id": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
               }
             },
             "required": [
               "action",
-              "plugin_id",
               "patch"
             ],
-            "additionalProperties": false
+            "additionalProperties": false,
+            "allOf": [
+              {
+                "anyOf": [
+                  {
+                    "properties": {
+                      "plugin_id": {
+                        "$ref": "#/$defs/manifestId"
+                      }
+                    },
+                    "required": [
+                      "plugin_id"
+                    ]
+                  },
+                  {
+                    "properties": {
+                      "instance_id": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                      }
+                    },
+                    "required": [
+                      "instance_id"
+                    ]
+                  }
+                ]
+              }
+            ]
           },
           {
             "type": "object",
@@ -4001,14 +5161,44 @@
                 },
                 "required": [],
                 "additionalProperties": false
+              },
+              "instance_id": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
               }
             },
             "required": [
               "action",
-              "plugin_id",
               "settings"
             ],
-            "additionalProperties": false
+            "additionalProperties": false,
+            "allOf": [
+              {
+                "anyOf": [
+                  {
+                    "properties": {
+                      "plugin_id": {
+                        "$ref": "#/$defs/manifestId"
+                      }
+                    },
+                    "required": [
+                      "plugin_id"
+                    ]
+                  },
+                  {
+                    "properties": {
+                      "instance_id": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                      }
+                    },
+                    "required": [
+                      "instance_id"
+                    ]
+                  }
+                ]
+              }
+            ]
           },
           {
             "type": "object",
@@ -4021,14 +5211,44 @@
               },
               "config": {
                 "$ref": "#/$defs/config"
+              },
+              "instance_id": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
               }
             },
             "required": [
               "action",
-              "plugin_id",
               "config"
             ],
-            "additionalProperties": false
+            "additionalProperties": false,
+            "allOf": [
+              {
+                "anyOf": [
+                  {
+                    "properties": {
+                      "plugin_id": {
+                        "$ref": "#/$defs/manifestId"
+                      }
+                    },
+                    "required": [
+                      "plugin_id"
+                    ]
+                  },
+                  {
+                    "properties": {
+                      "instance_id": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                      }
+                    },
+                    "required": [
+                      "instance_id"
+                    ]
+                  }
+                ]
+              }
+            ]
           },
           {
             "type": "object",
@@ -4049,6 +5269,56 @@
               "manifest"
             ],
             "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "action": {
+                "const": "plugin_duplicate"
+              },
+              "plugin_id": {
+                "$ref": "#/$defs/manifestId"
+              },
+              "name": {
+                "type": "string",
+                "maxLength": 60
+              },
+              "instance_id": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+              }
+            },
+            "required": [
+              "action"
+            ],
+            "additionalProperties": false,
+            "allOf": [
+              {
+                "anyOf": [
+                  {
+                    "properties": {
+                      "plugin_id": {
+                        "$ref": "#/$defs/manifestId"
+                      }
+                    },
+                    "required": [
+                      "plugin_id"
+                    ]
+                  },
+                  {
+                    "properties": {
+                      "instance_id": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+                      }
+                    },
+                    "required": [
+                      "instance_id"
+                    ]
+                  }
+                ]
+              }
+            ]
           },
           {
             "type": "object",
@@ -4758,6 +6028,34 @@
             "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
           },
           "action": {
+            "const": "checkpoint_preview"
+          },
+          "base_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "checkpoint_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action",
+          "base_revision",
+          "checkpoint_id"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
             "const": "checkpoint"
           },
           "label": {
@@ -5013,6 +6311,412 @@
             "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
           },
           "action": {
+            "const": "layout_preview"
+          },
+          "base_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "operations": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "const": "arrange_windows"
+                    },
+                    "width": {
+                      "type": "number",
+                      "minimum": 280,
+                      "maximum": 16000
+                    },
+                    "height": {
+                      "type": "number",
+                      "minimum": 180,
+                      "maximum": 16000
+                    },
+                    "window_ids": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                      },
+                      "minItems": 1,
+                      "uniqueItems": true
+                    },
+                    "columns": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 9007199254740991
+                    },
+                    "gap": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 100
+                    }
+                  },
+                  "required": [
+                    "action",
+                    "width",
+                    "height"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "const": "arrange_spatial"
+                    },
+                    "window_ids": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                      },
+                      "minItems": 1,
+                      "uniqueItems": true
+                    },
+                    "mode": {
+                      "enum": [
+                        "grid",
+                        "row",
+                        "curve"
+                      ]
+                    },
+                    "columns": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 9007199254740991
+                    },
+                    "gap": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 20
+                    }
+                  },
+                  "required": [
+                    "action"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "const": "reorder_windows"
+                    },
+                    "window_ids": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                      },
+                      "minItems": 1,
+                      "uniqueItems": true
+                    }
+                  },
+                  "required": [
+                    "action",
+                    "window_ids"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "const": "select"
+                    },
+                    "window_id": {
+                      "type": "string",
+                      "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                    }
+                  },
+                  "required": [
+                    "action",
+                    "window_id"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "const": "set_view"
+                    },
+                    "view": {
+                      "enum": [
+                        "windows",
+                        "spatial"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "action",
+                    "view"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "const": "update_window"
+                    },
+                    "window_id": {
+                      "type": "string",
+                      "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                    },
+                    "frame": {
+                      "$ref": "#/$defs/frame"
+                    }
+                  },
+                  "required": [
+                    "action",
+                    "window_id",
+                    "frame"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 32
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action",
+          "base_revision",
+          "operations"
+        ],
+        "additionalProperties": false
+      },
+      {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
+            "const": "layout_apply"
+          },
+          "base_revision": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "operations": {
+            "type": "array",
+            "items": {
+              "oneOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "const": "arrange_windows"
+                    },
+                    "width": {
+                      "type": "number",
+                      "minimum": 280,
+                      "maximum": 16000
+                    },
+                    "height": {
+                      "type": "number",
+                      "minimum": 180,
+                      "maximum": 16000
+                    },
+                    "window_ids": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                      },
+                      "minItems": 1,
+                      "uniqueItems": true
+                    },
+                    "columns": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 9007199254740991
+                    },
+                    "gap": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 100
+                    }
+                  },
+                  "required": [
+                    "action",
+                    "width",
+                    "height"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "const": "arrange_spatial"
+                    },
+                    "window_ids": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                      },
+                      "minItems": 1,
+                      "uniqueItems": true
+                    },
+                    "mode": {
+                      "enum": [
+                        "grid",
+                        "row",
+                        "curve"
+                      ]
+                    },
+                    "columns": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 9007199254740991
+                    },
+                    "gap": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 20
+                    }
+                  },
+                  "required": [
+                    "action"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "const": "reorder_windows"
+                    },
+                    "window_ids": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                      },
+                      "minItems": 1,
+                      "uniqueItems": true
+                    }
+                  },
+                  "required": [
+                    "action",
+                    "window_ids"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "const": "select"
+                    },
+                    "window_id": {
+                      "type": "string",
+                      "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                    }
+                  },
+                  "required": [
+                    "action",
+                    "window_id"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "const": "set_view"
+                    },
+                    "view": {
+                      "enum": [
+                        "windows",
+                        "spatial"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "action",
+                    "view"
+                  ],
+                  "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "action": {
+                      "const": "update_window"
+                    },
+                    "window_id": {
+                      "type": "string",
+                      "pattern": "^[a-zA-Z0-9_-]{1,100}$"
+                    },
+                    "frame": {
+                      "$ref": "#/$defs/frame"
+                    }
+                  },
+                  "required": [
+                    "action",
+                    "window_id",
+                    "frame"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 32
+          },
+          "operation_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9_.:-]{1,128}$"
+          },
+          "intent": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        },
+        "required": [
+          "workspace_id",
+          "action",
+          "base_revision",
+          "operations",
+          "operation_id",
+          "intent"
+        ],
+        "additionalProperties": false,
+        "dependencies": {
+          "operation_id": [
+            "intent",
+            "base_revision"
+          ],
+          "intent": [
+            "operation_id"
+          ]
+        }
+      },
+      {
+        "type": "object",
+        "properties": {
+          "workspace_id": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
+          },
+          "action": {
             "const": "plugins_apply"
           },
           "base_revision": {
@@ -5077,6 +6781,17 @@
             "type": "integer",
             "minimum": 0,
             "maximum": 9007199254740991
+          },
+          "client_features": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "plugin-instances-v1",
+                "plugin-config-schema-v1"
+              ]
+            },
+            "maxItems": 2,
+            "uniqueItems": true
           },
           "operation_id": {
             "type": "string",

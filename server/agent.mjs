@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import { randomUUID, createHash } from 'node:crypto';
 import { createSharedChats } from './shared-chats.mjs';
+import { createConversationPrivateStore } from './conversation-private-store.mjs';
 import { createWorkbenchHermes } from './workbench-hermes.mjs';
 import { automation } from './automation.mjs';
 import { tokenMatches, allowedRequest } from './security.mjs';
@@ -13,7 +14,13 @@ const sessionPattern = /^orbit-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[
 const runPattern = /^run_[a-zA-Z0-9_-]{8,100}$/;
 const instructions = 'You are Hermes, accessed through the owner’s Comet/Orbit Desktop agent chat. This pane uses its explicitly selected profile and conversation, which may resume a saved Hermes session. Orbit terminal panes run as the owner on the host. Your agent tools still run in the configured Hermes environment. Use plain text in replies. Do not claim to see screen pixels, iframe contents, or terminal buffers unless supplied. Follow normal tool approval policies.';
 
-export function createAgentHandler({ token, port, devOrigins, reply, workspaceContext, workspaceRead, runtimeDirectory = process.env.ORBIT_RUNTIME_DIR || fileURLToPath(new URL('../.runtime/', import.meta.url)), apiUrl = process.env.HERMES_API_URL, apiKey = process.env.HERMES_API_KEY, profiles, profilesJson = process.env.HERMES_PROFILES_JSON, fetchImpl = fetch, executionGate }) {
+export function createAgentHandler({ token, port, devOrigins, reply, workspaceContext, workspaceRead, runtimeDirectory = process.env.ORBIT_RUNTIME_DIR || fileURLToPath(new URL('../.runtime/', import.meta.url)), apiUrl = process.env.HERMES_API_URL, apiKey = process.env.HERMES_API_KEY, profiles, profilesJson = process.env.HERMES_PROFILES_JSON, fetchImpl = fetch, executionGate, onRunEvent, onNormalAccepted }) {
+  // Derived observation only, using the exact run-trace contract. Never await or
+  // let an observer alter a receipt, response, approval or dispatch outcome.
+  const observeStatus=(binding,run)=>{
+    if(!onRunEvent)return;
+    try{onRunEvent({...binding,event:{event:'run.status',status:run.status,started_at:run.started_at,ended_at:run.ended_at},at:Date.now()});}catch{}
+  };
   let configuration;
   try { configuration = createAgentProfiles({profiles,profilesJson,apiUrl,apiKey}); } catch { configuration = null; }
   const endpoint = (profile, route) => `${profile.apiUrl.replace(/\/$/, '')}${route}`;
@@ -60,6 +67,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
   }
   let buildQueue;
   const shared = createSharedChats(path.join(runtimeDirectory,'shared-chats'));
+  const conversations = createConversationPrivateStore(path.join(runtimeDirectory, 'conversation-private'));
   // Private, bounded intent/receipt journal. Nothing here is workspace layout or
   // project data; credentials are represented only by the adapter's opaque digest.
   const journalDirectory = path.join(runtimeDirectory, 'ordinary-submissions');
@@ -135,6 +143,38 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
         if (Object.keys(body).some(key => !fields.has(key))) return reply(res,400,{error:'Unexpected submission request field.'});
       }
       if (body.action === 'profiles') return reply(res,200,{profiles:configuration.list,default_profile_id:'default'});
+      if (['conversation_library', 'conversation_metadata', 'draft_read', 'draft_write'].includes(body.action)) {
+        const fields = new Set(['action', 'workspace_id', 'profile_id', ...(body.action === 'conversation_library' ? ['offset'] : ['session_id', ...(body.action === 'draft_read' ? [] : ['expected_revision', body.action === 'draft_write' ? 'text' : 'patch'])])]);
+        if (Object.keys(body).some(key => !fields.has(key)) || !/^[a-f0-9-]{36}$/.test(body.workspace_id || '') || !configuration.get(body.profile_id)) return reply(res,400,{error:'Invalid conversation scope or fields.'});
+        if (!workspaceRead) return reply(res,503,{error:'Authoritative workspace access unavailable.'});
+        try { workspaceRead(body.workspace_id); } catch { return reply(res,404,{error:'Workspace unavailable.'}); }
+        const publicMetadata = record => ({session_id:record.session_id,profile_id:record.profile_id,title:record.title,pinned:record.pinned,archived:record.archived,revision:record.revision});
+        if (body.action === 'conversation_library') {
+          const offset = body.offset ?? 0;
+          if (!Number.isSafeInteger(offset) || offset < 0 || offset > 10000) return reply(res,400,{error:'Invalid session page.'});
+          const target = configuration.get(body.profile_id);
+          let page = {data:[],has_more:false}, supported = true;
+          try { page = sanitizeSessions(await upstreamFor(target,`/api/sessions?limit=100&offset=${offset}`)); }
+          catch (error) { if (error.status !== 404) throw error; supported = false; }
+          const metadata = conversations.list(body.workspace_id,body.profile_id).map(publicMetadata);
+          const rows = new Map(page.data.map(item => [item.id,{session_id:item.id,profile_id:body.profile_id,upstream_title:item.title,updated_at:item.updated_at,...publicMetadata(conversations.read({...body,session_id:item.id}))}]));
+          if (offset === 0) for (const item of metadata) if (!rows.has(item.session_id)) rows.set(item.session_id,{...item,upstream_title:'',catalog_missing:true});
+          return reply(res,200,{conversations:[...rows.values()],supported,has_more:offset < 10000 && (page.has_more || page.data.length === 100),note:'Search covers loaded titles and IDs, not message content. Orbit names, pins and archive flags do not modify Hermes.'});
+        }
+        if (!validSessionId(body.session_id)) return reply(res,400,{error:'Invalid conversation identity.'});
+        if (body.action === 'draft_read') return reply(res,200,{record:conversations.read(body)});
+        if (!Number.isSafeInteger(body.expected_revision) || body.expected_revision < 0) return reply(res,400,{error:'A private record revision is required.'});
+        let patch;
+        if (body.action === 'draft_write') {
+          if (typeof body.text !== 'string' || body.text.length > 100000) return reply(res,400,{error:'Draft exceeds 100,000 characters.'});
+          patch = {draft:body.text};
+        } else {
+          patch = body.patch;
+          if (!patch || typeof patch !== 'object' || Array.isArray(patch) || !Object.keys(patch).length || Object.keys(patch).some(key => !['title','pinned','archived'].includes(key)) || ('title' in patch && (typeof patch.title !== 'string' || patch.title.length > 200 || /[\x00-\x1f\x7f]/.test(patch.title))) || ['pinned','archived'].some(key => key in patch && typeof patch[key] !== 'boolean')) return reply(res,400,{error:'Invalid Orbit conversation metadata.'});
+        }
+        const result = conversations.write(body,body.expected_revision,patch);
+        return reply(res,result.conflict ? 409 : 200,{conflict:result.conflict,record:body.action === 'draft_write' ? result.record : publicMetadata(result.record)});
+      }
       const profileId = body.profile_id === undefined ? 'default' : body.profile_id;
       const profile = configuration.get(profileId);
       // A removed profile must fail closed for execution, but the owner still
@@ -162,6 +202,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
         if (body.action === 'shared_chat') {
           if(body.replace === true) return reply(res,409,{error:'Use validated session selection to change conversations.'});
           const state = shared.bind(body.workspace_id,body.pane_id,body.initial);
+          if (state) { const metadata=conversations.read({workspace_id:body.workspace_id,profile_id:state.profile_id || 'default',session_id:state.session}); if(metadata.title) state.title=metadata.title; }
           const lane=executionGate?.status?.();
           return reply(res,200,{state,...(lane?{execution_lane:{agent_busy:!!lane.agent||!!lane.legacy?.active||!!lane.legacy?.enabled,job_busy:!!lane.job,unknown:!!lane.quarantines?.length||!!lane.legacy?.uncertain}}:{})});
         }
@@ -190,7 +231,8 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
            validatePane(body);
            if (shared.locks.has(`session:${target.id}:${targetId}`) || shared.hasActive(target.id,targetId,body.workspace_id,body.pane_id)) return reply(res,409,{error:'This conversation is already running.'});
            if (current.binding_revision !== revision || current.session !== body.session_id || current.profile_id !== profileId || current.run) return reply(res,409,{error:'Conversation changed or is still running.'});
-           const state = shared.write(body.workspace_id,body.pane_id,{session:targetId,profile_id:target.id,binding_revision:revision+1,messages,title,history_unstarted:creating});
+            const display=conversations.read({workspace_id:body.workspace_id,profile_id:target.id,session_id:targetId});
+            const state = shared.write(body.workspace_id,body.pane_id,{session:targetId,profile_id:target.id,binding_revision:revision+1,messages,title:display.title || title,history_unstarted:creating});
           return reply(res,200,{state});
         }
         if(linked.session !== body.session_id || linked.profile_id !== profileId || revision !== linked.binding_revision) return reply(res,409,{error:'This pane is linked to another conversation. Wait for synchronization.'});
@@ -207,6 +249,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
           }
           if (!receipt.run_id) return reply(res,200,publicReceipt(receipt));
           const result = await agent.workbench.status(originalArgs(receipt));
+          observeStatus({workspace_id:receipt.workspace_id,profile_id:receipt.recipient.profile_id,session_id:receipt.recipient.session_id,run_id:receipt.run_id},result);
           return reply(res,200,{...publicReceipt(receipt),...result});
         }
         // Fence every ordinary control request against credential/endpoint changes,
@@ -216,6 +259,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
           if (recipient.config_generation !== receipt.recipient.config_generation) return reply(res,409,{error:'The original Hermes configuration changed. Restore it before inspecting this run.'});
           if (body.action === 'status') {
             const result = await agent.workbench.status(originalArgs(receipt));
+            observeStatus({workspace_id:receipt.workspace_id,profile_id:receipt.recipient.profile_id,session_id:receipt.recipient.session_id,run_id:receipt.run_id},result);
             let approvals = [];
             if (result.status === 'waiting_for_approval') {
               const pending = await upstream(`/v1/approvals/pending?session_id=${encodeURIComponent(receipt.run_id)}`);
@@ -256,8 +300,12 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
         const abort = new AbortController(); res.on('close', () => abort.abort());
         const stream = await fetchImpl(endpoint(profile,`/v1/runs/${body.run_id}/events`), { headers: { Authorization: `Bearer ${profile.apiKey}` }, signal: abort.signal, redirect: 'error' });
         if (!stream.ok) return reply(res, 502, { error: 'Activity stream unavailable; use status polling.' });
+        let tee;
+        // Only pane-backed requests have an authoritative workspace/profile/
+        // session binding. Legacy unbound requests are forwarded without traces.
+        if(onRunEvent&&body.pane_id){try{const {createRunTraceTee}=await import('./run-trace-tee.mjs');tee=createRunTraceTee({binding:{workspace_id:body.workspace_id,profile_id:profileId,session_id:body.session_id,run_id:body.run_id},onRunEvent});}catch{}}
         res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' });
-        try { for await (const chunk of stream.body) { if (!res.write(chunk)) await new Promise(resolve => { res.once('drain', resolve); res.once('close', resolve); }); if (res.destroyed) break; } } finally { abort.abort(); res.end(); }
+        try { for await (const chunk of stream.body) { try{tee?.write(chunk);}catch{} if (!res.write(chunk)) await new Promise(resolve => { res.once('drain', resolve); res.once('close', resolve); }); if (res.destroyed) break; } } finally { try{tee?.close();}catch{} abort.abort(); res.end(); }
         return;
       }
       if(body.action==='connection_password') {
@@ -332,7 +380,11 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
             // session lock or carry the request's pane lock into that adapter.
             shared.locks.delete(paneLock); paneLock = undefined;
             const data = await agent.workbench.dispatchExact({...args,payload:record.payload,submission_id:receiptId,preservePending:true,idempotency_key:prepared.caps.idempotent_submit ? receiptId : undefined,onAccepted: data => {
-              record.run_id = data.run_id; record.state = 'accepted'; saveSubmission(record);
+               record.run_id = data.run_id; record.state = 'accepted'; saveSubmission(record);
+               // Host-only observer receives the durable exact receipt, never UI
+               // identity assertions. A grant setup failure cannot replay a run.
+               try { onNormalAccepted?.(structuredClone(record)); } catch {}
+               observeStatus({workspace_id:record.workspace_id,profile_id:record.recipient.profile_id,session_id:record.recipient.session_id,run_id:record.run_id},data);
              }}, allowConcurrent);
             return reply(res,202,{...data,...publicReceipt(record)});
           } catch (error) {
@@ -389,6 +441,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
       const run = await upstream(runPath);
       // Never let Orbit operate on another dashboard's sessions/runs.
       if (run.session_id !== body.session_id) return reply(res, 404, { error: 'Run not found in this Orbit conversation.' });
+      if(body.action==='status'&&body.pane_id)observeStatus({workspace_id:body.workspace_id,profile_id:profileId,session_id:body.session_id,run_id:body.run_id},run);
       if (body.action === 'steer') {
         if (typeof body.input !== 'string' || !body.input.trim() || body.input.length > 100000) return reply(res, 400, { error: 'Guidance must contain 1–100,000 characters.' });
         const data = await upstream(`${runPath}/steer`, { input: body.input.trim() });
@@ -422,5 +475,51 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
     }
   };
   agent.workbench = createWorkbenchHermes({ configuration, shared, locks: shared.locks, upstreamFor, validatePane, workspaceRead, runtimeDirectory });
+  const resourceFailure=code=>{throw Object.assign(Error(code),{code});};
+  function resourceRecipient({workspace_id,pane_id}) {
+    try{validatePane({workspace_id,pane_id});}catch(error){resourceFailure(error.status===404?'resource_gone':'unavailable');}
+    const linked=shared.read(workspace_id,pane_id),profile=configuration?.get(linked?.profile_id);
+    if(!linked||!profile)resourceFailure('unavailable');
+    return {pane_id,profile_id:profile.id,session_id:linked.session,binding_revision:linked.binding_revision,
+      config_generation:createHash('sha256').update(`${profile.id}\0${profile.apiUrl || ''}\0${profile.apiKey || ''}`).digest('hex'),
+      destination:new URL(profile.apiUrl).origin,profile_label:profile.label??profile.id};
+  }
+  agent.resourceBindings={
+    current:resourceRecipient,
+    retirementReason(workspace_id,normal){
+      let current;
+      try{current=resourceRecipient({workspace_id,pane_id:normal.recipient.pane_id});}
+      catch(error){if(error.code==='resource_gone')return 'resource_gone';throw error;}
+      if(['profile_id','session_id','binding_revision','config_generation'].some(key=>current[key]!==normal.recipient[key]))return 'binding_changed';
+      if(!normal.run_id)return null;
+      const linked=shared.read(workspace_id,current.pane_id);
+      if(linked?.ordinary_submission_id&&linked.ordinary_submission_id!==normal.receipt_id)return 'superseded';
+      // Only a reconciled accepted receipt with BOTH activity markers cleared
+      // proves completion. Unknown/preparing submissions must retain their fence.
+      if(linked?.ordinary_submission_id===normal.receipt_id&&!linked.run&&!linked.workbench_pending&&readSubmission({workspace_id,pane_id:current.pane_id},linked)?.state==='accepted')return 'completed';
+      return null;
+    },
+    list(workspace_id){
+      const result=[];const walk=node=>{if(node.type==='pane'){if(node.pane.kind==='agent'){try{result.push(resourceRecipient({workspace_id,pane_id:node.pane.id}));}catch{}}}else{walk(node.first);walk(node.second);}};
+      for(const monitor of workspaceRead(workspace_id).state.monitors)walk(monitor.layout);return result;
+    },
+    authorize(workspace_id,normal){
+      const current=resourceRecipient({workspace_id,pane_id:normal.recipient.pane_id});
+      for(const key of ['profile_id','session_id','binding_revision','config_generation'])if(current[key]!==normal.recipient[key])resourceFailure('stale_resource');
+      if(!normal.run_id||!normal.receipt_id)resourceFailure('permission_denied');
+      const record=readSubmission({workspace_id,pane_id:current.pane_id});
+      if(!record||record.state!=='accepted'||record.receipt_id!==normal.receipt_id||record.run_id!==normal.run_id||record.payload_hash!==normal.payload_hash||createHash('sha256').update(JSON.stringify(record.payload)).digest('hex')!==normal.payload_hash)resourceFailure('permission_denied');
+      for(const key of ['profile_id','session_id','binding_revision','config_generation'])if(record.recipient[key]!==current[key])resourceFailure('stale_resource');
+      return current;
+    },
+    async validateRun(workspace_id,normal){
+      const current=this.authorize(workspace_id,normal),profile=configuration.get(current.profile_id);
+      const run=await upstreamFor(profile,`/v1/runs/${normal.run_id}`);
+      this.authorize(workspace_id,normal);
+      if(run.run_id!==normal.run_id||run.session_id!==current.session_id)resourceFailure('permission_denied');
+      if(['completed','failed','cancelled','interrupted'].includes(run.status))throw Object.assign(Error('permission_denied'),{code:'permission_denied',channel_retirement:'completed'});
+      if(!['queued','running','waiting_for_approval'].includes(run.status))resourceFailure('permission_denied');
+    },
+  };
   return agent;
 }

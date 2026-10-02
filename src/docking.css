@@ -12,7 +12,11 @@
 .docking-root .docking-grid { position:absolute; inset:0; pointer-events:none; z-index:2; }
 .docking-root .docking-grid .dv-tabs-and-actions-container, .docking-root .docking-grid .dv-tab, .docking-root .docking-grid .dv-sash, .docking-root .docking-grid .dv-floating-titlebar { pointer-events:auto; }
 .docking-root .docking-surfaces { position:absolute; inset:0; pointer-events:none; z-index:1; }
-.docking-root .docking-surfaces>.monitor { position:absolute; pointer-events:auto; }
+.docking-root .docking-surfaces>.monitor { position:absolute; pointer-events:auto; min-width:0; min-height:0; box-sizing:border-box; overflow:hidden; }
+/* Dockview owns these bounds, including groups narrower than Windows' 280px
+   resize floor. Never let a surface paint/hit-test over an adjacent group. */
+.docking-root .docking-surfaces>.monitor .monitor-content { min-width:0; min-height:0; }
+.docking-root .docking-surfaces>.monitor :is(.monitor-bar,.pane-head) { min-width:0; overflow:auto; }
 .docking-root .docking-placeholder { width:100%; height:100%; }
 .docking-root .dv-default-tab-action { display:none; }
 .docking-unsupported[data-docking-unsupported] { position:absolute; inset:12px 12px auto; z-index:10; padding:12px; border:2px solid #e7aa6e; background:#3c2525; color:white; font:14px system-ui; }

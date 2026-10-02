@@ -31,6 +31,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from playwright.sync_api import expect, sync_playwright
+from browser_workspace import wait_for_workspace_connection
 
 # Import the shared synthetic gateway/helper without running its main().
 sys.dont_write_bytecode = True
@@ -209,7 +210,7 @@ def main(renderer):
         assert root != ROOT and not str(root).startswith(str(ROOT) + os.sep)
         for name in ("server", "src", "contracts", "docs", "public", "hermes-plugin", "scripts"):
             shutil.copytree(ROOT / name, root / name)
-        for name in ("index.html", "package.json", "tsconfig.json", "vite.config.js"):
+        for name in ("index.html", "package.json", "package-lock.json", "tsconfig.json", "vite.config.js"):
             shutil.copy2(ROOT / name, root / name)
         (root / "node_modules").symlink_to(ROOT / "node_modules", target_is_directory=True)
         for name in ("runtime", "home", "cwd", "tmux"):
@@ -466,7 +467,7 @@ def main(renderer):
                         with page.expect_response(lambda response: response.url == origin + "/api/agent"
                                                   and post_json(response.request).get("action") == "shared_chat") as binding:
                             page.get_by_role("button", name="Unlock local host", exact=True).click()
-                        expect(page.locator(".saved")).to_contain_text("Workspace connected", timeout=15000)
+                        wait_for_workspace_connection(page)
                         bound = binding.value.json()
                         assert binding.value.status == 200 and bound["state"]["session"] == session, bound
 
@@ -795,7 +796,7 @@ def main(renderer):
                         page.get_by_role("button", name="Connect local host", exact=True).click()
                         page.get_by_role("textbox", name="Host session token").fill(token)
                         page.get_by_role("button", name="Unlock local host", exact=True).click()
-                        expect(page.locator(".saved")).to_contain_text("Workspace connected", timeout=15000)
+                        wait_for_workspace_connection(page)
                         page.get_by_role("button", name="Open orbit menu").click()
                         page.get_by_role("button", name="Project Workbench", exact=True).click()
                         workbench2 = page.locator("dialog.project-workbench-dialog")

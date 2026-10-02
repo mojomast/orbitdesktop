@@ -44,13 +44,24 @@ const defs = {
   layout: { oneOf: [object({type:{const:'pane'},pane:object({id:identifier,kind,url:text()})}),object({type:{const:'split'},axis:enumeration('row','column'),ratio:num(0.15,0.85),first:ref('layout'),second:ref('layout')})] },
   template: { oneOf: [object({pane_id:identifier}),object({axis:enumeration('row','column'),ratio:num(0.15,0.85),first:ref('template'),second:ref('template')})] },
   monitor: object({id:identifier,...settings,spatial:ref('spatial'),layout:ref('layout')}, ['id','name','diagonal','aspect','height','distance','pitch','yaw','offset','fontSize','layout']),
-  manifest: object({apiVersion:{const:1},id:{type:'string',pattern:'^[a-z][a-z0-9-]{0,47}$'},version:{type:'string',pattern:'^\\d+\\.\\d+\\.\\d+$'},title:{...text(60),minLength:1},entry:{type:'string',pattern:'^/apps/[a-z0-9-]+/[a-zA-Z0-9/_-]+\\.html$'}}),
+  manifest: object({apiVersion:{const:1},id:{type:'string',pattern:'^[a-z][a-z0-9-]{0,47}$'},version:{type:'string',pattern:'^\\d+\\.\\d+\\.\\d+$'},title:{...text(60),minLength:1},entry:{type:'string',pattern:'^/apps/[a-z0-9-]+/[a-zA-Z0-9/_-]+\\.html$'},configSchema:ref('configSchema')},['apiVersion','id','version','title','entry']),
   config: {type:'object',maxProperties:32,propertyNames:{pattern:'^[a-zA-Z][a-zA-Z0-9_-]{0,47}$'},additionalProperties:{anyOf:[text(4096),{type:'number'},bool]}},
-  plugin: object({manifest:ref('manifest'),enabled:bool,window:ref('monitor'),config:ref('config'),backendEndpoint:text()},['manifest','enabled','window','config']),
+  plugin: object({manifest:ref('manifest'),instance_id:uuid,enabled:bool,window:ref('monitor'),config:ref('config'),backendEndpoint:text()},['manifest','enabled','window','config']),
   workspace: object({version:{const:1},monitors:array(ref('monitor'),{minItems:1}),selected:identifier,arc:num(0,30),view:enumeration('windows','spatial'),sidebarHidden:bool,appearance:ref('appearance'),plugins:array(ref('plugin'),{maxItems:32}),spatialCamera:ref('camera')},['version','monitors','selected','arc']),
   placementNode: { oneOf: [ref('placementGroup'), ref('placementBranch')] },
   dockingPlacement: object({version:{const:1},layout:{anyOf:[ref('placementNode'),{type:'null'}]},floats:array(ref('placementFloat'),{maxItems:100}),active:{anyOf:[identifier,{type:'null'}]}},['version','layout','floats']),
 };
+const schemaText = maxLength => ({...text(maxLength),pattern:'^[^\\u0000-\\u001f]*$'});
+const schemaField = {
+  key:{type:'string',pattern:'^[a-zA-Z][a-zA-Z0-9_-]{0,47}$'},
+  title:{...schemaText(60),minLength:1},description:schemaText(200),required:bool,
+};
+defs.configSchemaField = {oneOf:[
+  object({...schemaField,type:{const:'string'},default:schemaText(4096),enum:array(schemaText(4096),{minItems:1,maxItems:32,uniqueItems:true})},['key','type']),
+  object({...schemaField,type:{const:'number'},default:{type:'number'},enum:array({type:'number'},{minItems:1,maxItems:32,uniqueItems:true}),min:{type:'number'},max:{type:'number'}},['key','type']),
+  object({...schemaField,type:{const:'boolean'},default:bool},['key','type']),
+]};
+defs.configSchema = object({fields:array(ref('configSchemaField'),{maxItems:32})});
 const window = { window_id: identifier }, pane = {...window,pane_id:identifier}, plugin = {plugin_id:ref('manifestId')};
 defs.manifestId = defs.manifest.properties.id;
 const operations = {};
@@ -85,7 +96,17 @@ op('plugin_patch_config',{...plugin,patch:ref('config')},undefined,'plugin-regis
 op('plugin_window',{...plugin,settings:object(settings,[])},undefined,'plugin-registration');
 op('plugin_configure',{...plugin,config:ref('config')},undefined,'plugin-registration');
 op('plugin_update',{...plugin,manifest:ref('manifest')},undefined,'plugin-registration');
+op('plugin_duplicate',{...plugin,name:text(60)},['plugin_id'],'plugin-registration');
 op('plugin_disable_all',{},[],'plugin-registration');
+for (const name of ['backend','enable','disable','remove','patch_config','window','configure','duplicate']) {
+  const input = operations[`plugin_${name}`].input;
+  input.properties.instance_id = uuid;
+  input.required = input.required.filter(key => key !== 'plugin_id');
+  input.allOf = [{anyOf:[
+    {properties:{plugin_id:ref('manifestId')},required:['plugin_id']},
+    {properties:{instance_id:uuid},required:['instance_id']},
+  ]}];
+}
 defs.operation = {oneOf:Object.values(operations).map(op=>op.input)};
 const limits = {maxOperations:32,maxRequestBytes:150000,maxResponseBytes:2000000,maxLabelCharacters:120};
 const commands = {};
@@ -119,6 +140,7 @@ defs.workbenchSetupRequest=object({
 },['op_id','goal']);
 command('workbench_setup',{request:ref('workbenchSetupRequest')},['request'],'workspace-proposal','service-validated');
 command('history');
+command('checkpoint_preview',{base_revision:integer(0),checkpoint_id:uuid},['base_revision','checkpoint_id'],'read','current-base-revision');
 command('checkpoint',{label:text(limits.maxLabelCharacters)},[],'checkpoint');
 command('placement_save',{base_revision:integer(0),placement:ref('dockingPlacement'),operation_id:{type:'string',pattern:'^[a-zA-Z0-9_.:-]{1,128}$'},intent:{type:'string',minLength:1,maxLength:160}},['base_revision','placement','operation_id','intent'],'layout','current-base-revision');
 command('restore',{base_revision:integer(0),checkpoint_id:uuid,confirm:bool},['base_revision','checkpoint_id'],'layout','current-base-revision');
@@ -126,8 +148,18 @@ command('recovery_policy',{base_revision:integer(0),operation_id:{type:'string',
 const batch={base_revision:integer(0),operations:array(ref('operation'),{minItems:1,maxItems:limits.maxOperations})};
 command('apply',batch,Object.keys(batch),'layout','current-base-revision');
 command('preview',batch,Object.keys(batch),'read','current-base-revision');
+// Owner UI composition is deliberately limited to existing-window placement.
+// It cannot create/close panes, install plugins, or replace the whole workspace.
+const layoutOperation = {oneOf:[
+  ...['arrange_windows','arrange_spatial','reorder_windows','select','set_view'].map(name=>operations[name].input),
+  object({action:{const:'update_window'},window_id:identifier,frame:ref('frame')},['action','window_id','frame']),
+]};
+const layoutBatch={base_revision:integer(0),operations:array(layoutOperation,{minItems:1,maxItems:limits.maxOperations})};
+command('layout_preview',layoutBatch,Object.keys(layoutBatch),'read','current-base-revision');
+command('layout_apply',layoutBatch,Object.keys(layoutBatch),'layout','current-base-revision');
+commands.layout_preview.permission=commands.layout_apply.permission='authenticated-owner-on-workspace-route-only';
 command('plugins_apply',batch,Object.keys(batch),'plugin-registration','current-base-revision');
-command('sync',{state:ref('workspace'),base_revision:integer(0),observed_revision:integer(0)},['state'],'layout','required-after-initial-connect');
+command('sync',{state:ref('workspace'),base_revision:integer(0),observed_revision:integer(0),client_features:array(enumeration('plugin-instances-v1','plugin-config-schema-v1'),{maxItems:2,uniqueItems:true})},['state'],'layout','required-after-initial-connect');
 command('shelf');
 command('jev_suggest',{request:text(12000),api_key:text(4096),consent:bool},['request','api_key','consent'],'external-model-request');
 command('jev_apply',{action_id:text(100),base_revision:integer(0),confirm:bool},['action_id','base_revision'],'layout','current-base-revision');
@@ -149,11 +181,12 @@ defs.placementSnapshot = object({workspace_id:uuid,revision:integer(1),placement
 defs.checkpointMetadata = object({id:uuid,created:{type:'number'},label:text(160),revision:integer(1)});
 const outputs = {
   arrangement:{type:'object',description:'Arrangement service result; structural preview, committed receipt and browser acknowledgement are separate facts'},
-  describe:object({workspace_id:uuid,revision:integer(1),version:{const:1},editable_fields:array(text(100),{maxItems:32}),surfaces:array(object({window_id:identifier,pane_id:identifier,kind}),{maxItems:1000}),projects:array(object({id:uuid,name:text(200),generation:integer(1)}),{maxItems:32}),bindings:array(object({id:uuid,project_id:uuid,resource_id:uuid,pane_id:identifier,role:text(40),available:bool}),{maxItems:1000}),extension_compatibility:object({manifest_api:{const:1},multiple_instances:{const:false},private_frame_data:{const:false},network:{const:'legacy-network-capable'}}),unsupported:array(text(200),{maxItems:32}),catalog:{type:'object'}},['workspace_id','revision','version','editable_fields','surfaces','projects','bindings','extension_compatibility','unsupported']),
+  describe:object({workspace_id:uuid,revision:integer(1),version:{const:1},editable_fields:array(text(100),{maxItems:32}),surfaces:array(object({window_id:identifier,pane_id:identifier,kind}),{maxItems:1000}),projects:array(object({id:uuid,name:text(200),generation:integer(1)}),{maxItems:32}),bindings:array(object({id:uuid,project_id:uuid,resource_id:uuid,pane_id:identifier,role:text(40),available:bool}),{maxItems:1000}),extension_compatibility:object({manifest_api:{const:1},multiple_instances:{const:true},private_frame_data:{const:false},network:{const:'legacy-network-capable'}}),unsupported:array(text(200),{maxItems:32}),catalog:{type:'object'}},['workspace_id','revision','version','editable_fields','surfaces','projects','bindings','extension_compatibility','unsupported']),
   read:ref('snapshot'),sync:ref('snapshot'),apply:ref('snapshot'),plugins_apply:ref('snapshot'),restore:ref('snapshot'),jev_apply:ref('snapshot'),recovery_policy:ref('snapshot'),
   placement_save:ref('placementSnapshot'),
   checkpoint:object({checkpoint:uuid}),
   history:object({revision:integer(1),checkpoints:array(ref('checkpointMetadata'))}),
+  checkpoint_preview:object({workspace_id:uuid,base_revision:integer(1),preview:{const:true},checkpoint:ref('checkpointMetadata'),changes:array(object({target:enumeration('workspace','window','pane','plugin','docking'),kind:enumeration('added','removed','changed'),label:text(160),fields:array(text(60),{maxItems:32})}),{maxItems:300}),truncated:bool,warning:text()}),
   preview:object({workspace_id:uuid,base_revision:integer(1),preview:{const:true},state:ref('workspace'),changed_fields:array(text(100)),warning:text()}),
   shelf:object({items:array(object({title:text(),url:text(),kind:enumeration('app/report','output')}),{maxItems:300})}),
   // The proposal response returns only the server-assigned suggestion id. The
@@ -170,8 +203,9 @@ outputs.checkpoint.properties.command_receipt=ref('commandReceipt');
 outputs.checkpoint.required.push('command_receipt');
 defs.committedSnapshot=structuredClone(defs.snapshot);
 defs.committedSnapshot.required.push('command_receipt');
-for(const action of ['sync','apply','plugins_apply','restore','jev_apply','recovery_policy'])outputs[action]=ref('committedSnapshot');
-for(const name of ['sync','apply','plugins_apply','restore','checkpoint','jev_apply']) {
+outputs.layout_preview=outputs.preview;
+for(const action of ['sync','apply','layout_apply','plugins_apply','restore','jev_apply','recovery_policy'])outputs[action]=ref('committedSnapshot');
+for(const name of ['sync','apply','layout_apply','plugins_apply','restore','checkpoint','jev_apply']) {
   const command=commands[name];
   Object.assign(command.input.properties,{
     operation_id:{type:'string',pattern:'^[a-zA-Z0-9_.:-]{1,128}$'},
@@ -182,6 +216,8 @@ for(const name of ['sync','apply','plugins_apply','restore','checkpoint','jev_ap
   command.idempotency='durable receipt by authenticated actor/workspace/operation_id within recovery policy generation; obsolete generation replay rejected; legacy missing keys are not retry-safe';
 }
 for(const operation of Object.values(operations))operation.idempotency='receipt belongs to containing command batch';
+// New owner composition clients always retain an exact retry identity.
+commands.layout_apply.input.required.push('operation_id','intent');
 for(const [name,command] of Object.entries(commands)) {
   command.output = outputs[name] || {type:'object',description:'Legacy optional Jev result; provider output validation remains in server/jev.mjs'};
 }

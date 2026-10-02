@@ -98,7 +98,7 @@ def main(renderer, linked=False):
         for name in ("server", "src", "contracts", "docs", "public", "scripts"):
             if (ROOT / name).is_dir():
                 shutil.copytree(ROOT / name, root / name)
-        for name in ("index.html", "package.json", "tsconfig.json", "vite.config.js"):
+        for name in ("index.html", "package.json", "package-lock.json", "tsconfig.json", "vite.config.js"):
             if (ROOT / name).is_file():
                 shutil.copy2(ROOT / name, root / name)
         (root / "node_modules").symlink_to(ROOT / "node_modules", target_is_directory=True)
@@ -309,8 +309,8 @@ def main(renderer, linked=False):
                         assert inspection['execution']['state']=='available'
                         expect(dialog.get_by_role("button", name="Ask agent about this", exact=True)).to_be_enabled()
                         dialog.get_by_role("button", name="Open doctor").click()
-                        expect(dialog.locator(".workbench-doctor")).to_contain_text("schema_version: 11")
-                        assert result_for(responses, "doctor")["schema_version"] == 11
+                        expect(dialog.locator(".workbench-doctor")).to_contain_text("schema_version: 12")
+                        assert result_for(responses, "doctor")["schema_version"] == 12
                         assert token not in dialog.inner_text() and "do-not-read" not in dialog.inner_text()
 
                         status, denied = api(origin, token, {"action": "register_preview", "root": str(project / "linkdir"), "name": "denied"})

@@ -35,12 +35,13 @@ Mutations with `operation_id`, `intent` and `base_revision` commit durable recei
 | split_pane | window_id, pane_id | kind, axis, ratio | layout |
 | close_pane | window_id, pane_id |  | layout |
 | plugin_install | manifest | config | plugin-registration |
-| plugin_backend | plugin_id, endpoint, confirm_host_access |  | trusted-backend |
-| plugin_enable | plugin_id |  | plugin-registration |
-| plugin_disable | plugin_id |  | plugin-registration |
-| plugin_remove | plugin_id |  | plugin-registration |
-| plugin_patch_config | plugin_id, patch |  | plugin-registration |
-| plugin_window | plugin_id, settings |  | plugin-registration |
-| plugin_configure | plugin_id, config |  | plugin-registration |
+| plugin_backend | endpoint, confirm_host_access | plugin_id, instance_id | trusted-backend |
+| plugin_enable |  | plugin_id, instance_id | plugin-registration |
+| plugin_disable |  | plugin_id, instance_id | plugin-registration |
+| plugin_remove |  | plugin_id, instance_id | plugin-registration |
+| plugin_patch_config | patch | plugin_id, instance_id | plugin-registration |
+| plugin_window | settings | plugin_id, instance_id | plugin-registration |
+| plugin_configure | config | plugin_id, instance_id | plugin-registration |
 | plugin_update | plugin_id, manifest |  | plugin-registration |
+| plugin_duplicate |  | plugin_id, name, instance_id | plugin-registration |
 | plugin_disable_all |  |  | plugin-registration |

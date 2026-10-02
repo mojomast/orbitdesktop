@@ -126,6 +126,8 @@ def run_browser(base):
         ('/api/workbench/native', 'cards_list'): {'cards': []},
         ('/api/workbench/workflow', 'integration_list'): {'integrations': []},
         ('/api/workbench/workflow', 'retention_plan'): {'plan': {}},
+        ('/api/workbench/workflow', 'task_status_snapshot'): {'items': []},
+        ('/api/workbench/workflow', 'retention_inventory'): {'inventory': {'capacity': {}}},
         ('/api/workbench/workflow', 'patch_list'): {'patches': []},
         ('/api/workbench/workflow', 'recipe_list'): {'recipes': [], 'bindings': []},
         ('/api/workbench/workflow', 'proposal_list'): {'proposals': [], 'next_after_id': None, 'total_count': 0},

@@ -1,4 +1,10 @@
-# Evolution testing branch
+# Historical evolution testing branch
+
+This page preserves the earlier branch's acceptance procedures and evidence.
+Current source uses schema 12 and includes usability, technologies and agency
+evolution. Start with [Verification](VERIFICATION.md),
+[Agency evolution](AGENCY_EVOLUTION.md) and [Deployment](DEPLOYMENT.md) for current
+status; the branch/schema labels below describe their original milestones.
 
 Branch: **`testing/orbit-docking-managed-terminals`**
 

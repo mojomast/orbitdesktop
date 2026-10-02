@@ -2,6 +2,7 @@
 """Reviewed GitHub catalog for static Orbit apps. Never executes plugin code."""
 import argparse
 import datetime
+import importlib.util
 import io
 import json
 from pathlib import Path, PurePosixPath
@@ -16,6 +17,21 @@ from urllib.parse import urlparse
 ROOT = Path(__file__).resolve().parents[1]
 UPSTREAM = 'mojomast/orbitdesktop'
 MAX_BYTES = 20_000_000
+# `removed.json` is the removal list; `schema.json` documents the entry format.
+# Neither is a catalog entry and both are skipped by local and reviewed loads.
+RESERVED_CATALOG_FILES = {'removed.json', 'schema.json'}
+
+
+def _load_publisher():
+    """Load the single schema validator from scripts/plugin_publish.py."""
+    path = Path(__file__).resolve().with_name('plugin_publish.py')
+    spec = importlib.util.spec_from_file_location('orbit_plugin_publish', path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+publish = _load_publisher()
 
 
 def require(condition, message):
@@ -43,13 +59,23 @@ def repo_valid(value):
 
 def validate(entry, filename=None):
     fields = {'id', 'title', 'version', 'description', 'category', 'maintainer', 'license', 'repo', 'sha', 'path', 'capabilities'}
-    require(isinstance(entry, dict) and set(entry) in (fields, fields | {'backend'}), 'Entry must contain required fields and optional backend')
+    allowed = {
+        frozenset(fields),
+        frozenset(fields | {'backend'}),
+        frozenset(fields | {'configSchema'}),
+        frozenset(fields | {'backend', 'configSchema'}),
+    }
+    require(isinstance(entry, dict) and frozenset(entry) in allowed, 'Entry must contain required fields with optional backend/configSchema')
     if 'backend' in entry:
         backend = entry['backend']
         require(isinstance(backend, dict) and set(backend) == {'path', 'runtime', 'permissions'}, 'Invalid backend declaration')
         require(backend['runtime'] == 'python3', 'Only python3 backends supported')
         require(isinstance(backend['path'], str) and 0 < len(backend['path']) <= 200 and all(re.fullmatch(r'[A-Za-z0-9_-][A-Za-z0-9_.-]*', p) for p in backend['path'].split('/')), 'Unsafe backend path')
         require(isinstance(backend['permissions'], list) and 0 < len(backend['permissions']) <= 10 and all(text(p, 200) for p in backend['permissions']), 'Declare backend host access')
+    if 'configSchema' in entry:
+        # Exact same bounded validator the publisher uses; an inline, closed schema
+        # only. No URL, path or mutable load is accepted here.
+        entry['configSchema'] = publish.validate_config_schema(entry['configSchema'])
     require(isinstance(entry['id'], str) and re.fullmatch(r'[a-z][a-z0-9-]{0,25}', entry['id']), 'Invalid id')
     require(filename is None or filename == entry['id'] + '.json', 'Filename must match id')
     require(isinstance(entry['version'], str) and re.fullmatch(r'\d+\.\d+\.\d+', entry['version']), 'Version must be x.y.z')
@@ -75,7 +101,7 @@ def load_catalog(folder):
     entries = []
     ids = set()
     for file in sorted(folder.glob('*.json')):
-        if file.name == 'removed.json':
+        if file.name in RESERVED_CATALOG_FILES:
             continue
         require(not file.is_symlink() and file.stat().st_size <= 16_000, 'Invalid entry file')
         entry = validate(read_json(file.read_text()), file.name)
@@ -102,7 +128,7 @@ def reviewed_catalog(destination):
     require(isinstance(listing, list) and len(listing) <= 500, 'Invalid catalog listing')
     for item in listing:
         name = item['name']
-        if not name.endswith('.json'):
+        if not name.endswith('.json') or name == 'schema.json':
             continue
         require(re.fullmatch(r'[a-z][a-z0-9-]*\.json', name) and item['type'] == 'file', 'Invalid catalog filename')
         data = fetch(f'https://raw.githubusercontent.com/{UPSTREAM}/{commit}/plugin-catalog/{name}', 16_000)
@@ -166,7 +192,18 @@ def materialize(entries, runtime, output, catalog_commit):
             folder = Path(temp)
             source(entry, folder)
             command = [sys.executable, str(ROOT / 'scripts/plugin_publish.py'), str(folder), '--id', entry['id'], '--version', entry['version'], '--title', entry['title'], '--runtime', str(runtime)]
-            manifest = read_json(subprocess.check_output(command, text=True, timeout=60))
+            schema = entry.get('configSchema')
+            if schema is not None:
+                # The schema is inline entry metadata. Stage it in a separate
+                # temporary directory OUTSIDE the served bundle so the publisher
+                # never copies it into the content-addressed files and no external
+                # URL or mutable load is involved. `entry`/digest stay file-only.
+                with tempfile.TemporaryDirectory(prefix='orbit-catalog-schema-') as schema_temp:
+                    schema_path = Path(schema_temp) / 'config-schema.json'
+                    schema_path.write_text(json.dumps(schema))
+                    manifest = read_json(subprocess.check_output(command + ['--config-schema', str(schema_path)], text=True, timeout=60))
+            else:
+                manifest = read_json(subprocess.check_output(command, text=True, timeout=60))
             result.append({'manifest': manifest, 'category': entry['category'], 'description': entry['description'], 'provenance': entry})
     output.parent.mkdir(parents=True, exist_ok=True)
     data = {'version': 1, 'source': f'https://github.com/{UPSTREAM}/tree/main/plugin-catalog', 'catalogCommit': catalog_commit, 'entries': result}

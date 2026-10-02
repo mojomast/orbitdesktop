@@ -78,7 +78,9 @@ def install_fixture(context, origin, name, width, height, theme=None):
               'task_id': 'fixture-task', 'attempt_id': 'fixture-attempt', 'hermes_completed': True,
               'project_generation': 1, 'received_at': NOW, 'retained_until': NOW + 86400000,
               'termination': 'completed', 'review_status': 'unreviewed'} if name == 'review' else None
-    execution = {'tasks': [{'id': 'fixture-task', 'title': 'Simplify the agent pane', 'status': 'active'}],
+    execution = {'tasks': [{'id': 'fixture-task', 'title': 'Simplify the agent pane', 'status': 'active',
+                           'acceptance': {'statement': 'Review the synthetic candidate',
+                                          'check_definition_id': 'node-test', 'policy': {}, 'required_checks': []}}],
                  'candidates': [candidate], 'definitions': [], 'jobs': [], 'reviews': [], 'evidence': [],
                  'target_changed': {}, 'review_identity': {}}
     requests_unknown = []
@@ -265,9 +267,9 @@ def main(args):
               'source': str(args.source), 'cases': [], 'limitations': ['Network authority is mocked; no model or execution is exercised.', 'Private activity uses page fallback transport.']}
     with tempfile.TemporaryDirectory(prefix='orbit-agent-ux-', dir='/tmp/opencode') as temp:
         root = Path(temp)
-        for folder in ('src', 'contracts'):
+        for folder in ('src', 'contracts', 'server', 'scripts', 'docs'):
             shutil.copytree(args.source / folder, root / folder)
-        for file in ('index.html', 'package.json', 'tsconfig.json', 'vite.config.js'):
+        for file in ('index.html', 'package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.js'):
             shutil.copy2(args.source / file, root / file)
         (root / 'node_modules').symlink_to(ROOT / 'node_modules', target_is_directory=True)
         # A production bundle avoids Vite dependency-discovery reloads resetting

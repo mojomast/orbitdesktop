@@ -18,6 +18,7 @@ import urllib.request
 import uuid
 
 from playwright.sync_api import expect, sync_playwright
+from browser_workspace import wait_for_workspace_connection
 
 ROOT = Path(__file__).resolve().parents[1]
 def math(operator, note='baseline'):
@@ -54,7 +55,7 @@ def journey(renderer, page, origin, token, project):
     page.get_by_role('button', name='Connect local host', exact=True).click()
     page.get_by_role('textbox', name='Host session token').fill(token)
     page.get_by_role('button', name='Unlock local host', exact=True).click()
-    expect(page.locator('.saved')).to_contain_text('Workspace connected', timeout=15000)
+    wait_for_workspace_connection(page)
     page.get_by_role('button', name='Open orbit menu').click()
     page.get_by_role('button', name='Project Workbench', exact=True).click()
     dialog = page.locator('dialog.project-workbench-dialog')
@@ -138,9 +139,9 @@ def journey(renderer, page, origin, token, project):
     changes.get_by_role('button', name='Previous file').click()
     expect(changes.locator('.cdv-file-title')).to_have_text('config.json')
     assert len([item for item in requests if item == ('live', 'detail')]) == before_reads, 'Presentation navigation fetched source again'
-    workbench.get_by_label('Candidate comparison').select_option('previous')
+    workbench.get_by_label('Candidate comparison', exact=True).select_option('previous')
     expect(workbench.locator('.pane-workbench-changes-diff')).to_contain_text('Latest transition → generation 4')
-    workbench.get_by_label('Candidate comparison').select_option('initial')
+    workbench.get_by_label('Candidate comparison', exact=True).select_option('initial')
     workbench.get_by_role('tab', name='Live').click()
     event_row = workbench.locator('.pane-workbench-live-timeline .alt-row').filter(has_text='Candidate generation 2').first
     expect(event_row).to_be_visible()
@@ -209,7 +210,7 @@ def journey(renderer, page, origin, token, project):
     page.get_by_role('button', name='Connect local host', exact=True).click()
     page.get_by_role('textbox', name='Host session token').fill(token)
     page.get_by_role('button', name='Unlock local host', exact=True).click()
-    expect(page.locator('.saved')).to_contain_text('Workspace connected', timeout=15000)
+    wait_for_workspace_connection(page)
     workbench = page.locator('.pane-workbench')
     expect(workbench).to_be_visible(timeout=15000)
     settings = workbench.locator('.pane-workbench-settings')
@@ -235,7 +236,7 @@ def main(renderer):
             root = Path(directory)
             for name in ('server', 'src', 'contracts', 'docs', 'public', 'scripts'):
                 shutil.copytree(ROOT / name, root / name)
-            for name in ('index.html', 'package.json', 'tsconfig.json', 'vite.config.js'):
+            for name in ('index.html', 'package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.js'):
                 shutil.copy2(ROOT / name, root / name)
             (root / 'node_modules').symlink_to(ROOT / 'node_modules', target_is_directory=True)
             for name in ('runtime', 'home', 'cwd', 'tmux'): (root / name).mkdir()

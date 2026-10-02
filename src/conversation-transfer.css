@@ -1,0 +1,20 @@
+.conversation-transfer { width: min(680px, 94vw); max-height: 88dvh; overflow: auto; padding: 22px; color: var(--theme-textColor, #e5eee8); background: var(--theme-panelColor, #142128); border: 1px solid var(--theme-borderColor, #465952); border-radius: 12px; }
+.conversation-transfer::backdrop { background: #0009; }
+.conversation-transfer h2 { margin: 0 0 10px; }
+.conversation-transfer-title { margin: 0 0 6px; font-weight: 600; }
+.conversation-transfer-source,
+.conversation-transfer-notice,
+.conversation-transfer-status,
+.conversation-transfer-none { color: var(--theme-mutedColor, #a6b8b0); margin: 6px 0; }
+.conversation-transfer-notice { font-size: 13px; }
+.conversation-transfer-preview { max-height: 40dvh; overflow: auto; margin: 8px 0; padding: 12px; white-space: pre-wrap; overflow-wrap: anywhere; background: #ffffff0b; border: 1px solid var(--theme-borderColor, #465952); border-radius: 8px; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.conversation-transfer-preview:focus-visible { outline: 3px solid currentColor; outline-offset: 2px; }
+.conversation-transfer-bound { margin: 6px 0; color: var(--theme-warningColor, #f0c674); font-size: 13px; }
+.conversation-transfer-targets { margin: 12px 0; border: 1px solid var(--theme-borderColor, #465952); border-radius: 8px; padding: 10px 14px; }
+.conversation-transfer-targets legend { padding: 0 6px; color: var(--theme-mutedColor, #a6b8b0); }
+.conversation-transfer-target { display: flex; align-items: center; gap: 8px; padding: 7px 4px; cursor: pointer; border-radius: 6px; }
+.conversation-transfer-target:hover { background: #ffffff0b; }
+.conversation-transfer-target input { flex: 0 0 auto; width: auto; accent-color: var(--theme-accentColor, #b5f268); }
+.conversation-transfer-target span { min-width: 0; overflow-wrap: anywhere; }
+.conversation-transfer-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.conversation-transfer-insert { font-weight: 600; }

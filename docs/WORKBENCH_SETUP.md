@@ -63,12 +63,47 @@ request. Do not generate another operation key to retry. Changed goals, project
 identity, source, recipient or policy invalidate reviews. A known prepared task can
 be resumed after reload; unresolved execution never gets silently launched again.
 
-One preparation crash window deliberately stops for inspection: if the server dies
-during candidate filesystem materialization before its SQLite step receipt
-commits, setup reports `prepare_unknown` /
-`setup_candidate_materialization_unknown`. It does not create another candidate or
-guess that the partial directory belongs to a safe retry. Automatic cleanup and
-resumption of that window are not implemented.
+Candidate preparation now records an operation-owned directory identity before
+copying, then flushes a private completion manifest outside the candidate tree.
+An exact prepare retry after a crash verifies that manifest, the kernel directory
+identity, every expected byte and absence of extra entries against the freshly
+revalidated frozen source. A proven complete copy can finish the SQLite candidate,
+task link and setup-step receipt atomically under the same identity. It does not
+copy again or launch work. Backups must include sibling `*.setup.json` completion
+manifests with the private candidate directories.
+
+Missing, partial, tampered or legacy unjournaled copies still report
+`prepare_unknown` / `setup_candidate_materialization_unknown`. Source, project,
+binding or policy drift refuses promotion. Partial-copy discard/rebuild is not
+implemented; unknown filesystem effects are never re-executed automatically.
+
+### Durable review-only waiting intentions
+
+The owner setup API adds `wait` (`draft_id`, `op_id`, `deadline`, `budget`) for a
+prepared task, and `wait_cancel` (`intent_id`, `op_id`). Deadlines are at most 24
+hours ahead. Waiting saves the exact task/candidate/attempt, binding, frozen
+source/policy and requested budget before returning; the operation key is exact.
+It grants **no execution authority**. The existing serial gate remains the only
+execution lane. Cancellation changes only the waiting record, never a process.
+
+`state.waiting_intents` gives durable insertion order and queue position. While
+the lane is busy or quarantined, intentions stay `waiting_lane`; when it is free
+they become `needs_review`. Drift also requires review with an explicit reason.
+Deadline expiration becomes `expired`. The owner must still request a fresh
+`launch_preview` and approve the existing exact launch; a reviewed waiting item is
+marked `reviewed`. Queue order is informative, not an unattended dispatcher or an
+authority to prevent an owner explicitly reviewing another task. Budgets must be
+reviewed again in that native launch preview. Setup state includes journal byte
+and per-record capacity diagnostics.
+
+In guided setup, **Save for later review** saves the reviewed task's requested work
+limits and a deadline from 1 to 1440 minutes. **Check saved state** refreshes the
+waiting list; **Review waiting task** selects that saved task and requests a fresh
+start review. **Cancel waiting intention** only cancels the saved intention.
+Unknown save/cancel responses retain the exact request across page reload in the
+browser session, with an explicit **Retry exact request** action. No reconnect
+automatically retries a mutation. **Setup capacity** shows journal bytes and
+remaining record slots. Expired and cancelled intentions remain visible as history.
 
 ## Scope and verification
 

@@ -55,7 +55,7 @@ function fixtureState(){
   return state;
 }
 
-test('schema 11 upgrades a real schema-8 database and preserves authoritative workspace/Workbench/bundle records through backup and restore',async t=>{
+test('schema 12 upgrades a real schema-8 database and preserves authoritative workspace/Workbench/bundle records through backup and restore',async t=>{
   const BaselineStore=await loadArchivedBaseline(t);
   const sourceRoot=tempRoot('orbit-arrangements-v8-');
   const upgradedRoot=tempRoot('orbit-arrangements-v9-');
@@ -91,7 +91,7 @@ test('schema 11 upgrades a real schema-8 database and preserves authoritative wo
 
   const upgraded=new SqliteWorkspaceStore(upgradedRoot);
   t.after(()=>upgraded.close());
-  assert.equal(upgraded.diagnostics().schema_version,11);
+  assert.equal(upgraded.diagnostics().schema_version,12);
   assert.deepEqual(upgraded.read(workspaceId),applied);
   assert.deepEqual(upgraded.read(workspaceId).state.monitors[0].layout,state.monitors[0].layout);
   assert.deepEqual(upgraded.checkpointList(workspaceId),checkpointBefore);
@@ -105,10 +105,10 @@ test('schema 11 upgrades a real schema-8 database and preserves authoritative wo
 
   const migratedBackup=path.join(sourceRoot,'schema9.sqlite');await upgraded.backup(migratedBackup);
   const restoredOutput=execFileSync(process.execPath,['--experimental-strip-types','scripts/workspace_store.mjs','restore','--runtime',restoredRoot,'--source',migratedBackup,'--confirm-stopped'],{cwd:ROOT,encoding:'utf8'});
-  assert.equal(JSON.parse(restoredOutput).schema_version,11);
+  assert.equal(JSON.parse(restoredOutput).schema_version,12);
   const restored=new SqliteWorkspaceStore(restoredRoot);
   try{
-    assert.equal(restored.diagnostics().schema_version,11);
+    assert.equal(restored.diagnostics().schema_version,12);
     assert.deepEqual(restored.read(workspaceId),applied);
     assert.deepEqual(restored.checkpointList(workspaceId),checkpointBefore);
     assert.equal(restored.db.prepare('SELECT id FROM wb_projects WHERE id=?').get(projectId).id,projectId);
@@ -123,13 +123,13 @@ test('schema 11 upgrades a real schema-8 database and preserves authoritative wo
   const OldStore=await loadArchivedBaseline(t);
   assert.throws(()=>new OldStore(oldReaderRoot),error=>error.category==='UPGRADE_REQUIRED');
   const oldReaderDb=new Database(path.join(oldReaderRoot,'workspace.sqlite'),{readonly:true});
-  try{assert.equal(oldReaderDb.pragma('user_version',{simple:true}),11);}finally{oldReaderDb.close();}
+  try{assert.equal(oldReaderDb.pragma('user_version',{simple:true}),12);}finally{oldReaderDb.close();}
 });
 
-test('schema 12 is refused by the current reader, and an archived schema-9 reader refuses a schema-11 database',async t=>{
+test('schema 13 is refused by the current reader, and an archived schema-9 reader refuses a schema-12 database',async t=>{
   const fixture=tempRoot('orbit-arrangements-schema-future-');t.after(()=>clean(fixture));
   const store=new SqliteWorkspaceStore(fixture);
-  assert.equal(store.diagnostics().schema_version,11,'current store must create schema 11');
+  assert.equal(store.diagnostics().schema_version,12,'current store must create schema 12');
   store.close();
   // The archived schema-9 reader is a real build from the preceding baseline,
   // not a manual user_version rewind. It must fail closed on the real schema-10
@@ -139,11 +139,11 @@ test('schema 12 is refused by the current reader, and an archived schema-9 reade
   const Schema9Store=await loadArchivedSchema9Reader(t);
   assert.throws(()=>new Schema9Store(schema9Root),error=>error.category==='UPGRADE_REQUIRED');
   const untouched=new Database(path.join(fixture,'workspace.sqlite'),{readonly:true});
-  try{assert.equal(untouched.pragma('user_version',{simple:true}),11);}finally{untouched.close();}
-  // No schema-12 implementation exists, so this marker is simulated; the
+  try{assert.equal(untouched.pragma('user_version',{simple:true}),12);}finally{untouched.close();}
+  // No schema-13 implementation exists, so this marker is simulated; the
   // current reader must still refuse it without modifying the database.
-  const db=new Database(path.join(fixture,'workspace.sqlite'));db.pragma('user_version=12');db.close();
+  const db=new Database(path.join(fixture,'workspace.sqlite'));db.pragma('user_version=13');db.close();
   assert.throws(()=>new SqliteWorkspaceStore(fixture),error=>error.category==='UPGRADE_REQUIRED');
   const verify=new Database(path.join(fixture,'workspace.sqlite'),{readonly:true});
-  try{assert.equal(verify.pragma('user_version',{simple:true}),12);}finally{verify.close();}
+  try{assert.equal(verify.pragma('user_version',{simple:true}),13);}finally{verify.close();}
 });
