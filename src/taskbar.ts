@@ -49,12 +49,12 @@ export function installStart(navigation: HTMLElement, commands: WorkspaceCommand
   }
   search.addEventListener('input', render);
   panel.addEventListener('keydown', e => {
-    const items = [search, ...Array.from(quick.querySelectorAll<HTMLButtonElement>('button')), ...Array.from(results.querySelectorAll<HTMLButtonElement>('button'))];
+    const items = [search, ...Array.from(quick.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')), ...Array.from(results.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'))];
     const index = items.indexOf(document.activeElement as HTMLInputElement);
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault(); items[(index + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length].focus();
     }
-    if (e.key === 'Enter' && document.activeElement === search) results.querySelector<HTMLButtonElement>('button')?.click();
+    if (e.key === 'Enter' && document.activeElement === search) { e.preventDefault(); results.querySelector<HTMLButtonElement>('button:not(:disabled)')?.click(); }
   });
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && !panel.hidden) { e.preventDefault(); close(true); } });
   document.addEventListener('pointerdown', e => { if (!launcher.contains(e.target as Node)) close(); });

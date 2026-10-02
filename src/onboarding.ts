@@ -13,8 +13,9 @@ const steps = [
   {title: 'Explore with a safety net', text: ['Ask for a preview and checkpoint before a big workspace redesign. Workspace checkpoints restore supported layout, appearance and plugin settings—not files, shell commands, messages, documents or running processes.', 'Review tool approvals and ask before destructive or external actions. Core code and browser-local named layouts need their own backups.', 'You’re ready. Open Start → Chat when you want help, or reopen Getting started anytime. Example prompts in this tour are copied only when you choose; nothing is sent automatically.']},
 ];
 let active: HTMLDialogElement | undefined;
+export type OnboardingActions = { connected:()=>boolean; run:(id:string)=>void };
 
-export function showOnboarding() {
+export function showOnboarding(actions?:OnboardingActions) {
   if (active?.open) return;
   const previous = document.activeElement as HTMLElement | null;
   const dialog = document.createElement('dialog');
@@ -27,15 +28,17 @@ export function showOnboarding() {
   const status = el('p', 'tour-status'); status.setAttribute('role', 'status');
   const footer = el('div', 'tour-footer');
   let index = 0;
+  try { const saved=Number(sessionStorage.getItem(`${key}.step`));if(Number.isInteger(saved)&&saved>=0&&saved<steps.length)index=saved; } catch {}
   function finish() {
-    try { localStorage.setItem(key, 'done'); } catch { /* Tour still works without persistence. */ }
+    try { localStorage.setItem(key, 'done'); sessionStorage.removeItem(`${key}.step`); } catch { /* Tour still works without persistence. */ }
     dialog.close();
   }
   const back = button('Back', 'Previous tour step', () => { index--; render(); });
   const next = button('Next', 'Next tour step', () => { if (index === steps.length - 1) finish(); else { index++; render(); } });
-  top.append(el('strong', '', '◉ ORBIT / GETTING STARTED'), button('Skip tour', 'Skip tour', finish));
+  top.append(el('strong', '', '◉ ORBIT / GETTING STARTED'), button('Close for now', 'Close getting started', () => dialog.close()), button('Skip tour', 'Skip tour', finish));
   footer.append(back, progress, next);
   function render() {
+    try { sessionStorage.setItem(`${key}.step`,String(index)); } catch {}
     const step = steps[index];
     heading.textContent = step.title;
     progress.textContent = `${index + 1} of ${steps.length}`;
@@ -43,6 +46,17 @@ export function showOnboarding() {
     next.textContent = index === steps.length - 1 ? 'Start exploring' : 'Next';
     next.setAttribute('aria-label', index === steps.length - 1 ? 'Finish tour' : 'Next tour step');
     content.replaceChildren(...step.text.map(text => el('p', '', text)));
+    if(index===0 && actions){
+      heading.textContent='What would you like to do?';
+      content.replaceChildren(el('p','',actions.connected()?'Host token is present. Each tool checks its actual connection and assets when opened.':'Connect the host to chat or save private work. Local file analysis and voice setup can be explored first.'));
+      for(const [label,id,detail] of [
+        ['Connect host','connect-host','Unlock this browser session with your host token.'],
+        ['Chat with Hermes',actions.connected()?'new-agent':'connect-host',actions.connected()?'Open chat and check its binding status before sending.':'Connect host first, then open Chat from Start.'],
+        ['Transcribe audio','technology-voice','Readiness not checked. Open Voice transcript and use Check local model for local asset status and provisioning instructions.'],
+        ['Analyze a file','technology-data','Open Data workbench, choose your file and inspect engine readiness. CSV is local; JSON/Parquet need provisioned extensions.'],
+      ])content.append(button(label,`${label}: ${detail}`,()=>{dialog.close();actions.run(id);}),el('p','',detail));
+      content.append(el('p','','Opening these tools does not send a message, start recording or provision models. Choose Next for the controls tour.'));
+    }
     status.textContent = '';
     if (step.prompt) {
       const prompt = el('textarea', 'tour-prompt') as HTMLTextAreaElement;
@@ -55,14 +69,14 @@ export function showOnboarding() {
     }
     heading.focus(); content.scrollTop = 0;
   }
-  dialog.addEventListener('cancel', event => { event.preventDefault(); finish(); });
+  dialog.addEventListener('cancel', event => { event.preventDefault(); dialog.close(); });
   dialog.addEventListener('close', () => { dialog.remove(); active = undefined; if (previous?.isConnected) previous.focus(); });
   dialog.append(top, heading, content, status, footer);
   document.body.append(dialog); dialog.showModal(); render();
 }
 
-export function offerOnboarding() {
+export function offerOnboarding(actions?:OnboardingActions) {
   let seen = false;
   try { seen = localStorage.getItem(key) === 'done'; } catch { /* Nonpersistent first run. */ }
-  if (!seen) showOnboarding();
+  if (!seen) showOnboarding(actions);
 }

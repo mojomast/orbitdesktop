@@ -14,7 +14,7 @@ import { TECHNOLOGY_SURFACES } from './technology-surfaces';
 import { installCommandPalette } from './command-palette';
 import { experimentalEnabled, subscribeExperimental } from './experimental';
 import { showOnboarding, offerOnboarding } from './onboarding';
-window.addEventListener('load', () => offerOnboarding(), { once: true });
+window.addEventListener('load', () => offerOnboarding(onboardingActions), { once: true });
 import { installLayoutSwitcher } from './layout-switcher';
 import './unified-taskbar.css';
 import { xpraApps } from './xpra-apps';
@@ -338,6 +338,15 @@ async function refreshTechnologyConfiguration(){
 }
 window.addEventListener('orbit-host-connected',()=>{void refreshTechnologyConfiguration();});
 if(sessionToken)void refreshTechnologyConfiguration();
+function revealSurface(id: string) {
+  const inFocus = !!focused;
+  if (focused) unfocus();
+  state.selected = id;
+  renderAll();
+  if (inFocus) focus(id);
+  else { choose(id); if (state.view === 'spatial') scene.frameWindow(id); }
+  save();
+}
 function openHostSurface(id: HostSurfaceId) {
   const url = HOST_SURFACE_URLS[id];
   let target = state.monitors.find(m => leaves(m.layout).some(p => p.kind === 'browser' && p.url === url));
@@ -348,10 +357,7 @@ function openHostSurface(id: HostSurfaceId) {
     leaves(target.layout)[0].url = url;
     state.monitors.push(target);
   }
-  if (focused) unfocus();
-  state.selected = target.id;
-  if (state.view !== 'windows') setView('windows');
-  renderAll(); choose(target.id); save();
+  revealSurface(target.id);
 }
 window.addEventListener('orbit-open-host-surface', event => {
   const id = (event as CustomEvent<{ id?: string }>).detail?.id;
@@ -369,9 +375,7 @@ window.addEventListener('orbit-open-document',event=>{
     leaves(target.layout)[0].url=url;
     state.monitors.push(target);
   }
-  if(focused)unfocus();state.selected=target.id;
-  if(state.view!=='windows')setView('windows');
-  renderAll();choose(target.id);save();
+  revealSurface(target.id);
 });
 // Keep an explicit parent-document selection while menu/palette focus changes.
 // Generated frames and terminal buffers are never queried. The transfer dialog
@@ -392,16 +396,17 @@ async function sendSelectedContext() {
   const { requestConversationContext } = await import('./conversation-transfer');
   await requestConversationContext({ text, title: 'Selected workspace text' });
 }
+const onboardingActions = {connected:()=>!!sessionToken,run:(id:string)=>{void commands.execute(id);}};
 const commands = createWorkspaceCommands((): WorkspaceCommand[] => [
   ...Object.entries(TECHNOLOGY_SURFACES).map(([id,entry])=>({id:`technology-${id}`,title:entry.title,detail:entry.detail,group:'Tools',hidden:id==='copilot'&&!technologyConfiguration.browser_copilot||id==='mcp-apps'&&!technologyConfiguration.mcp_apps,disabledReason:entry.auth&&!sessionToken?'Connect host first to use this tool.':undefined,run:()=>openHostSurface(id as HostSurfaceId)})),
-  { id: 'getting-started', title: 'Getting started', detail: 'Tour Orbit controls and layouts', group: 'Help', run: showOnboarding },
+  { id: 'getting-started', title: 'Getting started', detail: 'Choose a task, check readiness or tour Orbit', group: 'Help', run: () => showOnboarding(onboardingActions) },
   { id: 'settings', title: 'Orbit settings', detail: 'Appearance, layout and browser-local experiments', group: 'Settings', run: openSettings },
   { id: 'connect-host', title: 'Connect host', detail: 'Unlock this browser session with a host token', group: 'Settings', run: connectHost },
   { id: 'connection-passwords', title: 'Connection passwords', detail: 'View host connection details', group: 'Settings', disabledReason: !sessionToken ? 'Connect host first to view connection details.' : undefined, run: () => showConnectionPasswords(() => sessionToken) },
   { id: 'export-layout', title: 'Export workspace layout', detail: 'Download the current workspace layout', group: 'Layout', run: exportLayout },
   { id: 'import-layout', title: 'Import workspace layout', detail: 'Choose a layout file and review replacement confirmation', group: 'Layout', run: () => importInput.click() },
   { id: 'saved-layouts', title: 'Saved workspace layouts', detail: 'Save and preview reusable window arrangements', group: 'Layout', disabledReason: !sessionToken ? 'Connect host first to use saved workspace layouts.' : undefined, run: openSavedWorkspaceLayouts },
-  { id: 'browser-layouts', title: 'Browser layout snapshots', detail: 'Manage legacy layouts saved in this browser', group: 'Layout', run: () => navigation.querySelector<HTMLButtonElement>('[aria-label="Choose workspace layout"]')?.click() },
+  { id: 'browser-layouts', title: 'Browser layout snapshots', detail: 'Browser-local snapshots — active snapshot auto-updates here', group: 'Layout', run: () => navigation.querySelector<HTMLButtonElement>('[aria-label="Choose browser snapshot"]')?.click() },
   ...state.monitors.map(m => ({ id: `window:${m.id}`, title: m.name, detail: 'Open or restore window', group: 'Windows', run: () => { if (focused) focus(m.id); else choose(m.id); } })),
   { id: 'new-agent', title: 'New agent chat', detail: 'Talk to Hermes', group: 'Create', run: () => addMonitor('agent') },
   { id: 'new-workbench', title: 'New Workbench window', detail: 'Separate Workbench beside Hermes', group: 'Create', hidden: !experimentalEnabled('workbench'), run: () => openWorkbenchWindow() },
@@ -472,13 +477,15 @@ async function openConversationLibrary() {
 }
 let openingConversation = false;
 window.addEventListener('orbit-open-conversation', event => {
-  const detail = (event as CustomEvent<{profileId?: string; sessionId?: string}>).detail;
+  const detail = (event as CustomEvent<import('./conversation-selection').ConversationSelection>).detail;
   if (!detail || typeof detail.profileId !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(detail.profileId) ||
       typeof detail.sessionId !== 'string' || !/^[A-Za-z0-9_:-]{1,128}$/.test(detail.sessionId)) return;
   const {profileId, sessionId} = detail;
-  if (openingConversation) { notify('A conversation window is already opening.'); return; }
-  if (!sessionToken) { notify('Connect host first to open a saved conversation.'); return; }
-  if (state.monitors.length >= 100) { notify('Close a window before opening another conversation.'); return; }
+  if(detail.signal?.aborted)return;
+  const fail=(message:string)=>{notify(message);detail.report?.('failed',message);};
+  if (openingConversation) { fail('A conversation window is already opening.'); return; }
+  if (!sessionToken) { fail('Connect host first to open a saved conversation.'); return; }
+  if (state.monitors.length >= 100) { fail('Close a window before opening another conversation.'); return; }
   openingConversation = true;
   void (async () => {
     if (focused) unfocus();
@@ -487,11 +494,12 @@ window.addEventListener('orbit-open-conversation', event => {
     const pane = target && leaves(target.layout).find(p => p.kind === 'agent');
     if (!pane) throw Error('New conversation pane unavailable.');
     await ensureWorkspaceSynced();
+    if(detail.signal?.aborted)return;
     if (!paneExists(pane.id)) throw Error('Conversation pane closed before it could link.');
     window.dispatchEvent(new CustomEvent('orbit-select-conversation', {
-      detail: {paneId: pane.id, profileId, sessionId},
+      detail: {...detail, paneId: pane.id, profileId, sessionId},
     }));
-  })().catch(error => notify(`Conversation window could not open: ${String(error)}`))
+  })().catch(error => fail(`Conversation window could not open: ${String(error)}`))
     .finally(() => { openingConversation = false; });
 });
 function orbitMenuSections(): OrbitMenuSection[] {
@@ -1606,7 +1614,7 @@ layoutSwitcher = installLayoutSwitcher(navigation, `orbit.layouts.${workspaceId}
       if (hidden.includes(m.id)) minimizer.hide(m.id, element); else minimizer.restore(m.id, element);
     }
     setView(state.view || 'windows'); renderTabs();
-  }, notify);
+  }, notify, () => {void commands.execute('saved-layouts');});
 // Optional, page-scoped WebMCP: no terminal input or credentials are exposed.
 const modelContext = (
   document as Document & {

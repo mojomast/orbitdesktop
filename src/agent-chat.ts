@@ -17,6 +17,7 @@ import { createAgentInspector } from './agent-inspector';
 import { experimentalEnabled, subscribeExperimental } from './experimental';
 import { showOrbitSettings } from './orbit-settings';
 import { showConversationLibrary } from './conversation-library';
+import type { ConversationSelection } from './conversation-selection';
 import { createConversationDraft } from './conversation-draft';
 import { conversationRequest } from './conversation-client';
 import { registerConversationRecipient, type ConversationRecipientHandle } from './conversation-transfer';
@@ -527,7 +528,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   const titleSettings = el('div', 'agent-settings-row'); titleSettings.append(titleInput, rename, colorInput);
   settings.append(el('h3', '', 'Conversation'), titleSettings, notificationButton,
     el('h3', '', 'Profile and session'), bindingControls, workspaceAgents, notice);
-  settings.append(button('Conversation library', 'Browse saved conversations', () => showConversationLibrary(getToken, paneId), 'small-button'));
+  settings.append(button('Conversation library', 'Browse saved conversations', () => showConversationLibrary(getToken, paneId, chatProfileId(state)), 'small-button'));
   inspector.register('settings', 'Settings', settings);
   const troubleshooting = el('div', 'agent-troubleshooting'); troubleshooting.append(status, recovery);
   const inspectWorkbench = button('Inspect Workbench execution', 'Open Workbench checks and recovery without acknowledging or replaying anything', () => { inspector.close(); setMode('workbench'); workbenchHost.querySelector<HTMLButtonElement>('[aria-label="Checks workbench view"]')?.click(); }, 'small-button');
@@ -602,7 +603,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     dialog.addEventListener('close', () => clearTimeout(activityTimer));
     dialog.append(el('h3', '', 'Hermes conversation history'),
       el('p', '', 'Open the conversation library for Hermes titles and IDs, Orbit names, pins and archives. Drafts save privately on the host with a tab recovery cache. Recent transcripts below are tab-local. Exports may contain private conversation content.'),
-      button('Conversation library', 'Browse durable Hermes sessions by profile', () => { dialog.close(); showConversationLibrary(getToken,paneId); }));
+      button('Conversation library', 'Browse durable Hermes sessions by profile', () => { dialog.close(); showConversationLibrary(getToken,paneId,chatProfileId(state)); }));
     dialog.append(button('Export conversation', 'Download this Hermes conversation', () => {
       const blob = new Blob([transcript(state)], { type: 'text/plain;charset=utf-8' });
       const url = URL.createObjectURL(blob); const a = document.createElement('a');
@@ -636,17 +637,26 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     if ((event as CustomEvent<{ paneId?: string }>).detail?.paneId === paneId) openTools();
   };
   window.addEventListener('orbit-open-hermes-tools', onOpenTools);
-  const onOpenLibrary = (event:Event) => {if((event as CustomEvent<{paneId?:string}>).detail?.paneId===paneId)showConversationLibrary(getToken,paneId);};
-  let requestedSelection: {profileId:string;sessionId:string} | undefined;
+  const onOpenLibrary = (event:Event) => {if((event as CustomEvent<{paneId?:string}>).detail?.paneId===paneId)showConversationLibrary(getToken,paneId,chatProfileId(state));};
+  let requestedSelection: ConversationSelection | undefined;
+  const failRequestedSelection = (message:string) => { requestedSelection?.report?.('failed',message);requestedSelection=undefined; };
   const applyRequestedSelection = () => {
+    if(requestedSelection?.signal?.aborted){requestedSelection=undefined;return;}
     if(!requestedSelection || !bindingReady || disposed || pending || busy || polling || switching)return;
     const target=requestedSelection;requestedSelection=undefined;
-    void switchConversation(target.profileId,target.sessionId);
+    void switchConversation(target.profileId,target.sessionId,target.report);
   };
   const onSelectConversation = (event:Event) => {
-    const detail=(event as CustomEvent<{paneId?:string;profileId?:string;sessionId?:string}>).detail;
+    const detail=(event as CustomEvent<ConversationSelection>).detail;
     if(detail?.paneId!==paneId || typeof detail.profileId!=='string' || typeof detail.sessionId!=='string')return;
-    requestedSelection={profileId:detail.profileId,sessionId:detail.sessionId};applyRequestedSelection();
+    if(detail.signal?.aborted)return;
+    requestedSelection?.report?.('failed','Replaced by a newer conversation choice.');
+    if(bindingReady && (switching || state.run || state.queue?.length || approvals.childElementCount)){
+      requestedSelection=undefined;void switchConversation(detail.profileId,detail.sessionId,detail.report);return;
+    }
+    requestedSelection=detail;
+    detail.report?.('waiting',`Waiting for pane ${paneId} to link and finish synchronizing. You can cancel this choice.`);
+    applyRequestedSelection();
   };
   const flushDraft = () => durableDraft?.flush();
   window.addEventListener('orbit-open-conversation-library',onOpenLibrary);
@@ -1031,9 +1041,10 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
         sharedLanePresent = true;
         recomputeLane();
       }
-      if (!data.state) { setSyncNotice('Open this chat on the desktop and reload once to link its existing conversation. Your draft is preserved.'); return; }
+      if (!data.state) { setSyncNotice('Open this chat on the desktop and reload once to link its existing conversation. Your draft is preserved.');failRequestedSelection('The target pane could not link. Reconnect or reload the pane, then choose the conversation again.'); return; }
       if (validChat(data.state)) {
         bindingReady = Number.isSafeInteger(data.state.binding_revision);
+        if(!bindingReady)failRequestedSelection('The backend did not supply an authoritative binding revision. Reconnect to a supported host before retrying.');
         setSyncNotice(bindingReady ? '' : 'This backend did not supply a conversation revision. Reconnect to a supported host.');
         const next = data.state as ChatState;
         if (chatBindingKey(next) !== chatBindingKey(state) && (state.run || state.queue?.length)) {
@@ -1053,6 +1064,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
       } else throw Error('The backend returned an invalid chat binding. The current conversation is preserved.');
     } catch (e) {
       if (current(requested) && epoch === sharedEpoch && !(e instanceof StaleRequest)) {
+        failRequestedSelection('The target pane could not refresh its binding. Check the host connection and choose the conversation again.');
         setSyncNotice(bindingReady ? 'Conversation refresh unavailable. Your draft is saved; sending still checks the current conversation with the host.' : 'Could not link this conversation. Check the host connection; your draft is preserved.');
       }
     } finally { sharing = false; if (!disposed) update(); }
@@ -1074,17 +1086,21 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     }
     save(); render();
   }
-  async function switchConversation(targetProfile: string, targetSession?: string) {
-    if (switchBlocked()) { showError(Error('Wait for pending work, approvals, and queued messages before switching.')); return; }
-    if (!Number.isSafeInteger(state.binding_revision)) { showError(Error('Session switching is unsupported until the backend supplies an authoritative binding revision. Refresh the connection first.')); return; }
+  async function switchConversation(targetProfile: string, targetSession?: string, report?: ConversationSelection['report']) {
+    if(requestedSelection){requestedSelection.report?.('failed','Replaced by a newer conversation choice.');requestedSelection=undefined;}
+    const reject = (message: string) => { showError(Error(message)); report?.('failed',message); };
+    if (switchBlocked()) { reject(state.run ? 'Wait for the current run or unresolved outcome to finish, or use New window.' : state.queue?.length ? 'Send or remove queued messages before switching, or use New window.' : approvals.childElementCount ? 'Resolve pending approvals before switching, or use New window.' : 'Wait for the pane to finish linking or synchronizing, then retry.'); return; }
+    if (!Number.isSafeInteger(state.binding_revision)) { reject('Session switching is unsupported until the backend supplies an authoritative binding revision. Refresh the connection first.'); return; }
     const requested = scope();
     switching = true; sharedEpoch++; update();
+    report?.('opening','Opening conversation on the host… This submitted selection cannot be cancelled.');
     try {
       const data = await api({action:'select_session',target_profile_id:targetProfile,...(targetSession ? {target_session_id:targetSession} : {}),expected_binding_revision:requested.revision}, requested);
       if (!validChat(data.state) || !Number.isSafeInteger(data.state.binding_revision) || chatProfileId(data.state) !== targetProfile || (targetSession && data.state.session !== targetSession)) throw Error('Session switching is unsupported: the backend did not return the requested authoritative binding. Refresh before any further actions.');
       remember(); acceptState(data.state);
+      report?.('opened',`Opened ${targetProfile} · ${state.session}.`);
       if (state.run) schedule();
-    } catch(e) {showError(e);} finally { switching = false; if (!disposed) { update(); if (!catalogRequested) void loadProfiles(); } }
+    } catch(e) {showError(e);report?.('failed',`${String(e)} Refresh the pane to reconcile the host binding before retrying.`);} finally { switching = false; if (!disposed) { update(); if (!catalogRequested) void loadProfiles(); } }
   }
   const sharedTimer = setInterval(() => {void syncShared(); void refreshTaskCards();}, 1800);
   void syncShared();
