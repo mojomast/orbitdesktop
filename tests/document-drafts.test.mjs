@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
-import {draftKey,retainDocumentDraft,readDocumentDraft,listDocumentDrafts,registerDocumentClose,requestDocumentClose} from '../src/document-drafts.ts';
+import {draftKey,documentDraftExists,retainDocumentDraft,readDocumentDraft,listDocumentDrafts,registerDocumentClose,requestDocumentClose} from '../src/document-drafts.ts';
 import {EMPTY_RICHDOC} from '../contracts/documents-v1.mjs';
 
 test('divergent recovery is keyed by document and original pane; unknown payload stays exact',()=>{
@@ -19,6 +19,7 @@ test('divergent recovery is keyed by document and original pane; unknown payload
   assert.equal(listDocumentDrafts(randomUUID()).length,0);
   const invalidKey=draftKey(workspace,randomUUID(),document);storage.set(invalidKey,JSON.stringify(first));
   assert.equal(readDocumentDraft(invalidKey),undefined,'pending pane may not be transplanted');
+  assert.equal(documentDraftExists(invalidKey),true,'an unreadable retained draft is not an empty slot for an older import');
   retainDocumentDraft(draftKey(workspace,other,document),{...first,dirty:false,pending:undefined});
   assert.equal(listDocumentDrafts(workspace).length,1);
   const scene={kind:'scene',format:'excalidraw',content:JSON.stringify({type:'excalidraw',version:2,source:'Orbit',elements:[0,1].map(i=>({id:`text-${i}`,type:'text',x:0,y:0,width:1,height:1,angle:0,version:1,seed:1,versionNonce:1,isDeleted:false,fontFamily:5,fontSize:20,text:'\\'.repeat(60000),originalText:'\\'.repeat(60000)})),appState:{},files:{}})};

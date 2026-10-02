@@ -6,6 +6,9 @@ const prefix='orbit.document-draft.v1:';
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const memory=new Map<string,DocumentDraft>();
 export function draftKey(workspace:string,pane:string,document:string){return `${prefix}${workspace}:${pane}:${document}`;}
+// Recovery callers must distinguish absent data from a retained but currently
+// unsupported editor draft. Never overwrite the latter with an older import.
+export function documentDraftExists(key:string){return memory.has(key)||sessionStorage.getItem(key)!==null;}
 export function retainDocumentDraft(key:string,draft:DocumentDraft):boolean {
   if(draft.dirty||draft.pending)memory.set(key,structuredClone(draft));else memory.delete(key);
   try{if(draft.dirty||draft.pending)sessionStorage.setItem(key,JSON.stringify(draft));else sessionStorage.removeItem(key);return true;}catch{return false;}

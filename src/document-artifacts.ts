@@ -23,11 +23,13 @@ export type DocumentResultOutcome={status:'created-draft'|'cancelled'|'rejected'
 const deliveries=new Set<string>();
 /** Bounded independent parent deliveries; acknowledgement is creation+draft retention,
  * not proof of editor display or a saved body. No global replaceable pending slot. */
-export async function requestDocumentFromResult(text:string):Promise<DocumentResultOutcome>{
+export async function requestDocumentFromResult(text:string,isCurrent:()=>boolean=()=>true):Promise<DocumentResultOutcome>{
+  const current=()=>{try{return isCurrent();}catch{return false;}};
+  if(!current())return {status:'rejected',reason:'Document result source changed. Reopen the result.'};
   const result=extractDocumentResult(text);if(!result)return {status:'rejected',reason:'Unsupported complete document envelope'};
   if(deliveries.size>=8)return {status:'rejected',reason:'Finish an open document review first'};
   const deliveryId=crypto.randomUUID();deliveries.add(deliveryId);
-  try{return await new Promise<DocumentResultOutcome>(resolve=>{const event=new CustomEvent('orbit-review-document-result',{cancelable:true,detail:{...result,workspaceId,deliveryId,respond:resolve}});window.dispatchEvent(event);if(!event.defaultPrevented)resolve({status:'rejected',reason:'Document shell unavailable'});});}finally{deliveries.delete(deliveryId);}
+  try{return await new Promise<DocumentResultOutcome>(resolve=>{const event=new CustomEvent('orbit-review-document-result',{cancelable:true,detail:{...result,workspaceId,deliveryId,isCurrent:current,respond:resolve}});window.dispatchEvent(event);if(!event.defaultPrevented)resolve({status:'rejected',reason:'Document shell unavailable'});});}finally{deliveries.delete(deliveryId);}
 }
 
 export function reviewDocumentSnapshot(title:string,before:string,after:string,apply:()=>Promise<void>):Promise<boolean>{

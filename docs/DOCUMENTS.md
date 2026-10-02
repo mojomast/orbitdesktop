@@ -44,6 +44,10 @@ unresolved save can be retained, but is never labelled saved. Failed recovery
 storage blocks deliberate retain-and-close; export while the pane is still open.
 Remote layout replacement/disposal still retains the cache without pretending
 that a local close dialog can veto a server workspace operation.
+This also applies to **Close pane** inside a split window. After the asynchronous
+review, the shell rechecks the original monitor, pane signature and mounted view.
+Moving, replacing or rebinding the pane while review is open invalidates that
+close approval rather than closing the replacement view.
 
 Open **Document library → Recoverable drafts · this browser tab** (or Refresh
 documents if the library was already open). Each entry identifies the document,
@@ -67,13 +71,44 @@ Review shows both whole snapshots as literal structured content, including scene
 element identities and properties. **Apply reviewed draft** changes only the
 editor draft. It does not Save. New-content creation first receipts an empty
 document and retains the reviewed content in the original-pane cache; opening
-the editor and saving its body are distinct operations. A failed creation can be
-retried with the same operation while its review is open. Cancelling an uncertain
-creation can leave an empty saved document in the library; it is not proof of a
-saved imported body. A window-capacity failure leaves the imported draft available
-for recovery in the library.
+the editor and saving its body are distinct operations. **Before dispatch**, both
+reviewed-content creation and the ordinary empty-document Create action retain
+their exact request and content in a private same-tab creation journal. Storage
+failure refuses dispatch. An unknown response preserves that journal across page
+reload; it never licenses a new document UUID or operation ID for a retry.
 
-The trusted producer seam is `requestDocumentFromResult(completeReply)` in
+After reload, open **Document library → Pending document creations · exact
+recovery**. Review the retained snapshot and choose **Apply reviewed draft** to
+replay the exact original creation. A committed creation returns its original
+receipt; a request that never reached the server creates that same reserved
+document. The original pane UUID and reviewed bytes become a recoverable unsaved
+draft. Existing newer pane drafts and pending saves are preserved. Only after
+draft recovery storage succeeds is the creation journal cleared. Save of the body
+remains explicit. A stale CAS base against a document subsequently saved elsewhere
+uses the ordinary retained-draft conflict flow.
+
+Cancelling an uncertain creation leaves its journal discoverable; cancellation
+does not imply rollback of the empty server document. A window-capacity failure
+leaves the imported draft available for recovery. A source invalidated **after**
+dispatch likewise leaves the committed draft recoverable without opening it into
+the changed source context.
+
+Journal keys are `orbit.document-create.v1:<workspace UUID>:<operation UUID>`.
+Each version-1 envelope binds that workspace, an original pane UUID, the complete
+immutable create request (document UUID, operation UUID, kind, title, intent), and
+validated document data. The envelope is capped at **4 MiB UTF-8 after JSON
+serialization**, including escaping, with **8 unresolved entries per workspace**.
+Existing richtext/scene body limits still apply. Reads validate key/envelope scope
+and reject unknown fields, malformed content and mismatched kinds. Reusing an
+operation key with changed bytes is refused; cleanup compares the retained exact
+envelope before removal. Credentials and source callbacks are never stored.
+Browser session quota may be lower than the aggregate bound. These are private
+same-origin sessionStorage records, not durable server snapshots: tab closure or
+clearing storage can remove them. Resolve outstanding creations before capacity
+is exhausted. A reload recovery is a fresh explicit owner review of retained
+bytes, not resurrection of the original conversation's source authority.
+
+The trusted producer seam is `requestDocumentFromResult(completeReply, isCurrent?)` in
 `src/document-artifacts.ts`. It accepts exactly this sole-key JSON object, optionally
 inside one whole-reply `orbit-document` fence:
 
@@ -91,6 +126,12 @@ shell event is trusted-parent-only, not a generated-frame capability. Newly
 completed Normal replies and available completed Workbench results expose a
 **Create document from result** action when this exact adapter accepts them.
 No model is invoked by review or creation.
+Normal and Workbench callers supply a live source-binding predicate covering their
+recipient/result and credential identity. It is checked after lazy module loading,
+before review and again at the final mutation boundary after workspace flushing.
+Changing recipient, disposing the source or changing credentials before dispatch
+refuses creation. The predicate is parent-memory-only and is not a capability or
+a request field sent to the document server.
 
 **Share selected content** captures the native Lexical text selection or selected
 Excalidraw elements. Its literal text includes document/pane IDs, base revision,
