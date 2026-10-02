@@ -70,6 +70,22 @@ class TransportTest(unittest.TestCase):
         self.assertEqual(self.calls[0], ("/api/workspace/control", "Bearer test-only-capability", {"action": "read", "workspace_id": WORKSPACE}))
         self.assertNotIn("test-only-capability", json.dumps(result))
 
+    def test_conflict_categories_and_retained_identity(self):
+        self.ctx.settings['allow_mutations'] = True
+        self.status = 409
+        for category in ('RECOVERY_HOLD', 'IDEMPOTENCY_CONFLICT', 'RECOVERY_POLICY_CHANGED', 'RESOURCE_BUSY', 'REVISION_CONFLICT'):
+            self.reply = {'category': category, 'error': 'private server text must not escape'}
+            result = self.call(action='checkpoint', label='Recovery test', base_revision=7)
+            self.assertEqual(result['category'], category)
+            self.assertEqual(result['operation_id'], self.calls[-1][2]['operation_id'])
+            self.assertNotIn('private server text', json.dumps(result))
+            self.assertEqual(result['outcome'], 'refused')
+        records = list((Path(self.temp.name) / 'workspace-adapter-requests' / WORKSPACE).glob('*.json'))
+        self.assertEqual(len(records), 5)
+        for record in records:
+            self.assertNotIn('capability', record.read_text())
+            self.assertEqual(record.stat().st_mode & 0o777, 0o600)
+
     def test_default_deny_mutations(self):
         for action in ("apply", "checkpoint", "restore"):
             self.assertFalse(self.call(action=action)["ok"])

@@ -1,0 +1,1 @@
+export function featureCapabilities(options?:{audience?:string}):{version:number;generation:string;freshness:string;features:{feature_id:string;surface_uri:string;readiness:string;execution_verified:boolean;open:{authority:string;effect:string};content:{authority:string;availability:string;verbs:string[]};delegated:{availability:string;channel:string}}[]};

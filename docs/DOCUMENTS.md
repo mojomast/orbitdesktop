@@ -225,3 +225,9 @@ panes or provider calls. The only HTTP interception induces uncertain responses
 or delayed binding responses; it does not mock either rendering engine or the
 document store. Full combined checks and distribution asset/license packaging
 are integration-owned.
+## Agent-created new briefs
+
+An explicitly granted dedicated local resource adapter can atomically create a
+new rich-text document with content and a receipt. This authority does not include
+library reads or edits to existing documents. Results distinguish saved from opened
+and browser acknowledgement. See [Resource delegation](RESOURCE_DELEGATION.md).

@@ -7,7 +7,7 @@ import tarfile
 
 ROOT = Path(__file__).resolve().parents[1]
 PREFIXES = ('src/', 'server/', 'scripts/', 'deploy/', 'docs/', 'public/', 'contracts/')
-FILES = {'package.json', 'package-lock.json', 'index.html', 'tsconfig.json', 'vite.config.js', 'LICENSE', 'README.md', 'AGENTS.md', 'hermes-plugin/__init__.py', 'hermes-plugin/orbit.py', 'hermes-plugin/workbench.py', 'hermes-plugin/workbench-tool-schema.json', 'hermes-plugin/plugin.yaml'}
+FILES = {'package.json', 'package-lock.json', 'index.html', 'tsconfig.json', 'vite.config.js', 'LICENSE', 'README.md', 'AGENTS.md', 'hermes-plugin/__init__.py', 'hermes-plugin/orbit.py', 'hermes-plugin/workbench.py', 'hermes-plugin/resources.py', 'hermes-plugin/workbench-tool-schema.json', 'hermes-plugin/plugin.yaml'}
 
 def included(name):
     """Single inclusion policy used by publication and reverse-completeness checks."""

@@ -1,5 +1,11 @@
 # Technology feature shell integration
 
+Owner capability discovery and controller descriptions share reviewed feature-type
+descriptors that distinguish opening a surface from private-content authority.
+The [dedicated resource adapter](RESOURCE_DELEGATION.md) supports selected-source
+search/read and creation of cited editable briefs; Normal gateway delegation remains
+blocked on authenticated per-run plugin binding.
+
 For task-oriented examples, see [Workspace prompts](WORKSPACE_PROMPTS.md). These
 features are implemented in the development candidate; package metadata remains
 0.3.1 and no new release is implied. [Verification](VERIFICATION.md) distinguishes

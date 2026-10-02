@@ -388,14 +388,20 @@ export function openKnowledgeStore(root) {
       .filter(
         (s) =>
           (!filters.kinds?.length || filters.kinds.includes(s.kind)) &&
-          (!filters.source_ids?.length ||
+          (filters.source_ids === undefined ||
             filters.source_ids.includes(s.source_id)),
       )
       .map((s) => s.source_id);
     if (!allowed.length) return [];
     const restriction = ` AND c.source IN (${allowed.map(() => "?").join(",")})`;
     const terms = query.match(/[\p{L}\p{N}_]+/gu)?.slice(0, 32) ?? [];
-    const keyword = terms.length
+    // Scoped searches must not use global FTS/BM25 corpus statistics: even an
+    // excluded source must not affect rank or crowd out an admitted passage.
+    const keyword = filters.source_ids !== undefined
+      ? index.prepare('SELECT c.* FROM chunks c WHERE c.workspace=?'+restriction).all(workspace,...allowed)
+          .map(row=>({...row,rank:terms.reduce((score,term)=>score+(row.text.toLocaleLowerCase().includes(term.toLocaleLowerCase())?1:0),0)}))
+          .filter(row=>row.rank>0).sort((a,b)=>b.rank-a.rank||a.id-b.id).slice(0,500)
+      : terms.length
       ? index
           .prepare(
             "SELECT c.*,bm25(fts) rank FROM fts JOIN chunks c ON c.id=fts.rowid WHERE fts MATCH ? AND c.workspace=?" +
@@ -440,7 +446,7 @@ export function openKnowledgeStore(root) {
         }
         if (
           (filters.kinds?.length && !filters.kinds.includes(s.kind)) ||
-          (filters.source_ids?.length && !filters.source_ids.includes(s.id))
+          (filters.source_ids !== undefined && !filters.source_ids.includes(s.id))
         )
           continue;
         let item = scores.get(row.id);

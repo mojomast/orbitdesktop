@@ -6,10 +6,15 @@ homepage: https://github.com/mojomast/orbitdesktop
 provides_tools:
   - orbit_workspace
   - orbit_workbench
+  - orbit_resources
 provides_hooks: []
 provides_middleware: []
 requires_env: []
 config_schema:
+  resource_channel_file:
+    type: str
+    default: ""
+    description: Host-issued private channel for a dedicated one-run local resource adapter only. Never configure in a shared Normal gateway profile.
   native_channel_file:
     type: str
     default: ""

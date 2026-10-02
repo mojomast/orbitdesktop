@@ -1,6 +1,8 @@
 """Hermes adapter for an existing Orbit deployment; no import-time I/O."""
 import ipaddress
+import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import uuid
@@ -65,6 +67,67 @@ SCHEMA = {
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
+
+
+ERROR_RECOVERY = {
+    "REVISION_CONFLICT": "Read current state and reconsider the change",
+    "IDEMPOTENCY_CONFLICT": "Retain the original operation ID and exact payload; do not overwrite its identity",
+    "RECOVERY_HOLD": "Owner must review the active recovery hold",
+    "RECOVERY_POLICY_CHANGED": "Read current recovery policy; do not replay the previous change",
+    "STUDIO_RELEASE_REVOKED": "Owner must review the revoked release",
+    "BUNDLE_UNAVAILABLE": "Verify publication and refresh the bundle index",
+    "UPGRADE_REQUIRED": "Reload or upgrade the client before editing",
+    "PERMISSION_REQUIRED": "Review the configured authority",
+    "RESOURCE_GONE": "Select an existing resource",
+    "RESOURCE_BUSY": "Inspect status before considering a retry",
+    "STORE_UNAVAILABLE": "Inspect deployment status; preserve uncertain operation identity",
+    "REQUEST_TOO_LARGE": "Reduce the request size",
+    "INVALID_OPERATION": "Review the operation schema",
+}
+
+
+def safe_http_error(error, capability, request_params):
+    category = "REQUEST_REJECTED"
+    try:
+        raw = error.read(maxResponseBytes + 1)
+        if len(raw) <= maxResponseBytes and capability.encode() not in raw:
+            value = json.loads(raw)
+            if isinstance(value, dict) and value.get("category") in ERROR_RECOVERY:
+                category = value["category"]
+    except Exception:
+        pass
+    identity = {key: request_params[key] for key in ("operation_id", "base_revision") if key in request_params}
+    if isinstance(request_params.get("request"), dict) and "op_id" in request_params["request"]:
+        identity["op_id"] = request_params["request"]["op_id"]
+    return {"ok": False, "status": error.code, "category": category,
+            "outcome": "unknown" if error.code >= 500 else "refused", **identity,
+            "error": ERROR_RECOVERY.get(category, "Orbit rejected the request; inspect authorization and schema")}
+
+
+def retain_mutation(runtime, workspace, params):
+    """Write the exact credential-free envelope durably before mutation dispatch."""
+    directory = Path(runtime) / "workspace-adapter-requests" / workspace
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(directory, 0o700)
+    # Fixed digest filename, never a model-controlled path.
+    filename = directory / (hashlib.sha256(params["operation_id"].encode()).hexdigest() + ".json")
+    raw = json.dumps(params, sort_keys=True, separators=(",", ":")).encode()
+    if filename.exists():
+        if filename.read_bytes() != raw:
+            raise ValueError("Invalid Orbit retained operation payload")
+        return
+    if len(list(directory.glob("*.json"))) >= 128:
+        raise ValueError("Invalid Orbit request retention full; archive resolved records explicitly")
+    with filename.open("xb") as stream:
+        os.chmod(filename, 0o600)
+        stream.write(raw)
+        stream.flush()
+        os.fsync(stream.fileno())
+    fd = os.open(directory, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
 
 
 def endpoint(api):
@@ -198,6 +261,8 @@ def invoke(ctx, params):
     body = json.dumps({**request_params, "workspace_id": workspace}).encode()
     if len(body) > maxRequestBytes:
         raise ValueError("Workspace request is too large")
+    if action in MUTATIONS:
+        retain_mutation(runtime, workspace, request_params)
     request = urllib.request.Request(target, data=body, headers={
         "Authorization": "Bearer " + capability, "Content-Type": "application/json",
     })
@@ -207,13 +272,9 @@ def invoke(ctx, params):
         with opener.open(request, timeout=20) as response:
             raw = response.read(maxResponseBytes + 1)
     except urllib.error.HTTPError as error:
-        # Server error bodies may contain sensitive material; do not echo them.
-        return {"ok": False, "status": error.code, "error": (
-            "Revision conflict: read and reconsider the requested change" if error.code == 409
-            else "Orbit rejected the request; check authorization and operation schema"
-        )}
+        return safe_http_error(error, capability, request_params)
     except (urllib.error.URLError, TimeoutError, OSError):
-        if action == "arrangement":
+        if action in ("arrangement", "workbench_setup"):
             return {"ok": False, "outcome": "unknown", "op_id": params["request"].get("op_id"), "error": "Arrangement response unavailable. Read its durable proposal/receipt; retry a commit only with the exact retained request and key. Do not create a new operation."}
         if action in MUTATIONS:
             return {"ok": False, "outcome": "unknown", "operation_id": request_params["operation_id"], "base_revision": request_params["base_revision"], "error": "Mutation outcome unknown. Reuse the exact key and payload or read before reconsidering; never blindly create a new mutation."}
@@ -222,10 +283,14 @@ def invoke(ctx, params):
         raise ValueError("Workspace response exceeds the size limit")
     if capability.encode() in raw:
         raise ValueError("Refusing a response containing the workspace capability")
-    return {"ok": True, "result": json.loads(raw)}
+    return {"ok": True, "result": json.loads(raw), **({"operation_id": request_params["operation_id"], "request_digest": hashlib.sha256(json.dumps(request_params, sort_keys=True, separators=(",", ":")).encode()).hexdigest()} if action in MUTATIONS else {})}
 
 
 def register(ctx):
+    if ctx.get_config("resource_channel_file", ""):
+        from .resources import register as register_resources
+        register_resources(ctx)
+        return
     if ctx.get_config("native_channel_file", ""):
         from .workbench import register as register_workbench
         register_workbench(ctx)

@@ -262,3 +262,9 @@ The parent reported its integrated combined check passing 946 of 956 tests with
 for the conflict change; it did not repeat the combined check. Offline `npm ci`, non-Linux native packaging,
 large-corpus recall/memory, complete-runtime backup/secure erasure and live
 deployment/restart have not been verified by this feature agent.
+## Dedicated source delegation
+
+The Knowledge surface now has an explicit selected-source grant/revoke panel for
+a dedicated local Hermes adapter. Normal gateway content tools remain unavailable
+until authenticated per-run binding exists. See [Resource delegation](RESOURCE_DELEGATION.md)
+for exact scopes, destination disclosure, budgets, citations and restart behavior.
