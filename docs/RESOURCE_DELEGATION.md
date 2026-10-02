@@ -23,6 +23,15 @@ The inspected upstream checkout is Hermes
   the selected `session_id`. Orbit's `server/workbench-hermes.mjs` freezes the
   Runs payload and receives the accepted run ID later. There is no verified
   per-submission private plugin configuration/credential handoff in this path.
+- Importantly, `_RunLaunch.approval_session_key` **is** the gateway `run_id`, and
+  `_run_agent_sync` sets it in `tools.approval_context` using a `ContextVar`.
+  `effective_task_id` is instead `session_id or run_id`, so handler `task_id`
+  is conversation-scoped for ordinary Orbit submissions. The internal approval
+  context is a plausible future authenticated adapter seam; this increment has
+  **not** validated its propagation through every plugin/concurrent execution
+  path or joined it to Orbit's accepted submission receipts and profile identity.
+  Normal's remaining gap is that integration/verification, not proof that upstream
+  has no internal run identity. It is not safe to substitute model arguments.
 - The existing native Workbench adapter uses a dedicated local process and private
   socket precisely because generic gateway plugin registration is not attempt
   authorization. This implementation reuses that transport pattern without

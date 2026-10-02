@@ -38,7 +38,7 @@ export async function createResourceDelegation({root,workspaceRead,knowledge,doc
     const ws=body.workspace_id;
     if(body.action==='list'){
       fields(body,['action','workspace_id']);
-      return {recipients:fs.readdirSync(dir).filter(n=>uuid.test(n.slice(0,-5))&&n.endsWith('.json')).map(n=>read(n.slice(0,-5))).filter(r=>r.workspace_id===ws).map(publicRecord),normal_gateway:{availability:'unsupported',reason:'No authenticated per-run plugin channel in the pinned Runs gateway'},limits:L};
+      return {recipients:fs.readdirSync(dir).filter(n=>uuid.test(n.slice(0,-5))&&n.endsWith('.json')).map(n=>read(n.slice(0,-5))).filter(r=>r.workspace_id===ws).map(publicRecord),normal_gateway:{availability:'unsupported',reason:'Orbit has not integrated a verified per-run resource channel into Normal'},limits:L};
     }
     if(body.action==='prepare'){
       fields(body,['action','workspace_id','destination']);

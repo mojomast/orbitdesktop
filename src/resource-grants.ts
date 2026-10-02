@@ -7,7 +7,7 @@ type Recipient={recipient_id:string;destination:string;expires_at:number;state:s
 // Reusable host-owned consent surface. No main renderer or generated frame bridge.
 export function mountResourceGrants(host:HTMLElement,token:()=>string){
   const root=el('details'),summary=el('summary','','Delegate selected sources to a dedicated local Hermes run');
-  const notice=el('p','','Normal gateway delegation is unavailable: its plugin calls lack authenticated Orbit run identity. This advanced channel is for a dedicated one-run local adapter only. Source bytes may be disclosed to the model destination you configure. Revocation stops future access; it cannot retract content already disclosed.');
+  const notice=el('p','','Normal gateway delegation is unavailable: Orbit has not integrated a verified per-run resource channel into Normal. This advanced channel is for a dedicated one-run local adapter only. Source bytes may be disclosed to the model destination you configure. Revocation stops future access; it cannot retract content already disclosed.');
   const choices=el('div'),records=el('div'),status=el('p'),config=el('pre');status.setAttribute('role','status');
   const destination=el('input');destination.maxLength=200;destination.placeholder='Model/provider destination configured for this dedicated process';destination.setAttribute('aria-label','Delegated disclosure destination');
   const write=el('input');write.type='checkbox';const writeLabel=el('label','','Allow creating new editable briefs (no library read/update) ');writeLabel.append(write);
