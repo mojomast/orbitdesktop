@@ -1,0 +1,74 @@
+# ASTERIA LUNAR RESEARCH OUTPOST — MISSION REQUIREMENTS
+
+Document ID: DOC-01 | Revision A | **SYNTHETIC DEMONSTRATION DATA**
+Owner: Asteria Programme Office (fictional organisation)
+
+> Everything in this kit is invented for demonstration. The programme, its
+> suppliers, its budget and every figure are synthetic. Nothing here is
+> engineering, procurement or financial advice.
+
+## 1. Purpose
+
+Establish a six-module lunar research outpost with an initial crewed mission of
+180 days, followed by expansion. The six modules are:
+
+1. habitat
+2. power
+3. communications
+4. laboratory
+5. logistics
+6. life support
+
+## 2. Budget
+
+Total equipment budget is **USD 2,000,000**. All monetary values are synthetic
+US dollars. The budget covers equipment line items only; it excludes launch,
+operations and contingency beyond the stated remaining balance.
+
+## 3. Deployment
+
+Deployment occurs in three stages:
+
+- **Stage 1** — uncrewed surface build.
+- **Stage 2** — crewed arrival and occupancy.
+- **Stage 3** — laboratory and logistics expansion.
+
+Crewed arrival must occur no earlier than month 11 and no later than month 18.
+The laboratory must be operational no later than month 28.
+
+## 4. Cargo
+
+Each cargo lander flight is certified for **3,400 kg of landed mass**. No single
+flight may exceed this limit. Total manifest mass determines the minimum number
+of flights.
+
+## 5. Reliability
+
+Stage 2 critical-path system reliability shall be **at least 0.900** over five
+years. "Critical path" for Stage 2 is defined in DOC-03 section 7 and excludes
+the laboratory.
+
+## 6. Power
+
+Crewed occupancy requires continuous power at or above the threshold stated in
+DOC-03 section 4. DOC-03 is the engineering authority. Where DOC-04 states a
+different threshold, **DOC-03 takes precedence**.
+
+## 7. Communications
+
+The Ka-band relay terminal must be ordered at programme start (month 0) and must
+be operational no later than 30 days before crewed arrival.
+
+## 8. Procurement
+
+All line items with a lead time of 12 months or more must be ordered at programme
+start (month 0).
+
+## 9. Precedence between source documents
+
+- **DOC-03** (Engineering Constraints) takes precedence on all physical limits,
+  thresholds and reliability figures.
+- **DOC-02** (Supplier Assessment) is commercial assessment only; it carries no
+  engineering authority.
+- **DOC-04** (Operations Memo) is an informal operations memo. It records
+  operational assumptions and preferences, not binding limits.

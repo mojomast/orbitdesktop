@@ -1,0 +1,117 @@
+# ENGINEERING CONSTRAINTS — ASTERIA OUTPOST
+
+Document ID: DOC-03 | Revision B | **SYNTHETIC DEMONSTRATION DATA**
+Owner: Engineering Authority (fictional)
+
+> Engineering authority. Takes precedence over DOC-02 and DOC-04 on all physical
+> limits, thresholds and reliability figures.
+
+## 1. Power generation
+
+| Source | Count | Rating each | Installed (peak) |
+| --- | ---: | ---: | ---: |
+| Solar array wing | 4 | 1.55 kW | 6.20 kW |
+| Regenerative fuel cell (primary) | 1 | 1.20 kW | 1.20 kW |
+| **Installed peak generation** | | | **7.40 kW** |
+
+**Fuel cell count reconciliation.** The manifest (EQU-007) procures **two**
+regenerative fuel cells. Only **one** is counted as continuous generation. The
+second unit is a rotatable spare held for the Stage-3 hot-swap, is not wired to
+the daytime bus, and is **excluded** from all generation figures in this
+document. Installed *continuous* generation from the fuel cell is therefore
+1.20 kW, not 2.40 kW. Earlier drafts that quoted "7.40 kW installed, 2 fuel
+cells" were ambiguous; this revision states the basis explicitly.
+
+## 2. Site conditions
+
+Site illumination factor is **70 percent**. Average solar output is therefore
+6.20 kW × 0.70 = **4.34 kW**. Nights are covered by the fuel cell and the battery
+bank. The battery bank (EQU-009, 5 units) is an energy buffer; it is not a
+generation source and is not counted toward continuous generation.
+
+**Peak is not continuous.** The 7.40 kW figure above is nameplate/peak installed
+capacity at full illumination with the fuel cell at rating. It must not be used
+as evidence that a continuous-power requirement is met. The continuous basis is
+average solar plus fuel cell:
+
+- Average continuous generation = 4.34 kW + 1.20 kW = **5.54 kW**
+
+## 3. Demand
+
+Per-unit continuous demand is carried in the manifest column
+`unit_power_demand_kw`, and the line total is `quantity × unit_power_demand_kw`.
+Manifest continuous demand total is **6.42 kW**.
+
+- Against **peak** installed generation (7.40 kW) the margin appears to be
+  **+0.98 kW**. This comparison is not valid for a continuous requirement.
+- Against **average continuous** generation (5.54 kW) the full-manifest margin is
+  **−0.88 kW**, a deficit of 0.88 kW.
+
+## 4. Crewed power threshold
+
+Crewed occupancy requires **4.7 kW continuous**, inclusive of a 0.7 kW reserve
+for life-support transients.
+
+**THIS SUPERSEDES the 4.0 kW figure quoted in DOC-04 section 2.** The higher
+figure is the binding value.
+
+Against average continuous generation (5.54 kW) the crewed critical load of
+4.7 kW leaves a margin of **+0.84 kW**. The full manifest demand (6.42 kW) is
+*not* satisfied continuously; only the crewed critical load is.
+
+## 5. Cargo mass
+
+3,400 kg per flight is a hard structural limit. Per-unit mass is carried in the
+manifest column `unit_cargo_mass_kg`; line total is `quantity × unit_cargo_mass_kg`.
+
+Total manifest mass is **7,315 kg**, so a minimum of **three flights** is
+required (7,315 / 3,400 = 2.15, rounded up).
+
+## 6. Reliability table (five-year basis)
+
+| Module | Reliability |
+| --- | ---: |
+| habitat | 0.980 |
+| power | 0.965 |
+| communications | 0.972 |
+| laboratory | 0.955 |
+| logistics | 0.988 |
+| life support | 0.960 |
+
+## 7. Critical path (Stage 2, excludes laboratory)
+
+habitat × power × communications × logistics × life support
+
+= 0.980 × 0.965 × 0.972 × 0.988 × 0.960 = **0.8719**
+
+Against the 0.900 target this is a shortfall of **0.0281**. The product is
+computed in `validate_asteria.py`; do not round it up to 0.900.
+
+## 8. Upgraded critical path
+
+With both Kestrel high-reliability variants (DOC-02 section 4), power becomes
+0.990 and life support becomes 0.978:
+
+= 0.980 × 0.990 × 0.972 × 0.988 × 0.978 = **0.9112**
+
+which meets the 0.900 target. Note that a *single* upgrade is not sufficient:
+
+- Fuel-cell variant only (power 0.990, life support 0.960) = **0.8944** — fails.
+- Atmosphere variant only (power 0.965, life support 0.978) = **0.8882** — fails.
+
+Both variants are required together, at a combined cost of **USD 184,000**.
+
+## 9. Structural and thermal
+
+- No single flight above 3,400 kg.
+- Deployable solar arrays need an 8 m clear radius.
+- Laboratory instruments require a 0.60 kW dedicated continuous feed
+  (manifest EQU-015, `unit_power_demand_kw` = 0.60).
+
+## 10. Schedule interaction with communications
+
+The Ka-band relay terminal has a 12-month lead time from the manifest. DOC-04
+section 3 asserts a different availability date. Engineering notes that if crewed
+arrival is planned at month 11, the relay cannot be operational 30 days prior,
+under **either** source's figure. This is a scheduling constraint, not a
+generation or structural one.

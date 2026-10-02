@@ -37,6 +37,11 @@ contents are reloaded from their existing authorized sources.
 
 ## Local technology surfaces
 
+The separately installed [Asteria Mission Control](ASTERIA_MISSION_CONTROL.md)
+example brings the synthetic task into one interactive view: edit constraints,
+compare modeled strategies and export a brief derived from the current scenario.
+It uses the existing sandboxed plugin lifecycle and bundled public synthetic data.
+
 The subsequent [technology feature round](TECHNOLOGY_FEATURES.md) adds normal
 workspace surfaces for [source-backed search](KNOWLEDGE_SEARCH.md),
 [interactive results](INTERACTIVE_RESULTS.md), [voice dictation](VOICE_DICTATION.md),

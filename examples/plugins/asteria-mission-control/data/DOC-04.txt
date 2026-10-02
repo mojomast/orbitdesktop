@@ -1,0 +1,54 @@
+# OPERATIONS MEMO — SURFACE INTENT AND ASSUMPTIONS
+
+From: Kayla Renn, Operations Lead (fictional)
+To: Asteria Programme Office
+**SYNTHETIC DEMONSTRATION DATA**
+
+> Informal internal memo. Operational preference and intent. **Not an engineering
+> authority.** Where this memo differs from DOC-03, DOC-03 governs.
+
+## 1. Intent
+
+We prefer to prove power and communications on the surface before we commit
+crew. I would rather the crew arrive to a quiet, already-breathing base than to a
+base whose critical systems are landing in the same window as the crew.
+
+## 2. Power assumption
+
+Operations is **working to a crewed continuous power threshold of 4.0 kW**.
+Engineering has been asked to review this figure. We understand the review may
+raise it.
+
+## 3. Communications
+
+The relay terminal must be **operational 30 days before crewed arrival** so that
+the blackout rule is never breached.
+
+Relay terminal delivery is **not expected before month 14**. Plan comms closeout
+on that basis. (Commercial has separately quoted a 12-month lead time; I am
+planning conservatively against month 14.)
+
+## 4. Logistics
+
+One surface rover is sufficient for the first 180 days. Rover battery packs are
+treated as consumables and we expect to cycle them. We have not yet confirmed a
+delivery lead time for the spare battery packs.
+
+## 5. Budget view
+
+We expect the manifest to total approximately 1.95 million, leaving roughly
+50,000 of contingency. **No allowance has been made for reliability upgrades.**
+If both upgrades are wanted, something has to come out of the manifest.
+
+## 6. Data hygiene
+
+Our first manifest export appears to include a duplicated communications line
+item. Finance should reconcile the manifest before the budget gate. Operations
+has no view on which row is correct.
+
+## 7. Crewed arrival preference
+
+Operations would prefer crewed arrival closer to month 14 than to month 11,
+because a month-11 arrival leaves no margin for the relay closeout. This is a
+preference, not a requirement; DOC-01 section 3 sets the binding window of
+months 11–18.

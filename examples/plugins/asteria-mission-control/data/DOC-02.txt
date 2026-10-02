@@ -1,0 +1,70 @@
+# SUPPLIER ASSESSMENT — ASTERIA EQUIPMENT MANIFEST
+
+Document ID: DOC-02 | Revision A | **SYNTHETIC DEMONSTRATION DATA**
+Owner: Commercial Assessment Team (fictional)
+
+> Commercial assessment only. This document carries no engineering authority and
+> does not evaluate thermal, structural, power or schedule limits.
+
+## 1. Scope
+
+Four qualified suppliers: Selene Systems, Kestrel Aerospace, Meridian Robotics,
+and Apollon Dynamics. This assessment covers price basis, lead times and offered
+reliability variants.
+
+## 2. Spend profile
+
+Reconciled manifest, total **USD 1,953,000** (24 distinct line items). Figures
+exclude the suspected duplicate communications row; see section 7.
+
+| Supplier | Reconciled spend (USD) | Share |
+| --- | ---: | ---: |
+| Kestrel Aerospace | 612,000 | 31.3% |
+| Selene Systems | 547,000 | 28.0% |
+| Meridian Robotics | 489,000 | 25.0% |
+| Apollon Dynamics | 305,000 | 15.6% |
+
+No supplier exceeds the **35%** concentration threshold. Kestrel Aerospace is
+nevertheless the largest single source of spend.
+
+## 3. Lead times and commitments
+
+Kestrel Aerospace delivers the **Ka-band relay terminal on a 12-month lead
+time**. Ordered at month 0, delivery lands at **month 12**, and we assess the
+terminal as installable and available for a Stage-1 closeout at month 12.
+
+The regenerative fuel cell is on a **15-month** lead time.
+
+The optical communications backup terminal is on a **16-month** lead time — the
+longest item in the manifest — and must be ordered at month 0 under DOC-01
+section 8.
+
+## 4. Reliability variants offered
+
+| Variant | Supplier | Uplift cost (USD) | Uplift mass (kg) |
+| --- | --- | ---: | ---: |
+| Regenerative fuel cell, high-reliability variant | Kestrel Aerospace | 120,000 | 50 |
+| Atmosphere revitalisation unit, high-reliability variant | Kestrel Aerospace | 64,000 | 30 |
+
+Combined uplift: **USD 184,000** and **80 kg**.
+
+We recommend both variants for any strategy targeting crewed arrival before
+month 16.
+
+## 5. Risk note
+
+Kestrel Aerospace holds **both** recommended reliability variants. That creates a
+single-source dependency on the programme's two highest-consequence upgrades.
+
+## 6. Commercial view of the schedule
+
+Purchase order release at month 0 lets the relay terminal land at month 12. We
+consider a Stage 1 closeout at month 12 achievable on that basis. This is a
+commercial lead-time statement, not a schedule authority.
+
+## 7. Manifest reconciliation note
+
+The first manifest export contained a duplicated communications line item.
+Reconciled totals in this document exclude that row. The raw export total is
+**USD 2,005,000** and the reconciled total is **USD 1,953,000**. Finance should
+reconcile the manifest before the budget gate.

@@ -1,5 +1,30 @@
 # Verification record
 
+## Asteria scenario simulator
+
+The specialized synthetic example in `examples/plugins/asteria-mission-control/`
+has deterministic outcome tests (`tests/asteria-scenario.test.mjs`) and a real
+Chromium journey (`tests/asteria-simulator.browser.py`). The browser fixture uses a
+disposable publication, Orbit's actual static-app handler and its opaque iframe
+sandbox. It exercises changed constraints, coupled costs/reliability, exports and
+narrow layout. `.github/workflows/asteria.yml` scopes browser coverage to relevant
+changes plus weekly/manual runs. Evidence remains outside Git. See
+[the feature contract](ASTERIA_MISSION_CONTROL.md) for exact model limitations.
+
+Local acceptance on October 2, 2026: **15 deterministic model tests passed**;
+the real Chromium journey passed interactive arithmetic, preset selection,
+invalid-input stale-result removal, export consistency, keyboard evidence viewing,
+source download integrity and 390px layout, with zero page errors or external
+requests. Publisher tests passed **9/9**. The immutable published bundle was also
+tested through 8803 in a separate unauthenticated opaque-sandbox browser context.
+The workspace acknowledged the plugin installation at revision **2923**, preserving
+all **13** pre-existing windows. Owner visual acceptance remains separate.
+
+The complete `npm run check` gate passed: **1,026 tests / 1,015 passed / 11 optional
+skips / zero failures**. The tracked Hermes archive was regenerated and its parity
+suite passed **3/3**. Core package metadata remains **0.3.1**, workspace schema
+remains **12**, and no release/tag publication is implied by this plugin delivery.
+
 ## Published CSV handoff — October 2, 2026
 
 Data workbench accepts a strict, same-origin published CSV identity plus SHA-256

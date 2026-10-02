@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Asteria · Mission Control</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script type="module" src="./app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#decision-headline">Skip to decision</a>
+  <div class="workspace">
+    <header class="masthead">
+      <div class="brand"><span class="brand-mark" aria-hidden="true">A</span><div><p class="eyebrow">ASTERIA / MISSION CONTROL</p><h1>Plan the next frontier.</h1></div></div>
+      <div class="environment"><span class="signal" aria-hidden="true"></span>Synthetic mission simulator<span class="environment-sub">LOCAL COMPUTATION · NO LIVE TELEMETRY</span></div>
+    </header>
+    <main class="cockpit">
+      <aside class="controls panel" aria-labelledby="scenario-title">
+        <div class="section-heading"><span class="section-number">01</span><h2 id="scenario-title">Shape the mission</h2></div>
+        <p class="muted intro">Change a constraint. See the decision move.</p>
+        <form id="scenario-form" novalidate>
+          <label class="field" for="budget">Equipment budget (USD)<span class="input-wrap"><span aria-hidden="true">$</span><input id="budget" name="budgetUsd" aria-label="Equipment budget (USD)" type="number" min="0" max="1000000000" step="1" value="2000000" required inputmode="numeric"></span></label>
+          <div class="quick-actions"><button type="button" id="budget-cut" class="button primary">Apply 15% budget cut<span aria-hidden="true">↘</span></button></div>
+          <div class="field-row">
+            <label class="field" for="crew">Crew arrival month<input id="crew" name="crewMonth" type="number" min="1" max="120" step="1" value="18" required></label>
+            <label class="field" for="relay">Relay available month<input id="relay" name="relayMonth" type="number" min="0" max="120" step="1" value="14" required></label>
+          </div>
+          <div class="presets" aria-label="Relay source scenarios"><span>Relay assumption</span><button type="button" data-relay="12">M12 · commercial</button><button type="button" data-relay="14">M14 · operations</button></div>
+          <label class="field" for="strategy">Deployment strategy<select id="strategy" name="strategy"><option value="power-first">Power First</option></select></label>
+          <fieldset><legend>Equipment decisions</legend>
+            <label class="toggle"><input type="checkbox" name="deduplicate" aria-label="Reconcile suspected duplicate" checked><span>Reconcile suspected duplicate<small>Explicit manifest assumption</small></span></label>
+            <label class="toggle"><input type="checkbox" name="fuelCellUpgrade"><span>Upgrade fuel cell</span></label>
+            <label class="toggle"><input type="checkbox" name="atmosphereUpgrade"><span>Upgrade life support</span></label>
+            <button type="button" id="both-upgrades" class="button secondary">Add both reliability upgrades <span aria-hidden="true">+</span></button>
+            <label class="toggle laboratory"><input type="checkbox" name="includeLaboratory" aria-label="Include laboratory in current phase" checked><span>Include laboratory in current phase<small>Required by M28; deferral keeps program cost.</small></span></label>
+          </fieldset>
+          <button type="button" id="reset" class="reset"><span aria-hidden="true">↺ </span>Reset scenario</button>
+          <p id="input-error" class="input-error" role="alert" hidden></p>
+        </form>
+        <p class="memory-note">Session-only state. Export explicitly to keep a copy.</p>
+      </aside>
+      <div class="results" id="scenario-result" data-testid="scenario-result" aria-busy="true">
+        <section class="decision panel" aria-labelledby="decision-headline">
+          <div class="decision-top"><span class="eyebrow">DECISION / CURRENT SCENARIO</span><span id="decision-status" class="status-pill">Evaluating</span></div>
+          <h2 id="decision-headline" data-testid="decision-headline" tabindex="-1">Reading the mission model…</h2>
+          <p id="decision-summary" class="decision-summary">Preparing a source-backed assessment.</p>
+          <p id="decision-interpretation" class="decision-interpretation"></p>
+          <div id="decision-counts" class="decision-counts"></div>
+        </section>
+        <section id="metrics" class="metrics" aria-label="Mission performance"></section>
+        <section class="panel comparison-panel" aria-labelledby="comparison-title">
+          <div class="section-heading"><span class="section-number">02</span><h2 id="comparison-title">Choose a deployment posture</h2><span class="section-meta">DOCUMENTED PRESETS</span></div>
+          <p class="comparison-explainer muted">Presets carry your budget, relay and manifest assumptions; each sets its documented crew date and upgrades.</p>
+          <div id="comparison" data-testid="comparison" class="comparison"></div>
+        </section>
+        <section class="panel schedule-panel" aria-labelledby="schedule-title">
+          <div class="section-heading"><span class="section-number">03</span><h2 id="schedule-title">Mission clock</h2><span id="schedule-caption" class="section-meta"></span></div>
+          <div id="scenario-timeline" data-testid="scenario-timeline" class="timeline"></div>
+          <div id="schedule-note" class="schedule-note"></div>
+          <details class="flight-details"><summary>Inspect modeled equipment flight groups</summary><div id="flight-groups" class="flight-groups"></div></details>
+        </section>
+        <section class="panel evidence-panel" aria-labelledby="checks-title">
+          <div class="section-heading"><span class="section-number">04</span><h2 id="checks-title">Decision gates</h2><span class="section-meta">TRACEABLE TO SOURCE</span></div>
+          <div id="checks" class="checks"></div>
+          <details class="source-details"><summary>Sources, assumptions & calculation identity</summary><div class="source-content"><h3>Model assumptions</h3><ul id="assumptions"></ul><h3>Source library <span class="muted">/ synthetic data</span></h3><div id="citations" class="citations"></div><dl class="identity"><dt>Model version</dt><dd id="model-version"></dd><dt>Scenario identity</dt><dd id="input-identity"></dd><dt>Input CSV SHA-256</dt><dd id="source-fingerprint"></dd></dl><p class="muted">The 4.7 kW crew threshold follows documented source precedence. Average power is not a continuous-power guarantee.</p></div></details>
+        </section>
+        <footer class="export-bar"><div><strong>Carry the decision forward.</strong><p>Export the current evaluated scenario, with its evidence.</p></div><div class="export-actions"><button type="button" id="export-brief" class="button primary" disabled>Export decision brief <span aria-hidden="true">↓</span></button><button type="button" id="export-json" class="button secondary" disabled>Export scenario JSON</button></div></footer>
+      </div>
+    </main>
+    <dialog id="evidence-dialog" class="evidence-dialog" aria-labelledby="evidence-title" aria-describedby="evidence-status">
+      <header class="evidence-header"><div><p class="eyebrow">BUNDLED PUBLIC SOURCE / SYNTHETIC DATA</p><h2 id="evidence-title">Source evidence</h2></div><button type="button" id="evidence-close" class="button secondary" autofocus>Close evidence</button></header>
+      <p id="evidence-status" class="evidence-status" role="status"></p>
+      <pre id="evidence-text" class="evidence-text" tabindex="0" aria-label="Source document text"></pre>
+      <footer class="evidence-footer"><p id="evidence-hash"></p><button type="button" id="evidence-download" class="button primary" disabled>Download source</button></footer>
+    </dialog>
+    <div id="announcement" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+    <p id="export-message" class="export-message" role="status" hidden></p>
+    <footer class="page-footer"><span>ASTERIA / DECISION LAB</span><span>Synthetic evidence. Real tradeoffs. No verified flight clearance.</span></footer>
+  </div>
+</body>
+</html>

@@ -28,6 +28,11 @@ features are implemented in the development candidate; package metadata remains
 0.3.1 and no new release is implied. [Verification](VERIFICATION.md) distinguishes
 exact-head CI, deployment checks and pending owner visual acceptance.
 
+The separately published [Asteria Mission Control](ASTERIA_MISSION_CONTROL.md)
+example uses a shared deterministic scenario model for an interactive mission
+dashboard, comparison and brief exports. It follows the sandboxed plugin lifecycle
+and uses bundled synthetic data; installation is separate from the built-in tools.
+
 The Start menu and command palette expose Knowledge search, Interactive results,
 Data workbench, Voice transcript, Document library, Run traces, Browser copilot and
 MCP Apps, including setup explanations when optional services are unconfigured.

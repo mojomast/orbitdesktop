@@ -2,6 +2,13 @@
 
 ## Current tools: prefer the built-in surface
 
+For the synthetic Asteria task, a separately published **Asteria Mission Control**
+plugin can provide real scenario calculations and comparison. Reuse its installed
+window when present; see `docs/ASTERIA_MISSION_CONTROL.md`. It computes from bundled
+data and exports local files. Page edits are transient and exports are not saved
+Orbit documents. Budget/reliability values must come from the same scenario; a
+missing continuous-power proof must remain unknown rather than become “feasible.”
+
 Start and the command palette discover the current tools. Before building a
 replacement, use the reviewed surface that fits the owner's request. These are
 ordinary browser-kind panes at the exact URLs below, not generated plugins.

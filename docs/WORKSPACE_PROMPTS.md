@@ -103,6 +103,15 @@ generation. Guide: [Voice dictation](VOICE_DICTATION.md).
 
 ## Local data analysis
 
+> Open the Asteria Mission Control simulator. Add the two reliability upgrades,
+> then cut the original equipment budget by 15%. Show how the actual cost,
+> reliability and constraint checks change, and export the current decision brief.
+
+The [Asteria simulator](ASTERIA_MISSION_CONTROL.md) is a separately published
+synthetic example with local deterministic calculations and a shared scenario
+model. Its controls recalculate results directly. Exports are downloads; its
+in-page state and outputs are distinct from private Orbit documents and grants.
+
 > Publish the synthetic CSV you just authored and open it in Data workbench for me
 > using its exact SHA-256. Use a new pane if an existing analysis might be lost.
 > Check layout acknowledgement and distinguish it from verified input loading.
