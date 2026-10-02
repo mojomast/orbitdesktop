@@ -40,7 +40,7 @@ const git=(folder,...args)=>execFileSync('/usr/bin/git',['-C',folder,...args],{e
 test('real approved candidate creates a separate private two-commit Git branch, with durable retry receipt',async t=>{
   const f=fixture(t);fs.writeFileSync(path.join(f.projectRoot,'.gitignore'),'math.js\n');fs.writeFileSync(path.join(f.projectRoot,'.gitattributes'),'*.js -diff\n');
   assert.deepEqual(workflowSchema.oneOf.map(item=>item.properties.action.const).sort(),[
-    'integration_preview','integrate_confirm','integration_list','retention_inventory','retention_plan','recipe_list','recipe_save','recipe_preview','recipe_apply','proposal_list','proposal_get','proposal_reject',
+    'integration_preview','integrate_confirm','integration_list','integration_finalize_retry','task_status_snapshot','task_status_read','retention_inventory','retention_plan','recipe_list','recipe_save','recipe_preview','recipe_apply','proposal_list','proposal_get','proposal_reject',
     'patch_preview','patch_export','private_patch_get','patch_list','patch_finalize_retry','patch_check_cancel','patch_acknowledge_unknown',
   ].sort());
   const {task}=await f.call('task_create',{title:'Repair sum',acceptance_statement:'sum returns arithmetic addition',check_definition_id:'host-regression',profile_id:'default',session_id:'fixture'});
@@ -51,6 +51,7 @@ test('real approved candidate creates a separate private two-commit Git branch, 
   const check=await f.call('check_preview',{candidate_id:candidate.id,definition_id:'host-regression'});
   const run=await f.call('check_run',{candidate_id:candidate.id,preview_id:check.preview_id,preview_digest:check.preview.spec_digest,op_id:randomUUID()});
   assert.equal(run.evidence.verdict,'pass');
+  const inbox=await f.flow('task_status_snapshot');assert.equal(inbox.items[0].check_acceptance.complete,true);assert.deepEqual(inbox.items[0].check_acceptance.evidence_ids,[run.evidence.id]);
   const current=await f.call('candidate_get',{candidate_id:candidate.id});
   const {review}=await f.call('review_decide',{candidate_id:candidate.id,evidence_ids:[run.evidence.id],decision:'approved',expected_identity:current.review_identity});
   const selection={candidate_id:candidate.id,review_id:review.id};
@@ -97,6 +98,40 @@ test('source drift and strict unknown fields refuse integration without touching
   const f=fixture(t);
   await assert.rejects(f.flow('retention_inventory',{root:'/tmp/elsewhere'}),{code:'invalid_request'});
   const inventory=await f.flow('retention_inventory');assert.equal(inventory.counts.integrations,0);
+});
+
+test('published integration survives final receipt failure, restart, tampering and lost retry reply without republishing',async t=>{
+  const f=fixture(t);
+  const {task}=await f.call('task_create',{title:'Recovery',acceptance_statement:'sum adds',check_definition_id:'host-regression',profile_id:'default',session_id:'fixture'});
+  const p=await f.call('candidate_preview',{task_id:task.id});
+  const {candidate}=await f.call('candidate_create',{task_id:task.id,preview_id:p.preview_id,preview_digest:p.preview.digest});
+  const read=await f.call('candidate_read',{candidate_id:candidate.id,path:'math.js'});
+  await f.call('candidate_edit',{candidate_id:candidate.id,path:'math.js',expected_hash:read.file.hash,content:'export const sum=(a,b)=>a+b;\n'});
+  const check=await f.call('check_preview',{candidate_id:candidate.id,definition_id:'host-regression'});
+  const run=await f.call('check_run',{candidate_id:candidate.id,preview_id:check.preview_id,preview_digest:check.preview.spec_digest,op_id:randomUUID()});
+  const current=await f.call('candidate_get',{candidate_id:candidate.id});
+  const {review}=await f.call('review_decide',{candidate_id:candidate.id,evidence_ids:[run.evidence.id],decision:'approved',expected_identity:current.review_identity});
+  const selection={candidate_id:candidate.id,review_id:review.id},preview=await f.flow('integration_preview',selection);
+  const request={...selection,preview_id:preview.preview_id,preview_digest:preview.preview_digest,op_id:randomUUID()};
+  f.store.db.exec("CREATE TRIGGER fail_integration_receipt BEFORE UPDATE ON wb_integrations WHEN json_extract(NEW.record_json,'$.status')='integrated' BEGIN SELECT RAISE(ABORT,'receipt disk failure'); END");
+  await assert.rejects(f.flow('integrate_confirm',request),/receipt disk failure/);
+  f.store.db.exec('DROP TRIGGER fail_integration_receipt');
+  const item=f.data.list('integrations',f.workspace_id,f.project.id)[0];assert.equal(item.status,'receipt_pending');
+  const store=new SqliteWorkspaceStore(f.store.root),data=new WorkbenchData(store),records=new WorkbenchStore(store);
+  t.after(()=>store.close());
+  const workflow=createWorkbenchWorkflow({store,data,records,execution:{dispatch(){throw Error('recovery must never execute');}}});
+  const retry={action:'integration_finalize_retry',workspace_id:f.workspace_id,project_id:f.project.id,integration_id:item.id,expected_recovery_digest:item.recovery_digest};
+  const file=path.join(item.private_root,'math.js'),bytes=fs.readFileSync(file);fs.writeFileSync(file,'tampered');
+  await assert.rejects(workflow.dispatch(retry),{code:'stale_resource'});fs.writeFileSync(file,bytes);
+  await assert.rejects(workflow.dispatch({...retry,expected_recovery_digest:'0'.repeat(64)}),{code:'stale_resource'});
+  const replay=await f.flow('integrate_confirm',request);assert.equal(replay.integration.id,item.id);assert.equal(replay.idempotent,true);assert.equal(replay.integration.status,'receipt_pending');
+  f.records.revoke(f.workspace_id,f.project.id,f.project.generation);
+  const settled=await workflow.dispatch(retry);assert.equal(settled.status,'integrated');assert.equal(settled.historical_only,true);assert.equal(settled.artifact_path,undefined);
+  assert.equal(settled.candidate_commit,item.publication.candidate_commit);
+  assert.equal((await workflow.dispatch(retry)).idempotent,true);
+  await assert.rejects(f.flow('integrate_confirm',request),{code:'permission_denied'});
+  assert.equal(fs.readdirSync(path.dirname(item.private_root)).filter(name=>!name.startsWith('.')).length,1);
+  assert.equal(data.list('jobs',f.workspace_id,f.project.id).length,1);
 });
 
 test('project focus preserves pane identities and return requires an unchanged workspace revision',async t=>{

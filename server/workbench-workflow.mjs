@@ -10,6 +10,9 @@ import {patchRequests,validatePatchRequest} from '../contracts/workbench-result-
 import {arrangementRequests} from '../contracts/workbench-workflow-v1.mjs';
 import {createWorkbenchPatchExport} from './workbench-patch-export.mjs';
 import {createWorkspaceArrangements} from './workspace-arrangements.mjs';
+import {WORKBENCH_RECORD_KINDS} from './workbench-data.mjs';
+import {publicationManifest,flushDirectory} from './workbench-publication.mjs';
+import {createWorkbenchStatus} from './workbench-status.mjs';
 
 const uuid={type:'string',pattern:'^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$'};
 const hash={type:'string',pattern:'^[a-f0-9]{64}$'};
@@ -18,6 +21,8 @@ const request=(action,fields={})=>({type:'object',properties:{...base,action:{co
 export const workflowSchema={$schema:'http://json-schema.org/draft-07/schema#',oneOf:[
   request('integration_preview',{candidate_id:uuid,review_id:uuid}),
   request('integrate_confirm',{candidate_id:uuid,review_id:uuid,preview_id:uuid,preview_digest:hash,op_id:uuid}),
+  request('integration_finalize_retry',{integration_id:uuid,expected_recovery_digest:hash}),
+  request('task_status_snapshot'),request('task_status_read',{task_id:uuid,expected_notification_id:hash}),
   request('integration_list'),request('retention_inventory'),request('retention_plan'),
   ...Object.values(arrangementRequests),
   ...Object.values(patchRequests),
@@ -29,7 +34,7 @@ const TTL=60000;
 const gitEnv={PATH:'/usr/bin:/bin',HOME:'/dev/null',XDG_CONFIG_HOME:'/dev/null',GIT_CONFIG_NOSYSTEM:'1',GIT_CONFIG_GLOBAL:'/dev/null',GIT_TERMINAL_PROMPT:'0',GIT_OPTIONAL_LOCKS:'0',GIT_AUTHOR_NAME:'Orbit Workbench',GIT_AUTHOR_EMAIL:'workbench@localhost',GIT_COMMITTER_NAME:'Orbit Workbench',GIT_COMMITTER_EMAIL:'workbench@localhost'};
 function git(root,...args){return execFileSync('/usr/bin/git',['-c','core.hooksPath=/dev/null','-c','protocol.allow=never','-c','core.fsmonitor=false','-C',root,...args],{env:gitEnv,timeout:10000,maxBuffer:1024*1024,stdio:['ignore','pipe','pipe']}).toString('utf8').trim();}
 function gitInput(root,args,input){return execFileSync('/usr/bin/git',['-c','core.hooksPath=/dev/null','-c','protocol.allow=never','-c','core.fsmonitor=false','-C',root,...args],{env:gitEnv,timeout:10000,maxBuffer:1024*1024,stdio:['pipe','pipe','pipe'],input}).toString('utf8').trim();}
-const publicIntegration=({private_root,...record})=>({...record,artifact_path:private_root});
+const publicIntegration=({private_root,publication,...record})=>({...record,artifact_path:private_root});
 const modeOf=(root,pathValue)=>{const stat=fs.lstatSync(path.join(root,pathValue));if(!stat.isFile()||stat.isSymbolicLink())stale();return (stat.mode&0o111)?'100755':'100644';};
 
 export function createWorkbenchWorkflow({store,records,data,execution,now=Date.now}){
@@ -39,6 +44,7 @@ export function createWorkbenchWorkflow({store,records,data,execution,now=Date.n
   const previews=new Map();
   const patchExport=createWorkbenchPatchExport({store,records,data,execution,inspect:actual,now});
   const arrangements=createWorkspaceArrangements({store,records,data,now});
+  const status=createWorkbenchStatus({data,recordedAcceptance:execution.recordedAcceptance,now});
   const scope=body=>{store.read(body.workspace_id);return records.project(body.workspace_id,body.project_id);};
   const stale=()=>{throw wbError('stale_resource');};
   async function actual(body){
@@ -116,7 +122,7 @@ export function createWorkbenchWorkflow({store,records,data,execution,now=Date.n
     if(digest(identity)!==issued.preview_digest)stale();
     previews.delete(body.preview_id);
     const name=randomUUID(),staging=path.join(root,`.staging-${name}`),destination=path.join(root,name);
-    const intent=data.create('integrations',{workspace_id:body.workspace_id,project_id:body.project_id,project_generation:project.generation,candidate_id:candidate.id,candidate_hash:candidate.hash,review_id:review.id,review_identity:review.review_identity,source_hash:source.hash,source_head,preview_digest:body.preview_digest,op_id:body.op_id,status:'preparing',private_root:destination,staging_root:staging,branch:`comet/integration-${name}`,artifact_kind:'independent_private_git_repository'});
+    let intent=data.create('integrations',{workspace_id:body.workspace_id,project_id:body.project_id,project_generation:project.generation,candidate_id:candidate.id,candidate_hash:candidate.hash,review_id:review.id,review_identity:review.review_identity,source_hash:source.hash,source_head,preview_digest:body.preview_digest,op_id:body.op_id,status:'preparing',private_root:destination,staging_root:staging,branch:`comet/integration-${name}`,artifact_kind:'independent_private_git_repository'});
     let published=false;
     try{
       fs.mkdirSync(staging,{mode:0o700});
@@ -139,23 +145,40 @@ export function createWorkbenchWorkflow({store,records,data,execution,now=Date.n
       const final=await actual(body);
       if(final.source.hash!==source.hash||final.source_head!==source_head||final.candidate.hash!==candidate.hash||final.review.review_identity!==review.review_identity)stale();
       if(data.list('integrations',body.workspace_id,body.project_id).some(item=>item.id!==intent.id&&(item.op_id===body.op_id||item.candidate_id===candidate.id&&item.candidate_hash===candidate.hash&&item.status==='integrated')))stale();
-      fs.renameSync(staging,destination);published=true;
+      // Persist exact byte/commit identity before rename. Both sides of the
+      // rename/receipt crash window are now distinguishable without republishing.
+      const publication={version:1,integration_id:intent.id,op_id:body.op_id,preview_digest:body.preview_digest,base_commit,candidate_commit,manifest:publicationManifest(staging,{flush:true})};
+      intent=data.update('integrations',body.workspace_id,body.project_id,intent.id,intent.revision,{status:'receipt_pending',publication,recovery_digest:digest(publication)});
+      fs.renameSync(staging,destination);published=true;flushDirectory(root);
       const integration=data.update('integrations',body.workspace_id,body.project_id,intent.id,intent.revision,{status:'integrated',base_commit,candidate_commit,published_at:now()});
       return {integration:publicIntegration(integration),idempotent:false};
     }catch(error){
       // Once renamed, retain the artifact for explicit recovery, never silently
       // report a successful integration when the durable receipt failed.
-      try{data.update('integrations',body.workspace_id,body.project_id,intent.id,intent.revision,{status:published?'receipt_pending':'preparation_failed',recovery_note:'Inspect the retained private stage/artifact. Retrying this operation only reads its receipt and never republishes.'});}catch{}
+      try{data.update('integrations',body.workspace_id,body.project_id,intent.id,intent.revision,{status:published||intent.publication?'receipt_pending':'preparation_failed',recovery_note:'Explicit finalization verifies the published byte identity and only updates the database. An unpublished stage remains fenced.'});}catch{}
       throw error;
     }
   }
+  function finalizeIntegration(body){
+    // Historical settlement deliberately does not re-grant revoked authority.
+    // It returns metadata only and performs no Git command, rename or execution.
+    store.read(body.workspace_id);
+    const item=data.get('integrations',body.workspace_id,body.project_id,body.integration_id),p=item.publication;
+    if(!p||item.recovery_digest!==body.expected_recovery_digest||digest(p)!==item.recovery_digest||p.integration_id!==item.id||p.op_id!==item.op_id||p.preview_digest!==item.preview_digest)stale();
+    if(item.status==='integrated')return {integration_id:item.id,status:item.status,base_commit:item.base_commit,candidate_commit:item.candidate_commit,idempotent:true,historical_only:true};
+    if(item.status!=='receipt_pending'||path.dirname(item.private_root)!==root||!/^[-a-f0-9]{36}$/.test(path.basename(item.private_root)))stale();
+    let observed;try{observed=publicationManifest(item.private_root);}catch{stale();}
+    if(digest(observed)!==digest(p.manifest))stale();
+    const settled=data.update('integrations',body.workspace_id,body.project_id,item.id,item.revision,{status:'integrated',base_commit:p.base_commit,candidate_commit:p.candidate_commit,finalized_at:now(),historical_finalization:true});
+    return {integration_id:settled.id,status:settled.status,base_commit:settled.base_commit,candidate_commit:settled.candidate_commit,idempotent:false,historical_only:true};
+  }
   function inventory(body){
     scope(body);
-    const counts={};for(const kind of ['tasks','attempts','candidates','profiles','jobs','evidence','reviews','integrations','contexts','submissions','grants','toolcalls'])counts[kind]=data.list(kind,body.workspace_id,body.project_id).length;
+    const counts={},capacity={};for(const kind of WORKBENCH_RECORD_KINDS){capacity[kind]=data.capacity(kind,body.workspace_id,body.project_id);counts[kind]=capacity[kind].retained;}
     const integrations=data.list('integrations',body.workspace_id,body.project_id).map(publicIntegration);
     const jobs=data.list('jobs',body.workspace_id,body.project_id),reviews=data.list('reviews',body.workspace_id,body.project_id),calls=data.list('toolcalls',body.workspace_id,body.project_id);
     const metrics={basis:'Current retained authoritative records; baseline counts, not SLOs or lifetime totals',jobs:jobs.length,passed_checks:data.list('evidence',body.workspace_id,body.project_id).filter(e=>e.verdict==='pass').length,accepted_reviews:reviews.filter(r=>r.decision==='approved').length,unknown_jobs:jobs.filter(j=>j.status==='outcome_unknown'||j.status==='finalization_pending').length,native_tool_calls:calls.length,denied_or_failed_tool_calls:calls.filter(c=>c.status==='failed').length,duplicate_external_dispatch_incidents:null,lost_session_incidents:null,token_usage:null,cost:null};
-    return {counts,integrations,metrics,policy:'Inventory only. Candidate trees, evidence, receipts, source files, active jobs and unknown records are never removed by this endpoint.'};
+    return {counts,capacity,integrations,metrics,policy:'Inventory only. Candidate trees, evidence, receipts, source files, active jobs and unknown records are never removed by this endpoint.'};
   }
   async function dispatch(body){
     if(validatePatchRequest(body))return patchExport.dispatch(body);
@@ -164,6 +187,8 @@ export function createWorkbenchWorkflow({store,records,data,execution,now=Date.n
     switch(body.action){
       case 'integration_preview':return integrationPreview(body);
       case 'integrate_confirm':return confirm(body);
+      case 'integration_finalize_retry':return finalizeIntegration(body);
+      case 'task_status_snapshot':case 'task_status_read':scope(body);return status.dispatch(body);
       case 'integration_list':return {integrations:data.list('integrations',body.workspace_id,body.project_id).map(publicIntegration)};
       case 'retention_inventory':return inventory(body);
       case 'retention_plan':return {...inventory(body),deletions:[],requires_explicit_cleanup:true,reason:'No automated deletion is safe while references, active jobs and unknown outcomes can exist.'};

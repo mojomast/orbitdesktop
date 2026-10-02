@@ -1,0 +1,35 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import {randomUUID} from 'node:crypto';
+import {SqliteWorkspaceStore} from '../server/sqlite-workspace-store.mjs';
+import {WorkbenchStore} from '../server/workbench-store.mjs';
+import {WorkbenchData} from '../server/workbench-data.mjs';
+import {createWorkbenchStatus} from '../server/workbench-status.mjs';
+import {openProjectRoot} from '../server/project-files.mjs';
+import {initial} from '../src/model.ts';
+import {commandIdentity} from '../server/command-identity.mjs';
+
+test('authoritative reconnect snapshot retains read identities across restart; completion never means checks passed',t=>{
+  const root=fs.mkdtempSync('/tmp/opencode/wstatus-'),source=path.join(root,'source');fs.mkdirSync(source);
+  const runtime=path.join(root,'runtime'),workspace_id=randomUUID();let store=new SqliteWorkspaceStore(runtime),data=new WorkbenchData(store);
+  store.commit(commandIdentity({workspace_id,action:'sync',base_revision:0,state:initial(),operation_id:randomUUID()},'owner'),{create:()=>({id:workspace_id,revision:1,state:initial(),capability:randomUUID()})});
+  const records=new WorkbenchStore(store),opened=openProjectRoot(source),project=records.register(workspace_id,{root:source,name:'Status',identity:opened.identity});opened.close();
+  const base={workspace_id,project_id:project.id},task=data.create('tasks',{...base,title:'Private task',status:'candidate_ready'});
+  const grant=data.create('grants',{...base,task_id:task.id,status:'running',runtime_status:'running'});
+  let status=createWorkbenchStatus({data});const read=()=>status.dispatch({...base,action:'task_status_snapshot'});
+  t.after(()=>{store.close();fs.rmSync(root,{recursive:true,force:true});});
+  const before=read();assert.equal(before.items[0].category,'pending');assert.equal(before.items[0].read,false);
+  const ack={...base,action:'task_status_read',task_id:task.id,expected_notification_id:before.items[0].notification_id};
+  assert.equal(status.dispatch(ack).idempotent,false);assert.equal(status.dispatch(ack).idempotent,true);
+  store.close();store=new SqliteWorkspaceStore(runtime);data=new WorkbenchData(store);status=createWorkbenchStatus({data});assert.equal(read().items[0].read,true);
+  data.update('grants',workspace_id,project.id,grant.id,grant.revision,{status:'completed',runtime_status:'exited',termination_confirmed:true});
+  data.create('results',{...base,task_id:task.id,run_id:randomUUID(),availability:'available',text:'not disclosed by the projection',retained_until:Date.now()+60000});
+  data.create('evidence',{...base,task_id:task.id,verdict:'fail'});
+  const completed=read();assert.equal(completed.items.length,1);assert.equal(completed.items[0].category,'completed');assert.equal(completed.items[0].read,false);
+  assert.equal(completed.items[0].evidence[0].verdict,'fail');assert.equal(completed.items[0].check_acceptance,null);assert.equal(JSON.stringify(completed).includes('not disclosed by the projection'),false);
+  assert.throws(()=>status.dispatch(ack),{code:'stale_resource'});assert.equal(completed.snapshot_digest,read().snapshot_digest);
+  data.create('jobs',{...base,task_id:task.id,status:'outcome_unknown'});assert.equal(read().items[0].category,'review_needed');
+  assert.equal(read().reset,true);assert.equal(read().history,'current_authoritative_snapshot_only');assert.equal(data.list('annotations',workspace_id,project.id).length,1);
+});
