@@ -81,7 +81,8 @@ const workbenchServices={};
 const workbench = createWorkbench({store:workspaceService.store,token,port,devOrigins,reply,services:workbenchServices});
 const workbenchData=new WorkbenchData(workspaceService.store);
 const executionGate=createWorkbenchGate({legacySnapshot:legacyQueueSnapshot(runtimeRoot)});
-const agentHandler = createAgentHandler({ token, port, devOrigins, reply, workspaceContext: workspaceService.context, workspaceRead:workspaceService.read, runtimeDirectory:runtimeRoot,executionGate,onRunEvent:event=>observeTechnologyTrace(event,'observeAgentRunEvent') });
+let normalResources;
+const agentHandler = createAgentHandler({ token, port, devOrigins, reply, workspaceContext: workspaceService.context, workspaceRead:workspaceService.read, runtimeDirectory:runtimeRoot,executionGate,onRunEvent:event=>observeTechnologyTrace(event,'observeAgentRunEvent'),onNormalAccepted:record=>normalResources?.normalAccepted(record) });
 const sandboxProvider=createWorkbenchSandboxProvider({root:path.join(workspaceService.store.root,'workbench-sandbox'),env:process.env});
 const environments=createWorkbenchEnvironments({store:workspaceService.store,records:workbench.records,data:workbenchData,gate:executionGate,sandboxProvider});
 const execution=createWorkbenchExecution({store:workspaceService.store,records:workbench.records,data:workbenchData,gate:executionGate,environments,sandboxProvider});
@@ -208,7 +209,7 @@ const mcpSandbox=await (async()=>{
   }catch{console.warn('MCP Apps sandbox unavailable');return null;}
 })();
 const technologyServices={
-  '/api/resource-grants':lazyTechnologyService(async()=> (await import('./resource-delegation.mjs')).createResourceDelegation({...technologyOptions,knowledge:await technologyServices['/api/search'].get(),documents:await technologyServices['/api/documents'].get()})),
+  '/api/resource-grants':lazyTechnologyService(async()=> normalResources=await (await import('./resource-delegation.mjs')).createResourceDelegation({...technologyOptions,normalBindings:agentHandler.resourceBindings,knowledge:await technologyServices['/api/search'].get(),documents:await technologyServices['/api/documents'].get()})),
   '/api/search':lazyTechnologyService(async()=> (await import('./knowledge-index.mjs')).createKnowledgeSearch(technologyOptions)),
   '/api/interactive-results':lazyTechnologyService(async()=> (await import('./interactive-results.mjs')).createInteractiveResults(technologyOptions)),
   '/api/data-recipes':lazyTechnologyService(async()=> (await import('./data-recipes.mjs')).createDataRecipes(technologyOptions)),
