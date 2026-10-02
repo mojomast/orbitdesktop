@@ -5,8 +5,8 @@ export const FEATURE_CAPABILITIES = Object.freeze([
   ['interactive-results','interactive-results','ready','import/read/edit','owner'],
   ['data-workbench','data','browser_required','select/query','owner'],
   ['voice-transcript','voice','probe_required','transcribe','owner'],
-  ['run-traces','trace','ready','read/export','owner'],
-  ['browser-copilot','copilot','probe_required','observe/execute','owner'],
+  ['run-traces','traces','ready','read/export','owner'],
+  ['browser-copilot','browser-copilot','probe_required','observe/execute','owner'],
   ['mcp-apps','mcp-apps','probe_required','import/open','owner'],
 ]);
 export function featureCapabilities({audience='controller'}={}) {

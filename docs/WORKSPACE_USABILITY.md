@@ -139,7 +139,8 @@ publication because the bundler intentionally includes tracked files only.
 
 Project-bound Workbench arrangement previews now reclaim expired never-committed
 records and, under capacity pressure, cancelled/stale never-committed records.
-Committed replay identities and Return references are retained. The existing
-200-record bound still blocks a project with 200 retained committed proposals;
-solving that case needs a separate history/archive design. The new normal
+Committed replay identities and Return references are retained as logical history
+and no longer consume the 200 active-preview slots. Malformed or incomplete
+identity-bearing records remain pinned. Capacity diagnostics distinguish active
+and historical records; this is not physical history compaction. The normal
 workspace arranger uses ordinary workspace receipts, not this proposal table.

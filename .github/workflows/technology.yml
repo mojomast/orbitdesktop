@@ -29,6 +29,7 @@ on:
       - 'src/agent-chat.ts'
       - 'src/*delegation*'
       - 'src/*capabilit*'
+      - 'src/resource-*'
       - 'server/*copilot*'
       - 'server/data-*'
       - 'server/documents*'
@@ -40,6 +41,8 @@ on:
       - 'server/technology-*'
       - 'server/*delegation*'
       - 'server/*capabilit*'
+      - 'server/resource-*'
+      - 'hermes-plugin/resources.py'
       - 'server/index.mjs'
       - 'server/agent.mjs'
       - 'server/security.mjs'
@@ -61,6 +64,8 @@ on:
       - 'tests/technology-*'
       - 'tests/*delegation*'
       - 'tests/*capabilit*'
+      - 'tests/resource-*'
+      - 'tests/research-handoffs.browser.py'
       - 'tests/docking-narrow.browser.py'
   push:
     branches: [main, 'release/**']
@@ -89,6 +94,7 @@ on:
       - 'src/agent-chat.ts'
       - 'src/*delegation*'
       - 'src/*capabilit*'
+      - 'src/resource-*'
       - 'server/*copilot*'
       - 'server/data-*'
       - 'server/documents*'
@@ -100,6 +106,8 @@ on:
       - 'server/technology-*'
       - 'server/*delegation*'
       - 'server/*capabilit*'
+      - 'server/resource-*'
+      - 'hermes-plugin/resources.py'
       - 'server/index.mjs'
       - 'server/agent.mjs'
       - 'server/security.mjs'
@@ -121,6 +129,8 @@ on:
       - 'tests/technology-*'
       - 'tests/*delegation*'
       - 'tests/*capabilit*'
+      - 'tests/resource-*'
+      - 'tests/research-handoffs.browser.py'
       - 'tests/docking-narrow.browser.py'
   schedule:
     - cron: '47 5 * * 2'
@@ -211,8 +221,14 @@ jobs:
           set -euo pipefail
           python=/tmp/opencode/orbit-technology-venv/bin/python
           case "$SUITE" in
-            knowledge) "$python" tests/knowledge-search.browser.py ;;
-            interactive) "$python" tests/interactive-results.browser.py ;;
+            knowledge)
+              "$python" tests/knowledge-search.browser.py
+              "$python" tests/resource-grants.browser.py
+              ;;
+            interactive)
+              "$python" tests/interactive-results.browser.py
+              "$python" tests/research-handoffs.browser.py
+              ;;
             voice) "$python" tests/voice-capture.browser.py --models-root /tmp/opencode/orbit-voice-models --audio-file /tmp/opencode/orbit-voice-jfk.wav ;;
             data) "$python" tests/data-workbench.browser.py ;;
             documents)

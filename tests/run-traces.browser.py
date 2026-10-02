@@ -26,6 +26,7 @@ RUN = 'run_123456789abcdef'
 
 
 class Hermes(BaseHTTPRequestHandler):
+    posts = []
     def log_message(self, *args):
         pass
 
@@ -55,6 +56,7 @@ class Hermes(BaseHTTPRequestHandler):
         self.reply({}, 404)
 
     def do_POST(self):
+        self.posts.append(self.path)
         self.rfile.read(int(self.headers.get('Content-Length', 0)))
         if self.path == '/v1/runs':
             return self.reply({'run_id': RUN, 'status': 'running'}, 202)
@@ -175,6 +177,8 @@ def main():
                     page.get_by_role('button', name='Unlock local host', exact=True).click()
                     page.get_by_label('Run', exact=True).select_option(trace)
                     expect(page.locator('.run-trace-row')).to_have_count(2, timeout=15000)
+                    assert not errors, errors
+                    assert Hermes.posts == ['/v1/runs'], Hermes.posts
                     browser.close()
                 print('PASS actual Normal callback -> local SDK/SQLite -> authenticated export -> host waterfall -> reload')
             finally:

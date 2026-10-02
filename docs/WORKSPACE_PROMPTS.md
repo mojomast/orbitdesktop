@@ -19,7 +19,8 @@ private feature actions still use the owner UI or documented trusted adapters.
 
 Use **Arrange workspace** for Grid/Focus/Compare. **Saved workspace layouts** saves
 geometry and placement; preview before applying and explicitly map missing windows.
-The older browser-local layout switcher and Workbench role recipes are separate.
+**Browser layout snapshots** auto-update locally and are separate from host Saved
+layouts and Workbench role recipes. Opening a built-in tool preserves Spatial view.
 **Workspace checkpoints** compares before restoring the full checkpoint; it does
 not undo file edits, messages or processes.
 
@@ -35,7 +36,9 @@ Guides: [Usability](WORKSPACE_USABILITY.md), [Saved layouts](SAVED_WORKSPACE_LAY
 > Open Outputs beside chat so I can find and pin the published report. Help me
 > preview a reference for this conversation's draft; leave submission to me.
 
-Library search matches loaded titles/IDs, not full transcripts. Rename/pin/archive
+Library search matches loaded titles/IDs, with explicit bounded older-page search,
+not full transcripts. The chooser stays open until selection succeeds; pending
+initial linking can be cancelled. Rename/pin/archive
 are Orbit metadata, not changes to Hermes's saved sessions. Drafts are host-backed
 per workspace/profile/session with tab recovery and conflict handling. Explicit
 context insertion chooses one conversation and never submits a turn. Chat reuses
@@ -52,8 +55,12 @@ Guides: [Conversations](CONVERSATION_LIBRARY.md), [Outputs](OUTPUT_LIBRARY.md),
 
 Import explicit text/excerpts or UTF-8 files. Keyword search needs no model;
 semantic search needs the provisioned MiniLM assets. Citations bind exact snapshot
-bytes and text ranges. Importing one file does not authorize directory or transcript
-crawling. Guide: [Knowledge search](KNOWLEDGE_SEARCH.md).
+bytes and text ranges and are included in the actual draft text. The single review
+shows the existing draft plus the excerpt and exact citation. Importing one file
+does not authorize directory or transcript crawling. Selected-resource delegation
+has its own authenticated channel and explicit scope; see
+[Resource delegation](RESOURCE_DELEGATION.md) for supported recipient types.
+Guide: [Knowledge search](KNOWLEDGE_SEARCH.md).
 
 ## Interactive result cards
 
@@ -63,8 +70,10 @@ crawling. Guide: [Knowledge search](KNOWLEDGE_SEARCH.md).
 
 The synthetic example needs no model. Real imports use A2UI v0.9 JSON/NDJSON;
 plain prose is not automatically converted into a card. If asking Hermes to
-produce a card, include the [producer contract](INTERACTIVE_RESULTS.md) and import
-the validated result explicitly; automatic Hermes production is not implemented.
+produce a card, include the [producer contract](INTERACTIVE_RESULTS.md). A complete
+authenticated reply in the supported envelope offers **Open interactive result**;
+choose an already-open results pane, review the queued entry, then save explicitly.
+Plain prose is not a card, and importing does not approve execution.
 
 ## Voice transcription
 
@@ -83,9 +92,16 @@ generation. Guide: [Voice dictation](VOICE_DICTATION.md).
 > table and column names, help write a SELECT that totals revenue by month. Help me
 > save the recipe and export the bounded result.
 
+> I will share the Data workbench schema and selected result rows into this draft.
+> Explain the actual values, preserve their numeric precision, and propose another
+> bounded SELECT using the exact input fingerprint. Leave running it to me.
+
 Data stays in the browser engine; choosing files does not attach them to Hermes.
 Use the actual assigned `input_1`, `input_2`, … names. Saved recipes bind exact file
 hashes and table identities, not file bytes; reselect inputs when reopening.
+**Ask about schema** shares table/column/type metadata without sample rows.
+Selected-result sharing includes actual values, input/result identities and explicit
+omission bounds. A reviewed SQL proposal fills the editor without running it.
 JSON/Parquet require pinned local extensions. Guide: [Data Lab](DATA_LAB.md).
 
 ## Rich documents and whiteboards
@@ -98,6 +114,17 @@ Create through the library; do not invent document UUIDs. Lexical supports rich
 text; Excalidraw supports shapes, text and drawing. Save explicitly, resolve stale
 revisions without discarding edits, and retry the exact save after an uncertain
 response. Private document bytes are not workspace-checkpoint contents.
+Dirty-close review can save, keep editing or retain a same-tab recoverable draft;
+Document library lists retained drafts from closed panes. Create from supported
+text/Markdown/editor-state imports after review. A supported complete document
+result can create a retained editable draft, but its imported body still needs Save.
+
+> Using the document excerpt I shared, propose a revised brief in the documented
+> whole-document format bound to its saved revision and draft digest. I will review
+> and apply it, try Undo, and explicitly save the version I want to keep.
+
+Revision/digest-bound proposal review refuses concurrent edits rather than merging
+silently. Native Undo is editor-local, not a persistent historical version archive.
 Guides: [Documents](DOCUMENTS.md), [Canvas](CANVAS.md).
 
 ## Run timing
@@ -108,6 +135,8 @@ Guides: [Documents](DOCUMENTS.md), [Canvas](CANVAS.md).
 
 Traces are a redacted local projection, not a transcript, hidden reasoning,
 provider-cost report or proof of unobserved work. Guide: [Run traces](RUN_TRACES.md).
+**Share diagnostic summary** previews redacted aggregate observations in a selected
+draft, with gap/open-state and timing caveats; it never sends automatically.
 
 ## Optional browser and MCP Apps
 
@@ -119,6 +148,9 @@ The context is disposable and signed out. Operator rules control exact origins,
 wildcard subdomains and explicit local access; opening the panel grants no extra
 network access. WebSockets, uploads, downloads and password entry are blocked.
 It is distinct from Shared Chromium. Guide: [Browser Copilot](BROWSER_COPILOT.md).
+Selected observation sharing includes exact captured provenance and labels page
+text as untrusted historical evidence. A finite action suggestion can populate
+controls; the existing fresh Preview and Execute-once checks still decide action.
 
 > Open MCP Apps if configured. Help me prepare a self-contained report snapshot
 > using Orbit's documented import envelope, then I will import and open it and
@@ -128,6 +160,8 @@ MCP Apps needs the server gate and separate sandbox origin. Imports are snapshot
 with closed capabilities, not arbitrary MCP server connections or tool execution.
 The application must bundle its SDK and assets inline; network dependencies are
 blocked. Guide: [MCP Apps](MCP_APPS.md).
+Compatible complete-result snapshot envelopes can stage into an empty mounted MCP
+import editor. Import and Open are separate; staging does not fetch `ui://` resources.
 
 ## Custom widgets and experimental Workbench
 
