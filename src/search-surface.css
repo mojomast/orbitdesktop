@@ -1,0 +1,113 @@
+.knowledge-search {
+  box-sizing: border-box;
+  height: 100%;
+  overflow: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  color: var(--text-color, inherit);
+  font:
+    13px/1.5 system-ui,
+    sans-serif;
+  min-width: 0;
+}
+.knowledge-search h2,
+.knowledge-search h3,
+.knowledge-search p {
+  margin: 0;
+}
+.knowledge-search h2 {
+  font-size: 18px;
+}
+.knowledge-search h3 {
+  font-size: 14px;
+}
+.knowledge-search input,
+.knowledge-search textarea,
+.knowledge-search select {
+  box-sizing: border-box;
+  width: 100%;
+  font: inherit;
+  border: 1px solid #8886;
+  border-radius: 5px;
+  padding: 7px;
+  background: var(--panel-bg, #20242c);
+  color: inherit;
+  min-width: 0;
+}
+.knowledge-search button {
+  font: inherit;
+  color: inherit;
+  background: var(--panel-bg, #303641);
+  border: 1px solid #8886;
+  border-radius: 5px;
+  padding: 6px 9px;
+  cursor: pointer;
+  margin: 4px 5px 4px 0;
+}
+.knowledge-search button:focus-visible,
+.knowledge-search input:focus-visible,
+.knowledge-search textarea:focus-visible {
+  outline: 2px solid var(--accent-color, #72b4ff);
+  outline-offset: 2px;
+}
+.knowledge-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 7px 0;
+}
+.knowledge-search details {
+  border: 1px solid #8885;
+  padding: 8px;
+  border-radius: 6px;
+}
+.knowledge-search summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.knowledge-notice,
+.knowledge-status {
+  font-size: 12px;
+  opacity: 0.85;
+}
+.knowledge-error {
+  color: #ff9c9c;
+  white-space: pre-wrap;
+}
+.knowledge-result,
+.knowledge-source {
+  border: 1px solid #8885;
+  border-radius: 6px;
+  padding: 10px;
+  margin: 8px 0;
+  overflow-wrap: anywhere;
+}
+.knowledge-result small,
+.knowledge-source small,
+.knowledge-snapshot small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.knowledge-citation {
+  font-family: monospace;
+  font-size: 10px;
+  opacity: 0.8;
+}
+.knowledge-passage {
+  margin: 8px 0;
+  resize: vertical;
+}
+.knowledge-snapshot pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 400px;
+  overflow: auto;
+  border: 1px solid #8885;
+  padding: 10px;
+}
+.knowledge-query {
+  border-top: 1px solid #8885;
+  padding-top: 8px;
+}

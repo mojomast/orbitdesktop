@@ -45,10 +45,10 @@ def post(url, payload, token=TOKEN, origin=None):
 
 with tempfile.TemporaryDirectory(prefix='orbit-output-library-', dir='/tmp/opencode') as temporary:
     root = Path(temporary)
-    for name in ('src', 'contracts', 'public'):
+    for name in ('src', 'contracts', 'public', 'server', 'scripts', 'docs'):
         # Copy only files; keep the temporary tree disposable.
         shutil.copytree(ROOT / name, root / name)
-    for name in ('index.html', 'package.json', 'tsconfig.json', 'vite.config.js'):
+    for name in ('index.html', 'package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.js'):
         shutil.copy2(ROOT / name, root / name)
     (root / 'node_modules').symlink_to(ROOT / 'node_modules', target_is_directory=True)
 

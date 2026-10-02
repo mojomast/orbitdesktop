@@ -129,8 +129,13 @@ export async function runCheck(options){
   const reservation=Symbol('check');pending.add(reservation);
   try{return await executeCheck(options);}finally{pending.delete(reservation);}
 }
-async function executeCheck({definition_id,candidate_root,workspace_id,project_id,job_id,artifact_root,candidate_boundary=artifact_root,rehash,spawn_record,artifact_record,required_test_files=[]}){
+async function executeCheck({definition_id,candidate_root,workspace_id,project_id,job_id,artifact_root,candidate_boundary=artifact_root,rehash,spawn_record,artifact_record,required_test_files=[],provider,provider_identity,execution_backend='trusted_host'}){
   const definition=checkDefinition(definition_id);
+  if(execution_backend!=='trusted_host'&&execution_backend!=='gvisor')throw wbError('unsupported');
+  if(execution_backend==='gvisor'||provider){
+    if(execution_backend!=='gvisor'||provider?.kind!=='gvisor'||typeof provider.spawnCheck!=='function'||!provider.describe().available)throw wbError('unavailable');
+    if(definition_id!=='node-test')throw wbError('unsupported');
+  }
   if(typeof workspace_id!=='string'||typeof project_id!=='string'||typeof job_id!=='string'||!job_id||typeof rehash!=='function'||typeof spawn_record!=='function')throw wbError('invalid_request');
   validateRoots(candidate_root,artifact_root,candidate_boundary);
   const before=(await rehash())?.hash;
@@ -166,7 +171,7 @@ async function executeCheck({definition_id,candidate_root,workspace_id,project_i
   }
   const seconds=Math.max(1,Math.ceil(CHECK_LIMITS.durationMs/1000));
   const supervisedArgs=['--kill-after=1s',`${seconds}s`,definition.executable,...args];
-  const command={supervisor:SUPERVISOR,executable:definition.executable,args,supervised:supervisedArgs};
+  let command={supervisor:SUPERVISOR,executable:definition.executable,args,supervised:supervisedArgs},providerMetadata={execution_backend:'trusted_host'},providerCleaned=false;
   let child,childStart=null,ended=false,timed_out=false,log_bytes=0,stdout=Buffer.alloc(0),stderr=Buffer.alloc(0),timer,killTimer,hardTimer;
   let results=Buffer.alloc(0),resultsOverflow=false,spawnRecordError=null,recordingError=null,settled;
   const logHash=createHash('sha256');
@@ -181,13 +186,18 @@ async function executeCheck({definition_id,candidate_root,workspace_id,project_i
   };
   const started_at=Date.now();
   const finish=(extra)=>{
+    if(providerMetadata.provider_resource_id){providerCleaned=provider.cleanup(providerMetadata.provider_resource_id);if(!providerCleaned)extra={...extra,process_survival_unknown:true};}
     ended=true;clearTimeout(timer);clearTimeout(killTimer);clearTimeout(hardTimer);if(!extra.process_survival_unknown)active.delete(job_id);
     try{fs.closeSync(fd);}catch{}
     const log_hash=logHash.digest('hex');
-    return {exit_code:null,signal:null,verdict:'inconclusive',started_at,ended_at:Date.now(),candidate_hash_before:before,candidate_hash_after:before,definition_id,definition_digest,definition_hash:definition_digest,stdout_preview:stdout.toString('utf8'),stderr_preview:stderr.toString('utf8'),log_path,log_hash,log_bytes,artifact_hash:digest(JSON.stringify({log_hash,log_bytes,definition_digest})),env_fingerprint,limits:CHECK_LIMITS,timed_out:false,process_survival_unknown:false,supervisor:SUPERVISOR,command,...extra};
+    return {...providerMetadata,exit_code:null,signal:null,verdict:'inconclusive',started_at,ended_at:Date.now(),candidate_hash_before:before,candidate_hash_after:before,definition_id,definition_digest,definition_hash:definition_digest,stdout_preview:stdout.toString('utf8'),stderr_preview:stderr.toString('utf8'),log_path,log_hash,log_bytes,artifact_hash:digest(JSON.stringify({log_hash,log_bytes,definition_digest})),env_fingerprint,limits:CHECK_LIMITS,timed_out:false,process_survival_unknown:false,supervisor:SUPERVISOR,command,...extra};
   };
   try{
-    child=spawn(SUPERVISOR,supervisedArgs,{cwd:candidate_root,env,detached:true,stdio:['ignore','pipe','pipe','pipe'],shell:false,windowsHide:true});
+    const spawnOptions={cwd:candidate_root,env,detached:true,stdio:['ignore','pipe','pipe','pipe'],shell:false,windowsHide:true};
+    if(execution_backend==='gvisor'){
+      const launched=provider.spawnCheck({candidate_root,runner:TEST_RUNNER,required_test_files,provider_identity,supervisor:SUPERVISOR,seconds,spawnOptions});
+      child=launched.child;command=launched.command;providerMetadata=launched.metadata;
+    }else child=spawn(SUPERVISOR,supervisedArgs,spawnOptions);
     // Install the error/close listeners IMMEDIATELY. A missing executable emits an
     // asynchronous 'error' event; an unhandled one would crash the host.
     settled=new Promise(resolve=>{
@@ -218,7 +228,7 @@ async function executeCheck({definition_id,candidate_root,workspace_id,project_i
     active.set(job_id,entry);
     // Durable record is written in the same synchronous turn as spawn, before any
     // child event is awaited, so a crash cannot leave an unrecorded run.
-    try{spawn_record({pid,pgid:pid,started_at:childStart,supervisor:SUPERVISOR,command});}
+    try{spawn_record({pid,pgid:pid,started_at:childStart,supervisor:SUPERVISOR,command,...providerMetadata});}
     catch{spawnRecordError='spawn_record_failed';if(processStart(pid)===childStart)signalGroup(pid,'SIGTERM');entry.escalate();}
     timer=setTimeout(()=>{timed_out=true;if(processStart(pid)===childStart)signalGroup(pid,'SIGTERM');entry.escalate();},CHECK_LIMITS.durationMs);
     // Hard deadline independent of whether the leader still exists. If a
@@ -248,14 +258,16 @@ async function executeCheck({definition_id,candidate_root,workspace_id,project_i
       }
       if(groupAlive(pid))process_survival_unknown=true;
     }
+    if(provider){providerCleaned=provider.cleanup(providerMetadata.provider_resource_id);if(!providerCleaned)process_survival_unknown=true;}
     if(!process_survival_unknown)active.delete(job_id);
     const test_results=definition_id==='node-test'?parseTestResults(resultsOverflow?Buffer.alloc(0):results,required_test_files):null;
     const verdict=recordingError||spawnRecordError||timed_out||entry.cancelled||!after||after!==before||result.error||result.forced||process_survival_unknown?'inconclusive':result.code!==0?'fail':test_results&&!test_results.success?'inconclusive':'pass';
-    return {exit_code:result.code,signal:result.signal,verdict,cancelled:entry.cancelled,recording_error:recordingError,spawn_error:spawnRecordError,test_results,started_at,ended_at:Date.now(),candidate_hash_before:before,candidate_hash_after:after??null,definition_id,definition_digest,definition_hash:definition_digest,stdout_preview:stdout.toString('utf8'),stderr_preview:stderr.toString('utf8'),log_path,log_hash,log_bytes,artifact_hash:digest(JSON.stringify({log_hash,log_bytes,definition_digest,test_results})),env_fingerprint,limits:CHECK_LIMITS,timed_out,process_survival_unknown,supervisor:SUPERVISOR,command};
+    return {...providerMetadata,exit_code:result.code,signal:result.signal,verdict,cancelled:entry.cancelled,recording_error:recordingError,spawn_error:spawnRecordError,test_results,started_at,ended_at:Date.now(),candidate_hash_before:before,candidate_hash_after:after??null,definition_id,definition_digest,definition_hash:definition_digest,stdout_preview:stdout.toString('utf8'),stderr_preview:stderr.toString('utf8'),log_path,log_hash,log_bytes,artifact_hash:digest(JSON.stringify({log_hash,log_bytes,definition_digest,test_results})),env_fingerprint,limits:CHECK_LIMITS,timed_out,process_survival_unknown,supervisor:SUPERVISOR,command};
   }catch(error){
     if(child?.pid){if(childStart&&processStart(child.pid)===childStart)signalGroup(child.pid,'SIGTERM');setTimeout(()=>{if(childStart&&processStart(child.pid)===childStart)signalGroup(child.pid,'SIGKILL');},500).unref();child.on('error',()=>{});}
     throw error;
   }finally{
+    if(providerMetadata.provider_resource_id&&!providerCleaned)provider?.cleanup(providerMetadata.provider_resource_id);
     if(!ended){clearTimeout(timer);clearTimeout(killTimer);clearTimeout(hardTimer);if(!child?.pid)active.delete(job_id);try{fs.closeSync(fd);}catch{}}
     // Bounded best-effort cleanup of the private temp; a huge tree written by the
     // supervised command is left in place rather than stalling the recorder.

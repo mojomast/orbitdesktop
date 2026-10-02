@@ -612,8 +612,9 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     for (const [label, prompt] of [
       ['Inspect workspace', 'Inspect this workspace using the workspace controller. Summarize its current windows, panes, layout, and available controls. Do not change anything yet.'],
       ['Organize windows', 'Inspect this workspace and organize the existing windows for readability. Preserve all pane IDs, conversations, and running shells. Use live workspace controls and verify the browser acknowledgement.'],
-      ['Build an app', 'Build and publish an app inside this workspace. First ask me what the app should do, then use the workspace publishing workflow to open it here.'],
-      ['Change appearance', 'Help me change the workspace appearance. First ask what look I want. Use the no-reload appearance workflow in docs/WORKSPACE_CONTROL.md, preserve unrelated customizations, and do not restart services.'],
+      ['Explore built-in tools', 'Help me choose from Orbit’s built-in search, interactive results, voice transcript, Data workbench, document library, run traces and optional browser/MCP Apps surfaces. Use docs/TECHNOLOGY_FEATURES.md and ask what I want to accomplish if it is not yet clear. Explain configuration prerequisites and explicit import/draft steps; do not claim you can read private contents from layout context.'],
+      ['Build an app', 'Help me build a tool in this workspace. Use my stated goal, or ask what it should do if that is missing. Reuse a suitable built-in surface when possible; otherwise build, test and publish a content-addressed sandboxed plugin. Preserve existing windows and use independent widget instances when appropriate.'],
+      ['Change appearance', 'Help me change the workspace appearance. Use my stated preferences, or ask what look I want if that is missing. Use the no-reload appearance workflow in docs/WORKSPACE_CONTROL.md, preserve unrelated customizations, and do not restart services.'],
     ]) dialog.append(button(label, label, () => { input.value = prompt; input.dispatchEvent(new Event('input')); dialog.close(); input.focus(); }));
     dialog.append(el('p', '', 'Shortcuts prepare a draft; nothing is sent until you press Send.'));
     dialog.append(el('h3', '', 'Recent conversations'));

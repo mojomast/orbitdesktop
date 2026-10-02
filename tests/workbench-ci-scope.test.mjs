@@ -32,6 +32,7 @@ test('isWorkbenchPath matches the deferred Workbench surface', () => {
     ['scripts/generate-workbench-contract.mjs', true],
     ['scripts/workbench_ci_scope.mjs', true],
     ['.github/workflows/workbench.yml', true],
+    ['tests/browser_workspace.py', true],
     // Unrelated paths must not widen the deep gate.
     ['server/workspace-store.mjs', false],
     ['server/project-registry.mjs', false],

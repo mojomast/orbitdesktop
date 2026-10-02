@@ -12,12 +12,19 @@ Conversations, persistent host terminals, web apps, and optional Linux applicati
 
 [Quick start](#quick-start) · [Linux apps](docs/XPRA_APPS.md) · [Agent guide](docs/AGENT_GUIDE.md) · [Security](docs/SECURITY.md)
 
-**Version 0.3.1:** see the [release notes](docs/RELEASE_0.3.1.md) and
+**Package version 0.3.1:** see the [release notes](docs/RELEASE_0.3.1.md) and
 [Hermes plugin installation guide](hermes-plugin/README.md). Project Workbench is
 experimental and off by default; enable it in Orbit settings. Optional Docking is
 also off by default. Read the [deployment guide](docs/DEPLOYMENT.md) before upgrading
 an existing runtime. The [evolution testing guide](docs/TESTING_BRANCH.md) records
 the integration's historical development and acceptance evidence.
+
+**Current development candidate:** the usability and technology features below
+are implemented and tested on the testing deployment; they are not a newly
+published release. Start with the [feature guide](docs/TECHNOLOGY_FEATURES.md)
+and [example prompts](docs/WORKSPACE_PROMPTS.md). See the
+[candidate verification record](docs/VERIFICATION.md) for exact-head evidence
+and outstanding owner acceptance.
 
 **Comet Project Workbench (experimental, off by default):** enable it in
 **Orbit settings** (◉ orbit menu → Orbit settings) and then describe a goal,
@@ -92,7 +99,7 @@ arranger and checkpoint comparisons. These build on the existing workspace
 operations; Project Workbench remains experimental and off by default. See
 [workspace usability](docs/WORKSPACE_USABILITY.md) for scope and compatibility.
 
-The next feature round extends this with [reusable saved layouts](docs/SAVED_WORKSPACE_LAYOUTS.md),
+The current development candidate includes [reusable saved layouts](docs/SAVED_WORKSPACE_LAYOUTS.md),
 a [conversation library with host-backed drafts](docs/CONVERSATION_LIBRARY.md), independent stateless widget instances,
 [author-declared configuration forms](docs/WIDGET_CONFIGURATION.md), a
 [searchable output library](docs/OUTPUT_LIBRARY.md), and explicit
@@ -100,6 +107,30 @@ a [conversation library with host-backed drafts](docs/CONVERSATION_LIBRARY.md), 
 Context insertion does not send a message. The extended widget records use a
 schema-12 writer fence; see [store compatibility](docs/WORKSPACE_STORE.md) before
 upgrading an existing runtime.
+
+### Work with local sources, data and documents
+
+Open these tools from **Start** or the command palette:
+
+- **Knowledge search:** import explicit source snapshots, search them locally and
+  send an exact cited passage to a selected conversation draft. Keyword search
+  works immediately; semantic search needs the provisioned local model.
+- **Interactive results:** import A2UI v0.9 cards, edit, save, pin and export them.
+- **Voice transcript:** record or choose audio, transcribe with the provisioned
+  local model, edit the text and insert it into a draft.
+- **Data workbench:** query chosen CSV/JSON/Parquet files locally with DuckDB;
+  save recipes and export bounded results. JSON/Parquet require local extensions.
+- **Document library:** create rich-text documents and Excalidraw whiteboards,
+  explicitly save revisions, recover drafts and export your work.
+- **Run traces:** inspect timing for events Orbit actually observed and explicitly
+  export the redacted projection.
+
+Optional **Browser copilot** uses a configured disposable browser with reviewed
+owner actions; **MCP Apps** hosts imported self-contained snapshots on a separate
+sandbox origin. Neither automatically discovers Hermes tools or runs an agent
+planner. Experimental **gVisor isolated checks** require a suitable separately
+provisioned host. Setup, persistence and capability boundaries are in the
+[technology guide](docs/TECHNOLOGY_FEATURES.md).
 
 **Project Workbench → Workspace arrangements** previews a named, semantic diff
 before changing the desktop. Save a portable Debug recipe, resolve its roles
@@ -257,6 +288,10 @@ The desktop, Writer, and connection-control screenshots were captured in an isol
 ## Documentation map
 
 Agent operations: docs/AGENT_GUIDE.md
+Feature prompts and workflows: docs/WORKSPACE_PROMPTS.md
+Workspace usability: docs/WORKSPACE_USABILITY.md
+Local technology features and setup: docs/TECHNOLOGY_FEATURES.md
+Candidate verification: docs/VERIFICATION.md
 Workspace controller: docs/WORKSPACE_CONTROL.md
 Plugin lifecycle: docs/PLUGINS.md
 Linux app launchers: docs/XPRA_APPS.md

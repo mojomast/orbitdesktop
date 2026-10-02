@@ -1,0 +1,13 @@
+import Ajv from 'ajv';
+
+export const TRACE_LIMITS=Object.freeze({spansPerTrace:2000,tracesPerScope:200,tracesTotal:400,page:500,spanBytes:4096,exportBytes:4*1024*1024,retentionDays:7,requestBytes:16384});
+const id={type:'string',minLength:1,maxLength:128,pattern:'^[A-Za-z0-9_.:-]+$'};
+const hex=n=>({type:'string',pattern:`^[a-f0-9]{${n}}$`});
+export const traceSpanSchema={type:'object',additionalProperties:false,required:['version','trace_id','span_id','parent_span_id','name','kind','start_unix_ms','end_unix_ms','status','duration_origin','authority','category','attributes','references','sequence'],properties:{
+  version:{const:1},trace_id:hex(32),span_id:hex(16),parent_span_id:{anyOf:[hex(16),{type:'null'}]},name:{type:'string',maxLength:120},kind:{enum:['internal','server']},start_unix_ms:{type:'number',minimum:0},end_unix_ms:{type:['number','null'],minimum:0},status:{enum:['unset','ok','error']},duration_origin:{enum:['observed','instant','local_observation']},authority:{enum:['observed','recorder','human','agent']},category:{enum:['agent','tools','files','checks','evidence','warnings']},sequence:{type:'integer',minimum:0},attributes:{type:'array',maxItems:16,items:{type:'object',additionalProperties:false,required:['key','value'],properties:{key:{type:'string',maxLength:80},value:{anyOf:[{type:'string',maxLength:240},{type:'number'}]}}}},references:{type:'array',maxItems:4,items:{type:'object',additionalProperties:false,required:['kind','id'],properties:{kind:{enum:['run','attempt','toolcall','job','grant','candidate','evidence','result','patch','review','task']},id}}}}};
+const request=(action,properties={},required=[])=>({type:'object',additionalProperties:false,required:['action','workspace_id',...required],properties:{action:{const:action},workspace_id:id,...properties}});
+const filters={profile_id:id,session_id:id,method:{enum:['normal','workbench']},status:{enum:['running','completed','failed','partial']}};
+export const runTraceRequests=[request('capability'),request('list',{...filters,limit:{type:'integer',minimum:1,maximum:200}}),request('page',{trace_id:hex(32),after_sequence:{type:'integer',minimum:0},limit:{type:'integer',minimum:1,maximum:500}},['trace_id']),request('detail',{trace_id:hex(32),span_id:hex(16)},['trace_id','span_id']),request('export',{trace_id:hex(32)},['trace_id']),request('remove',{trace_id:hex(32)},['trace_id']),request('retention',{dry_run:{type:'boolean'}})];
+const ajv=new Ajv({strict:true,allowUnionTypes:true});
+export const validateRunTraceRequest=ajv.compile({oneOf:runTraceRequests});
+export const validateTraceSpan=ajv.compile(traceSpanSchema);

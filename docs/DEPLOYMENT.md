@@ -2,6 +2,11 @@
 
 ## Hermes plugin installation and upgrade
 
+The next paragraphs describe the historical prepared 0.3.1 baseline (schema 11).
+The current usability/technology candidate still has package version 0.3.1 but
+uses **schema 12**; use [current source compatibility](#current-source-compatibility)
+and the actual selected commit's tooling when upgrading this branch.
+
 The published `hermes-plugin-v0.3.0` release includes its reviewed source archive.
 The 0.3.1 package is prepared on `release/0.3.1` — same SQLite schema 11, v1
 workspace contract and sandboxed app-manifest format, plus the off-by-default
@@ -74,6 +79,36 @@ binary; schema-10/11 backups retain their exact version in that mode. Never lowe
 `user_version` or point a schema-11 binary at schema-12 data. This source change
 does not change the historical 0.3.0/0.3.1 package declarations above or authorize
 a live migration/restart.
+
+### Technology candidate data and optional services
+
+Back up the **entire** private runtime, not just `workspace.sqlite`. This includes
+conversation bindings/drafts/library metadata, output metadata, saved layouts,
+knowledge source snapshots and index sidecars, document/canvas records and
+revisions, interactive results, data recipes, trace stores and MCP snapshots,
+alongside existing Workbench journals and published bundles. Preserve configured
+external model/engine asset roots and private integration environment files too.
+Layout checkpoints do not restore these private contents. Storage details and
+setup commands are indexed in [Technology features](TECHNOLOGY_FEATURES.md).
+
+Browser copilot requires a durable executable and origin policy. MCP Apps requires
+`ORBIT_MCP_APPS=1` and a distinct reachable sandbox origin; for HTTPS reverse proxy
+deployments set both its public origin and explicit loopback listener port.
+Preserve existing reverse-proxy routes and verify that the sandbox does not serve
+owner APIs. Configuration and engine availability are separate checks.
+
+The current testing activation and exact-head CI evidence are recorded in
+[Verification](VERIFICATION.md). It preserved six terminal identities and 22
+conversation files; this is recorded evidence for that activation, not permission
+to restart a busy service. Recheck active and unresolved work before every cutover.
+Do not edit immutable packages to update prompts: package the updated agent guide
+and frontend together, verify them, then use an authorized session-preserving
+activation. The injected guide is read from the running package.
+
+gVisor remains an optional separately tested backend. Its version-2 private
+approval records must remain with their compatible implementation. Failed rootless
+namespace probes or absent approved runtime/rootfs leave it unavailable; never
+substitute trusted-host execution. See [Isolated checks](ISOLATED_CHECKS.md).
 
 ## Provisioning the RouteTok TypeScript cache
 
@@ -374,8 +409,10 @@ assertions, page-error count, and screenshots of visual assertions. For workspac
 mutations record committed revision and the subsequent `browser_applied` or
 observed-revision evidence. Acknowledgement alone is not visual correctness.
 
-The owner requested Hermes Orbit to perform the optional tailnet acceptance.
-Until its evidence is received, that deployment-specific gate remains **pending**.
+The earlier optional tailnet acceptance request was tracked independently. Current
+technology-candidate public frontend/sandbox checks and pending owner walkthrough
+are distinguished in [Verification](VERIFICATION.md); historical pending notes
+must not substitute for the evidence of the exact build being activated.
 No command in this document authorizes migration/restart of an owner runtime.
 ## Private Hermes live-activity projection
 

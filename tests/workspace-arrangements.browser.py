@@ -21,6 +21,7 @@ import urllib.request
 import uuid
 
 from playwright.sync_api import expect, sync_playwright
+from browser_workspace import wait_for_workspace_connection
 
 ROOT = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser()
@@ -44,7 +45,7 @@ with tempfile.TemporaryDirectory(prefix='orbit-arrangements-', dir='/tmp/opencod
     root = Path(temporary)
     for directory in ('server', 'src', 'contracts', 'docs', 'scripts', 'public'):
         shutil.copytree(ROOT / directory, root / directory)
-    for name in ('index.html', 'package.json', 'tsconfig.json', 'vite.config.js'):
+    for name in ('index.html', 'package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.js'):
         shutil.copy2(ROOT / name, root / name)
     (root / 'node_modules').symlink_to(ROOT / 'node_modules', target_is_directory=True)
     for directory in ('runtime', 'home', 'cwd', 'tmux', 'fixture', 'project'):
@@ -108,7 +109,7 @@ with tempfile.TemporaryDirectory(prefix='orbit-arrangements-', dir='/tmp/opencod
             page.get_by_role('button', name='Connect local host', exact=True).click()
             page.get_by_role('textbox', name='Host session token').fill(token)
             page.get_by_role('button', name='Unlock local host', exact=True).click()
-            expect(page.locator('.saved')).to_contain_text('Workspace connected', timeout=15000)
+            wait_for_workspace_connection(page)
             page.wait_for_function('ids => ids.every(id => !!document.querySelector(`.pane[data-pane-id="${id}"] iframe`))',arg=panes[1:3],timeout=15000)
             for i in (1, 2):
                 page.frame_locator(f'.pane[data-pane-id="{panes[i]}"] iframe').locator('#draft').fill(f'arrangement-draft-{i}')
@@ -132,17 +133,34 @@ with tempfile.TemporaryDirectory(prefix='orbit-arrangements-', dir='/tmp/opencod
                 expect(shell.locator('.connection-state')).to_contain_text('LIVE SHELL', timeout=15000)
                 assert len(terminal_sockets)==1, terminal_sockets
                 def fresh_shell(label):
-                    marker='ARRANGEMENT_'+secrets.token_hex(6).upper()
+                    # Keep the complete probe inside the smallest assigned tmux
+                    # screen. The descriptive prefix consumed scarce cells and
+                    # could scroll away before tmux emitted its redraw; retain
+                    # the same 48-bit fresh nonce, variable, PID and end marker.
+                    marker=secrets.token_hex(6).upper()
                     old_frames=len(terminal_data)
                     subprocess.run(['tmux','-L',server_env['ORBIT_TMUX_SOCKET'],'send-keys','-t','pane-'+panes[3],
-                        f'printf "{marker}_%s_%s\\n" "$ORBIT_ARRANGEMENT_VAR" "$$"','C-m'],env=server_env,check=True,capture_output=True,timeout=5)
+                        f'printf "{marker}_%s_%s_END\\n" "$ORBIT_ARRANGEMENT_VAR" "$$"','C-m'],env=server_env,check=True,capture_output=True,timeout=5)
                     deadline=time.perf_counter()+10
                     while time.perf_counter()<deadline:
                         output=''.join(item.get('data','') for item in terminal_data[old_frames:] if item.get('type')=='data')
-                        match=re.search(marker+r'_retained_(\d+)',output)
+                        # tmux sends a VT screen update, not a raw stdout pipe.
+                        # Narrow Docking panes wrap a probe across cursor/SGR
+                        # sequences. Decode those presentation bytes while still
+                        # requiring this fresh nonce, retained variable and PID.
+                        printable=re.sub(r'\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\)|[()][0-2A-Z])','',output).replace('\r','').replace('\n','')
+                        match=re.search(marker+r'_retained_(\d+)_END',printable)
                         if match:return match.group(1)
                         page.wait_for_timeout(100)
-                    raise AssertionError(f'{label}: no new terminal WebSocket output for {marker}')
+                    # This fixture owns the shell and all its contents. Retain
+                    # bounded synthetic diagnostics to distinguish a transport
+                    # failure from tmux redraw/wrapping or a changed shell PID.
+                    capture=subprocess.run(['tmux','-L',server_env['ORBIT_TMUX_SOCKET'],'capture-pane','-p','-J','-t','pane-'+panes[3]],env=server_env,text=True,capture_output=True,timeout=5)
+                    diagnostic={'label':label,'marker':marker,'new_frames':[{'type':item.get('type'),'data':str(item.get('data',''))[-4000:]} for item in terminal_data[old_frames:][-20:]],
+                                'screen':capture.stdout[-8000:],'capture_status':capture.returncode,
+                                'connection':page.locator(f'.pane[data-pane-id="{panes[3]}"] .connection-state').inner_text()}
+                    Path(f'/tmp/opencode/orbit-arrangements-{args.renderer}-pty-failure.json').write_text(json.dumps(diagnostic,indent=2))
+                    raise AssertionError(f'{label}: no new terminal WebSocket output for {marker}; diagnostics retained')
                 def reconnect_shell(label):
                     pane=page.locator(f'.pane[data-pane-id="{panes[3]}"]')
                     for _ in range(50):
@@ -153,7 +171,9 @@ with tempfile.TemporaryDirectory(prefix='orbit-arrangements-', dir='/tmp/opencod
                     assert fresh_shell(label)==shell_pid,f'{label}: private tmux shell PID changed'
                     return len(terminal_sockets)
                 subprocess.run(['tmux','-L',server_env['ORBIT_TMUX_SOCKET'],'send-keys','-t','pane-'+panes[3],
-                    'export ORBIT_ARRANGEMENT_VAR=retained','C-m'],env=server_env,check=True,capture_output=True,timeout=5)
+                    # Echo and a multiline prompt can push the nonce out of a
+                    # short tmux redraw before any frame is emitted after attach.
+                    "stty -echo; PS1=''; export ORBIT_ARRANGEMENT_VAR=retained",'C-m'],env=server_env,check=True,capture_output=True,timeout=5)
                 shell_pid=fresh_shell('initial')
                 page.evaluate('id => window.__terminalNode=document.querySelector(`.pane[data-pane-id="${id}"]`)',panes[3])
             expected_terminal_sockets=len(terminal_sockets)
@@ -334,7 +354,7 @@ with tempfile.TemporaryDirectory(prefix='orbit-arrangements-', dir='/tmp/opencod
             page.get_by_role('button', name='Connect local host', exact=True).click()
             page.get_by_role('textbox', name='Host session token').fill(token)
             page.get_by_role('button', name='Unlock local host', exact=True).click()
-            expect(page.locator('.saved')).to_contain_text('Workspace connected', timeout=15000)
+            wait_for_workspace_connection(page)
             # A browser reload intentionally replaces documents. Establish a
             # new in-document continuity baseline for subsequent recipe moves.
             for i in (1,2):
@@ -501,7 +521,7 @@ with tempfile.TemporaryDirectory(prefix='orbit-arrangements-', dir='/tmp/opencod
             other_page.get_by_role('button',name='Connect local host',exact=True).click()
             other_page.get_by_role('textbox',name='Host session token').fill(token)
             other_page.get_by_role('button',name='Unlock local host',exact=True).click()
-            expect(other_page.locator('.saved')).to_contain_text('Workspace connected',timeout=15000)
+            wait_for_workspace_connection(other_page)
             other_page.get_by_role('button',name='Open orbit menu').click()
             other_page.get_by_role('button',name='Project Workbench',exact=True).click()
             other_dialog=other_page.locator('dialog.project-workbench-dialog')

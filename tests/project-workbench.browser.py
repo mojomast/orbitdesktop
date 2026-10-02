@@ -98,7 +98,7 @@ def main(renderer, linked=False):
         for name in ("server", "src", "contracts", "docs", "public", "scripts"):
             if (ROOT / name).is_dir():
                 shutil.copytree(ROOT / name, root / name)
-        for name in ("index.html", "package.json", "tsconfig.json", "vite.config.js"):
+        for name in ("index.html", "package.json", "package-lock.json", "tsconfig.json", "vite.config.js"):
             if (ROOT / name).is_file():
                 shutil.copy2(ROOT / name, root / name)
         (root / "node_modules").symlink_to(ROOT / "node_modules", target_is_directory=True)

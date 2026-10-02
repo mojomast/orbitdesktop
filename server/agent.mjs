@@ -14,7 +14,13 @@ const sessionPattern = /^orbit-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[
 const runPattern = /^run_[a-zA-Z0-9_-]{8,100}$/;
 const instructions = 'You are Hermes, accessed through the owner’s Comet/Orbit Desktop agent chat. This pane uses its explicitly selected profile and conversation, which may resume a saved Hermes session. Orbit terminal panes run as the owner on the host. Your agent tools still run in the configured Hermes environment. Use plain text in replies. Do not claim to see screen pixels, iframe contents, or terminal buffers unless supplied. Follow normal tool approval policies.';
 
-export function createAgentHandler({ token, port, devOrigins, reply, workspaceContext, workspaceRead, runtimeDirectory = process.env.ORBIT_RUNTIME_DIR || fileURLToPath(new URL('../.runtime/', import.meta.url)), apiUrl = process.env.HERMES_API_URL, apiKey = process.env.HERMES_API_KEY, profiles, profilesJson = process.env.HERMES_PROFILES_JSON, fetchImpl = fetch, executionGate }) {
+export function createAgentHandler({ token, port, devOrigins, reply, workspaceContext, workspaceRead, runtimeDirectory = process.env.ORBIT_RUNTIME_DIR || fileURLToPath(new URL('../.runtime/', import.meta.url)), apiUrl = process.env.HERMES_API_URL, apiKey = process.env.HERMES_API_KEY, profiles, profilesJson = process.env.HERMES_PROFILES_JSON, fetchImpl = fetch, executionGate, onRunEvent }) {
+  // Derived observation only, using the exact run-trace contract. Never await or
+  // let an observer alter a receipt, response, approval or dispatch outcome.
+  const observeStatus=(binding,run)=>{
+    if(!onRunEvent)return;
+    try{onRunEvent({...binding,event:{event:'run.status',status:run.status,started_at:run.started_at,ended_at:run.ended_at},at:Date.now()});}catch{}
+  };
   let configuration;
   try { configuration = createAgentProfiles({profiles,profilesJson,apiUrl,apiKey}); } catch { configuration = null; }
   const endpoint = (profile, route) => `${profile.apiUrl.replace(/\/$/, '')}${route}`;
@@ -243,6 +249,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
           }
           if (!receipt.run_id) return reply(res,200,publicReceipt(receipt));
           const result = await agent.workbench.status(originalArgs(receipt));
+          observeStatus({workspace_id:receipt.workspace_id,profile_id:receipt.recipient.profile_id,session_id:receipt.recipient.session_id,run_id:receipt.run_id},result);
           return reply(res,200,{...publicReceipt(receipt),...result});
         }
         // Fence every ordinary control request against credential/endpoint changes,
@@ -252,6 +259,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
           if (recipient.config_generation !== receipt.recipient.config_generation) return reply(res,409,{error:'The original Hermes configuration changed. Restore it before inspecting this run.'});
           if (body.action === 'status') {
             const result = await agent.workbench.status(originalArgs(receipt));
+            observeStatus({workspace_id:receipt.workspace_id,profile_id:receipt.recipient.profile_id,session_id:receipt.recipient.session_id,run_id:receipt.run_id},result);
             let approvals = [];
             if (result.status === 'waiting_for_approval') {
               const pending = await upstream(`/v1/approvals/pending?session_id=${encodeURIComponent(receipt.run_id)}`);
@@ -292,8 +300,12 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
         const abort = new AbortController(); res.on('close', () => abort.abort());
         const stream = await fetchImpl(endpoint(profile,`/v1/runs/${body.run_id}/events`), { headers: { Authorization: `Bearer ${profile.apiKey}` }, signal: abort.signal, redirect: 'error' });
         if (!stream.ok) return reply(res, 502, { error: 'Activity stream unavailable; use status polling.' });
+        let tee;
+        // Only pane-backed requests have an authoritative workspace/profile/
+        // session binding. Legacy unbound requests are forwarded without traces.
+        if(onRunEvent&&body.pane_id){try{const {createRunTraceTee}=await import('./run-trace-tee.mjs');tee=createRunTraceTee({binding:{workspace_id:body.workspace_id,profile_id:profileId,session_id:body.session_id,run_id:body.run_id},onRunEvent});}catch{}}
         res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' });
-        try { for await (const chunk of stream.body) { if (!res.write(chunk)) await new Promise(resolve => { res.once('drain', resolve); res.once('close', resolve); }); if (res.destroyed) break; } } finally { abort.abort(); res.end(); }
+        try { for await (const chunk of stream.body) { try{tee?.write(chunk);}catch{} if (!res.write(chunk)) await new Promise(resolve => { res.once('drain', resolve); res.once('close', resolve); }); if (res.destroyed) break; } } finally { try{tee?.close();}catch{} abort.abort(); res.end(); }
         return;
       }
       if(body.action==='connection_password') {
@@ -368,7 +380,8 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
             // session lock or carry the request's pane lock into that adapter.
             shared.locks.delete(paneLock); paneLock = undefined;
             const data = await agent.workbench.dispatchExact({...args,payload:record.payload,submission_id:receiptId,preservePending:true,idempotency_key:prepared.caps.idempotent_submit ? receiptId : undefined,onAccepted: data => {
-              record.run_id = data.run_id; record.state = 'accepted'; saveSubmission(record);
+               record.run_id = data.run_id; record.state = 'accepted'; saveSubmission(record);
+               observeStatus({workspace_id:record.workspace_id,profile_id:record.recipient.profile_id,session_id:record.recipient.session_id,run_id:record.run_id},data);
              }}, allowConcurrent);
             return reply(res,202,{...data,...publicReceipt(record)});
           } catch (error) {
@@ -425,6 +438,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
       const run = await upstream(runPath);
       // Never let Orbit operate on another dashboard's sessions/runs.
       if (run.session_id !== body.session_id) return reply(res, 404, { error: 'Run not found in this Orbit conversation.' });
+      if(body.action==='status'&&body.pane_id)observeStatus({workspace_id:body.workspace_id,profile_id:profileId,session_id:body.session_id,run_id:body.run_id},run);
       if (body.action === 'steer') {
         if (typeof body.input !== 'string' || !body.input.trim() || body.input.length > 100000) return reply(res, 400, { error: 'Guidance must contain 1–100,000 characters.' });
         const data = await upstream(`${runPath}/steer`, { input: body.input.trim() });

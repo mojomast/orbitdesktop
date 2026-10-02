@@ -119,9 +119,20 @@ full commit and the `hermes-plugin` subdirectory, not `main` or the downloadable
 desktop-source archive. The archive is the plugin's setup payload, not a
 standalone Hermes plugin.
 
-This release upgrades legacy JSON workspace storage to SQLite schema 11 through
-an explicit stopped-writer migration. See the bundled `docs/DEPLOYMENT.md` before
-updating an existing installation; keep its complete runtime/configuration backup.
+The prepared 0.3.1 baseline used SQLite schema 11. This development branch keeps
+the same package version but bundles the usability/technology candidate with
+**schema 12**. Use the bundled `docs/DEPLOYMENT.md` and exact source commit for
+stopped-writer migration; keep the complete runtime/configuration backup. These
+new features are not a newly published catalog release.
+
+The bundled `docs/WORKSPACE_PROMPTS.md` contains workflows for saved layouts,
+conversations/drafts, widgets, search, A2UI, voice, data, documents/canvases, traces
+and optional browser/MCP Apps. `docs/AGENT_GUIDE.md` supplies workspace-aware chat
+instructions. The adapter's `orbit_workspace` tool retains its scoped operation
+contract; owner-only feature APIs are not exposed through it. Opening a surface
+does not authorize private-data access or execution. See `docs/TECHNOLOGY_FEATURES.md`
+for explicit optional asset/service provisioning. Updating the adapter/archive
+does not update a running immutable Orbit package.
 
 From the Orbit repository root:
 

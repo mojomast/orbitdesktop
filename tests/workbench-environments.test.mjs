@@ -71,6 +71,26 @@ test('offline locked file tarball dependency prepares privately and executes a t
   changeProfile({command:['/usr/bin/false']},'unsupported_profile_kind');
   changeProfile({toolchain:{node:'/usr/bin/false'}},'toolchain_changed');
   assert.equal(fs.existsSync(path.join(project,'node_modules')),false);
+  // Unit approval boundary only: this fixture describes identity, never claims
+  // or simulates guest execution. Real containment has its own gated test.
+  let providerIdentity='a'.repeat(64);
+  const sandboxProvider={kind:'gvisor',describe:()=>({available:true,kind:'gvisor',provider_identity:providerIdentity,guest_node_version:'v22.0.0',guest_node_sha256:'c'.repeat(64),platform:'systrap'})};
+  const isolated=createWorkbenchEnvironments({store,records,data,sandboxProvider});
+  const guestPreview=await isolated.dispatch({...base,action:'profile_preview',candidate_id,execution_backend:'gvisor',required_inputs:['package.json','package-lock.json','vendor/fixture-lib-1.0.0.tgz']});
+  assert.equal(guestPreview.profile_version,2);assert.equal(guestPreview.check_toolchain.node,'/usr/local/bin/node');
+  providerIdentity='b'.repeat(64);
+  await assert.rejects(isolated.dispatch({...base,action:'profile_approve',preview_id:guestPreview.preview_id,preview_digest:guestPreview.preview_digest}),{code:'stale_resource'});
+  providerIdentity='a'.repeat(64);
+  const guestApproved=await isolated.dispatch({...base,action:'profile_approve',preview_id:guestPreview.preview_id,preview_digest:guestPreview.preview_digest});
+  const guestReady=await isolated.dispatch({...base,action:'environment_prepare',profile_id:guestApproved.id});
+  assert.equal(guestReady.prepared.execution_backend,'gvisor');assert.equal(guestReady.prepared.provider_identity,providerIdentity);
+  assert.equal(isolated.verifyProfile({...base,profile_id:guestReady.id,candidate_id}).execution_backend,'gvisor');
+  const guestView=isolated.createExecutionView({...base,profile_id:guestReady.id,candidate_id});assert.equal(guestView.provider,sandboxProvider);
+  providerIdentity='b'.repeat(64);
+  assert.equal(isolated.profileReadiness({...base,profile_id:guestReady.id,candidate_id}).reason,'sandbox_provider_changed');assert.throws(()=>guestView.verify(),{code:'stale_resource'});
+  // Host factory cannot reinterpret the stored guest approval without its provider.
+  assert.equal(env.profileReadiness({...base,profile_id:guestReady.id,candidate_id}).reason,'sandbox_provider_unavailable');
+  providerIdentity='a'.repeat(64);guestView.dispose();
   const view=env.createExecutionView({...base,profile_id:approved.id,candidate_id});
   try{
     const first=spawnSync(process.execPath,['fixture.test.cjs'],{cwd:view.root,encoding:'utf8'});

@@ -21,6 +21,7 @@ export const WORKBENCH_PATTERNS = Object.freeze([
   /^server\/sqlite-workspace-store\.mjs$/,
   /^contracts\/(?:workbench-|project-tools)/,
   /^tests\/(?:workbench[-_]|test_workbench|project-workbench)/,
+  /^tests\/browser_workspace\.py$/,
   /^hermes-plugin\/workbench/,
   // Deferred generator and its workflow: editing either changes what the deep
   // gate covers, so the deep gate must run.

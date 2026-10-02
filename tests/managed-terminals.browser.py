@@ -15,6 +15,7 @@ import urllib.request
 import uuid
 
 from playwright.sync_api import expect, sync_playwright
+from browser_workspace import wait_for_workspace_connection
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -90,7 +91,7 @@ def main():
                         page.get_by_role('button', name='Connect local host', exact=True).click()
                         page.get_by_role('textbox', name='Host session token').fill(token)
                         page.get_by_role('button', name='Unlock local host', exact=True).click()
-                        expect(page.locator('.saved')).to_contain_text('Workspace connected', timeout=15000)
+                        wait_for_workspace_connection(page)
                         page.locator(f'.pane[data-pane-id="{pane}"]').get_by_role('button', name='Connect to local host shell').click()
                         toolbar = page.locator(f'.pane[data-pane-id="{pane}"] .terminal-bar')
                         expect(toolbar.get_by_role('button', name='Manage this terminal with explicit owner consent')).to_be_visible()
@@ -188,7 +189,7 @@ def main():
                         page.get_by_role('button', name='Connect local host', exact=True).click()
                         page.get_by_role('textbox', name='Host session token').fill(token)
                         page.get_by_role('button', name='Unlock local host', exact=True).click()
-                        expect(page.locator('.saved')).to_contain_text('Workspace connected', timeout=15000)
+                        wait_for_workspace_connection(page)
                         page.locator(f'.pane[data-pane-id="{pane}"]').get_by_role('button', name='Connect to local host shell').click()
                         for _ in range(100):
                             if len(sockets) == 2 and sum('"type":"ready"' in str(frame) for frame in frames) >= 2: break

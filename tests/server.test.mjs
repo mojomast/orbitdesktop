@@ -25,9 +25,9 @@ before(async () => {
   // behaviour are identical to the checkout.
   const app = path.join(isolatedRoot, "app");
   await mkdir(app);
-  for (const name of ["server", "src", "contracts", "scripts", "public"])
+  for (const name of ["server", "src", "contracts", "scripts", "public", "docs"])
     await cp(path.join(REPO, name), path.join(app, name), { recursive: true });
-  for (const name of ["index.html", "package.json", "tsconfig.json", "vite.config.js"])
+  for (const name of ["index.html", "package.json", "package-lock.json", "tsconfig.json", "vite.config.js"])
     await cp(path.join(REPO, name), path.join(app, name));
   await symlink(path.join(REPO, "node_modules"), path.join(app, "node_modules"), "dir");
   execFileSync(process.execPath, [path.join(REPO, "scripts/isolated_build.mjs"),

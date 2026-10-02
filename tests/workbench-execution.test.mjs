@@ -51,6 +51,23 @@ async function runCheck(f,candidate_id,definition_id){
 }
 const privateCandidate=(f,id)=>f.data.get('candidates',f.workspace_id,f.project.id,id);
 
+test('unowned sandbox restart resources quarantine the unchanged shared gate and expose public capability',async t=>{
+  const f=fixture(t),gate=createWorkbenchGate();
+  const status={available:false,kind:'gvisor',reason:'resources_unknown',message:'Retained resources require reconciliation.'};
+  let freshProbes=0;
+  const sandboxProvider={reconcile:()=>status,publicStatus:()=>status,describe:()=>{freshProbes++;throw Error('poll must not run an authority probe');}};
+  const execution=createWorkbenchExecution({store:f.store,records:f.records,data:f.data,gate,sandboxProvider});
+  assert.equal(execution.health().healthy,false);assert.equal(execution.health().reason,'sandbox_resources_unknown');
+  assert.throws(()=>gate.claim('job',randomUUID()),{code:'busy'});
+  assert.throws(()=>gate.claim('agent',randomUUID()),{code:'busy'});
+  const base={workspace_id:f.workspace_id,project_id:f.project.id};
+  assert.deepEqual(await execution.dispatch({...base,action:'provider_status'}),status);
+  for(let i=0;i<3;i++)assert.deepEqual((await execution.dispatch({...base,action:'execution_state'})).provider,status);
+  assert.equal(freshProbes,0);
+  await assert.rejects(execution.dispatch({...base,action:'provider_status',root:'/private/path'}),{code:'invalid_request'});
+  execution.close();assert.throws(()=>gate.claim('job',randomUUID()),{code:'busy'});
+});
+
 test('read-only readiness explains old check contracts without migrating history',async t=>{
   const f=fixture(t),{candidate,task}=await prepare(f);
   const before=await f.call('candidate_get',{candidate_id:candidate.id});

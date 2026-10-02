@@ -1,0 +1,11 @@
+.browser-copilot { height:100%; overflow:auto; padding:12px; box-sizing:border-box; font:13px system-ui,sans-serif; color:var(--text-color,inherit); }
+.browser-copilot h2 { margin:0 0 8px; font-size:17px; }
+.bc-controls { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:8px; }
+.bc-controls label { display:flex; flex-direction:column; gap:4px; }
+.browser-copilot input,.browser-copilot select,.browser-copilot textarea,.browser-copilot button { font:inherit; min-width:0; padding:6px; }
+.bc-buttons { display:flex; flex-wrap:wrap; gap:6px; margin:10px 0; }
+.browser-copilot pre { white-space:pre-wrap; overflow-wrap:anywhere; max-height:300px; overflow:auto; background:#0002; padding:8px; }
+.bc-evidence { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:8px; }
+.bc-evidence figure { margin:0; min-width:0; }
+.bc-evidence img { width:100%; height:auto; border:1px solid #888; }
+.bc-evidence figcaption { font-size:11px; overflow-wrap:anywhere; }

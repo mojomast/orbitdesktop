@@ -21,8 +21,9 @@ from playwright.sync_api import expect, sync_playwright
 ROOT = Path(__file__).resolve().parents[1]
 with tempfile.TemporaryDirectory(prefix='orbit-conversation-transfer-', dir='/tmp/opencode') as temporary:
     root = Path(temporary)
-    shutil.copytree(ROOT / 'src', root / 'src')
-    for name in ('package.json', 'tsconfig.json', 'vite.config.js'):
+    for name in ('src', 'contracts', 'server', 'scripts', 'docs'):
+        shutil.copytree(ROOT / name, root / name)
+    for name in ('package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.js'):
         shutil.copy2(ROOT / name, root / name)
     (root / 'node_modules').symlink_to(ROOT / 'node_modules', target_is_directory=True)
     (root / 'fixture.html').write_text(
