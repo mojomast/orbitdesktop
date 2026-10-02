@@ -367,7 +367,7 @@ window.addEventListener('orbit-review-document-result',event=>{
   const detail=(event as CustomEvent).detail;
   if(!detail||typeof detail.title!=='string'||typeof detail.respond!=='function'||detail.workspaceId!==workspaceId)return;
   event.preventDefault();
-  void import('./document-library').then(module=>module.reviewCreateDocument(()=>sessionToken,detail.title,detail.data)).then(detail.respond).catch(()=>detail.respond({status:'rejected',reason:'Document result could not be reviewed.'}));
+  void import('./document-library').then(module=>detail.workspaceId===workspaceId?module.reviewCreateDocument(()=>sessionToken,detail.title,detail.data):{status:'rejected' as const,reason:'Workspace changed before document review.'}).then(detail.respond).catch(()=>detail.respond({status:'rejected',reason:'Document result could not be reviewed.'}));
 });
 window.addEventListener('orbit-open-document',event=>{
   const detail=(event as CustomEvent<{id?:unknown;name?:unknown;paneId?:unknown}>).detail;
