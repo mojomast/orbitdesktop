@@ -47,7 +47,7 @@ execute an action or open an imported app automatically.
 | Knowledge search | [Search](KNOWLEDGE_SEARCH.md) | Explicit text, excerpt or UTF-8 file snapshots; local embeddings are optional |
 | Interactive results | [A2UI](INTERACTIVE_RESULTS.md) | Reviewed A2UI v0.9 JSON/NDJSON imports and trusted adapter calls |
 | Voice transcript | [Dictation](VOICE_DICTATION.md) | Microphone/audio file → local model → editable transcript → selected draft |
-| Data workbench | [Data Lab](DATA_LAB.md) | Owner-picked CSV/JSON/Parquet; saved recipes bind exact file/table identities |
+| Data workbench | [Data Lab](DATA_LAB.md) | Owner-picked CSV/JSON/Parquet or hash-pinned published CSV; saved recipes bind exact file/table identities |
 | Document library | [Documents](DOCUMENTS.md), [Canvas](CANVAS.md) | Private rich text and whiteboards with independent revisions and recovery |
 | Run traces | [Traces](RUN_TRACES.md) | Observed Normal/Workbench events, redacted local projection and explicit export |
 | Browser copilot | [Browser](BROWSER_COPILOT.md) | Configured disposable browser, exact selected target and explicit owner actions |

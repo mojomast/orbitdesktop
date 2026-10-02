@@ -1,5 +1,22 @@
 # Verification record
 
+## Published CSV handoff — October 2, 2026
+
+Data workbench accepts a strict, same-origin published CSV identity plus SHA-256
+through its built-in surface URL. The browser bounds downloads, verifies bytes
+before loading the existing DuckDB engine, and leaves query execution explicit.
+See [Data Lab](DATA_LAB.md) for the route and publication contract.
+
+- `npm run check`: **1,011 tests, 1,000 passed, 11 optional skips, zero failures**.
+- Real Chromium/DuckDB tests passed auto-loading without a file picker, explicit
+  query results, hash mismatch refusal, recovery with manual input, cancellation
+  versus replacement, and narrow-screen wrapping. The existing CSV/JSON/Parquet,
+  recipe, exact numeric sharing and external-access confinement journeys passed.
+- Publisher tests **9/9** and regenerated Hermes source archive parity **3/3**
+  passed. This feature retains schema **12** and package metadata **0.3.1**.
+- Browser-local input state is separate from the layout acknowledgement. These
+  disposable checks do not claim to inspect an owner's existing browser tab.
+
 ## Agency integration — October 2, 2026
 
 The owner authorized merging and deployment. The usability, technology and agency

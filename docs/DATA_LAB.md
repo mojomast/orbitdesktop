@@ -11,6 +11,42 @@ into memory (one million rows maximum per file). No file bytes are uploaded or
 stored in layouts, checkpoints or private recipes. JSON and Parquet require the
 independently provisioned local extension assets below; missing assets fail visibly.
 
+### Agent-authored published CSV inputs
+
+An agent with publication and workspace-layout authority can open the existing Data
+workbench with one exact **already-public** CSV preloaded, without a browser file
+picker or Desktop browser-control connection:
+
+```text
+orbit://surface/data?input=<content-addressed-bundle-slug>/<filename.csv>&sha256=<64-lowercase-hex>
+```
+
+Publish through `scripts/plugin_publish.py` (see [Plugins](PLUGINS.md)), retain the
+immutable bundle, compute the SHA-256 of the actual CSV bytes, and use `add_window`
+with `kind: "browser"` and that URL. Reuse an existing matching pane; replacing a
+different Data pane disposes its in-memory analysis, so prefer a new window when
+its contents are unknown. The slug is a lowercase alphanumeric/hyphen prefix (up
+to 80 characters) followed by `-` and the publisher's 24-hex suffix. The filename
+starts with an ASCII alphanumeric, has at most 120 ASCII alphanumeric/underscore/
+hyphen characters before `.csv`, and has no subdirectories. Parameter order and
+spelling are exact; escapes, extra parameters and fragments are unsupported.
+
+The trusted surface downloads only `/apps/<slug>/<filename.csv>` on the same
+origin, with credentials omitted and redirects refused. It bounds the streamed
+response to **5 MiB**, checks the full SHA-256 before engine admission, and loads
+the verified bytes as `input_1` in the existing local DuckDB worker. The pane shows
+the publication path and expected/loaded hashes. A missing file, changed digest,
+oversize response or cancellation fails without importing it. **Reload published
+CSV** retries explicitly; choosing local files cancels a pending publication load.
+Opening/restoring the pinned route reloads its public input, but does not run the
+SQL editor, save a recipe, share results, grant sources or send a message. Recipes
+still contain metadata only. Closing a pane terminates the download and worker.
+
+This route is for data the owner requested to publish/use; it does not read private
+host paths, crawl directories, import Knowledge sources, or give generated frames
+an owner API bridge. Local file-picker inputs remain browser-only. A publication
+is an independently retained public bundle, not private layout-checkpoint content.
+
 Queries are parsed by DuckDB as derived SELECTs, limited to one statement and
 5,001 engine result rows. The UI retains at most 5,000 rows / 2 MiB, marks
 truncation, pages 100 rows and sorts only the retained result. Downloads explicitly

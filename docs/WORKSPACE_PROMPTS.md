@@ -103,6 +103,16 @@ generation. Guide: [Voice dictation](VOICE_DICTATION.md).
 
 ## Local data analysis
 
+> Publish the synthetic CSV you just authored and open it in Data workbench for me
+> using its exact SHA-256. Use a new pane if an existing analysis might be lost.
+> Check layout acknowledgement and distinguish it from verified input loading.
+
+The supported pinned-publication route downloads an already-public, same-origin
+CSV (up to 5 MiB), verifies its hash and loads `input_1` in the built-in workbench.
+It needs no file picker or OpenCode Desktop connection. It runs no SQL and sends
+no message; use **Run SELECT** after reviewing the query. Restoring this route
+reloads its exact public input. See [Data Lab](DATA_LAB.md) for the URI contract.
+
 > Open Data workbench for the CSV files I will choose. Once I provide the displayed
 > table and column names, help write a SELECT that totals revenue by month. Help me
 > save the recipe and export the bounded result.

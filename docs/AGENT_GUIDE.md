@@ -84,6 +84,14 @@ no fallback to trusted-host execution is permitted. See `docs/ISOLATED_CHECKS.md
   SDK UI. A2UI/MCP delivery requires a mounted chosen pane; queued/rendered/saved
   outcomes are distinct. Data and browser JSON suggestions only populate reviewed
   controls; query Run and browser Preview/Execute remain separate owner actions.
+- **Published CSV:** for owner-requested public/synthetic data, publish an immutable
+  CSV bundle and open `orbit://surface/data?input=<slug>/<filename.csv>&sha256=<64-hex>`
+  through the normal layout controller. The reviewed Data workbench loads up to
+  5 MiB of same-origin public bytes after hash verification, as `input_1`, without
+  a manual file picker. No SQL runs automatically. See `docs/DATA_LAB.md` for the
+  exact route restrictions. Prefer a new pane over replacing an unknown in-memory
+  analysis. Publication/layout authority does not grant private source access;
+  acknowledgement of the layout is not proof that the input finished loading.
 - **Diagnostics:** a selected trace can share a bounded redacted timing summary
   into a draft. Preserve gap/open/local-observation labels; summed span durations
   are not wall-clock runtime, and trace state is not authoritative completion.

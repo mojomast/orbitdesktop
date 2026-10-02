@@ -45,6 +45,11 @@ Optional [MCP Apps](MCP_APPS.md) and [browser copilot](BROWSER_COPILOT.md) requi
 their documented configuration. These integrations retain the same pane identities
 and explicit draft handoff; private content is separate from layout checkpoints.
 
+For agent-authored public CSVs, Data workbench also accepts a hash-pinned published
+input route. Opening it verifies/downloads the exact public bytes into the existing
+browser-local engine; no manual file picker or Desktop browser connection is
+required. Query execution remains explicit. See [Data Lab](DATA_LAB.md).
+
 ## Plugin editing
 
 Configure and Window settings use typed forms with inline validation. Existing

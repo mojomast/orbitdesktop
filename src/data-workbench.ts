@@ -3,11 +3,12 @@ import { LocalDuckDB } from './duckdb-client';
 import { DATA_LIMITS, boundedSql, hashJson, inputStatus, resultCsv, validateRecipeImport, recipeFingerprint, type DataResult, type InputMetadata } from './data-query';
 import { workspaceId, ensureWorkspaceSynced } from './workspace-sync';
 import { requestConversationContext } from './conversation-transfer';
+import { fetchPublishedDataInput, publishedDataInput } from './data-published-input';
 
 type Recipe = { id: string; name: string; engine: { name: 'duckdb-wasm'; npmVersion: '1.32.0'; engineVersion: string }; inputs: InputMetadata[]; sql: string; params: []; inputHash: string; result?: { sha256: string; rowCount: number; bytes: number; truncated: boolean } };
-export function mountDataWorkbench(host: HTMLElement, token: () => string, _options?: { paneId?: string }): { dispose(): void } {
+export function mountDataWorkbench(host: HTMLElement, token: () => string, options?: { paneId?: string; surfaceUrl?: string }): { dispose(): void } {
   const root = document.createElement('section'); root.className = 'data-workbench';
-  root.innerHTML = `<h2>Local Data Lab</h2><p>DuckDB-Wasm EH · local files only · 50 MiB maximum. File bytes stay in this browser. Recipes are private server metadata.</p><label>Choose CSV, JSON, NDJSON or Parquet<input class="data-files" type="file" multiple accept=".csv,.json,.ndjson,.parquet"></label><pre class="data-inputs"></pre><label>SQL (read-only SELECT)<textarea class="data-sql" rows="6" spellcheck="false">SELECT * FROM input_1</textarea></label><div class="data-actions"></div><p class="data-status" role="status" aria-live="polite">Choose files to initialize the local engine.</p><div class="data-results"></div><label>Recipe name<input class="data-name" maxlength="60" value="Local analysis"></label><div class="data-recipe-actions"></div><label>Saved private recipes<select class="data-recipes"><option value="">Choose a recipe</option></select></label><details><summary>Exact recipe / input verification</summary><pre class="data-recipe-preview"></pre></details>`;
+  root.innerHTML = `<h2>Local Data Lab</h2><p>DuckDB-Wasm EH · browser-local analysis · selected files up to 50 MiB, pinned published CSV up to 5 MiB. Input bytes are not uploaded; recipes are private server metadata.</p><label>Choose CSV, JSON, NDJSON or Parquet<input class="data-files" type="file" multiple accept=".csv,.json,.ndjson,.parquet"></label><pre class="data-inputs"></pre><label>SQL (read-only SELECT)<textarea class="data-sql" rows="6" spellcheck="false">SELECT * FROM input_1</textarea></label><div class="data-actions"></div><p class="data-status" role="status" aria-live="polite">Choose files to initialize the local engine.</p><div class="data-results"></div><label>Recipe name<input class="data-name" maxlength="60" value="Local analysis"></label><div class="data-recipe-actions"></div><label>Saved private recipes<select class="data-recipes"><option value="">Choose a recipe</option></select></label><details><summary>Exact recipe / input verification</summary><pre class="data-recipe-preview"></pre></details>`;
   host.append(root);
   const q = <T extends HTMLElement>(selector: string) => root.querySelector<T>(selector)!;
   const files = q<HTMLInputElement>('.data-files'), sql = q<HTMLTextAreaElement>('.data-sql'), name = q<HTMLInputElement>('.data-name'), status = q('.data-status'), inputsView = q('.data-inputs'), resultsView = q('.data-results'), preview = q('.data-recipe-preview'), selection = q<HTMLSelectElement>('.data-recipes');
@@ -18,6 +19,7 @@ export function mountDataWorkbench(host: HTMLElement, token: () => string, _opti
   const selectedRows = new Set<number>(), selectedColumns = new Set<number>();
   let selectionGeneration = 0;
   const abort = new AbortController();
+  let inputAbort: AbortController | undefined;
   const say = (text: string) => { if (!disposed) status.textContent = text; };
   function action(container: string, title: string, run: () => unknown) {
     const button = document.createElement('button'); button.textContent = title; button.type = 'button';
@@ -26,6 +28,7 @@ export function mountDataWorkbench(host: HTMLElement, token: () => string, _opti
   }
   function invalidate() { selectionGeneration++; selectedRows.clear(); selectedColumns.clear(); result = undefined; resultsView.replaceChildren(); }
   function cancel(message = 'Cancelled; worker terminated. Choose files again to initialize.') {
+    inputAbort?.abort(); inputAbort = undefined;
     generation++; busy = false; clearTimeout(timer); engine.dispose(); inputs = []; invalidate(); say(message); showInputs();
   }
   function showInputs() {
@@ -39,15 +42,19 @@ export function mountDataWorkbench(host: HTMLElement, token: () => string, _opti
     try { await run(); } catch (error) { if (g === generation) { engine.dispose(); inputs = []; showInputs(); throw error; } }
     finally { if (g === generation) { busy = false; clearTimeout(timer); } }
   }
-  files.onchange = () => {
-    cancel('Hashing files and initializing real DuckDB…'); const g = generation, chosen = Array.from(files.files || []);
+  function loadInputs(choose: (signal: AbortSignal) => Promise<File[]>) {
+    cancel('Verifying inputs and initializing real DuckDB…'); const g = generation;
+    const request = inputAbort = new AbortController();
     void work(async () => {
-      const loaded = await engine.load(chosen); if (g !== generation || disposed) { engine.dispose(); return; }
+      const chosen = await choose(request.signal);
+      if (g !== generation || disposed) return;
+      const loaded = await engine.load(chosen); if (g !== generation || disposed) return;
       inputs = loaded; showInputs();
       const states = expected ? inputStatus(expected.inputs, inputs) : [];
       say(`DuckDB ${engine.engineVersion} · EH single-thread · ${states.some(s => s.status !== 'verified') ? 'Recipe inputs changed or missing. Running is blocked.' : 'Inputs ready.'}`);
-    }).catch(error => say(error.message));
-  };
+    }).catch(error => { if (g === generation && !disposed) say(error.message); });
+  }
+  files.onchange = () => { const chosen = Array.from(files.files || []); loadInputs(async () => chosen); };
   sql.oninput = invalidate;
   action('.data-actions', 'Run SELECT', async () => {
     if (expected && (expected.engine.engineVersion !== engine.engineVersion || inputStatus(expected.inputs, inputs).some(s => s.status !== 'verified') || inputs.length !== expected.inputs.length)) throw Error('Recipe engine or inputs do not match. Select exact files or explicitly start a new analysis.');
@@ -168,5 +175,14 @@ export function mountDataWorkbench(host: HTMLElement, token: () => string, _opti
   selection.onchange = () => { const r = recipes.find(r => r.id === selection.value); if (!r) return; expected = structuredClone(r); sql.value = r.sql; name.value = r.name; invalidate(); showInputs(); say('Recipe loaded. Re-select exact inputs; file bytes are never restored from recipes.'); };
   const dispose = () => { if (disposed) return; disposed = true; abort.abort(); cancel(); window.removeEventListener('pagehide', dispose); root.remove(); };
   window.addEventListener('pagehide', dispose);
+  const publishedUrl = options?.surfaceUrl, published = publishedUrl && publishedDataInput(publishedUrl);
+  if (published && publishedUrl) {
+    const provenance = document.createElement('p'); provenance.className = 'data-published-source';
+    provenance.textContent = `Published CSV: ${published.path} · expected SHA-256 ${published.sha256}. Opening this pane loads these exact public bytes. Review SQL, then Run SELECT.`;
+    inputsView.before(provenance);
+    const loadPublished = () => loadInputs(async signal => [await fetchPublishedDataInput(publishedUrl, signal)]);
+    action('.data-actions', 'Reload published CSV', loadPublished);
+    loadPublished();
+  }
   return { dispose };
 }

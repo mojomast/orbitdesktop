@@ -9,7 +9,7 @@ export const TECHNOLOGY_SURFACES = {
   'mcp-apps': {title:'MCP Apps',detail:'Separate-origin fixture host',auth:true},
 } as const;
 export type TechnologySurfaceId = keyof typeof TECHNOLOGY_SURFACES;
-export type TechnologySurfaceOptions = {paneId?:string};
+export type TechnologySurfaceOptions = {paneId?:string; surfaceUrl?:string};
 type Mounted = {dispose():void} | (()=>void);
 export function documentSurfaceId(url:string):string|null {
   const match=/^orbit:\/\/document\/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})$/.exec(url);

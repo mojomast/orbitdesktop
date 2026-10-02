@@ -1,5 +1,6 @@
 import { el } from './dom';
 import './host-surfaces.css';
+import { publishedDataInput } from './data-published-input';
 import { TECHNOLOGY_SURFACES, mountTechnologySurface, type TechnologySurfaceId, type TechnologySurfaceOptions } from './technology-surfaces';
 
 export type HostSurfaceId = 'outputs' | 'activity' | TechnologySurfaceId;
@@ -26,6 +27,7 @@ export const HOST_SURFACE_URLS = {
 
 /** Exact reviewed routes only: persisted URLs carry identity, never credentials. */
 export function hostSurfaceId(url: string): HostSurfaceId | null {
+  if (publishedDataInput(url)) return 'data';
   for (const id of Object.keys(HOST_SURFACE_URLS) as HostSurfaceId[]) if(url===HOST_SURFACE_URLS[id]) return id;
   return null;
 }

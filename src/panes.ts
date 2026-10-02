@@ -320,7 +320,7 @@ export function createPane(p: Pane, font: number, a: PaneActions): PaneView {
       term.dispose();
     };
   } else if (p.kind === 'browser' && hostSurfaceId(p.url)) {
-    cleanup=mountHostSurface(body,hostSurfaceId(p.url)!,()=>sessionToken,{paneId:p.id});
+    cleanup=mountHostSurface(body,hostSurfaceId(p.url)!,()=>sessionToken,{paneId:p.id,surfaceUrl:p.url});
   } else if (p.kind === 'browser' && documentSurfaceId(p.url)) {
     let disposed=false;
     let dispose=()=>{};
