@@ -20,6 +20,7 @@ export const SETUP_PUBLIC_REASONS=Object.freeze([
   'multiple_authoritative_grants','setup_suggestion_limit','setup_draft_limit','setup_already_prepared','setup_preview_limit','setup_preview_changed','setup_preview_already_consumed',
   'setup_preview_expired','setup_candidate_materialization_unknown','setup_not_prepared','setup_launch_already_requested','setup_launch_preview_limit','launch_preview_changed',
   'launch_start_not_replayed','launch_approval_unknown','launch_not_started',
+  'waiting_intent_limit','waiting_intent_expired','waiting_intent_review_required','waiting_intent_changed',
 ]);
 const publicDraft=d=>Object.fromEntries(['id','op_id','project_id','goal','title','acceptance_statement','check_definition_id','status','task_id','candidate_id','attempt_id','context_ids','grant_id','reason','created_at'].filter(k=>d[k]!==undefined).map(k=>[k,d[k]]));
 const publicGrant=({pending_result,...grant})=>grant;
@@ -36,8 +37,8 @@ export function createWorkbenchSetup({store,records,data,execution,hermes,contex
   function load(w){
     const file=path.join(root,`${w}.json`);
     let fd;
-    try{fd=fs.openSync(file,fs.constants.O_RDONLY|fs.constants.O_NOFOLLOW);const s=fs.fstatSync(fd);if(!s.isFile()||s.size>MAX_BYTES)throw wbError('limit_exceeded');return JSON.parse(fs.readFileSync(fd,'utf8'));}
-    catch(e){if(e.code==='ENOENT')return {version:1,drafts:[],suggestions:[],previews:[],launches:[],ops:[]};throw e;}
+    try{fd=fs.openSync(file,fs.constants.O_RDONLY|fs.constants.O_NOFOLLOW);const s=fs.fstatSync(fd);if(!s.isFile()||s.size>MAX_BYTES)throw wbError('limit_exceeded');const j=JSON.parse(fs.readFileSync(fd,'utf8'));j.waits??=[];return j;}
+    catch(e){if(e.code==='ENOENT')return {version:1,drafts:[],suggestions:[],previews:[],launches:[],ops:[],waits:[]};throw e;}
     finally{if(fd!==undefined)fs.closeSync(fd);}
   }
   function save(w,j){
@@ -104,6 +105,28 @@ export function createWorkbenchSetup({store,records,data,execution,hermes,contex
     for(const id of d.context_ids){const context=get('contexts',id);if(context.attempt_id!==a.id||context.snapshot?.text!==text||context.snapshot.hash!==sha(text)||context.retention_until<=now())fail('stale_resource','prepared_context_changed');}
   }
   function grants(d,p){return data.list('grants',d.workspace_id,d.project_id).filter(g=>g.authority_generation===p.result.preview.authority_generation&&g.attempt_id===d.attempt_id);}
+  const publicWait=i=>Object.fromEntries(['id','draft_id','task_id','candidate_id','state','reason','created_at','deadline','budget','review_preview_id'].filter(k=>i[k]!==undefined).map(k=>[k,i[k]]));
+  async function reconcileWaits(body,j,b){
+    let position=0;
+    const visible=[];
+    for(const i of j.waits){
+      if(hash(i.binding)!==hash(b))continue;
+      if(['waiting_lane','needs_review'].includes(i.state)){
+        if(now()>=i.deadline){i.state='expired';i.reason='waiting_intent_expired';}
+        else{
+          const d=draftFor(j,i.draft_id,b);
+          try{
+            await guard(body,d,i.frozen);preparedIdentity(d);
+            if(d.grant_id){i.state='reviewed';i.reason='setup_launch_already_requested';}
+            else if(gate.busy('agent')||gate.busy('job')){i.state='waiting_lane';i.reason='execution_lane_busy_or_unknown';}
+            else{i.state='needs_review';i.reason='waiting_intent_review_required';}
+          }catch(error){i.state='needs_review';i.reason=error.reason??error.code??'waiting_intent_changed';}
+        }
+      }
+      visible.push({...publicWait(i),position:['waiting_lane','needs_review'].includes(i.state)?++position:null});
+    }
+    return visible;
+  }
   function recoverLaunch(d,p,op){
     // Once saved, grant identity survives authority rotation (stop/budget/fence).
     // Before that save only the exact preview's authority generation can recover
@@ -142,10 +165,18 @@ export function createWorkbenchSetup({store,records,data,execution,hermes,contex
       if(body.action==='state'){
         const drafts=j.drafts.filter(d=>hash(d.binding)===hash(b));
         for(const d of drafts){reconcile(d);for(const p of j.launches.filter(p=>p.draft_id===d.id)){const op=j.ops.find(o=>o.preview_id===p.id&&o.actor==='owner');if(op)recoverLaunch(d,p,op);}}
-        save(w,j);
-        return {projects:records.list(w).filter(p=>p.active!==false).map(p=>({id:p.id,name:p.name})),suggestions:j.suggestions,drafts:drafts.map(publicDraft)};
+        const waiting_intents=await reconcileWaits(body,j,b);save(w,j);
+        const capacity={bytes:{used:Buffer.byteLength(JSON.stringify(j)),limit:MAX_BYTES},records:Object.fromEntries(['drafts','suggestions','previews','launches','waits','ops'].map(k=>[k,{retained:j[k].length,limit:k==='ops'?MAX_OPS:MAX_RECORDS,remaining:Math.max(0,(k==='ops'?MAX_OPS:MAX_RECORDS)-j[k].length)}]))};
+        return {projects:records.list(w).filter(p=>p.active!==false).map(p=>({id:p.id,name:p.name})),suggestions:j.suggestions,drafts:drafts.map(publicDraft),waiting_intents,capacity};
       }
       const op=body.op_id?operation(j,body,'owner'):null;
+      if(body.action==='wait_cancel'){
+        if(op.result)return op.result;
+        const i=j.waits.find(i=>i.id===body.intent_id&&hash(i.binding)===hash(b));if(!i)fail('stale_resource','waiting_intent_changed');
+        // Cancelling a waiting intention is never a process stop/revoke signal.
+        if(!['waiting_lane','needs_review','cancelled','expired'].includes(i.state))fail('conflict','setup_launch_already_requested');
+        i.state='cancelled';op.result={intent:publicWait(i)};save(w,j);return op.result;
+      }
       if(body.action==='draft'){
         if(op.draft_id){const d=draftFor(j,op.draft_id,b);return {draft:publicDraft(d)};}
         if(j.drafts.length>=MAX_RECORDS)fail('limit_exceeded','setup_draft_limit');
@@ -193,6 +224,16 @@ export function createWorkbenchSetup({store,records,data,execution,hermes,contex
       if(!d.frozen||!d.context_ids?.length)fail('conflict','setup_not_prepared');
       await guard(body,d,d.frozen);
       const base={workspace_id:w,project_id:d.project_id};
+      if(body.action==='wait'){
+        if(op.result)return op.result;
+        preparedIdentity(d);
+        if(d.grant_id)fail('conflict','setup_launch_already_requested');
+        if(body.deadline<=now()||body.deadline>now()+86400000)fail('expired','waiting_intent_expired');
+        if(j.waits.length>=MAX_RECORDS)fail('limit_exceeded','waiting_intent_limit');
+        if(j.waits.some(i=>i.draft_id===d.id&&['waiting_lane','needs_review'].includes(i.state)))fail('conflict','waiting_intent_changed');
+        const i={id:randomUUID(),draft_id:d.id,task_id:d.task_id,candidate_id:d.candidate_id,attempt_id:d.attempt_id,binding:b,frozen:d.frozen,budget:body.budget,deadline:body.deadline,created_at:now(),state:'waiting_lane'};
+        j.waits.push(i);op.result={intent:publicWait(i),execution_authorized:false};save(w,j);return op.result;
+      }
       if(body.action==='launch_preview'){
         if(d.grant_id||j.ops.some(o=>o.draft_id===d.id&&o.preview_id&&!o.approval_rejected))fail('conflict','setup_launch_already_requested');
         preparedIdentity(d);lane();
@@ -200,7 +241,9 @@ export function createWorkbenchSetup({store,records,data,execution,hermes,contex
         await guard(body,d,d.frozen);
         j.launches=j.launches.filter(p=>p.result.expires_at>now()||j.ops.some(o=>o.preview_id===p.id));
         if(j.launches.length>=MAX_RECORDS)fail('limit_exceeded','setup_launch_preview_limit');
-        j.launches.push({id:result.preview_id,draft_id:d.id,result});save(w,j);return result;
+        j.launches.push({id:result.preview_id,draft_id:d.id,result});
+        for(const i of j.waits.filter(i=>i.draft_id===d.id&&['waiting_lane','needs_review'].includes(i.state))){i.state=now()>=i.deadline?'expired':'reviewed';i.review_preview_id=result.preview_id;}
+        save(w,j);return result;
       }
       const p=j.launches.find(p=>p.id===body.preview_id&&p.draft_id===d.id);
       if(!p||p.result.preview_digest!==body.preview_digest)fail('stale_resource','launch_preview_changed');

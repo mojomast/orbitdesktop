@@ -112,27 +112,59 @@ function writeNew(parent,name,bytes){
   }finally{fs.closeSync(fd);}
 }
 
-export function createCandidate({store,project,capture,preview_digest,now}){
+export function createCandidate({store,project,capture,preview_digest,now,materialization}){
   const supplied=previewCandidate({project,capture,now});
   if(supplied.digest!==preview_digest)throw wbError('stale_resource');
   // Re-observe the registered root, including untracked files and exclusions.
   // Neither a caller-supplied destination nor Git HEAD is a copy authority.
   const fresh=captureProject(project),preview=previewCandidate({project,capture:fresh,now});
   if(preview.digest!==preview_digest)throw wbError('stale_resource');
-  const name=randomUUID(),root=path.join(store.root,'workbench-execution','candidates',name);
+  const name=materialization?.id??randomUUID(),root=path.join(store.root,'workbench-execution','candidates',name);
+  candidateName(store,{root});
   const parent=candidatesParent(store,true);let candidateRoot,created=false;
   try{
     fs.mkdirSync(`${fdPath(parent.fd)}/${name}`,{mode:0o700});created=true;
     const fd=childDirectory(parent.fd,name,parent.dev);candidateRoot={fd,dev:parent.dev};fs.fchmodSync(fd,0o700);
     for(const file of fresh.files){
       const destination=fileParent(candidateRoot,file.path,true);
-      try{writeNew(destination.fd,destination.name,file.bytes);}finally{destination.close();}
+      try{writeNew(destination.fd,destination.name,file.bytes);fs.fsyncSync(destination.fd);}finally{destination.close();}
     }
     const base=preview.base;
     const candidate={source_manifest_hash:base.manifest_hash,preview_digest,base_hash:base.manifest_hash,generation:1,root,files:base.files.map(file=>({...file,state:'captured'})),exclusions:base.exclusions,limited:base.limited,total_bytes:base.total_bytes,head:null,status:'approved'};
-    candidate.hash=candidateHash(candidate);return candidate;
+    candidate.hash=candidateHash(candidate);
+    fs.fsyncSync(candidateRoot.fd);fs.fsyncSync(parent.fd);
+    if(materialization){
+      // Completion is outside the candidate tree, so it cannot become model
+      // source. The exclusive, fsynced manifest binds SQLite intent to both the
+      // exact bytes and kernel directory identity, never just a matching name.
+      const completed={version:1,materialization,candidate,identity:identity(fs.fstatSync(candidateRoot.fd))};
+      writeNew(parent.fd,`${name}.setup.json`,Buffer.from(JSON.stringify(completed)));
+      fs.fsyncSync(parent.fd);
+    }
+    return candidate;
   }catch(error){if(created)removeCandidateWorkspace(store,{root});throw failure(error);}
   finally{if(candidateRoot)fs.closeSync(candidateRoot.fd);parent.close();}
+}
+
+export function recoverSetupCandidate({store,materialization,source_hash,preview}){
+  const unknown=()=>{throw Object.assign(wbError('outcome_unknown'),{reason:'setup_candidate_materialization_unknown'});};
+  if(!materialization?.id)return unknown();
+  const expectedRoot=path.join(store.root,'workbench-execution','candidates',materialization.id);
+  candidateName(store,{root:expectedRoot});
+  let parent,fd,opened;
+  try{
+    parent=candidatesParent(store);
+    fd=fs.openSync(`${fdPath(parent.fd)}/${materialization.id}.setup.json`,C.O_RDONLY|C.O_NOFOLLOW|C.O_NONBLOCK);
+    const stat=fs.fstatSync(fd);if(!stat.isFile()||stat.nlink!==1||stat.size>1024*1024)unknown();
+    const completed=JSON.parse(fs.readFileSync(fd,'utf8')),candidate=completed.candidate;
+    if(completed.version!==1||canonical(completed.materialization)!==canonical(materialization)||candidate?.root!==expectedRoot||candidate.source_manifest_hash!==source_hash||candidate.hash!==candidateHash(candidate))unknown();
+    if(candidate.generation!==1||candidate.base_hash!==source_hash||candidate.preview_digest!==preview.digest||canonical(manifest(candidate.files))!==canonical(preview.base.files)||canonical(candidate.exclusions)!==canonical(preview.base.exclusions)||candidate.total_bytes!==preview.base.total_bytes||candidate.limited!==preview.base.limited)unknown();
+    opened=openCandidate(store,candidate);
+    if(opened.identity!==completed.identity)unknown();
+    verifiedTree(candidate,opened);
+    return candidate;
+  }catch{unknown();}
+  finally{opened?.close();if(fd!==undefined)fs.closeSync(fd);parent?.close();}
 }
 
 function knownFile(candidate,relative){

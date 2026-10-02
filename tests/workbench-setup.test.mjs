@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import {randomUUID} from 'node:crypto';
+import {spawnSync} from 'node:child_process';
+import {captureProject} from '../server/project-files.mjs';
 import {SqliteWorkspaceStore} from '../server/sqlite-workspace-store.mjs';
 import {WorkbenchStore} from '../server/workbench-store.mjs';
 import {WorkbenchData} from '../server/workbench-data.mjs';
@@ -127,6 +129,30 @@ test('launch refuses busy lanes and never recreates unknown approval',async t=>{
   assert.equal((await f.call('state')).drafts[0].status,'launch_unknown');
 });
 
+test('three durable waiting intentions survive reload, quarantine and cancellation and require fresh owner review',async t=>{
+  const f=fixture(t),drafts=[];for(let i=0;i<3;i++)drafts.push(await f.prepare());
+  const release=f.gate.claim('agent','busy'),budget={calls:4,checks:1,duration_ms:60000};
+  const requests=drafts.map(d=>({draft_id:d.id,op_id:randomUUID(),deadline:Date.now()+60000,budget})),intents=[];
+  for(const request of requests)intents.push((await f.call('wait',request)).intent);
+  f.restart();assert.deepEqual((await f.call('wait',requests[0])).intent,intents[0]);
+  await assert.rejects(f.call('wait',{...requests[0],deadline:requests[0].deadline+1}),{code:'conflict'});
+  let state=await f.call('state');assert.deepEqual(state.waiting_intents.map(i=>i.id),intents.map(i=>i.id));assert.deepEqual(state.waiting_intents.map(i=>i.position),[1,2,3]);assert.ok(state.waiting_intents.every(i=>i.state==='waiting_lane'));
+  const cancel={intent_id:intents[1].id,op_id:randomUUID()};await f.call('wait_cancel',cancel);assert.equal(f.gate.busy('agent'),true);release();
+  f.restart();state=await f.call('state');assert.deepEqual(state.waiting_intents.map(i=>i.state),['needs_review','cancelled','needs_review']);assert.equal(f.starts(),0);assert.equal(f.rows('grants').length,0);
+  await f.launchPreview(drafts[0]);state=await f.call('state');assert.equal(state.waiting_intents[0].state,'reviewed');assert.equal(f.starts(),0);
+  fs.appendFileSync(path.join(f.projectRoot,'sum.test.mjs'),'// source drift\n');
+  state=await f.call('state');assert.equal(state.waiting_intents[2].state,'needs_review');assert.equal(state.waiting_intents[2].reason,'setup_source_or_policy_changed');
+  await assert.rejects(f.launchPreview(drafts[2]),{code:'stale_resource'});assert.equal(f.starts(),0);
+});
+
+test('waiting deadline expiration never starts work or grants execution',async t=>{
+  const f=fixture(t),d=await f.prepare();let time=Date.now();
+  const setup=createWorkbenchSetup({...f,now:()=>time});
+  const call=(action,fields={})=>setup.dispatch({...f.base,action,...fields});
+  await call('wait',{draft_id:d.id,op_id:randomUUID(),deadline:time+1000,budget:{calls:2,checks:0,duration_ms:1000}});
+  time+=1000;const state=await call('state');assert.equal(state.waiting_intents[0].state,'expired');assert.equal(f.starts(),0);assert.equal(f.rows('grants').length,0);
+});
+
 test('source drift after native preview refuses launch before approval or model dispatch',async t=>{
   const f=fixture(t),d=await f.prepare(),p=await f.launchPreview(d);
   fs.appendFileSync(path.join(f.projectRoot,'sum.test.mjs'),'// changed after launch review\n');
@@ -184,14 +210,58 @@ test('filesystem materialization crash intent fences rather than creating an uno
   assert.equal(f.rows('tasks').length,1);assert.equal(f.rows('candidates').length,0);assert.equal(f.starts(),0);
 });
 
-test('candidate/task update failure cannot commit a candidate whose private tree was removed',async t=>{
+test('candidate/task update failure retains one owned manifest and recovers the same tree after restart',async t=>{
   const f=fixture(t),d=await f.draft(),p=await f.preview(d),req={preview_id:p.preview_id,preview_digest:p.preview_digest,op_id:randomUUID()};
   const update=f.data.update.bind(f.data);let fail=true;
   f.data.update=(kind,w,project,id,revision,patch)=>{if(kind==='tasks'&&patch.candidate_id&&fail){fail=false;throw Object.assign(Error('task link failure'),{code:'unavailable'});}return update(kind,w,project,id,revision,patch);};
   await assert.rejects(f.call('prepare',req),{code:'unavailable'});
   assert.equal(f.rows('candidates').length,0);assert.equal(f.rows('tasks')[0].candidate_id,null);
-  assert.deepEqual(fs.readdirSync(path.join(f.store.root,'workbench-execution','candidates')),[]);
-  assert.equal((await f.call('prepare',req)).draft.status,'prepared');assert.equal(f.rows('candidates').length,1);
+  const parent=path.join(f.store.root,'workbench-execution','candidates'),retained=fs.readdirSync(parent).sort();assert.equal(retained.length,2);
+  const intent=f.rows('annotations').find(r=>r.step==='candidate'),originalRoot=path.join(parent,intent.materialization.id),ino=fs.statSync(originalRoot).ino;
+  f.restart();assert.equal((await f.call('prepare',req)).draft.status,'prepared');assert.equal(f.rows('candidates').length,1);
+  assert.equal(f.rows('candidates')[0].root,originalRoot);assert.equal(fs.statSync(originalRoot).ino,ino);assert.deepEqual(fs.readdirSync(parent).sort(),retained);
+  assert.equal(f.starts(),0);assert.equal(f.rows('jobs').length,0);
+});
+
+for(const tamper of ['bytes','manifest','missing_manifest','extra','source'])test(`interrupted setup recovery refuses ${tamper} without another copy`,async t=>{
+  const f=fixture(t),d=await f.draft(),p=await f.preview(d),req={preview_id:p.preview_id,preview_digest:p.preview_digest,op_id:randomUUID()};
+  const create=f.data.create.bind(f.data);let fail=true;
+  f.data.create=(kind,fields)=>{if(kind==='candidates'&&fail){fail=false;throw Object.assign(Error('crash before database publication'),{code:'unavailable'});}return create(kind,fields);};
+  await assert.rejects(f.call('prepare',req),{code:'unavailable'});
+  const intent=f.rows('annotations').find(r=>r.step==='candidate'),parent=path.join(f.store.root,'workbench-execution','candidates'),root=path.join(parent,intent.materialization.id),manifest=`${root}.setup.json`;
+  if(tamper==='bytes')fs.appendFileSync(path.join(root,'sum.test.mjs'),'// tamper');
+  if(tamper==='manifest'){const m=JSON.parse(fs.readFileSync(manifest));m.materialization.request_hash='0'.repeat(64);fs.writeFileSync(manifest,JSON.stringify(m));}
+  if(tamper==='missing_manifest')fs.unlinkSync(manifest);
+  if(tamper==='extra')fs.writeFileSync(path.join(root,'unrelated'),'leave intact');
+  if(tamper==='source')fs.appendFileSync(path.join(f.projectRoot,'sum.test.mjs'),'// drift');
+  const retained=fs.readdirSync(parent).sort();f.restart();await assert.rejects(f.call('prepare',req));
+  assert.deepEqual(fs.readdirSync(parent).sort(),retained);assert.equal(f.rows('tasks').length,1);assert.equal(f.rows('candidates').length,0);assert.equal(f.starts(),0);
+});
+
+for(const boundary of ['intent','mid_copy','completed_manifest'])test(`real process exit at setup ${boundary} preserves one owned identity`,async t=>{
+  const f=fixture(t),setup_id=randomUUID(),source_hash=captureProject(f.project).hash;
+  const base={workspace_id:f.base.workspace_id,project_id:f.project.id};
+  const {task}=f.execution.setupStep({setup_id,step:'task',request_hash:'1'.repeat(64),source_hash,body:{...base,title:'Crash fixture',acceptance_statement:'tests pass',check_definition_id:'node-test',profile_id:'fixture',session_id:'setup-session',pane_id:f.base.pane_id}});
+  const args={setup_id,step:'candidate',request_hash:'2'.repeat(64),source_hash,body:{...base,task_id:task.id}};
+  const program=`
+    import fs from 'node:fs';
+    import {SqliteWorkspaceStore} from './server/sqlite-workspace-store.mjs';
+    import {WorkbenchStore} from './server/workbench-store.mjs';
+    import {WorkbenchData} from './server/workbench-data.mjs';
+    import {createWorkbenchExecution} from './server/workbench-execution.mjs';
+    const store=new SqliteWorkspaceStore(${JSON.stringify(f.store.root)}),records=new WorkbenchStore(store),data=new WorkbenchData(store);
+    const execution=createWorkbenchExecution({store,records,data}),create=data.create.bind(data),boundary=${JSON.stringify(boundary)};
+    data.create=(kind,fields)=>{if(boundary==='completed_manifest'&&kind==='candidates')process.exit(71);const result=create(kind,fields);if(boundary==='intent'&&kind==='annotations'&&fields.step==='candidate')process.exit(71);return result;};
+    if(boundary==='mid_copy'){const write=fs.writeFileSync;fs.writeFileSync=(fd,...rest)=>{const result=write(fd,...rest);if(typeof fd==='number'&&fs.readlinkSync('/proc/self/fd/'+fd).endsWith('/sum.test.mjs'))process.exit(71);return result;};}
+    execution.setupStep(${JSON.stringify(args)});process.exit(72);
+  `;
+  const child=spawnSync(process.execPath,['--experimental-strip-types','--input-type=module','-e',program],{cwd:process.cwd(),encoding:'utf8',timeout:10000});
+  assert.equal(child.status,71,child.stderr);
+  const intents=f.rows('annotations').filter(r=>r.step==='candidate');assert.equal(intents.length,1);assert.ok(intents[0].materialization.id);
+  if(boundary==='completed_manifest'){
+    const recovered=f.execution.setupStep(args);assert.equal(recovered.candidate.id,f.execution.setupStep(args).candidate.id);assert.equal(f.rows('candidates').length,1);
+  }else assert.throws(()=>f.execution.setupStep(args),{code:'outcome_unknown'});
+  assert.equal(f.rows('tasks').length,1);assert.equal(f.rows('annotations').filter(r=>r.step==='candidate').length,1);assert.equal(f.starts(),0);assert.equal(f.rows('jobs').length,0);
 });
 
 for(const boundary of ['binding','socket','runtime'])for(const change of ['source','policy'])test(`setup ${change} authorization survives the native ${boundary} async boundary`,async t=>{
