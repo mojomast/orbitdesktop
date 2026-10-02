@@ -8,6 +8,21 @@ next accepted run through the configured pinned local gateway; a dedicated-local
 recipient remains available separately. Missing configuration or runtime identity
 fails closed, and feature-type discovery alone does not grant content access.
 
+Start, the palette, owner technology discovery and scoped controller `describe`
+share content-free prerequisite descriptors. Discovery performs bounded file-stat
+and configuration observations at request time, with an observation timestamp and
+30-second freshness budget. Model/extension presence is **unverified**, never a
+claim of valid checksums, inference, microphone permission, browser reachability
+or successful execution. Feature invocation independently validates these things.
+Discovery does not open private libraries or start engines. Known input formats
+and contract references accompany the observations. Owner use and separately
+granted agent tools remain distinct from opening a surface.
+
+Optional unconfigured tools remain discoverable with setup explanations; opening
+their UI does not enable the backend. Workbench and other experimental command
+gates remain unchanged. Shell observations refresh on discovery, connection,
+focus and expiry; credential/workspace changes and newer requests fence responses.
+
 For task-oriented examples, see [Workspace prompts](WORKSPACE_PROMPTS.md). These
 features are implemented in the development candidate; package metadata remains
 0.3.1 and no new release is implied. [Verification](VERIFICATION.md) distinguishes

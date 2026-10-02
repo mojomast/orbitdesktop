@@ -10,6 +10,8 @@ import { tokenMatches, geometry, allowedRequest, publicHost } from "./security.m
 import { LocalHostProvider } from "./local-host.mjs";
 import { createAgentHandler } from "./agent.mjs";
 import { createWorkspaceService, runtimeRoot } from "./workspace.mjs";
+import {observeFeatureReadiness} from './feature-readiness.mjs';
+import {featureCapabilities} from '../contracts/feature-capabilities.mjs';
 import { createWorkspaceLayouts } from './workspace-layouts.mjs';
 import { createOutputLibrary } from './output-library.mjs';
 import { createWorkspaceEvents } from './workspace-events.mjs';
@@ -65,7 +67,8 @@ function reply(res, status, data) {
   });
   res.end(JSON.stringify(data));
 }
-const workspaceService = createWorkspaceService({ token, port, devOrigins, reply });
+const capabilityDescription=audience=>featureCapabilities({audience,observation:observeFeatureReadiness({root:fileURLToPath(new URL('../',import.meta.url)),runtimeRoot,mcpConfigured:!!mcpSandbox})});
+const workspaceService = createWorkspaceService({ token, port, devOrigins, reply, capabilityDescription });
 const workspaceLayouts = createWorkspaceLayouts({ store: workspaceService.store, token, port, devOrigins, reply, root: runtimeRoot });
 const outputLibrary = createOutputLibrary({ store: workspaceService.store, workspaceRead: workspaceService.read, token, port, devOrigins, reply, root: runtimeRoot });
 // Never put a configured or generated owner credential in routine service logs.
@@ -244,7 +247,7 @@ const technologyHandlers=Object.fromEntries(Object.entries(technologyServices).m
 const technologyAssets=lazyTechnologyService(async()=> (await import('./technology-assets.mjs')).createTechnologyAssets({root:path.resolve(fileURLToPath(new URL('../',import.meta.url))),runtimeRoot,securityHeaders}));
 const technologyCapabilities=technologyOwnerRoute({token,port,devOrigins,reply,maxBytes:256,dispatch:async body=>{
   if(!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).length!==1||body.action!=='capabilities')throw {code:'invalid_request'};
-  return {browser_copilot:!!process.env.ORBIT_BROWSER_EXECUTABLE&&!!process.env.ORBIT_BROWSER_ALLOWED_ORIGINS,mcp_apps:!!mcpSandbox,descriptors:(await import('../contracts/feature-capabilities.mjs')).featureCapabilities({audience:'owner'})};
+  return {browser_copilot:!!process.env.ORBIT_BROWSER_EXECUTABLE&&!!process.env.ORBIT_BROWSER_ALLOWED_ORIGINS,mcp_apps:!!mcpSandbox,descriptors:capabilityDescription('owner')};
 }});
 const server = http.createServer(async (req, res) => {
   const allowedHosts = new Set([

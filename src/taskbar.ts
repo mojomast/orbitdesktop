@@ -45,9 +45,16 @@ export function installStart(navigation: HTMLElement, commands: WorkspaceCommand
   function toggle() {
     if (!panel.hidden) return close(true);
     search.value = ''; render(); panel.hidden = false;
+    window.dispatchEvent(new Event('orbit-command-discovery'));
     start.setAttribute('aria-expanded', 'true'); search.focus();
   }
   search.addEventListener('input', render);
+  window.addEventListener('orbit-command-details-changed',()=>{
+    if(panel.hidden)return;
+    const focused=results.contains(document.activeElement)?document.activeElement?.getAttribute('aria-label'):null;
+    render();
+    if(focused)Array.from(results.querySelectorAll<HTMLButtonElement>('button')).find(item=>item.getAttribute('aria-label')===focused)?.focus();
+  });
   panel.addEventListener('keydown', e => {
     const items = [search, ...Array.from(quick.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')), ...Array.from(results.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'))];
     const index = items.indexOf(document.activeElement as HTMLInputElement);

@@ -17,7 +17,7 @@ import { checkpointChanges } from './workspace-diff.mjs';
 
 export const runtimeRoot = path.resolve(process.env.ORBIT_RUNTIME_DIR || fileURLToPath(new URL('../.runtime/', import.meta.url)));
 const slugPattern = /^[a-z0-9][a-z0-9-]{0,60}$/;
-export function createWorkspaceService({ token, port, devOrigins, reply: sendReply, root = runtimeRoot, store = new SqliteWorkspaceStore(root), workbenchSetup = null }) {
+export function createWorkspaceService({ token, port, devOrigins, reply: sendReply, root = runtimeRoot, store = new SqliteWorkspaceStore(root), workbenchSetup = null, capabilityDescription }) {
   const reply = (res,status,data) => {
     const categories = {400:'INVALID_OPERATION',403:'PERMISSION_REQUIRED',404:'RESOURCE_GONE',409:'REVISION_CONFLICT',413:'REQUEST_TOO_LARGE'};
     const body = status>=400 ? {category:categories[status]||'INVALID_OPERATION',...data} : data;
@@ -63,7 +63,7 @@ export function createWorkspaceService({ token, port, devOrigins, reply: sendRep
       if (control && !tokenMatches(credential, record?.capability)) return reply(res, 403, { error: 'Workspace capability required' });
       if(record && !['read','history','shelf'].includes(body.action) && record.state?.version!==1)return reply(res,409,{category:'UPGRADE_REQUIRED',error:'Client cannot write this workspace version'});
       if(recovery && body.action==='read')return reply(res,200,safe(record,false));
-      if(body.action==='describe')return reply(res,200,describeWorkspace(store,body));
+      if(body.action==='describe')return reply(res,200,describeWorkspace(store,body,capabilityDescription?.(control?'controller':'owner')));
       if(body.action==='arrangement')return reply(res,200,await arrangementControl(body,control?`workspace-controller:${body.workspace_id}`:'owner'));
       // Proposal-only Workbench setup. The authenticated workspace capability may
       // submit an untrusted suggestion, but this route never grants project/private

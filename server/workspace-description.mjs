@@ -5,7 +5,7 @@ import {featureCapabilities} from '../contracts/feature-capabilities.mjs';
 
 // Authenticated layout metadata only. A role never confers access to its resource.
 // The operation catalog comes from the same trusted contract as server validation.
-export function describeWorkspace(store, body) {
+export function describeWorkspace(store, body, capabilities=featureCapabilities()) {
   const workspace=store.read(body.workspace_id), records=new WorkbenchStore(store);
   let projects;
   try {projects=body.project_id?[records.project(body.workspace_id,body.project_id)]:records.list(body.workspace_id).filter(project=>project.active!==false);}
@@ -22,7 +22,7 @@ export function describeWorkspace(store, body) {
   const recipes=body.project_id?createWorkspaceArrangements({store,records}).recipeList(body).recipes.map(({id,version,name,roles,layout,renderer})=>({id,version,name,roles,layout,renderer})):[];
   if(surfaces.length>1000||bindings.length>1000)throw Object.assign(Error('Description exceeds bounded metadata budget'),{category:'REQUEST_TOO_LARGE'});
   return {version:1,workspace_id:workspace.id,revision:workspace.revision,
-    capabilities:featureCapabilities(),
+    capabilities,
     editable_fields:Object.keys(contract.schema.$defs.workspace.properties).filter(key=>key!=='version'),surfaces,
     projects:projects.map(({id,name,generation})=>({id,name,generation})),bindings,recipes,recipe_scope:body.project_id?'selected-project':'select-project-to-list',
     extension_compatibility:{manifest_api:1,multiple_instances:true,private_frame_data:false,network:'legacy-network-capable'},

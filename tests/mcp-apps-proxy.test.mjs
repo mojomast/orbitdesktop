@@ -22,7 +22,14 @@ test('public MCP proxy origin can use a loopback listener with exact Host and pa
   for(let i=0;i<150;i++){try{healthy=(await fetch(origin+'/api/health')).ok;}catch{}if(healthy)break;await new Promise(resolve=>setTimeout(resolve,50));}
   assert.ok(healthy,'disposable server starts with both proxy variables');
   const capabilities=await fetch(origin+'/api/technology-capabilities',{method:'POST',headers:{Origin:origin,Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({action:'capabilities'})});
-  assert.equal((await capabilities.json()).mcp_apps,true);
+  const discovery=await capabilities.json();
+  assert.equal(discovery.mcp_apps,true);
+  assert.ok(Number.isFinite(Date.parse(discovery.descriptors.observed_at)));
+  const mcp=discovery.descriptors.features.find(feature=>feature.feature_id==='mcp-apps');
+  assert.equal(mcp.readiness.state,'unknown');
+  assert.equal(mcp.execution_verified,false);
+  assert.equal(mcp.content.availability,'owner_authenticated');
+  for(const privateValue of [scratch,token,sandboxOrigin])assert.ok(!JSON.stringify(discovery).includes(privateValue));
   const proxy=`http://127.0.0.1:${sandboxPort}`;
   for(const host of [`127.0.0.1:${sandboxPort}`,'sandbox.example:8804']){
     const response=await proxyGet(proxy+'/mcp-apps/proxy',host);

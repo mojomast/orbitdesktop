@@ -11,6 +11,7 @@ import { showOrbitSettings, setOrbitSettingsNavigation } from './orbit-settings'
 import { createWorkspaceCommands, type WorkspaceCommand } from './workspace-commands';
 import { HOST_SURFACE_URLS, HOST_SURFACE_LABELS, type HostSurfaceId } from './host-surfaces';
 import { TECHNOLOGY_SURFACES } from './technology-surfaces';
+import {createTechnologyReadiness} from './technology-readiness';
 import { installCommandPalette } from './command-palette';
 import { experimentalEnabled, subscribeExperimental } from './experimental';
 import { showOnboarding, offerOnboarding } from './onboarding';
@@ -326,18 +327,12 @@ function measureArrangementViewport() {
   try { return { width: measured.clientWidth, height: measured.clientHeight }; }
   finally { measurement.remove(); }
 }
-let technologyConfiguration={browser_copilot:false,mcp_apps:false};
-async function refreshTechnologyConfiguration(){
-  if(!sessionToken){technologyConfiguration={browser_copilot:false,mcp_apps:false};return;}
-  try{
-    const response=await fetch('/api/technology-capabilities',{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${sessionToken}`},body:JSON.stringify({action:'capabilities'})});
-    if(!response.ok)return;
-    const result=await response.json();
-    technologyConfiguration={browser_copilot:result.browser_copilot===true,mcp_apps:result.mcp_apps===true};
-  }catch{/* Optional configuration remains unavailable until a successful owner read. */}
-}
-window.addEventListener('orbit-host-connected',()=>{void refreshTechnologyConfiguration();});
-if(sessionToken)void refreshTechnologyConfiguration();
+const technologyReadiness=createTechnologyReadiness(()=>({token:sessionToken,workspace:workspaceId}),()=>window.dispatchEvent(new Event('orbit-command-details-changed')));
+window.addEventListener('orbit-host-connected',()=>{void technologyReadiness.refresh(true);});
+window.addEventListener('orbit-command-discovery',()=>{void technologyReadiness.refresh(true);});
+window.addEventListener('focus',()=>{void technologyReadiness.refresh();});
+window.setInterval(()=>{void technologyReadiness.refresh();},30000);
+if(sessionToken)void technologyReadiness.refresh();
 function revealSurface(id: string) {
   const inFocus = !!focused;
   if (focused) unfocus();
@@ -409,7 +404,7 @@ async function sendSelectedContext() {
 }
 const onboardingActions = {connected:()=>!!sessionToken,run:(id:string)=>{void commands.execute(id);}};
 const commands = createWorkspaceCommands((): WorkspaceCommand[] => [
-  ...Object.entries(TECHNOLOGY_SURFACES).map(([id,entry])=>({id:`technology-${id}`,title:entry.title,detail:entry.detail,group:'Tools',hidden:id==='copilot'&&!technologyConfiguration.browser_copilot||id==='mcp-apps'&&!technologyConfiguration.mcp_apps,disabledReason:entry.auth&&!sessionToken?'Connect host first to use this tool.':undefined,run:()=>openHostSurface(id as HostSurfaceId)})),
+  ...Object.entries(TECHNOLOGY_SURFACES).map(([id,entry])=>({id:`technology-${id}`,title:entry.title,detail:technologyReadiness.detail(id,entry.detail),group:'Tools',disabledReason:entry.auth&&!sessionToken?'Connect host first to use this tool.':undefined,run:async()=>{const token=sessionToken,workspace=workspaceId;await technologyReadiness.refresh(true);if(token===sessionToken&&workspace===workspaceId)openHostSurface(id as HostSurfaceId);}})),
   { id: 'getting-started', title: 'Getting started', detail: 'Choose a task, check readiness or tour Orbit', group: 'Help', run: () => showOnboarding(onboardingActions) },
   { id: 'settings', title: 'Orbit settings', detail: 'Appearance, layout and browser-local experiments', group: 'Settings', run: openSettings },
   { id: 'connect-host', title: 'Connect host', detail: 'Unlock this browser session with a host token', group: 'Settings', run: connectHost },
