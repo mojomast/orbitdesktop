@@ -913,7 +913,10 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
           const credential=getToken();
           progress.append(completeResultActions(completeOutput,{id:run,version:'completed'},()=>current(requested)&&getToken()===credential));
           void import('./document-artifacts').then(({extractDocumentResult,requestDocumentFromResult})=>{
-            if(disposed||!current(requested)||getToken()!==credential||state.run||!extractDocumentResult(completeOutput))return;
+            if(disposed||!current(requested)||getToken()!==credential||state.run)return;
+            const inspection=extractDocumentResult(completeOutput);
+            if(inspection.status==='absent')return;
+            if(inspection.status==='unavailable'){progress.append(el('p','result-refusal',`Document not created — ${inspection.reason}`));return;}
             progress.append(button('Create document from result','Review this complete reply as a new private document draft',async()=>{
               if(disposed||!current(requested)||getToken()!==credential)return;
               const result=await requestDocumentFromResult(completeOutput,()=>current(requested)&&getToken()===credential);

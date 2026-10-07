@@ -86,6 +86,14 @@ no fallback to trusted-host execution is permitted. See `docs/ISOLATED_CHECKS.md
   bind saved revision and draft digest; concurrent edits require a new proposal.
   Applying a proposal changes the draft and supports native Undo; Save is separate.
   See `docs/DOCUMENTS.md` and `docs/CANVAS.md`.
+- **Document result envelopes:** a complete reply may end with one
+  `orbit-document` fence. **Explain yourself first, then close the reply with the
+  envelope** — prose before the fence is accepted, anything after it is refused.
+  Use `kind:"scene"`/`format:"excalidraw"` for canvases; a real Excalidraw `appState`
+  is normalized automatically, but element `fontFamily` must be 5, 6, 7 or 8 and
+  unknown element fields are still refused. When a canvas cannot be delivered Orbit
+  prints `Document not created` with the reason — read it instead of resending blind.
+  See `docs/DOCUMENTS.md`.
 - **Result handoffs:** use A2UI for finite interactive decisions, documents/canvas
   for editable durable artifacts, and compatible self-contained MCP snapshots for
   SDK UI. A2UI/MCP delivery requires a mounted chosen pane; queued/rendered/saved

@@ -31,7 +31,67 @@ const own = (value, fields) => object(value) && Object.keys(value).every(k => fi
 const lexicalTypes = new Set(['root','paragraph','text','linebreak','heading','quote','list','listitem','link','autolink','code','code-highlight','tab']);
 const lexicalFields = ['children','direction','format','indent','type','version','text','detail','mode','style','tag','listType','start','value','checked','url','rel','target','title','isUnlinked','language','highlightType','textFormat','textStyle'];
 const elementTypes = new Set(['rectangle','diamond','ellipse','line','arrow','freedraw','text','frame','magicframe']);
-const elementFields = ['id','index','type','x','y','width','height','angle','strokeColor','backgroundColor','fillStyle','strokeWidth','strokeStyle','roughness','opacity','groupIds','frameId','roundness','seed','version','versionNonce','isDeleted','boundElements','updated','link','locked','points','lastCommittedPoint','startBinding','endBinding','startArrowhead','endArrowhead','elbowed','fixedSegments','startIsSpecial','endIsSpecial','pressures','simulatePressure','fontSize','fontFamily','text','originalText','textAlign','verticalAlign','containerId','autoResize','lineHeight'];
+const elementFields = ['id','index','type','x','y','width','height','angle','strokeColor','backgroundColor','fillStyle','strokeWidth','strokeStyle','roughness','opacity','groupIds','frameId','roundness','seed','version','versionNonce','isDeleted','boundElements','updated','link','locked','points','lastCommittedPoint','startBinding','endBinding','startArrowhead','endArrowhead','elbowed','fixedSegments','startIsSpecial','endIsSpecial','pressures','simulatePressure','fontSize','fontFamily','text','originalText','textAlign','verticalAlign','containerId','autoResize','lineHeight','customData','name','status','frameId'];
+// A real Excalidraw scene serializes far more app state than Orbit previously
+// rendered. Those values are view-only, so they are normalized to a small
+// reviewed subset instead of refusing the whole document. Anything not listed
+// here (collaborators, dialogs, UI chrome, unknown future keys) is dropped.
+const sceneAppState = {
+  numbers: ['scrollX','scrollY','offsetLeft','offsetTop','width','height','gridStep','currentItemFontSize','currentItemRoughness','currentItemOpacity','exportScale'],
+  booleans: ['gridModeEnabled','zenModeEnabled','viewModeEnabled','objectsSnapModeEnabled','showRemoteCursors','exportBackground','exportEmbedScene','exportWithDarkMode','scrollToContent','isBindingEnabled','isBindingEnabledE2E','currentItemElbowed','currentItemVisible'],
+  strings: ['theme','name','fillStyle','strokeStyle','textAlign','startArrowhead','endArrowhead','currentItemStrokeColor','currentItemBackgroundColor','currentItemFillStyle','currentItemStrokeStyle','currentItemTextAlign','currentItemArrowType','currentItemLinearElementType','currentItemStartArrowhead','currentItemEndArrowhead'],
+  scalars: ['gridSize','currentItemStrokeWidth','currentItemRoundness'],
+  font: ['currentItemFontFamily'],
+  zoom: ['zoom'], rotation: ['rotation'],
+};
+export const SCENE_APPSTATE_NORMALIZED = Object.freeze([...sceneAppState.numbers, ...sceneAppState.booleans, ...sceneAppState.strings, ...sceneAppState.scalars, ...sceneAppState.font, ...sceneAppState.zoom, ...sceneAppState.rotation]);
+const shortString = value => typeof value === 'string' && value.length <= 2048 && !/url\s*\(/i.test(value);
+/** Canonical scene text. Returns the reviewed subset of appState, and only the
+ * documented keys, so a genuine Excalidraw export is accepted without admitting
+ * unknown values or embedded collaborators. */
+export function normalizeSceneContent(content) {
+  let parsed; try { parsed = JSON.parse(content); } catch { fail('invalid_request'); }
+  if (!object(parsed) || !Array.isArray(parsed.elements)) fail('invalid_request');
+  const source = object(parsed.appState) ? parsed.appState : {};
+  const appState = {};
+  if ('viewBackgroundColor' in source) {
+    if (typeof source.viewBackgroundColor !== 'string' || !/^#[a-f0-9]{3,8}$/i.test(source.viewBackgroundColor)) fail('invalid_request');
+    appState.viewBackgroundColor = source.viewBackgroundColor;
+  }
+  if ('gridSize' in source) {
+    if (source.gridSize !== null && (!Number.isFinite(source.gridSize) || source.gridSize < 0 || source.gridSize > 10000)) fail('invalid_request');
+    appState.gridSize = source.gridSize;
+  }
+  for (const key of sceneAppState.numbers) if (key in source) {
+    if (!Number.isFinite(source[key]) || Math.abs(source[key]) > 1e15) fail('invalid_request');
+    appState[key] = source[key];
+  }
+  for (const key of sceneAppState.booleans) if (key in source) {
+    if (typeof source[key] !== 'boolean') fail('invalid_request');
+    appState[key] = source[key];
+  }
+  for (const key of sceneAppState.strings) if (key in source) {
+    if (!shortString(source[key])) fail('invalid_request');
+    appState[key] = source[key];
+  }
+  for (const key of sceneAppState.scalars) if (key in source) {
+    const value = source[key];
+    if (value === null || ((typeof value === 'string' && value.length <= 64) || (Number.isFinite(value) && Math.abs(value) <= 1000))) appState[key] = value; else fail('invalid_request');
+  }
+  for (const key of sceneAppState.font) if (key in source) {
+    if (!Number.isSafeInteger(source[key])) fail('invalid_request');
+    appState[key] = CANVAS_FONT_IDS.includes(source[key]) ? source[key] : 5;
+  }
+  for (const key of sceneAppState.zoom) if (key in source) {
+    const value = source[key];
+    appState[key] = object(value) && Number.isFinite(value.value) && value.value > 0 && value.value <= 1000 ? { value: value.value } : { value: 1 };
+  }
+  for (const key of sceneAppState.rotation) if (key in source) {
+    const value = source[key];
+    appState[key] = object(value) && Number.isFinite(value.angle) && Math.abs(value.angle) <= 360 ? { angle: value.angle } : { angle: 0 };
+  }
+  return JSON.stringify({ type: 'excalidraw', version: 2, source: shortString(parsed.source) && parsed.source.length <= 200 ? parsed.source : 'Orbit', elements: parsed.elements, appState, files: {} });
+}
 export const EMPTY_RICHDOC = JSON.stringify({root:{children:[{children:[],direction:null,format:'',indent:0,type:'paragraph',version:1,textFormat:0,textStyle:''}],direction:null,format:'',indent:0,type:'root',version:1}});
 export const EMPTY_CANVAS = JSON.stringify({type:'excalidraw',version:2,source:'Orbit',elements:[],appState:{viewBackgroundColor:'#ffffff'},files:{}});
 // Bound before parsing and before invoking either third-party renderer. Reject
@@ -73,10 +133,12 @@ export function validateDocumentData(data) {
     }
     node(parsed.root);
   } else {
-    if (!own(parsed,['type','version','source','elements','appState','files']) || parsed.type!=='excalidraw' || parsed.version!==2 || !Array.isArray(parsed.elements) || parsed.elements.length>2000 || !own(parsed.files,[]) || !own(parsed.appState,['viewBackgroundColor','gridSize','gridStep','gridModeEnabled'])) fail('invalid_request');
+    if (!own(parsed,['type','version','source','elements','appState','files']) || parsed.type!=='excalidraw' || parsed.version!==2 || !Array.isArray(parsed.elements) || parsed.elements.length>2000 || !own(parsed.files,[]) || !object(parsed.appState) || Object.keys(parsed.appState).some(k=>!['viewBackgroundColor','gridSize','gridModeEnabled',...SCENE_APPSTATE_NORMALIZED].includes(k))) fail('invalid_request');
     const ids=new Set();
     for (const e of parsed.elements) {
       if (!own(e,elementFields) || !elementTypes.has(e.type) || typeof e.id!=='string' || e.id.length>100 || ids.has(e.id) || !safeUrl(e.link)) fail('invalid_request');
+      if ('name' in e && (!shortString(e.name) || e.name.length > 200)) fail('invalid_request');
+      if ('customData' in e && (!object(e.customData) || Object.keys(e.customData).length > 64)) fail('invalid_request');
       ids.add(e.id);
       for (const key of ['x','y','width','height','angle','version','seed','versionNonce']) if (typeof e[key]!=='number' || !Number.isFinite(e[key]) || Math.abs(e[key])>1e12) fail('invalid_request');
       if (typeof e.isDeleted!=='boolean') fail('invalid_request');

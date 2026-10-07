@@ -161,6 +161,16 @@ Revision/digest-bound proposal review refuses concurrent edits rather than mergi
 silently. Native Undo is editor-local, not a persistent historical version archive.
 Guides: [Documents](DOCUMENTS.md), [Canvas](CANVAS.md).
 
+> Build an editable canvas of the deployment stages with labelled data flows, then
+> explain what you drew and why those stages come first.
+
+Write the answer first and end the reply with the `orbit-document` envelope
+(`kind: "scene"`, `format: "excalidraw"`). Prose before the fence is accepted;
+nothing after it is. A genuine Excalidraw `appState` is normalized, but **text must
+use `fontFamily` 5, 6, 7 or 8** and unknown element fields are still refused. If a
+canvas cannot be delivered, Orbit states the reason instead of failing silently —
+read it before retrying.
+
 ## Run timing
 
 > Open Run traces and help me interpret a run's observed timing. Separate events

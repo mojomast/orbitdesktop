@@ -1,5 +1,27 @@
 # Verification record
 
+## Agent canvas delivery — October 7, 2026
+
+An owner asked an agent for a canvas and received only a raw `orbit-document`
+JSON block in chat. The producer seam was live, but two defects made the reply
+undeliverable and silent: `validateDocumentData` refused any genuine Excalidraw
+scene whose `appState` carried more than four keys, and `extractDocumentResult`
+discarded the reason with a bare `catch`, so no delivery action and no error
+appeared.
+
+- `normalizeSceneContent` reduces a real export to the reviewed subset; zoom,
+  scroll, grid, theme and current-item settings are preserved while
+  collaborators, dialogs and unknown future keys are dropped.
+- `src/document-envelope.ts` is a pure, DOM-free parser returning `ok`,
+  `absent`, or `unavailable` with a code and an owner-readable reason.
+- An explanatory reply may precede the final fence; nothing may follow it.
+- `npm run check`: **1,037 tests / 1,026 passed / 11 optional skips / 0 failures**.
+- `tests/document-envelope.test.mjs`: **11 passed**. `tests/document-envelope-ui.browser.py`
+  drives the real chat adapter across **8 scenarios** — prose-then-canvas,
+  canvas-only, richtext, bare JSON, truncated JSON, retired font, trailing text
+  and no-envelope — with zero page errors. Existing `documents`, `canvas` and
+  `research-handoffs` Chromium journeys still pass.
+
 ## Asteria scenario simulator
 
 The specialized synthetic example in `examples/plugins/asteria-mission-control/`

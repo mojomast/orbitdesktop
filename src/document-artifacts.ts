@@ -1,4 +1,5 @@
-import {validateDocumentData} from '../contracts/documents-v1.mjs';
+import {validateDocumentData,normalizeSceneContent} from '../contracts/documents-v1.mjs';
+import {inspectDocumentEnvelope} from './document-envelope';
 import type {DocumentData} from './document-store-client';
 import {workspaceId} from './workspace-sync';
 
@@ -12,12 +13,17 @@ export async function importDocument(text:string,format:'text'|'markdown'|'lexic
   if(new TextEncoder().encode(text).length>524288)throw Error('Import exceeds the document limit.');
   if(format==='text')return textDocument(text);
   if(format==='markdown')return (await import('./richdoc-editor')).markdownDocument(text);
-  const data:DocumentData={kind:format==='lexical'?'richtext':'scene',format,content:text};validateDocumentData(data);return data;
+  // Scenes are normalized to the reviewed appState subset so a real Excalidraw
+  // export is accepted instead of refused for unknown view-only keys.
+  if(format==='excalidraw'){const data:DocumentData={kind:'scene',format,content:normalizeSceneContent(text)};validateDocumentData(data);return data;}
+  const data:DocumentData={kind:'richtext',format,content:text};validateDocumentData(data);return data;
 }
-/** Explicit result envelope. Callers must supply the complete authenticated reply. */
-export function extractDocumentResult(text:string):{title:string;data:DocumentData}|null {
-  if(text.length>750000)return null;
-  try{const match=/^\s*```orbit-document\s*\n([\s\S]*?)\n```\s*$/.exec(text);const value=JSON.parse(match?match[1]:text);if(Object.keys(value).length!==1||!value.document)return null;const d=value.document;if(Object.keys(d).some(k=>!['title','kind','format','content'].includes(k))||typeof d.title!=='string'||!d.title.trim()||d.title.length>160)return null;const data={kind:d.kind,format:d.format,content:d.content};validateDocumentData(data);return {title:d.title,data};}catch{return null;}
+export type DocumentEnvelopeInspection=import('./document-envelope').DocumentEnvelopeInspection;
+/** Explicit result envelope. Callers must supply the complete authenticated reply.
+ * Refusals are typed so an unsupported envelope is explained instead of silently
+ * producing no delivery action. */
+export function extractDocumentResult(text:string):DocumentEnvelopeInspection {
+  return inspectDocumentEnvelope(text);
 }
 export type DocumentResultOutcome={status:'created-draft'|'cancelled'|'rejected';documentId?:string;paneId?:string;reason?:string};
 const deliveries=new Set<string>();
@@ -26,10 +32,11 @@ const deliveries=new Set<string>();
 export async function requestDocumentFromResult(text:string,isCurrent:()=>boolean=()=>true):Promise<DocumentResultOutcome>{
   const current=()=>{try{return isCurrent();}catch{return false;}};
   if(!current())return {status:'rejected',reason:'Document result source changed. Reopen the result.'};
-  const result=extractDocumentResult(text);if(!result)return {status:'rejected',reason:'Unsupported complete document envelope'};
+  const inspection=extractDocumentResult(text);
+  if(inspection.status!=='ok')return {status:'rejected',reason:inspection.status==='absent'?'This reply contains no complete document envelope.':inspection.reason};
   if(deliveries.size>=8)return {status:'rejected',reason:'Finish an open document review first'};
   const deliveryId=crypto.randomUUID();deliveries.add(deliveryId);
-  try{return await new Promise<DocumentResultOutcome>(resolve=>{const event=new CustomEvent('orbit-review-document-result',{cancelable:true,detail:{...result,workspaceId,deliveryId,isCurrent:current,respond:resolve}});window.dispatchEvent(event);if(!event.defaultPrevented)resolve({status:'rejected',reason:'Document shell unavailable'});});}finally{deliveries.delete(deliveryId);}
+  try{return await new Promise<DocumentResultOutcome>(resolve=>{const event=new CustomEvent('orbit-review-document-result',{cancelable:true,detail:{title:inspection.title,data:inspection.data,workspaceId,deliveryId,isCurrent:current,respond:resolve}});window.dispatchEvent(event);if(!event.defaultPrevented)resolve({status:'rejected',reason:'Document shell unavailable'});});}finally{deliveries.delete(deliveryId);}
 }
 
 export function reviewDocumentSnapshot(title:string,before:string,after:string,apply:()=>Promise<void>):Promise<boolean>{

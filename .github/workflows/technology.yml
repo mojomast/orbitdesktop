@@ -62,6 +62,7 @@ on:
       - 'tests/*copilot*'
       - 'tests/data-workbench*'
       - 'tests/documents*'
+      - 'tests/document-envelope*'
       - 'tests/canvas*'
       - 'tests/interactive-results*'
       - 'tests/knowledge-*'
@@ -132,6 +133,7 @@ on:
       - 'tests/*copilot*'
       - 'tests/data-workbench*'
       - 'tests/documents*'
+      - 'tests/document-envelope*'
       - 'tests/canvas*'
       - 'tests/interactive-results*'
       - 'tests/knowledge-*'
@@ -261,6 +263,7 @@ jobs:
             documents)
               "$python" tests/documents.browser.py
               "$python" tests/canvas.browser.py
+              "$python" tests/document-envelope-ui.browser.py
               ;;
             mcp) "$python" tests/mcp-apps.browser.py ;;
             traces) "$python" tests/run-traces.browser.py ;;

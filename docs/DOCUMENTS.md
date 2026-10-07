@@ -109,17 +109,36 @@ is exhausted. A reload recovery is a fresh explicit owner review of retained
 bytes, not resurrection of the original conversation's source authority.
 
 The trusted producer seam is `requestDocumentFromResult(completeReply, isCurrent?)` in
-`src/document-artifacts.ts`. It accepts exactly this sole-key JSON object, optionally
-inside one whole-reply `orbit-document` fence:
+`src/document-artifacts.ts`, using the pure parser in `src/document-envelope.ts`. It
+accepts exactly this sole-key JSON object, either as a whole reply or inside the
+**last** `orbit-document` fence:
 
 ```json
 {"document":{"title":"Report","kind":"richtext","format":"lexical","content":"<serialized editor-state JSON>"}}
 ```
 
-Canvas uses `kind: "scene"`, `format: "excalidraw"`. Prose around the envelope,
-unsupported schemas and oversized inputs are refused. Up to eight independent
-parent-memory reviews can be outstanding; deliveries never overwrite a singleton
-pending slot. The returned acknowledgement is `created-draft`, `cancelled`, or
+An explanatory reply may therefore precede the envelope, so an agent can describe
+what it produced in the same turn. **Nothing may follow the final fence** — text,
+Markdown or a second artifact is refused, so extra content cannot ride along. A
+bare sole-key JSON object is also accepted. Only the final fence is used when a
+reply quotes an earlier one.
+
+Canvas uses `kind: "scene"`, `format: "excalidraw"`. Scenes pass through
+`normalizeSceneContent`, which reduces a genuine Excalidraw export to the reviewed
+subset: full `appState` (zoom, scroll, grid, theme, current-item settings) is
+preserved, while collaborators, dialog state and unknown future keys are dropped.
+Embedded binary `files` are always dropped, matching the canvas editor. Element
+`customData`, frame `name` and `status` are accepted. Element-level validation,
+prototype-key, recursion, node-count, size and retired-font rules are unchanged.
+
+Every refusal is **typed and visible**. `inspectDocumentEnvelope` returns `absent`
+(no envelope; nothing is shown), or `unavailable` with a code and an owner-readable
+reason — invalid JSON, a non-final fence, a size limit, or a retired font with the
+four admitted font IDs named. The chat and Workbench result views render
+`Document not created — <reason>`, so an unsupported envelope can never again
+appear as a silent JSON wall. Up to eight independent parent-memory reviews can be
+outstanding; deliveries never overwrite a singleton pending slot. The returned
+acknowledgement is `created-draft`, `cancelled`, or
 `rejected`; `created-draft` includes document/pane IDs and means record creation
 plus draft retention, **not editor visibility or a saved imported body**. The
 shell event is trusted-parent-only, not a generated-frame capability. Newly

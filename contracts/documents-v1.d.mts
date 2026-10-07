@@ -7,3 +7,5 @@ export const documentsRequestSchema:object;
 export const EMPTY_RICHDOC:string;
 export const EMPTY_CANVAS:string;
 export function validateDocumentData(data:unknown):any;
+export const SCENE_APPSTATE_NORMALIZED:readonly string[];
+export function normalizeSceneContent(content:string):string;

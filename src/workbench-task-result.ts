@@ -120,7 +120,10 @@ export function mountWorkbenchTaskResult(args:Args):{refresh():Promise<void>;set
     }
     view.replaceChildren(...sections);
     if(result.availability==='available'&&result.hermes_completed===true&&typeof result.text==='string')void import('./document-artifacts').then(({extractDocumentResult,requestDocumentFromResult})=>{
-      if(!isCurrent(auth.ticket,auth.token,auth.grantId,result.id)||!extractDocumentResult(result.text))return;
+      if(!isCurrent(auth.ticket,auth.token,auth.grantId,result.id))return;
+      const inspection=extractDocumentResult(result.text);
+      if(inspection.status==='unavailable'){explanation.append(el('p','',`Document not created — ${inspection.reason}`));return;}
+      if(inspection.status==='absent')return;
       explanation.append(button('Create document from result','Review this recorded result as a new private document draft',async()=>{
         if(!isCurrent(auth.ticket,auth.token,auth.grantId,result.id))return;
         const outcome=await requestDocumentFromResult(result.text,()=>isCurrent(auth.ticket,auth.token,auth.grantId,result.id));
