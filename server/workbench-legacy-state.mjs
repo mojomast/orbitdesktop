@@ -29,6 +29,12 @@ export function legacyQueueSnapshot(runtimeRoot){
       return counts;
     }catch(error){
       if(error.code==='ENOENT'||error.code==='unavailable')return {enabled:false,active:0,uncertain:0,pending:0};
+      // 'unsupported' means this platform has no /proc-based project reader at all,
+      // so a legacy build-queue cannot exist here and there is nothing to be
+      // uncertain about. Treating it as uncertain fences the shared agent lane
+      // permanently (execution_lane.unknown), which blocks ordinary chat on every
+      // non-Linux host.
+      if(error.code==='unsupported')return {enabled:false,active:0,uncertain:0,pending:0};
       // An unreadable ledger is not evidence that it is safe to dispatch.
       return {enabled:false,active:0,uncertain:1,pending:0};
     }finally{if(fd!==undefined)fs.closeSync(fd);root?.close();}

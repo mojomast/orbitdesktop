@@ -377,6 +377,10 @@ Read the [submission guide and admission policy](plugin-catalog/README.md). Refr
 
 The verified target is Linux with an ordinary user account, Node.js 22.12 or newer, npm, Python 3, and tmux at /usr/bin/tmux. Native node-pty builds may also require make and a C++ compiler.
 
+For a native Windows host, see [docs/WINDOWS.md](docs/WINDOWS.md) — it covers the
+reserved-port ranges, the served build, host shell selection, the Hermes API server
+requirement and the expected degradations there.
+
 For a development instance, clone https://github.com/mojomast/orbitdesktop.git,
 enter the repository, then run:
 
@@ -450,6 +454,7 @@ Candidate verification: docs/VERIFICATION.md
 Workspace controller: docs/WORKSPACE_CONTROL.md
 Plugin lifecycle: docs/PLUGINS.md
 Linux app launchers: docs/XPRA_APPS.md
+Windows host: docs/WINDOWS.md
 Xpra pilot and deployment: docs/XPRA.md
 Shared Chromium: docs/SHARED_BROWSER.md
 Shared Linux desktop: docs/SHARED_DESKTOP.md
