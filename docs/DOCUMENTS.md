@@ -136,8 +136,12 @@ Every refusal is **typed and visible**. `inspectDocumentEnvelope` returns `absen
 reason — invalid JSON, a non-final fence, a size limit, or a retired font with the
 four admitted font IDs named. The chat and Workbench result views render
 `Document not created — <reason>`, so an unsupported envelope can never again
-appear as a silent JSON wall. Up to eight independent parent-memory reviews can be
-outstanding; deliveries never overwrite a singleton pending slot. The returned
+appear as a silent JSON wall. An agent that can reach the granted content verbs
+should prefer `orbit_resources create_document` with `kind:"scene"`, which saves
+the same normalized scene without the manual paste. See
+[Resource delegation](RESOURCE_DELEGATION.md). Up to eight independent
+parent-memory reviews can be outstanding; deliveries never overwrite a singleton
+pending slot. The returned
 acknowledgement is `created-draft`, `cancelled`, or
 `rejected`; `created-draft` includes document/pane IDs and means record creation
 plus draft retention, **not editor visibility or a saved imported body**. The
