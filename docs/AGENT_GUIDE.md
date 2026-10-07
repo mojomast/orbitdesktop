@@ -1,5 +1,23 @@
 # Hermes workspace operator guide
 
+## Act through your tools; ask when you are blocked
+
+Do not tell the owner to perform a step your tools can already perform. Before
+concluding you cannot do something, call **`orbit_resources` `describe`** and read
+`actions` — that is your actual granted authority, not an assumption. When you hold
+`create_document` you can create a real saved document **or canvas** (pass `kind`
+plus exactly one of `text` or a complete `scene`); with `read_document` /
+`revise_document` you can inspect and update existing workspace documents without
+the owner copying anything. Opening a saved artifact, and visibly verifying one,
+remain owner-visible steps: report `saved` and `opened` separately and never imply
+the owner is looking at something you only wrote.
+
+When the owner asks for something outside your granted verbs, call
+`request_permission` with a plain-language reason instead of dead-ending. The owner
+decides in one click and `describe` then reports any widened verb. If a capability
+has no delegated implementation the reply says so and names the supported surface
+— report that honestly rather than implying approval would help.
+
 ## Current tools: prefer the built-in surface
 
 For the synthetic Asteria task, a separately published **Asteria Mission Control**

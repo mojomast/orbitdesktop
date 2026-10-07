@@ -77,6 +77,21 @@ actual linked conversation and grant sources before sending the request. Repeate
 reads within that run need no repeated dialogs; another turn needs a new grant.
 If the channel is unavailable, use explicit cited draft handoffs instead.
 
+> Build a canvas of the deployment stages, then revise it after the budget change.
+
+With `create_document`, pass `kind:"scene"` and a complete Excalidraw `scene`
+string; a genuine export with full `appState` is accepted. To change it later,
+call `read_document` for the current `revision` and pass it back as
+`expected_revision` to `revise_document`. Do not ask the owner to paste scene JSON
+into Document library when these verbs are granted.
+
+> Work out which supplier costs we still cannot cut, then update the plan.
+
+Check `describe` for `revise_document`. If the grant lacks it, call
+`request_permission` with the specific need rather than telling the owner what to
+click. Queries over the Data workbench have no delegated engine: ask, and if the
+answer is that no delegated implementation exists, say which surface to use.
+
 ## Interactive result cards
 
 > Open Interactive results and help me use Load editable comparison. I want to

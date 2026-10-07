@@ -1,5 +1,39 @@
 # Verification record
 
+## Agent content verbs and permission requests — October 7, 2026
+
+The owner asked the agent to complete tasks itself rather than instructing the owner
+to use the UI. Research confirmed the specific walls: `create_document` was
+richtext-only, no read or revise verb existed, `describe` hardcoded
+`open:{available:false}`, and the codebase contained no agent-callable permission
+request at all.
+
+- Seven grantable verbs now exist; `create_document` accepts a scene, and
+  `list_documents` / `read_document` / `revise_document` / `request_permission`
+  were added. The dispatch is an explicit table: an unknown action can no longer
+  fall through to source reading. That historical fallthrough was demonstrated and
+  its regression test updated.
+- `revise_document` uses a host-only `documents.revise` that is unreachable from
+  the owner HTTP route, so the `save` pane-binding rule is unchanged. A stale
+  `expected_revision` is refused.
+- `request_permission` records a durable owner decision. Approval is one-shot,
+  generation-fenced, workspace-bound, and only ever **adds a verb**. A capability
+  with no delegated implementation reports `verb_needed:null` and names the
+  supported surface instead of implying an approval that changes nothing.
+- Two real defects were found and fixed while testing: a self-bumped generation
+  that made every permission request fail with `stale_resource`, and a control
+  response charged against the owner-content read budget.
+- `npm run check`: **1,046 tests / 1,035 passed / 11 optional skips / 0 failures**.
+- `tests/resource-content-verbs.test.mjs`: **9 passed** against the real
+  delegation service, knowledge store and documents store, covering canvas
+  creation, idempotent retry, revision CAS, stale-refusal, per-verb authority,
+  fail-closed unknown actions, permission raising/approval/one-shot decisions,
+  honest reporting for unimplemented capabilities, `describe`, and bounds.
+- `tests/resource-content-verbs-contract.test.mjs`: **9 passed** for the schema.
+  Existing `resource-delegation` (10), `normal-resources` (7), `resource-identity`
+  and the Hermes plugin suites (18) still pass. `create_document` call sites in
+  those suites were updated for the now-required explicit `kind`.
+
 ## Agent canvas delivery — October 7, 2026
 
 An owner asked an agent for a canvas and received only a raw `orbit-document`

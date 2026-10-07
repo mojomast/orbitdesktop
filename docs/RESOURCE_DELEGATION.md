@@ -3,10 +3,55 @@
 This development candidate supports **one-run Normal conversation grants through
 the pinned local Hermes gateway**, plus a dedicated-local recipient fallback.
 In Knowledge search, choose an actual linked conversation, select exact source
-snapshots and optionally permit creation of new editable briefs. A Normal grant
+snapshots, optionally permit creation of new editable briefs and canvases, and
+optionally permit reading or revising existing workspace documents. A Normal grant
 attaches only to that binding's next accepted run; granting does not start inference
 or add authority to an already-running turn. The UI lists scope, budgets, expiry
 and Revoke. Host and gateway configuration are explicit prerequisites.
+
+## Content verbs and asking for permission
+
+The grant is not source-only. Each verb is granted separately, and an agent must
+call **describe** first to learn which verbs it actually holds. It should act
+through these verbs rather than instructing the owner to perform a step it can
+already perform.
+
+| Verb | Effect | Returns |
+| --- | --- | --- |
+| `search` / `read_source` | Search and read the exact granted snapshots | Cited text with UTF-16 offsets |
+| `create_document` | Create a real saved editable document **or canvas** | `document_id`, `artifact_uri`, `revision`, `saved:true` |
+| `list_documents` | Read this workspace's document metadata | Bounded, paginated |
+| `read_document` | Read one document's current content and revision | Text plus `revision` to reuse |
+| `revise_document` | Save a revision-bound change | New `revision` |
+| `request_permission` | Ask the owner for a capability this grant lacks | A durable request the owner decides in one click |
+
+`create_document` and `revise_document` require an explicit `kind` plus **exactly
+one** of `text` (a document) or `scene` (a complete Excalidraw scene string). A
+scene is normalized through the same canvas contract the editor uses, so a real
+Excalidraw export with full `appState` is accepted rather than refused. `kind` is
+never inferred.
+
+`revise_document` requires `expected_revision`. A stale base is refused as
+`stale_resource` rather than overwriting a newer owner edit. It uses a host-only
+documents method that is not reachable from the owner HTTP route, so the existing
+`save` pane-binding rule is unchanged.
+
+Saving is not opening and not visual acceptance. Results always report
+`saved:true`, `opened:false`, `browser_acknowledged:false`, and the agent must not
+claim the owner is looking at an artifact it only saved.
+
+**When a capability genuinely does not exist** — for example executing a Data
+workbench query, which has no server-side engine — the agent calls
+`request_permission`. The request records an owner-facing `reason` and returns an
+`instruction`. For an unimplemented capability the returned `verb_needed` is
+`null`, and the instruction names the supported surface instead of implying an
+approval that would change nothing. For a supported need, approval genuinely adds
+that verb to the live grant, after which `describe` reports it.
+
+Owner decisions (`approve_permission` / `deny_permission`) are one-shot, fenced by
+`expected_generation`, cannot cross workspaces, and cannot restore a revoked,
+expired or closed recipient. Approval only ever **adds a verb** to an existing
+grant; it never adds sources and never re-opens a grant.
 
 ## Authenticated Normal identity
 

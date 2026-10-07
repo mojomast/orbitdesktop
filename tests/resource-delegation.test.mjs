@@ -39,7 +39,7 @@ test('selected sources -> exact citation -> saved editable brief; retries and re
   assert.equal((await recipient.call({action:'read_source',source_id:b.source_id})).code,'permission_denied');
   assert.equal((await recipient.call({action:'read_source',source_id:a.source_id,workspace_id:other})).code,'invalid_request');
   const exact=await recipient.call({action:'read_source',source_id:a.source_id,offset:4,length:10});assert.equal(exact.result.text,'red planet');assert.equal(exact.result.char_start,4);
-  const request={action:'create_document',op_id:randomUUID(),title:'Cited brief',text:'Mars has two moons.',citations:[{source_id:a.source_id,content_sha256:a.content_sha256,char_start:0,char_end:28}]};
+  const request={action:'create_document',op_id:randomUUID(),title:'Cited brief',kind:'richtext',text:'Mars has two moons.',citations:[{source_id:a.source_id,content_sha256:a.content_sha256,char_start:0,char_end:28}]};
   const saved=await recipient.call(request);assert.equal(saved.saved,true);assert.equal(saved.opened,false);assert.equal(saved.browser_acknowledged,false);
   assert.deepEqual(await recipient.call(request),saved);
   assert.equal((await recipient.call({...request,text:'Changed'})).code,'operation_mismatch');
@@ -47,7 +47,10 @@ test('selected sources -> exact citation -> saved editable brief; retries and re
   assert.equal((await otherRecipient.call({action:'receipt',op_id:request.op_id})).found,false);
   assert.equal((await f.documents.dispatch({action:'list',workspace_id:ws})).documents.length,1);
   const doc=await f.documents.dispatch({action:'read',workspace_id:ws,document_id:saved.document_id});assert.match(doc.data.content,/Mars has two moons/);assert.match(doc.data.content,new RegExp(a.source_id));
-  assert.equal((await recipient.call({action:'read_document',document_id:saved.document_id})).code,'invalid_request');
+  // This grant has no read_document verb, so the library stays closed. Previously
+// this reported invalid_request, because an unhandled action silently fell
+// through to source reading; an existing verb without authority is permission_denied.
+assert.equal((await recipient.call({action:'read_document',document_id:saved.document_id})).code,'permission_denied');
 });
 test('long durable runtime paths retain short private sockets and invalidate them on restart',async t=>{
   const f=await fixture(t,true),source=await f.ingest('Long-path source'),r=await f.recipient([source]);
@@ -78,13 +81,13 @@ test('read byte budget and create-only authority are independent',async t=>{
   const f=await fixture(t),a=await f.ingest('budget '.repeat(3000)),r=await f.recipient([a],['read_source']);
   let last;for(let i=0;i<80;i++){last=await r.call({action:'read_source',source_id:a.source_id,length:16000});if(!last.ok)break;}assert.equal(last.code,'limit_exceeded');assert.equal(last.result,undefined);
   const writer=await f.recipient([],['create_document']);assert.equal((await writer.call({action:'search',query:'budget'})).code,'permission_denied');
-  const created=await writer.call({action:'create_document',op_id:randomUUID(),title:'Fresh content',text:'New content',citations:[]});assert.equal(created.saved,true);
+  const created=await writer.call({action:'create_document',op_id:randomUUID(),title:'Fresh content',kind:'richtext',text:'New content',citations:[]});assert.equal(created.saved,true);
 });
 test('lost response after document commit recovers the same artifact with exact key',async t=>{
   const f=await fixture(t),r=await f.recipient([],['create_document']);
   const original=f.documents.dispatch;let lose=true;
   f.documents.dispatch=async(...args)=>{const result=await original(...args);if(lose){lose=false;throw Error('synthetic response loss after atomic commit');}return result;};
-  const request={action:'create_document',op_id:randomUUID(),title:'Recover me',text:'One durable document',citations:[]};
+  const request={action:'create_document',op_id:randomUUID(),title:'Recover me',kind:'richtext',text:'One durable document',citations:[]};
   const lost=await r.call(request);assert.equal(lost.outcome,'unknown');assert.equal(lost.op_id,request.op_id);
   assert.equal((await r.call({action:'receipt',op_id:request.op_id})).outcome,'unknown');
   const saved=await r.call(request);assert.equal(saved.saved,true);assert.equal((await f.documents.dispatch({action:'list',workspace_id:ws})).documents.length,1);
@@ -93,7 +96,7 @@ test('lost response after document commit recovers the same artifact with exact 
 test('revocation while a document awaits workspace validation blocks the commit',async t=>{
   const f=await fixture(t),r=await f.recipient([],['create_document']);let trigger=true;
   f.setHook(async()=>{if(trigger){trigger=false;await f.owner('revoke',{recipient_id:r.recipient_id});}});
-  const result=await r.call({action:'create_document',op_id:randomUUID(),title:'Must not commit',text:'Withheld',citations:[]});
+  const result=await r.call({action:'create_document',op_id:randomUUID(),title:'Must not commit',kind:'richtext',text:'Withheld',citations:[]});
   assert.equal(result.code,'revoked');f.setHook(()=>{});
   assert.equal((await f.documents.dispatch({action:'list',workspace_id:ws})).documents.length,0);
 });
@@ -114,7 +117,7 @@ test('64 live slots exclude historical receipts but include revoked calls still 
   await assert.rejects(f.owner('prepare',{destination:'Over active capacity'}),{code:'limit_exceeded'});
   let enter,release;const entered=new Promise(resolve=>{enter=resolve;}),hold=new Promise(resolve=>{release=resolve;});
   let first=true;f.setHook(async()=>{if(first){first=false;enter();await hold;}});
-  const op_id=randomUUID(),writing=recipients[0].call({action:'create_document',op_id,title:'Do not replay',text:'Pending effect',citations:[]});
+  const op_id=randomUUID(),writing=recipients[0].call({action:'create_document',op_id,title:'Do not replay',kind:'richtext',text:'Pending effect',citations:[]});
   await entered;await f.owner('revoke',{recipient_id:recipients[0].recipient_id});
   const closing=await f.owner('list');assert.equal(closing.capacity.active_channels,64);assert.equal(closing.capacity.closing_channels,1);
   await assert.rejects(f.owner('prepare',{destination:'Still draining'}),{code:'limit_exceeded'});

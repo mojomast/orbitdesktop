@@ -85,7 +85,32 @@ export function createDocumentsService({root,workspaceRead}) {
     r.receipts=[...r.receipts,{op_id:body.op_id,digest,result}].slice(-DOCUMENT_LIMITS.receipts);
     authorize();write(w,r);return result;
   }
-  return {dispatch};
+  /**
+   * Host-only delegated revision. Not a JSON action and never reachable from the
+   * owner HTTP route, so the `save` pane-binding rule stays intact there. The
+   * caller supplies its own authorization hook and must pass the exact current
+   * revision, so a concurrent owner edit is refused rather than overwritten.
+   */
+  async function revise({workspace_id, document_id, op_id, expected_revision, data}, authorize = () => {}) {
+    const snapshot = await workspaceRead(workspace_id);
+    authorize();
+    if (!snapshot) fail('unavailable');
+    const w = workspace_id;
+    let r = read(w, document_id);
+    if (!r) fail('unavailable');
+    const digest = hash({workspace_id, document_id, op_id, expected_revision, data});
+    const previous = r.receipts.find(x => x.op_id === op_id);
+    if (previous) { if (previous.digest !== digest) fail('conflict', {reason: 'operation_mismatch'}); return previous.result; }
+    if (r.revision !== expected_revision) fail('conflict', {revision: r.revision});
+    validateDocumentData(data);
+    if (data.kind !== r.data.kind) fail('invalid_request');
+    if (r.revision >= Number.MAX_SAFE_INTEGER - 1) fail('limit_exceeded');
+    r.revision++; r.updated_at = new Date().toISOString();
+    const result = {document_id: r.id, revision: r.revision, data_schema_version: 1};
+    r.receipts = [...r.receipts, {op_id, digest, result}].slice(-DOCUMENT_LIMITS.receipts);
+    authorize(); write(w, r); return result;
+  }
+  return {dispatch, revise};
 }
 // Unlike the Workbench wrapper, this preserves the CAS revision in an error.
 export function createDocumentsRoute({token,port,devOrigins,reply,dispatch}) {

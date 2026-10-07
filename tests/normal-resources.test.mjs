@@ -67,7 +67,7 @@ test('Normal grant binds next accepted receipted run, not another session/run; r
   const accepted=await f.request('start',{input:'Use granted astronomy to save a brief'});assert.equal(accepted.status,202,JSON.stringify(accepted.body));
   assert.ok(!JSON.stringify(f.submissions).includes('secret'));assert.ok(!JSON.stringify(f.submissions).includes('resource-delegation'));
   const channel=f.channel(accepted.body.run_id),found=await channel.call({action:'search',query:'Mars SECRET'});assert.equal(found.ok,true);assert.equal(found.result.results.length,1);assert.ok(!JSON.stringify(found).includes('Excluded private'));
-  const request={action:'create_document',op_id:randomUUID(),title:'Normal brief',text:'Mars has two moons.',citations:[{source_id:f.source.source_id,content_sha256:f.source.content_sha256,char_start:0,char_end:19}]};
+  const request={action:'create_document',op_id:randomUUID(),title:'Normal brief',kind:'richtext',text:'Mars has two moons.',citations:[{source_id:f.source.source_id,content_sha256:f.source.content_sha256,char_start:0,char_end:19}]};
   const saved=await channel.call(request);assert.equal(saved.saved,true);assert.deepEqual(await channel.call(request),saved);
   f.runs.get(accepted.body.run_id).status='completed';
   assert.equal((await channel.call({action:'read_source',source_id:f.source.source_id})).code,'permission_denied');
@@ -121,7 +121,7 @@ test('more than 64 completed/revoked/expired Normal grants across restart preser
     const channel=f.channel(accepted.body.run_id);
     assert.equal((await channel.call({action:'describe'})).ok,true);
     if(i<2){
-      const request={action:'create_document',op_id:randomUUID(),title:'Retain operation',text:'One artifact per operation',citations:[]};
+      const request={action:'create_document',op_id:randomUUID(),title:'Retain operation',kind:'richtext',text:'One artifact per operation',citations:[]};
       const dispatch=f.documents.dispatch;
       if(i===1)f.documents.dispatch=async(...args)=>{await dispatch(...args);throw Error('Lost response after document commit');};
       const saved=await channel.call(request);f.documents.dispatch=dispatch;

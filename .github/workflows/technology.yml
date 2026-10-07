@@ -66,6 +66,7 @@ on:
       - 'tests/canvas*'
       - 'tests/interactive-results*'
       - 'tests/knowledge-*'
+      - 'tests/resource-content-verbs*'
       - 'tests/mcp-apps*'
       - 'tests/run-trace*'
       - 'tests/voice-*'
@@ -137,6 +138,7 @@ on:
       - 'tests/canvas*'
       - 'tests/interactive-results*'
       - 'tests/knowledge-*'
+      - 'tests/resource-content-verbs*'
       - 'tests/mcp-apps*'
       - 'tests/run-trace*'
       - 'tests/voice-*'
@@ -253,6 +255,7 @@ jobs:
               "$python" tests/knowledge-search.browser.py
               "$python" tests/resource-grants.browser.py
               HERMES_PINNED_SOURCE=/tmp/opencode/orbit-hermes-native HERMES_PINNED_PYTHON=/tmp/opencode/orbit-hermes-native/.venv/bin/python "$python" tests/resource-grants.browser.py --normal
+              node --test tests/resource-content-verbs.test.mjs tests/resource-delegation.test.mjs
               ;;
             interactive)
               "$python" tests/interactive-results.browser.py
