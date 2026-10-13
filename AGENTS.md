@@ -9,3 +9,9 @@ Preserve uncommitted owner changes. Never stage everything blindly. Keep credent
 Prefer validated workspace operations over source edits. Use content-addressed plugin publication for new widgets. Do not overwrite old bundles needed by checkpoints. Do not claim browser visibility without acknowledgement and inspection. Run `npm run check`, relevant publisher tests and real browser tests; report limitations honestly.
 
 The development candidate uses workspace schema 12 while package metadata remains 0.3.1; do not imply a new release is published. Read `docs/DEPLOYMENT.md` before activation. Regenerate the tracked Hermes source archive with `scripts/bundle_hermes.py` after included source/documentation changes and verify archive parity. Keep expensive browser CI scoped with weekly/manual coverage.
+
+## Cursor Cloud specific instructions
+
+The Cloud Agent environment starts the local development servers on boot. Vite listens on port 4173 and proxies `/api` to the Orbit API on port 4318. The API is started with `ORBIT_DEV_ORIGINS=http://127.0.0.1:4173,http://localhost:4173`. Open http://127.0.0.1:4173. When `ORBIT_TOKEN` is unset, the API writes a generated host token to `.runtime/session-token`. Use that token with Connect host, then Connect shell in a terminal pane. Do not commit `.runtime`, and do not restart those servers while a terminal session is in use.
+
+`npm run check` runs the contract checks, typecheck, isolated production build, and Node tests. `python3 tests/plugin-publish.test.py` covers the publisher. Optional Xpra, shared desktop, and Hermes gateway setup are separate from this environment. The `node` on `PATH` must be a full Node distribution (npm resolved from `../lib/node_modules/npm` beside `process.execPath`); the agent overlay binary does not have that layout.
