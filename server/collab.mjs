@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { createCollabStore, mintCollabId } from './collab-store.mjs';
 
@@ -14,7 +14,7 @@ const ROLE_SKILLS = {
   researcher: ['research', 'reasoning', 'writing'],
 };
 const LEASE_MS = 10 * 60 * 1000;
-const DEFAULT_TURN_TIMEOUT_MS = 3 * 60 * 1000;
+const DEFAULT_TURN_TIMEOUT_MS = 20 * 60 * 1000;
 const DEFAULT_ADVANCE_INTERVAL_MS = 15 * 1000;
 const labels = { hermes: 'Hermes', grok: 'Grok Bot', kyle: 'Kyle', orbit: 'Orbit' };
 
@@ -279,10 +279,23 @@ export function parseCollabBlock(text) {
   return { ok: true, ops };
 }
 
-function collabTurnTimeoutMs(env = process.env) {
+export function collabTurnTimeoutMs(env = process.env) {
   const raw = Number(env?.ORBIT_COLLAB_TURN_TIMEOUT_MS ?? env?.ORBIT_SHARED_TURN_TIMEOUT_MS);
   if (Number.isFinite(raw) && raw >= 1000 && raw <= 30 * 60 * 1000) return Math.floor(raw);
   return DEFAULT_TURN_TIMEOUT_MS;
+}
+
+function isProtocolMistake(message) {
+  const text = String(message || '');
+  return text.includes('exactly one ```collab')
+    || text.includes('one ```collab block, not several')
+    || text.includes('workspace.sync needs a taskId');
+}
+
+function riskSummary(speaker, op) {
+  const who = labels[speaker] || speaker;
+  const detail = clean(op?.command || op?.name || '', 600);
+  return detail ? `${who} wants to use ${op.risk}: ${detail}` : `${who} wants to use ${op.risk}.`;
 }
 
 export function createCollab({ directory, gateways, now = () => Date.now(), advanceIntervalMs, turnTimeoutMs } = {}) {
@@ -291,6 +304,8 @@ export function createCollab({ directory, gateways, now = () => Date.now(), adva
   const advanceEvery = Number.isFinite(advanceIntervalMs) && advanceIntervalMs >= 15 ? Math.floor(advanceIntervalMs) : DEFAULT_ADVANCE_INTERVAL_MS;
   const chains = new Map();
   const active = new Set();
+  const turnMarks = [];
+  const fileOwners = new Map();
 
   function event(bundle, type, extra = {}) {
     const record = {
@@ -363,6 +378,31 @@ export function createCollab({ directory, gateways, now = () => Date.now(), adva
     if (bits.length) bundle.project.activity = `${bits.join('; ')}.`;
   }
 
+  function rememberTurn(projectId, speaker, taskId, kind) {
+    let files = new Map();
+    try { files = new Map(store.listWorkspaceFiles(projectId).map(file => [file.name, file.content])); } catch { files = new Map(); }
+    turnMarks.push({ speaker, taskId: taskId || '', kind, wallStart: Date.now(), files });
+    if (turnMarks.length > 40) turnMarks.shift();
+  }
+
+  function noteWrittenFiles(projectId, speaker, taskId, before) {
+    for (const file of store.listWorkspaceFiles(projectId)) {
+      if (before.get(file.name) === file.content) continue;
+      fileOwners.set(`${projectId}\0${file.name}`, { actor: speaker, taskId: taskId || '', content: file.content });
+    }
+  }
+
+  function fileCreator(bundle, file, caller, callerTaskId) {
+    const noted = fileOwners.get(`${bundle.project.id}\0${file.name}`);
+    if (noted && noted.content === file.content) return { actor: noted.actor, taskId: noted.taskId || callerTaskId || '' };
+    const others = turnMarks.filter(mark => mark.speaker !== caller && mark.kind === 'work' && mark.files.get(file.name) !== file.content);
+    if (others.length) {
+      const pick = others[others.length - 1];
+      return { actor: pick.speaker, taskId: pick.taskId || callerTaskId || '' };
+    }
+    return { actor: caller, taskId: callerTaskId || '' };
+  }
+
   function syncWorkspace(bundle, taskId, by) {
     const files = store.listWorkspaceFiles(bundle.project.id);
     const added = [];
@@ -374,14 +414,13 @@ export function createCollab({ directory, gateways, now = () => Date.now(), adva
         try { previous = store.readArtifact(bundle.project.id, current.id, latest).content; } catch { previous = ''; }
       }
       if (current && previous === file.content) continue;
+      const creator = fileCreator(bundle, file, by, taskId);
       const stored = store.putArtifact(bundle.project.id, {
-        name: file.name, kind: 'file', content: file.content, by, taskId: taskId || '', baseVersion: latest, note: 'Indexed from the workspace.',
+        name: file.name, kind: 'file', content: file.content, by: creator.actor, taskId: creator.taskId || '', baseVersion: latest, note: 'Indexed from the workspace.',
       });
       refreshArtifacts(bundle);
-      if (taskId) {
-        const task = taskById(bundle, taskId);
-        if (task && !task.artifacts.includes(stored.meta.id)) task.artifacts.push(stored.meta.id);
-      }
+      const ownerTask = creator.taskId ? taskById(bundle, creator.taskId) : null;
+      if (ownerTask && !ownerTask.artifacts.includes(stored.meta.id)) ownerTask.artifacts.push(stored.meta.id);
       added.push(file.name);
     }
     if (added.length) event(bundle, 'workspace.sync', { actor: by, taskId: taskId || '', data: { files: added } });
@@ -483,6 +522,7 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
     if (budgetBlocked(bundle)) return false;
     const project = bundle.project;
     const prompt = `${packet(bundle, speaker, task)}${promptExtra ? `\n\n${promptExtra}` : ''}`;
+    rememberTurn(project.id, speaker, task?.id || '', kind);
     try {
       const started = await gateways.startSpeaker({
         speaker,
@@ -510,7 +550,7 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
     } catch (error) {
       const message = error?.message || `${labels[speaker]} could not take a turn.`;
       event(bundle, 'error', { actor: speaker, taskId: task?.id || '', data: { message } });
-      if (task) exhaust(bundle, task, message);
+      if (task) exhaust(bundle, task, message, kind);
       else {
         project.status = 'paused';
         project.activity = message;
@@ -519,10 +559,22 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
     }
   }
 
-  function exhaust(bundle, task, reason) {
-    task.attempts += 1;
+  function exhaust(bundle, task, reason, kind = 'work') {
     task.lease = null;
     task.lastError = clean(reason, 500);
+    if (kind === 'review') {
+      task.reviewFailures = (task.reviewFailures || 0) + 1;
+      if (task.reviewFailures >= 2) {
+        task.status = 'failed';
+        event(bundle, 'task.state', { taskId: task.id, data: { status: 'failed', reason: task.lastError, review: true } });
+        bundle.project.activity = `${task.title} failed review. ${task.lastError}`;
+        return;
+      }
+      task.status = 'review';
+      event(bundle, 'task.state', { taskId: task.id, data: { status: 'review', reason: task.lastError, retry: true, review: true } });
+      return;
+    }
+    task.attempts += 1;
     if (task.attempts === 1) {
       task.status = 'submitted';
       event(bundle, 'task.state', { taskId: task.id, data: { status: 'submitted', reason: task.lastError, retry: true } });
@@ -545,7 +597,7 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
     for (const task of bundle.tasks) {
       if (task.status !== 'working' || !task.lease || busyTaskIds(bundle.project).has(task.id)) continue;
       if (now() <= task.lease.until) continue;
-      exhaust(bundle, task, 'The task lease expired.');
+      exhaust(bundle, task, 'The task lease expired.', 'work');
     }
   }
 
@@ -569,9 +621,9 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
     let started = false;
     for (const agent of AGENTS) {
       if (runs[agent]) continue;
-      const review = bundle.tasks.find(task => task.status === 'review' && task.reviewer === agent && depsReady(bundle, task) && !busy.has(task.id));
-      const ready = bundle.tasks.find(task => task.status === 'submitted' && task.owner === agent && depsReady(bundle, task) && !busy.has(task.id));
-      const working = deferAgents.has(agent) ? null : bundle.tasks.find(task => task.status === 'working' && task.owner === agent && task.lease && now() <= task.lease.until && depsReady(bundle, task) && !busy.has(task.id));
+      const review = bundle.tasks.find(task => task.status === 'review' && !task.protocolHold && task.reviewer === agent && depsReady(bundle, task) && !busy.has(task.id));
+      const ready = bundle.tasks.find(task => task.status === 'submitted' && !task.protocolHold && task.owner === agent && depsReady(bundle, task) && !busy.has(task.id));
+      const working = deferAgents.has(agent) ? null : bundle.tasks.find(task => task.status === 'working' && !task.protocolHold && task.owner === agent && task.lease && now() <= task.lease.until && depsReady(bundle, task) && !busy.has(task.id));
       const task = review || ready || working;
       if (!task) continue;
       const kind = task.status === 'review' ? 'review' : 'work';
@@ -690,7 +742,7 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
       if (op.risk && bundle.project.policy.approve.includes(op.risk)) {
         const task = taskById(bundle, op.taskId);
         if (task) task.status = 'input-required';
-        bundle.project.gate = { id: mintCollabId('g'), type: 'risk', summary: `${labels[speaker]} wants to use ${op.risk}.`, taskId: op.taskId || '', op };
+        bundle.project.gate = { id: mintCollabId('g'), type: 'risk', summary: riskSummary(speaker, op), taskId: op.taskId || '', by: speaker, op };
         event(bundle, 'approval.requested', { actor: speaker, taskId: op.taskId || '', data: { type: 'risk', risk: op.risk, summary: bundle.project.gate.summary } });
         bundle.project.activity = bundle.project.gate.summary;
         return;
@@ -750,6 +802,7 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
       }
       if (op.op === 'shell') {
         const workspace = store.initWorkspace(bundle.project.id);
+        const before = new Map(store.listWorkspaceFiles(bundle.project.id).map(file => [file.name, file.content]));
         const result = op.mode === 'argv'
           ? await captureCommand(op.parts[0], op.parts.slice(1), workspace, shellEnv())
           : await captureCommand('sh', ['-c', op.command], workspace, shellEnv());
@@ -764,6 +817,7 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
         if (result.code !== 0) task.lastError = `Shell exited ${result.code}. Read shell-output.txt.`;
         else if (task.lastError.startsWith('Shell exited')) task.lastError = '';
         event(bundle, 'shell.ran', { actor: speaker, taskId: task.id, data: { command: op.command, exit: result.code, id: stored.meta.id, version: stored.version } });
+        noteWrittenFiles(bundle.project.id, speaker, task.id, before);
         try { syncWorkspace(bundle, task.id, speaker); }
         catch (error) {
           event(bundle, 'error', { actor: speaker, taskId: task.id, data: { message: error?.message || 'Workspace index failed.' } });
@@ -801,6 +855,7 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
         if (op.verdict === 'approve') {
           task.status = 'completed';
           event(bundle, 'review', { actor: speaker, taskId: task.id, data: { verdict: 'approve', notes: op.notes, criteria: op.criteria } });
+          commitAcceptedTask(bundle, task);
           rewriteSummary(bundle);
         } else {
           task.reviewAttempts += 1;
@@ -831,7 +886,9 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
         return 'corrective';
       }
       event(bundle, 'error', { actor: speaker, taskId: run.taskId, data: { message } });
-      if (task) exhaust(bundle, task, message);
+      if (task && run.kind === 'review') exhaust(bundle, task, message, 'review');
+      else if (task && isProtocolMistake(message)) releaseProtocol(bundle, task, message);
+      else if (task) exhaust(bundle, task, message, run.kind || 'work');
       else {
         bundle.project.status = 'paused';
         bundle.project.activity = message;
@@ -864,7 +921,7 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
       ensureRuns(bundle.project)[run.speaker] = null;
       const message = `${labels[run.speaker]} did not reply within ${Math.max(1, Math.round(turnTimeout / 60000))} minutes, so Orbit stopped that turn.`;
       event(bundle, 'error', { actor: run.speaker, taskId: run.taskId, data: { message } });
-      if (task) exhaust(bundle, task, message);
+      if (task) exhaust(bundle, task, message, run.kind || 'work');
       else {
         bundle.project.status = 'paused';
         bundle.project.activity = message;
@@ -876,7 +933,7 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
     catch (error) {
       const task = run.taskId ? taskById(bundle, run.taskId) : null;
       ensureRuns(bundle.project)[run.speaker] = null;
-      if (task) exhaust(bundle, task, error.message);
+      if (task) exhaust(bundle, task, error.message, run.kind || 'work');
       else {
         bundle.project.status = 'paused';
         bundle.project.activity = error.message || 'That speaker could not be reached.';
@@ -892,7 +949,7 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
     if (view.status === 'failed') {
       const task = run.taskId ? taskById(bundle, run.taskId) : null;
       ensureRuns(bundle.project)[run.speaker] = null;
-      if (task) exhaust(bundle, task, view.error || 'The speaker failed.');
+      if (task) exhaust(bundle, task, view.error || 'The speaker failed.', run.kind || 'work');
       else {
         bundle.project.status = 'paused';
         bundle.project.activity = view.error || 'The speaker failed.';
@@ -902,7 +959,43 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
     return finishRun(bundle, run, view.output || '', view.tokens || 0);
   }
 
+  function releaseProtocol(bundle, task, message) {
+    task.protocolHold = true;
+    task.lease = null;
+    task.lastError = clean(message, 500);
+    if (task.status === 'working') task.status = 'submitted';
+    event(bundle, 'task.state', { taskId: task.id, data: { status: task.status, reason: task.lastError, protocol: true, retry: true, attempts: task.attempts } });
+  }
+
+  function commitAcceptedTask(bundle, task) {
+    const dir = store.initWorkspace(bundle.project.id);
+    const agent = task.owner;
+    const name = labels[agent] || agent;
+    const email = `${agent}@collab.orbit`;
+    const env = {
+      ...process.env,
+      GIT_AUTHOR_NAME: name,
+      GIT_AUTHOR_EMAIL: email,
+      GIT_COMMITTER_NAME: name,
+      GIT_COMMITTER_EMAIL: email,
+    };
+    try {
+      spawnSync('git', ['add', '-A'], { cwd: dir, env, timeout: 8000 });
+      const pending = spawnSync('git', ['status', '--porcelain'], { cwd: dir, env, timeout: 8000, encoding: 'utf8' });
+      if (!String(pending.stdout || '').trim()) return;
+      const committed = spawnSync('git', ['commit', '-m', clean(task.title, 200) || 'Accepted task'], { cwd: dir, env, timeout: 8000, encoding: 'utf8' });
+      if (committed.status !== 0) {
+        event(bundle, 'error', { actor: agent, taskId: task.id, data: { message: clean(committed.stderr || committed.stdout || 'Workspace commit failed.', 300) } });
+        return;
+      }
+      event(bundle, 'workspace.commit', { actor: agent, taskId: task.id, data: { message: task.title } });
+    } catch (error) {
+      event(bundle, 'error', { actor: agent, taskId: task.id, data: { message: error?.message || 'Workspace commit failed.' } });
+    }
+  }
+
   async function advance(bundle) {
+    for (const task of bundle.tasks) task.protocolHold = false;
     const defer = new Set();
     for (let step = 0; step < 12; step += 1) {
       const runs = ensureRuns(bundle.project);
@@ -979,8 +1072,9 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
     if (choice === 'approve' && gate.type === 'risk' && gate.op) {
       const taskId = gate.taskId;
       const op = { ...gate.op, risk: '' };
+      const actor = AGENTS.includes(gate.by) ? gate.by : 'kyle';
       bundle.project.gate = null;
-      await applyOps(bundle, 'kyle', [op]);
+      await applyOps(bundle, actor, [op]);
       const task = taskById(bundle, taskId);
       if (task && task.status === 'input-required') {
         task.status = 'working';

@@ -4,8 +4,9 @@ import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { createAgentHandler } from '../server/agent.mjs';
-import { chooseAgent, classifyShell, defaultCapabilities, parseCollabBlock } from '../server/collab.mjs';
+import { chooseAgent, classifyShell, collabTurnTimeoutMs, defaultCapabilities, parseCollabBlock } from '../server/collab.mjs';
 
 const token = 'orbit-test-token-'.repeat(4);
 const session = 'orbit-12345678-1234-4234-9234-123456789abc';
@@ -89,6 +90,9 @@ function scripted(replies) {
     if (route.startsWith('http://hermes.test/v1/runs/') && route.endsWith('/stop')) return json({ status: 'stopping' });
     if (route.startsWith('http://hermes.test/v1/runs/')) {
       const id = route.split('/').at(-1);
+      const status = replies.hermesStatus?.(payload, hermesPosts, id) || 'completed';
+      if (status === 'running') return json({ status: 'running' });
+      if (status === 'error') return json({ error: 'down' }, 500);
       return json({ status: 'completed', output: hermesOutput.get(id) || '', usage: { total_tokens: 20 } });
     }
     if (route.endsWith('/api/listAgents')) return json(agents);
@@ -298,6 +302,7 @@ test('Kyle can reassign a task, and a risky write waits for approval', async t =
   assert.equal(back.status, 200);
   const gated = await room.request({ action: 'collab', operation: 'resolve', project_id, choice: 'approve' });
   assert.equal(gated.body.project.gate.type, 'risk');
+  assert.match(gated.body.project.gate.summary, /danger\.md/);
   assert.equal(gated.body.artifacts.length, 0);
   const allowed = await room.request({ action: 'collab', operation: 'resolve', project_id, choice: 'approve' });
   assert.equal(allowed.body.artifacts.some(item => item.name === 'danger.md'), true);
@@ -561,6 +566,8 @@ test('a shell write waits for Kyle and then runs in the workspace', async t => {
   const gated = await room.request({ action: 'collab', operation: 'resolve', project_id, choice: 'approve' });
   assert.equal(gated.status, 200, JSON.stringify(gated.body.error || gated.body.project?.activity || ''));
   assert.equal(gated.body.project.gate.type, 'risk');
+  assert.match(gated.body.project.gate.summary, /printf hi > grok-shell\.txt/);
+  assert.equal(gated.body.project.gate.summary.length <= 700, true);
   assert.equal(gated.body.artifacts.some(item => item.name === 'shell-output.txt'), false);
   assert.equal(fs.existsSync(path.join(created.body.workspace, 'grok-shell.txt')), false);
   const allowed = await room.request({ action: 'collab', operation: 'resolve', project_id, choice: 'approve' });
@@ -570,4 +577,197 @@ test('a shell write waits for Kyle and then runs in the workspace', async t => {
   const written = allowed.body.artifacts.find(item => item.name === 'grok-shell.txt');
   assert.ok(output);
   assert.ok(written);
+  assert.equal(written.versions.at(-1).by, 'grok');
+  assert.equal(written.taskId, created.body.tasks.find(task => task.owner === 'grok').id);
+});
+
+test('collab turns default to 20 minutes', () => {
+  assert.equal(collabTurnTimeoutMs({}), 20 * 60 * 1000);
+  assert.equal(collabTurnTimeoutMs({ ORBIT_COLLAB_TURN_TIMEOUT_MS: '60000' }), 60000);
+  assert.equal(collabTurnTimeoutMs({ ORBIT_SHARED_TURN_TIMEOUT_MS: '120000' }), 120000);
+  assert.equal(collabTurnTimeoutMs({ ORBIT_COLLAB_TURN_TIMEOUT_MS: '500' }), 20 * 60 * 1000);
+});
+
+test('a failed review turn retries the reviewer and then fails the task', async t => {
+  const { fetchImpl } = scripted({
+    grok(prompt) {
+      if (prompt.includes('No tasks exist yet')) return block([{ op: 'plan', tasks: [{ title: 'Draft', spec: 'Write it', acceptance: ['Clear'], owner: 'hermes', reviewer: 'grok', role: 'executor' }] }]);
+      return 'I forgot the collab block';
+    },
+    hermes: prompt => workBlock(prompt),
+  });
+  const room = await open(t, fetchImpl);
+  const created = await room.request({ action: 'collab', operation: 'create', goal: 'Draft the page' });
+  const project_id = created.body.project.id;
+  const body = (await room.request({ action: 'collab', operation: 'resolve', project_id, choice: 'approve' })).body;
+  assert.equal(body.tasks[0].status, 'failed');
+  assert.equal(body.tasks[0].owner, 'hermes');
+  assert.equal(body.tasks[0].reviewer, 'grok');
+  assert.equal(body.tasks[0].attempts, 0);
+  assert.equal(body.events.some(item => item.type === 'task.state' && item.data.review === true && item.data.retry === true), true);
+  assert.equal(body.events.some(item => item.type === 'handoff'), false);
+});
+
+test('a review timeout retries the review and a second timeout fails it', async t => {
+  let clock = 1_700_000_000_000;
+  const { fetchImpl } = scripted({
+    grok(prompt) {
+      if (prompt.includes('No tasks exist yet')) return block([{ op: 'plan', tasks: [{ title: 'Draft', spec: 'Write it', acceptance: ['Clear'], owner: 'grok', reviewer: 'hermes', role: 'executor' }] }]);
+      return workBlock(prompt);
+    },
+    hermes: prompt => reviewBlock(prompt),
+    hermesStatus: () => 'running',
+  });
+  const room = await open(t, fetchImpl, { grokOptions: { now: () => clock } });
+  const created = await room.request({ action: 'collab', operation: 'create', goal: 'Wait on review' });
+  const project_id = created.body.project.id;
+  const started = await room.request({ action: 'collab', operation: 'resolve', project_id, choice: 'approve' });
+  assert.equal(started.body.tasks[0].status, 'review');
+  assert.equal(started.body.tasks[0].owner, 'grok');
+  clock += (20 * 60 * 1000) + 1;
+  const retried = await room.request({ action: 'collab', operation: 'state', project_id });
+  assert.equal(retried.body.tasks[0].status, 'review');
+  assert.equal(retried.body.tasks[0].owner, 'grok');
+  assert.equal(retried.body.tasks[0].reviewer, 'hermes');
+  assert.equal(retried.body.tasks[0].attempts, 0);
+  assert.match(retried.body.tasks[0].lastError, /20 minutes/);
+  clock += (20 * 60 * 1000) + 1;
+  const failed = await room.request({ action: 'collab', operation: 'state', project_id });
+  assert.equal(failed.body.tasks[0].status, 'failed');
+  assert.equal(failed.body.tasks[0].owner, 'grok');
+  assert.equal(failed.body.tasks[0].reviewer, 'hermes');
+  assert.equal(failed.body.tasks[0].attempts, 0);
+});
+
+test('a review gateway error does not swap the owner', async t => {
+  const { fetchImpl } = scripted({
+    grok(prompt) {
+      if (prompt.includes('No tasks exist yet')) return block([{ op: 'plan', tasks: [{ title: 'Draft', spec: 'Write it', acceptance: ['Clear'], owner: 'grok', reviewer: 'hermes', role: 'executor' }] }]);
+      return workBlock(prompt);
+    },
+    hermes: prompt => reviewBlock(prompt),
+    hermesStatus: () => 'error',
+  });
+  const room = await open(t, fetchImpl);
+  const created = await room.request({ action: 'collab', operation: 'create', goal: 'Review errors' });
+  const project_id = created.body.project.id;
+  const body = (await room.request({ action: 'collab', operation: 'resolve', project_id, choice: 'approve' })).body;
+  assert.equal(body.tasks[0].status, 'failed');
+  assert.equal(body.tasks[0].owner, 'grok');
+  assert.equal(body.tasks[0].reviewer, 'hermes');
+  assert.equal(body.tasks[0].attempts, 0);
+  assert.equal(body.events.some(item => item.type === 'handoff'), false);
+});
+
+test('a missing collab block does not spend a task attempt', async t => {
+  let hermesPosts = 0;
+  const { fetchImpl } = scripted({
+    grok(prompt) {
+      if (prompt.includes('No tasks exist yet')) return block([{ op: 'plan', tasks: [{ title: 'Draft', spec: 'Write it', acceptance: ['Clear'], owner: 'hermes', reviewer: 'grok', role: 'executor' }] }]);
+      return reviewBlock(prompt);
+    },
+    hermes(prompt) {
+      hermesPosts += 1;
+      if (hermesPosts <= 2) return 'talking without a block';
+      return workBlock(prompt);
+    },
+  });
+  const room = await open(t, fetchImpl);
+  const created = await room.request({ action: 'collab', operation: 'create', goal: 'Keep the attempt' });
+  const project_id = created.body.project.id;
+  const held = await room.request({ action: 'collab', operation: 'resolve', project_id, choice: 'approve' });
+  assert.equal(held.body.tasks[0].attempts, 0);
+  assert.equal(held.body.tasks[0].owner, 'hermes');
+  assert.equal(['submitted', 'working'].includes(held.body.tasks[0].status), true);
+  const resumed = await room.request({ action: 'collab', operation: 'state', project_id });
+  assert.equal(resumed.body.tasks[0].attempts, 0);
+  assert.equal(resumed.body.tasks[0].owner, 'hermes');
+  assert.equal(resumed.body.tasks[0].status, 'completed');
+});
+
+test('workspace.sync without a task does not spend a task attempt', async t => {
+  const { fetchImpl } = scripted({
+    grok(prompt) {
+      if (prompt.includes('No tasks exist yet')) return block([{ op: 'plan', tasks: [{ title: 'Draft', spec: 'Write it', acceptance: ['Clear'], owner: 'hermes', reviewer: 'grok', role: 'executor' }] }]);
+      return reviewBlock(prompt);
+    },
+    hermes: () => block([{ op: 'workspace.sync' }]),
+  });
+  const room = await open(t, fetchImpl);
+  const created = await room.request({ action: 'collab', operation: 'create', goal: 'Sync carefully' });
+  const project_id = created.body.project.id;
+  const held = await room.request({ action: 'collab', operation: 'resolve', project_id, choice: 'approve' });
+  assert.equal(held.body.tasks[0].attempts, 0);
+  assert.equal(held.body.tasks[0].owner, 'hermes');
+  assert.notEqual(held.body.tasks[0].status, 'failed');
+  assert.match(held.body.tasks[0].lastError, /workspace\.sync needs a taskId/);
+});
+
+test('workspace sync attributes a new file to the agent that created it', async t => {
+  let workspace = '';
+  let hermesTask = '';
+  const { fetchImpl } = scripted({
+    grok(prompt) {
+      if (prompt.includes('No tasks exist yet')) {
+        return block([{
+          op: 'plan',
+          tasks: [
+            { title: 'Build it', spec: 'Write the file', acceptance: ['File exists'], owner: 'hermes', reviewer: 'grok', role: 'executor' },
+            { title: 'Index it', spec: 'Sync the workspace', acceptance: ['Indexed'], owner: 'grok', reviewer: 'hermes', role: 'researcher', skillsHint: ['research'] },
+          ],
+        }]);
+      }
+      const id = taskIdFrom(prompt);
+      return block([
+        { op: 'workspace.sync', taskId: id },
+        { op: 'submit', taskId: id, summary: 'indexed', artifacts: [], selfCheck: {} },
+      ]);
+    },
+    hermes(prompt) {
+      hermesTask = taskIdFrom(prompt);
+      if (workspace) fs.writeFileSync(path.join(workspace, 'built-by-hermes.txt'), 'from hermes\n');
+      return block([{ op: 'claim', taskId: hermesTask }]);
+    },
+    hermesStatus: () => 'running',
+  });
+  const room = await open(t, fetchImpl);
+  const created = await room.request({ action: 'collab', operation: 'create', goal: 'Attribute the file' });
+  workspace = created.body.workspace;
+  const project_id = created.body.project.id;
+  const synced = await room.request({ action: 'collab', operation: 'resolve', project_id, choice: 'approve' });
+  const file = synced.body.artifacts.find(item => item.name === 'built-by-hermes.txt');
+  assert.ok(file, JSON.stringify(synced.body.artifacts.map(item => item.name)));
+  assert.equal(file.versions.at(-1).by, 'hermes');
+  assert.equal(file.taskId, hermesTask);
+  const grokTask = synced.body.tasks.find(task => task.owner === 'grok');
+  assert.equal(grokTask.artifacts.includes(file.id), false);
+});
+
+test('an accepted task commits the workspace as the owning agent', async t => {
+  const { fetchImpl } = scripted({
+    grok(prompt) {
+      if (prompt.includes('No tasks exist yet')) return block([{ op: 'plan', tasks: [{ title: 'Write the notes', spec: 'Create notes.md', acceptance: ['The file exists'], owner: 'hermes', reviewer: 'grok', role: 'executor' }] }]);
+      return reviewBlock(prompt);
+    },
+    hermes(prompt) {
+      const id = taskIdFrom(prompt);
+      return block([
+        { op: 'claim', taskId: id },
+        { op: 'artifact.put', name: 'notes.md', kind: 'file', content: 'hello notes\n', taskId: id, baseVersion: 0 },
+        { op: 'submit', taskId: id, summary: 'wrote notes', artifacts: [], selfCheck: {} },
+      ]);
+    },
+  });
+  const room = await open(t, fetchImpl);
+  const created = await room.request({ action: 'collab', operation: 'create', goal: 'Commit the notes' });
+  const project_id = created.body.project.id;
+  let body = (await room.request({ action: 'collab', operation: 'resolve', project_id, choice: 'approve' })).body;
+  for (let i = 0; i < 4 && body.tasks[0].status !== 'completed'; i += 1) {
+    body = (await room.request({ action: 'collab', operation: 'state', project_id })).body;
+  }
+  assert.equal(body.tasks[0].status, 'completed');
+  const log = spawnSync('git', ['log', '-1', '--format=%an%n%ae%n%s'], { cwd: created.body.workspace, encoding: 'utf8' });
+  assert.equal(log.status, 0, log.stderr);
+  assert.equal(log.stdout, 'Hermes\nhermes@collab.orbit\nWrite the notes\n');
+  assert.equal(body.events.some(item => item.type === 'workspace.commit' && item.actor === 'hermes'), true);
 });

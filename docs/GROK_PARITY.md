@@ -61,8 +61,8 @@ The menu says so when the focused chat is Grok Bot and the owner opens the build
 Hermes can already use its own terminal in `collab/<projectId>/workspace`. The Grok Bot gateway has no terminal pointed at that directory. Orbit therefore accepts a `shell` op from either agent:
 
 1. `pwd`, `ls`, `git status`, `git diff`, `git log`, and the existing test commands run as an argument vector, with a reduced environment (`PATH`, `HOME`, `LANG`, `TMPDIR`, `USER`, `CI=1`). Extra arguments must be plain tokens and cannot contain `..`.
-2. Any other command must set `risk` to `shell.write`. That uses the same risk inbox as deletes and git pushes. Nothing runs until Kyle approves.
+2. Any other command must set `risk` to `shell.write`. That uses the same risk inbox as deletes and git pushes. The approval summary includes the command, up to 600 characters, or the file name for a risky write. Nothing runs until Kyle approves.
 3. After approval, Orbit runs `sh -c` in the workspace for at most 60 seconds and stores the output as `shell-output.txt`.
-4. Text files the command creates are indexed as artifacts, including after a Grok Bot turn.
+4. Text files the command creates are indexed as artifacts under the agent and task that created them, including when another agent or the approval runs the sync.
 
 Do not treat step 2 as a sandbox. A shell can still leave the working directory. The approval is what makes the command allowed.
