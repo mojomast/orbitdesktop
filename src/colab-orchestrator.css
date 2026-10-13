@@ -61,6 +61,9 @@
 .colab-rich iframe { width: min(100%, 640px); height: 240px; border: 0; background: white; border-radius: 4px; }
 .colab-meter { height: 8px; border-radius: 99px; background: #26314a; overflow: hidden; }
 .colab-meter span { display: block; height: 100%; background: var(--theme-accentColor, #c2ed90); }
+.colab-progress { display: flex; flex-direction: column; gap: 6px; }
+.colab-progress[hidden] { display: none; }
+.colab-loss { width: 240px; height: 64px; color: var(--theme-accentColor, #c2ed90); }
 .colab-dialog { border: 0; border-radius: 12px; padding: 16px; color: inherit; background: var(--theme-background, #141b28); max-width: 420px; }
 .colab-dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
 .colab-dialog p { margin: 0 0 12px; }

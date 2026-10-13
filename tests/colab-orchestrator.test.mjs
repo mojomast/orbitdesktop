@@ -5,10 +5,12 @@ import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
 import { EventEmitter } from 'node:events';
+import { createHash } from 'node:crypto';
 import {
   COST_WARNING, acceleratorArgs, catalogFromHelp, colabEnvironment, collapseTerminal,
-  parseNvidiaSmi, parseSessions, parseUsage, planCommand, redactSecrets, runtimeById,
+  jobLabel, parseNvidiaSmi, parseSessions, parseUsage, planCommand, redactSecrets, runtimeById,
 } from '../server/colab-plan.mjs';
+import { applyProgress, emptyProgress, parseFileInfo, parseRemoteTail, remoteFailure } from '../server/colab-job-parse.mjs';
 import { createColabOrchestrator } from '../server/colab-orchestrator.mjs';
 
 const token = 'orbit-colab-test-token-orbit-colab';
@@ -113,6 +115,10 @@ test('command plans are argv arrays and refuse unconfirmed cost or stop', () => 
   assert.deepEqual(run.args.slice(-2), ['--epochs', '1']);
   assert.equal(typeof created.args, 'object');
   assert.equal(Array.isArray(created.args), true);
+  assert.equal(jobLabel('  qwen lora '), 'qwen lora');
+  assert.equal(jobLabel(''), '');
+  assert.throws(() => jobLabel(`too-long-${'x'.repeat(80)}`), /not allowed/);
+  assert.throws(() => jobLabel('line\nbreak'), /not allowed/);
 });
 
 test('usage, sessions, GPU csv, carriage returns, and secrets parse without keeping tokens', () => {
@@ -176,11 +182,11 @@ test('create, exec stream, replay, and image copy use the mocked CLI', async () 
 
     const script = path.join(root, 'train.py');
     fs.writeFileSync(script, 'print(1)\n');
-    const started = await post(server.port, { action: 'exec', session: 'trainer', file: script, timeout: 120 });
+    const started = await post(server.port, { action: 'exec', session: 'trainer', file: script, timeout: 120, attached: true, label: 'plot run' });
     assert.equal(started.status, 200);
     const jobId = started.body.job.id;
     const listed = await post(server.port, { action: 'jobs', session: 'trainer' });
-    assert.equal(listed.body.jobs.some(job => job.id === jobId && job.action === 'exec' && job.state === 'running'), true);
+    assert.equal(listed.body.jobs.some(job => job.id === jobId && job.action === 'exec' && job.state === 'running' && job.label === 'plot run'), true);
     assert.equal((await post(server.port, { action: 'jobs', session: 'other' })).body.jobs.length, 0);
     await new Promise(resolve => setTimeout(resolve, 30));
     const tail = await post(server.port, { action: 'tail', job_id: jobId, after: 0 });
@@ -231,7 +237,7 @@ test('training run confirms cost, then creates, uploads, and executes in order',
   fs.writeFileSync(data, '{}\n');
   try {
     const started = await post(server.port, {
-      action: 'train', session: 'qwen', accelerator: 'T4', confirm_cost: true, timeout: 90,
+      action: 'train', session: 'qwen', accelerator: 'T4', confirm_cost: true, timeout: 90, attached: true,
       uploads: [{ local: data, remote: '/content/data.jsonl' }], packages: ['torch'], script,
     });
     assert.equal(started.status, 200);
@@ -264,7 +270,7 @@ test('a detached job keeps running and can be tailed after the orchestrator clos
   });
   let pid = 0;
   try {
-    const started = await first.dispatch({ action: 'exec', session: 'trainer', file: script, timeout: 30 });
+    const started = await first.dispatch({ action: 'exec', session: 'trainer', file: script, timeout: 30, attached: true });
     const jobId = started.job.id;
     const logPath = path.join(rootDir, 'jobs', jobId, 'output.log');
     for (let attempt = 0; attempt < 50 && !fs.readFileSync(logPath, 'utf8').includes('tick'); attempt += 1) {
@@ -301,6 +307,319 @@ test('a detached job keeps running and can be tailed after the orchestrator clos
   } finally {
     if (pid) { try { process.kill(-pid, 'SIGTERM'); } catch { try { process.kill(pid, 'SIGTERM'); } catch { /* already exited */ } } }
     first.close();
+    fs.rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test('progress parsers, tracebacks, and remote tail markers', () => {
+  const progress = applyProgress(emptyProgress(), [
+    '  50%|#####     | 1/2 [00:01<00:03, 1.00it/s]',
+    "{'loss': 0.5}",
+    'ORBIT_PROGRESS {"stage":"train","step":2,"total":4,"loss":0.25,"eta":"10s","gpu_mem":"1024/8192 MiB"}',
+    'gpu_mem=1/2 GiB',
+  ].join('\n'));
+  assert.equal(progress.percent, 50);
+  assert.equal(progress.step, 2);
+  assert.equal(progress.total, 4);
+  assert.equal(progress.stage, 'train');
+  assert.equal(progress.loss, 0.25);
+  assert.equal(progress.eta, '10s');
+  assert.equal(progress.gpuMemory, '1/2 GiB');
+  assert.equal(progress.losses.length, 2);
+  const boom = remoteFailure('Traceback (most recent call last):\nValueError: boom\n');
+  assert.equal(boom.failed, true);
+  assert.equal(boom.code, 1);
+  assert.match(boom.summary, /ValueError: boom/);
+  const lost = remoteFailure('Traceback (most recent call last):\nRuntimeError: Connection was lost\n');
+  assert.equal(lost.failed, false);
+  assert.equal(lost.lost, true);
+  assert.equal(remoteFailure('ORBIT_EXIT 3\n').code, 3);
+  const body = Buffer.from('hi');
+  const tail = parseRemoteTail(`ORBIT_REMOTE_PID 12\nORBIT_CHUNK 4 ${body.length}\n${body.toString('base64')}\nORBIT_CHUNK_END\nORBIT_ALIVE\n`);
+  assert.equal(tail.pid, 12);
+  assert.equal(tail.offset, 4);
+  assert.equal(tail.length, 2);
+  assert.equal(tail.alive, true);
+  assert.equal(tail.exitCode, null);
+  assert.equal(parseFileInfo(`ORBIT_FILE 8 ${'ab'.repeat(32)}`).size, 8);
+});
+
+test('a script that exits 0 with a traceback is marked failed', async () => {
+  const scripts = scripted([
+    { out: 'Traceback (most recent call last):\n  File "train.py", line 1, in <module>\nRuntimeError: boom\n', hang: true },
+  ]);
+  const server = await listen((req, res, url) => colab.handle(req, res, url));
+  const { colab, root } = service(scripts.spawn, server.port);
+  try {
+    const script = path.join(root, 'train.py');
+    fs.writeFileSync(script, 'raise RuntimeError("boom")\n');
+    const started = await post(server.port, { action: 'exec', session: 'trainer', file: script, attached: true });
+    assert.equal(started.status, 200);
+    for (let attempt = 0; attempt < 50 && !scripts.procs[0]; attempt += 1) await new Promise(resolve => setTimeout(resolve, 10));
+    scripts.procs[0].emit('close', 0, null);
+    let job = started.body.job;
+    for (let attempt = 0; attempt < 50 && job.state === 'running'; attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 20));
+      job = (await post(server.port, { action: 'job', job_id: started.body.job.id })).body.job;
+    }
+    assert.equal(job.state, 'failed');
+    assert.equal(job.exitCode, 1);
+    assert.match(job.error, /RuntimeError: boom/);
+  } finally {
+    colab.close();
+    await server.stop();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+function remoteCli(onTail) {
+  const calls = [];
+  function spawn(bin, args) {
+    const proc = child();
+    calls.push({ args, proc });
+    setImmediate(() => {
+      if (args[0] === 'upload' || args[0] === 'new' || args[0] === 'install') {
+        proc.stdout.emit('data', Buffer.from('ok\n'));
+        proc.emit('close', 0, null);
+        return;
+      }
+      if (args[0] === 'restart-kernel') {
+        proc.stdout.emit('data', Buffer.from('kernel restarted\n'));
+        proc.emit('close', 0, null);
+        return;
+      }
+      const command = String(proc.stdin.ended || '');
+      if (command.includes(' launch ')) {
+        proc.stdout.emit('data', Buffer.from('ORBIT_REMOTE_PID 77\n'));
+        proc.emit('close', 0, null);
+        return;
+      }
+      if (command.includes(' stop ')) {
+        proc.stdout.emit('data', Buffer.from('ORBIT_KILLED 77\n'));
+        proc.emit('close', 0, null);
+        return;
+      }
+      if (command.includes(' tail ')) {
+        onTail(proc, command, calls);
+        return;
+      }
+      proc.stderr.emit('data', Buffer.from(`unexpected ${args[0]}\n`));
+      proc.emit('close', 1, null);
+    });
+    return proc;
+  }
+  return { spawn, calls };
+}
+
+function chunkFrame(offset, text, trailer) {
+  const body = Buffer.from(text);
+  return `ORBIT_CHUNK ${offset} ${body.length}\n${body.toString('base64')}\nORBIT_CHUNK_END\n${trailer}`;
+}
+
+test('a dropped Colab connection retries the remote log and keeps the progress', async () => {
+  let tails = 0;
+  const sample = '  50%|#####     | 1/2 [00:01<00:03, 1.00it/s]\n{\'loss\': 0.4}\n';
+  const scripts = remoteCli(proc => {
+    tails += 1;
+    if (tails === 1) {
+      proc.stdout.emit('data', Buffer.from('RuntimeError: Connection was lost\n'));
+      proc.emit('close', 0, null);
+      return;
+    }
+    proc.stdout.emit('data', Buffer.from(chunkFrame(0, sample, 'ORBIT_EXIT 0\n')));
+    proc.emit('close', 0, null);
+  });
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'orbit-colab-remote-'));
+  const server = await listen((req, res, url) => colab.handle(req, res, url));
+  const colab = createColabOrchestrator({
+    token, port: server.port, devOrigins: [], reply, spawn: scripts.spawn, bin: '/opt/colab-test/colab', home: '/home/tester', root: rootDir, reconnectDelay: 5,
+  });
+  const script = path.join(rootDir, 'train.py');
+  fs.writeFileSync(script, 'print("train")\n');
+  try {
+    const started = await post(server.port, { action: 'exec', session: 'trainer', file: script, label: 'qwen lora' });
+    assert.equal(started.status, 200);
+    assert.equal(started.body.job.label, 'qwen lora');
+    let job = started.body.job;
+    for (let attempt = 0; attempt < 50 && job.state === 'running'; attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 20));
+      job = (await post(server.port, { action: 'job', job_id: started.body.job.id })).body.job;
+    }
+    assert.equal(job.state, 'exited');
+    assert.equal(job.exitCode, 0);
+    assert.equal(job.remote, true);
+    assert.equal(job.progress.percent, 50);
+    assert.equal(job.progress.loss, 0.4);
+    assert.equal(job.progress.eta, '00:03');
+    const tail = await post(server.port, { action: 'tail', job_id: job.id, after: 0 });
+    assert.match(tail.body.text, /Reconnecting/);
+    assert.match(tail.body.text, /loss/);
+    assert.equal(scripts.calls.some(call => call.args[0] === 'exec'), false);
+    assert.equal(scripts.calls.some(call => String(call.proc.stdin.ended || '').includes(' launch ')), true);
+  } finally {
+    colab.close();
+    await server.stop();
+    fs.rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test('cancel signals the remote process and restarts the kernel', async () => {
+  const scripts = remoteCli(() => {});
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'orbit-colab-cancel-'));
+  const server = await listen((req, res, url) => colab.handle(req, res, url));
+  const colab = createColabOrchestrator({
+    token, port: server.port, devOrigins: [], reply, spawn: scripts.spawn, bin: '/opt/colab-test/colab', home: '/home/tester', root: rootDir, reconnectDelay: 5,
+  });
+  const script = path.join(rootDir, 'train.py');
+  fs.writeFileSync(script, 'print("train")\n');
+  try {
+    const started = await post(server.port, { action: 'exec', session: 'trainer', file: script, label: 'stop me' });
+    for (let attempt = 0; attempt < 50 && !scripts.calls.some(call => String(call.proc.stdin.ended || '').includes(' tail ')); attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+    const cancelled = await post(server.port, { action: 'cancel', job_id: started.body.job.id, confirm: true });
+    assert.equal(cancelled.status, 200);
+    assert.equal(cancelled.body.job.state, 'cancelled');
+    assert.match(cancelled.body.job.error, /Remote work was interrupted/);
+    assert.equal(scripts.calls.some(call => String(call.proc.stdin.ended || '').includes(' stop ')), true);
+    assert.equal(scripts.calls.some(call => call.args[0] === 'restart-kernel'), true);
+  } finally {
+    colab.close();
+    await server.stop();
+    fs.rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test('closing Orbit resumes a remote tail without launching the script again', async () => {
+  let finish = false;
+  const scripts = remoteCli(proc => {
+    if (!finish) return;
+    proc.stdout.emit('data', Buffer.from(chunkFrame(0, 'resumed\n', 'ORBIT_EXIT 0\n')));
+    proc.emit('close', 0, null);
+  });
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'orbit-colab-resume-'));
+  const script = path.join(rootDir, 'train.py');
+  fs.writeFileSync(script, 'print("train")\n');
+  const first = createColabOrchestrator({
+    token, port: 4318, devOrigins: [], reply, spawn: scripts.spawn, bin: '/opt/colab-test/colab', home: '/home/tester', root: rootDir, reconnectDelay: 5,
+  });
+  try {
+    const started = await first.dispatch({ action: 'exec', session: 'trainer', file: script });
+    const jobId = started.job.id;
+    for (let attempt = 0; attempt < 50 && !scripts.calls.some(call => String(call.proc.stdin.ended || '').includes(' tail ')); attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+    const meta = JSON.parse(fs.readFileSync(path.join(rootDir, 'jobs', jobId, 'meta.json'), 'utf8'));
+    assert.equal(meta.remote, true);
+    assert.equal(meta.state, 'running');
+    const marked = scripts.calls.length;
+    first.close();
+    finish = true;
+    const second = createColabOrchestrator({
+      token, port: 4318, devOrigins: [], reply, spawn: scripts.spawn, bin: '/opt/colab-test/colab', home: '/home/tester', root: rootDir, reconnectDelay: 5,
+    });
+    try {
+      let job = { state: 'running' };
+      for (let attempt = 0; attempt < 50 && job.state === 'running'; attempt += 1) {
+        await new Promise(resolve => setTimeout(resolve, 20));
+        job = (await second.dispatch({ action: 'job', job_id: jobId })).job;
+      }
+      assert.equal(job.state, 'exited');
+      const tail = await second.dispatch({ action: 'tail', job_id: jobId, after: 0 });
+      assert.match(tail.text, /resumed/);
+      const later = scripts.calls.slice(marked);
+      assert.equal(later.some(call => String(call.proc.stdin.ended || '').includes(' launch ')), false);
+      assert.equal(later.some(call => String(call.proc.stdin.ended || '').includes(' tail ')), true);
+    } finally {
+      second.close();
+    }
+  } finally {
+    first.close();
+    fs.rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+function downloadCli(data, options) {
+  const calls = [];
+  let downloads = 0;
+  let slice = Buffer.alloc(0);
+  function spawn(bin, args) {
+    const proc = child();
+    calls.push({ args, proc });
+    setImmediate(() => {
+      try {
+        if (args[0] === 'upload') {
+          proc.stdout.emit('data', Buffer.from('ok\n'));
+          proc.emit('close', 0, null);
+          return;
+        }
+        if (args[0] === 'console') {
+          const paramsPath = calls.filter(call => call.args[0] === 'upload').at(-1).args[3];
+          const params = JSON.parse(fs.readFileSync(paramsPath, 'utf8'));
+          if (params.cmd === 'info') {
+            const sha = options.badHash ? 'ab'.repeat(32) : createHash('sha256').update(data).digest('hex');
+            proc.stdout.emit('data', Buffer.from(`ORBIT_FILE ${data.length} ${sha}\n`));
+          } else {
+            slice = data.subarray(params.start, params.start + params.length);
+            proc.stdout.emit('data', Buffer.from(`ORBIT_SLICE ${params.start} ${slice.length}\n`));
+          }
+          proc.emit('close', 0, null);
+          return;
+        }
+        if (args[0] === 'download') {
+          downloads += 1;
+          if (downloads > options.failAfter) {
+            proc.emit('close', 1, null);
+            return;
+          }
+          fs.writeFileSync(args[4], slice);
+          proc.stdout.emit('data', Buffer.from('ok\n'));
+          proc.emit('close', 0, null);
+          return;
+        }
+        proc.emit('close', 1, null);
+      } catch (error) {
+        proc.stderr.emit('data', Buffer.from(String(error)));
+        proc.emit('close', 1, null);
+      }
+    });
+    return proc;
+  }
+  return { spawn, calls, downloaded: () => downloads };
+}
+
+test('downloads resume in chunks and reject a bad sha256', async () => {
+  const data = Buffer.from('abcdefgh');
+  const options = { failAfter: 1, badHash: false };
+  const scripts = downloadCli(data, options);
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'orbit-colab-download-'));
+  const server = await listen((req, res, url) => colab.handle(req, res, url));
+  const colab = createColabOrchestrator({
+    token, port: server.port, devOrigins: [], reply, spawn: scripts.spawn, bin: '/opt/colab-test/colab', home: '/home/tester', root: rootDir,
+    chunkBytes: 4, reconnectDelay: 5,
+  });
+  try {
+    const failed = await post(server.port, { action: 'download', session: 'trainer', remote: '/content/model.bin' });
+    assert.equal(failed.status, 400);
+    assert.equal(scripts.downloaded(), 5);
+    options.failAfter = 100;
+    const saved = await post(server.port, { action: 'download', session: 'trainer', remote: '/content/model.bin' });
+    assert.equal(saved.status, 200);
+    assert.equal(saved.body.bytes, 8);
+    assert.equal(saved.body.sha256, createHash('sha256').update(data).digest('hex'));
+    const response = await fetch(`http://127.0.0.1:${server.port}/api/colab-runtime/file/trainer/${saved.body.file}`, {
+      headers: { Authorization: `Bearer ${token}`, Origin: `http://127.0.0.1:${server.port}`, Host: `127.0.0.1:${server.port}` },
+    });
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-length'), '8');
+    assert.deepEqual(Buffer.from(await response.arrayBuffer()), data);
+    options.badHash = true;
+    const mismatch = await post(server.port, { action: 'download', session: 'trainer', remote: '/content/other.bin' });
+    assert.equal(mismatch.status, 400);
+    assert.match(mismatch.body.error, /sha256/);
+  } finally {
+    colab.close();
+    await server.stop();
     fs.rmSync(rootDir, { recursive: true, force: true });
   }
 });

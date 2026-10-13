@@ -25,9 +25,15 @@ Start a run and the pane follows `GET /api/colab-runtime/stream` with the Orbit 
 
 Images the CLI saves (`[Image saved to: …]`) and images or HTML embedded in a finished `*_output.ipynb` are copied into the job folder and shown beside the terminal. HTML is framed without scripts.
 
-The log is appended under the Orbit runtime directory, `colab-orchestrator/jobs/<id>/output.log`. Closing the pane does not stop the CLI. The window polls `jobs` every few seconds, lists id, action, state, start, end, exit code, and bytes for the selected session or for every session, and attaches the terminal at the start of the log. A job started from this server, including one an agent started with `POST /api/colab-runtime`, is followed automatically while it is the newest running job for the selected session.
+The log is appended under the Orbit runtime directory, `colab-orchestrator/jobs/<id>/output.log`. Closing the pane does not stop the CLI. The window polls `jobs` every few seconds, lists label, id, action, state, start, end, exit code, and bytes for the selected session or for every session, and attaches the terminal at the start of the log. A job started from this server, including one an agent started with `POST /api/colab-runtime`, is followed automatically while it is the newest running job for the selected session.
 
-Each background step runs in a detached worker that writes the log. Restarting Orbit does not signal that worker. The next Orbit process tails the same log, shows the job as running, and marks it exited when the worker records an exit code. A multi-step training job keeps the step that is in flight; steps that had not started are not resumed. Jobs that were started before detached workers existed still stop when that older Orbit process exits. The local log is capped at 64MB.
+Optional `label` on `exec`, `train`, and other background jobs is shown in that list. A Python script (`exec` or the training script) starts in the background on the VM: Orbit uploads it, launches it under `/content/orbit-jobs/<id>/`, and tails `run.log`. A dropped Colab connection retries the tail and does not fail the job. Restarting Orbit resumes the tail from the last offset. Pass `attached: true`, or execute a notebook, to keep the older `colab exec` stream. `colab run` stays attached. Cancel stops the local process, signals the remote process, and restarts the kernel. The VM stays allocated until you stop the session.
+
+If the remote process exits 0 but the log contains a Python traceback, the job is marked `failed`. `Connection was lost` is a dropped connection, not a script failure. tqdm, Hugging Face `loss` lines, and `ORBIT_PROGRESS {"stage","step","loss","eta","gpu_mem"}` become the progress gauge, stage, step, loss, ETA, a small loss chart, and a GPU memory readout.
+
+Each attached background step runs in a detached worker that writes the log. Restarting Orbit does not signal that worker. The next Orbit process tails the same log, shows the job as running, and marks it exited when the worker records an exit code. A multi-step training job keeps the step that is in flight; steps that had not started are not resumed. Jobs that were started before detached workers existed still stop when that older Orbit process exits. The local log is capped at 64MB.
+
+Downloads are fetched in chunks, resumed from a partial file if the same remote path is requested again, and checked with sha256 before Orbit serves them. The browser download is streamed, so a multi-gigabyte file is not loaded into memory.
 
 `colab exec` and `colab run` pass `--timeout`. In the CLI that value is a quiet period, not a wall clock: output refreshes it, and a long silent stretch (a model load with no prints) still needs a higher timeout. The default in the app is 3600 seconds. The Orbit-side watcher is slightly longer than that quiet period and also stops the local process after 24 hours. Stopping the local process does not release the VM. `colab run` without keep is the CLI's own create-run-stop path; killing it early can skip that cleanup, so stop the session afterward if it is still listed.
 
@@ -40,7 +46,7 @@ Each background step runs in a detached worker that writes the log. Restarting O
 {"action":"sessions"}
 {"action":"discover"}
 {"action":"create","session":"trainer","accelerator":"G4","high_mem":false,"confirm_cost":true}
-{"action":"exec","session":"trainer","file":"/absolute/train.py","timeout":3600}
+{"action":"exec","session":"trainer","file":"/absolute/train.py","timeout":3600,"label":"qwen lora"}
 {"action":"tail","job_id":"<id>","after":0}
 {"action":"download","session":"trainer","remote":"/content/adapter/adapter_model.safetensors"}
 {"action":"stop","session":"trainer","confirm_stop":true}

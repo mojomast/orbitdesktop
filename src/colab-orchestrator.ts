@@ -8,7 +8,8 @@ import { el, button } from './dom';
 type Runtime = { id: string; kind: string; label: string; highMem: boolean; note: string; source: string };
 type Session = { name: string; orphan?: boolean; hardware: string; shape: string; variant: string; status: string };
 type Rich = { id: string; kind: string; mime: string; name: string };
-type Job = { id: string; action: string; session: string; state: string; exitCode: number | null; startedAt?: string; endedAt?: string | null; bytes: number; error: string; rich: Rich[]; truncated?: boolean };
+type Progress = { percent: number | null; stage: string; step: number | null; total: number | null; loss: number | null; eta: string; gpuMemory: string; losses: Array<{ step: number; loss: number }> };
+type Job = { id: string; action: string; session: string; state: string; exitCode: number | null; startedAt?: string; endedAt?: string | null; bytes: number; error: string; rich: Rich[]; truncated?: boolean; label?: string; remote?: boolean; progress?: Progress };
 type Usage = { balance: number | null; ratePerHour: number | null; assignments: number | null; raw: string };
 
 export function mountColab(options: { token: () => string; request: (body: Record<string, unknown>) => Promise<Record<string, unknown>> }) {
@@ -217,6 +218,10 @@ export function mountColab(options: { token: () => string; request: (body: Recor
     else renderLogs();
   }
 
+  const jobLabelInput = el('input');
+  jobLabelInput.maxLength = 80;
+  jobLabelInput.placeholder = 'Optional name shown in Jobs';
+  jobLabelInput.setAttribute('aria-label', 'Job label');
   const mode = el('select');
   for (const [value, label] of [['exec', 'Execute script or notebook'], ['code', 'Execute pasted code'], ['run', 'One-shot colab run'], ['repl', 'Python REPL'], ['console', 'Shell console'], ['install', 'Install packages'], ['drivemount', 'Mount Drive'], ['vm-auth', 'VM Google auth'], ['train', 'Training run']]) {
     const option = el('option', '', label);
@@ -248,6 +253,8 @@ export function mountColab(options: { token: () => string; request: (body: Recor
   trainConfirm.type = 'checkbox';
   const richHost = el('div', 'colab-rich');
   const termHost = el('div', 'colab-term');
+  const progressHost = el('div', 'colab-progress');
+  progressHost.hidden = true;
   let termReady = false;
 
   function ensureTerm() {
@@ -272,6 +279,7 @@ export function mountColab(options: { token: () => string; request: (body: Recor
     form.addEventListener('submit', event => event.preventDefault());
     form.append(
       el('h3', '', 'Run'),
+      field('Label', jobLabelInput),
       field('Mode', mode),
       field('Host file', filePath),
       field('Code', code),
@@ -285,9 +293,10 @@ export function mountColab(options: { token: () => string; request: (body: Recor
     form.querySelector('.colab-row')?.append(
       button('Start', 'Start this Colab operation', () => { void startRun(); }),
       button('Send Enter', 'Continue a Drive mount or VM auth prompt', () => { void sendEnter(); }, 'small-button'),
-      button('Cancel local process', 'Stop the local CLI process. The VM stays up.', () => { void cancelJob(); }, 'small-button'),
+      button('Cancel job', 'Stop the local process and interrupt the remote kernel.', () => { void cancelJob(); }, 'small-button'),
     );
-    panel.replaceChildren(jobsList, form, termHost, richHost);
+    panel.replaceChildren(jobsList, form, progressHost, termHost, richHost);
+    renderProgress(jobs.find(job => job.id === activeJob));
   }
   async function startRun() {
     if (!selected && mode.value !== 'run' && mode.value !== 'train') { setStatus('Select a session first.'); return; }
@@ -295,6 +304,7 @@ export function mountColab(options: { token: () => string; request: (body: Recor
     const timeoutValue = Number(timeout.value || 3600);
     const packageList = packages.value.split(/\s+/).filter(Boolean);
     const body: Record<string, unknown> = { action: mode.value, session: selected || nameInput.value.trim(), timeout: timeoutValue };
+    if (jobLabelInput.value.trim()) body.label = jobLabelInput.value.trim();
     if (filePath.value.trim()) body.file = filePath.value.trim();
     if (code.value.trim()) body.code = code.value;
     if (mode.value === 'repl') body.code = code.value;
@@ -369,7 +379,10 @@ export function mountColab(options: { token: () => string; request: (body: Recor
     const payload = JSON.parse(data.join('\n'));
     if (event === 'data' && typeof payload.text === 'string') term?.write(payload.text);
     if (event === 'rich') void showRich(String(payload.id || ''), String(payload.kind || ''), String(payload.mime || ''));
-    if (event === 'status') setStatus(payload.error || `Job ${payload.state}.`);
+    if (event === 'status') {
+      setStatus(payload.error || `Job ${payload.state}.`);
+      if (payload.progress) renderProgress(payload as Job);
+    }
     if (event === 'error') setStatus(payload.error || 'Stream interrupted.');
     return next || after;
   }
@@ -571,6 +584,55 @@ export function mountColab(options: { token: () => string; request: (body: Recor
     await refreshAll();
   }
 
+  function progressSummary(progress: Progress | undefined) {
+    if (!progress) return '';
+    return [
+      progress.stage,
+      progress.percent !== null && progress.percent !== undefined ? `${progress.percent}%` : '',
+      progress.step !== null && progress.step !== undefined ? `step ${progress.step}${progress.total ? `/${progress.total}` : ''}` : '',
+      progress.loss !== null && progress.loss !== undefined ? `loss ${progress.loss}` : '',
+      progress.eta ? `ETA ${progress.eta}` : '',
+      progress.gpuMemory ? `GPU ${progress.gpuMemory}` : '',
+    ].filter(Boolean).join(' · ');
+  }
+  function renderProgress(job: Job | undefined) {
+    const progress = job?.progress;
+    const summary = progressSummary(progress);
+    if (!progress || !summary) {
+      progressHost.replaceChildren();
+      progressHost.hidden = true;
+      return;
+    }
+    progressHost.hidden = false;
+    const meter = el('div', 'colab-meter');
+    const fill = el('span');
+    fill.style.width = `${Math.max(0, Math.min(100, progress.percent ?? 0))}%`;
+    meter.append(fill);
+    progressHost.replaceChildren(el('p', 'colab-note', summary), meter);
+    const losses = progress.losses || [];
+    if (losses.length >= 2) {
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('viewBox', '0 0 240 64');
+      svg.setAttribute('class', 'colab-loss');
+      svg.setAttribute('role', 'img');
+      svg.setAttribute('aria-label', 'Loss chart');
+      const min = Math.min(...losses.map(point => point.loss));
+      const max = Math.max(...losses.map(point => point.loss));
+      const span = max - min || 1;
+      const points = losses.map((point, index) => {
+        const x = (index / (losses.length - 1)) * 240;
+        const y = 60 - ((point.loss - min) / span) * 56;
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+      }).join(' ');
+      const line = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+      line.setAttribute('fill', 'none');
+      line.setAttribute('stroke', 'currentColor');
+      line.setAttribute('stroke-width', '2');
+      line.setAttribute('points', points);
+      svg.append(line);
+      progressHost.append(svg);
+    }
+  }
   function formatBytes(bytes: number) {
     if (!Number.isFinite(bytes) || bytes < 1024) return `${bytes || 0} B`;
     if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -599,11 +661,13 @@ export function mountColab(options: { token: () => string; request: (body: Recor
       });
       control.classList.add('colab-job');
       if (job.id === activeJob) control.setAttribute('aria-current', 'true');
+      const progressLine = progressSummary(job.progress);
       control.append(
-        el('strong', '', `${job.action} · ${job.state}`),
+        el('strong', '', `${job.label ? `${job.label} · ` : ''}${job.action} · ${job.state}`),
         el('span', '', job.session || 'no session'),
         el('small', '', `${job.id.slice(0, 8)} · start ${stamp(job.startedAt)} · end ${stamp(job.endedAt)} · exit ${job.exitCode === null || job.exitCode === undefined ? '—' : job.exitCode} · ${formatBytes(job.bytes)}`),
       );
+      if (progressLine) control.append(el('small', '', progressLine));
       return control;
     }) : [el('p', 'colab-note', jobScope === 'session' && selected ? 'No jobs for this session yet. Agent runs show up here.' : 'No jobs yet.')];
     jobsList.replaceChildren(el('h3', '', 'Jobs'), scope, ...rows);
@@ -627,13 +691,15 @@ export function mountColab(options: { token: () => string; request: (body: Recor
       knownJobIds.add(job.id);
     }
     jobs = next;
-    renderJobs();
-    if (newest && (!attachedJob || unseen)) {
+    const shouldAttach = Boolean(newest && (!attachedJob || unseen));
+    if (shouldAttach && newest) {
       attachedJob = newest.id;
       activeJob = newest.id;
-      if (tab !== 'run') { tab = 'run'; renderTabs(); }
-      void follow(newest.id);
     }
+    renderJobs();
+    if (shouldAttach && tab !== 'run') { tab = 'run'; renderTabs(); }
+    else renderProgress(next.find(job => job.id === activeJob));
+    if (shouldAttach && newest) void follow(newest.id);
   }
 
   void refreshAll().then(() => pollJobs()).catch(error => setStatus(error instanceof Error ? error.message : 'Colab is unavailable.'));

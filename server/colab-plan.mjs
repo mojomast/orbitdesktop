@@ -42,6 +42,15 @@ export function stripAnsi(text) {
     .replace(/\u001b\][^\u0007]*(?:\u0007|\u001b\\)/g, '');
 }
 
+export function jobLabel(value) {
+  if (value === undefined || value === null || String(value).trim() === '') return '';
+  const raw = String(value);
+  if (/[\u0000-\u001f]/.test(raw)) throw fail('Job label is not allowed.');
+  const text = raw.replace(/\s+/g, ' ').trim();
+  if (text.length > 80) throw fail('Job label is not allowed.');
+  return text;
+}
+
 export function sessionName(value) {
   const name = String(value ?? '');
   if (!/^[A-Za-z][A-Za-z0-9_-]{0,40}$/.test(name)) throw fail('Session name must start with a letter and use letters, numbers, _ or -.');
