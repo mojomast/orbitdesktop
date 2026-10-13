@@ -1,0 +1,8 @@
+{
+  "name": "orbit-irc",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=18" },
+  "workspaces": ["packages/protocol", "packages/ircd", "packages/client", "packages/orbit-app"],
+  "scripts": { "test": "node scripts/run-tests.js" }
+}
