@@ -18,8 +18,9 @@ body .minimized-tray { display:none !important; }
 #app .start-button { display:flex; align-items:center; gap:8px; height:36px; padding:6px 14px; letter-spacing:.02em; }
 .start-logo { display:grid; place-items:center; width:23px; height:23px; border:1px solid currentColor; border-radius:50%; font-size:19px; }
 #app .start-button[aria-expanded=true] { outline:2px solid #edf4ff; outline-offset:1px; }
+.start-colab { display:block; width:100%; margin:0 0 8px; }
 .start-quick { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin-bottom:12px; }
-#app .start-quick button { background:#28364c; padding:12px 5px; border-radius:10px; font-size:12px; }
+#app .start-colab, #app .start-quick button { background:#28364c; padding:12px 5px; border-radius:10px; font-size:12px; }
 #app .start-panel { background:#141d2b; }
 @media(max-width:1000px) { .taskbar-status, #app .taskbar-camera { display:none; } }
 @media(max-width:600px) {

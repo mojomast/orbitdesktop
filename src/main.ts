@@ -167,6 +167,7 @@ Object.assign(paneParking.style, { position: 'absolute', left: '-100000px', top:
 const desktopHost = el('div', 'desktop-host');
 desktopHost.setAttribute('aria-label', 'Movable workspace windows');
 const desktopIcons = installDesktopIcons(desktopHost, () => [
+  {id:'colab-runtime',title:'Google Colab',icon:'▣',pinned:true,run:()=>{void commands.execute('colab-runtime');}},
   ...xpraApps.map(a=>({id:`xpra-${a.id}`,title:a.title,icon:a.icon,run:()=>{
     if(focused)unfocus();
     const existing=state.monitors.find(m=>leaves(m.layout).some(p=>p.kind==='browser'&&p.url===a.url));
@@ -431,6 +432,7 @@ const commands = createWorkspaceCommands((): WorkspaceCommand[] => [
   { id: 'new-workbench', title: 'New Workbench window', detail: 'Separate Workbench beside Hermes', group: 'Create', hidden: !experimentalEnabled('workbench'), run: () => openWorkbenchWindow() },
   { id: 'new-terminal', title: 'New terminal', detail: 'Open a host terminal pane', group: 'Create', run: () => addMonitor('terminal') },
   { id: 'new-browser', title: 'New browser', detail: 'Open an app or website', group: 'Create', run: () => addMonitor('browser') },
+  { id: 'colab-runtime', title: 'Google Colab', detail: 'GPU and TPU runtimes on colab.research.google.com', group: 'Apps', keywords: ['colab', 'gpu', 'tpu', 'notebook'], disabledReason: !sessionToken ? 'Connect host first to use Google Colab.' : undefined, run: () => openHostSurface('colab-runtime') },
   { id: 'windows', title: 'Windows view', detail: 'Movable desktop windows', group: 'Layout', run: () => windowsButton.click() },
   { id: 'spatial', title: 'Spatial view', detail: 'Explore your 3D workspace', group: 'Layout', run: () => sceneButton.click() },
   { id: 'focus', title: 'Focus selected window', detail: 'Expand the selected display', group: 'Layout', run: () => flatButton.click() },
@@ -448,7 +450,6 @@ const commands = createWorkspaceCommands((): WorkspaceCommand[] => [
   { id: 'activity', title: 'Live activity', detail: 'Open host activity window', group: 'Hermes', run: () => openHostSurface('activity') },
   { id: 'collab', title: 'Collab', detail: 'Project board for Hermes and Grok Bot', group: 'Hermes', disabledReason: !sessionToken ? 'Connect host first to use Collab.' : undefined, run: () => openHostSurface('collab') },
   { id: 'irc', title: 'IRC', detail: 'IRC server and channel window', group: 'Apps', disabledReason: !sessionToken ? 'Connect host first to use IRC.' : undefined, run: () => openHostSurface('irc') },
-  { id: 'colab-runtime', title: 'Google Colab', detail: 'GPU and TPU runtimes on colab.research.google.com', group: 'Apps', disabledReason: !sessionToken ? 'Connect host first to use Google Colab.' : undefined, run: () => openHostSurface('colab-runtime') },
   ...workspaceExtensions.map(extension => ({
     id: `hermes-${extension.id}`, title: extension.title, detail: extension.label, group: 'Hermes',
     hidden: extension.id === 'project-workbench' && !experimentalEnabled('workbench'),
@@ -534,6 +535,9 @@ window.addEventListener('orbit-open-conversation', event => {
 });
 function orbitMenuSections(): OrbitMenuSection[] {
   return [
+    { id: 'google-colab', title: 'Google Colab', detail: 'Runtimes on colab.research.google.com.', items: [
+      { id: 'colab-runtime', label: 'Google Colab', icon: '▣', button: button('Google Colab', 'Google Colab runtimes', () => { void commands.execute('colab-runtime'); }) },
+    ] },
     { id: 'view', title: 'Workspace view', detail: 'Choose how your windows are arranged.', items: [
       { id: 'windows', label: 'Windows', icon: '▤', button: windowsButton },
       { id: 'spatial', label: 'Spatial', icon: '◈', button: sceneButton },
@@ -558,9 +562,6 @@ function orbitMenuSections(): OrbitMenuSection[] {
       { id: 'collab', label: 'Collab', icon: '▦', button: button('Collab', 'Collab', () => { void commands.execute('collab'); }) },
       { id: 'irc', label: 'IRC', icon: '#', button: button('IRC', 'IRC', () => { void commands.execute('irc'); }) },
       ...hermesMenuItems,
-    ] },
-    { id: 'google-colab', title: 'Google Colab', detail: 'Runtimes on colab.research.google.com.', items: [
-      { id: 'colab-runtime', label: 'Google Colab', icon: '▣', button: button('Google Colab', 'Google Colab runtimes', () => { void commands.execute('colab-runtime'); }) },
     ] },
     { id: 'settings', title: 'Settings', detail: 'Preferences saved in this browser.', items: [
       { id: 'commands', label: 'Commands', icon: '⌘', button: button('Commands', 'Open workspace commands (Ctrl or Cmd K)', commandPalette.open) },

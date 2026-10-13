@@ -1,6 +1,6 @@
 # Google Colab runtimes
 
-Google Colab (`colab.research.google.com`, the `colab` CLI) is an Orbit app for the official [Colab CLI](https://github.com/googlecolab/google-colab-cli) (`google-colab-cli`). Open **Google Colab** from Start, the command palette, or the Orbit menu. The window is `orbit://surface/colab-runtime`. The route is `/api/colab-runtime`. Orbit's project board is a separate app at `orbit://surface/collab`.
+Google Colab (`colab.research.google.com`, the `colab` CLI) is an Orbit app for the official [Colab CLI](https://github.com/googlecolab/google-colab-cli) (`google-colab-cli`). Open **Google Colab** from the pinned desktop icon, the **Google Colab** button at the top of Start, the first section of the Orbit menu, or the command palette (search `colab`). The window is `orbit://surface/colab-runtime`. The route is `/api/colab-runtime`. Orbit's project board is a separate app at `orbit://surface/collab`.
 
 The CLI already streams kernel stdout, stderr, and display output. A separate localhost extension would not be able to push that stream to the browser through Orbit's existing token, so this is a first-class route on the Orbit server. The server process runs `colab` with an argument array. It does not use a shell. It does not read, copy, or log the Colab token or `ORBIT_TOKEN`.
 
