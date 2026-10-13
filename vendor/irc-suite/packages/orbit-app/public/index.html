@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Orbit IRC</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>Orbit IRC</h1>
+    <span id="nick" class="nick">not connected</span>
+    <span id="status" class="status">disconnected</span>
+  </header>
+
+  <main class="panes">
+    <section class="pane" id="channels-pane">
+      <h2>Channels</h2>
+      <ul id="channels" class="list"></ul>
+    </section>
+
+    <section class="pane" id="messages-pane">
+      <h2 id="messages-title">Messages</h2>
+      <ol id="messages" class="messages"></ol>
+      <form id="composer" autocomplete="off">
+        <input id="input" type="text" placeholder="message, or /join #channel" aria-label="message">
+        <button type="submit">Send</button>
+      </form>
+    </section>
+
+    <section class="pane" id="users-pane">
+      <h2>Users</h2>
+      <ul id="users" class="list"></ul>
+    </section>
+  </main>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

@@ -12,13 +12,13 @@ The default bind is `127.0.0.1:6667`. `ORBIT_IRC_HOST` may be `127.0.0.1` or `::
 
 ## Sources
 
-The agent-built suite is not vendored in this tree yet. Orbit looks for it at `apps/irc/` inside the repo, or at `ORBIT_IRC_SOURCE` when that is set. The directory must contain:
+The agent-built suite is vendored at `vendor/irc-suite/`. Orbit looks there by default, or at `ORBIT_IRC_SOURCE` when that is set. The directory must contain:
 
 - `packages/protocol`
 - `packages/ircd`
 - `packages/client`
 - `packages/orbit-app`
 
-`packages/ircd` needs a `package.json` `bin` or `main`, or one of `server.js`, `index.js`, `src/server.js`, `src/index.js`, or `bin/ircd.js`. Orbit runs that file with Node. The host and port are `--host`, `--port`, `ORBIT_IRC_HOST`, `ORBIT_IRC_PORT`, `IRC_HOST`, and `IRC_PORT`. The entry has to stay inside the source directory.
+Orbit launches `packages/ircd/bin/ircd.js` (the `orbit-ircd` bin). The host and port are `--host`, `--port`, `ORBIT_IRC_HOST`, `ORBIT_IRC_PORT`, `IRC_HOST`, `IRC_PORT`, `IRCD_HOST`, and `IRCD_PORT`. The entry has to stay inside the source directory.
 
-Until those packages are present, Start reports that the sources are not installed and does not launch a process. The Orbit window is the client. `packages/orbit-app` is part of the suite Orbit expects; it is not a second window.
+`npm test` runs the Orbit tests and then the suite (`npm run test:irc`, which is `npm test` inside `vendor/irc-suite`). If those packages are missing, Start reports that the sources are not installed and does not launch a process. The Orbit window is the client. `packages/orbit-app` stays in the suite and is covered by its own tests; it is not a second Orbit window.

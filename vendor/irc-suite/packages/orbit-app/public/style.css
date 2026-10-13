@@ -1,0 +1,100 @@
+:root {
+  --bg: #12141a;
+  --panel: #191c24;
+  --ink: #e6e8ef;
+  --dim: #9aa1b1;
+  --accent: #6ea8fe;
+  --line: #262a35;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--ink);
+  font: 14px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.topbar h1 { margin: 0; font-size: 16px; }
+.nick { color: var(--accent); }
+.status { margin-left: auto; color: var(--dim); }
+
+.panes {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr) 200px;
+  gap: 1px;
+  background: var(--line);
+}
+
+.pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg);
+  padding: 8px 10px;
+}
+
+.pane h2 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.list { list-style: none; margin: 0; padding: 0; overflow-y: auto; }
+.list li { padding: 2px 0; color: var(--ink); }
+.list li.current { color: var(--accent); }
+.list li .op { color: #f0c674; }
+
+.messages {
+  flex: 1;
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  overflow-y: auto;
+}
+
+.messages li { padding: 1px 0; }
+.messages li .who { color: var(--accent); }
+.messages li.action { color: #c8a6ff; font-style: italic; }
+.messages li.notice { color: #f0c674; }
+.messages li.system { color: var(--dim); }
+.messages li.error { color: #ff8a8a; }
+
+#composer { display: flex; gap: 8px; }
+
+#composer input {
+  flex: 1;
+  padding: 7px 9px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--ink);
+  font: inherit;
+}
+
+#composer button {
+  padding: 7px 12px;
+  background: var(--accent);
+  border: 0;
+  border-radius: 4px;
+  color: #10131a;
+  font: inherit;
+  cursor: pointer;
+}

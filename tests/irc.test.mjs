@@ -5,6 +5,7 @@ import http from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { WebSocket } from 'ws';
 import { createIrcService, inspectIrcSource, ircBind, ircSourceRoot, parseIrcLine } from '../server/irc.mjs';
 
@@ -61,12 +62,40 @@ function writeFixture(root, portFile) {
   `);
 }
 
+function writeAtAliceFixture(root) {
+  fs.mkdirSync(path.join(root, 'packages', 'protocol'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'packages', 'client'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'packages', 'orbit-app'), { recursive: true });
+  const ircd = path.join(root, 'packages', 'ircd');
+  fs.mkdirSync(ircd, { recursive: true });
+  fs.writeFileSync(path.join(ircd, 'package.json'), JSON.stringify({ name: 'ircd', main: 'server.js' }));
+  fs.writeFileSync(path.join(ircd, 'server.js'), `
+    const net = require('net');
+    const host = process.env.ORBIT_IRC_HOST || '127.0.0.1';
+    const port = Number(process.env.ORBIT_IRC_PORT);
+    const server = net.createServer(socket => {
+      socket.on('data', buf => {
+        for (const line of buf.toString().split(/\\r?\\n/).filter(Boolean)) {
+          const command = line.split(' ')[0].toUpperCase();
+          if (command === 'USER') socket.write(':ircd 001 alice :Welcome\\r\\n');
+          else if (command === 'JOIN') {
+            socket.write(':alice!alice@127.0.0.1 JOIN #orbit\\r\\n');
+            socket.write(':ircd 353 alice = #orbit @alice\\r\\n');
+            socket.write(':ircd 366 alice #orbit :End of /NAMES list\\r\\n');
+          }
+        }
+      });
+    });
+    server.listen(port, host);
+  `);
+}
+
 test('irc bind defaults to loopback 6667 and rejects other hosts', () => {
   assert.deepEqual(ircBind({}), { host: '127.0.0.1', port: 6667 });
   assert.deepEqual(ircBind({ ORBIT_IRC_PORT: '6700', ORBIT_IRC_HOST: '::1' }), { host: '::1', port: 6700 });
   assert.throws(() => ircBind({ ORBIT_IRC_HOST: '0.0.0.0' }), /127\.0\.0\.1/);
   assert.throws(() => ircBind({ ORBIT_IRC_PORT: '80' }), /1024/);
-  assert.equal(ircSourceRoot({}, '/repo/orbit'), '/repo/orbit/apps/irc');
+  assert.equal(ircSourceRoot({}, '/repo/orbit'), '/repo/orbit/vendor/irc-suite');
   assert.equal(ircSourceRoot({ ORBIT_IRC_SOURCE: 'vendor/irc' }, '/repo/orbit'), '/repo/orbit/vendor/irc');
 });
 
@@ -78,6 +107,12 @@ test('parseIrcLine reads prefix, command, and trailing text', () => {
   assert.equal(names.command, '353');
   assert.equal(names.args.at(-1), '#orbit');
   assert.equal(names.trailing, 'kyle fixture');
+  const solo = parseIrcLine(':orbit.irc 353 Kyle = #orbit @Kyle');
+  assert.equal(solo.trailing, '');
+  assert.equal(solo.args.at(-1), '@Kyle');
+  const said = parseIrcLine(':ada!ada@orbit PRIVMSG #orbit hello');
+  assert.equal(said.trailing, '');
+  assert.deepEqual(said.args, ['#orbit', 'hello']);
   assert.equal(parseIrcLine(''), null);
 });
 
@@ -223,4 +258,133 @@ test('the bundled ircd starts, the websocket bridge relays a channel, and stop s
     socket.once('connect', () => { socket.destroy(); reject(Error('ircd still accepting')); });
     socket.once('error', () => resolve());
   });
+});
+
+test('the vendored suite is the default ircd and the bridge can join it', async t => {
+  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const suite = path.join(repoRoot, 'vendor', 'irc-suite');
+  assert.equal(ircSourceRoot({}, repoRoot), suite);
+  const view = inspectIrcSource(suite);
+  assert.equal(view.present, true);
+  assert.equal(view.ircdEntry, path.join(suite, 'packages', 'ircd', 'bin', 'ircd.js'));
+  const orbitPort = await freePort();
+  const ircPort = await freePort();
+  const irc = createIrcService({
+    token, orbitPort, devOrigins: [], reply, repoRoot,
+    env: { ORBIT_IRC_PORT: String(ircPort) },
+  });
+  const server = http.createServer((req, res) => { void irc.handle(req, res); });
+  server.on('upgrade', (req, socket, head) => irc.upgrade(req, socket, head));
+  await new Promise(resolve => server.listen(orbitPort, '127.0.0.1', resolve));
+  t.after(async () => {
+    irc.close();
+    await new Promise(resolve => server.close(resolve));
+  });
+  const origin = `http://127.0.0.1:${orbitPort}`;
+  const headers = { Origin: origin, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+  const started = await fetch(`${origin}/api/irc`, { method: 'POST', headers, body: JSON.stringify({ action: 'start' }) });
+  const running = await started.json();
+  assert.equal(started.status, 200, JSON.stringify(running));
+  assert.equal(running.status, 'running');
+  assert.equal(running.entry, path.join('packages', 'ircd', 'bin', 'ircd.js'));
+  assert.equal(running.port, ircPort);
+  const client = new WebSocket(`ws://127.0.0.1:${orbitPort}/api/irc`, { headers: { Origin: origin } });
+  const inbox = [];
+  client.on('message', data => inbox.push(JSON.parse(data.toString())));
+  await new Promise((resolve, reject) => {
+    client.once('open', resolve);
+    client.once('error', reject);
+  });
+  const waitFor = type => new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(Error(`no ${type}: ${JSON.stringify(inbox)}`)), 3000);
+    const pull = () => {
+      const found = inbox.find(item => item.type === type);
+      if (!found) return;
+      clearTimeout(timer);
+      resolve(found);
+    };
+    pull();
+    client.on('message', pull);
+  });
+  client.send(JSON.stringify({ type: 'auth', token }));
+  await waitFor('ready');
+  client.send(JSON.stringify({ type: 'nick', nick: 'Kyle' }));
+  const welcome = await waitFor('welcome');
+  assert.equal(welcome.nick, 'Kyle');
+  client.send(JSON.stringify({ type: 'join', channel: '#orbit' }));
+  const names = await waitFor('names');
+  assert.equal(names.channel, '#orbit');
+  assert.deepEqual(names.users, ['Kyle']);
+  client.close();
+  const stopped = await fetch(`${origin}/api/irc`, { method: 'POST', headers, body: JSON.stringify({ action: 'stop' }) });
+  const after = await stopped.json();
+  assert.equal(after.status, 'stopped');
+  const closed = await new Promise(resolve => {
+    const deadline = Date.now() + 3000;
+    const probe = () => {
+      const socket = net.connect({ host: '127.0.0.1', port: ircPort });
+      socket.once('connect', () => {
+        socket.destroy();
+        if (Date.now() > deadline) resolve(false);
+        else setTimeout(probe, 40);
+      });
+      socket.once('error', () => resolve(true));
+    };
+    probe();
+  });
+  assert.equal(closed, true);
+});
+
+test('a 353 names token @alice without a trailing colon is the user list', async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'orbit-irc-names-'));
+  const source = path.join(root, 'suite');
+  writeAtAliceFixture(source);
+  const orbitPort = await freePort();
+  const ircPort = await freePort();
+  const irc = createIrcService({
+    token, orbitPort, devOrigins: [], reply, repoRoot: root,
+    env: { ORBIT_IRC_SOURCE: source, ORBIT_IRC_PORT: String(ircPort) },
+  });
+  const server = http.createServer((req, res) => { void irc.handle(req, res); });
+  server.on('upgrade', (req, socket, head) => irc.upgrade(req, socket, head));
+  await new Promise(resolve => server.listen(orbitPort, '127.0.0.1', resolve));
+  t.after(async () => {
+    irc.close();
+    await new Promise(resolve => server.close(resolve));
+  });
+  const origin = `http://127.0.0.1:${orbitPort}`;
+  const headers = { Origin: origin, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+  const started = await fetch(`${origin}/api/irc`, { method: 'POST', headers, body: JSON.stringify({ action: 'start' }) });
+  assert.equal(started.status, 200);
+  const client = new WebSocket(`ws://127.0.0.1:${orbitPort}/api/irc`, { headers: { Origin: origin } });
+  const inbox = [];
+  client.on('message', data => inbox.push(JSON.parse(data.toString())));
+  await new Promise((resolve, reject) => {
+    client.once('open', resolve);
+    client.once('error', reject);
+  });
+  const waitFor = type => new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(Error(`no ${type}: ${JSON.stringify(inbox)}`)), 3000);
+    const pull = () => {
+      const found = inbox.find(item => item.type === type);
+      if (!found) return;
+      clearTimeout(timer);
+      resolve(found);
+    };
+    pull();
+    client.on('message', pull);
+  });
+  client.send(JSON.stringify({ type: 'auth', token }));
+  await waitFor('ready');
+  client.send(JSON.stringify({ type: 'nick', nick: 'alice' }));
+  await waitFor('welcome');
+  client.send(JSON.stringify({ type: 'join', channel: '#orbit' }));
+  const names = await waitFor('names');
+  assert.equal(names.channel, '#orbit');
+  assert.deepEqual(names.users, ['alice']);
+  await new Promise(resolve => setTimeout(resolve, 50));
+  const lists = inbox.filter(item => item.type === 'names');
+  assert.equal(lists.length, 1);
+  assert.deepEqual(lists[0].users, ['alice']);
+  client.close();
 });

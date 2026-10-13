@@ -30,7 +30,7 @@ export function ircBind(env = process.env) {
 export function ircSourceRoot(env = process.env, repoRoot) {
   const raw = String(env?.ORBIT_IRC_SOURCE || '').trim();
   if (raw) return path.resolve(repoRoot, raw);
-  return path.join(repoRoot, 'apps', 'irc');
+  return path.join(repoRoot, 'vendor', 'irc-suite');
 }
 
 function isDirectory(dir) {
@@ -202,6 +202,8 @@ export function createIrcService({ token, orbitPort, devOrigins = [], reply, rep
         ORBIT_IRC_PORT: String(port),
         IRC_HOST: host,
         IRC_PORT: String(port),
+        IRCD_HOST: host,
+        IRCD_PORT: String(port),
       },
       stdio: ['ignore', 'ignore', 'pipe'],
     });
@@ -292,13 +294,15 @@ export function createIrcService({ token, orbitPort, devOrigins = [], reply, rep
       if (parsed.command === '353') {
         const channel = parsed.args.find(validChannel) || '';
         if (!channel) return;
-        const users = parsed.trailing.split(' ').map(name => name.replace(/^[@+]/, '')).filter(Boolean);
+        const last = parsed.args.at(-1) || '';
+        const listed = parsed.trailing || (last !== channel ? last : '');
+        const users = listed.split(' ').map(name => name.replace(/^[@+%&~]/, '')).filter(Boolean);
         noteUsers(channel, users);
         return;
       }
       if (parsed.command === 'PRIVMSG') {
         const target = parsed.args[0] || '';
-        const text = parsed.trailing;
+        const text = parsed.trailing || parsed.args.slice(1).join(' ');
         if (!validTarget(target) || !text) return;
         send({ type: 'message', channel: validChannel(target) ? target : (parsed.nick || target), from: parsed.nick || target, text });
       }
