@@ -37,6 +37,7 @@ import {createWorkbenchNativeRuntime,nativeRuntimeEnvironmentOptions,nativeRunti
 import {technologyOwnerRoute,lazyTechnologyService} from './technology-owner-route.mjs';
 import {createWorkbenchSandboxProvider} from './workbench-sandbox-provider.mjs';
 import { createIrcService } from './irc.mjs';
+import { createColabOrchestrator } from './colab-orchestrator.mjs';
 const port = Number(process.env.PORT || 4318);
 if (!Number.isInteger(port) || port < 1024 || port > 65535)
   throw Error("PORT must be between 1024 and 65535");
@@ -94,6 +95,7 @@ const executionGate=createWorkbenchGate({legacySnapshot:legacyQueueSnapshot(runt
 let normalResources;
 const repoRoot = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const irc = createIrcService({ token, orbitPort: port, devOrigins, reply, repoRoot });
+const colab = createColabOrchestrator({ token, port, devOrigins, reply, root: path.join(runtimeRoot, 'colab-orchestrator') });
 const agentHandler = createAgentHandler({ token, port, devOrigins, reply, workspaceContext: workspaceService.context, workspaceRead:workspaceService.read, runtimeDirectory:runtimeRoot,executionGate,onRunEvent:event=>observeTechnologyTrace(event,'observeAgentRunEvent'),onNormalAccepted:record=>normalResources?.normalAccepted(record),
   ...(!explicitHermes && discovered.hermes ? { apiUrl: null, apiKey: null, profiles: [{ id: "default", label: discovered.hermes.label, apiUrl: discovered.hermes.apiUrl, apiKey: discovered.hermes.apiKey }] } : {}),
   ...(discovered.grok ? { additionalProfiles: [discovered.grok] } : {}),
@@ -303,6 +305,7 @@ async function handleOrbitRequest(req, res) {
   if (url.pathname.startsWith("/apps/")) return workspaceService.serveApp(req, res, url.pathname);
   if (url.pathname === "/api/agent") return agentHandler(req, res);
   if (url.pathname === "/api/irc") return irc.handle(req, res);
+  if (url.pathname === '/api/colab-runtime' || url.pathname.startsWith('/api/colab-runtime/')) return colab.handle(req, res, url);
   if (url.pathname === "/api/health")
     return reply(res, 200, {
       service: "orbit",
@@ -574,6 +577,7 @@ server.listen(port, listenHost, () => {
 for (const signal of ["SIGTERM", "SIGINT"])
   process.on(signal, () => {
     irc.close();
+    colab.close();
     execution.close();
     sandboxProvider.close();
     contextSharing.close?.();

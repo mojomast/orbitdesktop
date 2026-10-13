@@ -1,0 +1,67 @@
+.colab-app {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  min-width: 0;
+  height: 100%;
+  color: inherit;
+}
+.colab-app h2, .colab-app h3 { margin: 0; }
+.colab-head, .colab-row, .colab-tabs { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.colab-head { justify-content: space-between; }
+.colab-usage, .colab-note, .colab-status { margin: 0; color: var(--theme-muted, #aec0ba); }
+.colab-usage strong { color: var(--theme-accentColor, #c2ed90); font-variant-numeric: tabular-nums; }
+.colab-warning {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, #e2b657 70%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, #e2b657 16%, transparent);
+  color: inherit;
+}
+.colab-grid {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+  gap: 12px;
+}
+.colab-side, .colab-main { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 10px; overflow: auto; }
+.colab-card, .colab-sessions, .colab-term, .colab-files, .colab-rich {
+  border: 1px solid var(--theme-border, #2c3b38);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--theme-background, #141b28) 88%, white);
+  padding: 10px;
+}
+.colab-card { display: flex; flex-direction: column; gap: 8px; }
+.colab-card label, .colab-files label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.colab-card input, .colab-card select, .colab-card textarea,
+.colab-files input, .colab-files select, .colab-files textarea, .colab-row input, .colab-row select {
+  font: inherit;
+  color: inherit;
+  background: color-mix(in srgb, var(--theme-background, #10191e) 80%, black);
+  border: 1px solid var(--theme-border, #2c3b38);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+.colab-sessions { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 8px; list-style: none; }
+.colab-sessions button { text-align: left; }
+.colab-sessions button[aria-current="true"] { outline: 2px solid var(--theme-accentColor, #c2ed90); }
+.colab-tabs button[aria-selected="true"] { outline: 2px solid var(--theme-accentColor, #c2ed90); }
+.colab-term { height: 320px; padding: 0; overflow: hidden; }
+.colab-term .xterm { height: 100%; }
+.colab-rich { display: flex; flex-wrap: wrap; gap: 8px; }
+.colab-rich img { max-width: min(100%, 480px); height: auto; background: white; border-radius: 4px; }
+.colab-rich iframe { width: min(100%, 640px); height: 240px; border: 0; background: white; border-radius: 4px; }
+.colab-meter { height: 8px; border-radius: 99px; background: #26314a; overflow: hidden; }
+.colab-meter span { display: block; height: 100%; background: var(--theme-accentColor, #c2ed90); }
+.colab-dialog { border: 0; border-radius: 12px; padding: 16px; color: inherit; background: var(--theme-background, #141b28); max-width: 420px; }
+.colab-dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
+.colab-dialog p { margin: 0 0 12px; }
+.host-surface:has(.colab-app) { display: flex; overflow: hidden; }
+@media (max-width: 800px) {
+  .colab-grid { grid-template-columns: 1fr; }
+  .colab-term { height: 240px; }
+}
