@@ -1,7 +1,11 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { validSessionId, sanitizeHistory } from './agent-profiles.mjs';
 
 const runPattern = /^run_[a-zA-Z0-9_-]{8,100}$/;
+const jobPattern = /^[a-zA-Z0-9_-]{1,100}$/;
+const automationFields = ['name', 'prompt', 'schedule', 'deliver', 'skills'];
 
 function fail(message, status = 502) {
   const error = new Error(message);
@@ -9,23 +13,86 @@ function fail(message, status = 502) {
   return error;
 }
 
-function lastAssistant(entries) {
-  if (!Array.isArray(entries)) return '';
-  for (let i = entries.length - 1; i >= 0; i--) {
-    const raw = entries[i];
-    const entry = raw && typeof raw === 'object' && raw.kind == null && raw.entry ? raw.entry : raw;
-    if (!entry || typeof entry !== 'object' || entry.streaming === true) continue;
-    if (entry.kind === 'send-message' && entry.message && entry.message.type === 'text' && typeof entry.message.content === 'string' && entry.message.content.trim()) return entry.message.content;
-    if ((entry.kind === 'message' || entry.kind == null) && entry.role === 'assistant' && typeof entry.content === 'string' && entry.content.trim()) return entry.content;
+function unwrap(raw) {
+  if (raw && typeof raw === 'object' && raw.kind == null && raw.entry && typeof raw.entry === 'object') return raw.entry;
+  return raw;
+}
+
+function entriesOf(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.entries)) return payload.entries;
+  if (Array.isArray(payload?.items)) return payload.items;
+  return [];
+}
+
+function entrySeq(raw) {
+  const entry = unwrap(raw);
+  const seq = Number(raw?.seq ?? entry?.seq);
+  return Number.isFinite(seq) ? seq : null;
+}
+
+function entryId(raw) {
+  const entry = unwrap(raw);
+  const id = raw?.id ?? entry?.id;
+  return typeof id === 'string' ? id : '';
+}
+
+function fingerprint(raw) {
+  const id = entryId(raw);
+  if (id) return `id:${id}`;
+  const seq = entrySeq(raw);
+  if (seq != null) return `seq:${seq}`;
+  const entry = unwrap(raw);
+  const content = typeof entry?.content === 'string' ? entry.content.slice(0, 200) : '';
+  const message = typeof entry?.message?.content === 'string' ? entry.message.content.slice(0, 200) : '';
+  return `fp:${entry?.kind ?? ''}:${entry?.role ?? ''}:${content}:${message}`;
+}
+
+function baselineFrom(entries) {
+  const list = Array.isArray(entries) ? entries : [];
+  let maxSeq = 0;
+  const ids = [];
+  for (const raw of list) {
+    const seq = entrySeq(raw);
+    if (seq != null && seq > maxSeq) maxSeq = seq;
+    const id = entryId(raw);
+    if (id) ids.push(id);
   }
+  return { maxSeq, ids, count: list.length, fingerprints: list.map(fingerprint) };
+}
+
+function replyText(entry) {
+  if (!entry || typeof entry !== 'object' || entry.streaming === true) return '';
+  if (entry.kind === 'send-message' && entry.message?.type === 'text' && typeof entry.message.content === 'string' && entry.message.content.trim()) return entry.message.content;
+  if ((entry.kind === 'message' || entry.kind == null) && entry.role === 'assistant' && typeof entry.content === 'string' && entry.content.trim()) return entry.content;
   return '';
+}
+
+function repliesAfter(entries, baseline) {
+  const list = Array.isArray(entries) ? entries : [];
+  const known = new Set(baseline?.fingerprints || []);
+  const knownIds = new Set(baseline?.ids || []);
+  const maxSeq = Number(baseline?.maxSeq) || 0;
+  const texts = [];
+  for (const raw of list) {
+    const seq = entrySeq(raw);
+    const id = entryId(raw);
+    let isNew = false;
+    if (maxSeq > 0 && seq != null) isNew = seq > maxSeq;
+    else if (id) isNew = !knownIds.has(id);
+    else isNew = !known.has(fingerprint(raw));
+    if (!isNew) continue;
+    const text = replyText(unwrap(raw));
+    if (text) texts.push(text);
+  }
+  return texts.at(-1) || '';
 }
 
 function historyFromEntries(entries) {
   const data = [];
   if (!Array.isArray(entries)) return { data };
   for (const raw of entries) {
-    const entry = raw && typeof raw === 'object' && raw.kind == null && raw.entry ? raw.entry : raw;
+    const entry = unwrap(raw);
     if (!entry || typeof entry !== 'object' || entry.streaming === true) continue;
     let role;
     let content;
@@ -56,6 +123,106 @@ function gatewayDetail(text, token) {
   return detail.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 180);
 }
 
+function conversationName(value) {
+  if (value == null || value === '') return '';
+  if (typeof value !== 'string') throw fail('Conversation name must be 1–80 characters.', 400);
+  const name = value.trim();
+  if (!name) return '';
+  if (name.length > 80 || /[\u0000-\u001f\u007f]/.test(name)) throw fail('Conversation name must be 1–80 characters.', 400);
+  return name;
+}
+
+function isAwaiting(agent) {
+  const value = agent?.awaitingUserResponse;
+  return value != null && value !== false;
+}
+
+function approvalFrom(agent, entries) {
+  let pending = null;
+  for (const raw of Array.isArray(entries) ? entries : []) {
+    const entry = unwrap(raw);
+    if (!entry || typeof entry !== 'object') continue;
+    const kind = String(entry.kind || '');
+    if (!/widget|permission|approval/i.test(kind)) continue;
+    pending = {
+      command: String(entry.command || entry.title || entry.name || entry.message?.content || 'Tool execution requires approval').slice(0, 4000),
+      reason: String(entry.reason || entry.detail || entry.message?.reason || '').slice(0, 1000),
+      entryId: entryId(raw),
+      kind,
+    };
+  }
+  const awaiting = agent?.awaitingUserResponse;
+  if (!pending && !isAwaiting(agent)) return null;
+  if (!pending) {
+    const command = awaiting && typeof awaiting === 'object'
+      ? String(awaiting.command || awaiting.tool || awaiting.name || 'Tool execution requires approval')
+      : 'Tool execution requires approval';
+    const reason = awaiting && typeof awaiting === 'object'
+      ? String(awaiting.reason || awaiting.detail || '')
+      : typeof awaiting === 'string' ? awaiting : '';
+    pending = { command: command.slice(0, 4000), reason: reason.slice(0, 1000), entryId: '', kind: '' };
+  }
+  return pending;
+}
+
+function automationRows(payload) {
+  const list = Array.isArray(payload) ? payload : Array.isArray(payload?.automations) ? payload.automations : Array.isArray(payload?.items) ? payload.items : [];
+  return list.map(row => {
+    const automation = row?.automation && typeof row.automation === 'object' ? row.automation : row;
+    const agentId = typeof row?.agentId === 'string' ? row.agentId : typeof automation?.agentId === 'string' ? automation.agentId : '';
+    return { agentId, automation };
+  }).filter(row => row.automation && typeof row.automation === 'object' && typeof row.automation.id === 'string');
+}
+
+function publicJob(row) {
+  const automation = row.automation;
+  if (!jobPattern.test(automation.id)) return null;
+  const enabled = automation.enabled !== false && automation.isEnabled !== false;
+  const paused = automation.paused === true || automation.isEnabled === false || automation.enabled === false;
+  const schedule = automation.schedule ?? automation.trigger?.schedule ?? automation.trigger?.cron ?? '';
+  const scheduleText = typeof schedule === 'string' ? schedule : JSON.stringify(schedule);
+  const job = {
+    id: automation.id,
+    name: String(automation.name || automation.id).slice(0, 1000),
+    enabled,
+    paused,
+    state: String(automation.state || automation.status || (enabled ? 'active' : 'paused')).slice(0, 1000),
+    schedule: scheduleText.slice(0, 1000),
+    schedule_display: String(automation.scheduleDisplay || automation.schedule_display || scheduleText).slice(0, 1000),
+  };
+  for (const [key, value] of [['next_run_at', automation.nextRunAt ?? automation.next_run_at], ['last_run_at', automation.lastRunAt ?? automation.last_run_at], ['last_status', automation.lastStatus ?? automation.last_status]]) {
+    if (value !== undefined && value !== null && value !== '') job[key] = String(value).slice(0, 1000);
+  }
+  return job;
+}
+
+function jobRecord(row) {
+  const job = publicJob(row);
+  if (!job) return null;
+  const schedule = row.automation.schedule ?? row.automation.trigger?.schedule ?? '';
+  return {
+    ...job,
+    prompt: String(row.automation.prompt || row.automation.task || '').slice(0, 16000),
+    deliver: 'local',
+    skills: [],
+    schedule: typeof schedule === 'string' ? schedule.slice(0, 500) : job.schedule,
+  };
+}
+
+function automationSpec(data) {
+  const schedule = data.schedule.trim();
+  return { name: data.name.trim(), prompt: data.prompt, schedule, trigger: { type: 'cron', schedule } };
+}
+
+function validateAutomation(data) {
+  if (!data || typeof data !== 'object' || Array.isArray(data) || Object.keys(data).some(key => !automationFields.includes(key))) throw fail('Unsupported automation fields', 400);
+  for (const key of ['name', 'prompt', 'schedule', 'deliver']) if (typeof data[key] !== 'string' || data[key].length > (key === 'prompt' ? 16000 : 500)) throw fail(`Invalid ${key}`, 400);
+  if (!data.name.trim() || !data.schedule.trim() || !data.prompt.trim()) throw fail('Name, schedule and prompt required', 400);
+  if (!Array.isArray(data.skills) || data.skills.length > 20 || data.skills.some(skill => typeof skill !== 'string' || !skill.trim() || skill.length > 100)) throw fail('Invalid skills', 400);
+  if (data.deliver.trim() && data.deliver.trim() !== 'local') throw fail('Grok Bot automations have no delivery target. Leave delivery as local.', 409);
+  if (data.skills.length) throw fail('Grok Bot automations do not attach skills.', 409);
+}
+
 /** Read or cancel every gateway body so a rejection cannot surface later as an unhandled error. */
 async function drain(response) {
   try {
@@ -70,8 +237,52 @@ async function drain(response) {
   }
 }
 
-export function createGrokChat({ fetchImpl = fetch } = {}) {
+export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () => Date.now(), acceptanceGraceMs = 8000, runTimeoutMs = 10 * 60 * 1000 } = {}) {
   const runs = new Map();
+  const directory = runtimeDirectory ? path.join(runtimeDirectory, 'grok-runs') : '';
+
+  function loadRuns() {
+    if (!directory) return;
+    let names = [];
+    try { names = fs.readdirSync(directory); } catch { return; }
+    const loaded = [];
+    for (const name of names) {
+      if (!name.endsWith('.json')) continue;
+      try {
+        const record = JSON.parse(fs.readFileSync(path.join(directory, name), 'utf8'));
+        if (!record || !runPattern.test(record.runId) || !validSessionId(record.agentId) || typeof record.nonce !== 'string' || typeof record.profileId !== 'string') continue;
+        record.baseline = record.baseline && typeof record.baseline === 'object' ? record.baseline : baselineFrom([]);
+        record.started = Number(record.started) || 0;
+        loaded.push(record);
+      } catch { /* A corrupt run file must not block the rest of the chat. */ }
+    }
+    for (const record of loaded.sort((a, b) => b.started - a.started).slice(0, 200)) runs.set(record.runId, record);
+  }
+  loadRuns();
+
+  function persist(run) {
+    if (!directory) return;
+    fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+    const dest = path.join(directory, `${run.runId}.json`);
+    const temp = `${dest}.${process.pid}.tmp`;
+    const record = { runId: run.runId, nonce: run.nonce, agentId: run.agentId, profileId: run.profileId, status: run.status || 'running', started: run.started, baseline: run.baseline };
+    fs.writeFileSync(temp, JSON.stringify(record), { mode: 0o600 });
+    fs.renameSync(temp, dest);
+  }
+
+  function forget(runId) {
+    runs.delete(runId);
+    if (!directory) return;
+    try { fs.rmSync(path.join(directory, `${runId}.json`)); } catch {}
+  }
+
+  function remember(run) {
+    runs.set(run.runId, run);
+    persist(run);
+    if (runs.size <= 200) return;
+    const oldest = [...runs.values()].sort((a, b) => a.started - b.started)[0];
+    if (oldest && oldest.runId !== run.runId) forget(oldest.runId);
+  }
 
   async function command(profile, name, body) {
     let response;
@@ -132,12 +343,16 @@ export function createGrokChat({ fetchImpl = fetch } = {}) {
     };
   }
 
-  function remember(runId, run) {
-    runs.set(runId, run);
-    if (runs.size > 200) {
-      const oldest = [...runs.entries()].sort((a, b) => a[1].started - b[1].started)[0];
-      if (oldest) runs.delete(oldest[0]);
+  async function findReusable(profile) {
+    const agents = await command(profile, 'listAgents', {});
+    const rows = (Array.isArray(agents) ? agents : []).filter(agent => agent && agent.name === 'Orbit chat' && !agent.isRunning && !agent.isComposingMessage && validSessionId(agent.id));
+    for (const agent of rows.slice(0, 8)) {
+      try {
+        const tail = await command(profile, 'getAgentTranscriptTail', { id: agent.id, limit: 40 });
+        if (!historyFromEntries(entriesOf(tail)).data.length) return agent;
+      } catch (error) { if (error.status !== 404) throw error; }
     }
+    return null;
   }
 
   async function selectSession(reply, res, scope) {
@@ -149,13 +364,20 @@ export function createGrokChat({ fetchImpl = fetch } = {}) {
     let targetId = creating ? null : body.target_session_id;
     if (!creating && !validSessionId(targetId)) return reply(res, 400, { error: 'Invalid Grok Bot conversation.' });
     if (!creating && (shared.locks.has(`session:${target.id}:${targetId}`) || shared.hasActive(target.id, targetId, body.workspace_id, body.pane_id))) return reply(res, 409, { error: 'This conversation is already running.' });
+    const name = creating ? conversationName(body.conversation_name) : '';
     let title;
     let messages = [];
     if (creating) {
-      const created = await command(target, 'createAgent', { name: 'Orbit chat', description: '', isIntroductionSuppressed: true });
-      targetId = created?.agent?.id;
-      if (!validSessionId(targetId)) return reply(res, 502, { error: 'Grok Bot did not return a usable conversation id.' });
-      title = typeof created.agent.name === 'string' ? created.agent.name.slice(0, 100) : 'Orbit chat';
+      const reusable = name ? null : await findReusable(target);
+      if (reusable) {
+        targetId = reusable.id;
+        title = String(reusable.name || 'Orbit chat').slice(0, 100);
+      } else {
+        const created = await command(target, 'createAgent', { name: name || 'Orbit chat', description: '', isIntroductionSuppressed: true });
+        targetId = created?.agent?.id;
+        if (!validSessionId(targetId)) return reply(res, 502, { error: 'Grok Bot did not return a usable conversation id.' });
+        title = typeof created.agent.name === 'string' ? created.agent.name.slice(0, 100) : (name || 'Orbit chat');
+      }
     } else {
       const page = await sessionPage(target, 0);
       const found = page.data.find(item => item.id === targetId);
@@ -163,8 +385,7 @@ export function createGrokChat({ fetchImpl = fetch } = {}) {
       title = found.title.slice(0, 100);
       try {
         const tail = await command(target, 'getAgentTranscriptTail', { id: targetId, limit: 80 });
-        const entries = Array.isArray(tail) ? tail : tail?.entries;
-        messages = sanitizeHistory(historyFromEntries(entries));
+        messages = sanitizeHistory(historyFromEntries(entriesOf(tail)));
       } catch (error) { if (error.status !== 404) throw error; }
     }
     if (shared.locks.has(`session:${target.id}:${targetId}`) || shared.hasActive(target.id, targetId, body.workspace_id, body.pane_id)) return reply(res, 409, { error: 'This conversation is already running.' });
@@ -174,6 +395,16 @@ export function createGrokChat({ fetchImpl = fetch } = {}) {
     const display = conversations.read({ workspace_id: body.workspace_id, profile_id: target.id, session_id: targetId });
     const state = shared.write(body.workspace_id, body.pane_id, { session: targetId, profile_id: target.id, binding_revision: revision + 1, messages, title: display.title || title, history_unstarted: creating });
     return reply(res, 200, { state });
+  }
+
+  async function transcriptBaseline(profile, agentId) {
+    try {
+      const tail = await command(profile, 'getAgentTranscriptTail', { id: agentId, limit: 80 });
+      return baselineFrom(entriesOf(tail));
+    } catch (error) {
+      if (error.status !== 404) throw error;
+      return baselineFrom([]);
+    }
   }
 
   async function turn(reply, res, scope) {
@@ -190,6 +421,7 @@ export function createGrokChat({ fetchImpl = fetch } = {}) {
       catch { return reply(res, 409, { error: 'Workspace has not synced yet. Wait for workspace connection and retry.' }); }
     }
     const prompt = context ? `${body.input.trim()}\n\nWorkspace context:\n${context}` : body.input.trim();
+    const baseline = await transcriptBaseline(profile, body.session_id);
     const nonce = randomUUID();
     const runId = `run_${randomUUID().replaceAll('-', '')}`;
     const accepted = await command(profile, 'sendPrompt', { prompt, agentId: body.session_id, clientNonce: nonce });
@@ -197,7 +429,7 @@ export function createGrokChat({ fetchImpl = fetch } = {}) {
       const detail = gatewayDetail(JSON.stringify({ error: typeof accepted?.error === 'string' ? accepted.error : typeof accepted?.message === 'string' ? accepted.message : '' }), profile.apiKey);
       return reply(res, 502, { error: detail ? `Grok Bot did not accept the message. ${detail}` : 'Grok Bot did not accept the message.' });
     }
-    remember(runId, { nonce, agentId: body.session_id, profileId: profile.id, status: 'running', started: Date.now(), seenBusy: false });
+    remember({ runId, nonce, agentId: body.session_id, profileId: profile.id, status: 'running', started: now(), baseline });
     if (body.pane_id) {
       const current = shared.read(body.workspace_id, body.pane_id);
       if (current) shared.write(body.workspace_id, body.pane_id, { ...current, run: runId, messages: [...(current.messages || []), { role: 'user', text: body.input.trim() }].slice(-100) });
@@ -205,36 +437,30 @@ export function createGrokChat({ fetchImpl = fetch } = {}) {
     return reply(res, 202, { run_id: runId, status: 'running' });
   }
 
-  async function transcript(profile, agentId) {
-    const tail = await command(profile, 'getAgentTranscriptTail', { id: agentId, limit: 80 });
-    const entries = Array.isArray(tail) ? tail : tail?.entries;
-    return lastAssistant(entries).slice(0, 16000);
-  }
-
   async function inspect(profile, run) {
     const agents = await command(profile, 'listAgents', {});
     const agent = Array.isArray(agents) ? agents.find(item => item && item.id === run.agentId) : null;
     let acceptance = null;
-    try { acceptance = await command(profile, 'promptAcceptanceStatus', { accountSlot: 'host', clientNonce: run.nonce }); }
-    catch (error) { if (error.status !== 404) throw error; }
-    const busy = Boolean(agent && (agent.isRunning || agent.isComposingMessage));
-    if (busy) run.seenBusy = true;
-    let tasks = [];
-    let subs = [];
     try {
-      const value = await command(profile, 'getAsyncTasks', { id: run.agentId });
-      tasks = Array.isArray(value) ? value : [];
+      acceptance = await command(profile, 'promptAcceptanceStatus', { accountSlot: 'host', clientNonce: run.nonce, agentId: run.agentId });
     } catch (error) { if (error.status !== 404) throw error; }
+    let entries = [];
     try {
-      const value = await command(profile, 'getSubagents', { id: run.agentId });
-      subs = Array.isArray(value) ? value.filter(item => item && (item.isRunning || item.status === 'running')) : [];
+      const tail = await command(profile, 'getAgentTranscriptTail', { id: run.agentId, limit: 80 });
+      entries = entriesOf(tail);
     } catch (error) { if (error.status !== 404) throw error; }
-    if (acceptance?.outcome === 'found' && acceptance.record?.status === 'rejected') return { status: 'failed', output: '' };
-    const acceptanceBlocking = acceptance && (acceptance.outcome === 'not-found' || (acceptance.outcome === 'found' && acceptance.record?.status === 'pending'));
-    if (busy || tasks.length || subs.length || acceptanceBlocking) return { status: 'running', output: '' };
-    if (!acceptance && !run.seenBusy && Date.now() - run.started < 8000) return { status: 'running', output: '' };
-    const output = await transcript(profile, run.agentId);
-    return { status: 'completed', output: output || (agent?.awaitingUserResponse ? 'Grok Bot is waiting for a reply.' : '') };
+    const output = repliesAfter(entries, run.baseline).slice(0, 16000);
+    const rejected = acceptance?.outcome === 'found' && acceptance.record?.status === 'rejected';
+    if (rejected && !output) return { status: 'failed', output: '', approvals: [], error: 'Grok Bot rejected the message.' };
+    if (output) return { status: 'completed', output, approvals: [] };
+    const age = now() - run.started;
+    if (age >= runTimeoutMs) return { status: 'interrupted', output: '', approvals: [], error: 'Grok Bot did not finish this turn before the time limit.' };
+    const pendingAcceptance = acceptance?.outcome === 'found' && acceptance.record?.status === 'pending';
+    const acceptanceMissing = !acceptance || acceptance.outcome === 'not-found' || acceptance.outcome === 'unknown-durability';
+    if (pendingAcceptance || (acceptanceMissing && age < acceptanceGraceMs)) return { status: 'running', output: '', approvals: [] };
+    const approval = approvalFrom(agent, entries);
+    if (approval) return { status: 'waiting_for_approval', output: '', approvals: [{ command: approval.command, reason: approval.reason }], approval };
+    return { status: 'running', output: '', approvals: [] };
   }
 
   function finishPane(shared, body, profile, runId, output) {
@@ -245,6 +471,49 @@ export function createGrokChat({ fetchImpl = fetch } = {}) {
     }
   }
 
+  function endRun(shared, body, profile, runId, output) {
+    finishPane(shared, body, profile, runId, output);
+    forget(runId);
+  }
+
+  async function resolveApproval(profile, run, choice) {
+    const agents = await command(profile, 'listAgents', {});
+    const agent = Array.isArray(agents) ? agents.find(item => item && item.id === run.agentId) : null;
+    let entries = [];
+    try {
+      const tail = await command(profile, 'getAgentTranscriptTail', { id: run.agentId, limit: 80 });
+      entries = entriesOf(tail);
+    } catch (error) { if (error.status !== 404) throw error; }
+    const pending = approvalFrom(agent, entries);
+    const agentId = run.agentId;
+    if (choice === 'once') {
+      if (pending?.entryId && String(pending.kind || '').includes('widget')) {
+        await command(profile, 'respondToWidget', { entryId: pending.entryId, agentId, value: { decision: 'allow', choice: 'once' } });
+        return;
+      }
+      try {
+        await command(profile, 'resolveLocalToolPermission', { id: agentId, decision: 'allow', choice: 'once' });
+      } catch (error) {
+        if (error.status !== 404) throw error;
+        if (pending?.entryId) await command(profile, 'respondToWidget', { entryId: pending.entryId, agentId, value: { decision: 'allow', choice: 'once' } });
+        else await command(profile, 'resolveAutoReviewApproval', { id: agentId, decision: 'allow', choice: 'once' });
+      }
+      return;
+    }
+    if (pending?.entryId) {
+      try {
+        await command(profile, 'dismissWidget', { entryId: pending.entryId, agentId });
+        return;
+      } catch (error) { if (error.status !== 404) throw error; }
+    }
+    try {
+      await command(profile, 'resolveLocalToolPermission', { id: agentId, decision: 'deny', choice: 'deny' });
+    } catch (error) {
+      if (error.status !== 404) throw error;
+      await command(profile, 'resolveAutoReviewApproval', { id: agentId, decision: 'deny', choice: 'deny' });
+    }
+  }
+
   async function control(reply, res, scope) {
     return guard(reply, res, () => controlBody(reply, res, scope));
   }
@@ -252,27 +521,239 @@ export function createGrokChat({ fetchImpl = fetch } = {}) {
   async function controlBody(reply, res, { body, profile, shared }) {
     if (!runPattern.test(body.run_id || '')) return reply(res, 400, { error: 'Invalid run.' });
     const run = runs.get(body.run_id);
-    if (!run || run.agentId !== body.session_id || run.profileId !== profile.id) return reply(res, 404, { error: 'Run not found in this Orbit conversation.' });
-    if (body.action === 'steer') return reply(res, 409, { error: 'Grok Bot does not accept mid-run guidance. Wait for this turn to finish, or stop it, then send a new message.' });
-    if (body.action === 'approval') return reply(res, 409, { error: 'Answer Grok Bot from the composer. This provider does not use Hermes tool approvals.' });
+    if (!run || run.agentId !== body.session_id || run.profileId !== profile.id) {
+      if (body.action === 'status' && body.pane_id) {
+        const current = shared.read(body.workspace_id, body.pane_id);
+        if (current?.run === body.run_id && current.session === body.session_id && current.profile_id === profile.id) {
+          const note = 'This run is no longer tracked. Send the message again if you still need a reply.';
+          shared.write(body.workspace_id, body.pane_id, { ...current, run: undefined, messages: [...(current.messages || []), { role: 'assistant', text: note }].slice(-100) });
+          return reply(res, 200, { run_id: body.run_id, status: 'interrupted', output: '', approvals: [], error: note });
+        }
+      }
+      return reply(res, 404, { error: 'Run not found in this Orbit conversation.' });
+    }
+    if (body.action === 'steer') {
+      if (typeof body.input !== 'string' || !body.input.trim() || body.input.length > 100000) return reply(res, 400, { error: 'Guidance must contain 1–100,000 characters.' });
+      const accepted = await command(profile, 'sendPrompt', { prompt: body.input.trim(), agentId: run.agentId, clientNonce: randomUUID() });
+      if (!accepted || accepted.accepted !== true) return reply(res, 502, { error: 'Grok Bot did not accept the follow-up prompt.' });
+      return reply(res, 200, { accepted: true });
+    }
+    if (body.action === 'approval') {
+      if (!['once', 'deny'].includes(body.choice)) return reply(res, 400, { error: 'Only allow-once or deny is supported.' });
+      await resolveApproval(profile, run, body.choice);
+      return reply(res, 200, { status: 'running', resolved: true });
+    }
     if (body.action === 'stop') {
       await command(profile, 'interruptAgentRun', { id: run.agentId });
-      run.status = 'cancelled';
-      finishPane(shared, body, profile, body.run_id, 'Run cancelled.');
-      runs.delete(body.run_id);
+      endRun(shared, body, profile, body.run_id, 'Run cancelled.');
       return reply(res, 200, { status: 'stopping' });
     }
     const view = await inspect(profile, run);
-    if (view.status === 'running') return reply(res, 200, { run_id: body.run_id, status: 'running', output: '', approvals: [] });
-    if (view.status === 'failed') {
-      finishPane(shared, body, profile, body.run_id, 'Grok Bot rejected the message.');
-      runs.delete(body.run_id);
-      return reply(res, 200, { run_id: body.run_id, status: 'failed', output: '', error: 'Grok Bot rejected the message.' });
+    if (view.status === 'running' || view.status === 'waiting_for_approval') {
+      return reply(res, 200, { run_id: body.run_id, status: view.status, output: '', approvals: view.approvals || [] });
     }
-    finishPane(shared, body, profile, body.run_id, view.output);
-    runs.delete(body.run_id);
-    return reply(res, 200, { run_id: body.run_id, status: 'completed', output: view.output, approvals: [] });
+    const paneText = view.status === 'completed' ? view.output : (view.error || `Run ${view.status}.`);
+    endRun(shared, body, profile, body.run_id, paneText);
+    return reply(res, 200, { run_id: body.run_id, status: view.status, output: view.output || '', approvals: [], ...(view.error ? { error: view.error } : {}) });
   }
 
-  return { sessionPage, selectSession, turn, control };
+  async function findAutomation(profile, jobId) {
+    const rows = automationRows(await command(profile, 'listAllAutomations', {}));
+    return rows.find(row => row.automation.id === jobId) || null;
+  }
+
+  async function surface(reply, res, scope) {
+    return guard(reply, res, () => surfaceBody(reply, res, scope));
+  }
+
+  async function surfaceBody(reply, res, { body, profile }) {
+    if (body.action === 'capabilities') return reply(res, 200, { features: { run_events_sse: true } });
+    if (body.action === 'jobs') {
+      const jobs = automationRows(await command(profile, 'listAllAutomations', {})).map(publicJob).filter(Boolean).slice(0, 200);
+      return reply(res, 200, { jobs });
+    }
+    if (body.action === 'job_control') {
+      if (!['pause', 'resume'].includes(body.operation) || typeof body.job_id !== 'string' || !jobPattern.test(body.job_id) || body.confirm !== true) return reply(res, 400, { error: 'Confirm a valid pause or resume operation.' });
+      const found = await findAutomation(profile, body.job_id);
+      if (!found) return reply(res, 404, { error: 'Grok Bot could not find that automation.' });
+      await command(profile, 'setAgentAutomationEnabled', { id: found.agentId, automationId: body.job_id, isEnabled: body.operation === 'resume' });
+      return reply(res, 200, { accepted: true, operation: body.operation });
+    }
+    if (body.action === 'automation') return reply(res, 200, await automationAction(profile, body));
+    if (body.action === 'catalog') return reply(res, 200, await catalog(profile, body));
+    if (body.action === 'activity') return reply(res, 200, await activity(profile, body));
+    return reply(res, 409, { error: 'This Hermes tool is not available for the Grok Bot provider.' });
+  }
+
+  async function automationAction(profile, body) {
+    const operation = body.operation;
+    if (!['get', 'create', 'update', 'delete', 'run'].includes(operation)) throw fail('Unknown automation operation', 400);
+    const id = body.job_id;
+    if (operation !== 'create' && (typeof id !== 'string' || !jobPattern.test(id))) throw fail('Invalid job ID', 400);
+    if (operation !== 'get' && body.confirm !== true) throw fail('Explicit confirmation required', 400);
+    if (operation === 'get') {
+      const found = await findAutomation(profile, id);
+      if (!found) throw fail('Grok Bot could not find that automation.', 404);
+      return { job: jobRecord(found) };
+    }
+    if (operation === 'delete' || operation === 'run') {
+      const found = await findAutomation(profile, id);
+      if (!found) throw fail('Grok Bot could not find that automation.', 404);
+      await command(profile, operation === 'delete' ? 'deleteAgentAutomation' : 'runAgentAutomationNow', { id: found.agentId, automationId: id });
+      return { accepted: true };
+    }
+    validateAutomation(body.fields);
+    if (operation === 'create') {
+      if (!validSessionId(body.session_id)) throw fail('Invalid Grok Bot conversation.', 400);
+      const created = await command(profile, 'createAgentAutomation', { id: body.session_id, spec: automationSpec(body.fields) });
+      const automation = created?.automation || created;
+      const createdId = typeof automation?.id === 'string' ? automation.id : '';
+      if (!jobPattern.test(createdId)) throw fail('Grok Bot did not return a usable automation id.');
+      return { job: jobRecord({ agentId: body.session_id, automation: { ...automationSpec(body.fields), ...automation, id: createdId } }) };
+    }
+    const found = await findAutomation(profile, id);
+    if (!found) throw fail('Grok Bot could not find that automation.', 404);
+    const updated = await command(profile, 'updateAgentAutomation', { id: found.agentId, automationId: id, spec: automationSpec(body.fields) });
+    const automation = updated?.automation || { ...found.automation, ...automationSpec(body.fields), id };
+    return { job: jobRecord({ agentId: found.agentId, automation }) };
+  }
+
+  async function catalog(profile, body) {
+    if (!['skills', 'toolsets'].includes(body.kind)) throw fail('Invalid catalog.', 400);
+    let payload;
+    try {
+      payload = await command(profile, body.kind === 'skills' ? 'skillsCatalog' : 'listBoxMcpServers', {});
+    } catch (error) {
+      if (error.status === 404) throw fail('Grok Bot does not advertise this catalog.', 409);
+      throw error;
+    }
+    if (body.kind === 'skills') {
+      const rows = Array.isArray(payload) ? payload : Array.isArray(payload?.skills) ? payload.skills : [];
+      const items = rows.slice(0, 500).map(item => ({
+        name: String(item?.name || '').slice(0, 2000),
+        description: String(item?.description || '').slice(0, 2000),
+        category: String(item?.category || item?.source || item?.publisher || '').slice(0, 2000),
+      })).filter(item => item.name);
+      return { items };
+    }
+    const servers = Array.isArray(payload?.servers) ? payload.servers : Array.isArray(payload) ? payload : [];
+    const items = servers.slice(0, 500).map(server => ({
+      name: String(server?.serverIdentifier || server?.name || '').slice(0, 2000),
+      description: String(server?.statusDetail || server?.status || '').slice(0, 2000),
+      enabled: server?.status === 'connected',
+      configured: server?.status !== 'error',
+      tools: [],
+    })).filter(item => item.name);
+    return { items };
+  }
+
+  function pushActivity(activity, item) {
+    if (activity.length >= 100) return;
+    activity.push({
+      kind: item.kind,
+      name: String(item.name || (item.kind === 'result' ? 'Tool result' : 'tool')).slice(0, 100),
+      id: String(item.id || '').slice(0, 150),
+      detail: String(item.detail || '').slice(0, item.kind === 'result' ? 8000 : 4000),
+    });
+  }
+
+  async function activity(profile, body) {
+    if (!validSessionId(body.session_id)) throw fail('Invalid Grok Bot conversation.', 400);
+    let items = [];
+    try {
+      const outline = await command(profile, 'getConversationOutline', { id: body.session_id });
+      items = entriesOf(outline);
+    } catch (error) {
+      if (error.status !== 404) throw error;
+      try {
+        const tail = await command(profile, 'getAgentTranscriptTail', { id: body.session_id, limit: 80 });
+        items = entriesOf(tail);
+      } catch (inner) { if (inner.status !== 404) throw inner; }
+    }
+    const activityRows = [];
+    for (const raw of items) {
+      const entry = unwrap(raw);
+      if (!entry || typeof entry !== 'object') continue;
+      const kind = String(entry.kind || '');
+      if (kind === 'tool-call' || kind === 'tool_call' || entry.toolCall) {
+        const call = entry.toolCall || entry;
+        const detail = typeof call.input === 'string' ? call.input : JSON.stringify(call.input || call.arguments || call.detail || {});
+        pushActivity(activityRows, { kind: 'call', name: call.name || call.toolName, id: call.id || entryId(raw), detail });
+      } else if (kind === 'tool-result' || kind === 'tool_result' || entry.role === 'tool') {
+        pushActivity(activityRows, { kind: 'result', name: entry.name, id: entry.toolCallId || entry.tool_call_id || entryId(raw), detail: entry.output || entry.content || entry.detail || '' });
+      }
+      if (activityRows.length >= 100) break;
+    }
+    return { activity: activityRows, note: 'Tool history from this Grok Bot conversation. Active tools may still be running. Results are truncated.' };
+  }
+
+  async function events(reply, res, { body, profile, shared }) {
+    return guard(reply, res, async () => {
+      if (!runPattern.test(body.run_id || '')) return reply(res, 400, { error: 'Invalid run.' });
+      const run = runs.get(body.run_id);
+      let agentId = run && run.profileId === profile.id && run.agentId === body.session_id ? run.agentId : '';
+      if (!agentId && body.pane_id && shared) {
+        const current = shared.read(body.workspace_id, body.pane_id);
+        if (current?.run === body.run_id && current.session === body.session_id && current.profile_id === profile.id) agentId = body.session_id;
+      }
+      if (!agentId) return reply(res, 404, { error: 'Run not found in this Orbit conversation.' });
+      const abort = new AbortController();
+      res.on('close', () => abort.abort());
+      let response;
+      try {
+        response = await fetchImpl(`${profile.apiUrl.replace(/\/$/, '')}/events`, {
+          headers: { Authorization: `Bearer ${profile.apiKey}`, Accept: 'text/event-stream', 'x-sand-request-id': randomUUID() },
+          signal: abort.signal,
+          redirect: 'error',
+        });
+      } catch {
+        return reply(res, 502, { error: 'Grok Bot activity stream is unavailable. Status polling still works.' });
+      }
+      if (!response || response.ok !== true) {
+        await drain(response);
+        return reply(res, 502, { error: 'Grok Bot activity stream is unavailable. Status polling still works.' });
+      }
+      const reader = response.body?.getReader?.();
+      if (!reader) {
+        try { await response.body?.cancel?.(); } catch {}
+        return reply(res, 502, { error: 'Grok Bot activity stream is unavailable. Status polling still works.' });
+      }
+      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' });
+      const decoder = new TextDecoder();
+      let buffer = '';
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n');
+          if (buffer.length > 1_000_000) break;
+          let split;
+          while ((split = buffer.indexOf('\n\n')) >= 0) {
+            const block = buffer.slice(0, split);
+            buffer = buffer.slice(split + 2);
+            const data = block.split('\n').filter(line => line.startsWith('data:')).map(line => line.slice(5).trim()).join('\n');
+            if (!data) continue;
+            let parsed;
+            try { parsed = JSON.parse(data); } catch { parsed = { channel: 'message', payload: data.slice(0, 12000) }; }
+            const payload = parsed?.payload ?? parsed;
+            if (payload && typeof payload === 'object' && typeof payload.agentId === 'string' && payload.agentId !== agentId) continue;
+            const channel = String(parsed?.channel || parsed?.event || 'message').replace(/[\r\n]/g, '').slice(0, 80) || 'message';
+            const encoded = JSON.stringify(payload).slice(0, 12000);
+            if (!res.write(`event: ${channel}\ndata: ${encoded}\n\n`)) {
+              await new Promise(resolve => { res.once('drain', resolve); res.once('close', resolve); });
+            }
+            if (res.destroyed || res.writableEnded) break;
+          }
+          if (res.destroyed || res.writableEnded) break;
+        }
+      } catch {
+        /* The browser closing the live view aborts the gateway stream. */
+      } finally {
+        try { await reader.cancel(); } catch {}
+        try { if (!res.writableEnded) res.end(); } catch {}
+      }
+    });
+  }
+
+  return { sessionPage, selectSession, turn, control, surface, events };
 }

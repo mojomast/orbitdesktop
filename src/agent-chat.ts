@@ -1100,16 +1100,48 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     }
     save(); render();
   }
+  function askGrokConversationName(): Promise<string | null> {
+    return new Promise(resolve => {
+      const dialog = document.createElement('dialog');
+      dialog.className = 'hermes-tools-dialog';
+      dialog.setAttribute('aria-label', 'Name Grok Bot conversation');
+      const name = el('input');
+      name.maxLength = 80;
+      name.placeholder = 'Orbit chat';
+      name.setAttribute('aria-label', 'Grok Bot conversation name');
+      const form = el('form');
+      const commit = button('Create', 'Create Grok Bot conversation', () => {});
+      commit.type = 'submit';
+      let settled = false;
+      const finish = (value: string | null) => { if (settled) return; settled = true; resolve(value); dialog.close(); };
+      form.append(el('h2', '', 'New Grok Bot conversation'), el('p', '', 'Name this conversation, or leave it blank to reuse an empty Orbit chat.'), name, commit, button('Cancel', 'Cancel new conversation', () => finish(null)));
+      form.onsubmit = event => { event.preventDefault(); finish(name.value.trim()); };
+      dialog.append(form);
+      dialog.addEventListener('cancel', event => { event.preventDefault(); finish(null); });
+      dialog.addEventListener('close', () => { dialog.remove(); finish(null); });
+      document.body.append(dialog);
+      dialog.showModal();
+      name.focus();
+    });
+  }
   async function switchConversation(targetProfile: string, targetSession?: string, report?: ConversationSelection['report']) {
     if(requestedSelection){requestedSelection.report?.('failed','Replaced by a newer conversation choice.');requestedSelection=undefined;}
     const reject = (message: string) => { showError(Error(message)); report?.('failed',message); };
     if (switchBlocked()) { reject(state.run ? 'Wait for the current run or unresolved outcome to finish, or use New window.' : state.queue?.length ? 'Send or remove queued messages before switching, or use New window.' : approvals.childElementCount ? 'Resolve pending approvals before switching, or use New window.' : 'Wait for the pane to finish linking or synchronizing, then retry.'); return; }
     if (!Number.isSafeInteger(state.binding_revision)) { reject('Session switching is unsupported until the backend supplies an authoritative binding revision. Refresh the connection first.'); return; }
     const requested = scope();
+    const grokProfile = profiles.find(profile => profile.id === targetProfile)?.provider === 'grok' || (!profiles.some(profile => profile.id === targetProfile) && targetProfile === 'grok');
+    let conversationName = '';
+    if (!targetSession && grokProfile) {
+      const named = await askGrokConversationName();
+      if (!current(requested) || disposed) return;
+      if (named === null) { report?.('failed', 'New conversation cancelled.'); progress.textContent = 'New conversation cancelled.'; return; }
+      conversationName = named;
+    }
     switching = true; sharedEpoch++; update();
     report?.('opening','Opening conversation on the host… This submitted selection cannot be cancelled.');
     try {
-      const data = await api({action:'select_session',target_profile_id:targetProfile,...(targetSession ? {target_session_id:targetSession} : {}),expected_binding_revision:requested.revision}, requested);
+      const data = await api({action:'select_session',target_profile_id:targetProfile,...(targetSession ? {target_session_id:targetSession} : {}),...(conversationName ? {conversation_name:conversationName} : {}),expected_binding_revision:requested.revision}, requested);
       if (!validChat(data.state) || !Number.isSafeInteger(data.state.binding_revision) || chatProfileId(data.state) !== targetProfile || (targetSession && data.state.session !== targetSession)) throw Error('Session switching is unsupported: the backend did not return the requested authoritative binding. Refresh before any further actions.');
       remember(); acceptState(data.state);
       report?.('opened',`Opened ${targetProfile} · ${state.session}.`);

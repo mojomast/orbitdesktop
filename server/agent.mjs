@@ -16,7 +16,7 @@ const sessionPattern = /^orbit-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[
 const runPattern = /^run_[a-zA-Z0-9_-]{8,100}$/;
 const instructions = 'You are Hermes, accessed through the owner’s Comet/Orbit Desktop agent chat. This pane uses its explicitly selected profile and conversation, which may resume a saved Hermes session. Orbit terminal panes run as the owner on the host. Your agent tools still run in the configured Hermes environment. Use plain text in replies. Do not claim to see screen pixels, iframe contents, or terminal buffers unless supplied. Follow normal tool approval policies.';
 
-export function createAgentHandler({ token, port, devOrigins, reply, workspaceContext, workspaceRead, runtimeDirectory = process.env.ORBIT_RUNTIME_DIR || fileURLToPath(new URL('../.runtime/', import.meta.url)), apiUrl = process.env.HERMES_API_URL, apiKey = process.env.HERMES_API_KEY, profiles, profilesJson = process.env.HERMES_PROFILES_JSON, additionalProfiles, fetchImpl = fetch, executionGate, onRunEvent, onNormalAccepted }) {
+export function createAgentHandler({ token, port, devOrigins, reply, workspaceContext, workspaceRead, runtimeDirectory = process.env.ORBIT_RUNTIME_DIR || fileURLToPath(new URL('../.runtime/', import.meta.url)), apiUrl = process.env.HERMES_API_URL, apiKey = process.env.HERMES_API_KEY, profiles, profilesJson = process.env.HERMES_PROFILES_JSON, additionalProfiles, fetchImpl = fetch, executionGate, onRunEvent, onNormalAccepted, grokOptions = {} }) {
   // Derived observation only, using the exact run-trace contract. Never await or
   // let an observer alter a receipt, response, approval or dispatch outcome.
   const observeStatus=(binding,run)=>{
@@ -26,7 +26,13 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
   let configuration;
   try { configuration = createAgentProfiles({profiles,profilesJson,apiUrl,apiKey}); } catch { configuration = null; }
   if (configuration && Array.isArray(additionalProfiles) && additionalProfiles.length) configuration = attachProviders(configuration, additionalProfiles);
-  const grok = createGrokChat({ fetchImpl });
+  const grok = createGrokChat({
+    fetchImpl,
+    runtimeDirectory,
+    ...(typeof grokOptions.now === 'function' ? { now: grokOptions.now } : {}),
+    ...(Number.isFinite(grokOptions.acceptanceGraceMs) ? { acceptanceGraceMs: grokOptions.acceptanceGraceMs } : {}),
+    ...(Number.isFinite(grokOptions.runTimeoutMs) ? { runTimeoutMs: grokOptions.runTimeoutMs } : {}),
+  });
   const endpoint = (profile, route) => `${profile.apiUrl.replace(/\/$/, '')}${route}`;
   // Bounded upstream JSON: read the real byte stream with a hard cap, cancel on
   // overflow, and decode as fatal UTF-8. There is no unbounded r.json() fallback;
@@ -277,9 +283,13 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
           }
         }
       }
-      if (profile?.provider === 'grok' && ['build_queue', 'catalog', 'capabilities', 'events', 'activity', 'automation', 'jobs', 'job_control'].includes(body.action)) {
-        if (body.action === 'capabilities') return reply(res, 200, { features: { run_events_sse: false } });
-        return reply(res, 409, { error: 'This Hermes tool is not available for the Grok Bot provider.' });
+      if (profile?.provider === 'grok' && body.action === 'build_queue') return reply(res, 409, { error: 'This Hermes tool is not available for the Grok Bot provider.' });
+      if (profile?.provider === 'grok' && body.action === 'events') {
+        if (paneLock) { shared.locks.delete(paneLock); paneLock = undefined; }
+        return grok.events(reply, res, { body, profile, shared });
+      }
+      if (profile?.provider === 'grok' && ['catalog', 'capabilities', 'activity', 'automation', 'jobs', 'job_control'].includes(body.action)) {
+        return grok.surface(reply, res, { body, profile });
       }
       if (body.action === 'build_queue') {
         if (profileId !== 'default') return reply(res,409,{error:'Build queue is only available for the default Hermes profile.'});
