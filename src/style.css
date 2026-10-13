@@ -586,6 +586,17 @@ p {
 .collab-diff-add { color: #c2ed90; }
 .collab-diff-del { color: #f0b6a8; }
 .collab-diff-same { color: var(--theme-muted, #aec0ba); }
+.collab-orchestrator, .collab-tree { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.collab-tree { flex-direction: column; align-items: stretch; }
+.collab-tree-list { list-style: none; margin: 0; padding-left: 16px; display: flex; flex-direction: column; gap: 6px; }
+.collab-tree-node { min-width: 0; }
+.collab-tree-node[data-status="running"] { border-left: 2px solid var(--theme-accentColor, #c2ed90); padding-left: 6px; }
+.collab-tree-node[data-status="failed"] { border-left: 2px solid #f0b6a8; padding-left: 6px; }
+.collab-sub-open { text-align: left; }
+.collab-sub-meta, .collab-transcript { color: var(--theme-muted, #aec0ba); font-size: 12px; }
+.collab-transcript { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; max-height: 280px; overflow: auto; }
+.collab-transcript-line { white-space: pre-wrap; overflow-wrap: anywhere; }
+.collab-event[data-span] { cursor: pointer; }
 .host-surface:has(.collab) { display: flex; overflow: hidden; }
 .irc { display: flex; flex: 1 1 auto; flex-direction: column; gap: 10px; min-height: 0; min-width: 0; height: 100%; color: inherit; }
 .irc h2, .irc h3 { margin: 0; }

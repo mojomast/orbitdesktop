@@ -32,6 +32,8 @@ Gateway commands below are the host commands Orbit already calls (`listAgents`, 
 | Conversation drafts, pins, archive, export | Orbit metadata, not the gateway | Same Orbit metadata. A Grok Bot export is labeled Grok Bot | Parity |
 | Shared room and delegation | Hermes session for the pane | Separate **Orbit shared chat** agent. Same mentions, backstop, timeout, and delegate block | Parity |
 | Collab board, gates, budget, reviews | Hermes turns | Grok Bot turns on **Orbit collab**. Same JSON ops, gates, and budget | Parity |
+| Collab orchestrator | Either agent can be the project's orchestrator. Plan ops include `replan`, `assign`, `spawn`, `merge`, and `status` | Same ops on **Orbit collab** | Parity |
+| Collab subagents | A new Hermes session (`orbit-sub-…`) on the gateway. The session is abandoned when the subagent finishes | A new gateway agent named **Orbit collab sub: …**, archived with `archiveAgent` after completion. Never the main conversation, **Orbit shared chat**, or the project's **Orbit collab** agent | Parity. Hermes has no archive call, so Orbit starts a fresh session id instead |
 | Collab files | Hermes terminal, then Orbit indexes the git workspace | `artifact.put` and the same index after a Grok Bot turn | Parity |
 | Collab terminal | Hermes terminal tool in `workspace/` | `shell` op. Read-only commands run in the workspace. Anything else needs `risk: "shell.write"` and Kyle’s approval, then Orbit runs `sh -c` there and stores `shell-output.txt` | Bridged. `sh -c` is not a sandbox; approval is the control. Read-only commands are `pwd`, `ls`, `git status`, `git diff`, `git log`, and the `run-tests` prefixes, with plain tokens only |
 | Collab tests | `run-tests` | Same allowlist and `test-results.txt` | Parity |
