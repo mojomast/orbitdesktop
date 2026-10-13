@@ -2,6 +2,11 @@ import fs from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { createCollabStore, mintCollabId } from './collab-store.mjs';
+import {
+  MAX_PARALLEL, MAX_PER_AGENT, SUBAGENT_PREFIX, addWorktree, commitWorktree, effortCap, inScope, isCodingBrief,
+  mergeBranch, noteLoop, orderSubs, parseBrief, projectedTokens, pushWorkspace, rebaseWorktree, removeWorktree,
+  scopesOverlap, spanFields, subagentName,
+} from './collab-orchestrator.mjs';
 
 const AGENTS = ['hermes', 'grok'];
 const ROLES = ['planner', 'executor', 'reviewer', 'researcher'];
@@ -18,7 +23,8 @@ const DEFAULT_TURN_TIMEOUT_MS = 20 * 60 * 1000;
 const DEFAULT_ADVANCE_INTERVAL_MS = 15 * 1000;
 const labels = { hermes: 'Hermes', grok: 'Grok Bot', kyle: 'Kyle', orbit: 'Orbit' };
 
-const OPS = ['plan', 'claim', 'artifact.put', 'handoff', 'submit', 'review', 'ask', 'decision', 'run-tests', 'workspace.sync', 'shell'];
+const OPS = ['plan', 'claim', 'artifact.put', 'handoff', 'submit', 'review', 'ask', 'decision', 'run-tests', 'workspace.sync', 'shell', 'replan', 'assign', 'spawn', 'merge', 'status'];
+const EFFORTS = ['trivial', 'moderate', 'complex'];
 const TEST_PREFIXES = [
   ['npm', 'test'],
   ['npm', 'run', 'test'],
@@ -46,7 +52,8 @@ Allowed ops are ${OPS.join(', ')}. A task reviewer must be the other agent, neve
 artifact.put names may be relative paths such as src/app.js. kind is file, note, or test. baseVersion is the version you last read, or 0 for a new name. If Orbit says the version moved, read it again before writing.
 run-tests runs one allowlisted command in the project workspace and stores the output as test-results.txt: npm test, npm run test, pnpm test, yarn test, pytest, python -m pytest, python3 -m pytest, or node --test. Extra arguments must be plain tokens.
 shell runs in that same workspace. pwd, ls, git status, git diff, git log, and the run-tests commands run immediately when every extra argument is a plain token. Any other command needs risk "shell.write". Orbit then waits for Kyle and runs it with sh -c. That approval is the control; sh -c is not a sandbox. Output is stored as shell-output.txt. workspace.sync indexes text files written in the workspace after either agent's turn.
-workspace.sync indexes files written in the workspace. Both agents can use artifact.put and shell.`;
+workspace.sync indexes files written in the workspace. Both agents can use artifact.put and shell.
+The orchestrator stays in charge (agents-as-tools). It decomposes with plan and replan, schedules with assign, fans out with spawn, merges worktrees with merge, and reports with status. A spawn brief needs objective, deliverable, acceptance, allowedTools, scope, budget (turns, tokens, minutes), and returnFormat "summary+paths". A subagent returns one status op with a summary and artifactPaths. Do not hand the project to a subagent.`;
 
 function artifactName(value) {
   const name = clean(value, 120);
@@ -167,31 +174,121 @@ export function chooseAgent(role, skillsHint, capabilities, avoid = '') {
   return best || (avoid === 'hermes' ? 'grok' : 'hermes');
 }
 
+function parseTaskBudget(task, title) {
+  const hasTurns = task.maxTurns != null && task.maxTurns !== '';
+  const hasTokens = task.maxTokens != null && task.maxTokens !== '';
+  const hasMinutes = task.maxMinutes != null && task.maxMinutes !== '';
+  if (!hasTurns && !hasTokens && !hasMinutes) return { budget: null };
+  const maxTurns = hasTurns ? task.maxTurns : null;
+  const maxTokens = hasTokens ? task.maxTokens : null;
+  const maxMinutes = hasMinutes ? task.maxMinutes : null;
+  if (hasTurns && (!Number.isInteger(maxTurns) || maxTurns < 1 || maxTurns > 80)) return { error: `Task "${title}" maxTurns must be an integer from 1 to 80.` };
+  if (hasTokens && (!Number.isInteger(maxTokens) || maxTokens < 100 || maxTokens > 2_000_000)) return { error: `Task "${title}" maxTokens must be an integer from 100 to 2000000.` };
+  if (hasMinutes && (!Number.isInteger(maxMinutes) || maxMinutes < 1 || maxMinutes > 30)) return { error: `Task "${title}" maxMinutes must be an integer from 1 to 30.` };
+  return { budget: { maxTurns, maxTokens, maxWallMs: hasMinutes ? maxMinutes * 60 * 1000 : null } };
+}
+
+function parsePlanTasks(rawTasks, label) {
+  if (!Array.isArray(rawTasks) || rawTasks.length < 1 || rawTasks.length > 8) return { error: `${label} must contain 1–8 tasks.` };
+  const tasks = [];
+  for (const task of rawTasks) {
+    if (!task || typeof task !== 'object') return { error: 'Each planned task must be an object.' };
+    const title = clean(task.title, 200);
+    const spec = clean(task.spec, 4000);
+    if (!title || !spec) return { error: 'Each planned task needs a title and a spec.' };
+    if (!Array.isArray(task.acceptance) || task.acceptance.length < 1 || task.acceptance.length > 8) return { error: `Task "${title}" needs 1–8 acceptance criteria.` };
+    const acceptance = task.acceptance.map(item => clean(item, 500)).filter(Boolean);
+    if (acceptance.length !== task.acceptance.length) return { error: `Task "${title}" has an empty acceptance criterion.` };
+    const role = normalizeRole(task.role);
+    const owner = normalizeAgent(task.owner);
+    const reviewer = normalizeAgent(task.reviewer);
+    const dependsOn = Array.isArray(task.dependsOn) ? task.dependsOn.map(item => clean(item, 200)).filter(Boolean).slice(0, 8) : [];
+    const skillsHint = asSkills(task.skillsHint);
+    const risk = task.risk ? clean(task.risk, 40) : '';
+    if (risk && !RISKS.includes(risk)) return { error: `Task "${title}" has an unknown risk class.` };
+    const budget = parseTaskBudget(task, title);
+    if (budget.error) return budget;
+    tasks.push({ title, spec, acceptance, role, owner, reviewer, dependsOn, skillsHint, risk, budget: budget.budget });
+  }
+  return { tasks };
+}
+
+function parsePlanMeta(raw) {
+  const orchestrator = raw.orchestrator ? normalizeAgent(raw.orchestrator) : '';
+  if (raw.orchestrator && !orchestrator) return { error: 'orchestrator must be hermes or grok.' };
+  const effort = raw.effort ? clean(raw.effort, 20).toLowerCase() : '';
+  if (effort && !EFFORTS.includes(effort)) return { error: 'effort must be trivial, moderate, or complex.' };
+  let maxDepth = 0;
+  if (raw.maxDepth != null && raw.maxDepth !== '') {
+    if (raw.maxDepth !== 1 && raw.maxDepth !== 2) return { error: 'maxDepth must be 1 or 2.' };
+    maxDepth = raw.maxDepth;
+  }
+  return { orchestrator, effort, maxDepth };
+}
+
 function parseOp(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { error: 'Each op must be an object.' };
   const op = raw.op;
   if (!OPS.includes(op)) return { error: `Unknown collab op "${clean(op, 40)}". Allowed ops: ${OPS.join(', ')}.` };
-  if (op === 'plan') {
-    if (!Array.isArray(raw.tasks) || raw.tasks.length < 1 || raw.tasks.length > 8) return { error: 'plan.tasks must contain 1–8 tasks.' };
-    const tasks = [];
-    for (const task of raw.tasks) {
-      if (!task || typeof task !== 'object') return { error: 'Each planned task must be an object.' };
-      const title = clean(task.title, 200);
-      const spec = clean(task.spec, 4000);
-      if (!title || !spec) return { error: 'Each planned task needs a title and a spec.' };
-      if (!Array.isArray(task.acceptance) || task.acceptance.length < 1 || task.acceptance.length > 8) return { error: `Task "${title}" needs 1–8 acceptance criteria.` };
-      const acceptance = task.acceptance.map(item => clean(item, 500)).filter(Boolean);
-      if (acceptance.length !== task.acceptance.length) return { error: `Task "${title}" has an empty acceptance criterion.` };
-      const role = normalizeRole(task.role);
-      const owner = normalizeAgent(task.owner);
-      const reviewer = normalizeAgent(task.reviewer);
-      const dependsOn = Array.isArray(task.dependsOn) ? task.dependsOn.map(item => clean(item, 200)).filter(Boolean).slice(0, 8) : [];
-      const skillsHint = asSkills(task.skillsHint);
-      const risk = task.risk ? clean(task.risk, 40) : '';
-      if (risk && !RISKS.includes(risk)) return { error: `Task "${title}" has an unknown risk class.` };
-      tasks.push({ title, spec, acceptance, role, owner, reviewer, dependsOn, skillsHint, risk });
+  if (op === 'plan' || op === 'replan') {
+    const parsed = parsePlanTasks(raw.tasks, `${op}.tasks`);
+    if (parsed.error) return parsed;
+    const meta = parsePlanMeta(raw);
+    if (meta.error) return meta;
+    if (op === 'replan') {
+      const reason = clean(raw.reason, 1000);
+      if (!reason) return { error: 'replan needs a reason.' };
+      return { op: { op, tasks: parsed.tasks, reason, ...meta } };
     }
-    return { op: { op, tasks } };
+    return { op: { op, tasks: parsed.tasks, ...meta } };
+  }
+  if (op === 'assign') {
+    const taskId = clean(raw.taskId, 40);
+    if (!/^t_[a-f0-9]{16}$/.test(taskId)) return { error: 'assign needs a taskId.' };
+    const to = normalizeAgent(raw.to);
+    if (!to) return { error: 'assign.to must be hermes or grok.' };
+    const reason = clean(raw.reason, 1000);
+    if (!reason) return { error: 'assign needs a reason.' };
+    return { op: { op, taskId, to, reason } };
+  }
+  if (op === 'spawn') {
+    const taskId = clean(raw.taskId, 40);
+    if (!/^t_[a-f0-9]{16}$/.test(taskId)) return { error: 'spawn needs a taskId.' };
+    const brief = parseBrief(raw.brief);
+    if (brief.error) return brief;
+    const agent = raw.agent ? normalizeAgent(raw.agent) : '';
+    if (raw.agent && !agent) return { error: 'spawn.agent must be hermes or grok.' };
+    const name = clean(raw.name, 80);
+    const dependsOn = Array.isArray(raw.dependsOn) ? raw.dependsOn.map(item => clean(item, 200)).filter(Boolean).slice(0, 8) : [];
+    return { op: { op, taskId, agent, name, dependsOn, brief: brief.brief } };
+  }
+  if (op === 'merge') {
+    const taskId = clean(raw.taskId, 40);
+    if (!/^t_[a-f0-9]{16}$/.test(taskId)) return { error: 'merge needs a taskId.' };
+    const names = Array.isArray(raw.names) ? raw.names.map(item => clean(item, 80)).filter(Boolean).slice(0, 8) : [];
+    const push = raw.push === true;
+    const command = raw.command ? clean(raw.command, 200) : '';
+    if (command && !parseTestCommand(command)) return { error: 'merge command must be an allowlisted test command with plain tokens.' };
+    return { op: { op, taskId, names, push, command } };
+  }
+  if (op === 'status') {
+    const taskId = raw.taskId ? clean(raw.taskId, 40) : '';
+    if (taskId && !/^t_[a-f0-9]{16}$/.test(taskId)) return { error: 'status taskId is not a task id.' };
+    const summary = raw.summary ? clean(raw.summary, 4000) : '';
+    let artifactPaths = null;
+    if (raw.artifactPaths != null) {
+      if (!Array.isArray(raw.artifactPaths) || raw.artifactPaths.length > 16) return { error: 'status.artifactPaths must be an array of at most 16 relative paths.' };
+      artifactPaths = [];
+      for (const item of raw.artifactPaths) {
+        const scope = parseBrief({
+          objective: 'x', deliverable: 'y', acceptance: ['z'], allowedTools: ['read'], scope: [item],
+          budget: { turns: 1, tokens: 100, minutes: 1 }, returnFormat: 'summary+paths',
+        });
+        if (scope.error) return { error: 'status.artifactPaths must be relative file paths.' };
+      }
+      artifactPaths = raw.artifactPaths.map(item => clean(item, 120));
+    }
+    return { op: { op, taskId, summary, artifactPaths } };
   }
   if (op === 'claim' || op === 'submit' || op === 'handoff' || op === 'review' || op === 'ask') {
     const taskId = clean(raw.taskId, 40);
@@ -315,6 +412,7 @@ export function createCollab({ directory, gateways, now = () => Date.now(), adva
       type,
       taskId: extra.taskId || '',
       data: extra.data || {},
+      ...(extra.trace ? { trace: extra.trace } : {}),
     };
     store.appendEvent(bundle.project.id, record);
     return record;
@@ -343,6 +441,75 @@ export function createCollab({ directory, gateways, now = () => Date.now(), adva
     return agent === 'hermes' ? 'grok' : 'hermes';
   }
 
+  function ensureShape(bundle) {
+    const project = bundle.project;
+    ensureRuns(project);
+    if (!Array.isArray(bundle.subagents)) bundle.subagents = [];
+    if (project.orchestrator !== 'hermes' && project.orchestrator !== 'grok') project.orchestrator = '';
+    if (!EFFORTS.includes(project.effort)) project.effort = 'moderate';
+    if (project.maxSubagentDepth !== 1 && project.maxSubagentDepth !== 2) project.maxSubagentDepth = 1;
+    if (!Array.isArray(project.loop)) project.loop = [];
+  }
+
+  function emitSpan(bundle, fields) {
+    const span = spanFields(fields);
+    event(bundle, 'span', { actor: fields.actor || 'orbit', taskId: fields.taskId || '', data: span.data, trace: span.trace });
+  }
+
+  function modelOf(speaker) {
+    return speaker === 'grok' ? 'grok-bot' : 'hermes';
+  }
+
+  function taskTimeout(task, sub) {
+    const asked = sub?.budget?.maxWallMs || task?.budget?.maxWallMs || 0;
+    if (!asked) return turnTimeout;
+    const ceiling = 30 * 60 * 1000;
+    const raw = Number(process.env.ORBIT_COLLAB_TURN_TIMEOUT_MS ?? process.env.ORBIT_SHARED_TURN_TIMEOUT_MS);
+    const cap = Number.isFinite(raw) && raw >= 1000 && raw <= ceiling ? Math.floor(raw) : ceiling;
+    return Math.max(1000, Math.min(cap, asked));
+  }
+
+  function taskBudgetHit(task) {
+    const budget = task?.budget;
+    if (!budget) return '';
+    const spent = task.budgetSpent || { turns: 0, tokens: 0 };
+    if (budget.maxTurns && spent.turns >= budget.maxTurns) return `Task turn budget reached (${spent.turns}/${budget.maxTurns}).`;
+    if (budget.maxTokens && spent.tokens >= budget.maxTokens) return `Task token budget reached (${spent.tokens}/${budget.maxTokens}).`;
+    if (budget.maxWallMs && task.budgetStarted && now() - task.budgetStarted >= budget.maxWallMs) return `Task time budget reached (${Math.round(budget.maxWallMs / 60000)} minutes).`;
+    return '';
+  }
+
+  function subBudgetHit(sub) {
+    const budget = sub?.budget;
+    if (!budget) return '';
+    if (budget.maxTurns && budget.spentTurns >= budget.maxTurns) return `Subagent turn budget reached (${budget.spentTurns}/${budget.maxTurns}).`;
+    if (budget.maxTokens && budget.spentTokens >= budget.maxTokens) return `Subagent token budget reached (${budget.spentTokens}/${budget.maxTokens}).`;
+    if (budget.maxWallMs && budget.startedAt && now() - budget.startedAt >= budget.maxWallMs) return `Subagent time budget reached (${Math.max(1, Math.round(budget.maxWallMs / 60000))} minutes).`;
+    return '';
+  }
+
+  function appendTranscript(sub, role, text) {
+    sub.transcript = Array.isArray(sub.transcript) ? sub.transcript : [];
+    sub.transcript.push({ at: now(), role, text: clean(text, 4000) });
+    sub.transcript = sub.transcript.slice(-40);
+  }
+
+  function subById(bundle, id) {
+    return bundle.subagents.find(sub => sub.id === id) || null;
+  }
+
+  function depsReadySub(bundle, sub) {
+    return (sub.dependsOn || []).every(id => {
+      const dep = subById(bundle, id);
+      return dep && (dep.status === 'completed' || dep.merged);
+    });
+  }
+
+  function parallelCount(bundle, extra = []) {
+    const ready = bundle.subagents.filter(sub => sub.status === 'running' || (sub.status === 'queued' && depsReadySub(bundle, sub)));
+    return ready.length + extra.length;
+  }
+
   function ensureRuns(project) {
     if (!project.runs || typeof project.runs !== 'object' || Array.isArray(project.runs)) project.runs = { hermes: null, grok: null };
     if (project.run?.speaker && AGENTS.includes(project.run.speaker) && !project.runs[project.run.speaker]) project.runs[project.run.speaker] = project.run;
@@ -356,6 +523,14 @@ export function createCollab({ directory, gateways, now = () => Date.now(), adva
     return new Set(AGENTS.map(agent => runs[agent]?.taskId).filter(Boolean));
   }
 
+  function runMark(bundle) {
+    const runs = ensureRuns(bundle.project);
+    return [
+      ...AGENTS.map(agent => runs[agent]?.runId || ''),
+      ...(bundle.subagents || []).map(sub => sub.run?.runId || ''),
+    ].join('|');
+  }
+
   async function stopRuns(bundle) {
     const runs = ensureRuns(bundle.project);
     for (const agent of AGENTS) {
@@ -364,6 +539,13 @@ export function createCollab({ directory, gateways, now = () => Date.now(), adva
       try { await gateways.stopSpeaker(run); }
       catch (error) { event(bundle, 'error', { actor: agent, data: { message: error?.message || 'Stop failed.' } }); }
       runs[agent] = null;
+    }
+    for (const sub of bundle.subagents || []) {
+      if (!sub.run) continue;
+      try { await gateways.stopSpeaker(sub.run); }
+      catch (error) { event(bundle, 'error', { actor: sub.speaker, taskId: sub.taskId, data: { message: error?.message || 'Stop failed.', id: sub.id } }); }
+      sub.run = null;
+      if (sub.status === 'running') sub.status = 'queued';
     }
   }
 
@@ -375,7 +557,9 @@ export function createCollab({ directory, gateways, now = () => Date.now(), adva
       const title = run.taskId ? taskById(bundle, run.taskId)?.title : '';
       return title ? `${labels[agent]} is ${verb} on ${title}` : `${labels[agent]} is ${verb}`;
     });
-    if (bits.length) bundle.project.activity = `${bits.join('; ')}.`;
+    const subs = (bundle.subagents || []).filter(sub => sub.status === 'running').map(sub => `${sub.name} is running`);
+    const all = [...bits, ...subs];
+    if (all.length) bundle.project.activity = `${all.join('; ')}.`;
   }
 
   function rememberTurn(projectId, speaker, taskId, kind) {
@@ -489,9 +673,21 @@ Each task needs a title, a spec, and acceptance (1–8 testable strings).
 role must be one of: planner, executor, reviewer, researcher. Any other role is ignored and Orbit chooses from skillsHint.
 owner and reviewer must be hermes or grok. Hermes and Grok Bot are accepted names for those ids. The reviewer must not be the owner. Omit either one and Orbit assigns from skills.
 skillsHint is an array of: terminal, tools, code, research, reasoning, writing.
-dependsOn is an array of exact task titles from this same plan. A task waits until every title in dependsOn is completed. Use [] when the task can start immediately.`}
+dependsOn is an array of exact task titles from this same plan. A task waits until every title in dependsOn is completed. Use [] when the task can start immediately.
+Optional plan fields: orchestrator (hermes or grok), effort (trivial, moderate, or complex), and maxDepth (1 or 2). Trivial work stays with one agent. Moderate work uses at most 2 subagents at once. Complex work uses at most 4, and at most 3 from one agent. A task may set maxTurns, maxTokens, and maxMinutes (at most 30).`}
 Budget: ${budget.spentTurns}/${budget.maxTurns} turns, ${spentMin}/${wallMin} minutes${budget.maxTokens ? `, ${budget.spentTokens}/${budget.maxTokens} tokens` : ''}.
+Orchestrator: ${project.orchestrator ? labels[project.orchestrator] : '(chosen when the plan is accepted)'}. Effort: ${project.effort || 'moderate'}. Subagent depth cap: ${project.maxSubagentDepth || 1}.
+Subagents:
+${subagentLines(bundle) || '(none)'}
 Last error: ${task?.lastError || project.activity || '(none)'}`;
+  }
+
+  function subagentLines(bundle) {
+    return (bundle.subagents || []).map(sub => {
+      const result = sub.result?.summary ? ` Result: ${sub.result.summary}` : '';
+      const paths = sub.result?.artifactPaths?.length ? ` Paths: ${sub.result.artifactPaths.join(', ')}` : '';
+      return `- ${sub.id} ${sub.name} (${sub.status}, ${labels[sub.speaker] || sub.speaker}, depth ${sub.depth})${result}${paths}${sub.lastError ? ` Error: ${sub.lastError}` : ''}`;
+    }).join('\n');
   }
 
   function budgetBlocked(bundle, { warn = true } = {}) {
@@ -520,6 +716,11 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
     const runs = ensureRuns(bundle.project);
     if (runs[speaker]) return false;
     if (budgetBlocked(bundle)) return false;
+    const limited = task ? taskBudgetHit(task) : '';
+    if (limited) {
+      exhaust(bundle, task, limited, kind === 'review' ? 'review' : 'work');
+      return false;
+    }
     const project = bundle.project;
     const prompt = `${packet(bundle, speaker, task)}${promptExtra ? `\n\n${promptExtra}` : ''}`;
     rememberTurn(project.id, speaker, task?.id || '', kind);
@@ -535,6 +736,12 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
       if (started.agentId) project.grokAgentId = started.agentId;
       project.budget.spentTurns += 1;
       if (started.tokens) project.budget.spentTokens += started.tokens;
+      if (task?.budget) {
+        task.budgetSpent = task.budgetSpent || { turns: 0, tokens: 0 };
+        if (!task.budgetStarted) task.budgetStarted = now();
+        task.budgetSpent.turns += 1;
+        if (started.tokens) task.budgetSpent.tokens += started.tokens;
+      }
       runs[speaker] = {
         speaker,
         taskId: task?.id || '',
@@ -542,10 +749,12 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
         corrective,
         runId: started.runId,
         started: started.started,
+        timeoutMs: taskTimeout(task, null),
         ...(started.nonce ? { nonce: started.nonce, baseline: started.baseline, agentId: started.agentId } : {}),
       };
       describeActivity(bundle);
       event(bundle, 'turn.started', { actor: speaker, taskId: task?.id || '', data: { kind, runId: started.runId } });
+      emitSpan(bundle, { span: 'invoke_agent', actor: speaker, model: modelOf(speaker), tokens: started.tokens || 0, runId: started.runId, taskId: task?.id || '', status: 'running', summary: `invoke_agent · ${labels[speaker]} · ${kind}` });
       return true;
     } catch (error) {
       const message = error?.message || `${labels[speaker]} could not take a turn.`;
@@ -589,7 +798,7 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
       return;
     }
     task.status = 'failed';
-    event(bundle, 'task.state', { taskId: task.id, data: { status: 'failed', reason: task.lastError } });
+    event(bundle, 'task.state', { taskId: task.id, data: { status: 'failed', reason: task.lastError, notify: true } });
     bundle.project.activity = `${task.title} failed. ${task.lastError}`;
   }
 
@@ -619,19 +828,26 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
     const runs = ensureRuns(bundle.project);
     const busy = busyTaskIds(bundle.project);
     let started = false;
-    for (const agent of AGENTS) {
-      if (runs[agent]) continue;
-      const review = bundle.tasks.find(task => task.status === 'review' && !task.protocolHold && task.reviewer === agent && depsReady(bundle, task) && !busy.has(task.id));
-      const ready = bundle.tasks.find(task => task.status === 'submitted' && !task.protocolHold && task.owner === agent && depsReady(bundle, task) && !busy.has(task.id));
-      const working = deferAgents.has(agent) ? null : bundle.tasks.find(task => task.status === 'working' && !task.protocolHold && task.owner === agent && task.lease && now() <= task.lease.until && depsReady(bundle, task) && !busy.has(task.id));
-      const task = review || ready || working;
-      if (!task) continue;
-      const kind = task.status === 'review' ? 'review' : 'work';
-      const speaker = task.status === 'review' ? task.reviewer : task.owner;
-      if (await beginTurn(bundle, speaker, task, kind)) {
-        started = true;
-        if (task.id) busy.add(task.id);
+    for (let pass = 0; pass < 4 && !started; pass += 1) {
+      let moved = false;
+      const before = bundle.tasks.map(task => `${task.id}:${task.status}:${task.owner}:${task.attempts}`).join();
+      for (const agent of AGENTS) {
+        if (runs[agent]) continue;
+        const review = bundle.tasks.find(task => task.status === 'review' && !task.protocolHold && task.reviewer === agent && depsReady(bundle, task) && !busy.has(task.id));
+        const ready = bundle.tasks.find(task => task.status === 'submitted' && !task.protocolHold && task.owner === agent && depsReady(bundle, task) && !busy.has(task.id));
+        const working = deferAgents.has(agent) ? null : bundle.tasks.find(task => task.status === 'working' && !task.protocolHold && task.owner === agent && task.lease && now() <= task.lease.until && depsReady(bundle, task) && !busy.has(task.id));
+        const task = review || ready || working;
+        if (!task) continue;
+        const kind = task.status === 'review' ? 'review' : 'work';
+        const speaker = task.status === 'review' ? task.reviewer : task.owner;
+        if (await beginTurn(bundle, speaker, task, kind)) {
+          started = true;
+          if (task.id) busy.add(task.id);
+        }
       }
+      const after = bundle.tasks.map(task => `${task.id}:${task.status}:${task.owner}:${task.attempts}`).join();
+      moved = before !== after;
+      if (!moved) break;
     }
     if (started || AGENTS.some(agent => runs[agent])) return started;
     const open = bundle.tasks.some(task => ['submitted', 'working', 'review', 'input-required'].includes(task.status));
@@ -643,7 +859,49 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
     return false;
   }
 
-  function materializePlan(bundle, tasks) {
+  function pushTask(bundle, task, id, ids) {
+    const record = {
+      id,
+      title: task.title,
+      spec: task.spec,
+      acceptance: task.acceptance,
+      dependsOn: task.dependsOn.map(dep => ids?.get(dep) || dep),
+      owner: task.owner,
+      reviewer: task.reviewer,
+      role: task.role,
+      skillsHint: task.skillsHint || [],
+      risk: task.risk || '',
+      status: 'submitted',
+      kind: task.kind || '',
+      attempts: 0,
+      reviewAttempts: 0,
+      maxAttempts: 2,
+      lease: null,
+      artifacts: [],
+      summary: '',
+      reviewNotes: '',
+      lastError: '',
+      selfCheck: {},
+      criteria: {},
+      budget: task.budget || null,
+      budgetSpent: { turns: 0, tokens: 0 },
+      budgetStarted: 0,
+      createdAt: now(),
+    };
+    bundle.tasks.push(record);
+    event(bundle, 'task.created', { taskId: id, data: { title: record.title, owner: record.owner, reviewer: record.reviewer, role: record.role, kind: record.kind } });
+    return record;
+  }
+
+  function applyPlanMeta(bundle, meta, speaker) {
+    if (!meta) return;
+    if (meta.orchestrator) bundle.project.orchestrator = meta.orchestrator;
+    else if (!bundle.project.orchestrator && AGENTS.includes(speaker)) bundle.project.orchestrator = speaker;
+    if (meta.effort) bundle.project.effort = meta.effort;
+    if (meta.maxDepth === 1 || meta.maxDepth === 2) bundle.project.maxSubagentDepth = meta.maxDepth;
+  }
+
+  function materializePlan(bundle, tasks, meta, speaker) {
     if (bundle.tasks.some(task => !['canceled', 'failed'].includes(task.status))) return 'A plan is already on the board.';
     const assigned = [];
     for (const task of tasks) {
@@ -658,35 +916,8 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
         if (!ids.has(dep) && !taskById(bundle, dep)) return `Task "${task.title}" depends on unknown task "${dep}".`;
       }
     }
-    for (const task of assigned) {
-      const id = ids.get(task.title);
-      const record = {
-        id,
-        title: task.title,
-        spec: task.spec,
-        acceptance: task.acceptance,
-        dependsOn: task.dependsOn.map(dep => ids.get(dep) || dep),
-        owner: task.owner,
-        reviewer: task.reviewer,
-        role: task.role,
-        skillsHint: task.skillsHint,
-        risk: task.risk || '',
-        status: 'submitted',
-        attempts: 0,
-        reviewAttempts: 0,
-        maxAttempts: 2,
-        lease: null,
-        artifacts: [],
-        summary: '',
-        reviewNotes: '',
-        lastError: '',
-        selfCheck: {},
-        criteria: {},
-        createdAt: now(),
-      };
-      bundle.tasks.push(record);
-      event(bundle, 'task.created', { taskId: id, data: { title: record.title, owner: record.owner, reviewer: record.reviewer, role: record.role } });
-    }
+    applyPlanMeta(bundle, meta, speaker);
+    for (const task of assigned) pushTask(bundle, task, ids.get(task.title), ids);
     bundle.project.gate = {
       id: mintCollabId('g'),
       type: 'plan',
@@ -700,9 +931,559 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
     return '';
   }
 
-  function checkOps(bundle, speaker, ops) {
+  function materializeReplan(bundle, op, speaker) {
+    if (speaker !== bundle.project.orchestrator) return 'Only the orchestrator can replan.';
+    for (const task of bundle.tasks) {
+      if (task.status === 'failed' || task.status === 'submitted') {
+        task.status = 'canceled';
+        task.lease = null;
+        event(bundle, 'task.state', { actor: speaker, taskId: task.id, data: { status: 'canceled', reason: op.reason } });
+      }
+    }
+    const live = new Set(bundle.tasks.filter(task => !['canceled', 'failed'].includes(task.status)).map(task => task.title));
+    const assigned = [];
+    for (const task of op.tasks) {
+      if (live.has(task.title)) return `Task "${task.title}" is still on the board.`;
+      const next = assignTask(task, bundle.project.capabilities);
+      if (next.error) return next.error;
+      assigned.push(next);
+    }
+    if (new Set(assigned.map(task => task.title)).size !== assigned.length) return 'Planned task titles must be unique.';
+    const ids = new Map(assigned.map(task => [task.title, mintCollabId('t')]));
+    for (const task of assigned) {
+      for (const dep of task.dependsOn) {
+        if (!ids.has(dep) && !taskById(bundle, dep) && !bundle.tasks.some(item => item.title === dep && item.status === 'completed')) return `Task "${task.title}" depends on unknown task "${dep}".`;
+      }
+    }
+    applyPlanMeta(bundle, op, speaker);
+    for (const task of assigned) {
+      const dependsOn = task.dependsOn.map(dep => ids.get(dep) || bundle.tasks.find(item => item.title === dep)?.id || dep);
+      pushTask(bundle, { ...task, dependsOn }, ids.get(task.title), null);
+    }
+    event(bundle, 'replan', { actor: speaker, data: { reason: op.reason, tasks: assigned.map(task => task.title) } });
+    rewriteSummary(bundle);
+    bundle.project.activity = `Replanned after a failure: ${op.reason}`;
+    return '';
+  }
+
+  function assignByOrchestrator(bundle, op, speaker) {
+    const task = taskById(bundle, op.taskId);
+    if (!task) throw fail('That task is not on the board.', 400);
+    if (task.reviewer === op.to) task.reviewer = task.owner === op.to ? other(op.to) : task.owner;
+    task.owner = op.to;
+    if (task.reviewer === task.owner) task.reviewer = other(task.owner);
+    if (task.status === 'failed') task.status = 'submitted';
+    if (task.status === 'working') task.lease = { holder: task.owner, until: now() + LEASE_MS };
+    event(bundle, 'assign', { actor: speaker, taskId: task.id, data: { to: task.owner, reviewer: task.reviewer, reason: op.reason } });
+  }
+
+  function addResolveTask(bundle, sub, reason) {
+    const owner = AGENTS.includes(sub.speaker) ? sub.speaker : 'hermes';
+    const reviewer = other(owner);
+    const title = `Resolve ${sub.branch || sub.name}`.slice(0, 200);
+    const unique = bundle.tasks.some(task => task.title === title) ? `${title} ${sub.id}` : title;
+    const task = assignTask({
+      title: unique,
+      spec: clean(reason, 4000),
+      acceptance: ['The branch rebases cleanly and the tests pass.'],
+      role: 'executor',
+      owner,
+      reviewer,
+      dependsOn: [],
+      skillsHint: ['code', 'terminal'],
+      risk: '',
+      kind: 'resolve',
+      budget: null,
+    }, bundle.project.capabilities);
+    if (task.error) return;
+    pushTask(bundle, task, mintCollabId('t'), null);
+    bundle.project.activity = `${unique} is waiting on ${labels[owner]}.`;
+  }
+
+  async function archiveSubagent(bundle, sub) {
+    if (!sub || sub.archived || sub.speaker !== 'grok' || !sub.grokAgentId) return;
+    if (!String(sub.name || '').startsWith(SUBAGENT_PREFIX)) return;
+    try {
+      if (gateways.archiveSpeaker) await gateways.archiveSpeaker({ speaker: 'grok', agentId: sub.grokAgentId });
+      sub.archived = true;
+      event(bundle, 'subagent.archived', { actor: 'grok', taskId: sub.taskId, data: { id: sub.id, name: sub.name } });
+    } catch (error) {
+      sub.archived = true;
+      event(bundle, 'error', { actor: 'grok', taskId: sub.taskId, data: { message: error?.message || 'The subagent could not be archived.', id: sub.id } });
+    }
+  }
+
+  function freshSubSession(sub) {
+    if (sub.speaker === 'hermes') sub.hermesSession = `orbit-sub-${randomUUID()}`;
+    else {
+      sub.grokAgentId = '';
+      sub.hermesSession = '';
+      sub.name = subagentName(sub.brief.objective);
+    }
+  }
+
+  async function exhaustSubagent(bundle, sub, reason) {
+    const previous = sub.speaker;
+    const previousGrok = sub.grokAgentId;
+    sub.run = null;
+    sub.lastError = clean(reason, 500);
+    sub.attempts += 1;
+    if (sub.attempts === 1) {
+      if (previous === 'grok' && previousGrok) await archiveSubagent(bundle, { ...sub, speaker: 'grok', grokAgentId: previousGrok, archived: false });
+      freshSubSession(sub);
+      sub.status = 'queued';
+      event(bundle, 'subagent.retry', { actor: 'orbit', taskId: sub.taskId, data: { id: sub.id, reason: sub.lastError, notify: false } });
+      return;
+    }
+    if (sub.attempts === 2) {
+      if (previous === 'grok' && previousGrok) await archiveSubagent(bundle, { ...sub, speaker: 'grok', grokAgentId: previousGrok, archived: false, name: sub.name });
+      sub.speaker = other(previous);
+      sub.grokAgentId = '';
+      sub.archived = false;
+      freshSubSession(sub);
+      sub.status = 'queued';
+      event(bundle, 'subagent.reroute', { actor: 'orbit', taskId: sub.taskId, data: { id: sub.id, to: sub.speaker, reason: sub.lastError, notify: true } });
+      bundle.project.activity = `${labels[previous]} could not finish ${sub.name}. Orbit routed it to ${labels[sub.speaker]}.`;
+      return;
+    }
+    sub.status = 'failed';
+    sub.delivered = false;
+    if (sub.speaker === 'grok') await archiveSubagent(bundle, sub);
+    event(bundle, 'subagent.failed', { actor: 'orbit', taskId: sub.taskId, data: { id: sub.id, reason: sub.lastError, notify: true } });
+    bundle.project.activity = `${sub.name} failed. ${sub.lastError}`;
+  }
+
+  function subagentPrompt(bundle, sub, task) {
+    const minutes = Math.max(1, Math.round((sub.budget?.maxWallMs || 60000) / 60000));
+    return `${INSTRUCTIONS}
+
+You are a Collab subagent named "${sub.name}". You are not the main conversation and you are not the project orchestrator. Do the brief and reply with one collab block. Include a status op with a summary and artifactPaths (return format summary+paths).
+
+Objective: ${sub.brief.objective}
+Deliverable: ${sub.brief.deliverable}
+Acceptance:
+${sub.brief.acceptance.map(item => `- ${item}`).join('\n')}
+Allowed tools: ${sub.brief.allowedTools.join(', ')}
+Scope: ${sub.brief.scope.join(', ') || '(read only, no files)'}
+Budget: ${sub.budget.spentTurns}/${sub.budget.maxTurns} turns, ${sub.budget.spentTokens}/${sub.budget.maxTokens} tokens, ${minutes} minutes.
+${sub.worktree ? `Workspace directory: ${bundle.project.workspace}\nWorktree: ${sub.worktree}\nBranch: ${sub.branch}\nWrite only the scoped files in the worktree.` : `Workspace directory: ${bundle.project.workspace || '(not ready)'}`}
+Current task ${task?.id || sub.taskId}: ${task?.title || sub.taskId}`;
+  }
+
+  async function startSubagent(bundle, sub) {
+    if (sub.run || bundle.project.status !== 'active' || bundle.project.gate) return false;
+    if (!depsReadySub(bundle, sub)) return false;
+    const hit = subBudgetHit(sub);
+    if (hit) {
+      await exhaustSubagent(bundle, sub, hit);
+      return false;
+    }
+    const running = bundle.subagents.filter(item => item.status === 'running');
+    const cap = Math.min(MAX_PARALLEL, effortCap(bundle.project.effort));
+    if (running.length >= cap || running.length >= MAX_PARALLEL) return false;
+    if (running.filter(item => item.speaker === sub.speaker).length >= MAX_PER_AGENT) return false;
+    if (budgetBlocked(bundle)) return false;
+    const task = taskById(bundle, sub.taskId);
+    const prompt = subagentPrompt(bundle, sub, task);
+    appendTranscript(sub, 'user', prompt);
+    try {
+      const started = await gateways.startSpeaker({
+        speaker: sub.speaker,
+        prompt,
+        instructions: INSTRUCTIONS,
+        hermesSession: sub.hermesSession,
+        grokAgentId: sub.speaker === 'grok' ? sub.grokAgentId : '',
+        grokAgentName: sub.name,
+      });
+      if (started.agentId && sub.speaker === 'grok') sub.grokAgentId = started.agentId;
+      if (started.tokens) {
+        sub.budget.spentTokens += started.tokens;
+        bundle.project.budget.spentTokens += started.tokens;
+      }
+      bundle.project.budget.spentTurns += 1;
+      sub.budget.spentTurns += 1;
+      if (!sub.budget.startedAt) sub.budget.startedAt = now();
+      sub.status = 'running';
+      sub.run = {
+        speaker: sub.speaker,
+        subagentId: sub.id,
+        taskId: sub.taskId,
+        kind: 'subagent',
+        corrective: false,
+        runId: started.runId,
+        started: started.started,
+        timeoutMs: taskTimeout(null, sub),
+        ...(started.nonce ? { nonce: started.nonce, baseline: started.baseline, agentId: started.agentId } : {}),
+      };
+      event(bundle, 'subagent.started', { actor: sub.speaker, taskId: sub.taskId, data: { id: sub.id, name: sub.name, branch: sub.branch, projectedTokens: sub.budget.maxTokens } });
+      emitSpan(bundle, { span: 'invoke_agent', actor: sub.speaker, model: modelOf(sub.speaker), tokens: started.tokens || 0, runId: started.runId, taskId: sub.taskId, subagentId: sub.id, status: 'running', worktree: sub.relative || '', branch: sub.branch, summary: `invoke_agent · ${sub.name}` });
+      describeActivity(bundle);
+      return true;
+    } catch (error) {
+      await exhaustSubagent(bundle, sub, error?.message || 'The subagent could not start.');
+      return false;
+    }
+  }
+
+  async function applySpawnBatch(bundle, speaker, spawns, ctx) {
+    if (spawns.length >= 2 && !ctx.approvedFanout) {
+      const tokens = projectedTokens(spawns.map(item => item.brief));
+      bundle.project.gate = {
+        id: mintCollabId('g'),
+        type: 'fanout',
+        summary: `Fan-out of ${spawns.length} subagents, about ${tokens} tokens. Approve to start them.`,
+        taskId: spawns[0].taskId,
+        by: speaker,
+        op: { spawns, parentId: ctx.subagent?.id || '' },
+      };
+      event(bundle, 'approval.requested', { actor: speaker, taskId: spawns[0].taskId, data: { type: 'fanout', summary: bundle.project.gate.summary, projectedTokens: tokens } });
+      bundle.project.activity = bundle.project.gate.summary;
+      return 'gated';
+    }
+    const parent = ctx.subagent || (ctx.parentId ? subById(bundle, ctx.parentId) : null);
+    const depth = (parent?.depth || 0) + 1;
+    const made = [];
+    for (const op of spawns) {
+      const agent = op.agent || (isCodingBrief(op.brief) ? 'hermes' : chooseAgent('researcher', op.brief.allowedTools, bundle.project.capabilities));
+      const id = mintCollabId('s');
+      const coding = isCodingBrief(op.brief);
+      let work = { worktree: '', branch: '', relative: '' };
+      if (coding) {
+        const workspace = store.initWorkspace(bundle.project.id);
+        work = addWorktree(workspace, id);
+        if (work.error) throw fail(work.error, 400);
+      }
+      const sub = {
+        id,
+        name: subagentName(op.name || op.brief.objective),
+        spawnName: op.name || '',
+        taskId: op.taskId,
+        parentId: parent?.id || '',
+        parentAgent: speaker,
+        speaker: agent,
+        depth,
+        status: 'queued',
+        brief: op.brief,
+        coding,
+        dependsOn: op.dependsOn || [],
+        worktree: work.worktree || '',
+        branch: work.branch || '',
+        relative: work.relative || '',
+        result: null,
+        transcript: [],
+        attempts: 0,
+        hermesSession: '',
+        grokAgentId: '',
+        run: null,
+        budget: {
+          maxTurns: op.brief.budget.turns,
+          maxTokens: op.brief.budget.tokens,
+          maxWallMs: op.brief.budget.minutes * 60 * 1000,
+          spentTurns: 0,
+          spentTokens: 0,
+          startedAt: 0,
+        },
+        delivered: false,
+        archived: false,
+        merged: false,
+        lastError: '',
+        createdAt: now(),
+      };
+      freshSubSession(sub);
+      if (agent === 'grok') sub.name = subagentName(op.name || op.brief.objective);
+      bundle.subagents.push(sub);
+      made.push(sub);
+      event(bundle, 'subagent.spawned', { actor: speaker, taskId: op.taskId, data: { id, name: sub.name, agent, depth, branch: sub.branch, scope: op.brief.scope, projectedTokens: op.brief.budget.tokens } });
+    }
+    const byName = new Map();
+    for (const sub of made) {
+      if (sub.spawnName) byName.set(sub.spawnName, sub.id);
+      byName.set(sub.brief.objective, sub.id);
+    }
+    for (const sub of bundle.subagents) {
+      if (sub.spawnName) byName.set(sub.spawnName, sub.id);
+    }
+    for (const sub of made) {
+      sub.dependsOn = (sub.dependsOn || []).map(dep => byName.get(dep) || dep).filter(dep => /^s_[a-f0-9]{16}$/.test(dep));
+    }
+    for (const sub of made) {
+      if (depsReadySub(bundle, sub)) await startSubagent(bundle, sub);
+    }
+    return '';
+  }
+
+  async function completeSubagent(bundle, sub, result) {
+    sub.result = { summary: result.summary, artifactPaths: result.artifactPaths || [] };
+    sub.status = 'completed';
+    sub.run = null;
+    sub.delivered = false;
+    sub.lastError = '';
+    if (sub.speaker === 'grok') await archiveSubagent(bundle, sub);
+    event(bundle, 'subagent.completed', { actor: sub.speaker, taskId: sub.taskId, data: { id: sub.id, summary: sub.result.summary, artifactPaths: sub.result.artifactPaths, branch: sub.branch } });
+    emitSpan(bundle, { span: 'chat', actor: sub.speaker, model: modelOf(sub.speaker), tokens: sub.budget.spentTokens, taskId: sub.taskId, subagentId: sub.id, status: 'completed', worktree: sub.relative || '', branch: sub.branch, summary: `chat · ${sub.name} · ${sub.result.summary.slice(0, 160)}` });
+  }
+
+  async function finishSubagent(bundle, sub, output, tokens, usd) {
+    const run = sub.run;
+    sub.run = null;
+    if (tokens) {
+      sub.budget.spentTokens += tokens;
+      bundle.project.budget.spentTokens += tokens;
+    }
+    appendTranscript(sub, 'assistant', output || '');
+    const reject = async message => {
+      if (run && !run.corrective) {
+        sub.run = null;
+        sub.status = 'queued';
+        appendTranscript(sub, 'user', correctivePrompt(message));
+        const prompt = `${subagentPrompt(bundle, sub, taskById(bundle, sub.taskId))}\n\n${correctivePrompt(message)}`;
+        try {
+          const started = await gateways.startSpeaker({
+            speaker: sub.speaker,
+            prompt,
+            instructions: INSTRUCTIONS,
+            hermesSession: sub.hermesSession,
+            grokAgentId: sub.speaker === 'grok' ? sub.grokAgentId : '',
+            grokAgentName: sub.name,
+          });
+          if (started.agentId && sub.speaker === 'grok') sub.grokAgentId = started.agentId;
+          bundle.project.budget.spentTurns += 1;
+          sub.budget.spentTurns += 1;
+          if (started.tokens) sub.budget.spentTokens += started.tokens;
+          sub.status = 'running';
+          sub.run = { ...run, corrective: true, runId: started.runId, started: started.started, ...(started.nonce ? { nonce: started.nonce, baseline: started.baseline, agentId: started.agentId } : {}) };
+          return 'corrective';
+        } catch (error) {
+          await exhaustSubagent(bundle, sub, error?.message || message);
+          return 'invalid';
+        }
+      }
+      await exhaustSubagent(bundle, sub, message);
+      return 'invalid';
+    };
+    const parsed = parseCollabBlock(output);
+    event(bundle, 'turn.finished', { actor: sub.speaker, taskId: sub.taskId, data: { ok: parsed.ok, runId: run?.runId || '', subagentId: sub.id } });
+    if (!parsed.ok) return reject(parsed.error);
+    const problem = checkOps(bundle, sub.speaker, parsed.ops, { subagent: sub });
+    if (problem) return reject(problem);
+    const ctx = { subagent: sub, subagentResult: null };
+    try { await applyOps(bundle, sub.speaker, parsed.ops, ctx); }
+    catch (error) {
+      if (error?.code === 'loop') return 'loop';
+      return reject(error?.message || 'That collab block could not be applied.');
+    }
+    if (!ctx.subagentResult) return reject('A subagent must return status with a summary and artifactPaths.');
+    await completeSubagent(bundle, sub, ctx.subagentResult);
+    if (usd) emitSpan(bundle, { span: 'chat', actor: sub.speaker, model: modelOf(sub.speaker), tokens: tokens || 0, usd, taskId: sub.taskId, subagentId: sub.id, status: 'completed' });
+    return 'ok';
+  }
+
+  async function settleSubagent(bundle, sub) {
+    const run = sub.run;
+    if (!run) return 'idle';
+    const started = Number(run.started) || 0;
+    const limit = run.timeoutMs || sub.budget?.maxWallMs || turnTimeout;
+    if (started && now() - started > limit) {
+      try { await gateways.stopSpeaker(run); } catch { /* record the timeout either way */ }
+      const message = `${sub.name} did not reply within ${Math.max(1, Math.round(limit / 60000))} minutes, so Orbit stopped that turn.`;
+      await exhaustSubagent(bundle, sub, message);
+      return 'done';
+    }
+    let view;
+    try { view = await gateways.pollSpeaker(run); }
+    catch (error) {
+      await exhaustSubagent(bundle, sub, error.message || 'The subagent could not be reached.');
+      return 'done';
+    }
+    if (view.status === 'running') return 'running';
+    if (view.status === 'waiting_for_approval') {
+      bundle.project.status = 'paused';
+      bundle.project.activity = view.error || `${sub.name} is waiting for a tool approval.`;
+      return 'waiting';
+    }
+    if (view.status === 'failed') {
+      await exhaustSubagent(bundle, sub, view.error || 'The subagent failed.');
+      return 'done';
+    }
+    return finishSubagent(bundle, sub, view.output || '', view.tokens || 0, view.usd || 0);
+  }
+
+  async function scheduleSubagents(bundle) {
+    if (bundle.project.status !== 'active' || bundle.project.gate) return;
+    for (const sub of bundle.subagents) {
+      if (sub.status === 'queued') await startSubagent(bundle, sub);
+    }
+  }
+
+  async function considerOrchestrator(bundle) {
+    if (bundle.project.status !== 'active' || bundle.project.gate) return;
+    const speaker = bundle.project.orchestrator;
+    if (!AGENTS.includes(speaker) || ensureRuns(bundle.project)[speaker]) return;
+    const pending = bundle.subagents.filter(sub => ['completed', 'failed'].includes(sub.status) && !sub.delivered);
+    if (!pending.length) return;
+    const task = taskById(bundle, pending[0].taskId);
+    const lines = pending.map(sub => `${sub.name} (${sub.status}): ${sub.result?.summary || sub.lastError || '(no result)'}${sub.result?.artifactPaths?.length ? ` Paths: ${sub.result.artifactPaths.join(', ')}` : ''}${sub.branch ? ` Branch: ${sub.branch}` : ''}`).join('\n');
+    const started = await beginTurn(bundle, speaker, task, 'monitor', {
+      promptExtra: `Subagent results are in. You stay in charge. Reply with merge, replan, assign, status, or the next spawn. Do not hand the project off.\n${lines}`,
+    });
+    if (started) for (const sub of pending) sub.delivered = true;
+  }
+
+  async function mergeTask(bundle, op, speaker) {
+    const workspace = store.initWorkspace(bundle.project.id);
+    let selected = bundle.subagents.filter(sub => sub.taskId === op.taskId && sub.coding && sub.status === 'completed' && !sub.merged && sub.worktree);
+    if (op.names?.length) {
+      const wanted = new Set(op.names);
+      selected = selected.filter(sub => wanted.has(sub.spawnName) || wanted.has(sub.id) || wanted.has(sub.name));
+    }
+    const ordered = orderSubs(selected);
+    let blocked = false;
+    for (const sub of ordered) {
+      if ((sub.dependsOn || []).some(id => {
+        const dep = subById(bundle, id);
+        return dep && dep.coding && !dep.merged && dep.status !== 'canceled';
+      })) continue;
+      const committed = commitWorktree(sub.worktree, sub.brief.objective, sub.speaker);
+      if (committed.error) {
+        addResolveTask(bundle, sub, committed.error);
+        blocked = true;
+        continue;
+      }
+      const rebase = rebaseWorktree(workspace, sub.worktree);
+      if (rebase.conflict) {
+        addResolveTask(bundle, sub, `Rebase conflict on ${sub.branch}. ${rebase.output || ''}`.trim());
+        blocked = true;
+        continue;
+      }
+      let testCode = 0;
+      const command = op.command || '';
+      if (command) {
+        const parts = parseTestCommand(command);
+        const result = await runAllowedTests(parts, sub.worktree);
+        testCode = result.code;
+        const content = `command: ${command}\nexit: ${result.code}\n\n${result.output}`;
+        const current = bundle.artifacts.find(item => item.name === 'test-results.txt');
+        const stored = store.putArtifact(bundle.project.id, {
+          name: 'test-results.txt', kind: 'test', content, by: speaker, taskId: op.taskId, baseVersion: current?.versions?.at(-1)?.v || 0, note: sub.branch,
+        }, { mirror: false });
+        refreshArtifacts(bundle);
+        event(bundle, 'test.ran', { actor: speaker, taskId: op.taskId, data: { command, exit: result.code, id: stored.meta.id, subagentId: sub.id } });
+        emitSpan(bundle, { span: 'execute_tool', actor: speaker, model: modelOf(speaker), taskId: op.taskId, subagentId: sub.id, status: result.code === 0 ? 'ok' : 'failed', branch: sub.branch, summary: `execute_tool · ${command}` });
+        if (testCode !== 0) {
+          addResolveTask(bundle, sub, `Tests failed on ${sub.branch} (exit ${result.code}).`);
+          blocked = true;
+          continue;
+        }
+      }
+      const merged = mergeBranch(workspace, sub.branch, sub.brief.objective, sub.speaker);
+      if (merged.conflict || merged.error) {
+        addResolveTask(bundle, sub, merged.error || `Merge conflict on ${sub.branch}. ${merged.output || ''}`.trim());
+        blocked = true;
+        continue;
+      }
+      removeWorktree(workspace, sub.worktree);
+      sub.merged = true;
+      sub.worktree = '';
+      event(bundle, 'merge', { actor: speaker, taskId: op.taskId, data: { id: sub.id, branch: sub.branch, mode: merged.mode } });
+      emitSpan(bundle, { span: 'execute_tool', actor: speaker, model: modelOf(speaker), taskId: op.taskId, subagentId: sub.id, status: 'ok', branch: sub.branch, summary: `execute_tool · merge ${sub.branch}` });
+    }
+    if (op.push) {
+      if (blocked) {
+        bundle.project.activity = 'Merge left conflicts to resolve. Nothing was pushed.';
+        return;
+      }
+      bundle.project.gate = {
+        id: mintCollabId('g'),
+        type: 'risk',
+        summary: `${labels[speaker]} wants to use git.push after merging ${op.taskId}.`,
+        taskId: op.taskId,
+        by: speaker,
+        op: { op: 'push', taskId: op.taskId, risk: 'git.push' },
+      };
+      event(bundle, 'approval.requested', { actor: speaker, taskId: op.taskId, data: { type: 'risk', risk: 'git.push', summary: bundle.project.gate.summary } });
+      bundle.project.activity = bundle.project.gate.summary;
+    }
+  }
+
+  async function cancelSubagent(bundle, id) {
+    const sub = subById(bundle, id);
+    if (!sub) throw fail('Unknown Collab subagent.', 404);
+    if (sub.run) {
+      try { await gateways.stopSpeaker(sub.run); } catch { /* cancel still records */ }
+      sub.run = null;
+    }
+    sub.status = 'canceled';
+    sub.delivered = true;
+    if (sub.speaker === 'grok') await archiveSubagent(bundle, sub);
+    if (sub.worktree) {
+      removeWorktree(store.initWorkspace(bundle.project.id), sub.worktree);
+      sub.worktree = '';
+    }
+    event(bundle, 'subagent.canceled', { actor: 'kyle', taskId: sub.taskId, data: { id: sub.id, name: sub.name } });
+    bundle.project.activity = `${sub.name} canceled.`;
+  }
+
+  function checkSpawns(bundle, speaker, spawns, parent) {
+    const depth = (parent?.depth || 0) + 1;
+    const capDepth = bundle.project.maxSubagentDepth || 1;
+    if (depth > capDepth) return `Subagents stop at depth ${capDepth}.`;
+    if (bundle.project.effort === 'trivial' || effortCap(bundle.project.effort) === 0) return 'This project is trivial, so it stays with one agent and does not spawn subagents.';
+    const cap = Math.min(MAX_PARALLEL, effortCap(bundle.project.effort));
+    if (parallelCount(bundle) + spawns.length > cap) return `This effort allows ${cap} parallel subagents.`;
+    if (parallelCount(bundle) + spawns.length > MAX_PARALLEL) return `At most ${MAX_PARALLEL} subagents can run at once on a project.`;
+    const counts = { hermes: 0, grok: 0 };
+    for (const sub of bundle.subagents) {
+      if (sub.status === 'running' || (sub.status === 'queued' && depsReadySub(bundle, sub))) counts[sub.speaker] = (counts[sub.speaker] || 0) + 1;
+    }
+    const held = bundle.subagents.filter(sub => sub.coding && ['queued', 'running', 'completed'].includes(sub.status) && !sub.merged);
+    for (const op of spawns) {
+      const task = taskById(bundle, op.taskId);
+      if (!task) return 'That task is not on the board.';
+      const allowed = speaker === bundle.project.orchestrator || speaker === task.owner || parent;
+      if (!allowed) return 'Only the orchestrator or the task owner can spawn a subagent.';
+      if (parent && parent.taskId !== op.taskId) return 'A subagent can only spawn work for its own task.';
+      const agent = op.agent || (isCodingBrief(op.brief) ? 'hermes' : chooseAgent('researcher', op.brief.allowedTools.filter(tool => ['research', 'reasoning', 'writing', 'code', 'terminal', 'tools'].includes(tool)), bundle.project.capabilities));
+      counts[agent] = (counts[agent] || 0) + 1;
+      if (counts[agent] > MAX_PER_AGENT) return `At most ${MAX_PER_AGENT} subagents from ${labels[agent]} can run at once.`;
+      if (isCodingBrief(op.brief)) {
+        for (const otherSub of held) {
+          if (scopesOverlap(otherSub.brief.scope, op.brief.scope)) return `File ${op.brief.scope.find(file => otherSub.brief.scope.includes(file)) || op.brief.scope[0]} already belongs to another coding subagent.`;
+        }
+        for (const peer of spawns) {
+          if (peer === op || !isCodingBrief(peer.brief)) continue;
+          if (scopesOverlap(peer.brief.scope, op.brief.scope)) return 'Coding subagents in one spawn need disjoint files.';
+        }
+      }
+    }
+    return '';
+  }
+
+  function checkOps(bundle, speaker, ops, ctx = {}) {
+    const parent = ctx.subagent || null;
     const open = bundle.tasks.filter(task => !['canceled', 'failed'].includes(task.status));
+    const spawns = ops.filter(item => item.op === 'spawn');
+    if (spawns.length) {
+      const problem = checkSpawns(bundle, speaker, spawns, parent);
+      if (problem) return problem;
+    }
     for (const op of ops) {
+      if (parent) {
+        const allowed = ['artifact.put', 'shell', 'run-tests', 'workspace.sync', 'status', 'decision', 'spawn', 'ask'];
+        if (!allowed.includes(op.op)) return `A subagent returns a summary and artifact paths. It cannot use ${op.op}.`;
+        if (op.op === 'shell' && !parent.brief.allowedTools.includes('shell')) return 'That shell command is outside this subagent brief.';
+        if ((op.op === 'run-tests' || op.op === 'workspace.sync') && !parent.brief.allowedTools.some(tool => ['terminal', 'tools', 'code', 'shell'].includes(tool))) return 'Tests are outside this subagent brief.';
+        if (op.op === 'artifact.put' && !inScope(parent.brief.scope, op.name)) return `File ${op.name} is outside this subagent's scope.`;
+        if (op.op === 'status' && (!op.summary || !Array.isArray(op.artifactPaths))) return 'A subagent status needs a summary and artifactPaths.';
+      }
+      if (op.op === 'status') continue;
+      if (op.op === 'spawn') continue;
+      if (op.op === 'replan' || op.op === 'assign' || op.op === 'merge') {
+        if (parent || speaker !== bundle.project.orchestrator) return 'Only the orchestrator can plan, replan, assign, merge, or report status for the project.';
+        if (op.op === 'replan') {
+          if (!bundle.tasks.some(task => task.status === 'failed')) return 'Replan runs after a task fails.';
+          continue;
+        }
+      }
       if (op.op === 'plan') {
         if (open.length) return 'A plan can only be proposed before live tasks exist.';
         continue;
@@ -715,7 +1496,9 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
         if (task.status !== 'review') return 'That task is not in review.';
         continue;
       }
-      if (speaker !== task.owner && op.op !== 'ask') return 'Only the task owner can do that.';
+      if (speaker !== task.owner && op.op !== 'ask' && op.op !== 'assign' && op.op !== 'merge') return 'Only the task owner can do that.';
+      if (op.op === 'assign' && !['submitted', 'working', 'failed'].includes(task.status)) return 'That task cannot be reassigned from its current status.';
+      if (op.op === 'merge' && !bundle.subagents.some(sub => sub.taskId === task.id && sub.status === 'completed' && !sub.merged)) return 'Nothing is ready to merge for that task.';
       if (op.op === 'shell' && op.mode !== 'argv' && op.risk !== 'shell.write') return 'That shell command needs risk "shell.write" before Orbit will run it.';
       if (op.op === 'submit' && !['working', 'submitted'].includes(task.status)) return 'That task cannot be submitted from its current status.';
       if (op.op === 'artifact.put') {
@@ -737,7 +1520,23 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
     return '';
   }
 
-  async function applyOps(bundle, speaker, ops) {
+  function signatureFor(ops) {
+    return ops.map(op => `${op.op}:${op.taskId || ''}:${clean(op.brief?.objective || op.reason || op.text || op.summary || op.to || '', 80)}`).join('|').slice(0, 500);
+  }
+
+  async function applyOps(bundle, speaker, ops, ctx = {}) {
+    const loop = noteLoop(bundle.project.loop, signatureFor(ops));
+    bundle.project.loop = loop.recent;
+    if (loop.blocked) {
+      bundle.project.status = 'paused';
+      bundle.project.activity = 'Stopped: the same actions repeated without progress.';
+      event(bundle, 'error', { actor: 'orbit', data: { message: bundle.project.activity, notify: true, loop: true } });
+      const error = new Error(bundle.project.activity);
+      error.code = 'loop';
+      throw error;
+    }
+    const spawns = ops.filter(item => item.op === 'spawn');
+    let spawnHandled = false;
     for (const op of ops) {
       if (op.risk && bundle.project.policy.approve.includes(op.risk)) {
         const task = taskById(bundle, op.taskId);
@@ -747,9 +1546,34 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
         bundle.project.activity = bundle.project.gate.summary;
         return;
       }
+      if (op.op === 'spawn') {
+        if (!spawnHandled) {
+          spawnHandled = true;
+          await applySpawnBatch(bundle, speaker, spawns, ctx);
+        }
+        continue;
+      }
       if (op.op === 'plan') {
-        const error = materializePlan(bundle, op.tasks);
+        const error = materializePlan(bundle, op.tasks, op, speaker);
         if (error) throw fail(error, 400);
+        continue;
+      }
+      if (op.op === 'replan') {
+        const error = materializeReplan(bundle, op, speaker);
+        if (error) throw fail(error, 400);
+        continue;
+      }
+      if (op.op === 'assign') {
+        assignByOrchestrator(bundle, op, speaker);
+        continue;
+      }
+      if (op.op === 'merge') {
+        await mergeTask(bundle, op, speaker);
+        continue;
+      }
+      if (op.op === 'status') {
+        if (ctx.subagent) ctx.subagentResult = { summary: op.summary, artifactPaths: op.artifactPaths || [] };
+        else event(bundle, 'status', { actor: speaker, taskId: op.taskId || '', data: { summary: op.summary || subagentLines(bundle) || 'No subagents.', subagents: bundle.subagents.map(sub => ({ id: sub.id, status: sub.status })) } });
         continue;
       }
       if (op.op === 'decision') {
@@ -771,7 +1595,8 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
           task.status = 'working';
           task.lease = { holder: speaker, until: now() + LEASE_MS };
         }
-        const stored = store.putArtifact(bundle.project.id, { name: op.name, kind: op.kind, content: op.content, by: speaker, taskId: task.id, baseVersion: op.baseVersion, note: task.title });
+        const mirror = ctx.subagent?.worktree ? { mirrorRoot: ctx.subagent.worktree } : {};
+        const stored = store.putArtifact(bundle.project.id, { name: op.name, kind: op.kind, content: op.content, by: speaker, taskId: task.id, baseVersion: op.baseVersion, note: task.title }, mirror);
         refreshArtifacts(bundle);
         if (!task.artifacts.includes(stored.meta.id)) task.artifacts.push(stored.meta.id);
         event(bundle, 'artifact.put', { actor: speaker, taskId: task.id, data: { id: stored.meta.id, name: op.name, version: stored.version } });
@@ -780,8 +1605,9 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
       if (op.op === 'run-tests') {
         const parts = parseTestCommand(op.command);
         if (!parts) throw fail('run-tests accepts npm test, npm run test, pnpm test, yarn test, pytest, python -m pytest, python3 -m pytest, or node --test.', 400);
-        const workspace = store.initWorkspace(bundle.project.id);
+        const workspace = ctx.subagent?.worktree || store.initWorkspace(bundle.project.id);
         const result = await runAllowedTests(parts, workspace);
+        emitSpan(bundle, { span: 'execute_tool', actor: speaker, model: modelOf(speaker), taskId: task.id, status: result.code === 0 ? 'ok' : 'failed', worktree: ctx.subagent?.worktree || '', branch: ctx.subagent?.branch || '', summary: `execute_tool · ${op.command}` });
         const content = `command: ${op.command}\nexit: ${result.code}\n\n${result.output}`;
         const current = bundle.artifacts.find(item => item.name === 'test-results.txt');
         const baseVersion = current?.versions?.at(-1)?.v || 0;
@@ -801,8 +1627,9 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
         continue;
       }
       if (op.op === 'shell') {
-        const workspace = store.initWorkspace(bundle.project.id);
+        const workspace = ctx.subagent?.worktree || store.initWorkspace(bundle.project.id);
         const before = new Map(store.listWorkspaceFiles(bundle.project.id).map(file => [file.name, file.content]));
+        emitSpan(bundle, { span: 'execute_tool', actor: speaker, model: modelOf(speaker), taskId: task.id, worktree: ctx.subagent?.worktree || '', branch: ctx.subagent?.branch || '', summary: `execute_tool · ${op.command}` });
         const result = op.mode === 'argv'
           ? await captureCommand(op.parts[0], op.parts.slice(1), workspace, shellEnv())
           : await captureCommand('sh', ['-c', op.command], workspace, shellEnv());
@@ -863,7 +1690,7 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
           if (task.reviewAttempts >= task.maxAttempts) {
             task.status = 'failed';
             task.lastError = 'The reviewer asked for changes until the attempt limit.';
-            event(bundle, 'task.state', { taskId: task.id, data: { status: 'failed', reason: task.lastError } });
+            event(bundle, 'task.state', { taskId: task.id, data: { status: 'failed', reason: task.lastError, notify: true } });
           } else {
             task.status = 'working';
             task.lease = { holder: task.owner, until: now() + LEASE_MS };
@@ -879,6 +1706,15 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
     const task = run.taskId ? taskById(bundle, run.taskId) : null;
     ensureRuns(bundle.project)[speaker] = null;
     if (tokens) bundle.project.budget.spentTokens += tokens;
+    if (tokens && task?.budget) {
+      task.budgetSpent = task.budgetSpent || { turns: 0, tokens: 0 };
+      task.budgetSpent.tokens += tokens;
+    }
+    emitSpan(bundle, {
+      span: 'chat', actor: speaker, model: modelOf(speaker), tokens: tokens || 0, usd: 0,
+      ms: Math.max(0, now() - (Number(run.started) || now())), runId: run.runId, taskId: run.taskId || '', status: 'completed',
+      summary: `chat · ${labels[speaker]} · ${tokens || 0} tokens`,
+    });
     const reject = async message => {
       if (!run.corrective) {
         bundle.project.activity = message;
@@ -902,6 +1738,7 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
     if (problem) return reject(problem);
     try { await applyOps(bundle, speaker, parsed.ops); }
     catch (error) {
+      if (error?.code === 'loop') return 'loop';
       return reject(error?.message || 'That collab block could not be applied.');
     }
     try { syncWorkspace(bundle, run.taskId, speaker); }
@@ -915,11 +1752,12 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
 
   async function settleRun(bundle, run) {
     const started = Number(run.started) || 0;
-    if (started && now() - started > turnTimeout) {
+    const limit = run.timeoutMs || turnTimeout;
+    if (started && now() - started > limit) {
       try { await gateways.stopSpeaker(run); } catch { /* the transcript still records the timeout */ }
       const task = run.taskId ? taskById(bundle, run.taskId) : null;
       ensureRuns(bundle.project)[run.speaker] = null;
-      const message = `${labels[run.speaker]} did not reply within ${Math.max(1, Math.round(turnTimeout / 60000))} minutes, so Orbit stopped that turn.`;
+      const message = `${labels[run.speaker]} did not reply within ${Math.max(1, Math.round(limit / 60000))} minutes, so Orbit stopped that turn.`;
       event(bundle, 'error', { actor: run.speaker, taskId: run.taskId, data: { message } });
       if (task) exhaust(bundle, task, message, run.kind || 'work');
       else {
@@ -995,9 +1833,11 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
   }
 
   async function advance(bundle) {
+    ensureShape(bundle);
     for (const task of bundle.tasks) task.protocolHold = false;
     const defer = new Set();
     for (let step = 0; step < 12; step += 1) {
+      const mark = runMark(bundle);
       const runs = ensureRuns(bundle.project);
       let waiting = false;
       let replaced = false;
@@ -1010,11 +1850,18 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
         const next = ensureRuns(bundle.project)[agent];
         if (next && next.runId !== run.runId) replaced = true;
       }
+      for (const sub of [...bundle.subagents]) {
+        if (!sub.run) continue;
+        const outcome = await settleSubagent(bundle, sub);
+        if (outcome === 'waiting') waiting = true;
+      }
       if (budgetBlocked(bundle, { warn: false }) && bundle.project.status === 'paused') return;
       if (waiting || bundle.project.gate) return;
       if (bundle.project.status !== 'active') return;
+      await scheduleSubagents(bundle);
+      await considerOrchestrator(bundle);
       const startedTurn = await scheduleNext(bundle, defer);
-      if (!startedTurn && !replaced) return;
+      if (!startedTurn && !replaced && runMark(bundle) === mark) return;
     }
   }
 
@@ -1047,12 +1894,16 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
       memory: { summary: '', decisions: [] },
       gate: null,
       runs: { hermes: null, grok: null },
+      orchestrator: '',
+      effort: 'moderate',
+      maxSubagentDepth: 1,
+      loop: [],
       hermesSession: `orbit-${randomUUID()}`,
       grokAgentId: '',
       activity: 'Choosing who should draft the plan.',
       pausedReason: '',
     };
-    const bundle = { project, tasks: [], artifacts: [] };
+    const bundle = { project, tasks: [], artifacts: [], subagents: [] };
     project.workspace = store.initWorkspace(project.id);
     store.writeProject(project);
     event(bundle, 'project.created', { actor: 'kyle', data: { goal, workspace: project.workspace } });
@@ -1069,6 +1920,23 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
     if (!gate) throw fail('Nothing is waiting for approval.', 409);
     if (bundle.project.status === 'paused' && gate.type !== 'plan' && gate.type !== 'final' && gate.type !== 'ask' && gate.type !== 'risk') throw fail('Resume the project before resolving that gate.', 409);
     const text = clean(note, 2000);
+    if (choice === 'approve' && gate.type === 'fanout' && Array.isArray(gate.op?.spawns)) {
+      const actor = AGENTS.includes(gate.by) ? gate.by : (bundle.project.orchestrator || 'grok');
+      const spawns = gate.op.spawns;
+      const parentId = gate.op.parentId || '';
+      bundle.project.gate = null;
+      event(bundle, 'approval.resolved', { actor: 'kyle', taskId: gate.taskId, data: { choice, type: 'fanout' } });
+      await applySpawnBatch(bundle, actor, spawns, { approvedFanout: true, parentId });
+      return;
+    }
+    if (choice === 'approve' && gate.type === 'risk' && gate.op?.op === 'push') {
+      bundle.project.gate = null;
+      const pushed = pushWorkspace(store.initWorkspace(bundle.project.id));
+      event(bundle, 'git.push', { actor: 'kyle', taskId: gate.taskId, data: pushed.error ? { error: pushed.error, pushed: false } : { pushed: true } });
+      bundle.project.activity = pushed.error ? `Kyle approved the push. ${pushed.error}` : 'Kyle approved the push.';
+      event(bundle, 'approval.resolved', { actor: 'kyle', taskId: gate.taskId, data: { choice, type: 'risk' } });
+      return;
+    }
     if (choice === 'approve' && gate.type === 'risk' && gate.op) {
       const taskId = gate.taskId;
       const op = { ...gate.op, risk: '' };
@@ -1161,15 +2029,17 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
     if (!body.project_id) throw fail('Choose a Collab project.', 400);
     const bundle = store.load(body.project_id);
     if (bundle.project.workspaceId !== body.workspace_id) throw fail('Unknown Collab project.', 404);
-    ensureRuns(bundle.project);
+    ensureShape(bundle);
     if (!bundle.project.workspace) bundle.project.workspace = store.initWorkspace(bundle.project.id);
     if (operation === 'state' || operation === 'advance') await advance(bundle);
     else if (operation === 'resolve') {
       if (!['approve', 'reject'].includes(body.choice)) throw fail('Approve or reject the waiting gate.', 400);
       await resolveGate(bundle, body.choice, body.note);
       if (bundle.project.status === 'active') await advance(bundle);
-    } else if (operation === 'reassign') reassign(bundle, body);
+    }     else if (operation === 'reassign') reassign(bundle, body);
     else if (operation === 'capabilities') updateCapabilities(bundle, body);
+    else if (operation === 'orchestrator') setOrchestrator(bundle, body);
+    else if (operation === 'cancel_subagent') await cancelSubagent(bundle, body.subagent_id);
     else if (operation === 'pause') {
       bundle.project.status = 'paused';
       const running = AGENTS.filter(agent => ensureRuns(bundle.project)[agent]).map(agent => labels[agent]);
@@ -1228,7 +2098,59 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
       summary: task.summary,
       reviewNotes: task.reviewNotes,
       lastError: task.lastError,
+      kind: task.kind || '',
+      budget: task.budget ? {
+        maxTurns: task.budget.maxTurns,
+        maxTokens: task.budget.maxTokens,
+        maxMinutes: task.budget.maxWallMs ? Math.round(task.budget.maxWallMs / 60000) : null,
+        spentTurns: task.budgetSpent?.turns || 0,
+        spentTokens: task.budgetSpent?.tokens || 0,
+      } : null,
     };
+  }
+
+  function publicSubagent(sub, tasks) {
+    const spentMs = sub.budget?.startedAt ? Math.max(0, now() - sub.budget.startedAt) : 0;
+    return {
+      id: sub.id,
+      name: sub.name,
+      agent: sub.speaker,
+      parentAgent: sub.parentAgent,
+      parentId: sub.parentId || '',
+      taskId: sub.taskId,
+      taskTitle: tasks.find(task => task.id === sub.taskId)?.title || '',
+      status: sub.status,
+      depth: sub.depth,
+      branch: sub.branch || '',
+      worktree: sub.relative || '',
+      scope: sub.brief?.scope || [],
+      summary: sub.result?.summary || '',
+      artifactPaths: sub.result?.artifactPaths || [],
+      lastError: sub.lastError || '',
+      merged: sub.merged === true,
+      budget: {
+        maxTurns: sub.budget?.maxTurns || 0,
+        spentTurns: sub.budget?.spentTurns || 0,
+        maxTokens: sub.budget?.maxTokens || 0,
+        spentTokens: sub.budget?.spentTokens || 0,
+        maxMinutes: sub.budget?.maxWallMs ? Math.round(sub.budget.maxWallMs / 60000) : 0,
+        spentMs,
+      },
+      transcript: (sub.transcript || []).slice(-30).map(item => ({ at: item.at, role: item.role, text: String(item.text || '').slice(0, 2000) })),
+    };
+  }
+
+  function setOrchestrator(bundle, body) {
+    const agent = body.agent === undefined ? bundle.project.orchestrator : normalizeAgent(body.agent);
+    if (!AGENTS.includes(agent)) throw fail('Choose Hermes or Grok Bot as the orchestrator.', 400);
+    const effort = body.effort === undefined ? bundle.project.effort : clean(body.effort, 20).toLowerCase();
+    if (!EFFORTS.includes(effort)) throw fail('Effort must be trivial, moderate, or complex.', 400);
+    const depth = body.max_depth === undefined ? bundle.project.maxSubagentDepth : body.max_depth;
+    if (depth !== 1 && depth !== 2) throw fail('Subagent depth must be 1 or 2.', 400);
+    bundle.project.orchestrator = agent;
+    bundle.project.effort = effort;
+    bundle.project.maxSubagentDepth = depth;
+    event(bundle, 'decision', { actor: 'kyle', data: { text: `Orchestrator is ${labels[agent]}. Effort is ${effort}. Depth cap is ${depth}.` } });
   }
 
   function publicArtifact(meta) {
@@ -1251,7 +2173,7 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
       taskTitle: bundle.tasks.find(task => task.id === runs[agent].taskId)?.title || '',
     }));
     const events = store.readEvents(project.id).slice(-80).map(item => ({
-      id: item.id, at: item.at, actor: item.actor, type: item.type, taskId: item.taskId || '', data: item.data || {},
+      id: item.id, at: item.at, actor: item.actor, type: item.type, taskId: item.taskId || '', data: item.data || {}, trace: item.trace || null,
     }));
     return {
       project: {
@@ -1273,6 +2195,9 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
         summary: project.memory.summary || '',
         decisions: project.memory.decisions,
         gate: project.gate ? { id: project.gate.id, type: project.gate.type, summary: project.gate.summary, taskId: project.gate.taskId || '' } : null,
+        orchestrator: project.orchestrator || '',
+        effort: project.effort || 'moderate',
+        maxDepth: project.maxSubagentDepth || 1,
       },
       tasks: bundle.tasks.map(task => {
         const view = publicTask(task);
@@ -1280,6 +2205,7 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
         return view;
       }),
       artifacts: bundle.artifacts.map(publicArtifact),
+      subagents: (bundle.subagents || []).map(sub => publicSubagent(sub, bundle.tasks)),
       events,
       workspace: project.workspace || '',
       running: presence.map(item => item.agent).join(','),

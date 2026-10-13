@@ -840,5 +840,16 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
     await command(profile, 'interruptAgentRun', { id: agentId });
   }
 
-  return { sessionPage, selectSession, turn, control, surface, events, ensureSharedAgent, startSharedPrompt, pollSharedPrompt, stopSharedPrompt };
+  async function archiveSharedAgent(profile, agentId) {
+    if (!validSessionId(agentId)) return { archived: false };
+    try {
+      await command(profile, 'archiveAgent', { id: agentId });
+      return { archived: true };
+    } catch (error) {
+      if (error.status === 404) return { archived: false, missing: true };
+      throw error;
+    }
+  }
+
+  return { sessionPage, selectSession, turn, control, surface, events, ensureSharedAgent, startSharedPrompt, pollSharedPrompt, stopSharedPrompt, archiveSharedAgent };
 }

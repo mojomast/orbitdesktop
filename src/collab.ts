@@ -54,6 +54,34 @@ interface CollabPresence {
   taskTitle: string;
 }
 
+interface CollabBudget {
+  maxTurns: number;
+  spentTurns: number;
+  maxTokens: number;
+  spentTokens: number;
+  maxMinutes: number;
+  spentMs: number;
+}
+
+interface CollabSubagent {
+  id: string;
+  name: string;
+  agent: string;
+  parentAgent: string;
+  parentId: string;
+  taskId: string;
+  taskTitle: string;
+  status: string;
+  depth: number;
+  branch: string;
+  worktree: string;
+  summary: string;
+  lastError: string;
+  merged: boolean;
+  budget: CollabBudget;
+  transcript: { at: number; role: string; text: string }[];
+}
+
 interface CollabProject {
   id: string;
   title: string;
@@ -65,6 +93,9 @@ interface CollabProject {
   budget: { maxTurns: number; maxWallMin: number; maxTokens: number | null; spentTurns: number; spentTokens: number; warned: boolean };
   summary: string;
   gate: { id: string; type: string; summary: string; taskId?: string } | null;
+  orchestrator?: string;
+  effort?: string;
+  maxDepth?: number;
 }
 
 interface CollabState {
@@ -75,6 +106,7 @@ interface CollabState {
   running: string;
   presence?: CollabPresence[];
   workspace?: string;
+  subagents?: CollabSubagent[];
 }
 
 interface ProjectSummary {
@@ -132,6 +164,7 @@ export function mountCollab(options: {
   let projectId = '';
   let projects: ProjectSummary[] = [];
   let drawerId = '';
+  let subId = '';
   let artifactId = '';
   let artifactVersion = 0;
   let artifactText = '';
@@ -187,6 +220,7 @@ export function mountCollab(options: {
       const row = button(project.title, project.goal, () => {
         projectId = project.id;
         drawerId = '';
+        subId = '';
         artifactId = '';
         artifactText = '';
         artifactPrior = '';
@@ -275,7 +309,7 @@ export function mountCollab(options: {
     card.tabIndex = 0;
     card.setAttribute('role', 'button');
     card.setAttribute('aria-label', `${task.title}, ${labels[task.owner] || task.owner}`);
-    const openDrawer = () => { drawerId = task.id; void refresh(); };
+    const openDrawer = () => { drawerId = task.id; subId = ''; void refresh(); };
     card.addEventListener('click', openDrawer);
     card.addEventListener('keydown', event => {
       if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openDrawer(); }
@@ -360,17 +394,135 @@ export function mountCollab(options: {
       board.append(column);
     }
     const selected = data.tasks.find(task => task.id === drawerId);
+    const selectedSub = (data.subagents || []).find(sub => sub.id === subId);
     const lower = el('div', 'collab-lower');
     lower.append(artifactPanel(data), timeline(data, selected?.id || ''));
-    main.append(head, el('p', 'collab-goal', project.goal), presenceRow(data), budgetText, meter, inbox, assignZones(data), board, lower);
+    main.append(head, el('p', 'collab-goal', project.goal), presenceRow(data), orchestratorControls(data), agentTree(data), budgetText, meter, inbox, assignZones(data), board, lower);
     if (workspace) main.append(el('p', 'collab-workspace', `Workspace ${workspace}`));
     main.append(capabilitiesEditor(data));
     if (selected) main.append(drawer(data, selected));
+    if (selectedSub) main.append(subagentDrawer(data, selectedSub));
     const app = el('div', 'collab-app');
     app.append(sidebar(project.id), main);
     body.append(app);
     const names = (data.presence || []).map(item => `${labels[item.agent]} is ${item.kind === 'review' ? 'reviewing' : 'working'}${item.taskTitle ? ` on ${item.taskTitle}` : ''}`);
     status.textContent = [project.activity, ...names, project.status === 'paused' ? 'Paused.' : ''].filter(Boolean).join(' ');
+  }
+
+  function budgetLine(budget: CollabBudget) {
+    const minutes = Math.max(0, Math.round(budget.spentMs / 60000));
+    return `${budget.spentTurns}/${budget.maxTurns} turns · ${budget.spentTokens}/${budget.maxTokens} tokens · ${minutes}/${budget.maxMinutes} min`;
+  }
+
+  function orchestratorControls(data: CollabState) {
+    const section = el('section', 'collab-orchestrator');
+    section.setAttribute('aria-label', 'Orchestrator');
+    const project = data.project;
+    const agentPick = select([['hermes', 'Hermes'], ['grok', 'Grok Bot']], project.orchestrator || 'grok', () => {});
+    agentPick.setAttribute('aria-label', 'Orchestrator');
+    const effortPick = select([['trivial', 'Trivial'], ['moderate', 'Moderate'], ['complex', 'Complex']], project.effort || 'moderate', () => {});
+    effortPick.setAttribute('aria-label', 'Effort');
+    const depthPick = select([['1', 'Depth 1'], ['2', 'Depth 2']], String(project.maxDepth || 1), () => {});
+    depthPick.setAttribute('aria-label', 'Subagent depth');
+    section.append(el('h3', '', 'Orchestrator'), agentPick, effortPick, depthPick, button('Save orchestrator', 'Choose who orchestrates this project', () => {
+      void options.request({
+        operation: 'orchestrator',
+        project_id: project.id,
+        agent: agentPick.value,
+        effort: effortPick.value,
+        max_depth: Number(depthPick.value),
+      }).then(drawProject).catch(error => fail(error, 'The orchestrator was not saved.'));
+    }, 'small-button'));
+    return section;
+  }
+
+  function agentTree(data: CollabState) {
+    const section = el('section', 'collab-tree');
+    section.setAttribute('aria-label', 'Agent tree');
+    const orchestrator = data.project.orchestrator || '';
+    section.append(el('h3', '', 'Agents'));
+    const list = el('ul', 'collab-tree-list');
+    const root = el('li', 'collab-tree-node');
+    root.dataset.role = 'orchestrator';
+    root.append(el('strong', '', orchestrator ? `${labels[orchestrator]} · orchestrator` : 'Orchestrator not chosen yet'));
+    const agents = el('ul', 'collab-tree-list');
+    for (const agent of ['hermes', 'grok']) {
+      const live = (data.presence || []).find(item => item.agent === agent);
+      const node = el('li', 'collab-tree-node');
+      node.dataset.agent = agent;
+      node.dataset.live = live ? 'true' : 'false';
+      const verb = !live ? 'idle' : live.kind === 'review' ? 'reviewing' : live.kind === 'plan' ? 'planning' : live.kind === 'monitor' ? 'checking results' : 'working';
+      node.append(el('span', '', `${labels[agent]} · ${verb}${live?.taskTitle ? ` · ${live.taskTitle}` : ''}`));
+      const subs = (data.subagents || []).filter(sub => sub.agent === agent && !sub.parentId);
+      if (subs.length) {
+        const nested = el('ul', 'collab-tree-list');
+        for (const sub of subs) nested.append(subagentNode(data, sub));
+        node.append(nested);
+      }
+      agents.append(node);
+    }
+    root.append(agents);
+    list.append(root);
+    section.append(list);
+    return section;
+  }
+
+  function subagentNode(data: CollabState, sub: CollabSubagent) {
+    const node = el('li', 'collab-tree-node');
+    node.dataset.subagent = sub.id;
+    node.dataset.status = sub.status;
+    const openSub = () => { subId = sub.id; drawerId = ''; void refresh(); };
+    const row = button(`${sub.name} · ${sub.status}`, `Open the transcript for ${sub.name}`, openSub, 'collab-sub-open');
+    if (sub.id === subId) row.setAttribute('aria-current', 'true');
+    node.append(row, el('p', 'collab-sub-meta', `${labels[sub.agent] || sub.agent} · ${budgetLine(sub.budget)}${sub.branch ? ` · ${sub.branch}` : ''}${sub.taskTitle ? ` · ${sub.taskTitle}` : ''}`));
+    if (sub.summary) node.append(el('p', '', sub.summary));
+    if (sub.lastError) node.append(el('p', 'collab-error', sub.lastError));
+    const children = (data.subagents || []).filter(child => child.parentId === sub.id);
+    if (children.length) {
+      const nested = el('ul', 'collab-tree-list');
+      for (const child of children) nested.append(subagentNode(data, child));
+      node.append(nested);
+    }
+    return node;
+  }
+
+  function subagentDrawer(data: CollabState, sub: CollabSubagent) {
+    const panel = el('aside', 'collab-drawer collab-sub-drawer');
+    panel.setAttribute('aria-label', sub.name);
+    panel.append(
+      el('h3', '', sub.name),
+      button('Close transcript', 'Close the subagent transcript', () => { subId = ''; void refresh(); }, 'small-button'),
+      el('p', '', `${labels[sub.agent] || sub.agent} · ${sub.status} · depth ${sub.depth}`),
+      el('p', 'collab-budget', budgetLine(sub.budget)),
+    );
+    const meter = el('meter', 'collab-meter');
+    meter.min = 0;
+    meter.max = Math.max(1, sub.budget.maxTokens || sub.budget.maxTurns || 1);
+    meter.value = Math.min(meter.max, sub.budget.maxTokens ? sub.budget.spentTokens : sub.budget.spentTurns);
+    meter.setAttribute('aria-label', `Budget for ${sub.name}`);
+    panel.append(meter);
+    if (sub.branch) panel.append(el('p', '', `${sub.branch}${sub.worktree ? ` · ${sub.worktree}` : ''}`));
+    if (sub.summary) panel.append(el('p', '', sub.summary));
+    if (sub.lastError) panel.append(el('p', 'collab-error', sub.lastError));
+    if (sub.status === 'running' || sub.status === 'queued') {
+      panel.append(button('Cancel subagent', `Cancel ${sub.name}`, () => {
+        void options.request({ operation: 'cancel_subagent', project_id: data.project.id, subagent_id: sub.id }).then(next => {
+          subId = sub.id;
+          drawProject(next);
+        }).catch(error => fail(error, 'That subagent was not canceled.'));
+      }, 'small-button'));
+    }
+    const transcript = el('ol', 'collab-transcript');
+    transcript.setAttribute('aria-label', `${sub.name} transcript`);
+    if (!sub.transcript.length) transcript.append(el('li', 'collab-empty', 'No transcript yet.'));
+    for (const line of sub.transcript) {
+      const item = el('li', 'collab-transcript-line');
+      item.dataset.role = line.role;
+      item.textContent = `${line.role === 'assistant' ? labels[sub.agent] : 'Orbit'}: ${line.text}`;
+      transcript.append(item);
+    }
+    panel.append(el('h4', '', 'Transcript'), transcript);
+    return panel;
   }
 
   function drawer(data: CollabState, task: CollabTask) {
@@ -471,9 +623,23 @@ export function mountCollab(options: {
     if (!events.length) list.append(el('li', 'collab-empty', 'No events yet.'));
     for (const item of events.slice(-30)) {
       const line = el('li', 'collab-event');
+      const span = typeof item.data?.span === 'string' ? item.data.span : '';
+      if (span) line.dataset.span = span;
+      const subagentId = typeof item.data?.subagentId === 'string' ? item.data.subagentId : '';
       const detail = item.data?.summary || item.data?.reason || item.data?.text || item.data?.title || item.data?.message || item.data?.level || '';
       const when = item.at ? new Date(item.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
-      line.textContent = `${when} · ${labels[item.actor] || 'Orbit'} · ${item.type}${detail ? ` · ${String(detail).slice(0, 180)}` : ''}`;
+      const tokens = typeof item.data?.tokens === 'number' && item.data.tokens > 0 ? ` · ${item.data.tokens} tokens` : '';
+      const branch = typeof item.data?.branch === 'string' && item.data.branch ? ` · ${item.data.branch}` : '';
+      line.textContent = `${when} · ${labels[item.actor] || 'Orbit'} · ${span || item.type}${detail ? ` · ${String(detail).slice(0, 180)}` : ''}${tokens}${branch}`;
+      if (subagentId) {
+        line.tabIndex = 0;
+        line.setAttribute('role', 'button');
+        const openSub = () => { subId = subagentId; drawerId = ''; void refresh(); };
+        line.addEventListener('click', openSub);
+        line.addEventListener('keydown', event => {
+          if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openSub(); }
+        });
+      }
       list.append(line);
     }
     const wrap = el('section', 'collab-activity-panel');

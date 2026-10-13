@@ -13,6 +13,11 @@ function tokenCount(run) {
   return Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
 }
 
+function costOf(run) {
+  const value = Number(run?.usage?.cost ?? run?.usage?.total_cost ?? run?.usage?.usd);
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
 /**
  * Hermes and Grok Bot calls shared by the shared room and Collab.
  * Callers own transcripts, budgets and task state.
@@ -72,7 +77,9 @@ export function createAgentGateways({ fetchImpl = fetch, grok, hermesProfile, gr
       const raw = await hermes(profile, `/v1/runs/${run.runId}`);
       const view = hermesView(raw);
       const tokens = tokenCount(raw);
+      const usd = costOf(raw);
       if (tokens) view.tokens = tokens;
+      if (usd) view.usd = usd;
       return view;
     }
     const profile = grokProfile();
@@ -91,5 +98,12 @@ export function createAgentGateways({ fetchImpl = fetch, grok, hermesProfile, gr
     if (profile && run.agentId) await grok.stopSharedPrompt(profile, run.agentId);
   }
 
-  return { startSpeaker, pollSpeaker, stopSpeaker };
+  async function archiveSpeaker(run) {
+    if (!run || run.speaker !== 'grok' || !run.agentId || !grok.archiveSharedAgent) return { archived: false };
+    const profile = grokProfile();
+    if (!profile) return { archived: false };
+    return grok.archiveSharedAgent(profile, run.agentId);
+  }
+
+  return { startSpeaker, pollSpeaker, stopSpeaker, archiveSpeaker };
 }

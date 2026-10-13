@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 const projectPattern = /^p_[a-f0-9]{16}$/;
 const taskPattern = /^t_[a-f0-9]{16}$/;
 const artifactPattern = /^a_[a-f0-9]{16}$/;
+const subagentPattern = /^s_[a-f0-9]{16}$/;
 
 function fail(message, status = 502) {
   const error = new Error(message);
@@ -85,14 +86,32 @@ export function createCollabStore(directory) {
     return metas.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
   }
 
+  function writeSubagent(projectId, sub) {
+    if (!subagentPattern.test(sub?.id || '')) throw fail('Unknown Collab subagent.', 404);
+    atomicWrite(path.join(projectDir(projectId), 'subagents', `${sub.id}.json`), JSON.stringify(sub));
+  }
+
+  function listSubagents(projectId) {
+    const dir = path.join(projectDir(projectId), 'subagents');
+    let names = [];
+    try { names = fs.readdirSync(dir); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    const subs = [];
+    for (const name of names) {
+      if (!name.endsWith('.json')) continue;
+      try { subs.push(JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8'))); } catch { /* skip a torn file */ }
+    }
+    return subs.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+  }
+
   function load(id) {
-    return { project: readProject(id), tasks: listTasks(id), artifacts: listArtifactMetas(id) };
+    return { project: readProject(id), tasks: listTasks(id), artifacts: listArtifactMetas(id), subagents: listSubagents(id) };
   }
 
   function save(bundle) {
     bundle.project.updatedAt = Date.now();
     writeProject(bundle.project);
     for (const task of bundle.tasks) writeTask(bundle.project.id, task);
+    for (const sub of bundle.subagents || []) writeSubagent(bundle.project.id, sub);
   }
 
   function appendEvent(projectId, event) {
@@ -119,7 +138,7 @@ export function createCollabStore(directory) {
     return events;
   }
 
-  function putArtifact(projectId, { name, kind, content, by, taskId, baseVersion, note }) {
+  function putArtifact(projectId, { name, kind, content, by, taskId, baseVersion, note }, options = {}) {
     const metas = listArtifactMetas(projectId);
     let meta = metas.find(item => item.name === name);
     const latest = meta?.versions?.at(-1)?.v || 0;
@@ -136,8 +155,22 @@ export function createCollabStore(directory) {
     meta.kind = kind || meta.kind;
     if (taskId) meta.taskId = taskId;
     atomicWrite(path.join(dir, 'meta.json'), JSON.stringify(meta));
-    if (kind === 'file' || kind === 'test') mirrorWorkspaceFile(projectId, name, content);
+    if ((kind === 'file' || kind === 'test') && options.mirror !== false) {
+      if (options.mirrorRoot) writeUnder(options.mirrorRoot, name, content);
+      else mirrorWorkspaceFile(projectId, name, content);
+    }
     return { meta, version };
+  }
+
+  function writeUnder(root, name, content) {
+    if (typeof name !== 'string' || !name || name.startsWith('/') || name.includes('\\') || name.includes('\0')) return;
+    const parts = name.split('/');
+    if (parts.some(part => !part || part === '.' || part === '..')) return;
+    const base = path.resolve(root);
+    const dest = path.resolve(base, name);
+    if (dest !== base && !dest.startsWith(`${base}${path.sep}`)) return;
+    fs.mkdirSync(path.dirname(dest), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(dest, content, { mode: 0o600 });
   }
 
   function workspaceDir(id) {
@@ -225,5 +258,5 @@ export function createCollabStore(directory) {
     fs.rmSync(projectDir(id), { recursive: true, force: true });
   }
 
-  return { load, save, writeProject, appendEvent, readEvents, putArtifact, readArtifact, listProjects, listArtifactMetas, removeProject, initWorkspace, listWorkspaceFiles };
+  return { load, save, writeProject, appendEvent, readEvents, putArtifact, readArtifact, listProjects, listArtifactMetas, listSubagents, removeProject, initWorkspace, listWorkspaceFiles };
 }
