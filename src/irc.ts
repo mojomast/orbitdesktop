@@ -7,7 +7,10 @@ type IrcStatus = {
   source?: string;
   error?: string;
   entry?: string;
+  pending_posts?: PendingPost[];
 };
+
+type PendingPost = { id: string; target: string; text: string; by: string };
 
 type IrcMessage = { channel: string; from: string; text: string; self?: boolean };
 
@@ -56,6 +59,9 @@ export function mountIrc(options: { request: (body: Record<string, unknown>) => 
   const log = el('div', 'irc-log');
   log.setAttribute('role', 'log');
   log.setAttribute('aria-label', 'Messages');
+  const policy = el('p', 'irc-note', 'Channel text stays in this window. It is never sent to an agent as an instruction.');
+  const pendingList = el('div', 'irc-pending');
+  const refreshPosts = button('Refresh agent posts', 'Load agent posts waiting for approval', () => { void run('status'); });
   const composer = el('form', 'irc-composer');
   const draft = el('input');
   draft.maxLength = 400;
@@ -72,7 +78,7 @@ export function mountIrc(options: { request: (body: Record<string, unknown>) => 
     draft.value = '';
   });
   const main = el('div', 'irc-main');
-  main.append(log, composer);
+  main.append(log, policy, pendingList, refreshPosts, composer);
 
   const users = el('ul', 'irc-users');
   users.setAttribute('aria-label', 'Users');
@@ -89,6 +95,7 @@ export function mountIrc(options: { request: (body: Record<string, unknown>) => 
   let server: IrcStatus = {};
   const messages: IrcMessage[] = [];
   const members = new Map<string, string[]>();
+  const pending = new Map<string, PendingPost>();
 
   function paint() {
     const state = server.status || 'stopped';
@@ -122,6 +129,34 @@ export function mountIrc(options: { request: (body: Record<string, unknown>) => 
     for (const name of peopleHere) users.append(el('li', '', name));
     draft.disabled = !selected;
     sendButton.disabled = !selected;
+    pendingList.replaceChildren();
+    if (!pending.size) pendingList.append(el('p', 'irc-empty', 'No agent posts are waiting.'));
+    for (const post of pending.values()) {
+      const row = el('div', 'irc-row');
+      row.append(el('span', '', `${post.by} → ${post.target}: ${post.text}`));
+      row.append(button('Approve', 'Send this agent post to IRC', () => { void decide('approve_post', post.id); }));
+      row.append(button('Reject', 'Drop this agent post', () => { void decide('reject_post', post.id); }));
+      pendingList.append(row);
+    }
+  }
+
+  function takePending(list: PendingPost[] | undefined) {
+    if (!Array.isArray(list)) return;
+    pending.clear();
+    for (const post of list) {
+      if (post && typeof post.id === 'string' && typeof post.text === 'string') pending.set(post.id, post);
+    }
+  }
+
+  async function decide(action: 'approve_post' | 'reject_post', id: string) {
+    try {
+      server = await options.request({ action, id });
+      takePending(server.pending_posts);
+      if (!disposed) paint();
+    } catch (error) {
+      if (disposed) return;
+      status.textContent = error instanceof Error ? error.message : 'IRC request failed.';
+    }
   }
 
   async function run(action: 'start' | 'stop' | 'status') {
@@ -129,6 +164,7 @@ export function mountIrc(options: { request: (body: Record<string, unknown>) => 
       const body: Record<string, unknown> = { action };
       if (action === 'start') body.port = Number(portInput.value);
       server = await options.request(body);
+      takePending(server.pending_posts);
       if (action === 'stop') closeSocket();
       if (!disposed) paint();
     } catch (error) {
@@ -197,6 +233,12 @@ export function mountIrc(options: { request: (body: Record<string, unknown>) => 
         const left = members.get(payload.channel) || [];
         members.set(payload.channel, left.filter(name => name !== payload.nick));
         if (payload.nick === nick && payload.channel === selected) selected = [...members.keys()][0] || '';
+        paint();
+        return;
+      }
+      if (payload.type === 'agent_post' && payload.post && typeof payload.post === 'object') {
+        const post = payload.post as PendingPost;
+        if (typeof post.id === 'string' && typeof post.text === 'string') pending.set(post.id, post);
         paint();
         return;
       }

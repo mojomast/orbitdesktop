@@ -8,7 +8,7 @@ import { tokenMatches, allowedRequest } from './security.mjs';
 import { createBuildQueue } from './build-queue.mjs';
 import { createAgentProfiles, validSessionId, sanitizeSessions, sanitizeHistory } from './agent-profiles.mjs';
 import { attachProviders } from './agent-discovery.mjs';
-import { estimateTokens, HERMES_COMPRESSION_NOTE, meterLevel, modelWindow, readReportedUsage } from './agent-session-controls.mjs';
+import { applyCalibration, calibrateEstimate, estimateTokens, forkSeed, HERMES_COMPRESSION_NOTE, meterLevel, modelWindow, readReportedUsage, summarizeTranscript, usageBreakdown } from './agent-session-controls.mjs';
 import { createGrokChat } from './grok-chat.mjs';
 import { createAgentGateways } from './agent-gateways.mjs';
 import { createSharedAgents } from './shared-agents.mjs';
@@ -67,6 +67,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
     hermesProfile,
     grokProfile,
   });
+  const estimateFactors = new Map();
   const endpoint = (profile, route) => `${profile.apiUrl.replace(/\/$/, '')}${route}`;
   // Bounded upstream JSON: read the real byte stream with a hard cap, cancel on
   // overflow, and decode as fatal UTF-8. There is no unbounded r.json() fallback;
@@ -285,10 +286,55 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
             const state = shared.write(body.workspace_id,body.pane_id,{session:targetId,profile_id:target.id,binding_revision:revision+1,messages,title:display.title || title,history_unstarted:creating});
           return reply(res,200,{state});
         }
-        if (body.action === 'context_meter' || body.action === 'session_preview' || body.action === 'compact_session') {
+        if (body.action === 'context_meter' || body.action === 'session_preview' || body.action === 'compact_session' || body.action === 'fork_session') {
           if (revision !== linked.binding_revision || linked.session !== body.session_id || linked.profile_id !== profileId) return reply(res,409,{error:'This pane is linked to another conversation. Wait for synchronization.'});
           if (body.action === 'compact_session' && body.confirm !== true) return reply(res,400,{error:'Confirm compact before changing this session.'});
-          if (body.action === 'compact_session' && linked.run) return reply(res,409,{error:'Conversation changed or is still running.'});
+          if (body.action === 'fork_session' && body.confirm !== true) return reply(res,400,{error:'Confirm before forking this session.'});
+          if ((body.action === 'compact_session' || body.action === 'fork_session') && linked.run) return reply(res,409,{error:'Conversation changed or is still running.'});
+          if (body.action === 'fork_session') {
+            const sourceProfileId = typeof body.source_profile_id === 'string' ? body.source_profile_id : profileId;
+            const source = configuration.get(sourceProfileId);
+            const sourceSession = typeof body.source_session_id === 'string' ? body.source_session_id : body.session_id;
+            const targetProfileId = typeof body.target_profile_id === 'string' ? body.target_profile_id : sourceProfileId;
+            const target = configuration.get(targetProfileId);
+            if (!source || !target || !validSessionId(sourceSession)) return reply(res,400,{error:'Invalid conversation to fork.'});
+            let transcript = [];
+            if (source.provider === 'grok') {
+              const preview = await grok.previewSession(source, sourceSession);
+              transcript = preview.messages || [];
+              if (preview.resumable === false && !transcript.length) return reply(res,409,{error:'This session cannot be forked because its transcript is unavailable.'});
+            } else {
+              try {
+                const history = await upstreamFor(source, `/api/sessions/${encodeURIComponent(sourceSession)}/messages?limit=80&offset=0`);
+                transcript = sanitizeHistory(history);
+              } catch (error) {
+                if (error.status !== 404) throw error;
+                if (sourceSession === linked.session && source.id === profileId) transcript = linked.messages || [];
+                else return reply(res,409,{error:'This session cannot be forked because its transcript is unavailable.'});
+              }
+            }
+            const through = body.through_index === undefined ? Math.max(0, transcript.length - 1) : body.through_index;
+            if (transcript.length && (!Number.isInteger(through) || through < 0 || through >= transcript.length)) return reply(res,400,{error:'Fork from a message in this transcript.'});
+            const slice = transcript.length ? transcript.slice(0, through + 1) : [];
+            const summary = summarizeTranscript(slice);
+            const sourceProvider = source.provider === 'grok' ? 'grok' : 'hermes';
+            const targetProvider = target.provider === 'grok' ? 'grok' : 'hermes';
+            const cross = sourceProvider !== targetProvider;
+            const seed = forkSeed({ summary, sourceSession, sourceProvider, targetProvider, through: transcript.length ? through : undefined, cross });
+            if (target.provider === 'grok') return grok.forkSession(reply, res, { body, target, revision, profileId, shared, conversations, seed, summary, sourceSession, cross });
+            const created = `orbit-${randomUUID()}`;
+            if (shared.locks.has(`session:${target.id}:${created}`) || shared.hasActive(target.id, created, body.workspace_id, body.pane_id)) return reply(res,409,{error:'This conversation is already running.'});
+            const title = `Fork of ${String(sourceSession).slice(-12)}`.slice(0, 100);
+            try { conversations.write({ workspace_id: body.workspace_id, profile_id: target.id, session_id: created }, 0, { title }); } catch { /* the pane title still shows the fork */ }
+            const text = seed.slice(0, 16000);
+            const state = shared.write(body.workspace_id, body.pane_id, {
+              session: created, profile_id: target.id, binding_revision: revision + 1,
+              messages: [{ role: 'user', text }], title, history_unstarted: true, fork_preface: text,
+            });
+            const published = { ...state };
+            delete published.fork_preface;
+            return reply(res,200,{ state: published, strategy: cross ? 'cross-provider-fork' : 'fork', previous_session_id: sourceSession, session_id: created, summary, note: `Forked into ${created}. The original session stays unchanged.` });
+          }
           if (body.action === 'session_preview') {
             const target = configuration.get(body.target_profile_id);
             if (!target || !validSessionId(body.target_session_id)) return reply(res,400,{error:'Invalid conversation preview.'});
@@ -304,8 +350,12 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
           if (profile?.provider === 'grok') {
             if (body.action === 'compact_session') return grok.compactSession(reply, res, { body, target: profile, revision, profileId, shared, conversations });
             const preview = await grok.previewSession(profile, body.session_id);
-            const meter = meterLevel(estimateTokens(preview.messages.map(item => item.text).join('\n')), modelWindow(profile.model));
-            return reply(res,200,{...meter, source:'estimated', model: typeof profile.model === 'string' ? profile.model : '', tools:true, provider:'grok', hermes_compression:null});
+            const text = preview.messages.map(item => item.text).join('\n');
+            const rawEstimate = estimateTokens(text);
+            const modelName = typeof profile.model === 'string' ? profile.model : '';
+            const factor = estimateFactors.get(`${profileId}:${modelName || 'grok'}`) || 1;
+            const meter = meterLevel(applyCalibration(rawEstimate, factor), modelWindow(modelName));
+            return reply(res,200,{...meter, source:'estimated', calibrated: factor !== 1, breakdown: usageBreakdown(null, rawEstimate, text.length), model: modelName, tools:true, provider:'grok', hermes_compression:null});
           }
           if (body.action === 'compact_session') {
             const response = await fetchImpl(endpoint(profile, `/api/sessions/${encodeURIComponent(body.session_id)}/compress`), {
@@ -332,16 +382,24 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
           try { session = await upstream(`/api/sessions/${encodeURIComponent(body.session_id)}`); }
           catch (error) { if (error.status !== 404) throw error; }
           const reported = readReportedUsage(session);
-          let estimated = 0;
-          if (!reported.used) {
+          const localText = (Array.isArray(linked.messages) ? linked.messages : []).map(item => item.text || '').join('\n');
+          let sampleText = localText;
+          if (!reported.used && !estimateTokens(sampleText)) {
             try {
               const history = await upstream(`/api/sessions/${encodeURIComponent(body.session_id)}/messages?limit=80&offset=0`);
-              estimated = estimateTokens(sanitizeHistory(history).map(item => item.text).join('\n'));
+              sampleText = sanitizeHistory(history).map(item => item.text).join('\n');
             } catch (error) { if (error.status !== 404) throw error; }
           }
+          const rawEstimate = estimateTokens(sampleText);
           const model = reported.model || '';
-          const meter = meterLevel(reported.used || estimated, reported.window || modelWindow(model));
-          return reply(res,200,{...meter, source: reported.used ? 'reported' : 'estimated', model, tools:true, provider:'hermes', hermes_compression:{native:true, detail:HERMES_COMPRESSION_NOTE}});
+          const factorKey = `${profileId}:${model || 'default'}`;
+          let factor = estimateFactors.get(factorKey) || 1;
+          if (reported.used && rawEstimate) {
+            const sample = calibrateEstimate(rawEstimate, reported.used);
+            if (sample.calibrated) { factor = sample.factor; estimateFactors.set(factorKey, factor); }
+          }
+          const meter = meterLevel(reported.used || applyCalibration(rawEstimate, factor), reported.window || modelWindow(model));
+          return reply(res,200,{...meter, source: reported.used ? 'reported' : 'estimated', calibrated: !reported.used && factor !== 1, breakdown: usageBreakdown(session, rawEstimate, sampleText.length), model, tools:true, provider:'hermes', hermes_compression:{native:true, detail:HERMES_COMPRESSION_NOTE}});
         }
         if(linked.session !== body.session_id || linked.profile_id !== profileId || revision !== linked.binding_revision) return reply(res,409,{error:'This pane is linked to another conversation. Wait for synchronization.'});
         const receipt = readSubmission(body, linked);
@@ -540,6 +598,11 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
           }
           while (conversation_history.length && conversation_history[0].role !== 'user') conversation_history.shift();
         } catch (error) { if (error.status !== 404) throw error; }
+        if (body.pane_id) {
+          const bound = shared.read(body.workspace_id, body.pane_id);
+          if (bound && !conversation_history.length && typeof bound.fork_preface === 'string' && bound.fork_preface.trim()) conversation_history = [{ role: 'user', content: bound.fork_preface.slice(0, 16000) }];
+          else if (bound?.fork_preface && conversation_history.length) shared.write(body.workspace_id, body.pane_id, { ...bound, fork_preface: undefined });
+        }
         let context = '';
         if (body.workspace_id && workspaceContext) {
           try { context = workspaceContext(body.workspace_id); }

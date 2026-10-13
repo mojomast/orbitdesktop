@@ -16,9 +16,11 @@ A spawn brief must include an objective, a deliverable, acceptance criteria, all
 
 The brief shape matches the task description Claude Code expects of a subagent: objective, deliverable, and a bounded set of tools ([Create custom subagents](https://code.claude.com/docs/en/sub-agents)). Effort stops at four parallel workers so a project cannot fan out without Kyle seeing the cost first.
 
+The shared-room `delegate` fence accepts the same brief when it is started. `target` and `task` still work alone. If the block includes `objective` (or deliverable, acceptance, tools, scope, budget, or returnFormat), every one of those fields is required. `returnFormat` has to ask for a summary and artifact paths. Budget turns are 1–20 and minutes are 1–30. The delegated prompt then carries that brief.
+
 ## Worktrees
 
-Each subagent gets its own git worktree and `collab/<id>` branch under the project record, beside the shared workspace. The orchestrator merges in dependency order. A conflict becomes a `Resolve <file>` task. Merge never pushes. A push stays on the existing `git.push` approval.
+Each subagent gets its own git worktree and `collab/<id>` branch under the project record, beside the shared workspace. One writer owns each declared file. The orchestrator merges those branches in dependency order. A conflict becomes a `Resolve <file>` task. Merge does not rebase or run the test suite by itself: tests stay on the allowlisted `run-tests` op, so a merge cannot launch an unlisted command. Merge never pushes. Kyle approves a push on the existing `git.push` gate before anything leaves the machine.
 
 Claude Code isolates parallel edits in worktrees ([Run parallel sessions with worktrees](https://code.claude.com/docs/en/worktrees)). Orbit keeps that isolation per subagent and adds an explicit owner for each declared file so two coding workers are not writers of the same path.
 
@@ -26,7 +28,7 @@ Claude Code isolates parallel edits in worktrees ([Run parallel sessions with wo
 
 Defaults are 3 concurrent subagents per agent and depth 1. Kyle can raise concurrency to 4 and depth to 2. A spawn that repeats a parent brief on the same task is rejected. A failed subagent is retried once, then rerouted to the other provider, then failed with a status Orbit shows Kyle. A subagent turn uses its brief minute budget, capped at 30 minutes. Those turns count against the project turn budget.
 
-Each subagent emits timeline events shaped as OpenTelemetry GenAI spans (`gen_ai.operation.name`, `gen_ai.agent.name`, status, start, and end). The timeline already shows those events.
+Each subagent emits timeline events shaped as OpenTelemetry GenAI spans (`gen_ai.operation.name`, `gen_ai.agent.name`, status, start, and end). The timeline already shows those events. Source: [OpenTelemetry GenAI spans](https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/).
 
 Hermes subagents try `POST /v1/delegate_task`. A 404, 405, or 501 means that route is not on this Hermes, and Orbit starts a new Hermes session instead. Grok Bot subagents are new gateway agents named `Orbit collab sub: …`, never the main conversation and never the project’s Orbit collab agent. Orbit archives the Grok Bot agent when the subagent completes, fails, or is canceled.
 

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { WebSocketServer } from 'ws';
 import { tokenMatches, allowedRequest } from './security.mjs';
@@ -113,6 +114,18 @@ function validTarget(target) {
   return validChannel(target) || validNick(target);
 }
 
+export function ircTargets(env = process.env) {
+  const raw = String(env?.ORBIT_IRC_TARGETS || '#orbit');
+  const targets = [];
+  for (const item of raw.split(',')) {
+    const target = item.trim();
+    if (!validTarget(target) || targets.includes(target)) continue;
+    targets.push(target);
+    if (targets.length === 16) break;
+  }
+  return targets.length ? targets : ['#orbit'];
+}
+
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -142,7 +155,11 @@ export function createIrcService({ token, orbitPort, devOrigins = [], reply, rep
   let runError = '';
   let active = { ...defaults };
   const sockets = new Set();
+  const authedSockets = new Set();
+  const relays = new Set();
+  const pendingPosts = [];
   const bridge = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024, perMessageDeflate: false });
+  const allowedTarget = target => ircTargets(env).includes(target);
 
   function snapshot() {
     const source = inspectIrcSource(sourceRoot);
@@ -155,6 +172,8 @@ export function createIrcService({ token, orbitPort, devOrigins = [], reply, rep
       packages: source.packages,
       entry: source.ircdEntry ? path.relative(source.root, source.ircdEntry) : '',
       error: configError || runError || (status === 'missing' ? `IRC sources are not installed. Expected packages/protocol, packages/ircd, packages/client, and packages/orbit-app under ${source.root}.` : ''),
+      targets: ircTargets(env),
+      pending_posts: pendingPosts.filter(post => post.status === 'pending').map(post => ({ id: post.id, target: post.target, text: post.text, by: post.by })),
     };
   }
 
@@ -307,6 +326,8 @@ export function createIrcService({ token, orbitPort, devOrigins = [], reply, rep
         send({ type: 'message', channel: validChannel(target) ? target : (parsed.nick || target), from: parsed.nick || target, text });
       }
     };
+    const relay = { nick: () => nick, sendLine };
+    relays.add(relay);
     const session = {
       handle(message) {
         if (!message || typeof message !== 'object') return;
@@ -335,6 +356,7 @@ export function createIrcService({ token, orbitPort, devOrigins = [], reply, rep
         if (message.type === 'join' || message.type === 'part') {
           const channel = cleanText(message.channel, 50);
           if (!validChannel(channel)) return send({ type: 'error', message: 'Use a channel such as #orbit.' });
+          if (!allowedTarget(channel)) return send({ type: 'error', message: 'That IRC target is not allowed.' });
           sendLine(`${message.type === 'join' ? 'JOIN' : 'PART'} ${channel}`);
           return;
         }
@@ -342,11 +364,15 @@ export function createIrcService({ token, orbitPort, devOrigins = [], reply, rep
           const target = cleanText(message.target, 50);
           const text = cleanText(message.text, 400);
           if (!validTarget(target) || !text) return send({ type: 'error', message: 'Choose a channel and write a message.' });
+          if (!allowedTarget(target)) return send({ type: 'error', message: 'That IRC target is not allowed.' });
           sendLine(`PRIVMSG ${target} :${text}`);
           send({ type: 'message', channel: target, from: nick, text, self: true });
         }
       },
-      close: closeIrc,
+      close() {
+        relays.delete(relay);
+        closeIrc();
+      },
     };
     ws.on('close', closeIrc);
     ws.on('error', closeIrc);
@@ -362,6 +388,7 @@ export function createIrcService({ token, orbitPort, devOrigins = [], reply, rep
     const finish = () => {
       clearTimeout(timer);
       sockets.delete(ws);
+      authedSockets.delete(ws);
       session?.close();
     };
     ws.on('close', finish);
@@ -377,6 +404,7 @@ export function createIrcService({ token, orbitPort, devOrigins = [], reply, rep
         }
         clearTimeout(timer);
         authed = true;
+        authedSockets.add(ws);
         session = openBridge(ws);
         if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'ready', ...snapshot() }));
         return;
@@ -406,6 +434,34 @@ export function createIrcService({ token, orbitPort, devOrigins = [], reply, rep
       const action = body?.action;
       if (action === 'status') return reply(res, 200, snapshot());
       if (action === 'start') return reply(res, 200, await startProcess(body.port));
+      if (action === 'propose_post') {
+        const target = cleanText(body.target, 50);
+        const text = cleanText(body.text, 400);
+        const by = cleanText(body.by, 40);
+        if (!by || by.toLowerCase() === 'kyle' || by.toLowerCase() === 'owner') throw fail('Name the agent that wants to post.', 400);
+        if (!allowedTarget(target) || !text) throw fail('Choose an allowed IRC target and write a message.', 400);
+        if (pendingPosts.filter(post => post.status === 'pending').length >= 20) throw fail('Too many IRC posts are waiting for approval.', 409);
+        const post = { id: `irc_${randomUUID().slice(0, 8)}`, target, text, by, status: 'pending' };
+        pendingPosts.push(post);
+        const notice = { type: 'agent_post', post: { id: post.id, target: post.target, text: post.text, by: post.by } };
+        for (const ws of authedSockets) if (ws.readyState === 1) ws.send(JSON.stringify(notice));
+        return reply(res, 200, { post: notice.post, ...snapshot() });
+      }
+      if (action === 'reject_post') {
+        const post = pendingPosts.find(item => item.id === body.id && item.status === 'pending');
+        if (!post) throw fail('That IRC post is not waiting.', 404);
+        post.status = 'rejected';
+        return reply(res, 200, snapshot());
+      }
+      if (action === 'approve_post') {
+        const post = pendingPosts.find(item => item.id === body.id && item.status === 'pending');
+        if (!post) throw fail('That IRC post is not waiting.', 404);
+        const relay = [...relays].find(item => item.nick());
+        if (!relay) throw fail('Connect IRC in the window before approving an agent post.', 409);
+        relay.sendLine(`PRIVMSG ${post.target} :${post.text}`);
+        post.status = 'sent';
+        return reply(res, 200, { post: { id: post.id, target: post.target, text: post.text, by: post.by, status: 'sent' }, ...snapshot() });
+      }
       if (action === 'stop') {
         stopProcess();
         runError = '';

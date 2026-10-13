@@ -1,9 +1,11 @@
 import { el, button } from './dom';
-import { dateGroup, groupHistory, matchesHistoryQuery, providerSwitchNote, type HistoryRow } from './agent-session-model';
+import { dateGroup, formatWindow, groupHistory, matchesHistoryQuery, providerSwitchNote, type HistoryRow } from './agent-session-model';
 
 type Profile = { id: string; label: string; configured: boolean; provider?: string };
-type Meter = { used?: number; window?: number; level?: string; source?: string; model?: string; tools?: boolean; provider?: string; hermes_compression?: { detail?: string } | null };
+type Breakdown = { input?: number; output?: number; tools?: number; chars?: number; estimated?: number };
+type Meter = { used?: number; window?: number; level?: string; source?: string; calibrated?: boolean; breakdown?: Breakdown; model?: string; tools?: boolean; provider?: string; hermes_compression?: { detail?: string } | null };
 type Preview = { messages?: { role: string; text: string }[]; resumable?: boolean; note?: string; provider?: string };
+type ForkResult = { state?: { session: string; profile_id?: string; binding_revision?: number; messages: { role: 'user' | 'assistant'; text: string }[] }; note?: string; summary?: string };
 
 export function mountAgentPaneSession({
   api,
@@ -98,12 +100,21 @@ export function mountAgentPaneSession({
     meter.setAttribute('aria-valuenow', String(Math.min(used, limit || used)));
     const source = data.source === 'reported' ? 'reported' : '≈ estimated';
     const model = data.model ? `${data.model} · ` : '';
-    meter.textContent = limit ? `${model}${used} / ${limit} ${source}` : 'Context unavailable';
+    const bits: string[] = [];
+    const breakdown = data.breakdown;
+    if (breakdown?.input) bits.push(`in ${breakdown.input}`);
+    if (breakdown?.output) bits.push(`out ${breakdown.output}`);
+    if (breakdown?.tools) bits.push(`tools ${breakdown.tools}`);
+    const detail = bits.length ? ` (${bits.join(' · ')})` : '';
+    meter.textContent = limit ? `${model}${used} / ${limit} ${source}${detail}` : 'Context unavailable';
+    const calibrated = data.calibrated ? ' Calibrated against reported usage.' : '';
+    meter.title = limit ? `${used} / ${limit} ${source}.${calibrated} ${bits.join(', ')}`.trim() : 'Context unavailable';
     tools.hidden = data.tools === false;
     banner.hidden = level !== 'hot';
     if (level === 'hot') banner.textContent = data.provider === 'grok'
-      ? 'Context is about 80% of the window (estimate). Compact starts a fresh Grok Bot agent seeded with a summary.'
-      : 'Context is about 80% of the window. Hermes already keeps the first 3 turns and the last 20 messages; Compact only runs Hermes compression when that command is available.';
+      ? 'Context is about 80% of the window (estimate), leaving about 10–15k tokens of headroom. Compact waits for confirmation and starts a fresh Grok Bot agent seeded with a summary.'
+      : 'Context is about 80% of the window, leaving about 10–15k tokens of headroom. Compact waits for confirmation. Hermes already keeps the first 3 turns and the last 20 messages; Compact only runs Hermes compression when that command is available.';
+    sync();
   }
   async function refreshMeter() {
     try {
@@ -129,6 +140,8 @@ export function mountAgentPaneSession({
         line.append(el('span', '', `${title}`), el('small', '', `${row.profile_id}${when ? ` · ${when}` : ''}`));
         line.append(button('Open', 'Resume this session', () => { void openRow(row); }, 'small-button'));
         line.append(button('View', 'Read this transcript without switching', () => { void viewRow(row); }, 'small-button'));
+        line.append(button(row.pinned ? 'Unpin' : 'Pin', row.pinned ? 'Unpin this session' : 'Pin this session', () => { void patchRow(row, { pinned: row.pinned !== true }); }, 'small-button'));
+        line.append(button('Rename', 'Rename this session', () => renameRow(row), 'small-button'));
         group.append(line);
       }
       list.append(group);
@@ -176,7 +189,12 @@ export function mountAgentPaneSession({
       const body = el('div', 'agent-history-preview');
       const messages = Array.isArray(preview.messages) ? preview.messages : [];
       if (!messages.length) body.append(el('p', '', preview.note || 'No transcript text is available.'));
-      for (const message of messages) body.append(el('p', '', `${message.role}: ${message.text}`));
+      messages.forEach((message, index) => {
+        const line = el('div', 'agent-history-row');
+        line.append(el('p', '', `${message.role}: ${message.text}`));
+        line.append(button('Fork', 'Continue from this message in a new session', () => { dialog.close(); void forkFrom(row, index); }, 'small-button'));
+        body.append(line);
+      });
       const resume = button('Resume', 'Open this session in the pane', () => { dialog.close(); void openRow(row); }, 'small-button');
       resume.disabled = preview.resumable === false;
       dialog.append(el('h2', '', row.title || row.upstream_title || row.session_id), body, resume, button('Close', 'Close transcript', () => dialog.close(), 'small-button'));
@@ -185,13 +203,73 @@ export function mountAgentPaneSession({
       dialog.showModal();
     } catch (error) { showError(error); }
   }
+  async function patchRow(row: HistoryRow, patch: { title?: string; pinned?: boolean }) {
+    try {
+      const result = await library(row.profile_id, {
+        action: 'conversation_metadata',
+        session_id: row.session_id,
+        expected_revision: Number(row.revision) || 0,
+        patch,
+      }) as { conflict?: boolean };
+      if (result.conflict) { status.textContent = 'That session changed. Reload history and try again.'; return; }
+      await loadHistory();
+    } catch (error) { showError(error); }
+  }
+  function renameRow(row: HistoryRow) {
+    const dialog = el('dialog', 'hermes-tools-dialog');
+    dialog.setAttribute('aria-label', 'Rename session');
+    const name = el('input') as HTMLInputElement;
+    name.maxLength = 200;
+    name.value = row.title || '';
+    name.setAttribute('aria-label', 'Session name');
+    const save = button('Save', 'Save this name', () => { dialog.close('save'); }, 'small-button');
+    dialog.append(el('h2', '', 'Rename session'), name, save, button('Cancel', 'Cancel rename', () => dialog.close(), 'small-button'));
+    dialog.addEventListener('close', () => {
+      const title = name.value.trim();
+      dialog.remove();
+      if (dialog.returnValue === 'save') void patchRow(row, { title });
+    });
+    document.body.append(dialog);
+    dialog.showModal();
+  }
+  function confirmFork(copy: string) {
+    const dialog = el('dialog', 'hermes-tools-dialog');
+    dialog.setAttribute('aria-label', 'Confirm fork');
+    let agreed = false;
+    const yes = button('Fork', 'Fork into a new session', () => { agreed = true; dialog.close(); }, 'small-button');
+    dialog.append(el('h2', '', 'Fork session'), el('p', '', copy), yes, button('Cancel', 'Do not fork', () => dialog.close(), 'small-button'));
+    dialog.addEventListener('close', () => dialog.remove());
+    document.body.append(dialog);
+    dialog.showModal();
+    return new Promise<boolean>(resolve => dialog.addEventListener('close', () => resolve(agreed)));
+  }
+  async function forkFrom(row: HistoryRow, through: number) {
+    const copy = providerOf(row.profile_id) === providerOf(state().profile_id || 'default')
+      ? 'Fork keeps this session unchanged and continues from the selected message in a new session, using a summary.'
+      : 'This session is on another provider. Fork continues from the selected message in a new session there, with a summary. The original stays unchanged.';
+    if (!await confirmFork(copy)) return;
+    try {
+      const result = await api({
+        action: 'fork_session',
+        confirm: true,
+        source_profile_id: row.profile_id,
+        source_session_id: row.session_id,
+        target_profile_id: row.profile_id,
+        through_index: through,
+      }, true) as ForkResult;
+      if (result.state) acceptState(result.state);
+      notes.append(el('p', 'agent-switch-note', result.note || 'Forked into a new session.'));
+      status.textContent = result.note || 'Forked into a new session.';
+      await refreshMeter();
+    } catch (error) { showError(error); }
+  }
   function confirmCompact() {
     const dialog = el('dialog', 'hermes-tools-dialog');
     dialog.setAttribute('aria-label', 'Confirm compact');
     const provider = providerOf(state().profile_id || 'default');
     const copy = provider === 'grok'
-      ? 'Compact summarizes this Grok Bot conversation and continues in a new agent. The previous session stays in History.'
-      : 'Compact asks Hermes for its compression command. If that command is not available, Orbit leaves the session in place because Hermes already keeps the first 3 turns and the last 20 messages.';
+      ? 'Compact keeps the goal, decisions, plan, TODOs, files, commands, constraints, the first request, and the last 10 turns, then continues in a new agent. The raw transcript stays in History. This does not run by itself.'
+      : 'Compact asks Hermes for its compression command. If that command is not available, Orbit leaves the session in place because Hermes already keeps the first 3 turns and the last 20 messages. Orbit does not summarize that session again.';
     let agreed = false;
     const yes = button('Compact', 'Compact this session', () => { agreed = true; dialog.close(); }, 'small-button');
     dialog.append(el('h2', '', 'Compact session'), el('p', '', copy), yes, button('Cancel', 'Do not compact', () => dialog.close(), 'small-button'));
@@ -214,6 +292,26 @@ export function mountAgentPaneSession({
       if (previousWindow && Number(meterState.window) && Number(meterState.window) < previousWindow) banner.hidden = false;
     } catch (error) { showError(error); }
   }
+  async function forkAcross(next: string, from?: Profile, to?: Profile) {
+    const agreed = await confirmFork('Switching provider forks this chat into a new session with a summary. The original session stays in History.');
+    if (!agreed) { sync(); return; }
+    const fromWindow = Number(meterState.window) || 0;
+    try {
+      const result = await api({ action: 'fork_session', confirm: true, target_profile_id: next }) as ForkResult;
+      if (result.state) acceptState(result.state);
+      notes.append(el('p', 'agent-switch-note', result.note || 'Forked into a new session.'));
+      await refreshMeter();
+      const note = providerSwitchNote(from?.label || '', to?.label || next, fromWindow, Number(meterState.window) || fromWindow);
+      if (note.suggestCompact) {
+        notes.append(el('p', 'agent-switch-note', note.text));
+        banner.hidden = false;
+        banner.textContent = note.text;
+      }
+    } catch (error) {
+      showError(error);
+      sync();
+    }
+  }
   select.onchange = () => {
     if (syncing) return;
     const next = select.value;
@@ -222,6 +320,7 @@ export function mountAgentPaneSession({
     if (next === previousId) return;
     const from = profiles().find(profile => profile.id === previousId);
     const to = profiles().find(profile => profile.id === next);
+    if (providerOf(previousId) !== providerOf(next)) { void forkAcross(next, from, to); return; }
     remember(previousId, current.session);
     const remembered = memory()[next];
     const fromWindow = Number(meterState.window) || 0;
@@ -248,8 +347,8 @@ export function mountAgentPaneSession({
       const group = document.createElement('optgroup');
       group.label = label;
       for (const profile of items) {
-        const window = providerOf(profile.id) === 'grok' ? '128k' : '128k';
-        group.append(option(profile.id, `${profile.label}${profile.configured ? '' : ' (unconfigured)'} · ${window}`, !profile.configured));
+        const live = profile.id === (state().profile_id || 'default') ? Number(meterState.window) || 0 : 0;
+        group.append(option(profile.id, `${profile.label}${profile.configured ? '' : ' (unconfigured)'} · ${formatWindow(live)}`, !profile.configured));
       }
       select.append(group);
     };

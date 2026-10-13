@@ -1,4 +1,11 @@
-export type HistoryRow = { session_id: string; profile_id: string; title?: string; upstream_title?: string; updated_at?: string; pinned?: boolean; provider?: string };
+export type HistoryRow = { session_id: string; profile_id: string; title?: string; upstream_title?: string; updated_at?: string; pinned?: boolean; provider?: string; revision?: number };
+
+export function formatWindow(tokens: number) {
+  if (!Number.isFinite(tokens) || tokens <= 0) return '128k';
+  if (tokens >= 1_000_000 && tokens % 1_000_000 === 0) return `${tokens / 1_000_000}m`;
+  if (tokens % 1000 === 0) return `${Math.round(tokens / 1000)}k`;
+  return String(Math.round(tokens));
+}
 
 export function dateGroup(value: string | undefined, now = Date.now()): 'Today' | 'Yesterday' | 'Previous 7 days' | 'Older' {
   const time = Date.parse(String(value || ''));

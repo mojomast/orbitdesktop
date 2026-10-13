@@ -225,6 +225,23 @@ test('parseDelegate reads a fence or JSON and rejects a malformed block', () => 
   });
   assert.equal(parseDelegate('```delegate\n{"target":"owner","task":"nope"}\n```').error.length > 0, true);
   assert.equal(parseDelegate('```delegate\n{not json}\n```').error.length > 0, true);
+  assert.equal(parseDelegate('```delegate\ntarget: grok\ntask: Square 2\nobjective: measure\n```').error.length > 0, true);
+  const brief = parseDelegate(`\`\`\`delegate
+target: hermes
+task: Write the notes
+objective: Publish the notes
+deliverable: docs/NOTES.md
+acceptance: the file exists
+tools: read, edit
+scope: docs only
+budget: 2 turns, 10 minutes
+returnFormat: summary and artifact paths
+\`\`\``);
+  assert.equal(brief.to, 'hermes');
+  assert.equal(brief.brief.budget.turns, 2);
+  assert.equal(brief.brief.budget.minutes, 10);
+  assert.deepEqual(brief.brief.tools, ['read', 'edit']);
+  assert.equal(parseDelegate('```delegate\n{"target":"grok","task":"go","objective":"do it","returnFormat":"a paragraph"}\n```').error.length > 0, true);
 });
 
 function grokAgents(calls, options = {}) {

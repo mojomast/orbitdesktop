@@ -4,8 +4,8 @@ import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { estimateTokens, meterLevel, summarizeTranscript } from '../server/agent-session-controls.mjs';
-import { dateGroup, groupHistory, providerSwitchNote } from '../src/agent-session-model.ts';
+import { applyCalibration, calibrateEstimate, estimateTokens, forkSeed, meterLevel, pruneToolOutputs, summarizeTranscript } from '../server/agent-session-controls.mjs';
+import { dateGroup, formatWindow, groupHistory, providerSwitchNote } from '../src/agent-session-model.ts';
 import { createAgentHandler } from '../server/agent.mjs';
 
 const token = 'orbit-test-token-'.repeat(4);
@@ -24,8 +24,30 @@ test('context meter colors and transcript summary follow the pane rules', () => 
     { role: 'user', text: 'todo check server/agent.mjs' },
   ]);
   assert.match(summary, /Goal: Decide the release notes/);
+  assert.match(summary, /First request:/);
+  assert.match(summary, /Decisions:/);
+  assert.match(summary, /Open TODOs:/);
   assert.match(summary, /docs\/AGENT_PANE_SESSION\.md/);
   assert.match(summary, /Recent turns:/);
+  const pruned = summarizeTranscript([
+    { role: 'tool', text: 'old tool output that must be dropped' },
+    { role: 'user', text: 'Plan ship the notes' },
+    { role: 'assistant', text: 'error: npm test failed' },
+    { role: 'tool', text: 'latest tool output kept' },
+    { role: 'user', text: 'constraint keep run_abc12345' },
+  ]);
+  assert.equal(pruned.includes('old tool output'), false);
+  assert.match(pruned, /latest tool output kept/);
+  assert.match(pruned, /Plan and status:/);
+  assert.match(pruned, /Commands and errors:/);
+  assert.match(pruned, /run_abc12345/);
+  assert.equal(pruneToolOutputs([{ role: 'tool', text: 'a' }, { role: 'user', text: 'b' }, { role: 'tool', text: 'c' }]).length, 2);
+  assert.equal(calibrateEstimate(100, 200).factor, 2);
+  assert.equal(calibrateEstimate(0, 10).calibrated, false);
+  assert.equal(applyCalibration(10, 2), 20);
+  assert.equal(formatWindow(128000), '128k');
+  assert.equal(formatWindow(0), '128k');
+  assert.match(forkSeed({ summary: 'Goal: keep going', sourceSession: 'sess', sourceProvider: 'hermes', targetProvider: 'grok', cross: true }), /into grok/);
   const noon = Date.parse('2026-10-13T15:00:00Z');
   assert.equal(dateGroup('2026-10-13T12:00:00Z', noon), 'Today');
   assert.equal(dateGroup('2026-10-12T12:00:00Z', noon), 'Yesterday');
@@ -92,6 +114,19 @@ test('Hermes reports context usage and does not double-compact when compression 
   assert.equal(calls.some(call => String(call.url).endsWith('/compress') && call.method === 'POST'), true);
   const missing = await request({ action: 'session_preview', target_profile_id: 'default', target_session_id: 'missing-session', expected_binding_revision: 0 });
   assert.equal(missing.body.resumable, false);
+  assert.equal(meter.body.breakdown.estimated >= 0, true);
+  const unconfirmed = await request({ action: 'fork_session', expected_binding_revision: 0 });
+  assert.equal(unconfirmed.status, 400);
+  const fork = await request({ action: 'fork_session', confirm: true, expected_binding_revision: 0 });
+  assert.equal(fork.status, 200, JSON.stringify(fork.body));
+  assert.match(fork.body.session_id, /^orbit-/);
+  assert.notEqual(fork.body.session_id, session);
+  assert.match(fork.body.summary, /hello orbit/);
+  assert.match(fork.body.state.messages[0].text, /Forked from/);
+  assert.equal(fork.body.state.fork_preface, undefined);
+  const saved = JSON.parse(fs.readFileSync(path.join(runtimeDirectory, 'shared-chats', `${workspace_id}.${pane_id}.json`), 'utf8'));
+  assert.equal(saved.session, fork.body.session_id);
+  assert.match(saved.fork_preface, /hello orbit/);
 });
 
 test('Grok Bot compact continues in a new agent and estimates context from the transcript', async t => {

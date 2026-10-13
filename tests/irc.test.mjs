@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocket } from 'ws';
-import { createIrcService, inspectIrcSource, ircBind, ircSourceRoot, parseIrcLine } from '../server/irc.mjs';
+import { createIrcService, inspectIrcSource, ircBind, ircSourceRoot, ircTargets, parseIrcLine } from '../server/irc.mjs';
 
 const token = 'orbit-irc-test-token-orbit-irc-test';
 
@@ -95,6 +95,9 @@ test('irc bind defaults to loopback 6667 and rejects other hosts', () => {
   assert.deepEqual(ircBind({ ORBIT_IRC_PORT: '6700', ORBIT_IRC_HOST: '::1' }), { host: '::1', port: 6700 });
   assert.throws(() => ircBind({ ORBIT_IRC_HOST: '0.0.0.0' }), /127\.0\.0\.1/);
   assert.throws(() => ircBind({ ORBIT_IRC_PORT: '80' }), /1024/);
+  assert.deepEqual(ircTargets({}), ['#orbit']);
+  assert.deepEqual(ircTargets({ ORBIT_IRC_TARGETS: '#orbit, #secret, bad target, nope' }), ['#orbit', '#secret', 'nope']);
+  assert.deepEqual(ircTargets({ ORBIT_IRC_TARGETS: '' }), ['#orbit']);
   assert.equal(ircSourceRoot({}, '/repo/orbit'), '/repo/orbit/vendor/irc-suite');
   assert.equal(ircSourceRoot({ ORBIT_IRC_SOURCE: 'vendor/irc' }, '/repo/orbit'), '/repo/orbit/vendor/irc');
 });
@@ -386,5 +389,76 @@ test('a 353 names token @alice without a trailing colon is the user list', async
   const lists = inbox.filter(item => item.type === 'names');
   assert.equal(lists.length, 1);
   assert.deepEqual(lists[0].users, ['alice']);
+  client.close();
+});
+
+test('an agent IRC post waits for approval and cannot leave the allowlist', async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'orbit-irc-approve-'));
+  const source = path.join(root, 'apps', 'irc');
+  const portFile = path.join(root, 'port.txt');
+  writeFixture(source, portFile);
+  const orbitPort = await freePort();
+  const ircPort = await freePort();
+  const irc = createIrcService({
+    token, orbitPort, devOrigins: [], reply, repoRoot: root,
+    env: { ORBIT_IRC_SOURCE: source, ORBIT_IRC_PORT: String(ircPort) },
+  });
+  const server = http.createServer((req, res) => { void irc.handle(req, res); });
+  server.on('upgrade', (req, socket, head) => irc.upgrade(req, socket, head));
+  await new Promise(resolve => server.listen(orbitPort, '127.0.0.1', resolve));
+  t.after(async () => {
+    irc.close();
+    await new Promise(resolve => server.close(resolve));
+  });
+  const origin = `http://127.0.0.1:${orbitPort}`;
+  const headers = { Origin: origin, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+  const post = body => fetch(`${origin}/api/irc`, { method: 'POST', headers, body: JSON.stringify(body) });
+  assert.equal((await post({ action: 'start' })).status, 200);
+  const blocked = await post({ action: 'propose_post', target: '#secret', text: 'relay me', by: 'hermes' });
+  assert.equal(blocked.status, 400);
+  const owner = await post({ action: 'propose_post', target: '#orbit', text: 'from kyle', by: 'kyle' });
+  assert.equal(owner.status, 400);
+  const queued = await post({ action: 'propose_post', target: '#orbit', text: 'from hermes', by: 'hermes' });
+  const waiting = await queued.json();
+  assert.equal(queued.status, 200, JSON.stringify(waiting));
+  assert.equal(waiting.post.status === undefined || waiting.pending_posts.some(item => item.id === waiting.post.id), true);
+  assert.equal(waiting.pending_posts.some(item => item.text === 'from hermes' && item.instruction === undefined), true);
+  const early = await post({ action: 'approve_post', id: waiting.post.id });
+  assert.equal(early.status, 409);
+
+  const client = new WebSocket(`ws://127.0.0.1:${orbitPort}/api/irc`, { headers: { Origin: origin } });
+  const inbox = [];
+  client.on('message', data => inbox.push(JSON.parse(data.toString())));
+  await new Promise((resolve, reject) => {
+    client.once('open', resolve);
+    client.once('error', reject);
+  });
+  const waitFor = (type, text) => new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(Error(`no ${type}: ${JSON.stringify(inbox)}`)), 3000);
+    const pull = () => {
+      const found = inbox.find(item => item.type === type && (text === undefined || item.text === text));
+      if (!found) return;
+      clearTimeout(timer);
+      resolve(found);
+    };
+    pull();
+    client.on('message', pull);
+  });
+  client.send(JSON.stringify({ type: 'auth', token }));
+  await waitFor('ready');
+  client.send(JSON.stringify({ type: 'nick', nick: 'Kyle' }));
+  await waitFor('welcome');
+  client.send(JSON.stringify({ type: 'join', channel: '#orbit' }));
+  await waitFor('names');
+  client.send(JSON.stringify({ type: 'privmsg', target: '#elsewhere', text: 'open relay' }));
+  const refused = await waitFor('error');
+  assert.match(refused.message, /not allowed/);
+  const approved = await post({ action: 'approve_post', id: waiting.post.id });
+  assert.equal(approved.status, 200);
+  const echoed = await waitFor('message', 'from hermes');
+  assert.equal(echoed.channel, '#orbit');
+  assert.equal(echoed.instruction, undefined);
+  const again = await post({ action: 'approve_post', id: waiting.post.id });
+  assert.equal(again.status, 404);
   client.close();
 });

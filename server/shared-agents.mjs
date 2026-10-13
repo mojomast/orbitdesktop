@@ -80,7 +80,7 @@ task: what ${partner} should do
 context: optional details
 \`\`\`
 
-Orbit gives that task to ${partner} through that agent's gateway and posts the result back here and to you. Delegate only to ${partner}. A chain may be at most ${MAX_DEPTH} delegations deep, and this conversation keeps at most ${MAX_TASKS} delegated tasks. If a tool needs approval, use your normal tool-approval flow; the owner resolves it on the agent that is executing.`;
+Orbit gives that task to ${partner} through that agent's gateway and posts the result back here and to you. Delegate only to ${partner}. A chain may be at most ${MAX_DEPTH} delegations deep, and this conversation keeps at most ${MAX_TASKS} delegated tasks. If a tool needs approval, use your normal tool-approval flow; the owner resolves it on the agent that is executing. A structured brief is optional. If you include objective, also include deliverable, acceptance, tools, scope, budget (turns 1–20 and minutes 1–30), and returnFormat (a summary and artifact paths).`;
 }
 
 /** @hermes, @grok, and @all. An email local-part does not count. */
@@ -143,6 +143,19 @@ ${transcriptTail(messages) || '(no messages yet)'}
 Reply to the latest message.`;
 }
 
+function briefBlock(brief) {
+  if (!brief) return '';
+  return `
+Objective: ${brief.objective}
+Deliverable: ${brief.deliverable}
+Acceptance: ${brief.acceptance.join('; ')}
+Allowed tools: ${brief.tools.join(', ') || '(none named)'}
+Scope: ${brief.scope}
+Budget: ${brief.budget.turns} turns, ${brief.budget.minutes} minutes.
+Return format: ${brief.returnFormat}
+`;
+}
+
 function delegationPrompt(task, messages) {
   const partner = labels[other(task.to)];
   return `${preamble(task.to)}
@@ -151,7 +164,7 @@ ${labels[task.from]} delegated this task to you. Do the task and reply with the 
 
 Task:
 ${task.task}
-${task.context ? `\nContext:\n${task.context}\n` : ''}
+${task.context ? `\nContext:\n${task.context}\n` : ''}${briefBlock(task.brief)}
 Recent transcript:
 ${transcriptTail(messages) || '(no messages yet)'}`;
 }
@@ -180,6 +193,50 @@ function cleanField(value, max) {
   return String(value || '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, max);
 }
 
+const BRIEF_KEYS = ['objective', 'deliverable', 'acceptance', 'tools', 'scope', 'budget', 'returnformat', 'return'];
+
+function asList(value) {
+  if (Array.isArray(value)) return value.map(item => cleanField(item, 500)).filter(Boolean);
+  return cleanField(value, 2000).split(',').map(item => item.trim()).filter(Boolean);
+}
+
+function parseBudget(value) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return { turns: Number(value.turns), minutes: Number(value.minutes) };
+  const text = String(value || '');
+  const turns = /(\d+)\s*turns?/i.exec(text);
+  const minutes = /(\d+)\s*(?:minutes?|min)\b/i.exec(text);
+  return { turns: turns ? Number(turns[1]) : Number.NaN, minutes: minutes ? Number(minutes[1]) : Number.NaN };
+}
+
+/** Null when the block is a plain target/task. An error when a brief was started but is incomplete. */
+function briefFrom(source) {
+  if (!source || typeof source !== 'object') return null;
+  const started = BRIEF_KEYS.some(key => {
+    const value = source[key] ?? (key === 'returnformat' ? source.returnFormat : undefined);
+    return value != null && value !== '';
+  });
+  if (!started) return null;
+  for (const key of ['objective', 'deliverable', 'scope', 'returnFormat', 'return', 'returnformat']) {
+    if (source[key] != null && typeof source[key] !== 'string') return { error: 'Delegate brief fields must be text.' };
+  }
+  const objective = cleanField(source.objective, 1000);
+  const deliverable = cleanField(source.deliverable, 1000);
+  const scope = cleanField(source.scope, 1000);
+  const returnFormat = cleanField(source.returnFormat || source.return || source.returnformat, 500);
+  const acceptance = asList(source.acceptance).slice(0, 8);
+  const toolsProvided = Object.prototype.hasOwnProperty.call(source, 'tools');
+  const tools = asList(source.tools).slice(0, 12);
+  const budget = parseBudget(source.budget);
+  if (!objective || !deliverable || !scope || !returnFormat || !acceptance.length || !toolsProvided) {
+    return { error: 'A delegate brief needs objective, deliverable, acceptance, tools, scope, budget, and returnFormat.' };
+  }
+  if (!/summary/i.test(returnFormat) || !/path/i.test(returnFormat)) return { error: 'returnFormat must ask for a summary and artifact paths.' };
+  if (!Number.isInteger(budget.turns) || budget.turns < 1 || budget.turns > 20 || !Number.isInteger(budget.minutes) || budget.minutes < 1 || budget.minutes > 30) {
+    return { error: 'Delegate budget turns must be 1–20 and minutes 1–30.' };
+  }
+  return { brief: { objective, deliverable, acceptance, tools, scope, budget: { turns: budget.turns, minutes: budget.minutes }, returnFormat } };
+}
+
 /** First fenced delegate block in an agent reply. Null when the reply does not delegate. */
 export function parseDelegate(text) {
   const match = String(text || '').match(/```delegate[^\n]*\n([\s\S]*?)```/i);
@@ -188,6 +245,7 @@ export function parseDelegate(text) {
   let target = '';
   let task = '';
   let context = '';
+  let briefSource = null;
   if (body.startsWith('{')) {
     try {
       const parsed = JSON.parse(body);
@@ -197,6 +255,7 @@ export function parseDelegate(text) {
       target = parsed.target;
       task = parsed.task || '';
       context = parsed.context || '';
+      briefSource = parsed;
     } catch {
       return { error: 'The delegate block is not valid JSON.' };
     }
@@ -204,22 +263,26 @@ export function parseDelegate(text) {
     const fields = {};
     let current = '';
     for (const line of body.split('\n')) {
-      const headed = /^(target|task|context)\s*:\s*(.*)$/i.exec(line);
+      const headed = /^(target|task|context|objective|deliverable|acceptance|tools|scope|budget|returnFormat|return)\s*:\s*(.*)$/i.exec(line);
       if (headed) {
-        current = headed[1].toLowerCase();
-        fields[current] = headed[2];
+        current = headed[1].toLowerCase() === 'return' ? 'returnformat' : headed[1].toLowerCase();
+        if ((current === 'acceptance' || current === 'tools') && fields[current]) fields[current] = `${fields[current]}, ${headed[2]}`;
+        else fields[current] = headed[2];
       } else if (current) fields[current] += `\n${line}`;
     }
     target = fields.target || '';
     task = fields.task || '';
     context = fields.context || '';
+    briefSource = fields;
   }
   const to = normalizeTarget(target);
   task = cleanField(task, 4000);
   context = cleanField(context, 4000);
   if (!to) return { error: 'Name the other agent as target hermes or grok.' };
   if (!task) return { error: 'A delegated task must be 1–4,000 characters.' };
-  return { to, task, context };
+  const brief = briefFrom(briefSource);
+  if (brief?.error) return brief;
+  return brief?.brief ? { to, task, context, brief: brief.brief } : { to, task, context };
 }
 
 function publicState(state) {
@@ -263,6 +326,8 @@ function cleanDelegations(list) {
       needsReturn: raw.needsReturn === true,
       deadline: Number.isFinite(raw.deadline) ? raw.deadline : 0,
     });
+    const keptBrief = briefFrom(raw.brief);
+    if (keptBrief?.brief) tasks.at(-1).brief = keptBrief.brief;
   }
   return tasks.slice(-MAX_TASKS);
 }
@@ -549,6 +614,7 @@ function findTask(state, id) {
       to: parsed.to,
       task: parsed.task,
       context: parsed.context,
+      ...(parsed.brief ? { brief: parsed.brief } : {}),
       depth,
       chain: chain || id,
       status: 'pending',

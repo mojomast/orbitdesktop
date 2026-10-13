@@ -866,6 +866,45 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
     return guard(reply, res, () => compactBody(reply, res, scope));
   }
 
+  async function forkSession(reply, res, scope) {
+    return guard(reply, res, () => forkBody(reply, res, scope));
+  }
+
+  async function forkBody(reply, res, { body, target, revision, profileId, shared, conversations, seed, summary, sourceSession, cross }) {
+    const current = shared.read(body.workspace_id, body.pane_id);
+    if (!current || current.binding_revision !== revision || current.session !== body.session_id || current.profile_id !== profileId || current.run) return reply(res, 409, { error: 'Conversation changed or is still running.' });
+    const created = await command(target, 'createAgent', {
+      name: `Fork ${String(sourceSession).slice(-12)}`.slice(0, 80),
+      description: String(summary || '').slice(0, 500),
+      isIntroductionSuppressed: true,
+    });
+    const targetId = created?.agent?.id;
+    if (!validSessionId(targetId)) return reply(res, 502, { error: 'Grok Bot did not return a usable conversation id.' });
+    const nonce = randomUUID();
+    const runId = `run_${randomUUID().replaceAll('-', '')}`;
+    const accepted = await command(target, 'sendPrompt', { prompt: String(seed || '').slice(0, 16000), agentId: targetId, clientNonce: nonce });
+    if (!accepted || accepted.accepted !== true) return reply(res, 502, { error: 'Grok Bot did not accept the forked summary.' });
+    remember({ runId, nonce, agentId: targetId, profileId: target.id, status: 'running', started: now(), baseline: baselineFrom([]) });
+    const title = `Fork of ${String(sourceSession).slice(-12)}`.slice(0, 100);
+    try { conversations.write({ workspace_id: body.workspace_id, profile_id: target.id, session_id: targetId }, 0, { title }); } catch { /* the pane title still shows the fork */ }
+    const state = shared.write(body.workspace_id, body.pane_id, {
+      session: targetId,
+      profile_id: target.id,
+      binding_revision: revision + 1,
+      run: runId,
+      title,
+      messages: [{ role: 'assistant', text: `${cross ? 'Forked across providers' : 'Forked'} into a new Grok Bot agent. Previous session ${sourceSession} stays in history.\n\n${summary}` }],
+    });
+    return reply(res, 200, {
+      state,
+      strategy: cross ? 'cross-provider-fork' : 'fork',
+      previous_session_id: sourceSession,
+      session_id: targetId,
+      summary,
+      note: `Grok Bot is continuing in ${targetId}. The original session stays in history.`,
+    });
+  }
+
   async function compactBody(reply, res, { body, target, revision, profileId, shared, conversations }) {
     if (body.confirm !== true) return reply(res, 400, { error: 'Confirm compact before starting a fresh Grok Bot agent.' });
     const current = shared.read(body.workspace_id, body.pane_id);
@@ -911,5 +950,5 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
     });
   }
 
-  return { sessionPage, selectSession, turn, control, surface, events, ensureSharedAgent, startSharedPrompt, pollSharedPrompt, stopSharedPrompt, archiveSharedAgent, compactSession, previewSession };
+  return { sessionPage, selectSession, turn, control, surface, events, ensureSharedAgent, startSharedPrompt, pollSharedPrompt, stopSharedPrompt, archiveSharedAgent, compactSession, forkSession, previewSession };
 }
