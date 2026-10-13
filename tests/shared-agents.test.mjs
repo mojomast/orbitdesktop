@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createAgentHandler } from '../server/agent.mjs';
-import { parseDelegate } from '../server/shared-agents.mjs';
+import { parseDelegate, routeAddressees } from '../server/shared-agents.mjs';
 
 const token = 'orbit-test-token-'.repeat(4);
 const session = 'orbit-12345678-1234-4234-9234-123456789abc';
@@ -45,7 +45,7 @@ function open(t, fetchImpl, runtimeDirectory, options = {}) {
   }));
 }
 
-test('Hermes and Grok Bot alternate in one transcript and stop at the turn limit', async t => {
+test('mentions choose who speaks, and a reply with no handoff ends the exchange', async t => {
   const calls = [];
   let hermesGets = 0;
   let sentGrok = false;
@@ -58,7 +58,7 @@ test('Hermes and Grok Bot alternate in one transcript and stop at the turn limit
     if (route === 'http://hermes.test/v1/runs' && options.method === 'POST') return json({ run_id: 'run_sharedhermes01', status: 'running' });
     if (route === 'http://hermes.test/v1/runs/run_sharedhermes01') {
       hermesGets += 1;
-      return json(hermesGets < 2 ? { status: 'running', session_id: payload.session_id } : { status: 'completed', output: 'from hermes', session_id: 'ignored' });
+      return json(hermesGets < 3 ? { status: 'running', session_id: payload.session_id } : { status: 'completed', output: 'from hermes', session_id: 'ignored' });
     }
     if (route.endsWith('/api/listAgents')) return json(agents);
     if (route.endsWith('/api/createAgent')) {
@@ -72,32 +72,32 @@ test('Hermes and Grok Bot alternate in one transcript and stop at the turn limit
     return json({ error: 'missing' }, 404);
   };
   const { request } = await open(t, fetchImpl);
-  const configured = await request({ action: 'shared_agents', operation: 'settings', auto: true, max_turns: 2, next: 'hermes' });
-  assert.equal(configured.status, 200);
-  assert.equal(configured.body.auto, true);
-  const posted = await request({ action: 'shared_agents', operation: 'post', text: 'hello from the owner' });
+  const posted = await request({ action: 'shared_agents', operation: 'post', text: '@hermes hello from the owner' });
   assert.equal(posted.status, 200);
   assert.equal(posted.body.messages[0].speaker, 'owner');
-  assert.equal(posted.body.messages[0].text, 'hello from the owner');
   assert.equal(posted.body.running, 'hermes');
+  const during = await request({ action: 'shared_agents', operation: 'post', text: '@grok hold this until Hermes finishes' });
+  assert.equal(during.status, 200);
+  assert.equal(during.body.running, 'hermes');
+  assert.equal(during.body.messages.some(message => message.text.includes('hold this')), true);
   const busy = await request({ action: 'shared_agents', operation: 'speak', speaker: 'grok' });
   assert.equal(busy.status, 409);
   const hermesCall = calls.find(call => call.route === 'http://hermes.test/v1/runs' && call.method === 'POST');
-  assert.match(hermesCall.payload.input, /Grok Bot/);
-  assert.match(hermesCall.payload.input, /Owner: hello from the owner/);
+  assert.match(hermesCall.payload.input, /Kyle/);
+  assert.match(hermesCall.payload.input, /@grok/);
+  assert.match(hermesCall.payload.input, /Kyle: @hermes hello from the owner/);
+  assert.match(hermesCall.payload.instructions, /\(quiet\)/);
   assert.notEqual(hermesCall.payload.session_id, session);
   const finished = await request({ action: 'shared_agents', operation: 'state' });
   assert.equal(finished.status, 200);
-  assert.deepEqual(finished.body.messages.map(message => message.speaker), ['owner', 'hermes', 'grok', 'note']);
-  assert.equal(finished.body.messages[1].text, 'from hermes');
-  assert.equal(finished.body.messages[2].text, 'from grok');
-  assert.equal(finished.body.paused, true);
-  assert.match(finished.body.messages.at(-1).text, /Paused after 2/);
+  assert.equal(finished.body.messages.some(message => message.speaker === 'hermes' && message.text === 'from hermes'), true);
+  assert.equal(finished.body.hold, false);
+  assert.equal(finished.body.running === 'hermes', false);
   const prompts = calls.filter(call => call.route.endsWith('/api/sendPrompt'));
   assert.equal(prompts.length, 1);
   assert.equal(prompts[0].payload.agentId, 'agent_shared_1');
   assert.match(prompts[0].payload.prompt, /Hermes: from hermes/);
-  assert.equal(calls.filter(call => call.route.endsWith('/api/createAgent')).length, 1);
+  assert.match(prompts[0].payload.prompt, /hold this until Hermes finishes/);
   assert.equal(calls.find(call => call.route.endsWith('/api/createAgent')).payload.name, 'Orbit shared chat');
   assert.equal(prompts.some(call => call.payload.agentId === 'main_bot'), false);
   const again = await request({ action: 'shared_agents', operation: 'speak', speaker: 'grok', grok_agent_id: 'main_bot' });
@@ -119,7 +119,7 @@ test('pause and stop keep the agents from taking another turn', async t => {
     if (route === 'http://hermes.test/v1/runs/run_sharedhermes01/stop') return json({ status: 'stopping' });
     if (route === 'http://hermes.test/v1/runs/run_sharedhermes01') {
       hermesGets += 1;
-      return json(hermesGets === 2 ? { status: 'completed', output: 'from hermes' } : { status: 'running' });
+      return json(hermesGets === 2 ? { status: 'completed', output: '@grok from hermes' } : { status: 'running' });
     }
     if (route.endsWith('/api/listAgents')) return json(agents);
     if (route.endsWith('/api/createAgent')) {
@@ -133,8 +133,7 @@ test('pause and stop keep the agents from taking another turn', async t => {
     return json([]);
   };
   const { request } = await open(t, fetchImpl);
-  await request({ action: 'shared_agents', operation: 'settings', auto: true, max_turns: 4, next: 'hermes' });
-  const posted = await request({ action: 'shared_agents', operation: 'post', text: 'go' });
+  const posted = await request({ action: 'shared_agents', operation: 'post', text: '@hermes go' });
   assert.equal(posted.body.running, 'hermes');
   const paused = await request({ action: 'shared_agents', operation: 'pause' });
   assert.equal(paused.body.paused, true);
@@ -142,7 +141,7 @@ test('pause and stop keep the agents from taking another turn', async t => {
   assert.equal(done.body.messages.some(message => message.speaker === 'hermes'), true);
   assert.equal(done.body.paused, true);
   assert.equal(calls.some(call => call.route.includes('1340')), false);
-  const started = await request({ action: 'shared_agents', operation: 'resume' });
+  const started = await request({ action: 'shared_agents', operation: 'continue' });
   assert.equal(started.body.running, 'grok');
   assert.equal(started.body.paused, false);
   assert.equal(calls.find(call => call.route.endsWith('/api/createAgent')).payload.name, 'Orbit shared chat');
@@ -150,7 +149,7 @@ test('pause and stop keep the agents from taking another turn', async t => {
   assert.equal(stopped.status, 200);
   assert.equal(stopped.body.running, '');
   assert.equal(stopped.body.paused, true);
-  assert.match(stopped.body.messages.at(-1).text, /Stopped/);
+  assert.match(stopped.body.messages.at(-1).text, /^Stopped\.$/);
   assert.equal(calls.some(call => call.route.endsWith('/api/interruptAgentRun')), true);
   const quiet = await request({ action: 'shared_agents', operation: 'state' });
   assert.equal(quiet.body.running, '');
@@ -202,6 +201,18 @@ test('a provider failure is a transcript message and the shared transcript survi
   assert.equal(restored.body.messages.some(message => message.text === 'still here'), true);
   await new Promise(resolve => setTimeout(resolve, 20));
   assert.equal(rejections.length, 0);
+});
+
+test('Kyle can address one agent, both, or whoever last had the floor', () => {
+  assert.deepEqual(routeAddressees('@hermes check the logs'), ['hermes']);
+  assert.deepEqual(routeAddressees('please ask @Grok to look'), ['grok']);
+  assert.deepEqual(routeAddressees('@all thoughts?'), ['hermes', 'grok']);
+  assert.deepEqual(routeAddressees('@hermes and @grok'), ['hermes', 'grok']);
+  assert.deepEqual(routeAddressees('what should we do?'), ['hermes', 'grok']);
+  assert.deepEqual(routeAddressees('ship it', 'grok'), ['grok']);
+  assert.deepEqual(routeAddressees('ship it', 'all'), ['hermes', 'grok']);
+  assert.deepEqual(routeAddressees('hello'), ['hermes']);
+  assert.deepEqual(routeAddressees('mail me at foo@hermes.com', 'grok'), ['grok']);
 });
 
 test('parseDelegate reads a fence or JSON and rejects a malformed block', () => {
@@ -445,4 +456,71 @@ test('a delegated task stays running while the executing agent waits for approva
   assert.match(waiting.body.activity, /approval/);
   assert.equal(calls.some(call => call.route.endsWith('/api/interruptAgentRun')), false);
   assert.equal(calls.some(call => call.route.endsWith('/stop')), false);
+});
+
+test('a quiet reply stays out of the transcript and does not hand off the floor', async t => {
+  const calls = [];
+  const fetchImpl = async (url, options = {}) => {
+    const route = String(url);
+    calls.push(route);
+    const json = value => new Response(JSON.stringify(value), { status: 200, headers: { 'content-type': 'application/json' } });
+    if (route === 'http://hermes.test/v1/runs' && options.method === 'POST') return json({ run_id: 'run_quiethermes01', status: 'running' });
+    if (route.includes('/v1/runs/')) return json({ status: 'completed', output: '(quiet)' });
+    return json({});
+  };
+  const { request } = await open(t, fetchImpl);
+  const posted = await request({ action: 'shared_agents', operation: 'post', text: '@hermes anything to add?' });
+  assert.equal(posted.status, 200);
+  assert.equal(posted.body.running, '');
+  assert.deepEqual(posted.body.messages.map(message => message.speaker), ['owner']);
+  assert.equal(calls.some(route => route.includes('1340')), false);
+});
+
+test('a ping-pong handoff pauses without a turn counter, and continue lets it proceed', async t => {
+  const calls = [];
+  let hermesPosts = 0;
+  let grokSends = 0;
+  const fetchImpl = async (url, options = {}) => {
+    const route = String(url);
+    const payload = options.body ? JSON.parse(options.body) : {};
+    calls.push({ route, method: options.method || 'GET' });
+    const json = value => new Response(JSON.stringify(value), { status: 200, headers: { 'content-type': 'application/json' } });
+    if (route === 'http://hermes.test/v1/runs' && options.method === 'POST') {
+      hermesPosts += 1;
+      return json({ run_id: `run_loophemres0${hermesPosts}`, status: 'running' });
+    }
+    if (route.startsWith('http://hermes.test/v1/runs/')) return json({ status: 'completed', output: '@grok your turn' });
+    if (route.endsWith('/api/listAgents')) return json([]);
+    if (route.endsWith('/api/createAgent')) return json({ agent: { id: 'agent_shared_1', name: payload.name } });
+    if (route.endsWith('/api/sendPrompt')) { grokSends += 1; return json({ accepted: true }); }
+    if (route.endsWith('/api/promptAcceptanceStatus')) return json({ outcome: 'found', record: { status: 'accepted' } });
+    if (route.endsWith('/api/getAgentTranscriptTail')) return json(grokSends ? [{ seq: grokSends, id: `g${grokSends}`, kind: 'send-message', message: { type: 'text', content: '@hermes your turn' } }] : []);
+    return json({});
+  };
+  const room = await open(t, fetchImpl);
+  const held = await room.request({ action: 'shared_agents', operation: 'post', text: '@hermes start' });
+  assert.equal(held.status, 200);
+  assert.equal(held.body.hold, true);
+  assert.equal(held.body.running, '');
+  assert.equal(hermesPosts, 2);
+  assert.equal(grokSends, 2);
+  assert.equal(held.body.messages.some(message => /\d+ of \d+|turn limit|Paused after/.test(message.text)), false);
+  assert.equal(Object.hasOwn(held.body, 'max_turns'), false);
+  const postsBefore = hermesPosts;
+  const resumed = await room.request({ action: 'shared_agents', operation: 'continue' });
+  assert.equal(resumed.status, 200);
+  assert.equal(hermesPosts > postsBefore, true);
+
+  const capped = await open(t, async () => new Response(JSON.stringify({}), { status: 200, headers: { 'content-type': 'application/json' } }));
+  await capped.request({ action: 'shared_agents', operation: 'state' });
+  const recordPath = path.join(capped.dir, 'shared-agents', `${workspace_id}.${pane_id}.json`);
+  const seeded = JSON.parse(fs.readFileSync(recordPath, 'utf8'));
+  seeded.agentStreak = 20;
+  seeded.queue = [{ speaker: 'grok', fromOwner: false }];
+  fs.writeFileSync(recordPath, JSON.stringify(seeded));
+  const paused = await capped.request({ action: 'shared_agents', operation: 'state' });
+  assert.equal(paused.body.hold, true);
+  assert.equal(paused.body.running, '');
+  assert.match(paused.body.activity, /Continue when you want/);
+  assert.equal(/\b20\b/.test(paused.body.activity), false);
 });

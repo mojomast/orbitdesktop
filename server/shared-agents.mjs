@@ -5,10 +5,12 @@ import { randomUUID } from 'node:crypto';
 const runPattern = /^run_[a-zA-Z0-9_-]{8,100}$/;
 const taskPattern = /^d_[a-z0-9]{8,32}$/;
 const speakers = ['hermes', 'grok'];
-const labels = { owner: 'Owner', hermes: 'Hermes', grok: 'Grok Bot', note: 'Orbit' };
+const labels = { owner: 'Kyle', hermes: 'Hermes', grok: 'Grok Bot', note: 'Orbit' };
 const MAX_DEPTH = 2;
 const MAX_TASKS = 8;
+const MAX_AGENT_STREAK = 20;
 const DELEGATION_TIMEOUT_MS = 3 * 60 * 1000;
+const HOLD_ACTIVITY = 'Paused. Continue when you want the agents to keep going.';
 
 function fail(message, status = 502) {
   const error = new Error(message);
@@ -34,6 +36,11 @@ function blank(key) {
     maxTurns: 4,
     turns: 0,
     paused: false,
+    hold: false,
+    agentStreak: 0,
+    floorMark: 0,
+    lastAddressed: '',
+    queue: [],
     activity: '',
     hermesSession: `orbit-${randomUUID()}`,
     grokAgentId: '',
@@ -51,7 +58,11 @@ function preamble(speaker) {
   const name = labels[speaker];
   const partner = labels[other(speaker)];
   const target = other(speaker);
-  return `You are ${name}, speaking in a shared Orbit conversation with the owner and ${partner}. Reply only as ${name}. Do not write lines for the owner or ${partner}. Use plain text.
+  return `You are ${name} in a three-way chat with Kyle and ${partner}. Kyle is the owner. Reply only as ${name}. Do not write lines for Kyle or ${partner}. Use plain text.
+
+Stay quiet unless Kyle or ${partner} addressed you, or you genuinely have something useful to add. If you have nothing to add, reply with exactly (quiet).
+
+Address ${partner} as @${target} when you want them to respond. Use @all to hand the floor to everyone else. Address Kyle as @kyle. The conversation stops when you do not hand the floor to someone.
 
 To delegate a task to ${partner}, end your reply with one fenced block exactly like this:
 
@@ -62,6 +73,57 @@ context: optional details
 \`\`\`
 
 Orbit gives that task to ${partner} through that agent's gateway and posts the result back here and to you. Delegate only to ${partner}. A chain may be at most ${MAX_DEPTH} delegations deep, and this conversation keeps at most ${MAX_TASKS} delegated tasks. If a tool needs approval, use your normal tool-approval flow; the owner resolves it on the agent that is executing.`;
+}
+
+/** @hermes, @grok, and @all. An email local-part does not count. */
+export function mentionedAgents(text) {
+  const found = { hermes: false, grok: false, all: false };
+  for (const match of String(text || '').matchAll(/(^|[^A-Za-z0-9_])@(hermes|grok|all)\b/gi)) found[match[2].toLowerCase()] = true;
+  return found;
+}
+
+/** Who should answer a message from Kyle. */
+export function routeAddressees(text, lastAddressed = '') {
+  const found = mentionedAgents(text);
+  if (found.all || (found.hermes && found.grok)) return ['hermes', 'grok'];
+  if (found.hermes) return ['hermes'];
+  if (found.grok) return ['grok'];
+  if (String(text || '').includes('?')) return ['hermes', 'grok'];
+  if (lastAddressed === 'hermes' || lastAddressed === 'grok') return [lastAddressed];
+  if (lastAddressed === 'all') return ['hermes', 'grok'];
+  return ['hermes'];
+}
+
+function handoffTargets(speaker, text) {
+  const found = mentionedAgents(text);
+  if (found.all) return [other(speaker)];
+  return ['hermes', 'grok'].filter(target => found[target] && target !== speaker);
+}
+
+function isQuiet(text) {
+  return /^\(?quiet\)?[.!]?\s*$/i.test(String(text || '').trim());
+}
+
+function normalizeUtterance(text) {
+  return String(text || '').toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 240);
+}
+
+function agentTurnsSinceOwner(messages, floorMark = 0) {
+  const visible = messages.slice(Math.max(0, floorMark) || 0);
+  let start = 0;
+  for (let index = visible.length - 1; index >= 0; index -= 1) {
+    if (visible[index].speaker === 'owner') { start = index + 1; break; }
+  }
+  return visible.slice(start).filter(message => message.speaker === 'hermes' || message.speaker === 'grok');
+}
+
+function agentFloorBlocked(state) {
+  if (state.agentStreak >= MAX_AGENT_STREAK) return true;
+  const recent = agentTurnsSinceOwner(state.messages, state.floorMark || 0);
+  const speakersNow = recent.slice(-4).map(message => message.speaker);
+  if (speakersNow.length === 4 && speakersNow[0] !== speakersNow[1] && speakersNow[0] === speakersNow[2] && speakersNow[1] === speakersNow[3]) return true;
+  const norms = recent.map(message => normalizeUtterance(message.text)).filter(text => text.length >= 24);
+  return new Set(norms).size !== norms.length;
 }
 
 function promptFor(speaker, messages) {
@@ -155,11 +217,8 @@ export function parseDelegate(text) {
 function publicState(state) {
   return {
     messages: state.messages.map(message => ({ id: message.id, speaker: message.speaker, text: message.text, at: message.at, ...(message.error ? { error: true } : {}) })),
-    next: state.next,
-    auto: state.auto,
-    max_turns: state.maxTurns,
-    turns: state.turns,
     paused: state.paused,
+    hold: state.hold === true,
     running: state.run?.speaker || '',
     activity: state.activity || '',
     delegations: state.delegations.map(task => ({
@@ -217,6 +276,11 @@ export function createSharedAgents({ directory, fetchImpl = fetch, grok, hermesP
       record.maxTurns = Number.isInteger(record.maxTurns) && record.maxTurns >= 1 && record.maxTurns <= 8 ? record.maxTurns : 4;
       record.turns = Number.isInteger(record.turns) && record.turns >= 0 ? record.turns : 0;
       record.paused = record.paused === true;
+      record.hold = record.hold === true;
+      record.agentStreak = Number.isInteger(record.agentStreak) && record.agentStreak >= 0 && record.agentStreak <= 100 ? record.agentStreak : 0;
+      record.floorMark = Number.isInteger(record.floorMark) && record.floorMark >= 0 ? record.floorMark : 0;
+      record.lastAddressed = ['hermes', 'grok', 'all'].includes(record.lastAddressed) ? record.lastAddressed : '';
+      record.queue = cleanQueue(record.queue);
       record.activity = typeof record.activity === 'string' ? record.activity.slice(0, 300) : '';
       record.hermesSession = /^orbit-[0-9a-f-]{36}$/.test(record.hermesSession || '') ? record.hermesSession : `orbit-${randomUUID()}`;
       record.grokAgentId = typeof record.grokAgentId === 'string' ? record.grokAgentId : '';
@@ -245,6 +309,11 @@ export function createSharedAgents({ directory, fetchImpl = fetch, grok, hermesP
       maxTurns: state.maxTurns,
       turns: state.turns,
       paused: state.paused,
+      hold: state.hold === true,
+      agentStreak: state.agentStreak || 0,
+      floorMark: state.floorMark || 0,
+      lastAddressed: state.lastAddressed || '',
+      queue: state.queue || [],
       activity: state.activity || '',
       hermesSession: state.hermesSession,
       grokAgentId: state.grokAgentId || '',
@@ -262,7 +331,32 @@ export function createSharedAgents({ directory, fetchImpl = fetch, grok, hermesP
     state.messages = state.messages.slice(-200);
   }
 
-  function findTask(state, id) {
+  function cleanQueue(list) {
+  if (!Array.isArray(list)) return [];
+  const queue = [];
+  for (const item of list) {
+    const speaker = typeof item === 'string' ? item : item?.speaker;
+    if (!speakers.includes(speaker) || queue.some(entry => entry.speaker === speaker)) continue;
+    queue.push({ speaker, fromOwner: item?.fromOwner === true });
+  }
+  return queue.slice(0, 2);
+}
+
+function enqueue(state, targets, fromOwner) {
+  for (const speaker of targets) {
+    if (!speakers.includes(speaker) || state.queue.some(entry => entry.speaker === speaker)) continue;
+    state.queue.push({ speaker, fromOwner: fromOwner === true });
+  }
+}
+
+function rememberAddress(state, text) {
+  const found = mentionedAgents(text);
+  if (found.all || (found.hermes && found.grok)) state.lastAddressed = 'all';
+  else if (found.hermes) state.lastAddressed = 'hermes';
+  else if (found.grok) state.lastAddressed = 'grok';
+}
+
+function findTask(state, id) {
     return state.delegations.find(task => task.id === id) || null;
   }
 
@@ -405,10 +499,26 @@ export function createSharedAgents({ directory, fetchImpl = fetch, grok, hermesP
     });
   }
 
+  async function startNextSpeaker(state) {
+    if (state.run || state.paused || state.hold) return false;
+    while (state.queue.length) {
+      const next = state.queue[0];
+      if (!next.fromOwner && agentFloorBlocked(state)) {
+        state.hold = true;
+        state.activity = HOLD_ACTIVITY;
+        return false;
+      }
+      state.queue.shift();
+      await begin(state, next.speaker);
+      return Boolean(state.run);
+    }
+    return false;
+  }
+
   async function startQueued(state) {
     if (state.run) return false;
     expirePending(state);
-    if (state.paused) return false;
+    if (state.paused || state.hold) return false;
     const pending = state.delegations.find(task => task.status === 'pending');
     if (pending) {
       await startTask(state, pending);
@@ -426,7 +536,7 @@ export function createSharedAgents({ directory, fetchImpl = fetch, grok, hermesP
       });
       return true;
     }
-    return false;
+    return startNextSpeaker(state);
   }
 
   async function acceptDelegate(state, speaker, output, run) {
@@ -552,16 +662,22 @@ export function createSharedAgents({ directory, fetchImpl = fetch, grok, hermesP
         if (!delegated) settleParent(state, run.taskId, output);
         continue;
       }
-      state.turns += 1;
-      if (delegated) continue;
-      if (!state.auto || state.paused || state.turns >= state.maxTurns) {
-        if (state.auto && !state.paused && state.turns >= state.maxTurns) {
-          state.paused = true;
-          append(state, 'note', `Paused after ${state.maxTurns} agent replies. Post a message, choose who speaks next, or press Resume.`);
-        }
-        return;
+      if (isQuiet(output)) {
+        state.messages.pop();
+        continue;
       }
-      await begin(state, state.next);
+      state.agentStreak += 1;
+      if (delegated) continue;
+      const handoff = handoffTargets(speaker, output);
+      if (handoff.length) {
+        rememberAddress(state, output);
+        enqueue(state, handoff, false);
+        if (agentFloorBlocked(state)) {
+          state.hold = true;
+          state.activity = HOLD_ACTIVITY;
+        }
+      }
+      continue;
     }
   }
 
@@ -615,9 +731,15 @@ export function createSharedAgents({ directory, fetchImpl = fetch, grok, hermesP
       await advance(state);
     } else if (operation === 'post') {
       if (typeof body.text !== 'string' || !body.text.trim() || body.text.length > 16000) throw fail('Enter a message of 1–16,000 characters.', 400);
-      append(state, 'owner', body.text.trim());
-      state.turns = 0;
-      if (!state.run && state.auto && !state.paused && !delegationBusy(state)) await begin(state, state.next);
+      const text = body.text.trim();
+      append(state, 'owner', text);
+      state.agentStreak = 0;
+      state.floorMark = state.messages.length;
+      state.hold = false;
+      if (state.activity === HOLD_ACTIVITY) state.activity = '';
+      rememberAddress(state, text);
+      enqueue(state, routeAddressees(text, state.lastAddressed), true);
+      if (!state.run && !state.paused && !delegationBusy(state)) await startNextSpeaker(state);
       await advance(state);
     } else if (operation === 'speak') {
       if (!speakers.includes(body.speaker)) throw fail('Choose Hermes or Grok Bot.', 400);
@@ -638,15 +760,19 @@ export function createSharedAgents({ directory, fetchImpl = fetch, grok, hermesP
     } else if (operation === 'pause') {
       state.paused = true;
       state.activity = state.run ? `${labels[state.run.speaker]} will finish this reply, then the exchange stays paused.` : 'Paused.';
-    } else if (operation === 'resume') {
+    } else if (operation === 'resume' || operation === 'continue') {
       state.paused = false;
-      state.turns = 0;
-      if (!state.run && state.auto && !delegationBusy(state)) await begin(state, state.next);
+      state.hold = false;
+      state.agentStreak = 0;
+      state.floorMark = state.messages.length;
+      if (state.activity === HOLD_ACTIVITY) state.activity = '';
       await advance(state);
     } else if (operation === 'stop') {
       await stopRun(state);
       state.paused = true;
-      append(state, 'note', 'Stopped. Auto-alternate stays paused until you press Resume.');
+      state.hold = false;
+      state.queue = [];
+      append(state, 'note', 'Stopped.');
     } else if (operation === 'cancel_delegation') {
       if (typeof body.task_id !== 'string' || !taskPattern.test(body.task_id)) throw fail('Choose a delegated task to cancel.', 400);
       await cancelDelegation(state, body.task_id);

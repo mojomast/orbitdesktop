@@ -1,6 +1,6 @@
 import { el, button } from './dom';
 
-const labels: Record<string, string> = { owner: 'Owner', hermes: 'Hermes', grok: 'Grok Bot', note: 'Orbit' };
+const labels: Record<string, string> = { owner: 'Kyle', hermes: 'Hermes', grok: 'Grok Bot', note: 'Orbit' };
 
 export function mountSharedAgents(options: { request: (body: Record<string, unknown>) => Promise<any>; onClose: () => void }) {
   const element = el('section', 'shared-agents');
@@ -12,27 +12,9 @@ export function mountSharedAgents(options: { request: (body: Record<string, unkn
   const tasks = el('div', 'shared-agents-tasks');
   tasks.hidden = true;
   tasks.setAttribute('aria-label', 'Delegated tasks');
-  const next = el('select');
-  next.setAttribute('aria-label', 'Who speaks next');
-  for (const [value, label] of [['hermes', 'Hermes'], ['grok', 'Grok Bot']]) {
-    const option = el('option', '', label);
-    option.value = value;
-    next.append(option);
-  }
-  const limit = el('input');
-  limit.type = 'number';
-  limit.min = '1';
-  limit.max = '8';
-  limit.value = '4';
-  limit.setAttribute('aria-label', 'Maximum agent replies per exchange');
-  const auto = el('input');
-  auto.type = 'checkbox';
-  auto.setAttribute('aria-label', 'Auto-alternate speakers');
-  const autoLabel = el('label', 'shared-agents-auto', 'Auto-alternate');
-  autoLabel.append(auto);
   const composer = el('textarea');
   composer.maxLength = 16000;
-  composer.placeholder = 'Write to both agents';
+  composer.placeholder = 'Message the group. Use @hermes, @grok, or @all';
   composer.setAttribute('aria-label', 'Message to the shared conversation');
   const form = el('form', 'shared-agents-form');
   const send = button('Send', 'Post to the shared conversation', () => {});
@@ -41,7 +23,10 @@ export function mountSharedAgents(options: { request: (body: Record<string, unkn
   let timer: ReturnType<typeof setTimeout> | undefined;
   let disposed = false;
   let open = false;
-  let drawing = false;
+  const continueButton = button('Continue', 'Let the agents continue', () => {
+    void options.request({ operation: 'continue' }).then(draw).catch(error => { status.textContent = error instanceof Error ? error.message : 'Continue did not apply.'; });
+  }, 'small-button');
+  continueButton.hidden = true;
 
   function draw(data: any) {
     log.replaceChildren();
@@ -71,15 +56,10 @@ export function mountSharedAgents(options: { request: (body: Record<string, unkn
       }
       tasks.append(row);
     }
-    if (!drawing) {
-      drawing = true;
-      next.value = data.next === 'grok' ? 'grok' : 'hermes';
-      limit.value = String(data.max_turns || 4);
-      auto.checked = data.auto === true;
-      drawing = false;
-    }
+    continueButton.hidden = !(data.paused || data.hold);
     const running = data.running ? `${labels[data.running] || 'An agent'} is replying.` : '';
-    status.textContent = [data.activity, running, data.paused ? 'Auto-alternate is paused.' : data.auto ? `Auto-alternate is on, up to ${data.max_turns} agent replies.` : 'Auto-alternate is off.'].filter(Boolean).join(' ');
+    const floor = data.hold ? 'Continue when you want the agents to keep going.' : data.paused ? 'Paused.' : '';
+    status.textContent = [data.activity === floor ? '' : data.activity, running, floor].filter(Boolean).join(' ');
     log.scrollTop = log.scrollHeight;
   }
 
@@ -97,19 +77,6 @@ export function mountSharedAgents(options: { request: (body: Record<string, unkn
     }
   }
 
-  async function sendSettings() {
-    if (drawing) return;
-    try {
-      const data = await options.request({ operation: 'settings', next: next.value, auto: auto.checked, max_turns: Number(limit.value) });
-      draw(data);
-    } catch (error) {
-      status.textContent = error instanceof Error ? error.message : 'Those turn settings were not saved.';
-    }
-  }
-
-  next.addEventListener('change', () => { void sendSettings(); });
-  limit.addEventListener('change', () => { void sendSettings(); });
-  auto.addEventListener('change', () => { void sendSettings(); });
   form.addEventListener('submit', event => {
     event.preventDefault();
     const text = composer.value.trim();
@@ -119,21 +86,11 @@ export function mountSharedAgents(options: { request: (body: Record<string, unkn
   });
   const controls = el('div', 'shared-agents-controls');
   controls.append(
-    el('span', '', 'Next'),
-    next,
-    el('span', '', 'Limit'),
-    limit,
-    autoLabel,
-    button('Let them speak', 'Ask the selected agent to reply now', () => {
-      void options.request({ operation: 'speak', speaker: next.value }).then(draw).catch(error => { status.textContent = error instanceof Error ? error.message : 'That speaker did not start.'; });
-    }, 'small-button'),
-    button('Pause', 'Pause auto-alternate after the current reply', () => {
+    button('Pause', 'Finish the current reply and hold the floor', () => {
       void options.request({ operation: 'pause' }).then(draw).catch(error => { status.textContent = error instanceof Error ? error.message : 'Pause did not apply.'; });
     }, 'small-button'),
-    button('Resume', 'Resume auto-alternate', () => {
-      void options.request({ operation: 'resume' }).then(draw).catch(error => { status.textContent = error instanceof Error ? error.message : 'Resume did not apply.'; });
-    }, 'small-button'),
-    button('Stop', 'Stop the current reply and pause auto-alternate', () => {
+    continueButton,
+    button('Stop', 'Stop the current reply and hold the floor', () => {
       void options.request({ operation: 'stop' }).then(draw).catch(error => { status.textContent = error instanceof Error ? error.message : 'Stop did not apply.'; });
     }, 'small-button'),
   );
@@ -141,7 +98,7 @@ export function mountSharedAgents(options: { request: (body: Record<string, unkn
   head.append(el('h2', '', 'Shared agents'), button('Back to this chat', 'Return to the single-agent conversation', () => options.onClose(), 'small-button'));
   element.append(
     head,
-    el('p', '', 'Hermes and Grok Bot share this transcript. Either agent can delegate a task to the other. Grok Bot uses a separate Orbit shared chat, not your main Grok Bot conversation. You can post at any time.'),
+    el('p', '', 'Kyle, Hermes, and Grok Bot share this transcript. Address someone with @hermes, @grok, or @all. Agents reply to each other only when they hand off the floor. You can post at any time.'),
     status,
     log,
     tasks,
