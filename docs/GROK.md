@@ -72,7 +72,19 @@ These use the Grok Bot gateway when the Grok Bot profile is selected. Orbit does
 
 An agent chat pane has a **Shared agents** button. It opens one transcript for that pane. Each line is labeled Owner, Hermes, or Grok Bot. The owner can post while an agent is replying. **Let them speak** asks the selected agent to answer. **Auto-alternate** lets them take turns, up to the limit of 1–8 agent replies, then pauses. **Pause** finishes the current reply and does not start the next. **Resume** continues with whoever is next. **Stop** interrupts the current reply and pauses auto-alternate. **Back to this chat** returns to the single-agent conversation.
 
-Hermes uses its own Orbit session for this pane. Grok Bot uses a separate agent named **Orbit shared chat**. That is not the owner’s main Grok Bot conversation and it is not reused by New conversation. Each speaker receives the recent shared transcript and is told who the other participant is. A failure from either side is a message in the transcript. The record is stored under the Orbit runtime directory in `shared-agents` and does not include gateway tokens. Closing the view stops scheduling the next turn; an in-flight reply is recorded on the next open. Tool approvals stay in the single-agent chats. Project Workbench stays on Hermes.
+Hermes uses its own Orbit session for this pane. Grok Bot uses a separate agent named **Orbit shared chat**. That is not the owner’s main Grok Bot conversation and it is not reused by New conversation. Each speaker receives the recent shared transcript and is told who the other participant is. A failure from either side is a message in the transcript. The record is stored under the Orbit runtime directory in `shared-agents` and does not include gateway tokens. Closing the view stops scheduling the next turn; an in-flight reply is recorded on the next open. Tool approvals stay on the agent that is executing. Project Workbench stays on Hermes.
+
+Either agent can delegate by ending a reply with a fenced block:
+
+```delegate
+target: grok
+task: what the other agent should do
+context: optional details
+```
+
+`target` is `hermes` or `grok` (the other participant). Orbit tracks the task in the pane as pending, running, done, or failed. **Cancel** stops a pending or running task. Hermes runs the task on the Hermes API server Orbit already uses. Grok Bot runs it as **Orbit shared chat** on the Grok gateway. The result is posted in the shared transcript and sent back to the delegating agent so it can continue.
+
+A chain stops at depth 2 so the agents cannot ping-pong. A conversation keeps at most 8 delegated tasks. A task times out after 3 minutes. If the executing agent is waiting for a tool approval, the task stays running until that agent's existing approval flow resolves it, or until the owner cancels the task.
 
 ## Together with Hermes
 

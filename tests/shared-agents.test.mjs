@@ -5,13 +5,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createAgentHandler } from '../server/agent.mjs';
+import { parseDelegate } from '../server/shared-agents.mjs';
 
 const token = 'orbit-test-token-'.repeat(4);
 const session = 'orbit-12345678-1234-4234-9234-123456789abc';
 const workspace_id = '12345678-1234-4234-9234-123456789abc';
 const pane_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
-function open(t, fetchImpl, runtimeDirectory) {
+function open(t, fetchImpl, runtimeDirectory, options = {}) {
   const dir = runtimeDirectory || fs.mkdtempSync(path.join(os.tmpdir(), 'orbit-shared-'));
   let port;
   let handler;
@@ -21,7 +22,7 @@ function open(t, fetchImpl, runtimeDirectory) {
     token, port, devOrigins: [], reply, runtimeDirectory: dir, workspaceRead,
     apiUrl: 'http://hermes.test', apiKey: 'hermes-key',
     additionalProfiles: [{ id: 'grok', label: 'Grok Bot', provider: 'grok', apiUrl: 'http://127.0.0.1:1340', apiKey: 'grok-token-secret' }],
-    fetchImpl,
+    fetchImpl, grokOptions: options.grokOptions || {},
   }))(req, res));
   return new Promise(resolve => server.listen(0, '127.0.0.1', () => {
     port = server.address().port;
@@ -201,4 +202,247 @@ test('a provider failure is a transcript message and the shared transcript survi
   assert.equal(restored.body.messages.some(message => message.text === 'still here'), true);
   await new Promise(resolve => setTimeout(resolve, 20));
   assert.equal(rejections.length, 0);
+});
+
+test('parseDelegate reads a fence or JSON and rejects a malformed block', () => {
+  assert.equal(parseDelegate('no fence here'), null);
+  assert.deepEqual(parseDelegate('```delegate\ntarget: grok\ntask: Square 2\ncontext: show the work\n```'), {
+    to: 'grok', task: 'Square 2', context: 'show the work',
+  });
+  assert.deepEqual(parseDelegate('```delegate\n{"target":"Grok Bot","task":"check logs","context":"today"}\n```'), {
+    to: 'grok', task: 'check logs', context: 'today',
+  });
+  assert.equal(parseDelegate('```delegate\n{"target":"owner","task":"nope"}\n```').error.length > 0, true);
+  assert.equal(parseDelegate('```delegate\n{not json}\n```').error.length > 0, true);
+});
+
+function grokAgents(calls, options = {}) {
+  const agents = [{ id: 'main_bot', name: 'Main Grok' }];
+  let acceptancePolls = 0;
+  let sends = 0;
+  const tail = [];
+  return async (url, init = {}) => {
+    const route = String(url);
+    const payload = init.body ? JSON.parse(init.body) : {};
+    calls.push({ route, method: init.method || 'GET', payload });
+    const json = (value, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
+    if (route === 'http://hermes.test/v1/runs' && init.method === 'POST') {
+      options.onHermesPost?.(payload);
+      const id = options.hermesRunId?.(payload) || 'run_delegateherm01';
+      return json({ run_id: id, status: 'running' });
+    }
+    if (route.startsWith('http://hermes.test/v1/runs/') && route.endsWith('/stop')) return json({ status: 'stopping' });
+    if (route.startsWith('http://hermes.test/v1/runs/')) return json({ status: 'completed', output: options.hermesOutput?.(route) || 'hermes done' });
+    if (route.endsWith('/api/listAgents')) return json(options.agents || agents);
+    if (route.endsWith('/api/createAgent')) {
+      agents.push({ id: 'agent_shared_1', name: payload.name });
+      return json({ agent: { id: 'agent_shared_1', name: payload.name } });
+    }
+    if (route.endsWith('/api/sendPrompt')) {
+      sends += 1;
+      if (options.onGrokSend) options.onGrokSend(payload, sends);
+      if (options.grokReply && !options.delayReply) tail.push({ seq: sends, id: `g${sends}`, kind: 'send-message', message: { type: 'text', content: options.grokReply(sends, payload) } });
+      return json({ accepted: true });
+    }
+    if (route.endsWith('/api/promptAcceptanceStatus')) {
+      acceptancePolls += 1;
+      if (options.delayReply && options.grokReply && acceptancePolls >= 2 && tail.length < sends) {
+        tail.push({ seq: sends, id: `g${sends}`, kind: 'send-message', message: { type: 'text', content: options.grokReply(sends) } });
+      }
+      return json(options.acceptance?.(acceptancePolls) || { outcome: 'found', record: { status: 'accepted' } });
+    }
+    if (route.endsWith('/api/getAgentTranscriptTail')) return json(tail.slice());
+    if (route.endsWith('/api/interruptAgentRun')) return json({ ok: true });
+    return json({ error: 'missing' }, 404);
+  };
+}
+
+test('a delegate fence runs on Orbit shared chat and the result returns to Hermes', async t => {
+  const calls = [];
+  let hermesPosts = 0;
+  const hermesOutputs = new Map();
+  const fetchImpl = await grokAgents(calls, {
+    hermesRunId() {
+      hermesPosts += 1;
+      const id = `run_delegateherm0${hermesPosts}`;
+      hermesOutputs.set(id, hermesPosts === 1
+        ? '```delegate\ntarget: grok\ntask: Square 2\ncontext: show the work\n```'
+        : 'The square is 4.');
+      return id;
+    },
+    hermesOutput(route) {
+      const id = [...hermesOutputs.keys()].find(key => route.endsWith(`/${key}`));
+      return hermesOutputs.get(id);
+    },
+    acceptance(poll) {
+      return poll < 2 ? { outcome: 'found', record: { status: 'pending' } } : { outcome: 'found', record: { status: 'accepted' } };
+    },
+    delayReply: true,
+    grokReply() { return '4'; },
+  });
+  const { request, dir } = await open(t, fetchImpl);
+  const started = await request({ action: 'shared_agents', operation: 'speak', speaker: 'hermes' });
+  assert.equal(started.status, 200);
+  assert.equal(started.body.running, 'grok');
+  assert.equal(started.body.delegations.length, 1);
+  assert.equal(started.body.delegations[0].status, 'running');
+  assert.equal(started.body.delegations[0].from, 'hermes');
+  assert.equal(started.body.delegations[0].to, 'grok');
+  assert.equal(started.body.delegations[0].depth, 1);
+  assert.match(started.body.messages.at(-1).text, /Square 2/);
+  const hermesCall = calls.find(call => call.route === 'http://hermes.test/v1/runs' && call.method === 'POST');
+  assert.match(hermesCall.payload.input, /```delegate/);
+  assert.match(hermesCall.payload.input, /target: grok/);
+  assert.match(hermesCall.payload.instructions, /```delegate/);
+  const prompt = calls.find(call => call.route.endsWith('/api/sendPrompt'));
+  assert.equal(prompt.payload.agentId, 'agent_shared_1');
+  assert.match(prompt.payload.prompt, /Square 2/);
+  assert.match(prompt.payload.prompt, /show the work/);
+  assert.match(prompt.payload.prompt, /```delegate/);
+  assert.equal(calls.find(call => call.route.endsWith('/api/createAgent')).payload.name, 'Orbit shared chat');
+  assert.equal(prompt.payload.agentId === 'main_bot', false);
+  const finished = await request({ action: 'shared_agents', operation: 'state' });
+  assert.equal(finished.status, 200);
+  assert.equal(finished.body.delegations[0].status, 'done');
+  assert.equal(finished.body.messages.some(message => message.speaker === 'grok' && message.text === '4'), true);
+  const returned = calls.filter(call => call.route === 'http://hermes.test/v1/runs' && call.method === 'POST').at(-1);
+  assert.match(returned.payload.input, /finished a task you delegated/);
+  assert.match(returned.payload.input, /\n4\n|Result: 4/);
+  assert.equal(finished.body.messages.some(message => message.speaker === 'hermes' && /square is 4/i.test(message.text)), true);
+  const saved = fs.readFileSync(path.join(dir, 'shared-agents', fs.readdirSync(path.join(dir, 'shared-agents')).find(name => name.endsWith('.json'))), 'utf8');
+  assert.equal(saved.includes('grok-token-secret'), false);
+  assert.equal(saved.includes('hermes-key'), false);
+});
+
+test('delegation stops at depth 2, at 8 tasks, and when the owner cancels or the task times out', async t => {
+  const calls = [];
+  let hermesPosts = 0;
+  const hermesOutputs = new Map();
+  const fetchImpl = grokAgents(calls, {
+    hermesRunId() {
+      hermesPosts += 1;
+      const id = `run_depthhermes0${hermesPosts}`;
+      const output = hermesPosts === 1
+        ? '```delegate\ntarget: grok\ntask: inspect logs\n```'
+        : hermesPosts === 2
+          ? '```delegate\ntarget: grok\ntask: again\n```'
+          : 'owner update';
+      hermesOutputs.set(id, output);
+      return id;
+    },
+    hermesOutput(route) {
+      const id = [...hermesOutputs.keys()].find(key => route.endsWith(`/${key}`));
+      return hermesOutputs.get(id);
+    },
+    grokReply(send) {
+      return send === 1 ? '```delegate\ntarget: hermes\ntask: check the logs\n```' : 'logs look fine';
+    },
+  });
+  const depth = await open(t, fetchImpl);
+  const spoken = await depth.request({ action: 'shared_agents', operation: 'speak', speaker: 'hermes' });
+  assert.equal(spoken.status, 200);
+  let body = spoken.body;
+  for (let i = 0; i < 4 && !body.messages.some(message => message.text === 'owner update'); i += 1) {
+    body = (await depth.request({ action: 'shared_agents', operation: 'state' })).body;
+  }
+  assert.equal(body.delegations.length, 2);
+  assert.deepEqual(body.delegations.map(task => task.depth), [1, 2]);
+  assert.equal(body.delegations.every(task => task.status === 'done'), true);
+  assert.equal(body.messages.some(message => /depth of 2/.test(message.text)), true);
+  assert.equal(calls.filter(call => call.route.endsWith('/api/sendPrompt')).length, 2);
+  assert.equal(body.messages.some(message => message.text === 'logs look fine'), true);
+  assert.equal(body.messages.some(message => message.text === 'owner update'), true);
+
+  const cancelCalls = [];
+  let cancelPosts = 0;
+  const cancelFetch = grokAgents(cancelCalls, {
+    hermesRunId() {
+      cancelPosts += 1;
+      return `run_cancelherm0${cancelPosts}`;
+    },
+    hermesOutput() { return '```delegate\ntarget: grok\ntask: hold this\n```'; },
+    acceptance() { return { outcome: 'found', record: { status: 'pending' } }; },
+  });
+  const cancelling = await open(t, cancelFetch);
+  const holding = await cancelling.request({ action: 'shared_agents', operation: 'speak', speaker: 'hermes' });
+  assert.equal(holding.body.running, 'grok');
+  assert.equal(holding.body.delegations[0].status, 'running');
+  const cancelled = await cancelling.request({ action: 'shared_agents', operation: 'cancel_delegation', task_id: holding.body.delegations[0].id });
+  assert.equal(cancelled.status, 200);
+  assert.equal(cancelled.body.delegations[0].status, 'failed');
+  assert.equal(cancelled.body.running, '');
+  assert.match(cancelled.body.messages.at(-1).text, /Cancelled/);
+  assert.equal(cancelCalls.some(call => call.route.endsWith('/api/interruptAgentRun')), true);
+
+  let clock = 1_700_000_000_000;
+  const timeoutCalls = [];
+  let timeoutPosts = 0;
+  const timeoutOutputs = new Map();
+  const timeoutFetch = grokAgents(timeoutCalls, {
+    hermesRunId() {
+      timeoutPosts += 1;
+      const id = `run_timehermes0${timeoutPosts}`;
+      timeoutOutputs.set(id, timeoutPosts === 1 ? '```delegate\ntarget: grok\ntask: wait\n```' : 'noted the timeout');
+      return id;
+    },
+    hermesOutput(route) {
+      const id = [...timeoutOutputs.keys()].find(key => route.endsWith(`/${key}`));
+      return timeoutOutputs.get(id);
+    },
+    acceptance() { return { outcome: 'found', record: { status: 'pending' } }; },
+  });
+  const timing = await open(t, timeoutFetch, undefined, { grokOptions: { now: () => clock } });
+  const waiting = await timing.request({ action: 'shared_agents', operation: 'speak', speaker: 'hermes' });
+  assert.equal(waiting.body.delegations[0].status, 'running');
+  clock += (3 * 60 * 1000) + 1;
+  const timed = await timing.request({ action: 'shared_agents', operation: 'state' });
+  assert.equal(timed.body.delegations[0].status, 'failed');
+  assert.equal(timed.body.messages.some(message => /timed out/.test(message.text)), true);
+  assert.equal(timeoutCalls.some(call => call.route.endsWith('/api/interruptAgentRun')), true);
+
+  const capCalls = [];
+  let capPosts = 0;
+  const capFetch = grokAgents(capCalls, {
+    hermesRunId() {
+      capPosts += 1;
+      return `run_caphermes0${capPosts}`;
+    },
+    hermesOutput() { return '```delegate\n{"target":"grok","task":"one more","context":"extra"}\n```'; },
+  });
+  const capped = await open(t, capFetch);
+  await capped.request({ action: 'shared_agents', operation: 'state' });
+  const recordPath = path.join(capped.dir, 'shared-agents', `${workspace_id}.${pane_id}.json`);
+  const seeded = JSON.parse(fs.readFileSync(recordPath, 'utf8'));
+  seeded.delegations = Array.from({ length: 8 }, (_, index) => {
+    const id = `d_cap${String(index).padStart(5, '0')}`;
+    return { id, from: 'hermes', to: 'grok', task: `seed ${index}`, context: '', depth: 1, chain: id, status: 'done', result: 'seeded', waitingOn: '', needsReturn: false, deadline: 0 };
+  });
+  fs.writeFileSync(recordPath, JSON.stringify(seeded));
+  const refused = await capped.request({ action: 'shared_agents', operation: 'speak', speaker: 'hermes' });
+  assert.equal(refused.status, 200);
+  assert.equal(refused.body.delegations.length, 8);
+  assert.equal(refused.body.messages.some(message => /already has 8 delegated tasks/.test(message.text)), true);
+  assert.equal(capCalls.some(call => call.route.endsWith('/api/sendPrompt')), false);
+});
+
+test('a delegated task stays running while the executing agent waits for approval', async t => {
+  const calls = [];
+  let posts = 0;
+  const fetchImpl = grokAgents(calls, {
+    hermesRunId() {
+      posts += 1;
+      return `run_approvalher0${posts}`;
+    },
+    hermesOutput() { return '```delegate\ntarget: grok\ntask: list the directory\n```'; },
+    agents: [{ id: 'agent_shared_1', name: 'Orbit shared chat', awaitingUserResponse: { command: 'ls' } }],
+    acceptance() { return { outcome: 'found', record: { status: 'accepted' } }; },
+  });
+  const { request } = await open(t, fetchImpl);
+  const waiting = await request({ action: 'shared_agents', operation: 'speak', speaker: 'hermes' });
+  assert.equal(waiting.status, 200);
+  assert.equal(waiting.body.running, 'grok');
+  assert.equal(waiting.body.delegations[0].status, 'running');
+  assert.match(waiting.body.activity, /approval/);
+  assert.equal(calls.some(call => call.route.endsWith('/api/interruptAgentRun')), false);
+  assert.equal(calls.some(call => call.route.endsWith('/stop')), false);
 });

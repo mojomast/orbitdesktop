@@ -9,6 +9,9 @@ export function mountSharedAgents(options: { request: (body: Record<string, unkn
   status.setAttribute('role', 'status');
   const log = el('div', 'shared-agents-log');
   log.setAttribute('aria-label', 'Shared transcript');
+  const tasks = el('div', 'shared-agents-tasks');
+  tasks.hidden = true;
+  tasks.setAttribute('aria-label', 'Delegated tasks');
   const next = el('select');
   next.setAttribute('aria-label', 'Who speaks next');
   for (const [value, label] of [['hermes', 'Hermes'], ['grok', 'Grok Bot']]) {
@@ -50,6 +53,24 @@ export function mountSharedAgents(options: { request: (body: Record<string, unkn
       log.append(line);
     }
     if (!log.childElementCount) log.append(el('p', '', 'No messages yet. Post, or choose who speaks first.'));
+    const rows = Array.isArray(data.delegations) ? data.delegations : [];
+    tasks.replaceChildren();
+    tasks.hidden = rows.length === 0;
+    for (const task of rows) {
+      const from = labels[task.from] || 'Agent';
+      const to = labels[task.to] || 'Agent';
+      const row = el('div', 'shared-agents-task');
+      row.dataset.status = String(task.status || '');
+      row.append(el('span', '', `${from} → ${to}: ${task.task}`), el('span', 'shared-agents-task-status', String(task.status || '')));
+      if (task.status === 'pending' || task.status === 'running') {
+        row.append(button('Cancel', `Cancel the delegated task from ${from} to ${to}`, () => {
+          void options.request({ operation: 'cancel_delegation', task_id: task.id }).then(draw).catch(error => {
+            status.textContent = error instanceof Error ? error.message : 'That delegated task was not cancelled.';
+          });
+        }, 'small-button'));
+      }
+      tasks.append(row);
+    }
     if (!drawing) {
       drawing = true;
       next.value = data.next === 'grok' ? 'grok' : 'hermes';
@@ -120,9 +141,10 @@ export function mountSharedAgents(options: { request: (body: Record<string, unkn
   head.append(el('h2', '', 'Shared agents'), button('Back to this chat', 'Return to the single-agent conversation', () => options.onClose(), 'small-button'));
   element.append(
     head,
-    el('p', '', 'Hermes and Grok Bot share this transcript. Grok Bot uses a separate Orbit shared chat, not your main Grok Bot conversation. You can post at any time.'),
+    el('p', '', 'Hermes and Grok Bot share this transcript. Either agent can delegate a task to the other. Grok Bot uses a separate Orbit shared chat, not your main Grok Bot conversation. You can post at any time.'),
     status,
     log,
+    tasks,
     controls,
     form,
   );

@@ -512,6 +512,13 @@ p {
 .shared-agents-line[data-speaker="grok"] strong { color: #86cccb; }
 .shared-agents-line[data-speaker="note"] strong { color: #aec0ba; }
 .shared-agents-line[data-error="true"] { color: #f0b6a8; }
+.shared-agents-tasks { display: flex; flex-direction: column; gap: 6px; padding: 0 16px 8px; }
+.shared-agents-tasks[hidden] { display: none; }
+.shared-agents-task { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 13px; }
+.shared-agents-task-status { color: #aec0ba; }
+.shared-agents-task[data-status="running"] { color: #c2ed90; }
+.shared-agents-task[data-status="done"] { color: #d5e2df; }
+.shared-agents-task[data-status="failed"] { color: #f0b6a8; }
 .shared-agents-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 16px; }
 .shared-agents-auto { display: inline-flex; align-items: center; gap: 6px; }
 .shared-agents-form { display: flex; gap: 8px; padding: 0 16px 16px; }
