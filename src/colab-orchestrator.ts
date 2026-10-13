@@ -8,7 +8,7 @@ import { el, button } from './dom';
 type Runtime = { id: string; kind: string; label: string; highMem: boolean; note: string; source: string };
 type Session = { name: string; orphan?: boolean; hardware: string; shape: string; variant: string; status: string };
 type Rich = { id: string; kind: string; mime: string; name: string };
-type Job = { id: string; action: string; session: string; state: string; exitCode: number | null; bytes: number; error: string; rich: Rich[]; truncated?: boolean };
+type Job = { id: string; action: string; session: string; state: string; exitCode: number | null; startedAt?: string; endedAt?: string | null; bytes: number; error: string; rich: Rich[]; truncated?: boolean };
 type Usage = { balance: number | null; ratePerHour: number | null; assignments: number | null; raw: string };
 
 export function mountColab(options: { token: () => string; request: (body: Record<string, unknown>) => Promise<Record<string, unknown>> }) {
@@ -34,6 +34,15 @@ export function mountColab(options: { token: () => string; request: (body: Recor
   let suggested = 'G4';
   let usageInfo: Usage | null = null;
   let followGen = 0;
+  let jobs: Job[] = [];
+  let jobScope: 'session' | 'all' = 'session';
+  let attachedJob = '';
+  let activeJob = '';
+  let userPickedSession = false;
+  const knownJobIds = new Set<string>();
+  const jobStates = new Map<string, string>();
+  const jobsList = el('div', 'colab-jobs');
+  jobsList.setAttribute('aria-label', 'Google Colab jobs');
   let term: Terminal | null = null;
   let fit: FitAddon | null = null;
   const seenRich = new Set<string>();
@@ -79,7 +88,14 @@ export function mountColab(options: { token: () => string; request: (body: Recor
     if (!sessions.length) sessionList.append(el('li', 'colab-note', 'No active sessions.'));
     for (const session of sessions) {
       const label = session.orphan ? `Unnamed · ${session.hardware}` : `${session.name} · ${session.hardware} · ${session.shape}${session.status ? ` · ${session.status}` : ''}`;
-      const item = button(label, `Select ${session.name || 'session'}`, () => { selected = session.name; renderSessions(); renderMain(); });
+      const item = button(label, `Select ${session.name || 'session'}`, () => {
+      userPickedSession = true;
+      selected = session.name;
+      renderSessions();
+      renderMain();
+      const newest = jobs.filter(job => job.state === 'running' && job.session === selected).sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt)))[0];
+      if (newest && newest.id !== attachedJob) { attachedJob = newest.id; activeJob = newest.id; tab = 'run'; renderTabs(); void follow(newest.id); }
+    });
       if (session.name && session.name === selected) item.setAttribute('aria-current', 'true');
       if (!session.name) item.disabled = true;
       sessionList.append(el('li', '', '') );
@@ -173,9 +189,8 @@ export function mountColab(options: { token: () => string; request: (body: Recor
     const session = sessions.find(item => item.name === selected);
     detail.replaceChildren(el('h3', '', session ? session.name : 'No session selected'));
     if (!session) {
-      detail.append(el('p', 'colab-note', 'Create a session or refresh the list. A training run can use any runtime, not only G4.'));
-      tabs.replaceChildren();
-      panel.replaceChildren();
+      detail.append(el('p', 'colab-note', 'Create a session or refresh the list. Jobs that are already running are listed below.'));
+      renderTabs();
       return;
     }
     detail.append(el('p', 'colab-note', `${session.hardware} · ${session.shape} · ${session.variant}${session.status ? ` · ${session.status}` : ''}`));
@@ -272,9 +287,8 @@ export function mountColab(options: { token: () => string; request: (body: Recor
       button('Send Enter', 'Continue a Drive mount or VM auth prompt', () => { void sendEnter(); }, 'small-button'),
       button('Cancel local process', 'Stop the local CLI process. The VM stays up.', () => { void cancelJob(); }, 'small-button'),
     );
-    panel.replaceChildren(form, termHost, richHost);
+    panel.replaceChildren(jobsList, form, termHost, richHost);
   }
-  let activeJob = '';
   async function startRun() {
     if (!selected && mode.value !== 'run' && mode.value !== 'train') { setStatus('Select a session first.'); return; }
     ensureTerm();
@@ -304,7 +318,7 @@ export function mountColab(options: { token: () => string; request: (body: Recor
     try {
       const result = await call(body);
       const job = result.job as Job | undefined;
-      if (job?.id) { activeJob = job.id; setStatus(`Job ${job.id} is running.`); void follow(job.id); }
+      if (job?.id) { activeJob = job.id; attachedJob = job.id; knownJobIds.add(job.id); setStatus(`Job ${job.id} is running.`); void follow(job.id); void pollJobs(); }
       else setStatus(typeof result.output === 'string' ? result.output : 'Finished.');
     } catch (error) { setStatus(error instanceof Error ? error.message : 'Start failed.'); }
   }
@@ -557,8 +571,74 @@ export function mountColab(options: { token: () => string; request: (body: Recor
     await refreshAll();
   }
 
-  void refreshAll().catch(error => setStatus(error instanceof Error ? error.message : 'Colab is unavailable.'));
+  function formatBytes(bytes: number) {
+    if (!Number.isFinite(bytes) || bytes < 1024) return `${bytes || 0} B`;
+    if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / 1048576).toFixed(1)} MB`;
+  }
+  function stamp(value: string | null | undefined) {
+    if (!value) return '—';
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString();
+  }
+  function renderJobs() {
+    const visible = jobs.filter(job => jobScope === 'all' || !selected || job.session === selected);
+    const scope = el('div', 'colab-row');
+    const sessionButton = button('This session', 'Show jobs for the selected session', () => { jobScope = 'session'; renderJobs(); });
+    const allButton = button('All jobs', 'Show jobs for every session', () => { jobScope = 'all'; renderJobs(); });
+    sessionButton.setAttribute('aria-pressed', String(jobScope === 'session'));
+    allButton.setAttribute('aria-pressed', String(jobScope === 'all'));
+    scope.append(sessionButton, allButton);
+    const rows = visible.length ? visible.map(job => {
+      const control = button('', `${job.action} ${job.state} ${job.id}`, () => {
+        attachedJob = job.id;
+        activeJob = job.id;
+        tab = 'run';
+        renderTabs();
+        void follow(job.id);
+      });
+      control.classList.add('colab-job');
+      if (job.id === activeJob) control.setAttribute('aria-current', 'true');
+      control.append(
+        el('strong', '', `${job.action} · ${job.state}`),
+        el('span', '', job.session || 'no session'),
+        el('small', '', `${job.id.slice(0, 8)} · start ${stamp(job.startedAt)} · end ${stamp(job.endedAt)} · exit ${job.exitCode === null || job.exitCode === undefined ? '—' : job.exitCode} · ${formatBytes(job.bytes)}`),
+      );
+      return control;
+    }) : [el('p', 'colab-note', jobScope === 'session' && selected ? 'No jobs for this session yet. Agent runs show up here.' : 'No jobs yet.')];
+    jobsList.replaceChildren(el('h3', '', 'Jobs'), scope, ...rows);
+  }
+  async function pollJobs() {
+    const body = await call({ action: 'jobs' });
+    if (disposed) return;
+    const next = Array.isArray(body.jobs) ? body.jobs as Job[] : [];
+    const running = next.filter(job => job.state === 'running').sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt)));
+    if (!userPickedSession && running[0]?.session && selected !== running[0].session) {
+      selected = running[0].session;
+      renderSessions();
+      renderMain();
+    }
+    const newest = running.find(job => !selected || job.session === selected);
+    const unseen = Boolean(newest && !knownJobIds.has(newest.id));
+    for (const job of next) {
+      const previous = jobStates.get(job.id);
+      if (previous && previous !== job.state) setStatus(`Job ${job.id.slice(0, 8)} ${job.action} is ${job.state}${job.exitCode === null || job.exitCode === undefined ? '' : ` (${job.exitCode})`}.`);
+      jobStates.set(job.id, job.state);
+      knownJobIds.add(job.id);
+    }
+    jobs = next;
+    renderJobs();
+    if (newest && (!attachedJob || unseen)) {
+      attachedJob = newest.id;
+      activeJob = newest.id;
+      if (tab !== 'run') { tab = 'run'; renderTabs(); }
+      void follow(newest.id);
+    }
+  }
+
+  void refreshAll().then(() => pollJobs()).catch(error => setStatus(error instanceof Error ? error.message : 'Colab is unavailable.'));
   const poll = window.setInterval(() => { if (!disposed) void refreshAll().catch(() => {}); }, 30000);
+  const jobPoll = window.setInterval(() => { if (!disposed) void pollJobs().catch(() => {}); }, 3000);
   const gpuPoll = window.setInterval(() => { if (!disposed && tab === 'gpu' && selected) void loadGpu().catch(() => {}); }, 8000);
   return {
     element: root,
@@ -566,6 +646,7 @@ export function mountColab(options: { token: () => string; request: (body: Recor
       disposed = true;
       followGen += 1;
       window.clearInterval(poll);
+      window.clearInterval(jobPoll);
       window.clearInterval(gpuPoll);
       term?.dispose();
     },

@@ -179,6 +179,9 @@ test('create, exec stream, replay, and image copy use the mocked CLI', async () 
     const started = await post(server.port, { action: 'exec', session: 'trainer', file: script, timeout: 120 });
     assert.equal(started.status, 200);
     const jobId = started.body.job.id;
+    const listed = await post(server.port, { action: 'jobs', session: 'trainer' });
+    assert.equal(listed.body.jobs.some(job => job.id === jobId && job.action === 'exec' && job.state === 'running'), true);
+    assert.equal((await post(server.port, { action: 'jobs', session: 'other' })).body.jobs.length, 0);
     await new Promise(resolve => setTimeout(resolve, 30));
     const tail = await post(server.port, { action: 'tail', job_id: jobId, after: 0 });
     assert.match(tail.body.text, /epoch 1\r epoch 2/);
@@ -245,6 +248,59 @@ test('training run confirms cost, then creates, uploads, and executes in order',
   } finally {
     colab.close();
     await server.stop();
+    fs.rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test('a detached job keeps running and can be tailed after the orchestrator closes', async () => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'orbit-colab-detach-'));
+  const bin = path.join(rootDir, 'colab');
+  const script = path.join(rootDir, 'train.py');
+  fs.writeFileSync(bin, `#!${process.execPath}\nsetInterval(() => process.stdout.write('tick\\n'), 40);\n`);
+  fs.chmodSync(bin, 0o755);
+  fs.writeFileSync(script, 'print("train")\n');
+  const first = createColabOrchestrator({
+    token, port: 4318, devOrigins: [], reply, bin, home: '/home/tester', root: rootDir,
+  });
+  let pid = 0;
+  try {
+    const started = await first.dispatch({ action: 'exec', session: 'trainer', file: script, timeout: 30 });
+    const jobId = started.job.id;
+    const logPath = path.join(rootDir, 'jobs', jobId, 'output.log');
+    for (let attempt = 0; attempt < 50 && !fs.readFileSync(logPath, 'utf8').includes('tick'); attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 40));
+    }
+    assert.match(fs.readFileSync(logPath, 'utf8'), /tick/);
+    const before = fs.statSync(logPath).size;
+    pid = JSON.parse(fs.readFileSync(path.join(rootDir, 'jobs', jobId, 'meta.json'), 'utf8')).pid;
+    assert.equal(pid > 0, true);
+    first.close();
+    process.kill(pid, 0);
+    const second = createColabOrchestrator({
+      token, port: 4318, devOrigins: [], reply, bin, home: '/home/tester', root: rootDir,
+    });
+    try {
+      for (let attempt = 0; attempt < 50 && fs.statSync(logPath).size <= before; attempt += 1) {
+        await new Promise(resolve => setTimeout(resolve, 40));
+      }
+      assert.equal(fs.statSync(logPath).size > before, true);
+      const jobs = await second.dispatch({ action: 'jobs', session: 'trainer' });
+      assert.equal(jobs.jobs[0].id, jobId);
+      assert.equal(jobs.jobs[0].state, 'running');
+      assert.equal(jobs.jobs[0].action, 'exec');
+      assert.equal(typeof jobs.jobs[0].startedAt, 'string');
+      assert.equal(jobs.jobs[0].endedAt, null);
+      assert.equal(jobs.jobs[0].exitCode, null);
+      assert.equal(jobs.jobs[0].bytes > 0, true);
+      const tail = await second.dispatch({ action: 'tail', job_id: jobId, after: 0 });
+      assert.match(tail.text, /tick/);
+      assert.equal((await second.dispatch({ action: 'jobs', session: 'other' })).jobs.length, 0);
+    } finally {
+      second.close();
+    }
+  } finally {
+    if (pid) { try { process.kill(-pid, 'SIGTERM'); } catch { try { process.kill(pid, 'SIGTERM'); } catch { /* already exited */ } } }
+    first.close();
     fs.rmSync(rootDir, { recursive: true, force: true });
   }
 });

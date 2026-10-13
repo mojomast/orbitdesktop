@@ -1,10 +1,12 @@
 /** Google Colab runtimes (colab.research.google.com). This is not Orbit's project board. */
 import fs from 'node:fs';
 import os from 'node:os';
+import net from 'node:net';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { StringDecoder } from 'node:string_decoder';
+import { fileURLToPath } from 'node:url';
 import { tokenMatches, allowedRequest } from './security.mjs';
 import {
   COST_WARNING, STOP_WARNING, PRESETS, DOCUMENTED_RUNTIMES, blockedLocalPath, catalogFromHelp,
@@ -62,6 +64,8 @@ export function createColabOrchestrator(options = {}) {
   const port = options.port;
   const devOrigins = options.devOrigins || [];
   const spawnImpl = options.spawn || spawn;
+  const supervise = options.supervise !== false && !options.spawn;
+  const workerPath = fileURLToPath(new URL('./colab-job-worker.mjs', import.meta.url));
   const bin = options.bin || defaultBin();
   const home = options.home || process.env.ORBIT_COLAB_HOME || os.homedir();
   const root = options.root;
@@ -98,8 +102,17 @@ export function createColabOrchestrator(options = {}) {
   }
 
   function remember(job) {
-    const meta = { ...publicJob(job), log: 'output.log' };
+    const meta = {
+      ...publicJob(job), log: 'output.log', pid: job.pid || 0, detached: job.detached === true,
+      stepIndex: job.stepIndex || 0, stepCount: job.stepCount || 1, notebook: job.notebook || '',
+    };
     fs.writeFileSync(path.join(job.dir, 'meta.json'), JSON.stringify(meta), { mode: 0o600 });
+  }
+
+  function processAlive(pid) {
+    if (!pid) return false;
+    try { process.kill(pid, 0); return true; }
+    catch (error) { return error?.code === 'EPERM'; }
   }
 
   function loadJobs() {
@@ -111,20 +124,34 @@ export function createColabOrchestrator(options = {}) {
         const dir = path.join(folder, name);
         const meta = JSON.parse(fs.readFileSync(path.join(dir, 'meta.json'), 'utf8'));
         const logPath = path.join(dir, 'output.log');
-        const bytes = fs.existsSync(logPath) ? fs.statSync(logPath).size : 0;
-        jobs.set(name, {
+        const fileBytes = fs.existsSync(logPath) ? fs.statSync(logPath).size : 0;
+        const detached = meta.detached === true;
+        const pid = Number(meta.pid) || 0;
+        const job = {
           ...meta,
           id: name,
           dir,
           logPath,
-          bytes,
-          state: meta.state === 'running' ? 'interrupted' : meta.state,
+          bytes: Math.min(Number(meta.bytes) || 0, fileBytes),
+          pid,
+          detached,
+          stepIndex: Number(meta.stepIndex) || 0,
+          stepCount: Number(meta.stepCount) || 1,
+          notebook: typeof meta.notebook === 'string' ? meta.notebook : '',
+          socket: path.join(dir, 'input.sock'),
+          state: meta.state,
           rich: Array.isArray(meta.rich) ? meta.rich : [],
           listeners: new Set(),
           queue: Promise.resolve(),
           carry: '',
           child: null,
-        });
+          live: false,
+          watch: null,
+        };
+        if (job.state === 'running' && !(detached && pid && processAlive(pid))) job.state = 'interrupted';
+        jobs.set(name, job);
+        if (job.state === 'running') watchJob(job);
+        else if (meta.state === 'running' && detached) void settleDetached(job);
       } catch { /* ignore a damaged job directory */ }
     }
   }
@@ -307,7 +334,8 @@ export function createColabOrchestrator(options = {}) {
     const job = {
       id, dir, action, session: session || '', state: 'running', exitCode: null, startedAt: new Date().toISOString(),
       endedAt: null, bytes: 0, error: '', rich: [], truncated: false, listeners: new Set(), queue: Promise.resolve(),
-      carry: '', child: null, logPath: path.join(dir, 'output.log'),
+      carry: '', child: null, logPath: path.join(dir, 'output.log'), pid: 0, detached: false, live: true,
+      stepIndex: 0, stepCount: 1, notebook: '', socket: path.join(dir, 'input.sock'), watch: null,
     };
     fs.writeFileSync(job.logPath, '', { mode: 0o600 });
     jobs.set(id, job);
@@ -315,9 +343,11 @@ export function createColabOrchestrator(options = {}) {
     return job;
   }
 
-  async function finishJob(job, code, error) {
+  async function finishJob(job, code, error, state = '') {
+    if (job.state !== 'running' && job.state !== 'interrupted') return;
     await job.queue;
-    job.state = job.truncated ? 'truncated' : 'exited';
+    if (job.watch) { clearInterval(job.watch); job.watch = null; }
+    job.state = state || (job.truncated ? 'truncated' : 'exited');
     job.exitCode = code;
     job.endedAt = new Date().toISOString();
     job.error = error ? redactSecrets(error).slice(0, 2000) : '';
@@ -326,8 +356,125 @@ export function createColabOrchestrator(options = {}) {
     emit(job, { type: 'status', job: publicJob(job) });
   }
 
+  function completeUtf8(buffer) {
+    let index = buffer.length - 1;
+    let continuation = 0;
+    while (index >= 0 && continuation < 3 && (buffer[index] & 0xc0) === 0x80) { continuation += 1; index -= 1; }
+    if (index < 0) return buffer.length;
+    const lead = buffer[index];
+    const need = lead >= 0xf0 ? 4 : lead >= 0xe0 ? 3 : lead >= 0xc0 ? 2 : 1;
+    return buffer.length - index < need ? index : buffer.length;
+  }
+
+  async function readGrowth(job) {
+    const stat = await fs.promises.stat(job.logPath).catch(() => null);
+    if (!stat || stat.size <= job.bytes) return null;
+    const take = Math.min(stat.size - job.bytes, 65536);
+    const fh = await fs.promises.open(job.logPath, 'r');
+    try {
+      const buffer = Buffer.alloc(take);
+      const { bytesRead } = await fh.read(buffer, 0, take, job.bytes);
+      if (!bytesRead) return null;
+      const slice = buffer.subarray(0, bytesRead);
+      const end = completeUtf8(slice);
+      if (!end) return null;
+      return { offset: job.bytes, text: slice.subarray(0, end).toString('utf8'), consumed: end };
+    } finally { await fh.close(); }
+  }
+
+  async function pump(job) {
+    await enqueue(job, async () => {
+      const chunk = await readGrowth(job);
+      if (!chunk) return;
+      job.bytes += chunk.consumed;
+      emit(job, { type: 'data', offset: chunk.offset, text: chunk.text, stream: 'stdout' });
+      const blob = job.carry + chunk.text;
+      const marks = imageMarkers(blob);
+      const end = marks.length ? blob.lastIndexOf(']') + 1 : Math.max(0, blob.length - 180);
+      job.carry = blob.slice(end);
+      for (const source of marks) await adoptImage(job, source);
+      remember(job);
+    });
+  }
+
+  function watchJob(job) {
+    if (job.watch) return;
+    const timer = setInterval(() => { void pump(job).then(() => { if (!job.live && job.pid && !processAlive(job.pid)) void settleDetached(job); }); }, 300);
+    timer.unref?.();
+    job.watch = timer;
+    void pump(job);
+  }
+
+  async function settleDetached(job) {
+    if (job.settling || job.live) return;
+    job.settling = true;
+    try {
+      await pump(job);
+      const exitPath = path.join(job.dir, 'step-exit.json');
+      let exit = null;
+      try { exit = JSON.parse(fs.readFileSync(exitPath, 'utf8')); } catch { exit = null; }
+      if (processAlive(job.pid) && !exit) return;
+      const last = (job.stepIndex || 0) >= (job.stepCount || 1) - 1;
+      if (job.notebook) await adoptNotebook(job, job.notebook);
+      if (!last) await finishJob(job, exit?.code ?? 1, 'Orbit restarted before the remaining steps. Later steps did not start.', 'interrupted');
+      else await finishJob(job, exit?.code ?? 1, exit ? '' : 'Colab step ended without an exit record.');
+    } finally { job.settling = false; }
+  }
+
+  function launchWorker(job, plan) {
+    const exitPath = path.join(job.dir, 'step-exit.json');
+    fs.rmSync(exitPath, { force: true });
+    const specPath = path.join(job.dir, 'step.json');
+    const spec = {
+      bin, args: plan.args, log: job.logPath, exit: exitPath,
+      silenceMs: plan.silenceMs || plan.timeoutMs, wallMs: plan.timeoutMs,
+      stdin: plan.stdin || '', holdStdin: plan.leaveStdinOpen === true,
+      socket: plan.leaveStdinOpen ? job.socket : '',
+    };
+    fs.writeFileSync(specPath, JSON.stringify(spec), { mode: 0o600 });
+    const child = spawn(process.execPath, [workerPath, specPath], {
+      detached: true, stdio: 'ignore', env: env(), windowsHide: true,
+    });
+    child.unref();
+    job.pid = child.pid;
+    job.detached = true;
+    job.child = null;
+    remember(job);
+    return exitPath;
+  }
+
+  function waitExit(exitPath, job) {
+    return new Promise(resolve => {
+      const started = Date.now();
+      const timer = setInterval(() => {
+        if (fs.existsSync(exitPath)) {
+          clearInterval(timer);
+          try { resolve(JSON.parse(fs.readFileSync(exitPath, 'utf8'))); }
+          catch { resolve({ code: 1, error: 'Colab step exit record was unreadable.' }); }
+          return;
+        }
+        if (job.pid && !processAlive(job.pid) && Date.now() - started > 1000) {
+          clearInterval(timer);
+          resolve({ code: 1, error: 'Colab step ended without an exit record.' });
+        }
+      }, 150);
+      timer.unref?.();
+    });
+  }
+
   async function runPlan(job, plan, notebook) {
     await appendOutput(job, 'stdout', `[orbit] colab ${plan.args[0]}\n`);
+    if (notebook) job.notebook = notebook;
+    if (supervise) {
+      const exitPath = launchWorker(job, plan);
+      watchJob(job);
+      const exit = await waitExit(exitPath, job);
+      await pump(job);
+      if (notebook) await adoptNotebook(job, notebook);
+      if (exit.error && !fs.existsSync(exitPath)) throw fail(exit.error);
+      if ((exit.code ?? 1) !== 0) throw fail(`colab ${plan.args[0]} exited ${exit.code}.`);
+      return exit;
+    }
     const child = startProcess(plan.args, plan);
     job.child = child;
     const result = await collect(child, job, plan.silenceMs || plan.timeoutMs, plan.timeoutMs);
@@ -361,7 +508,11 @@ export function createColabOrchestrator(options = {}) {
         commands: ['usage', 'sessions', 'status', 'create', 'stop', 'restart-kernel', 'url', 'exec', 'run', 'repl', 'console', 'install', 'upload', 'download', 'ls', 'rm', 'read', 'write', 'drivemount', 'vm-auth', 'log', 'gpu', 'train', 'tail', 'cancel'],
       };
     }
-    if (action === 'jobs') return { jobs: [...jobs.values()].map(publicJob).sort((a, b) => b.startedAt.localeCompare(a.startedAt)).slice(0, 50) };
+    if (action === 'jobs') {
+      const session = body.session ? sessionName(body.session) : '';
+      const list = [...jobs.values()].filter(job => !session || job.session === session);
+      return { jobs: list.map(publicJob).sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt))).slice(0, 50) };
+    }
     if (action === 'job' || action === 'tail') {
       const job = jobs.get(String(body.job_id || ''));
       if (!job) throw fail('Job not found.', 404);
@@ -386,15 +537,28 @@ export function createColabOrchestrator(options = {}) {
       const job = jobs.get(String(body.job_id || ''));
       if (!job) throw fail('Job not found.', 404);
       if (job.child) { try { job.child.kill('SIGTERM'); } catch { /* already exited */ } }
+      else if (job.pid && processAlive(job.pid)) {
+        try { process.kill(-job.pid, 'SIGTERM'); }
+        catch { try { process.kill(job.pid, 'SIGTERM'); } catch { /* already exited */ } }
+      }
       await appendOutput(job, 'stderr', '\n[orbit] Local Colab process cancelled. The VM stays allocated until you stop the session.\n');
       return { job: publicJob(job), cancelled: true };
     }
     if (action === 'job-input') {
       const job = jobs.get(String(body.job_id || ''));
-      if (!job?.child?.stdin?.writable) throw fail('That job is not waiting for input.');
+      if (!job) throw fail('Job not found.', 404);
       const text = String(body.text ?? '\n');
       if (text.length > 2000 || /[\u0000]/.test(text)) throw fail('Job input is not allowed.');
-      job.child.stdin.write(text.endsWith('\n') ? text : `${text}\n`);
+      const line = text.endsWith('\n') ? text : `${text}\n`;
+      if (job.child?.stdin?.writable) { job.child.stdin.write(line); return { ok: true }; }
+      if (!job.detached || !job.socket) throw fail('That job is not waiting for input.');
+      await new Promise((resolve, reject) => {
+        const client = net.connect(job.socket);
+        const failInput = () => reject(fail('That job is not waiting for input.'));
+        client.on('connect', () => client.end(line));
+        client.on('error', failInput);
+        client.on('close', resolve);
+      });
       return { ok: true };
     }
     if (action === 'pay') return { url: 'https://colab.research.google.com/signup' };
@@ -441,12 +605,19 @@ export function createColabOrchestrator(options = {}) {
         script = path.join(job.dir, code.trim().startsWith('{') ? 'train.ipynb' : 'train.py');
         await fs.promises.writeFile(script, code, { mode: 0o600 });
       }
+      const plans = [planCommand({ action: 'create', session, accelerator: runtime, high_mem: body.high_mem === true, confirm_cost: true }, catalog)];
+      for (const item of files) plans.push(planCommand({ action: 'upload', session, local_path: item.local, remote: item.remote }, catalog));
+      if (packages.length) plans.push(planCommand({ action: 'install', session, packages, timeout }, catalog));
+      plans.push(planCommand({ action: 'exec', session, file: script, timeout }, catalog));
+      job.stepCount = plans.length;
+      remember(job);
       void (async () => {
         try {
-          await runPlan(job, planCommand({ action: 'create', session, accelerator: runtime, high_mem: body.high_mem === true, confirm_cost: true }, catalog));
-          for (const item of files) await runPlan(job, planCommand({ action: 'upload', session, local_path: item.local, remote: item.remote }, catalog));
-          if (packages.length) await runPlan(job, planCommand({ action: 'install', session, packages, timeout }, catalog));
-          await runPlan(job, planCommand({ action: 'exec', session, file: script, timeout }, catalog), script);
+          for (let index = 0; index < plans.length; index += 1) {
+            job.stepIndex = index;
+            remember(job);
+            await runPlan(job, plans[index], index === plans.length - 1 ? script : '');
+          }
           await finishJob(job, 0, '');
         } catch (error) {
           await finishJob(job, 1, error.message || 'Training run failed.');
@@ -584,6 +755,7 @@ export function createColabOrchestrator(options = {}) {
     };
     try {
       await flush();
+      for (const rich of job.rich) res.write(`event: rich\ndata: ${JSON.stringify(rich)}\n\n`);
       while (pending.length) {
         const event = pending.shift();
         if (event.type === 'data' && event.offset >= cursor) {
@@ -693,6 +865,7 @@ export function createColabOrchestrator(options = {}) {
 
   function close() {
     for (const child of children) { try { child.kill('SIGTERM'); } catch { /* already exited */ } }
+    for (const job of jobs.values()) if (job.watch) { clearInterval(job.watch); job.watch = null; }
   }
 
   return { handle, dispatch, close, root };
