@@ -554,7 +554,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
         } finally {shared.locks.delete(lock);}
       }
       if (!['status', 'stop', 'approval', 'steer'].includes(body.action) || !runPattern.test(body.run_id || '')) return reply(res, 400, { error: 'Invalid agent action.' });
-      if (profile?.provider === 'grok') return grok.control(reply, res, { body, profile, shared });
+      if (profile?.provider === 'grok') return grok.control(reply, res, { body, profile, shared, workspaceContext });
       const runPath = `/v1/runs/${body.run_id}`;
       const run = await upstream(runPath);
       // Never let Orbit operate on another dashboard's sessions/runs.

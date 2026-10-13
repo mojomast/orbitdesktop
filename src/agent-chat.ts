@@ -502,7 +502,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   messages.setAttribute('aria-label', 'Hermes conversation');
   const notice = el('div', 'agent-notice', 'Hermes can inspect and change this workspace, build apps, and open their previews here. Host terminals run as your account. Workspace context includes layout and app URLs, not private terminal buffers or iframe contents.');
   const hermesNotice = 'Hermes can inspect and change this workspace, build apps, and open their previews here. Host terminals run as your account. Workspace context includes layout and app URLs, not private terminal buffers or iframe contents.';
-  const grokNotice = 'Grok Bot answers in this pane. Collab can run terminal commands in a project workspace after you approve a shell write. Workspace context includes layout and app URLs, not private terminal buffers or iframe contents.';
+  const grokNotice = 'Grok Bot can build and publish apps in this pane (with approvals). Collab can run terminal commands in a project workspace after you approve a shell write. Workspace context includes layout and app URLs, not private terminal buffers or iframe contents.';
   const progress = el('div', 'agent-progress');
   progress.setAttribute('role', 'status');
   progress.tabIndex = -1;
