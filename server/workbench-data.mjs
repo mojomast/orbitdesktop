@@ -71,14 +71,23 @@ export class WorkbenchData {
   // Optional read-only observers. They are notified only after an authoritative
   // create/update is durably committed, and a throwing observer must never fail
   // or replay that authoritative operation. Notifications carry no authority.
-  #observers=new Set();
-  #pending=[];
-  #flushScheduled=false;
-  constructor(store,{now=Date.now}={}){this.store=store;this.db=store.db;this.now=now;}
+  #observers;
+  #pending;
+  #flushScheduled;
+  constructor(store,{now=Date.now}={}){
+    // Create these before touching the store. A private field that is still
+    // undefined makes subscribe throw "reading 'add'" and aborts process startup
+    // when index.mjs registers the trace observer.
+    this.#observers=new Set();
+    this.#pending=[];
+    this.#flushScheduled=false;
+    this.store=store;this.db=store.db;this.now=now;
+  }
   subscribe(observer){
     if(typeof observer!=='function')throw wbError('invalid_request');
-    this.#observers.add(observer);
-    return ()=>{this.#observers.delete(observer);};
+    const observers=this.#observers??(this.#observers=new Set());
+    observers.add(observer);
+    return ()=>{observers.delete(observer);};
   }
   // Durability guard: a nested `data.update` inside another `db.transaction`
   // returns from a savepoint, not a commit. Those changes are deferred to a

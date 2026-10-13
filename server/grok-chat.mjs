@@ -258,6 +258,7 @@ async function drain(response) {
 
 export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () => Date.now(), acceptanceGraceMs = 8000, runTimeoutMs = 10 * 60 * 1000 } = {}) {
   const runs = new Map();
+  const operatorDelivered = new Set();
   const directory = runtimeDirectory ? path.join(runtimeDirectory, 'grok-runs') : '';
 
   function loadRuns() {
@@ -417,14 +418,74 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
     return reply(res, 200, { state });
   }
 
-  async function transcriptBaseline(profile, agentId) {
+  async function transcriptEntries(profile, agentId) {
     try {
       const tail = await command(profile, 'getAgentTranscriptTail', { id: agentId, limit: 80 });
-      return baselineFrom(entriesOf(tail));
+      return entriesOf(tail);
     } catch (error) {
       if (error.status !== 404) throw error;
-      return baselineFrom([]);
+      return [];
     }
+  }
+
+  async function transcriptBaseline(profile, agentId) {
+    return baselineFrom(await transcriptEntries(profile, agentId));
+  }
+
+  function sessionKey(profile, agentId) {
+    return `${profile.id}:${agentId}`;
+  }
+
+  function historyHasOperator(entries) {
+    return historyFromEntries(entries).data.some(row => typeof row.content === 'string' && row.content.includes('Orbit workspace operator block'));
+  }
+
+  function workspaceUnavailable() {
+    return fail('Workspace has not synced yet. Wait for workspace connection and retry.', 409);
+  }
+
+  function grokWorkspaceText(raw) {
+    if (raw && typeof raw === 'object' && typeof raw.operator === 'string') {
+      const guidePath = typeof raw.guidePath === 'string' && raw.guidePath ? raw.guidePath : 'docs/AGENT_GUIDE.md';
+      return `${raw.operator}Read ${guidePath} from disk for the full workspace operator guide before changing the workspace. That guide is not inlined in this prompt.\n`;
+    }
+    const text = String(raw ?? '');
+    if (!text.trim()) return '';
+    const marker = '\nOrbit workspace operator block\n';
+    const at = text.indexOf(marker);
+    if (at >= 0) {
+      const guideAt = text.indexOf('\nOrbit workspace operating instructions:\n', at);
+      const operator = guideAt > at ? text.slice(at, guideAt) : text.slice(at);
+      const guidePath = 'docs/AGENT_GUIDE.md';
+      return `${operator}Read ${guidePath} from disk for the full workspace operator guide before changing the workspace. That guide is not inlined in this prompt.\n`;
+    }
+    const legacy = text.lastIndexOf('\nRepository: ');
+    if (legacy >= 0) return `${text.slice(legacy)}\nRead docs/AGENT_GUIDE.md from disk for the full workspace operator guide before changing the workspace. That guide is not inlined in this prompt.\n`;
+    return text;
+  }
+
+  function readWorkspaceContext(workspaceContext, workspaceId) {
+    try {
+      const raw = typeof workspaceContext.parts === 'function' ? workspaceContext.parts(workspaceId) : workspaceContext(workspaceId);
+      return grokWorkspaceText(raw);
+    } catch {
+      throw workspaceUnavailable();
+    }
+  }
+
+  async function promptWithOperator(profile, agentId, input, workspaceContext, workspaceId, entries) {
+    const text = input.trim();
+    if (!workspaceId || typeof workspaceContext !== 'function') return { prompt: text, attached: false };
+    const key = sessionKey(profile, agentId);
+    if (operatorDelivered.has(key)) return { prompt: text, attached: false };
+    const prior = entries || await transcriptEntries(profile, agentId);
+    if (historyHasOperator(prior)) {
+      operatorDelivered.add(key);
+      return { prompt: text, attached: false };
+    }
+    const context = readWorkspaceContext(workspaceContext, workspaceId);
+    if (!context) return { prompt: text, attached: false };
+    return { prompt: `${text}\n\nWorkspace context:\n${context}`, attached: true };
   }
 
   async function turn(reply, res, scope) {
@@ -435,16 +496,19 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
     if (typeof body.input !== 'string' || !body.input.trim() || body.input.length > 100000) return reply(res, 400, { error: 'Enter a message of 1–100,000 characters.' });
     if (!validSessionId(body.session_id)) return reply(res, 400, { error: 'Invalid Grok Bot conversation.' });
     if (executionGate && ((typeof executionGate.busy === 'function' && executionGate.busy('agent')) || executionGate.status?.().job)) return reply(res, 409, { error: 'The shared execution lane is busy or unresolved. Wait for active work or reconcile an unknown outcome before starting a new chat turn.' });
-    let context = '';
-    if (body.workspace_id && workspaceContext) {
-      try { context = String(workspaceContext(body.workspace_id) || '').slice(0, 8000); }
-      catch { return reply(res, 409, { error: 'Workspace has not synced yet. Wait for workspace connection and retry.' }); }
+    const entries = await transcriptEntries(profile, body.session_id);
+    let composed;
+    try { composed = await promptWithOperator(profile, body.session_id, body.input, workspaceContext, body.workspace_id, entries); }
+    catch (error) {
+      if (error.status === 409) return reply(res, 409, { error: 'Workspace has not synced yet. Wait for workspace connection and retry.' });
+      throw error;
     }
-    const prompt = context ? `${body.input.trim()}\n\nWorkspace context:\n${context}` : body.input.trim();
-    const baseline = await transcriptBaseline(profile, body.session_id);
+    const prompt = composed.prompt;
+    const baseline = baselineFrom(entries);
     const nonce = randomUUID();
     const runId = `run_${randomUUID().replaceAll('-', '')}`;
     const accepted = await command(profile, 'sendPrompt', { prompt, agentId: body.session_id, clientNonce: nonce });
+    if (composed.attached && accepted?.accepted === true) operatorDelivered.add(sessionKey(profile, body.session_id));
     if (!accepted || accepted.accepted !== true) {
       const detail = gatewayDetail(JSON.stringify({ error: typeof accepted?.error === 'string' ? accepted.error : typeof accepted?.message === 'string' ? accepted.message : '' }), profile.apiKey);
       return reply(res, 502, { error: detail ? `Grok Bot did not accept the message. ${detail}` : 'Grok Bot did not accept the message.' });
@@ -538,7 +602,7 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
     return guard(reply, res, () => controlBody(reply, res, scope));
   }
 
-  async function controlBody(reply, res, { body, profile, shared }) {
+  async function controlBody(reply, res, { body, profile, shared, workspaceContext }) {
     if (!runPattern.test(body.run_id || '')) return reply(res, 400, { error: 'Invalid run.' });
     const run = runs.get(body.run_id);
     if (!run || run.agentId !== body.session_id || run.profileId !== profile.id) {
@@ -554,7 +618,14 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
     }
     if (body.action === 'steer') {
       if (typeof body.input !== 'string' || !body.input.trim() || body.input.length > 100000) return reply(res, 400, { error: 'Guidance must contain 1–100,000 characters.' });
-      const accepted = await command(profile, 'sendPrompt', { prompt: body.input.trim(), agentId: run.agentId, clientNonce: randomUUID() });
+      let composed;
+      try { composed = await promptWithOperator(profile, run.agentId, body.input, workspaceContext, body.workspace_id); }
+      catch (error) {
+        if (error.status === 409) return reply(res, 409, { error: 'Workspace has not synced yet. Wait for workspace connection and retry.' });
+        throw error;
+      }
+      const accepted = await command(profile, 'sendPrompt', { prompt: composed.prompt, agentId: run.agentId, clientNonce: randomUUID() });
+      if (composed.attached && accepted?.accepted === true) operatorDelivered.add(sessionKey(profile, run.agentId));
       if (!accepted || accepted.accepted !== true) return reply(res, 502, { error: 'Grok Bot did not accept the follow-up prompt.' });
       return reply(res, 200, { accepted: true });
     }
