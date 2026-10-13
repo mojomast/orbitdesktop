@@ -318,7 +318,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
           }
         }
       }
-      if (profile?.provider === 'grok' && body.action === 'build_queue') return reply(res, 409, { error: 'This Hermes tool is not available for the Grok Bot provider.' });
+      if (profile?.provider === 'grok' && body.action === 'build_queue') return reply(res, 409, { error: 'The build queue uses Hermes workers. Grok Bot has no build-queue API.' });
       if (profile?.provider === 'grok' && body.action === 'events') {
         if (paneLock) { shared.locks.delete(paneLock); paneLock = undefined; }
         return grok.events(reply, res, { body, profile, shared });

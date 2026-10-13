@@ -445,14 +445,17 @@ test('Grok jobs, catalog, approvals, activity, and events stay on the Grok gatew
   const blockedDeliver = await request({ ...scoped, action: 'automation', operation: 'create', confirm: true, fields: { name: 'Daily', prompt: 'Check', schedule: '0 9 * * *', deliver: 'email', skills: [] } });
   assert.equal(blockedDeliver.status, 409);
   assert.match(blockedDeliver.body.error, /delivery/);
-  const blockedSkills = await request({ ...scoped, action: 'automation', operation: 'create', confirm: true, fields: { name: 'Daily', prompt: 'Check', schedule: '0 9 * * *', deliver: 'local', skills: ['web'] } });
-  assert.equal(blockedSkills.status, 409);
-  assert.match(blockedSkills.body.error, /skills/);
   assert.equal(calls.some(call => call.includes('/api/createAgentAutomation')), false);
+  const skilled = await request({ ...scoped, action: 'automation', operation: 'create', confirm: true, fields: { name: 'Daily', prompt: 'Check', schedule: '0 9 * * *', deliver: 'local', skills: ['web'] } });
+  assert.equal(skilled.status, 200);
+  const skillSpec = calls.find(call => call.includes('/api/createAgentAutomation') && call.startsWith('{'));
+  assert.match(JSON.parse(skillSpec).payload.spec.prompt, /Apply these skills: web\.\n\nCheck/);
+  assert.deepEqual(skilled.body.job.skills, []);
   const made = await request({ ...scoped, action: 'automation', operation: 'create', confirm: true, fields: { name: 'Daily', prompt: 'Check', schedule: '0 9 * * *', deliver: 'local', skills: [] } });
   assert.equal(made.status, 200);
   assert.equal(made.body.job.id, 'made-1');
-  const spec = calls.find(call => call.includes('/api/createAgentAutomation') && call.startsWith('{'));
+  const spec = calls.filter(call => call.includes('/api/createAgentAutomation') && call.startsWith('{')).at(-1);
+  assert.equal(JSON.parse(spec).payload.spec.prompt, 'Check');
   assert.deepEqual(JSON.parse(spec).payload.spec.trigger, { type: 'cron', schedule: '0 9 * * *' });
   const skills = await request({ ...scoped, action: 'catalog', kind: 'skills' });
   assert.equal(skills.body.items[0].category, 'bundled');
@@ -467,6 +470,8 @@ test('Grok jobs, catalog, approvals, activity, and events stay on the Grok gatew
   assert.equal(stream.headers.get('content-type'), 'text/event-stream');
   const live = await stream.text();
   assert.match(live, /event: tool/);
+  assert.match(live, /event: tool\.started/);
+  assert.match(live, /"tool":"search"/);
   assert.match(live, /search/);
   assert.match(live, /no owner/);
   assert.equal(live.includes('hidden'), false);
@@ -481,4 +486,45 @@ test('Grok jobs, catalog, approvals, activity, and events stay on the Grok gatew
   assert.equal(/Hermes/.test(broken.body.error), false);
   await new Promise(resolve => setTimeout(resolve, 20));
   assert.equal(rejections.length, 0);
+});
+
+test('Grok Bot conversation pages slice listAgents instead of stopping at the first page', async t => {
+  const agents = Array.from({ length: 101 }, (_, index) => ({ id: `agent_${String(index).padStart(3, '0')}`, name: `Bot ${index}`, updatedAt: 1_700_000_000_000 + index }));
+  const runtimeDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'orbit-grok-page-'));
+  let port;
+  let handler;
+  const reply = (res, status, data) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(data)); };
+  const workspaceRead = () => ({ state: { monitors: [] } });
+  const fetchImpl = async (url) => {
+    if (String(url).endsWith('/api/listAgents')) return new Response(JSON.stringify(agents), { status: 200 });
+    return new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  const server = http.createServer((req, res) => (handler ||= createAgentHandler({
+    token, port, devOrigins: [], reply, runtimeDirectory, workspaceRead,
+    apiUrl: 'http://hermes.test', apiKey: 'hermes-key',
+    additionalProfiles: [{ id: 'grok', label: 'Grok Bot', provider: 'grok', apiUrl: 'http://127.0.0.1:1340', apiKey: 'grok-token-secret' }],
+    fetchImpl,
+  }))(req, res));
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  port = server.address().port;
+  t.after(async () => { await new Promise(resolve => server.close(resolve)); fs.rmSync(runtimeDirectory, { recursive: true, force: true }); });
+  const origin = `http://127.0.0.1:${port}`;
+  async function library(offset) {
+    const response = await fetch(origin + '/api/agent', {
+      method: 'POST',
+      headers: { Origin: origin, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'conversation_library', workspace_id, profile_id: 'grok', offset }),
+    });
+    return { status: response.status, body: await response.json() };
+  }
+  const first = await library(0);
+  assert.equal(first.status, 200);
+  assert.equal(first.body.conversations.length, 100);
+  assert.equal(first.body.has_more, true);
+  assert.equal(first.body.conversations[0].session_id, 'agent_000');
+  const second = await library(100);
+  assert.equal(second.status, 200);
+  assert.equal(second.body.conversations.length, 1);
+  assert.equal(second.body.conversations[0].session_id, 'agent_100');
+  assert.equal(second.body.has_more, false);
 });

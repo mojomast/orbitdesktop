@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createAgentHandler } from '../server/agent.mjs';
-import { chooseAgent, defaultCapabilities, parseCollabBlock } from '../server/collab.mjs';
+import { chooseAgent, classifyShell, defaultCapabilities, parseCollabBlock } from '../server/collab.mjs';
 
 const token = 'orbit-test-token-'.repeat(4);
 const session = 'orbit-12345678-1234-4234-9234-123456789abc';
@@ -414,6 +414,13 @@ test('collab blocks name the mistake and the allowed ops', () => {
   const shell = parseCollabBlock(block([{ op: 'run-tests', taskId: 't_0123456789abcdef', command: 'bash -c echo' }]));
   assert.equal(shell.ok, false);
   assert.match(shell.error, /plain tokens/);
+  const unapproved = parseCollabBlock(block([{ op: 'shell', taskId: 't_0123456789abcdef', command: 'rm scratch' }]));
+  assert.equal(unapproved.ok, false);
+  assert.match(unapproved.error, /shell\.write/);
+  const readOnly = parseCollabBlock(block([{ op: 'shell', taskId: 't_0123456789abcdef', command: 'pwd' }]));
+  assert.equal(readOnly.ok, true);
+  assert.equal(readOnly.ops[0].mode, 'argv');
+  assert.equal(classifyShell('ls ../secret').mode, 'shell');
 });
 
 test('independent tasks start together and a stale artifact write is rejected', async t => {
@@ -489,4 +496,78 @@ test('run-tests stores an artifact and indexes a workspace file', async t => {
   const read = await room.request({ action: 'collab', operation: 'artifact', project_id: created.body.project.id, artifact_id: results.id });
   assert.match(read.body.content, /exit: 0/);
   assert.equal(fs.existsSync(path.join(created.body.workspace, 'test', 'add.test.mjs')), true);
+});
+
+test('Grok Bot runs a read-only shell command and Orbit indexes the workspace', async t => {
+  const plan = block([{
+    op: 'plan',
+    tasks: [{ title: 'Look around', spec: 'Print the working directory', acceptance: ['The directory is printed'], role: 'executor', owner: 'grok', reviewer: 'hermes', skillsHint: ['terminal'] }],
+  }]);
+  const script = scripted({
+    grok: prompt => {
+      if (prompt.includes('No tasks exist yet')) return plan;
+      if (prompt.includes('previous collab block was rejected')) return block([{ op: 'decision', text: 'Corrected.' }]);
+      const id = taskIdFrom(prompt);
+      if (!id) return block([{ op: 'decision', text: 'Waiting.' }]);
+      if (prompt.includes('reviewer as')) return reviewBlock(prompt);
+      return block([
+        { op: 'claim', taskId: id },
+        { op: 'shell', taskId: id, command: 'pwd' },
+        { op: 'submit', taskId: id, summary: 'Printed the workspace', artifacts: [], selfCheck: {} },
+      ]);
+    },
+    hermes: prompt => reviewBlock(prompt),
+  });
+  const room = await open(t, script.fetchImpl);
+  const created = await room.request({ action: 'collab', operation: 'create', goal: 'Print the workspace' });
+  fs.writeFileSync(path.join(created.body.workspace, 'FROM-GROK.txt'), 'written beside the shell\n', { mode: 0o600 });
+  const resolved = await room.request({ action: 'collab', operation: 'resolve', project_id: created.body.project.id, choice: 'approve' });
+  assert.equal(resolved.status, 200, JSON.stringify(resolved.body.error || resolved.body.project?.activity || ''));
+  const output = resolved.body.artifacts.find(item => item.name === 'shell-output.txt');
+  const indexed = resolved.body.artifacts.find(item => item.name === 'FROM-GROK.txt');
+  assert.ok(output);
+  assert.ok(indexed);
+  const read = await room.request({ action: 'collab', operation: 'artifact', project_id: created.body.project.id, artifact_id: output.id });
+  assert.match(read.body.content, /exit: 0/);
+  assert.match(read.body.content, /workspace/);
+});
+
+test('a shell write waits for Kyle and then runs in the workspace', async t => {
+  const plan = block([{
+    op: 'plan',
+    tasks: [{ title: 'Write a file', spec: 'Create grok-shell.txt', acceptance: ['The file exists'], role: 'executor', owner: 'grok', reviewer: 'hermes', skillsHint: ['terminal'] }],
+  }]);
+  let writes = 0;
+  const script = scripted({
+    grok: prompt => {
+      if (prompt.includes('No tasks exist yet')) return plan;
+      const id = taskIdFrom(prompt);
+      if (prompt.includes('previous collab block was rejected')) {
+        return block([{ op: 'shell', taskId: id, command: 'printf hi > grok-shell.txt', risk: 'shell.write' }]);
+      }
+      if (!id) return block([{ op: 'decision', text: 'Waiting.' }]);
+      if (prompt.includes('reviewer as')) return reviewBlock(prompt);
+      if (writes === 0) {
+        writes += 1;
+        return block([{ op: 'shell', taskId: id, command: 'rm scratch' }]);
+      }
+      return block([{ op: 'submit', taskId: id, summary: 'Wrote grok-shell.txt', artifacts: [], selfCheck: {} }]);
+    },
+    hermes: prompt => reviewBlock(prompt),
+  });
+  const room = await open(t, script.fetchImpl);
+  const created = await room.request({ action: 'collab', operation: 'create', goal: 'Write a workspace file' });
+  const project_id = created.body.project.id;
+  const gated = await room.request({ action: 'collab', operation: 'resolve', project_id, choice: 'approve' });
+  assert.equal(gated.status, 200, JSON.stringify(gated.body.error || gated.body.project?.activity || ''));
+  assert.equal(gated.body.project.gate.type, 'risk');
+  assert.equal(gated.body.artifacts.some(item => item.name === 'shell-output.txt'), false);
+  assert.equal(fs.existsSync(path.join(created.body.workspace, 'grok-shell.txt')), false);
+  const allowed = await room.request({ action: 'collab', operation: 'resolve', project_id, choice: 'approve' });
+  assert.equal(allowed.status, 200, JSON.stringify(allowed.body.error || allowed.body.project?.activity || ''));
+  assert.equal(fs.readFileSync(path.join(created.body.workspace, 'grok-shell.txt'), 'utf8'), 'hi');
+  const output = allowed.body.artifacts.find(item => item.name === 'shell-output.txt');
+  const written = allowed.body.artifacts.find(item => item.name === 'grok-shell.txt');
+  assert.ok(output);
+  assert.ok(written);
 });

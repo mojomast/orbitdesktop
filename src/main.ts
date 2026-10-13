@@ -268,15 +268,28 @@ applyAppearance(state);
 const viewportToggle = installViewport(app, state.appearance?.fullViewport, value => { state.appearance = {...state.appearance, fullViewport:value}; save(); }).button;
 // Hermes runtime tools surfaced from the orbit menu instead of the chat pane only.
 const menuSession = `orbit-${workspaceId}`;
+function focusedAgentChat(): { profileId: string; agentName: string } {
+  const target = state.monitors.find(m => m.id === (focused ?? state.selected));
+  const agent = target ? leaves(target.layout).find(p => p.kind === 'agent') : undefined;
+  let profileId = '';
+  if (agent) {
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(`orbit-hermes-chat:${agent.id}`) || 'null');
+      if (saved && typeof saved.profile_id === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(saved.profile_id)) profileId = saved.profile_id;
+    } catch { /* A missing chat record stays on the default Hermes profile. */ }
+  }
+  return { profileId, agentName: profileId === 'grok' ? 'Grok Bot' : 'Hermes' };
+}
 function menuAgentApi(payload: Record<string, unknown>): Promise<any> {
   if (!sessionToken) return Promise.reject(Error('Connect host first: use the host button in the top bar.'));
+  const focusedProfile = typeof payload.profile_id === 'string' ? '' : focusedAgentChat().profileId;
   return fetch('/api/agent', {
     method: 'POST',
     headers: { Authorization: `Bearer ${sessionToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...payload, session_id: menuSession, workspace_id: workspaceId }),
+    body: JSON.stringify({ ...payload, session_id: menuSession, workspace_id: workspaceId, ...(focusedProfile ? { profile_id: focusedProfile } : {}) }),
   }).then(async response => {
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw Error(data.error || 'Hermes request failed');
+    if (!response.ok) throw Error(data.error || 'Agent request failed');
     return data;
   });
 }
@@ -429,8 +442,8 @@ const commands = createWorkspaceCommands((): WorkspaceCommand[] => [
   { id: 'wallpaper', title: 'Toggle wallpaper', detail: 'Show or hide wallpaper', group: 'Appearance', run: () => wallpaperToggle.click() },
   { id: 'transparency', title: 'Global transparency', detail: 'Adjust current windows opacity', group: 'Appearance', run: showGlobalTransparency },
   { id: 'window-settings', title: 'Selected window settings', detail: 'Name, text size and opacity', group: 'Windows', run: () => openWindowOptions(state.selected) },
-  { id: 'hermes-tools', title: 'Tools & conversations', detail: 'Tools for selected Hermes chat', group: 'Hermes', run: openHermesTools },
-  { id: 'conversation-library', title: 'Conversation library', detail: 'Find, pin and resume Hermes conversations', group: 'Hermes', disabledReason: !sessionToken ? 'Connect host first to browse conversations.' : undefined, run: openConversationLibrary },
+  { id: 'hermes-tools', title: 'Tools & conversations', detail: 'Tools for the selected agent chat', group: 'Hermes', run: openHermesTools },
+  { id: 'conversation-library', title: 'Conversation library', detail: 'Find, pin and resume agent conversations', group: 'Hermes', disabledReason: !sessionToken ? 'Connect host first to browse conversations.' : undefined, run: openConversationLibrary },
   { id: 'send-selection', title: 'Send selected text to conversation', detail: 'Review recently selected workspace text and choose a draft; never sends automatically', group: 'Hermes', disabledReason: !selectedWorkspaceText ? 'Select up to 20,000 characters of workspace text first.' : undefined, run: sendSelectedContext },
   { id: 'activity', title: 'Live activity', detail: 'Open host activity window', group: 'Hermes', run: () => openHostSurface('activity') },
   { id: 'collab', title: 'Collab', detail: 'Project board for Hermes and Grok Bot', group: 'Hermes', disabledReason: !sessionToken ? 'Connect host first to use Collab.' : undefined, run: () => openHostSurface('collab') },
@@ -438,7 +451,15 @@ const commands = createWorkspaceCommands((): WorkspaceCommand[] => [
     id: `hermes-${extension.id}`, title: extension.title, detail: extension.label, group: 'Hermes',
     hidden: extension.id === 'project-workbench' && !experimentalEnabled('workbench'),
     disabledReason: !sessionToken && extension.id !== 'outputs' ? 'Connect host first to use this tool.' : undefined,
-    run: () => extension.id === 'outputs' ? openHostSurface('outputs') : extension.activate({ token: () => sessionToken, api: menuAgentApi }),
+    run: () => {
+      if (extension.id === 'outputs') { openHostSurface('outputs'); return; }
+      const focusedChat = focusedAgentChat();
+      if (focusedChat.agentName === 'Grok Bot' && (extension.id === 'build-queue' || extension.id === 'project-workbench')) {
+        notify('The build queue and Project Workbench use Hermes workers. Grok Bot does not have those APIs. Switch this chat to Hermes, or use Collab for a shared workspace and approved shell commands.');
+        return;
+      }
+      void extension.activate({ token: () => sessionToken, api: menuAgentApi, agentName: focusedChat.agentName });
+    },
   })),
 ], notify);
 installStart(navigation, commands);
@@ -465,7 +486,7 @@ function syncExperimentalMenuItems() {
 function openHermesTools() {
   const target = state.monitors.find(m => m.id === (focused ?? state.selected));
   const agent = target ? leaves(target.layout).find(p => p.kind === 'agent') : undefined;
-  if (!target || !agent) { notify('Open a Hermes chat window to see its tools and conversations.'); addMonitor('agent'); return; }
+  if (!target || !agent) { notify('Open an agent chat window to see its tools and conversations.'); addMonitor('agent'); return; }
   if (focused !== target.id) focus(target.id);
   window.dispatchEvent(new CustomEvent('orbit-open-hermes-tools', { detail: { paneId: agent.id } }));
 }

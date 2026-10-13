@@ -406,7 +406,7 @@ Grok Bot is a second profile. It appears when this computer has a Grok Bot gatew
 
 In an agent chat pane, **Shared agents** opens one group transcript for Kyle, Hermes, and Grok Bot. Address someone with `@hermes`, `@grok`, or `@all`. Either agent can delegate a task to the other with a fenced `delegate` block or hand them the floor with an @mention. Grok Bot speaks there as a separate Orbit shared chat, not the main Grok Bot conversation. **Collab**, in Start and the Orbit menu, is the project board for a goal: Orbit assigns roles per task, keeps a git workspace plus the budget, and asks you to approve the plan and the result. `/collab` in the shared room opens that app. See [docs/GROK.md](docs/GROK.md) and [docs/COLLAB.md](docs/COLLAB.md).
 
-Project Workbench and the build queue stay on Hermes. Jobs, the skills and tool catalog, tool approvals, follow-up guidance, tool activity, and the live event stream use the Grok Bot gateway when that profile is selected. They do not fall through to Hermes. Limits, including no Hermes in-turn steer and no automation delivery or skills, are listed in [docs/GROK.md](docs/GROK.md).
+Jobs, the skills and tool catalog, tool approvals, follow-up guidance, tool activity, and the live event stream use the Grok Bot gateway when that profile is selected. They do not fall through to Hermes. Collab shell commands that the gateway cannot run are executed by Orbit after the same approval inbox. The build queue, Project Workbench, and non-local automation delivery have no Grok Bot API. The full matrix is [docs/GROK_PARITY.md](docs/GROK_PARITY.md).
 
 ## Serve Orbit on a Linux tailnet
 

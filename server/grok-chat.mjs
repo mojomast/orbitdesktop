@@ -209,9 +209,14 @@ function jobRecord(row) {
   };
 }
 
+function skillPreface(skills) {
+  const names = (Array.isArray(skills) ? skills : []).map(skill => String(skill).trim()).filter(Boolean);
+  return names.length ? `Apply these skills: ${names.join(', ')}.\n\n` : '';
+}
+
 function automationSpec(data) {
   const schedule = data.schedule.trim();
-  return { name: data.name.trim(), prompt: data.prompt, schedule, trigger: { type: 'cron', schedule } };
+  return { name: data.name.trim(), prompt: `${skillPreface(data.skills)}${data.prompt}`, schedule, trigger: { type: 'cron', schedule } };
 }
 
 function validateAutomation(data) {
@@ -219,8 +224,21 @@ function validateAutomation(data) {
   for (const key of ['name', 'prompt', 'schedule', 'deliver']) if (typeof data[key] !== 'string' || data[key].length > (key === 'prompt' ? 16000 : 500)) throw fail(`Invalid ${key}`, 400);
   if (!data.name.trim() || !data.schedule.trim() || !data.prompt.trim()) throw fail('Name, schedule and prompt required', 400);
   if (!Array.isArray(data.skills) || data.skills.length > 20 || data.skills.some(skill => typeof skill !== 'string' || !skill.trim() || skill.length > 100)) throw fail('Invalid skills', 400);
+  if (skillPreface(data.skills).length + data.prompt.length > 16000) throw fail('Invalid prompt', 400);
   if (data.deliver.trim() && data.deliver.trim() !== 'local') throw fail('Grok Bot automations have no delivery target. Leave delivery as local.', 409);
-  if (data.skills.length) throw fail('Grok Bot automations do not attach skills.', 409);
+}
+
+function toolFeedPayload(channel, payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
+  const call = payload.toolCall && typeof payload.toolCall === 'object' ? payload.toolCall : payload;
+  const name = typeof call.name === 'string' ? call.name : (typeof call.toolName === 'string' ? call.toolName : (typeof call.tool === 'string' ? call.tool : ''));
+  if (!/^[a-zA-Z0-9_.:-]{1,100}$/.test(name)) return null;
+  const hint = `${channel} ${payload.kind || ''} ${payload.type || ''}`.toLowerCase();
+  if (!/tool/.test(hint) && !payload.toolCall && typeof call.toolName !== 'string') return null;
+  const failed = /fail|error/.test(hint) || payload.error === true;
+  const completed = !failed && (/result|complete|done/.test(hint) || payload.output !== undefined || payload.result !== undefined);
+  const event = failed ? 'tool.failed' : (completed ? 'tool.completed' : 'tool.started');
+  return { event, tool: name, timestamp: Date.now() / 1000, ...(failed ? { error: true } : {}) };
 }
 
 /** Read or cancel every gateway body so a rejection cannot surface later as an unhandled error. */
@@ -330,16 +348,17 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
   }
 
   async function sessionPage(profile, offset = 0) {
-    if (offset > 0) return { data: [], has_more: false };
     const agents = await command(profile, 'listAgents', {});
     const rows = (Array.isArray(agents) ? agents : []).filter(agent => agent && validSessionId(agent.id));
+    const start = Number.isSafeInteger(offset) && offset > 0 ? offset : 0;
+    const page = rows.slice(start, start + 100);
     return {
-      data: rows.slice(0, 100).map(agent => ({
+      data: page.map(agent => ({
         id: agent.id,
         title: String(agent.name || agent.id).slice(0, 200),
         updated_at: Number.isFinite(agent.updatedAt) ? new Date(agent.updatedAt).toISOString().slice(0, 100) : '',
       })),
-      has_more: rows.length > 100,
+      has_more: start + page.length < rows.length,
     };
   }
 
@@ -738,10 +757,16 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
             const payload = parsed?.payload ?? parsed;
             if (payload && typeof payload === 'object' && typeof payload.agentId === 'string' && payload.agentId !== agentId) continue;
             const channel = String(parsed?.channel || parsed?.event || 'message').replace(/[\r\n]/g, '').slice(0, 80) || 'message';
-            const encoded = JSON.stringify(payload).slice(0, 12000);
-            if (!res.write(`event: ${channel}\ndata: ${encoded}\n\n`)) {
-              await new Promise(resolve => { res.once('drain', resolve); res.once('close', resolve); });
-            }
+            const writeEvent = async (eventName, data) => {
+              const encoded = JSON.stringify(data).slice(0, 12000);
+              const name = String(eventName).replace(/[\r\n]/g, '').slice(0, 80) || 'message';
+              if (!res.write(`event: ${name}\ndata: ${encoded}\n\n`)) {
+                await new Promise(resolve => { res.once('drain', resolve); res.once('close', resolve); });
+              }
+            };
+            await writeEvent(channel, payload);
+            const toolEvent = toolFeedPayload(channel, payload);
+            if (toolEvent && !res.destroyed && !res.writableEnded) await writeEvent(toolEvent.event, toolEvent);
             if (res.destroyed || res.writableEnded) break;
           }
           if (res.destroyed || res.writableEnded) break;

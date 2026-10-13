@@ -18,7 +18,7 @@ const DEFAULT_TURN_TIMEOUT_MS = 3 * 60 * 1000;
 const DEFAULT_ADVANCE_INTERVAL_MS = 15 * 1000;
 const labels = { hermes: 'Hermes', grok: 'Grok Bot', kyle: 'Kyle', orbit: 'Orbit' };
 
-const OPS = ['plan', 'claim', 'artifact.put', 'handoff', 'submit', 'review', 'ask', 'decision', 'run-tests', 'workspace.sync'];
+const OPS = ['plan', 'claim', 'artifact.put', 'handoff', 'submit', 'review', 'ask', 'decision', 'run-tests', 'workspace.sync', 'shell'];
 const TEST_PREFIXES = [
   ['npm', 'test'],
   ['npm', 'run', 'test'],
@@ -29,6 +29,14 @@ const TEST_PREFIXES = [
   ['python3', '-m', 'pytest'],
   ['node', '--test'],
 ];
+const READONLY_PREFIXES = [
+  ['pwd'],
+  ['ls'],
+  ['git', 'status'],
+  ['git', 'diff'],
+  ['git', 'log'],
+  ...TEST_PREFIXES,
+];
 
 const INSTRUCTIONS = `You are working in Orbit Collab. Orbit owns the task board, the budget, and approvals. Propose every change by ending your reply with exactly one fenced collab block of strict JSON, for example:
 \`\`\`collab
@@ -37,7 +45,8 @@ const INSTRUCTIONS = `You are working in Orbit Collab. Orbit owns the task board
 Allowed ops are ${OPS.join(', ')}. A task reviewer must be the other agent, never the owner. Do not invent a second block.
 artifact.put names may be relative paths such as src/app.js. kind is file, note, or test. baseVersion is the version you last read, or 0 for a new name. If Orbit says the version moved, read it again before writing.
 run-tests runs one allowlisted command in the project workspace and stores the output as test-results.txt: npm test, npm run test, pnpm test, yarn test, pytest, python -m pytest, python3 -m pytest, or node --test. Extra arguments must be plain tokens.
-workspace.sync indexes files written in the workspace, including files Hermes created with the terminal. Grok Bot reads and writes through artifact.put.`;
+shell runs in that same workspace. pwd, ls, git status, git diff, git log, and the run-tests commands run immediately when every extra argument is a plain token. Any other command needs risk "shell.write". Orbit then waits for Kyle and runs it with sh -c. That approval is the control; sh -c is not a sandbox. Output is stored as shell-output.txt. workspace.sync indexes text files written in the workspace after either agent's turn.
+workspace.sync indexes files written in the workspace. Both agents can use artifact.put and shell.`;
 
 function artifactName(value) {
   const name = clean(value, 120);
@@ -52,18 +61,41 @@ export function parseTestCommand(command) {
   const match = TEST_PREFIXES.find(prefix => prefix.length <= parts.length && prefix.every((part, index) => parts[index] === part));
   if (!match) return null;
   const extra = parts.slice(match.length);
-  if (extra.some(arg => !/^[\w./:=@-]{1,80}$/.test(arg))) return null;
+  if (extra.some(arg => !/^[\w./:=@+-]{1,80}$/.test(arg) || arg.includes('..'))) return null;
   return parts;
 }
 
-function runAllowedTests(parts, cwd) {
+function shellEnv() {
+  const pick = (key, fallback = '') => (typeof process.env[key] === 'string' && process.env[key] ? process.env[key] : fallback);
+  return {
+    PATH: pick('PATH', '/usr/bin:/bin'),
+    HOME: pick('HOME', '/tmp'),
+    LANG: pick('LANG', 'C.UTF-8'),
+    TMPDIR: pick('TMPDIR', '/tmp'),
+    USER: pick('USER'),
+    CI: '1',
+  };
+}
+
+export function classifyShell(command) {
+  const raw = String(command || '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 500);
+  if (!raw) return null;
+  const parts = raw.split(/\s+/).filter(Boolean);
+  const match = READONLY_PREFIXES.find(prefix => prefix.length <= parts.length && prefix.every((part, index) => parts[index] === part));
+  if (!match) return { mode: 'shell', command: raw };
+  const extra = parts.slice(match.length);
+  if (extra.some(arg => !/^[\w./:=@+-]{1,80}$/.test(arg) || arg.includes('..') || arg.startsWith('/'))) return { mode: 'shell', command: raw };
+  return { mode: 'argv', command: parts.join(' '), parts };
+}
+
+function captureCommand(file, args, cwd, env) {
   return new Promise(resolve => {
     let output = '';
     let child;
     try {
-      child = spawn(parts[0], parts.slice(1), { cwd, env: { ...process.env, CI: '1' }, timeout: 60000 });
+      child = spawn(file, args, { cwd, env, timeout: 60000 });
     } catch (error) {
-      resolve({ code: 127, output: error?.message || 'The test command could not start.' });
+      resolve({ code: 127, output: error?.message || 'The command could not start.' });
       return;
     }
     const take = chunk => {
@@ -73,9 +105,13 @@ function runAllowedTests(parts, cwd) {
     };
     child.stdout?.on('data', take);
     child.stderr?.on('data', take);
-    child.on('error', error => resolve({ code: 127, output: `${output}${error?.message || 'The test command could not start.'}`.slice(0, 20000) }));
+    child.on('error', error => resolve({ code: 127, output: `${output}${error?.message || 'The command could not start.'}`.slice(0, 20000) }));
     child.on('close', code => resolve({ code: code ?? 1, output: output.trim() || '(no output)' }));
   });
+}
+
+function runAllowedTests(parts, cwd) {
+  return captureCommand(parts[0], parts.slice(1), cwd, { ...process.env, CI: '1' });
 }
 
 function correctivePrompt(reason) {
@@ -112,7 +148,7 @@ function normalizeAgent(value) {
 export function defaultCapabilities() {
   return {
     hermes: { skills: ['terminal', 'tools', 'code'] },
-    grok: { skills: ['research', 'reasoning', 'writing'] },
+    grok: { skills: ['terminal', 'tools', 'code', 'research', 'reasoning', 'writing'] },
   };
 }
 
@@ -184,6 +220,20 @@ function parseOp(raw) {
     if (!question) return { error: 'ask needs a question.' };
     const to = raw.to === 'kyle' || AGENTS.includes(raw.to) ? raw.to : 'kyle';
     return { op: { op, taskId, question, to } };
+  }
+  if (op === 'shell') {
+    const taskId = clean(raw.taskId, 40);
+    if (!/^t_[a-f0-9]{16}$/.test(taskId)) return { error: 'shell needs a taskId.' };
+    const classified = classifyShell(raw.command);
+    if (!classified) return { error: 'shell needs a command.' };
+    const risk = raw.risk ? clean(raw.risk, 40) : '';
+    if (classified.mode === 'argv') {
+      if (risk) return { error: 'A read-only shell command does not take a risk class. Drop risk, or mark a command outside pwd, ls, git status, git diff, git log, and the test commands with risk "shell.write".' };
+      return { op: { op, taskId, command: classified.command, mode: 'argv', parts: classified.parts } };
+    }
+    if (risk && !RISKS.includes(risk)) return { error: 'shell has an unknown risk class.' };
+    if (risk !== 'shell.write') return { error: 'That shell command is not read-only. Add risk "shell.write" so Kyle can approve it before Orbit runs it.' };
+    return { op: { op, taskId, command: classified.command, mode: 'shell', risk: 'shell.write' } };
   }
   if (op === 'run-tests' || op === 'workspace.sync') {
     const taskId = clean(raw.taskId, 40);
@@ -385,7 +435,7 @@ ${decisions || '(none yet)'}
 Your role this turn: ${turnRole} as ${labels[speaker]}
 Capabilities: Hermes (${project.capabilities.hermes.skills.join(', ')}); Grok Bot (${project.capabilities.grok.skills.join(', ')})
 Workspace directory: ${project.workspace || '(not ready)'}
-Hermes can read and write that directory with the terminal. Orbit indexes those files as artifacts after a Hermes turn and when workspace.sync runs. Grok Bot reads and writes through artifact.put. Either agent can run-tests there.
+Both agents can read and write that directory. Read-only shell commands run immediately. Other shell commands wait for Kyle when they include risk "shell.write". Orbit indexes workspace files after either agent's turn and when workspace.sync runs. Either agent can use artifact.put and run-tests there.
 The other agent may be working on a different task at the same time. Write an artifact only at the baseVersion shown above; if it changed, the put is rejected and you must read the new version.
 ${task ? `Current task ${task.id}: ${task.title}
 Owner: ${labels[task.owner]}. Reviewer: ${labels[task.reviewer]}. Status: ${task.status}.
@@ -614,6 +664,7 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
         continue;
       }
       if (speaker !== task.owner && op.op !== 'ask') return 'Only the task owner can do that.';
+      if (op.op === 'shell' && op.mode !== 'argv' && op.risk !== 'shell.write') return 'That shell command needs risk "shell.write" before Orbit will run it.';
       if (op.op === 'submit' && !['working', 'submitted'].includes(task.status)) return 'That task cannot be submitted from its current status.';
       if (op.op === 'artifact.put') {
         const names = ops.filter(item => item.op === 'artifact.put' && item.name === op.name);
@@ -697,6 +748,28 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
         if (!files.length) event(bundle, 'workspace.sync', { actor: speaker, taskId: task.id, data: { files: [] } });
         continue;
       }
+      if (op.op === 'shell') {
+        const workspace = store.initWorkspace(bundle.project.id);
+        const result = op.mode === 'argv'
+          ? await captureCommand(op.parts[0], op.parts.slice(1), workspace, shellEnv())
+          : await captureCommand('sh', ['-c', op.command], workspace, shellEnv());
+        const content = `command: ${op.command}\nexit: ${result.code}\n\n${result.output}`;
+        const current = bundle.artifacts.find(item => item.name === 'shell-output.txt');
+        const baseVersion = current?.versions?.at(-1)?.v || 0;
+        const stored = store.putArtifact(bundle.project.id, {
+          name: 'shell-output.txt', kind: 'note', content, by: speaker, taskId: task.id, baseVersion, note: `exit ${result.code}`,
+        });
+        refreshArtifacts(bundle);
+        if (!task.artifacts.includes(stored.meta.id)) task.artifacts.push(stored.meta.id);
+        if (result.code !== 0) task.lastError = `Shell exited ${result.code}. Read shell-output.txt.`;
+        else if (task.lastError.startsWith('Shell exited')) task.lastError = '';
+        event(bundle, 'shell.ran', { actor: speaker, taskId: task.id, data: { command: op.command, exit: result.code, id: stored.meta.id, version: stored.version } });
+        try { syncWorkspace(bundle, task.id, speaker); }
+        catch (error) {
+          event(bundle, 'error', { actor: speaker, taskId: task.id, data: { message: error?.message || 'Workspace index failed.' } });
+        }
+        continue;
+      }
       if (op.op === 'handoff') {
         if (task.reviewer === op.to) task.reviewer = task.owner;
         task.owner = op.to;
@@ -774,11 +847,9 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
     catch (error) {
       return reject(error?.message || 'That collab block could not be applied.');
     }
-    if (speaker === 'hermes') {
-      try { syncWorkspace(bundle, run.taskId, 'hermes'); }
-      catch (error) {
-        event(bundle, 'error', { actor: 'hermes', taskId: run.taskId, data: { message: error?.message || 'Workspace index failed.' } });
-      }
+    try { syncWorkspace(bundle, run.taskId, speaker); }
+    catch (error) {
+      event(bundle, 'error', { actor: speaker, taskId: run.taskId, data: { message: error?.message || 'Workspace index failed.' } });
     }
     describeActivity(bundle);
     if (task && speaker === task.owner && task.status === 'working') return 'defer';
