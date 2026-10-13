@@ -8,6 +8,7 @@ import { tokenMatches, allowedRequest } from './security.mjs';
 import { createBuildQueue } from './build-queue.mjs';
 import { createAgentProfiles, validSessionId, sanitizeSessions, sanitizeHistory } from './agent-profiles.mjs';
 import { attachProviders } from './agent-discovery.mjs';
+import { estimateTokens, HERMES_COMPRESSION_NOTE, meterLevel, modelWindow, readReportedUsage } from './agent-session-controls.mjs';
 import { createGrokChat } from './grok-chat.mjs';
 import { createAgentGateways } from './agent-gateways.mjs';
 import { createSharedAgents } from './shared-agents.mjs';
@@ -283,6 +284,64 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
             const display=conversations.read({workspace_id:body.workspace_id,profile_id:target.id,session_id:targetId});
             const state = shared.write(body.workspace_id,body.pane_id,{session:targetId,profile_id:target.id,binding_revision:revision+1,messages,title:display.title || title,history_unstarted:creating});
           return reply(res,200,{state});
+        }
+        if (body.action === 'context_meter' || body.action === 'session_preview' || body.action === 'compact_session') {
+          if (revision !== linked.binding_revision || linked.session !== body.session_id || linked.profile_id !== profileId) return reply(res,409,{error:'This pane is linked to another conversation. Wait for synchronization.'});
+          if (body.action === 'compact_session' && body.confirm !== true) return reply(res,400,{error:'Confirm compact before changing this session.'});
+          if (body.action === 'compact_session' && linked.run) return reply(res,409,{error:'Conversation changed or is still running.'});
+          if (body.action === 'session_preview') {
+            const target = configuration.get(body.target_profile_id);
+            if (!target || !validSessionId(body.target_session_id)) return reply(res,400,{error:'Invalid conversation preview.'});
+            if (target.provider === 'grok') return reply(res,200,{...await grok.previewSession(target, body.target_session_id), provider:'grok'});
+            try {
+              const history = await upstreamFor(target, `/api/sessions/${encodeURIComponent(body.target_session_id)}/messages?limit=80&offset=0`);
+              return reply(res,200,{messages:sanitizeHistory(history), resumable:true, provider:'hermes'});
+            } catch (error) {
+              if (error.status === 404) return reply(res,200,{messages:[], resumable:false, provider:'hermes', note:'This Hermes session cannot be resumed from here.'});
+              throw error;
+            }
+          }
+          if (profile?.provider === 'grok') {
+            if (body.action === 'compact_session') return grok.compactSession(reply, res, { body, target: profile, revision, profileId, shared, conversations });
+            const preview = await grok.previewSession(profile, body.session_id);
+            const meter = meterLevel(estimateTokens(preview.messages.map(item => item.text).join('\n')), modelWindow(profile.model));
+            return reply(res,200,{...meter, source:'estimated', model: typeof profile.model === 'string' ? profile.model : '', tools:true, provider:'grok', hermes_compression:null});
+          }
+          if (body.action === 'compact_session') {
+            const response = await fetchImpl(endpoint(profile, `/api/sessions/${encodeURIComponent(body.session_id)}/compress`), {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${profile.apiKey}`, 'Content-Type': 'application/json' },
+              body: '{}',
+              signal: AbortSignal.timeout(20000),
+              redirect: 'error',
+            });
+            if ([404, 405, 501].includes(response.status)) {
+              try { await response.body?.cancel?.(); } catch { /* already closed */ }
+              return reply(res,200,{strategy:'hermes-native', applied:false, note:HERMES_COMPRESSION_NOTE});
+            }
+            if (!response.ok) {
+              try { await response.body?.cancel?.(); } catch { /* already closed */ }
+              return reply(res,502,{error:'Hermes could not compact this session.'});
+            }
+            let summary = '';
+            try { const data = await readBoundedJson(response); summary = typeof data?.summary === 'string' ? data.summary.slice(0, 4000) : ''; }
+            catch { summary = ''; }
+            return reply(res,200,{strategy:'hermes-native', applied:true, summary, note: summary || 'Hermes compressed this session.'});
+          }
+          let session = null;
+          try { session = await upstream(`/api/sessions/${encodeURIComponent(body.session_id)}`); }
+          catch (error) { if (error.status !== 404) throw error; }
+          const reported = readReportedUsage(session);
+          let estimated = 0;
+          if (!reported.used) {
+            try {
+              const history = await upstream(`/api/sessions/${encodeURIComponent(body.session_id)}/messages?limit=80&offset=0`);
+              estimated = estimateTokens(sanitizeHistory(history).map(item => item.text).join('\n'));
+            } catch (error) { if (error.status !== 404) throw error; }
+          }
+          const model = reported.model || '';
+          const meter = meterLevel(reported.used || estimated, reported.window || modelWindow(model));
+          return reply(res,200,{...meter, source: reported.used ? 'reported' : 'estimated', model, tools:true, provider:'hermes', hermes_compression:{native:true, detail:HERMES_COMPRESSION_NOTE}});
         }
         if(linked.session !== body.session_id || linked.profile_id !== profileId || revision !== linked.binding_revision) return reply(res,409,{error:'This pane is linked to another conversation. Wait for synchronization.'});
         const receipt = readSubmission(body, linked);

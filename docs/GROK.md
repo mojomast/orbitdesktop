@@ -33,7 +33,7 @@ An explicit URL that is not a plain HTTP(S) origin disables Grok Bot for that pr
 
 ## Chat
 
-The profile id is `grok` and the label is **Grok Bot**. Choose it in the agent pane, then New conversation or an existing bot. An existing bot must be one of `listAgents`.
+The profile id is `grok` and the label is **Grok Bot**. Choose it in the agent pane header. History lists `listAgents` pages. Context use is an estimate from the transcript. Compact confirms, then continues in a new agent and keeps the old one in history. See [Agent pane session](AGENT_PANE_SESSION.md). An existing bot must be one of `listAgents`.
 
 New conversation asks for a name. Cancel leaves the current conversation in place. A name of 1–80 characters calls `createAgent` with that name. A blank name reuses an idle `Orbit chat` whose transcript has no user or assistant text; if none exists, Orbit creates one. The rename control still changes only the Orbit display title.
 

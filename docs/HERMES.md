@@ -76,7 +76,7 @@ Live verification: `tests/browser-hermes-runtime-live.py` starts a real harmless
 
 ## Tools menu, history, and drafts
 
-The agent header's `⋯` menu opens conversation settings, activity and troubleshooting.
+The agent header's `⋯` menu opens conversation settings, activity and troubleshooting. The header also switches Hermes and Grok Bot, opens History, shows context use, and asks before Compact. See [Agent pane session](AGENT_PANE_SESSION.md).
 The visible History action above the conversation opens Hermes tools and recent conversations.
 
 - **Recent conversations:** New chat retains the previous completed conversation. Up to ten are kept per pane in this browser tab. Restore switches back to its original Hermes session, preserving server-side follow-up context. Switching is blocked during an active run.

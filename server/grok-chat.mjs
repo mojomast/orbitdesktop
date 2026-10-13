@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { validSessionId, sanitizeHistory } from './agent-profiles.mjs';
+import { summarizeTranscript } from './agent-session-controls.mjs';
 
 const runPattern = /^run_[a-zA-Z0-9_-]{8,100}$/;
 const jobPattern = /^[a-zA-Z0-9_-]{1,100}$/;
@@ -840,5 +841,64 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
     await command(profile, 'interruptAgentRun', { id: agentId });
   }
 
-  return { sessionPage, selectSession, turn, control, surface, events, ensureSharedAgent, startSharedPrompt, pollSharedPrompt, stopSharedPrompt };
+  async function previewSession(profile, sessionId) {
+    try {
+      const tail = await command(profile, 'getAgentTranscriptTail', { id: sessionId, limit: 80 });
+      return { messages: sanitizeHistory(historyFromEntries(entriesOf(tail))), resumable: true };
+    } catch (error) {
+      if (error.status === 404) return { messages: [], resumable: false, note: 'This Grok Bot conversation cannot be resumed from here.' };
+      throw error;
+    }
+  }
+
+  async function compactSession(reply, res, scope) {
+    return guard(reply, res, () => compactBody(reply, res, scope));
+  }
+
+  async function compactBody(reply, res, { body, target, revision, profileId, shared, conversations }) {
+    if (body.confirm !== true) return reply(res, 400, { error: 'Confirm compact before starting a fresh Grok Bot agent.' });
+    const current = shared.read(body.workspace_id, body.pane_id);
+    if (!current || current.binding_revision !== revision || current.session !== body.session_id || current.profile_id !== profileId || current.run) return reply(res, 409, { error: 'Conversation changed or is still running.' });
+    let entries = [];
+    try {
+      const tail = await command(target, 'getAgentTranscriptTail', { id: body.session_id, limit: 80 });
+      entries = entriesOf(tail);
+    } catch (error) { if (error.status !== 404) throw error; }
+    const history = sanitizeHistory(historyFromEntries(entries));
+    const summary = summarizeTranscript(history.map(item => ({ role: item.role, text: item.text })));
+    const previous = body.session_id;
+    const created = await command(target, 'createAgent', {
+      name: `Compact ${String(previous).slice(-12)}`.slice(0, 80),
+      description: summary.slice(0, 500),
+      isIntroductionSuppressed: true,
+    });
+    const targetId = created?.agent?.id;
+    if (!validSessionId(targetId)) return reply(res, 502, { error: 'Grok Bot did not return a usable conversation id.' });
+    const nonce = randomUUID();
+    const runId = `run_${randomUUID().replaceAll('-', '')}`;
+    const seed = `This conversation continues compacted session ${previous}.\n\n${summary}\n\nContinue from this summary.`;
+    const accepted = await command(target, 'sendPrompt', { prompt: seed.slice(0, 16000), agentId: targetId, clientNonce: nonce });
+    if (!accepted || accepted.accepted !== true) return reply(res, 502, { error: 'Grok Bot did not accept the compact summary.' });
+    remember({ runId, nonce, agentId: targetId, profileId: target.id, status: 'running', started: now(), baseline: baselineFrom([]) });
+    const title = `Continued from ${String(previous).slice(-12)}`.slice(0, 100);
+    try { conversations.write({ workspace_id: body.workspace_id, profile_id: target.id, session_id: targetId }, 0, { title }); } catch { /* display title is also on the pane */ }
+    const state = shared.write(body.workspace_id, body.pane_id, {
+      session: targetId,
+      profile_id: target.id,
+      binding_revision: revision + 1,
+      run: runId,
+      title,
+      messages: [{ role: 'assistant', text: `Compacted into a new Grok Bot agent. Previous session ${previous} stays in history.\n\n${summary}` }],
+    });
+    return reply(res, 200, {
+      state,
+      strategy: 'grok-fresh-agent',
+      previous_session_id: previous,
+      session_id: targetId,
+      summary,
+      note: `Grok Bot is continuing in ${targetId}. The previous session remains in history.`,
+    });
+  }
+
+  return { sessionPage, selectSession, turn, control, surface, events, ensureSharedAgent, startSharedPrompt, pollSharedPrompt, stopSharedPrompt, compactSession, previewSession };
 }

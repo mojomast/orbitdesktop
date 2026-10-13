@@ -23,6 +23,7 @@ import { conversationRequest } from './conversation-client';
 import { registerConversationRecipient, type ConversationRecipientHandle } from './conversation-transfer';
 import { completeResultActions } from './interactive-result-delivery';
 import { mountSharedAgents } from './shared-agents';
+import { mountAgentPaneSession } from './agent-pane-session';
 import { archiveChat, validChat, transcript, chatProfileId, chatBindingKey, type ChatState } from './chat-storage';
 export function createAgentChat(body: HTMLElement, paneId: string, getToken: () => string, toolbar?: HTMLElement) {
   const storageKey = `orbit-hermes-chat:${paneId}`;
@@ -905,6 +906,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     inlineTools.sync(chatBindingKey(state), state.run);
     sizeComposer();
     update();
+    sessionChrome.sync();
   }
   async function api(payload: Record<string, unknown>, requested = scope(), passive = false) {
     if (!current(requested)) throw new StaleRequest();
@@ -1066,7 +1068,18 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   form.append(input, workbenchTask, send);
   form.onsubmit = e => { e.preventDefault(); void submit(); };
   input.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); void submit(); } };
-  chatNormal.append(strip, experimentalNotice, inlineTools.root, messages, messageRenderer.latest, taskCards, syncNotice, progress, historyRecovery, approvals, unknownAction, controls, queueList, draftStatus, form);
+  const sessionChrome = mountAgentPaneSession({
+    api: (payload, passive) => api(payload, scope(), passive),
+    library: (profileId, body) => conversationRequest(getToken, { ...body, workspace_id: workspaceId, profile_id: profileId }),
+    profiles: () => profiles,
+    state: () => state,
+    providerOf: id => profiles.find(profile => profile.id === id)?.provider === 'grok' || id === 'grok' ? 'grok' : 'hermes',
+    switchConversation: (profileId, sessionId) => switchConversation(profileId, sessionId),
+    acceptState: next => { if (validChat(next)) acceptState(next); },
+    showError,
+  });
+  badge.append(sessionChrome.header);
+  chatNormal.append(strip, experimentalNotice, sessionChrome.banner, sessionChrome.notes, sessionChrome.sidecar, inlineTools.root, messages, messageRenderer.latest, taskCards, syncNotice, progress, historyRecovery, approvals, unknownAction, controls, queueList, draftStatus, form);
   sharedView = mountSharedAgents({
     request: payload => api({ action: 'shared_agents', ...payload }, scope(), true),
     onClose: () => setShared(false),
@@ -1081,6 +1094,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     chatNormal.prepend(badge);
   }
   render();
+  void sessionChrome.refreshMeter();
   // Restore the persisted view after the DOM exists, honoring the experimental
   // gate. This only reads host state (owner read APIs); it never starts a run or
   // drains the queue.

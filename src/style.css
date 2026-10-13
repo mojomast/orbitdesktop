@@ -486,7 +486,22 @@ p {
   border: 1px solid #536440;
   border-radius: 3px;
 }
-.agent-status { font-size: 10px; color: #c2ed90; margin-left: auto; }
+.agent-provider { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; }
+.agent-provider-health { width: 8px; height: 8px; border-radius: 50%; background: #c2ed90; }
+.agent-provider-health[data-state="down"] { background: #f0b6a8; }
+.agent-tools-badge { font-size: 10px; letter-spacing: 0.04em; padding: 2px 6px; border: 1px solid #536440; border-radius: 3px; color: #d0dfa9; }
+.agent-context-meter { font-size: 11px; color: #c2ed90; }
+.agent-context-meter[data-level="warn"] { color: #e6d39a; }
+.agent-context-meter[data-level="hot"] { color: #f0b6a8; }
+.agent-context-banner { margin: 8px 16px 0; color: #e6d39a; font-size: 12px; }
+.agent-context-banner[hidden] { display: none; }
+.agent-switch-notes { display: flex; flex-direction: column; gap: 4px; padding: 0 16px; }
+.agent-switch-note { margin: 4px 0; font-size: 12px; color: #aec0ba; }
+.agent-history { margin: 0 16px; padding: 8px; border: 1px solid #2c3a3b; border-radius: 6px; max-height: 240px; overflow: auto; }
+.agent-history[hidden] { display: none; }
+.agent-history-group h3 { margin: 8px 0 4px; font-size: 11px; letter-spacing: 0.04em; color: #aec0ba; }
+.agent-history-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0; font-size: 12px; }
+.agent-history-preview { max-height: 320px; overflow: auto; white-space: pre-wrap; }
 .agent-notice, .agent-progress { padding: 8px 16px; font-size: 12px; color: #aec0ba; }
 .agent-progress:empty, .agent-approvals:empty { display: none; }
 .result-refusal { margin: 6px 0 0; color: #f0b6a8; }
