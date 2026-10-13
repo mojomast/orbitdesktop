@@ -1,4 +1,5 @@
 import { el, button } from './dom';
+import { requestOpenHostSurface } from './host-surfaces';
 
 const labels: Record<string, string> = { owner: 'Kyle', hermes: 'Hermes', grok: 'Grok Bot', note: 'Orbit' };
 
@@ -61,6 +62,12 @@ export function mountSharedAgents(options: { request: (body: Record<string, unkn
     const floor = data.hold ? 'Continue when you want the agents to keep going.' : data.paused ? 'Paused.' : '';
     status.textContent = [data.activity === floor ? '' : data.activity, running, floor].filter(Boolean).join(' ');
     log.scrollTop = log.scrollHeight;
+    const projectId = data.collabProject?.id;
+    if (typeof projectId === 'string' && /^p_[a-f0-9]{16}$/.test(projectId)) {
+      try { sessionStorage.setItem('orbit.collab.focus', projectId); } catch { /* the Collab window still opens */ }
+      requestOpenHostSurface('collab');
+      window.dispatchEvent(new CustomEvent('orbit-collab-focus', { detail: { projectId } }));
+    }
   }
 
   async function refresh() {
@@ -98,7 +105,7 @@ export function mountSharedAgents(options: { request: (body: Record<string, unkn
   head.append(el('h2', '', 'Shared agents'), button('Back to this chat', 'Return to the single-agent conversation', () => options.onClose(), 'small-button'));
   element.append(
     head,
-    el('p', '', 'Kyle, Hermes, and Grok Bot share this transcript. Address someone with @hermes, @grok, or @all. Agents reply to each other only when they hand off the floor. You can post at any time. Start a Collab project with /collab and a goal.'),
+    el('p', '', 'Kyle, Hermes, and Grok Bot share this transcript. Address someone with @hermes, @grok, or @all. Agents reply to each other only when they hand off the floor. You can post at any time. /collab and a goal opens the Collab app.'),
     status,
     log,
     tasks,

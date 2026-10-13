@@ -229,6 +229,7 @@ function publicState(state) {
     hold: state.hold === true,
     running: state.run?.speaker || '',
     activity: state.activity || '',
+    ...(state.collabProject?.id ? { collabProject: { id: state.collabProject.id } } : {}),
     delegations: state.delegations.map(task => ({
       id: task.id,
       from: task.from,
@@ -710,20 +711,22 @@ function findTask(state, id) {
       const text = body.text.trim();
       const collabGoal = text.match(/^\/collab\s+(\S[\s\S]*)$/);
       if (text === '/collab' || text.startsWith('/collab ')) {
+        let collabProject;
         append(state, 'owner', text);
         if (!collabGoal) append(state, 'note', 'Add a goal after /collab.', true);
         else if (!openCollab) append(state, 'note', 'Collab is not available on this Orbit server.', true);
         else {
           try {
             const project = await openCollab({ goal: collabGoal[1].trim().slice(0, 4000), workspaceId: body.workspace_id, paneId: body.pane_id });
-            append(state, 'note', `Opened Collab project ${project.id}. The board is waiting on the plan. Open Collab in this pane to approve it.`);
+            append(state, 'note', `Opened Collab project ${project.id}. The Collab app has the board.`);
+            collabProject = { id: project.id };
           } catch (error) {
             append(state, 'note', error?.message || 'Collab did not open.', true);
           }
         }
         save(state);
         noteActivity(state);
-        return state;
+        return collabProject ? { ...state, collabProject } : state;
       }
       append(state, 'owner', text);
       state.agentStreak = 0;

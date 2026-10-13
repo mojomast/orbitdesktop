@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 
 const projectPattern = /^p_[a-f0-9]{16}$/;
@@ -135,7 +136,66 @@ export function createCollabStore(directory) {
     meta.kind = kind || meta.kind;
     if (taskId) meta.taskId = taskId;
     atomicWrite(path.join(dir, 'meta.json'), JSON.stringify(meta));
+    if (kind === 'file' || kind === 'test') mirrorWorkspaceFile(projectId, name, content);
     return { meta, version };
+  }
+
+  function workspaceDir(id) {
+    const dir = path.join(projectDir(id), 'workspace');
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+    return dir;
+  }
+
+  function initWorkspace(id) {
+    const dir = workspaceDir(id);
+    if (!fs.existsSync(path.join(dir, '.git'))) {
+      try { spawnSync('git', ['init', '-q'], { cwd: dir, timeout: 8000, stdio: 'ignore' }); } catch { /* the directory still works without git */ }
+    }
+    return dir;
+  }
+
+  function safeWorkspaceFile(id, name) {
+    if (typeof name !== 'string' || !name || name.startsWith('/') || name.includes('\\') || name.includes('\0')) return '';
+    const parts = name.split('/');
+    if (parts.some(part => !part || part === '.' || part === '..')) return '';
+    const root = path.resolve(workspaceDir(id));
+    const resolved = path.resolve(root, name);
+    if (resolved !== root && !resolved.startsWith(`${root}${path.sep}`)) return '';
+    return resolved;
+  }
+
+  function mirrorWorkspaceFile(id, name, content) {
+    const dest = safeWorkspaceFile(id, name);
+    if (!dest) return;
+    fs.mkdirSync(path.dirname(dest), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(dest, content, { mode: 0o600 });
+  }
+
+  function listWorkspaceFiles(id) {
+    const root = workspaceDir(id);
+    const out = [];
+    const walk = rel => {
+      if (out.length >= 40) return;
+      let entries = [];
+      try { entries = fs.readdirSync(path.join(root, rel), { withFileTypes: true }); } catch { return; }
+      for (const entry of entries) {
+        if (entry.name === '.git' || entry.name === 'node_modules' || entry.name.startsWith('.')) continue;
+        const next = rel ? `${rel}/${entry.name}` : entry.name;
+        if (entry.isDirectory()) walk(next);
+        else if (entry.isFile()) {
+          let stat;
+          try { stat = fs.statSync(path.join(root, next)); } catch { continue; }
+          if (!stat.isFile() || stat.size <= 0 || stat.size > 100000) continue;
+          let content = '';
+          try { content = fs.readFileSync(path.join(root, next), 'utf8'); } catch { continue; }
+          if (content.includes('\u0000')) continue;
+          out.push({ name: next, content });
+        }
+        if (out.length >= 40) return;
+      }
+    };
+    walk('');
+    return out;
   }
 
   function readArtifact(projectId, artifactId, version) {
@@ -165,5 +225,5 @@ export function createCollabStore(directory) {
     fs.rmSync(projectDir(id), { recursive: true, force: true });
   }
 
-  return { load, save, writeProject, appendEvent, readEvents, putArtifact, readArtifact, listProjects, listArtifactMetas, removeProject };
+  return { load, save, writeProject, appendEvent, readEvents, putArtifact, readArtifact, listProjects, listArtifactMetas, removeProject, initWorkspace, listWorkspaceFiles };
 }

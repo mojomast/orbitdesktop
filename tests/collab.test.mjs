@@ -394,10 +394,99 @@ test('/collab in the shared room opens a project', async t => {
   const posted = await room.request({ action: 'shared_agents', operation: 'post', text: '/collab Write the changelog' });
   assert.equal(posted.status, 200);
   assert.match(posted.body.messages.at(-1).text, /Opened Collab project p_[a-f0-9]{16}/);
+  assert.equal(posted.body.collabProject.id, listedId(posted.body.messages.at(-1).text));
   assert.equal(posted.body.running, '');
   const bare = await room.request({ action: 'shared_agents', operation: 'post', text: '/collab' });
   assert.match(bare.body.messages.at(-1).text, /Add a goal after \/collab/);
   const listed = await room.request({ action: 'collab', operation: 'list' });
   assert.equal(listed.body.projects.length, 1);
   assert.equal(listed.body.projects[0].goal, 'Write the changelog');
+});
+
+function listedId(text) {
+  return String(text || '').match(/p_[a-f0-9]{16}/)?.[0] || '';
+}
+
+test('collab blocks name the mistake and the allowed ops', () => {
+  const unknown = parseCollabBlock(block([{ op: 'launch' }]));
+  assert.equal(unknown.ok, false);
+  assert.match(unknown.error, /Allowed ops: .*run-tests/);
+  const shell = parseCollabBlock(block([{ op: 'run-tests', taskId: 't_0123456789abcdef', command: 'bash -c echo' }]));
+  assert.equal(shell.ok, false);
+  assert.match(shell.error, /plain tokens/);
+});
+
+test('independent tasks start together and a stale artifact write is rejected', async t => {
+  const parallel = block([{
+    op: 'plan',
+    tasks: [
+      { title: 'Write the notes', spec: 'Draft notes', acceptance: ['Notes exist'], role: 'researcher', owner: 'grok', reviewer: 'hermes', skillsHint: ['writing'] },
+      { title: 'Write the code', spec: 'Draft code', acceptance: ['Code exists'], role: 'executor', owner: 'hermes', reviewer: 'grok', skillsHint: ['code', 'terminal'] },
+    ],
+  }]);
+  const sameFile = (prompt, name) => {
+    const id = taskIdFrom(prompt);
+    return block([
+      { op: 'claim', taskId: id },
+      { op: 'artifact.put', name, kind: 'note', content: `from ${id}`, taskId: id, baseVersion: 0 },
+      { op: 'submit', taskId: id, summary: `finished ${id}`, artifacts: [], selfCheck: {} },
+    ]);
+  };
+  const script = scripted({
+    hermes: input => (input.includes('previous collab block was rejected') ? reviewBlock(input) : input.includes('Write the code') ? sameFile(input, 'shared.md') : reviewBlock(input)),
+    grok: prompt => (prompt.includes('No tasks exist yet') ? parallel : prompt.includes('previous collab block was rejected') ? block([{ op: 'decision', text: 'Read the new version before writing shared.md again.' }]) : prompt.includes('Write the notes') ? sameFile(prompt, 'shared.md') : reviewBlock(prompt)),
+  });
+  const room = await open(t, script.fetchImpl);
+  const created = await room.request({ action: 'collab', operation: 'create', goal: 'Write notes and code together' });
+  assert.equal(created.status, 200);
+  assert.ok(String(created.body.workspace || '').endsWith(`${path.sep}workspace`));
+  assert.equal(fs.existsSync(path.join(created.body.workspace, '.git')), true);
+  const before = script.calls.length;
+  const resolved = await room.request({ action: 'collab', operation: 'resolve', project_id: created.body.project.id, choice: 'approve' });
+  assert.equal(resolved.status, 200);
+  const slice = script.calls.slice(before);
+  const hermesStart = slice.findIndex(call => call.route === 'http://hermes.test/v1/runs' && call.method === 'POST');
+  const grokStart = slice.findIndex(call => call.route.endsWith('/api/sendPrompt'));
+  const hermesPoll = slice.findIndex(call => /^http:\/\/hermes\.test\/v1\/runs\/run_/.test(call.route) && !call.route.endsWith('/stop'));
+  assert.ok(hermesStart >= 0 && grokStart >= 0 && hermesPoll >= 0);
+  assert.ok(grokStart < hermesPoll, 'Grok should start before Hermes is polled');
+  const prompts = script.calls.filter(call => call.route.endsWith('/api/sendPrompt')).map(call => call.payload.prompt);
+  assert.ok(prompts.some(prompt => prompt.includes('shared.md is at version')));
+  const shared = resolved.body.artifacts.find(item => item.name === 'shared.md');
+  assert.ok(shared);
+  assert.equal(shared.versions.at(-1).v, 1);
+});
+
+test('run-tests stores an artifact and indexes a workspace file', async t => {
+  const plan = block([{
+    op: 'plan',
+    tasks: [{ title: 'Prove addition', spec: 'Add a test and run it', acceptance: ['The test command exits 0'], role: 'executor', owner: 'hermes', reviewer: 'grok', skillsHint: ['code', 'terminal'] }],
+  }]);
+  const script = scripted({
+    hermes: input => {
+      if (input.includes('previous collab block was rejected')) return block([{ op: 'decision', text: 'Corrected.' }]);
+      const id = taskIdFrom(input);
+      if (!id) return block([{ op: 'decision', text: 'Waiting.' }]);
+      return block([
+        { op: 'claim', taskId: id },
+        { op: 'artifact.put', name: 'test/add.test.mjs', kind: 'file', content: "import test from 'node:test';\nimport assert from 'node:assert/strict';\ntest('adds', () => assert.equal(1 + 1, 2));\n", taskId: id, baseVersion: 0 },
+        { op: 'run-tests', taskId: id, command: 'node --test test/add.test.mjs' },
+        { op: 'workspace.sync', taskId: id },
+        { op: 'submit', taskId: id, summary: 'Addition test passed', artifacts: [], selfCheck: { tests: 'pass' } },
+      ]);
+    },
+    grok: prompt => (prompt.includes('No tasks exist yet') ? plan : reviewBlock(prompt)),
+  });
+  const room = await open(t, script.fetchImpl);
+  const created = await room.request({ action: 'collab', operation: 'create', goal: 'Prove addition' });
+  fs.writeFileSync(path.join(created.body.workspace, 'FROM-TERMINAL.txt'), 'indexed from the workspace\n', { mode: 0o600 });
+  const resolved = await room.request({ action: 'collab', operation: 'resolve', project_id: created.body.project.id, choice: 'approve' });
+  assert.equal(resolved.status, 200, JSON.stringify(resolved.body.error || resolved.body.project?.activity || ''));
+  const results = resolved.body.artifacts.find(item => item.name === 'test-results.txt');
+  const terminal = resolved.body.artifacts.find(item => item.name === 'FROM-TERMINAL.txt');
+  assert.ok(results);
+  assert.ok(terminal);
+  const read = await room.request({ action: 'collab', operation: 'artifact', project_id: created.body.project.id, artifact_id: results.id });
+  assert.match(read.body.content, /exit: 0/);
+  assert.equal(fs.existsSync(path.join(created.body.workspace, 'test', 'add.test.mjs')), true);
 });
