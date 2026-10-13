@@ -398,7 +398,27 @@ in [deployment documentation](docs/DEPLOYMENT.md).
 
 Host access grants a real shell as the server's operating-system user. Do not run Orbit as root or expose it directly to the public Internet.
 
-Start the Hermes API server separately and configure its base URL and API key on the Orbit server. See docs/HERMES.md. The agent's tools need access to the repository and runtime for local workspace control.
+## Agent providers
+
+Hermes remains the default chat provider. When `HERMES_API_URL`, `HERMES_API_KEY`, and `HERMES_PROFILES_JSON` are unset, Orbit reads `~/.hermes` (or `HERMES_HOME`) and uses that deployment's API server. A current example is `http://100.120.57.35:8642`, with `API_SERVER_KEY` in `~/.hermes/.env` and model `deepseek-v4.1-flash` via `opencode-go` in `config.yaml`. Orbit calls the Hermes gateway. It does not copy the model vendor key. Explicit Hermes URL, key, or profile JSON still wins. See [docs/HERMES.md](docs/HERMES.md).
+
+Grok Bot is a second profile. It appears when this computer has a Grok Bot gateway (`gateway.json` under the agent data directory, including `/home/box/agent-data`) or when `GROK_BOT_API_URL` and `GROK_BOT_API_KEY` are set. In the agent pane, choose **Grok Bot**, then New conversation or an existing bot. The host already selected the model; `GROK_BOT_MODEL` is only a label. See [docs/GROK.md](docs/GROK.md).
+
+Project Workbench native workers stay on Hermes. Hermes-only panes (jobs, catalog, mid-run guidance, tool approvals) stay on a Hermes profile.
+
+## Serve Orbit on a Linux tailnet
+
+```sh
+ORBIT_HOST=0.0.0.0 \
+PORT=4318 \
+ORBIT_PUBLIC_ORIGIN=http://100.120.57.35:4318 \
+ORBIT_TOKEN='replace-with-32-plus-private-characters' \
+npm start
+```
+
+Open `http://100.120.57.35:4318` from a browser on the tailnet. Use this machine's tailnet address in both the URL and `ORBIT_PUBLIC_ORIGIN`. The default bind is `127.0.0.1`. A wildcard bind rejects other Host headers until `ORBIT_PUBLIC_ORIGIN` is the exact browser origin. Optional Tailscale Serve HTTPS uses that https origin as `ORBIT_PUBLIC_ORIGIN`. Do not expose Orbit to the public Internet. Details are in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
+The agent's tools need access to the repository and runtime for local workspace control.
 
 The base setup does not automatically provision Xpra, OpenOffice, Shared Chromium, or the shared Linux desktop. Follow their deployment guides separately. The current Xpra app deployment requires Docker and uses private Tailscale HTTPS endpoints; adapt installation-specific paths and settings rather than copying credentials or private hostnames.
 

@@ -7,6 +7,8 @@ import { automation } from './automation.mjs';
 import { tokenMatches, allowedRequest } from './security.mjs';
 import { createBuildQueue } from './build-queue.mjs';
 import { createAgentProfiles, validSessionId, sanitizeSessions, sanitizeHistory } from './agent-profiles.mjs';
+import { attachProviders } from './agent-discovery.mjs';
+import { createGrokChat } from './grok-chat.mjs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -14,7 +16,7 @@ const sessionPattern = /^orbit-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[
 const runPattern = /^run_[a-zA-Z0-9_-]{8,100}$/;
 const instructions = 'You are Hermes, accessed through the owner’s Comet/Orbit Desktop agent chat. This pane uses its explicitly selected profile and conversation, which may resume a saved Hermes session. Orbit terminal panes run as the owner on the host. Your agent tools still run in the configured Hermes environment. Use plain text in replies. Do not claim to see screen pixels, iframe contents, or terminal buffers unless supplied. Follow normal tool approval policies.';
 
-export function createAgentHandler({ token, port, devOrigins, reply, workspaceContext, workspaceRead, runtimeDirectory = process.env.ORBIT_RUNTIME_DIR || fileURLToPath(new URL('../.runtime/', import.meta.url)), apiUrl = process.env.HERMES_API_URL, apiKey = process.env.HERMES_API_KEY, profiles, profilesJson = process.env.HERMES_PROFILES_JSON, fetchImpl = fetch, executionGate, onRunEvent, onNormalAccepted }) {
+export function createAgentHandler({ token, port, devOrigins, reply, workspaceContext, workspaceRead, runtimeDirectory = process.env.ORBIT_RUNTIME_DIR || fileURLToPath(new URL('../.runtime/', import.meta.url)), apiUrl = process.env.HERMES_API_URL, apiKey = process.env.HERMES_API_KEY, profiles, profilesJson = process.env.HERMES_PROFILES_JSON, additionalProfiles, fetchImpl = fetch, executionGate, onRunEvent, onNormalAccepted }) {
   // Derived observation only, using the exact run-trace contract. Never await or
   // let an observer alter a receipt, response, approval or dispatch outcome.
   const observeStatus=(binding,run)=>{
@@ -23,6 +25,8 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
   };
   let configuration;
   try { configuration = createAgentProfiles({profiles,profilesJson,apiUrl,apiKey}); } catch { configuration = null; }
+  if (configuration && Array.isArray(additionalProfiles) && additionalProfiles.length) configuration = attachProviders(configuration, additionalProfiles);
+  const grok = createGrokChat({ fetchImpl });
   const endpoint = (profile, route) => `${profile.apiUrl.replace(/\/$/, '')}${route}`;
   // Bounded upstream JSON: read the real byte stream with a hard cap, cancel on
   // overflow, and decode as fatal UTF-8. There is no unbounded r.json() fallback;
@@ -154,7 +158,9 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
           if (!Number.isSafeInteger(offset) || offset < 0 || offset > 10000) return reply(res,400,{error:'Invalid session page.'});
           const target = configuration.get(body.profile_id);
           let page = {data:[],has_more:false}, supported = true;
-          try { page = sanitizeSessions(await upstreamFor(target,`/api/sessions?limit=100&offset=${offset}`)); }
+          try {
+            page = sanitizeSessions(target.provider === 'grok' ? await grok.sessionPage(target, offset) : await upstreamFor(target,`/api/sessions?limit=100&offset=${offset}`));
+          }
           catch (error) { if (error.status !== 404) throw error; supported = false; }
           const metadata = conversations.list(body.workspace_id,body.profile_id).map(publicMetadata);
           const rows = new Map(page.data.map(item => [item.id,{session_id:item.id,profile_id:body.profile_id,upstream_title:item.title,updated_at:item.updated_at,...publicMetadata(conversations.read({...body,session_id:item.id}))}]));
@@ -196,6 +202,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
         if (body.action === 'sessions') {
           const target = configuration.get(body.target_profile_id);
           if (!target) return reply(res,400,{error:'Unknown Hermes profile.'});
+          if (target.provider === 'grok') { const page = sanitizeSessions(await grok.sessionPage(target, 0)); return reply(res,200,{sessions:page.data,supported:true}); }
           try { const data = await upstreamFor(target,'/api/sessions?limit=100&offset=0'); return reply(res,200,{sessions:sanitizeSessions(data).data,supported:true}); }
           catch(error) { if (error.status === 404) return reply(res,200,{sessions:[],supported:false,note:'Session catalog unavailable on this Hermes version.'}); throw error; }
         }
@@ -213,6 +220,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
           if (revision !== linked.binding_revision || linked.session !== body.session_id || linked.profile_id !== profileId || linked.run || shared.locks.has(`session:${linked.profile_id}:${linked.session}`)) return reply(res,409,{error:'Conversation changed or is still running.'});
           const target = configuration.get(body.target_profile_id);
           if (!target) return reply(res,400,{error:'Unknown Hermes profile.'});
+          if (target.provider === 'grok') return grok.selectSession(reply, res, { body, target, revision, profileId, shared, validatePane, conversations });
           const creating = body.target_session_id === undefined || body.target_session_id === null;
           const targetId = creating ? `orbit-${randomUUID()}` : body.target_session_id;
           if (!validSessionId(targetId)) return reply(res,400,{error:'Invalid Hermes session.'});
@@ -268,6 +276,10 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
             return reply(res,200,{...result,approvals});
           }
         }
+      }
+      if (profile?.provider === 'grok' && ['build_queue', 'catalog', 'capabilities', 'events', 'activity', 'automation', 'jobs', 'job_control'].includes(body.action)) {
+        if (body.action === 'capabilities') return reply(res, 200, { features: { run_events_sse: false } });
+        return reply(res, 409, { error: 'This Hermes tool is not available for the Grok Bot provider.' });
       }
       if (body.action === 'build_queue') {
         if (profileId !== 'default') return reply(res,409,{error:'Build queue is only available for the default Hermes profile.'});
@@ -350,6 +362,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
         return reply(res, 200, { activity, note: 'Persisted tool history for this conversation; active tools may appear only after Hermes saves them. Results are truncated.' });
       }
       if (body.action === 'start') {
+        if (profile?.provider === 'grok') return grok.turn(reply, res, { body, profile, shared, workspaceContext, executionGate });
         if (typeof body.input !== 'string' || !body.input.trim() || body.input.length > 100000) return reply(res, 400, { error: 'Enter a message of 1–100,000 characters.' });
         // Do not start while the shared agent lane is held or legacy-unknown.
         // Pane-backed submissions claim it through preparation and dispatch below.
@@ -437,6 +450,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
         } finally {shared.locks.delete(lock);}
       }
       if (!['status', 'stop', 'approval', 'steer'].includes(body.action) || !runPattern.test(body.run_id || '')) return reply(res, 400, { error: 'Invalid agent action.' });
+      if (profile?.provider === 'grok') return grok.control(reply, res, { body, profile, shared });
       const runPath = `/v1/runs/${body.run_id}`;
       const run = await upstream(runPath);
       // Never let Orbit operate on another dashboard's sessions/runs.

@@ -269,7 +269,8 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   const profileSelect = el('select'); profileSelect.setAttribute('aria-label', 'Profile');
   const sessionSelect = el('select'); sessionSelect.setAttribute('aria-label', 'Session');
   const bindingNote = el('span', 'agent-binding-note'); bindingNote.setAttribute('role', 'status');
-  let profiles: { id: string; label: string; configured: boolean }[] = [];
+  let profiles: { id: string; label: string; configured: boolean; provider?: string }[] = [];
+  const agentName = () => profiles.find(profile => profile.id === chatProfileId(state))?.provider === 'grok' ? 'Grok Bot' : 'Hermes';
   let metadataReady = false, sessionsReady = false, metadataSequence = 0, catalogRequested = false;
   function option(value: string, label: string, disabled = false) {
     const node = el('option', '', label); node.value = value; node.disabled = disabled; return node;
@@ -314,9 +315,9 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
       const data = await api({ action: 'profiles' }, requested);
       if (sequence !== metadataSequence) return;
       if (!Array.isArray(data.profiles)) throw Error('Profile selection is unsupported by this backend.');
-      profiles = data.profiles.flatMap((p: { id?: string; profile_id?: string; label?: string; name?: string; configured?: boolean }) => {
+      profiles = data.profiles.flatMap((p: { id?: string; profile_id?: string; label?: string; name?: string; configured?: boolean; provider?: string }) => {
         const id = p.profile_id ?? p.id;
-        return typeof id === 'string' && validChat({session:'orbit-placeholder',profile_id:id,messages:[]}) ? [{ id, label: String(p.label || p.name || id), configured: p.configured !== false }] : [];
+        return typeof id === 'string' && validChat({session:'orbit-placeholder',profile_id:id,messages:[]}) ? [{ id, label: String(p.label || p.name || id), configured: p.configured !== false, provider: p.provider === 'grok' ? 'grok' : 'hermes' }] : [];
       });
       profileSelect.replaceChildren(...profiles.map(p => option(p.id, `${p.label}${p.configured ? '' : ' (unconfigured)'}`, !p.configured)));
       const bound = profiles.find(p => p.id === chatProfileId(state));
@@ -472,7 +473,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     const observed = normalLive.counts();
     activityButton.textContent = attention ? label : observed.failures ? `${observed.failures} activity warning${observed.failures === 1 ? '' : 's'} · View` : state.run && streamStatus ? streamStatus.replace('Tool stream disconnected', 'Live updates disconnected') : `Activity · ${observed.events} events`;
     activityButton.hidden = !attention && !observed.events && !(state.run && streamStatus);
-    activity.update({title:state.title || 'Hermes',task:state.messages.filter(m=>m.role==='user').at(-1)?.text.slice(0,200) || 'No task yet',status:label,mode:activeMode(),normalStatus:label,workbenchStatus});
+    activity.update({title:state.title || agentName(),task:state.messages.filter(m=>m.role==='user').at(-1)?.text.slice(0,200) || 'No task yet',status:label,mode:activeMode(),normalStatus:label,workbenchStatus});
     normalLive.status({ status: label, run: state.run, at: Date.now() });
     updateModeBadge();
   }
@@ -836,7 +837,9 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     if(!state.run) {toolStatus='';streamStatus='';}
     refreshActivity();
     titleInput.value = state.title || '';
-    heading.textContent = state.title || 'Hermes';
+    heading.textContent = state.title || agentName();
+    input.setAttribute('aria-label', `Message to ${agentName()}`);
+    messages.setAttribute('aria-label', `${agentName()} conversation`);
     colorInput.value = state.color || '#b5f268';
     body.style.setProperty('--accent', state.color || '');
     body.style.background = state.color ? `color-mix(in srgb, ${state.color} 12%, #10141c)` : '';
@@ -903,7 +906,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
       status.textContent = String(data.status || 'working').replaceAll('_', ' ').toUpperCase();
       approvals.replaceChildren();
       if (['completed', 'failed', 'cancelled', 'interrupted'].includes(data.status)) {
-        state.messages.push({ role: 'assistant', text: data.output || (data.status === 'completed' ? 'Hermes finished without a text reply.' : data.error || `Run ${data.status}.`) });
+        state.messages.push({ role: 'assistant', text: data.output || (data.status === 'completed' ? `${agentName()} finished without a text reply.` : data.error || `Run ${data.status}.`) });
         state.messages = state.messages.slice(-100);
         const finishedRun = state.run;
         state.run = undefined; save(); render();
@@ -931,7 +934,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
         if (data.status === 'completed' && !queuePaused && !workbenchLaneActive && !laneUnknown) void drainQueue();
         return;
       }
-      progress.textContent = data.status === 'waiting_for_approval' ? 'Hermes needs your permission before continuing.' : 'Hermes is working. You can stop the run. Replies appear when the turn completes.';
+      progress.textContent = data.status === 'waiting_for_approval' ? `${agentName()} needs your permission before continuing.` : `${agentName()} is working. You can stop the run. Replies appear when the turn completes.`;
       if (data.status === 'waiting_for_approval') {
         for (const a of data.approvals || []) approvals.append(el('pre', '', `${a.command}\n${a.reason}`));
         // No blind approval when details are unavailable.
@@ -964,7 +967,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
       render(); return;
     }
     if (!getToken()) { showError(new Error('Use “Connect host” in the top bar first.')); return; }
-    busy = true; update(); status.textContent = 'CONNECTING'; progress.textContent = 'Sending to Hermes…';
+    busy = true; update(); status.textContent = 'CONNECTING'; progress.textContent = `Sending to ${agentName()}…`;
     try {
       await ensureWorkspaceSynced();
       const data = await api({ action: 'start', input: text }, requested);
