@@ -447,6 +447,7 @@ const commands = createWorkspaceCommands((): WorkspaceCommand[] => [
   { id: 'send-selection', title: 'Send selected text to conversation', detail: 'Review recently selected workspace text and choose a draft; never sends automatically', group: 'Hermes', disabledReason: !selectedWorkspaceText ? 'Select up to 20,000 characters of workspace text first.' : undefined, run: sendSelectedContext },
   { id: 'activity', title: 'Live activity', detail: 'Open host activity window', group: 'Hermes', run: () => openHostSurface('activity') },
   { id: 'collab', title: 'Collab', detail: 'Project board for Hermes and Grok Bot', group: 'Hermes', disabledReason: !sessionToken ? 'Connect host first to use Collab.' : undefined, run: () => openHostSurface('collab') },
+  { id: 'irc', title: 'IRC', detail: 'IRC server and channel window', group: 'Apps', disabledReason: !sessionToken ? 'Connect host first to use IRC.' : undefined, run: () => openHostSurface('irc') },
   ...workspaceExtensions.map(extension => ({
     id: `hermes-${extension.id}`, title: extension.title, detail: extension.label, group: 'Hermes',
     hidden: extension.id === 'project-workbench' && !experimentalEnabled('workbench'),
@@ -554,6 +555,7 @@ function orbitMenuSections(): OrbitMenuSection[] {
       { id: 'send-selection', label: 'Send selected text to conversation', icon: '↗', button: button('Send selected text to conversation', 'Send selected text to conversation', () => { void commands.execute('send-selection'); }) },
       { id: 'activity', label: 'Live activity', icon: '↻', button: button('Live activity', 'Live activity', () => { void commands.execute('activity'); }) },
       { id: 'collab', label: 'Collab', icon: '▦', button: button('Collab', 'Collab', () => { void commands.execute('collab'); }) },
+      { id: 'irc', label: 'IRC', icon: '#', button: button('IRC', 'IRC', () => { void commands.execute('irc'); }) },
       ...hermesMenuItems,
     ] },
     { id: 'settings', title: 'Settings', detail: 'Preferences saved in this browser.', items: [

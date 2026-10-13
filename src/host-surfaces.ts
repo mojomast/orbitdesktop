@@ -4,9 +4,9 @@ import { publishedDataInput } from './data-published-input';
 import { workspaceId } from './workspace-sync';
 import { TECHNOLOGY_SURFACES, mountTechnologySurface, type TechnologySurfaceId, type TechnologySurfaceOptions } from './technology-surfaces';
 
-export type HostSurfaceId = 'outputs' | 'activity' | 'collab' | TechnologySurfaceId;
+export type HostSurfaceId = 'outputs' | 'activity' | 'collab' | 'irc' | TechnologySurfaceId;
 export const HOST_SURFACE_LABELS = {
-  outputs:'Apps and outputs',activity:'Live activity',collab:'Collab',
+  outputs:'Apps and outputs',activity:'Live activity',collab:'Collab',irc:'IRC',
   search:TECHNOLOGY_SURFACES.search.title,
   'interactive-results':TECHNOLOGY_SURFACES['interactive-results'].title,
   data:TECHNOLOGY_SURFACES.data.title,voice:TECHNOLOGY_SURFACES.voice.title,
@@ -17,6 +17,7 @@ export const HOST_SURFACE_URLS = {
   outputs: 'orbit://surface/outputs',
   activity: 'orbit://surface/activity',
   collab: 'orbit://surface/collab',
+  irc: 'orbit://surface/irc',
   search: 'orbit://surface/search',
   'interactive-results': 'orbit://surface/interactive-results',
   data: 'orbit://surface/data',
@@ -78,6 +79,24 @@ export function mountHostSurface(host: HTMLElement, id: HostSurfaceId, token: ()
           });
           const data = await response.json().catch(() => ({}));
           if (!response.ok) throw Error(data.error || 'Collab request failed');
+          return data;
+        },
+      });
+      root.append(view.element);
+      cleanup = () => view.dispose();
+    }) : id === 'irc' ? import('./irc').then(module => {
+      if (disposed) return;
+      root.replaceChildren();
+      const view = module.mountIrc({
+        token,
+        request: async payload => {
+          const response = await fetch('/api/irc', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) throw Error(data.error || 'IRC request failed');
           return data;
         },
       });

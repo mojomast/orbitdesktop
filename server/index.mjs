@@ -36,6 +36,7 @@ import {createWorkbenchLiveHandler} from './workbench-live-route.mjs';
 import {createWorkbenchNativeRuntime,nativeRuntimeEnvironmentOptions,nativeRuntimeMetadata} from './workbench-native-runtime.mjs';
 import {technologyOwnerRoute,lazyTechnologyService} from './technology-owner-route.mjs';
 import {createWorkbenchSandboxProvider} from './workbench-sandbox-provider.mjs';
+import { createIrcService } from './irc.mjs';
 const port = Number(process.env.PORT || 4318);
 if (!Number.isInteger(port) || port < 1024 || port > 65535)
   throw Error("PORT must be between 1024 and 65535");
@@ -91,6 +92,8 @@ const workbench = createWorkbench({store:workspaceService.store,token,port,devOr
 const workbenchData=new WorkbenchData(workspaceService.store);
 const executionGate=createWorkbenchGate({legacySnapshot:legacyQueueSnapshot(runtimeRoot)});
 let normalResources;
+const repoRoot = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
+const irc = createIrcService({ token, orbitPort: port, devOrigins, reply, repoRoot });
 const agentHandler = createAgentHandler({ token, port, devOrigins, reply, workspaceContext: workspaceService.context, workspaceRead:workspaceService.read, runtimeDirectory:runtimeRoot,executionGate,onRunEvent:event=>observeTechnologyTrace(event,'observeAgentRunEvent'),onNormalAccepted:record=>normalResources?.normalAccepted(record),
   ...(!explicitHermes && discovered.hermes ? { apiUrl: null, apiKey: null, profiles: [{ id: "default", label: discovered.hermes.label, apiUrl: discovered.hermes.apiUrl, apiKey: discovered.hermes.apiKey }] } : {}),
   ...(discovered.grok ? { additionalProfiles: [discovered.grok] } : {}),
@@ -299,6 +302,7 @@ async function handleOrbitRequest(req, res) {
   if (url.pathname === "/api/workspace/control") return workspaceService.handle(req, res, true);
   if (url.pathname.startsWith("/apps/")) return workspaceService.serveApp(req, res, url.pathname);
   if (url.pathname === "/api/agent") return agentHandler(req, res);
+  if (url.pathname === "/api/irc") return irc.handle(req, res);
   if (url.pathname === "/api/health")
     return reply(res, 200, {
       service: "orbit",
@@ -380,6 +384,10 @@ const wss = new WebSocketServer({
   perMessageDeflate: false,
 });
 server.on("upgrade", (req, socket, head) => {
+  if (String(req.url || '').split('?')[0] === '/api/irc') {
+    irc.upgrade(req, socket, head);
+    return;
+  }
   if (
     req.url !== "/api/terminal" ||
     !allowedRequest(req, port, devOrigins) ||
@@ -565,6 +573,7 @@ server.listen(port, listenHost, () => {
 });
 for (const signal of ["SIGTERM", "SIGINT"])
   process.on(signal, () => {
+    irc.close();
     execution.close();
     sandboxProvider.close();
     contextSharing.close?.();
