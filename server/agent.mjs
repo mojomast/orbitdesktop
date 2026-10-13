@@ -9,6 +9,8 @@ import { createBuildQueue } from './build-queue.mjs';
 import { createAgentProfiles, validSessionId, sanitizeSessions, sanitizeHistory } from './agent-profiles.mjs';
 import { attachProviders } from './agent-discovery.mjs';
 import { createGrokChat } from './grok-chat.mjs';
+import { createAgentContextApi, tokenRatioKey, writeTokenRatio } from './agent-context.mjs';
+import { calibrate, measureContext } from '../src/context-budget.ts';
 import { createAgentGateways } from './agent-gateways.mjs';
 import { createSharedAgents } from './shared-agents.mjs';
 import { createCollab } from './collab.mjs';
@@ -111,6 +113,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
   let buildQueue;
   const shared = createSharedChats(path.join(runtimeDirectory,'shared-chats'));
   const conversations = createConversationPrivateStore(path.join(runtimeDirectory, 'conversation-private'));
+  const contextApi = createAgentContextApi({ configuration, shared, conversations, grok, upstreamFor, runtimeDirectory, workspaceRead, workspaceContext });
   // Private, bounded intent/receipt journal. Nothing here is workspace layout or
   // project data; credentials are represented only by the adapter's opaque digest.
   const journalDirectory = path.join(runtimeDirectory, 'ordinary-submissions');
@@ -186,6 +189,9 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
         if (Object.keys(body).some(key => !fields.has(key))) return reply(res,400,{error:'Unexpected submission request field.'});
       }
       if (body.action === 'profiles') return reply(res,200,{profiles:configuration.list,default_profile_id:'default'});
+      if (body.action === 'provider_menu') return reply(res, 200, await contextApi.providerMenu(body));
+      if (body.action === 'history_search') return reply(res, 200, await contextApi.historySearch(body));
+      if (body.action === 'history_transcript') return reply(res, 200, await contextApi.historyTranscript(body));
       if (['conversation_library', 'conversation_metadata', 'draft_read', 'draft_write'].includes(body.action)) {
         const fields = new Set(['action', 'workspace_id', 'profile_id', ...(body.action === 'conversation_library' ? ['offset'] : ['session_id', ...(body.action === 'draft_read' ? [] : ['expected_revision', body.action === 'draft_write' ? 'text' : 'patch'])])]);
         if (Object.keys(body).some(key => !fields.has(key)) || !/^[a-f0-9-]{36}$/.test(body.workspace_id || '') || !configuration.get(body.profile_id)) return reply(res,400,{error:'Invalid conversation scope or fields.'});
@@ -285,6 +291,9 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
           return reply(res,200,{state});
         }
         if(linked.session !== body.session_id || linked.profile_id !== profileId || revision !== linked.binding_revision) return reply(res,409,{error:'This pane is linked to another conversation. Wait for synchronization.'});
+        if (body.action === 'compact_transcript') return reply(res, 200, await contextApi.compact(body, linked));
+        if (body.action === 'switch_provider') return reply(res, 200, await contextApi.switchProvider(body, linked));
+        if (body.action === 'fork_transcript') return reply(res, 200, await contextApi.fork(body, linked));
         const receipt = readSubmission(body, linked);
         if (linked.workbench_pending && receipt && ['status','stop','steer','approval','events'].includes(body.action) && (!receipt.run_id || body.run_id !== receipt.run_id)) return reply(res,409,{error:'Use submission_status to inspect this pane’s original submission.',...publicReceipt(receipt)});
         if (['submission_status', 'acknowledge_submission_unknown'].includes(body.action)) {
@@ -524,7 +533,18 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
         const current = shared.read(body.workspace_id,body.pane_id);
         if(current?.run === body.run_id && current.session === body.session_id && current.profile_id === profileId) shared.write(body.workspace_id,body.pane_id,{...current,run:undefined,messages:[...current.messages,{role:'assistant',text:run.output || `Run ${run.status}.`}].slice(-100)});
       }
-      return reply(res, 200, { run_id: run.run_id, status: run.status, output: typeof run.output === 'string' ? run.output : '', error: run.error ? 'Hermes reported a run failure. Try again or check the Hermes dashboard.' : undefined, last_event: run.last_event, approvals });
+      const promptTokens = Number(run?.usage?.prompt_tokens);
+      const usage = Number.isFinite(promptTokens) && promptTokens >= 0 && promptTokens < 1e12 ? { prompt_tokens: Math.round(promptTokens) } : undefined;
+      if (usage && body.pane_id) {
+        try {
+          const current = shared.read(body.workspace_id, body.pane_id);
+          const estimated = measureContext({ messages: current?.messages || [] }).estimated;
+          const ratio = calibrate(estimated, usage.prompt_tokens);
+          const key = tokenRatioKey(profile);
+          if (ratio && key) writeTokenRatio(runtimeDirectory, key, ratio);
+        } catch { /* Calibration must not fail a status read. */ }
+      }
+      return reply(res, 200, { run_id: run.run_id, status: run.status, output: typeof run.output === 'string' ? run.output : '', error: run.error ? 'Hermes reported a run failure. Try again or check the Hermes dashboard.' : undefined, last_event: run.last_event, approvals, ...(usage ? { usage } : {}) });
     } catch (error) {
       if (res.headersSent) { res.end(); return; }
       if (!error.status && ['stale_resource','busy','permission_denied','invalid_request','limit_exceeded','unavailable'].includes(error.code)) return reply(res,error.code === 'invalid_request' ? 400 : error.code === 'unavailable' ? 503 : 409,{error:error.code === 'stale_resource' ? 'The original Hermes configuration or binding changed. Restore it before inspecting this submission.' : 'Submission cannot proceed; inspect the original receipt before retrying.',code:error.code});

@@ -1,0 +1,48 @@
+.agent-chat-normal.agent-chat-split { flex-direction: row; position: relative; }
+.agent-chat-column { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; min-height: 0; }
+.agent-chat-column > .inline-tools { flex: 0 1 auto; max-height: 35%; min-height: 0; overflow: auto; margin: 0 8px 6px; }
+
+#app .agent-pane-head .agent-provider-button,
+.agent-provider-button { max-width: 148px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; line-height: 1.1; padding: 2px 6px; }
+.agent-provider-menu { position: fixed; z-index: 10000; width: min(320px, 92vw); max-height: min(420px, 70vh); overflow: auto; padding: 8px; border: 1px solid var(--theme-borderColor, #3a4a52); border-radius: 8px; background: var(--theme-panelColor, #172327); box-shadow: 0 8px 24px #0009; }
+.agent-provider-menu[hidden] { display: none; }
+.agent-provider-group { display: grid; gap: 4px; margin: 0 0 8px; }
+.agent-provider-group h3 { margin: 4px 0; font-size: 11px; font-weight: 650; color: var(--theme-mutedColor, #b5c8c2); }
+.agent-provider-option { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: 6px; align-items: center; text-align: left; font-size: 12px; }
+.agent-provider-option[aria-current=true] { border-color: var(--theme-accentColor, #b5f268); }
+.agent-provider-option span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-health-dot { width: 8px; height: 8px; border-radius: 50%; background: #8aa; }
+.agent-health-dot[data-health=up] { background: #7dcea0; }
+.agent-health-dot[data-health=down] { background: #e07a7a; }
+.agent-tools-badge, .agent-window-badge { font-size: 10px; padding: 1px 5px; border-radius: 999px; border: 1px solid var(--theme-borderColor, #3a4a52); color: var(--theme-mutedColor, #b5c8c2); }
+
+.agent-context-meter { display: inline-flex; align-items: center; gap: 6px; min-width: 0; font-size: 11px; }
+.agent-context-bar { width: 52px; height: 6px; border-radius: 999px; background: #ffffff22; overflow: hidden; flex: none; }
+.agent-context-bar > span { display: block; height: 100%; width: 0; background: #7dcea0; }
+.agent-context-meter[data-level=warn] .agent-context-bar > span { background: #e0b15b; }
+.agent-context-meter[data-level=hot] .agent-context-bar > span { background: #e07a7a; }
+.agent-context-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px; }
+
+.agent-history-sidecar { width: min(260px, 42vw); flex: none; display: flex; flex-direction: column; gap: 6px; min-height: 0; padding: 8px; border-right: 1px solid var(--theme-borderColor, #3a4a52); background: color-mix(in srgb, var(--theme-panelColor, #172327) 88%, transparent); }
+.agent-history-sidecar[hidden] { display: none; }
+.agent-history-sidecar input, .agent-history-sidecar select { width: 100%; font: inherit; }
+.agent-history-list { overflow: auto; min-height: 0; display: grid; gap: 8px; align-content: start; }
+.agent-history-group h3 { margin: 0; font-size: 11px; color: var(--theme-mutedColor, #b5c8c2); }
+.agent-history-row { display: grid; gap: 4px; padding-bottom: 6px; border-bottom: 1px solid #ffffff14; }
+.agent-history-row p { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
+.agent-history-row .agent-history-actions { display: flex; flex-wrap: wrap; gap: 4px; }
+.agent-provider-mark { font-size: 10px; font-weight: 700; }
+
+.agent-readonly-banner { display: grid; gap: 6px; margin: 8px 12px; padding: 8px 10px; border: 1px solid var(--theme-borderColor, #3a4a52); border-left: 4px solid #e0b15b; border-radius: 8px; background: color-mix(in srgb, #e0b15b 12%, transparent); }
+.agent-readonly-banner[hidden] { display: none; }
+.agent-readonly-banner p { margin: 0; font-size: 12px; }
+.agent-readonly-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+
+#app .agent-chat-normal .chat-message.chat-marker,
+#app .agent-chat-normal .chat-message.chat-summary { border-left: 3px solid var(--theme-accentColor, #b5f268); }
+
+.monitor .agent-meta .agent-provider-button { max-width: 72px; padding: 1px 4px; }
+
+@media (max-width: 720px) {
+  .agent-history-sidecar:not([hidden]) { position: absolute; z-index: 6; inset: 0 auto 0 0; width: min(300px, 88%); box-shadow: 8px 0 24px #0008; }
+}
