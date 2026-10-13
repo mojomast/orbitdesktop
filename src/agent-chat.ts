@@ -22,6 +22,7 @@ import { createConversationDraft } from './conversation-draft';
 import { conversationRequest } from './conversation-client';
 import { registerConversationRecipient, type ConversationRecipientHandle } from './conversation-transfer';
 import { completeResultActions } from './interactive-result-delivery';
+import { mountSharedAgents } from './shared-agents';
 
 import { archiveChat, validChat, transcript, chatProfileId, chatBindingKey, type ChatState } from './chat-storage';
 export function createAgentChat(body: HTMLElement, paneId: string, getToken: () => string, toolbar?: HTMLElement) {
@@ -450,7 +451,8 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   };
   const activityButton = button('Ready','Show live tool details',onActivityAction,'small-button');
   const conversations = button('History', 'Open recent Hermes conversations', () => openTools(), 'small-button');
-  strip.append(newChat, conversations, inlineTools.toggle, activityButton);
+  const sharedAgentsButton = button('Shared agents', 'Open the shared Hermes and Grok Bot conversation', () => setShared(true), 'small-button');
+  strip.append(newChat, sharedAgentsButton, conversations, inlineTools.toggle, activityButton);
   // Shown only when this pane's stored mode is Workbench while the experimental
   // surface is off. Normal chat remains fully usable here and the preference is
   // restored when the owner enables the feature.
@@ -818,8 +820,19 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   // DOM is hidden by attribute, so the same nodes, session, draft and queue persist.
   // While Project Workbench is disabled the stored preference above is retained
   // and only the rendered view falls back to Normal.
+  let sharedOpen = false;
+  let sharedView: ReturnType<typeof mountSharedAgents> | undefined;
+  function setShared(open: boolean) {
+    sharedOpen = open;
+    sharedView?.setVisible(open);
+    if (open) {
+      chatNormal.hidden = true;
+      workbenchHost.hidden = true;
+    } else if (!disposed) setMode(paneMode, false);
+  }
   function setMode(next: PaneMode, persist = true) {
     if (disposed) return;
+    if (sharedOpen) { sharedOpen = false; sharedView?.setVisible(false); }
     paneMode = next;
     if (persist) panePrefs = writePanePrefs(workspaceId, paneId, { mode: next });
     const view = activeMode();
@@ -1020,7 +1033,12 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   form.onsubmit = e => { e.preventDefault(); void submit(); };
   input.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); void submit(); } };
   chatNormal.append(strip, experimentalNotice, inlineTools.root, messages, messageRenderer.latest, taskCards, syncNotice, progress, historyRecovery, approvals, unknownAction, controls, queueList, draftStatus, form);
-  body.append(chatNormal, workbenchHost);
+  sharedView = mountSharedAgents({
+    request: payload => api({ action: 'shared_agents', ...payload }, scope(), true),
+    onClose: () => setShared(false),
+  });
+  sharedView.element.hidden = true;
+  body.append(chatNormal, workbenchHost, sharedView.element);
   if (toolbar) {
     toolbar.classList.add('agent-pane-head');
     badge.classList.add('agent-toolbar-meta');
@@ -1164,5 +1182,5 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     progress.textContent = 'A saved run may still be active. Connect host to check its status. Closing the pane does not stop Hermes.';
     if (getToken()) void poll();
   }
-  return () => { messageRenderer.dispose(); saveDraft(); durableDraft?.dispose(); disposed = true; conversationRecipient?.dispose(); generation++; unsubscribeExperimental(); statusObserver.disconnect(); activity.dispose(); clearInterval(sharedTimer); stopToolFeed(); inlineTools.dispose(); workbench?.dispose(); timeline.dispose(); workbenchTimeline.dispose(); inspector.dispose(); overflowMenu.remove(); toolsDialog?.close(); liveController?.abort(); clearTimeout(timer); controller.abort(); document.removeEventListener('pointerdown', onOutsideMenu); window.removeEventListener('orbit-host-connected', onUnlock); window.removeEventListener('orbit-open-hermes-tools', onOpenTools); window.removeEventListener('orbit-open-conversation-library',onOpenLibrary);window.removeEventListener('orbit-select-conversation',onSelectConversation);window.removeEventListener('pagehide',flushDraft); };
+  return () => { messageRenderer.dispose(); saveDraft(); durableDraft?.dispose(); disposed = true; conversationRecipient?.dispose(); generation++; unsubscribeExperimental(); statusObserver.disconnect(); activity.dispose(); clearInterval(sharedTimer); stopToolFeed(); inlineTools.dispose(); workbench?.dispose(); sharedView?.dispose(); timeline.dispose(); workbenchTimeline.dispose(); inspector.dispose(); overflowMenu.remove(); toolsDialog?.close(); liveController?.abort(); clearTimeout(timer); controller.abort(); document.removeEventListener('pointerdown', onOutsideMenu); window.removeEventListener('orbit-host-connected', onUnlock); window.removeEventListener('orbit-open-hermes-tools', onOpenTools); window.removeEventListener('orbit-open-conversation-library',onOpenLibrary);window.removeEventListener('orbit-select-conversation',onSelectConversation);window.removeEventListener('pagehide',flushDraft); };
 }

@@ -76,6 +76,8 @@ updates. New output follows automatically only near the bottom; otherwise a
 whole messages and fenced code. Formatting is intentionally bounded to paragraphs,
 code fences and safe links; generated HTML stays literal text.
 
+An agent chat pane’s **Shared agents** button opens one transcript where the owner, Hermes, and Grok Bot take turns. Auto-alternate stops after the selected reply limit. See [Grok Bot](GROK.md#shared-agents).
+
 History opens the conversation library over the existing Hermes profile/session
 catalog. The next feature round adds host-backed drafts and private Orbit
 names/pins/archive flags without duplicating transcripts. See

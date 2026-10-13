@@ -755,5 +755,62 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
     });
   }
 
-  return { sessionPage, selectSession, turn, control, surface, events };
+  const sharedAgentName = 'Orbit shared chat';
+
+  async function ensureSharedAgent(profile, currentId) {
+    if (validSessionId(currentId)) {
+      try {
+        const agents = await command(profile, 'listAgents', {});
+        const found = (Array.isArray(agents) ? agents : []).find(agent => agent && agent.id === currentId && agent.name === sharedAgentName);
+        if (found) return found.id;
+      } catch (error) { if (error.status !== 404) throw error; }
+    }
+    const created = await command(profile, 'createAgent', {
+      name: sharedAgentName,
+      description: 'Shared Orbit pane. Not the owner’s main Grok Bot conversation.',
+      isIntroductionSuppressed: true,
+    });
+    const id = created?.agent?.id;
+    if (!validSessionId(id)) throw fail('Grok Bot did not return a usable shared conversation id.');
+    return id;
+  }
+
+  async function startSharedPrompt(profile, agentId, prompt) {
+    const baseline = await transcriptBaseline(profile, agentId);
+    const nonce = randomUUID();
+    const accepted = await command(profile, 'sendPrompt', { prompt, agentId, clientNonce: nonce });
+    if (!accepted || accepted.accepted !== true) throw fail('Grok Bot did not accept the shared message.');
+    return { nonce, baseline, started: now(), agentId };
+  }
+
+  async function pollSharedPrompt(profile, run, timeoutMs = 3 * 60 * 1000) {
+    let acceptance = null;
+    try {
+      acceptance = await command(profile, 'promptAcceptanceStatus', { accountSlot: 'host', clientNonce: run.nonce, agentId: run.agentId });
+    } catch (error) { if (error.status !== 404) throw error; }
+    let entries = [];
+    try {
+      const tail = await command(profile, 'getAgentTranscriptTail', { id: run.agentId, limit: 80 });
+      entries = entriesOf(tail);
+    } catch (error) { if (error.status !== 404) throw error; }
+    const output = repliesAfter(entries, run.baseline).slice(0, 16000);
+    if (acceptance?.outcome === 'found' && acceptance.record?.status === 'rejected' && !output) return { status: 'failed', output: '', error: 'Grok Bot rejected the shared message.' };
+    if (output) return { status: 'completed', output };
+    const age = now() - (Number(run.started) || 0);
+    if (age >= timeoutMs) return { status: 'failed', output: '', error: 'Grok Bot did not reply before the shared-turn time limit.' };
+    let agents = [];
+    try { agents = await command(profile, 'listAgents', {}); } catch (error) { if (error.status !== 404) throw error; }
+    const agent = Array.isArray(agents) ? agents.find(item => item && item.id === run.agentId) : null;
+    const pending = acceptance?.outcome === 'found' && acceptance.record?.status === 'pending';
+    const missing = !acceptance || acceptance.outcome === 'not-found' || acceptance.outcome === 'unknown-durability';
+    if (pending || (missing && age < acceptanceGraceMs)) return { status: 'running', output: '' };
+    if (approvalFrom(agent, entries)) return { status: 'waiting_for_approval', output: '', error: 'Grok Bot is waiting for a tool approval. Stop this turn or resolve it from a Grok Bot chat.' };
+    return { status: 'running', output: '' };
+  }
+
+  async function stopSharedPrompt(profile, agentId) {
+    await command(profile, 'interruptAgentRun', { id: agentId });
+  }
+
+  return { sessionPage, selectSession, turn, control, surface, events, ensureSharedAgent, startSharedPrompt, pollSharedPrompt, stopSharedPrompt };
 }

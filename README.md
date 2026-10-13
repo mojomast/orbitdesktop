@@ -404,6 +404,8 @@ Hermes remains the default chat provider. When `HERMES_API_URL`, `HERMES_API_KEY
 
 Grok Bot is a second profile. It appears when this computer has a Grok Bot gateway (`gateway.json` under the agent data directory, including `/home/box/agent-data`) or when `GROK_BOT_API_URL` and `GROK_BOT_API_KEY` are set. In the agent pane, choose **Grok Bot**, then New conversation or an existing bot. The host already selected the model; `GROK_BOT_MODEL` is only a label. See [docs/GROK.md](docs/GROK.md).
 
+In an agent chat pane, **Shared agents** opens one transcript where the owner, Hermes, and Grok Bot take turns. Grok Bot speaks there as a separate Orbit shared chat, not the main Grok Bot conversation. See [docs/GROK.md](docs/GROK.md).
+
 Project Workbench and the build queue stay on Hermes. Jobs, the skills and tool catalog, tool approvals, follow-up guidance, tool activity, and the live event stream use the Grok Bot gateway when that profile is selected. They do not fall through to Hermes. Limits, including no Hermes in-turn steer and no automation delivery or skills, are listed in [docs/GROK.md](docs/GROK.md).
 
 ## Serve Orbit on a Linux tailnet

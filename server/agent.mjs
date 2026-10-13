@@ -9,6 +9,7 @@ import { createBuildQueue } from './build-queue.mjs';
 import { createAgentProfiles, validSessionId, sanitizeSessions, sanitizeHistory } from './agent-profiles.mjs';
 import { attachProviders } from './agent-discovery.mjs';
 import { createGrokChat } from './grok-chat.mjs';
+import { createSharedAgents } from './shared-agents.mjs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -32,6 +33,21 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
     ...(typeof grokOptions.now === 'function' ? { now: grokOptions.now } : {}),
     ...(Number.isFinite(grokOptions.acceptanceGraceMs) ? { acceptanceGraceMs: grokOptions.acceptanceGraceMs } : {}),
     ...(Number.isFinite(grokOptions.runTimeoutMs) ? { runTimeoutMs: grokOptions.runTimeoutMs } : {}),
+  });
+  const sharedAgents = createSharedAgents({
+    directory: path.join(runtimeDirectory, 'shared-agents'),
+    fetchImpl,
+    grok,
+    now: typeof grokOptions.now === 'function' ? grokOptions.now : undefined,
+    hermesProfile: () => {
+      const profile = configuration?.get('default');
+      return profile && profile.provider !== 'grok' ? profile : null;
+    },
+    grokProfile: () => {
+      const listed = configuration?.list?.find(profile => profile.provider === 'grok');
+      const profile = listed ? configuration.get(listed.id) : null;
+      return profile?.apiUrl && profile?.apiKey ? profile : null;
+    },
   });
   const endpoint = (profile, route) => `${profile.apiUrl.replace(/\/$/, '')}${route}`;
   // Bounded upstream JSON: read the real byte stream with a hard cap, cancel on
@@ -205,6 +221,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
         if(shared.locks.has(candidateLock)) return reply(res,409,{error:'This pane is busy; retry shortly.'});
         paneLock = candidateLock;
         shared.locks.add(paneLock);
+        if (body.action === 'shared_agents') return sharedAgents.handle(reply, res, body);
         if (body.action === 'sessions') {
           const target = configuration.get(body.target_profile_id);
           if (!target) return reply(res,400,{error:'Unknown Hermes profile.'});

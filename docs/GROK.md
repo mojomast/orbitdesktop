@@ -68,6 +68,12 @@ These use the Grok Bot gateway when the Grok Bot profile is selected. Orbit does
 | Mid-run guidance | Another `sendPrompt` on the same bot, with a new nonce | This is a follow-up prompt, not Hermes in-turn steer. The open Orbit run still completes from the next assistant text. |
 | Live activity | `GET /events` with the gateway bearer token | Capabilities report `run_events_sse: true`. Payloads that name a different `agentId` are dropped. Events with no `agentId` are forwarded. This is the host event feed, not a per-run Hermes transcript, and it does not replay history. |
 
+## Shared agents
+
+An agent chat pane has a **Shared agents** button. It opens one transcript for that pane. Each line is labeled Owner, Hermes, or Grok Bot. The owner can post while an agent is replying. **Let them speak** asks the selected agent to answer. **Auto-alternate** lets them take turns, up to the limit of 1–8 agent replies, then pauses. **Pause** finishes the current reply and does not start the next. **Resume** continues with whoever is next. **Stop** interrupts the current reply and pauses auto-alternate. **Back to this chat** returns to the single-agent conversation.
+
+Hermes uses its own Orbit session for this pane. Grok Bot uses a separate agent named **Orbit shared chat**. That is not the owner’s main Grok Bot conversation and it is not reused by New conversation. Each speaker receives the recent shared transcript and is told who the other participant is. A failure from either side is a message in the transcript. The record is stored under the Orbit runtime directory in `shared-agents` and does not include gateway tokens. Closing the view stops scheduling the next turn; an in-flight reply is recorded on the next open. Tool approvals stay in the single-agent chats. Project Workbench stays on Hermes.
+
 ## Together with Hermes
 
 Leave Hermes unset and Orbit uses `~/.hermes` as the default profile. See [HERMES.md](HERMES.md). Grok Bot is an extra choice in the same menu. To serve the desktop on a tailnet, set `ORBIT_HOST=0.0.0.0` and `ORBIT_PUBLIC_ORIGIN` as described in the README.
