@@ -5,6 +5,7 @@ The agent chat header switches Hermes and Grok Bot per pane, lists earlier sessi
 ## What other tools do
 
 - Claude Code shows a context indicator and `/compact`, and auto-compacts near the window. Source: [Claude Code compact](https://code.claude.com/docs/en/compact).
+- Codex CLI summarizes with `/compact` after a confirmation, and can auto-compact from a token threshold. Orbit keeps the confirmation and only suggests compacting at 80%. Source: [Codex CLI slash commands](https://developers.openai.com/codex/cli/slash-commands).
 - Cursor keeps a model picker on the chat and treats the model as bound to the conversation. Source: [Cursor models](https://cursor.com/docs/models).
 - OpenCode compacts with headroom rather than waiting until the window is full. Source: [OpenCode compact](https://opencode.ai/docs/commands/).
 - Open WebUI and LibreChat put previous chats in a searchable sidebar grouped by date. Source: [Open WebUI chats](https://docs.openwebui.com/features/chat-conversations/).
