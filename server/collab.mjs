@@ -2,6 +2,9 @@ import fs from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { createCollabStore, mintCollabId } from './collab-store.mjs';
+import {
+  DEFAULT_SUBAGENT_LIMITS, addWorktree, admitSpawn, copyOwnedFiles, mergeBlocked, mergeBranch, parseOrchestratorOp, projectedCost, removeWorktree, spanData, subagentPrompt,
+} from './collab-orchestrator.mjs';
 
 const AGENTS = ['hermes', 'grok'];
 const ROLES = ['planner', 'executor', 'reviewer', 'researcher'];
@@ -18,7 +21,7 @@ const DEFAULT_TURN_TIMEOUT_MS = 20 * 60 * 1000;
 const DEFAULT_ADVANCE_INTERVAL_MS = 15 * 1000;
 const labels = { hermes: 'Hermes', grok: 'Grok Bot', kyle: 'Kyle', orbit: 'Orbit' };
 
-const OPS = ['plan', 'claim', 'artifact.put', 'handoff', 'submit', 'review', 'ask', 'decision', 'run-tests', 'workspace.sync', 'shell'];
+const OPS = ['plan', 'replan', 'assign', 'spawn', 'merge', 'status', 'claim', 'artifact.put', 'handoff', 'submit', 'review', 'ask', 'decision', 'run-tests', 'workspace.sync', 'shell'];
 const TEST_PREFIXES = [
   ['npm', 'test'],
   ['npm', 'run', 'test'],
@@ -46,7 +49,8 @@ Allowed ops are ${OPS.join(', ')}. A task reviewer must be the other agent, neve
 artifact.put names may be relative paths such as src/app.js. kind is file, note, or test. baseVersion is the version you last read, or 0 for a new name. If Orbit says the version moved, read it again before writing.
 run-tests runs one allowlisted command in the project workspace and stores the output as test-results.txt: npm test, npm run test, pnpm test, yarn test, pytest, python -m pytest, python3 -m pytest, or node --test. Extra arguments must be plain tokens.
 shell runs in that same workspace. pwd, ls, git status, git diff, git log, and the run-tests commands run immediately when every extra argument is a plain token. Any other command needs risk "shell.write". Orbit then waits for Kyle and runs it with sh -c. That approval is the control; sh -c is not a sandbox. Output is stored as shell-output.txt. workspace.sync indexes text files written in the workspace after either agent's turn.
-workspace.sync indexes files written in the workspace. Both agents can use artifact.put and shell.`;
+workspace.sync indexes files written in the workspace. Both agents can use artifact.put and shell.
+The orchestrator may replan, assign, spawn, merge, and status. spawn defaults to mode tool: the worker returns a summary and artifact paths. mode handoff is only when Kyle should talk to that agent, and audience must be kyle. A spawn brief needs objective, deliverable, acceptance, tools, scope, budget {turns, minutes}, and returnFormat. effort is 1–4. effort above 1 waits until Kyle approves the projected cost. Do not push; Kyle approves a push separately.`;
 
 function artifactName(value) {
   const name = clean(value, 120);
@@ -207,8 +211,9 @@ function parseOp(raw) {
       const summary = clean(raw.summary, 4000);
       if (!summary) return { error: 'submit needs a summary.' };
       const artifacts = Array.isArray(raw.artifacts) ? raw.artifacts.map(item => clean(item, 40)).filter(item => /^a_[a-f0-9]{16}$/.test(item)).slice(0, 8) : [];
+      const paths = Array.isArray(raw.paths) ? raw.paths.map(item => clean(item, 120)).filter(Boolean).slice(0, 16) : [];
       const selfCheck = raw.selfCheck && typeof raw.selfCheck === 'object' && !Array.isArray(raw.selfCheck) ? raw.selfCheck : {};
-      return { op: { op, taskId, summary, artifacts, selfCheck } };
+      return { op: { op, taskId, summary, artifacts, paths, selfCheck } };
     }
     if (op === 'review') {
       if (!['approve', 'changes'].includes(raw.verdict)) return { error: 'review.verdict must be approve or changes.' };
@@ -243,6 +248,12 @@ function parseOp(raw) {
     if (!parseTestCommand(command)) return { error: 'run-tests accepts npm test, npm run test, pnpm test, yarn test, pytest, python -m pytest, python3 -m pytest, or node --test. Extra arguments must be plain tokens with no shell syntax.' };
     return { op: { op, taskId, command } };
   }
+  if (op === 'replan') {
+    const planned = parseOp({ op: 'plan', tasks: raw.tasks });
+    if (planned.error) return { error: planned.error };
+    return { op: { op: 'replan', tasks: planned.op.tasks } };
+  }
+  if (op === 'assign' || op === 'spawn' || op === 'merge' || op === 'status') return parseOrchestratorOp(raw);
   if (op === 'artifact.put') {
     const name = artifactName(raw.name);
     if (!name) return { error: 'artifact.put needs a relative file name such as notes.md or src/app.js. Names cannot contain .. or an absolute path.' };
@@ -351,6 +362,40 @@ export function createCollab({ directory, gateways, now = () => Date.now(), adva
     return project.runs;
   }
 
+  function ensureOrchestration(project) {
+    ensureRuns(project);
+    if (!Array.isArray(project.subagents)) project.subagents = [];
+    if (!Array.isArray(project.subagentRuns)) project.subagentRuns = [];
+    const limits = project.subagentLimits && typeof project.subagentLimits === 'object' ? project.subagentLimits : {};
+    const maxConcurrent = Number.isInteger(limits.maxConcurrent) && limits.maxConcurrent >= 1 && limits.maxConcurrent <= 4 ? limits.maxConcurrent : DEFAULT_SUBAGENT_LIMITS.maxConcurrent;
+    const maxDepth = limits.maxDepth === 2 ? 2 : DEFAULT_SUBAGENT_LIMITS.maxDepth;
+    project.subagentLimits = { maxConcurrent, maxDepth };
+    if (project.orchestrator !== 'hermes' && project.orchestrator !== 'grok') {
+      project.orchestrator = chooseAgent('planner', [], project.capabilities || defaultCapabilities());
+      project.orchestratorSource = 'auto';
+    }
+    if (project.orchestratorSource !== 'hermes' && project.orchestratorSource !== 'grok') project.orchestratorSource = 'auto';
+    return project;
+  }
+
+  function subagentById(project, id) {
+    return (project.subagents || []).find(item => item.id === id) || null;
+  }
+
+  function parentChain(project, parentSubagentId) {
+    const chain = [];
+    let cursor = parentSubagentId;
+    const seen = new Set();
+    while (cursor && !seen.has(cursor)) {
+      seen.add(cursor);
+      const node = subagentById(project, cursor);
+      if (!node) break;
+      chain.push(node);
+      cursor = node.parentSubagentId;
+    }
+    return chain;
+  }
+
   function busyTaskIds(project) {
     const runs = ensureRuns(project);
     return new Set(AGENTS.map(agent => runs[agent]?.taskId).filter(Boolean));
@@ -364,6 +409,19 @@ export function createCollab({ directory, gateways, now = () => Date.now(), adva
       try { await gateways.stopSpeaker(run); }
       catch (error) { event(bundle, 'error', { actor: agent, data: { message: error?.message || 'Stop failed.' } }); }
       runs[agent] = null;
+    }
+    ensureOrchestration(bundle.project);
+    for (const run of [...bundle.project.subagentRuns]) {
+      try { await gateways.stopSpeaker(run); }
+      catch (error) { event(bundle, 'error', { actor: run.speaker, data: { message: error?.message || 'Stop failed.' } }); }
+    }
+    bundle.project.subagentRuns = [];
+    for (const sub of bundle.project.subagents) {
+      if (!['running', 'pending-approval', 'waiting-for-kyle', 'ready-for-kyle'].includes(sub.status)) continue;
+      sub.status = 'canceled';
+      removeWorktree(bundle.project.workspace, sub);
+      await archiveSubagent(bundle, sub);
+      event(bundle, 'subagent.canceled', { actor: 'orbit', taskId: sub.taskId, data: { subagentId: sub.id, reason: 'The project stopped.' } });
     }
   }
 
@@ -440,7 +498,7 @@ export function createCollab({ directory, gateways, now = () => Date.now(), adva
   }
 
   function packet(bundle, speaker, task) {
-    const project = bundle.project;
+    const project = ensureOrchestration(bundle.project);
     const budget = project.budget;
     const wallMin = Math.max(1, Math.round(budget.maxWallMs / 60000));
     const spentMin = Math.max(0, Math.round((now() - project.createdAt) / 60000));
@@ -472,6 +530,9 @@ ${project.memory.summary || '(none yet)'}
 Decisions:
 ${decisions || '(none yet)'}
 Your role this turn: ${turnRole} as ${labels[speaker]}
+Orchestrator: ${labels[project.orchestrator] || project.orchestrator}. ${speaker === project.orchestrator ? 'You are the orchestrator. Decompose, schedule, replan on failure, merge, and post status for Kyle. Workers are agents-as-tools unless Kyle should talk to them.' : 'The orchestrator schedules and merges. You still own only your task.'}
+Subagents: at most ${project.subagentLimits?.maxConcurrent || 3} running per agent, depth cap ${project.subagentLimits?.maxDepth || 1}. A coding subagent gets its own worktree and disjoint files.
+${(project.subagents || []).length ? `Current subagents:\n${project.subagents.map(item => `- ${item.id} ${item.name} (${item.status}) on ${item.taskId} files ${(item.files || []).join(', ') || 'none'}`).join('\n')}` : 'Current subagents: none.'}
 Capabilities: Hermes (${project.capabilities.hermes.skills.join(', ')}); Grok Bot (${project.capabilities.grok.skills.join(', ')})
 Workspace directory: ${project.workspace || '(not ready)'}
 Both agents can read and write that directory. Read-only shell commands run immediately. Other shell commands wait for Kyle when they include risk "shell.write". Orbit indexes workspace files after either agent's turn and when workspace.sync runs. Either agent can use artifact.put and run-tests there.
@@ -701,6 +762,7 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
   }
 
   function checkOps(bundle, speaker, ops) {
+    ensureOrchestration(bundle.project);
     const open = bundle.tasks.filter(task => !['canceled', 'failed'].includes(task.status));
     for (const op of ops) {
       if (op.op === 'plan') {
@@ -708,6 +770,48 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
         continue;
       }
       if (op.op === 'decision') continue;
+      if (op.op === 'status' || op.op === 'replan') {
+        if (speaker !== bundle.project.orchestrator) return 'Only the orchestrator can do that.';
+        continue;
+      }
+      if (op.op === 'assign' || op.op === 'merge' || op.op === 'spawn') {
+        const task = taskById(bundle, op.taskId);
+        if (!task) return 'That task is not on the board.';
+        if (op.op === 'assign' || op.op === 'merge') {
+          if (speaker !== bundle.project.orchestrator) return 'Only the orchestrator can do that.';
+          if (op.op === 'assign' && ['completed', 'failed', 'canceled'].includes(task.status)) return 'That task is already finished.';
+          if (op.op === 'assign' && busyTaskIds(bundle.project).has(task.id)) return 'That task is in a turn.';
+          if (op.op === 'merge') {
+            const sub = subagentById(bundle.project, op.subagentId);
+            if (!sub || sub.taskId !== task.id) return 'That subagent is not on this task.';
+            if (sub.status !== 'completed' || sub.merged) return 'Merge a completed subagent that is not merged yet.';
+            const blocked = mergeBlocked(sub, bundle.project.subagents, bundle.tasks);
+            if (blocked) return blocked;
+          }
+          continue;
+        }
+        if (speaker !== task.owner && speaker !== bundle.project.orchestrator) return 'Only the task owner or the orchestrator can spawn.';
+        if (!['submitted', 'working', 'review'].includes(task.status)) return 'That task cannot take a subagent now.';
+        const parentId = '';
+        const chain = parentChain(bundle.project, parentId);
+        const depth = chain.length + 1;
+        const admission = admitSpawn({
+          limits: bundle.project.subagentLimits,
+          parent: speaker,
+          active: bundle.project.subagents,
+          effort: op.effort,
+          files: op.files,
+          depth,
+          objective: op.brief.objective,
+          taskId: task.id,
+          chain,
+        });
+        if (admission) return admission;
+        const remaining = bundle.project.budget.maxTurns - bundle.project.budget.spentTurns;
+        const cost = projectedCost(op.effort, op.brief.budget);
+        if (cost.turns > remaining) return `${cost.text} ${remaining} remain.`;
+        continue;
+      }
       const task = taskById(bundle, op.taskId);
       if (!task) return 'That task is not on the board.';
       if (op.op === 'review') {
@@ -737,6 +841,411 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
     return '';
   }
 
+  async function archiveSubagent(bundle, sub) {
+    if (!sub || sub.provider !== 'grok' || !sub.agentId || sub.archived) return;
+    if (typeof gateways.archiveSubagent !== 'function') return;
+    try {
+      const result = await gateways.archiveSubagent(sub);
+      sub.archived = result?.archived === true;
+      event(bundle, 'subagent.archived', { actor: sub.provider, taskId: sub.taskId, data: { subagentId: sub.id, archived: sub.archived, note: result?.note || '' } });
+    } catch (error) {
+      event(bundle, 'error', { actor: sub.provider, taskId: sub.taskId, data: { message: error?.message || 'Subagent archive failed.', subagentId: sub.id } });
+    }
+  }
+
+  function dropSubagentRun(project, runId) {
+    project.subagentRuns = (project.subagentRuns || []).filter(item => item.runId !== runId);
+  }
+
+  async function failSubagent(bundle, sub, message) {
+    sub.attempts += 1;
+    sub.lastError = clean(message, 500);
+    dropSubagentRun(bundle.project, sub.runId);
+    event(bundle, 'span', {
+      actor: sub.provider, taskId: sub.taskId,
+      data: spanData({ name: 'subagent', spanId: sub.spanId, parentSpanId: sub.parentSubagentId, agent: sub.provider, status: 'error', startedAt: sub.createdAt, endedAt: now(), summary: sub.lastError }),
+    });
+    if (sub.attempts < 2) {
+      event(bundle, 'subagent.retry', { actor: 'orbit', taskId: sub.taskId, data: { subagentId: sub.id, reason: sub.lastError } });
+      await startSubagentTurn(bundle, sub);
+      return;
+    }
+    if (!sub.rerouted) {
+      sub.status = 'failed';
+      await archiveSubagent(bundle, sub);
+      event(bundle, 'subagent.reroute', { actor: 'orbit', taskId: sub.taskId, data: { subagentId: sub.id, to: other(sub.provider), reason: sub.lastError } });
+      const replacement = {
+        ...sub,
+        id: mintCollabId('s'),
+        parent: other(sub.provider),
+        provider: other(sub.provider),
+        attempts: 0,
+        rerouted: true,
+        status: 'pending-approval',
+        sessionId: '',
+        agentId: '',
+        archived: false,
+        spentTurns: 0,
+        spentTokens: 0,
+        transcript: [],
+        spanId: mintCollabId('span'),
+        lastError: '',
+        runId: '',
+        result: null,
+        merged: false,
+        createdAt: now(),
+      };
+      const placed = addWorktree(bundle.project.workspace, replacement.id);
+      replacement.branch = placed.branch;
+      replacement.worktree = placed.worktree;
+      replacement.isolated = placed.isolated;
+      replacement.worktreeNote = placed.note;
+      bundle.project.subagents.push(replacement);
+      await startSubagentTurn(bundle, replacement);
+      return;
+    }
+    sub.status = 'failed';
+    await archiveSubagent(bundle, sub);
+    bundle.project.activity = `Subagent ${sub.name} failed. ${sub.lastError}`;
+    event(bundle, 'subagent.failed', { actor: 'orbit', taskId: sub.taskId, data: { subagentId: sub.id, reason: sub.lastError } });
+  }
+
+  async function startSubagentTurn(bundle, sub) {
+    ensureOrchestration(bundle.project);
+    if (budgetBlocked(bundle)) {
+      sub.status = 'failed';
+      sub.lastError = 'Project budget is spent.';
+      event(bundle, 'subagent.failed', { actor: 'orbit', taskId: sub.taskId, data: { subagentId: sub.id, reason: sub.lastError } });
+      return;
+    }
+    if (sub.spentTurns >= sub.brief.budget.turns) {
+      await failSubagent(bundle, sub, 'Subagent turn budget is spent.');
+      return;
+    }
+    const task = taskById(bundle, sub.taskId);
+    const prompt = subagentPrompt({
+      goal: bundle.project.goal,
+      task: task || { id: sub.taskId, title: sub.name, spec: '' },
+      brief: sub.brief,
+      worktree: sub.worktree,
+      isolated: sub.isolated,
+    });
+    sub.transcript = [...(sub.transcript || []), { role: 'user', text: prompt.slice(0, 4000) }];
+    try {
+      const started = await gateways.startSubagent({
+        speaker: sub.provider,
+        prompt,
+        instructions: 'You are an Orbit Collab subagent. Reply with one collab block. Do not push.',
+        name: sub.name,
+        parentSession: sub.provider === 'hermes' ? bundle.project.hermesSession : '',
+        worktree: sub.worktree,
+        files: sub.files,
+        hold: false,
+      });
+      sub.agentId = started.agentId || sub.agentId || '';
+      sub.sessionId = started.sessionId || sub.sessionId || '';
+      sub.strategy = started.strategy || '';
+      sub.status = 'running';
+      sub.runId = started.runId;
+      sub.spentTurns += 1;
+      bundle.project.budget.spentTurns += 1;
+      if (started.tokens) {
+        bundle.project.budget.spentTokens += started.tokens;
+        sub.spentTokens += started.tokens;
+      }
+      bundle.project.subagentRuns.push({
+        subagentId: sub.id,
+        speaker: sub.provider,
+        taskId: sub.taskId,
+        kind: 'subagent',
+        runId: started.runId,
+        started: started.started || now(),
+        timeoutMs: Math.min(30 * 60 * 1000, Math.max(1000, sub.brief.budget.minutes * 60 * 1000)),
+        ...(started.nonce ? { nonce: started.nonce, baseline: started.baseline, agentId: started.agentId } : {}),
+        ...(started.agentId ? { agentId: started.agentId } : {}),
+      });
+      event(bundle, 'span', {
+        actor: sub.provider, taskId: sub.taskId,
+        data: spanData({ name: 'subagent', spanId: sub.spanId, parentSpanId: sub.parentSubagentId, agent: `${sub.provider}:${sub.name}`, status: 'start', startedAt: now(), summary: sub.brief.objective }),
+      });
+      event(bundle, 'subagent.started', { actor: sub.provider, taskId: sub.taskId, data: { subagentId: sub.id, strategy: sub.strategy, worktree: sub.worktree, branch: sub.branch } });
+    } catch (error) {
+      await failSubagent(bundle, sub, error?.message || 'The subagent could not start.');
+    }
+  }
+
+  async function openHeldSubagent(bundle, sub) {
+    if (typeof gateways.startSubagent !== 'function') return;
+    const started = await gateways.startSubagent({
+      speaker: sub.provider,
+      prompt: '',
+      instructions: '',
+      name: sub.name,
+      parentSession: sub.provider === 'hermes' ? bundle.project.hermesSession : '',
+      hold: true,
+    });
+    sub.agentId = started.agentId || '';
+    sub.sessionId = started.sessionId || '';
+    sub.strategy = started.strategy || '';
+    sub.status = 'ready-for-kyle';
+    event(bundle, 'subagent.ready', { actor: sub.provider, taskId: sub.taskId, data: { subagentId: sub.id, sessionId: sub.sessionId, agentId: sub.agentId } });
+  }
+
+  async function applySpawn(bundle, speaker, op, { parentSubagentId = '' } = {}) {
+    ensureOrchestration(bundle.project);
+    const task = taskById(bundle, op.taskId);
+    if (!task) return 'That task is not on the board.';
+    if (!['submitted', 'working', 'review'].includes(task.status)) return 'That task cannot take a subagent now.';
+    const chain = parentChain(bundle.project, parentSubagentId);
+    const depth = chain.length + 1;
+    const admission = admitSpawn({
+      limits: bundle.project.subagentLimits,
+      parent: speaker,
+      active: bundle.project.subagents,
+      effort: op.effort,
+      files: op.files,
+      depth,
+      objective: op.brief.objective,
+      taskId: task.id,
+      chain,
+    });
+    if (admission) return admission;
+    const remaining = bundle.project.budget.maxTurns - bundle.project.budget.spentTurns;
+    const cost = projectedCost(op.effort, op.brief.budget);
+    if (cost.turns > remaining) return `${cost.text} ${remaining} remain.`;
+    const created = [];
+    for (let index = 0; index < op.effort; index += 1) {
+      const record = {
+        id: mintCollabId('s'),
+        name: op.effort > 1 ? `${op.name} ${index + 1}` : op.name,
+        parent: speaker,
+        parentSubagentId,
+        depth,
+        taskId: task.id,
+        status: 'pending-approval',
+        mode: op.mode,
+        audience: op.audience,
+        provider: speaker,
+        brief: op.brief,
+        files: [...op.files],
+        branch: '',
+        worktree: '',
+        isolated: false,
+        worktreeNote: '',
+        sessionId: '',
+        agentId: '',
+        strategy: '',
+        result: null,
+        attempts: 0,
+        rerouted: false,
+        merged: false,
+        archived: false,
+        spentTurns: 0,
+        spentTokens: 0,
+        transcript: [],
+        spanId: mintCollabId('span'),
+        lastError: '',
+        createdAt: now(),
+      };
+      const placed = addWorktree(bundle.project.workspace, record.id);
+      record.branch = placed.branch;
+      record.worktree = placed.worktree;
+      record.isolated = placed.isolated;
+      record.worktreeNote = placed.note;
+      bundle.project.subagents.push(record);
+      created.push(record);
+      event(bundle, 'subagent.spawned', { actor: speaker, taskId: task.id, data: { subagentId: record.id, name: record.name, effort: op.effort, mode: op.mode, files: record.files, projected: cost } });
+    }
+    if (op.mode === 'handoff' || op.effort > 1) {
+      bundle.project.gate = {
+        id: mintCollabId('g'),
+        type: op.mode === 'handoff' ? 'handoff' : 'scale',
+        summary: op.mode === 'handoff'
+          ? `Kyle should talk to ${op.name} directly. ${cost.text}`
+          : `Start ${op.effort} subagents for “${task.title}”? ${cost.text}`,
+        taskId: task.id,
+        op: { subagentIds: created.map(item => item.id) },
+      };
+      event(bundle, 'approval.requested', { actor: speaker, taskId: task.id, data: { type: bundle.project.gate.type, summary: bundle.project.gate.summary, projected: cost } });
+      bundle.project.activity = bundle.project.gate.summary;
+      return '';
+    }
+    await startSubagentTurn(bundle, created[0]);
+    return '';
+  }
+
+  function materializeReplan(bundle, tasks) {
+    const liveTitles = new Set(bundle.tasks.filter(task => !['canceled', 'failed'].includes(task.status)).map(task => task.title));
+    const assigned = [];
+    for (const task of tasks) {
+      if (liveTitles.has(task.title)) return `Task "${task.title}" is already on the board.`;
+      const next = assignTask(task, bundle.project.capabilities);
+      if (next.error) return next.error;
+      assigned.push(next);
+    }
+    if (new Set(assigned.map(task => task.title)).size !== assigned.length) return 'Planned task titles must be unique.';
+    const ids = new Map(assigned.map(task => [task.title, mintCollabId('t')]));
+    for (const task of assigned) {
+      for (const dep of task.dependsOn) {
+        const known = bundle.tasks.some(item => item.title === dep && !['canceled', 'failed'].includes(item.status));
+        if (!ids.has(dep) && !known && !taskById(bundle, dep)) return `Task "${task.title}" depends on unknown task "${dep}".`;
+      }
+    }
+    const titleToId = new Map(bundle.tasks.filter(task => !['canceled', 'failed'].includes(task.status)).map(task => [task.title, task.id]));
+    for (const [title, id] of ids) titleToId.set(title, id);
+    const created = [];
+    for (const task of assigned) {
+      const id = ids.get(task.title);
+      const record = {
+        id,
+        title: task.title,
+        spec: task.spec,
+        acceptance: task.acceptance,
+        dependsOn: task.dependsOn.map(dep => titleToId.get(dep) || dep),
+        owner: task.owner,
+        reviewer: task.reviewer,
+        role: task.role,
+        skillsHint: task.skillsHint,
+        risk: task.risk || '',
+        status: 'submitted',
+        attempts: 0,
+        reviewAttempts: 0,
+        maxAttempts: 2,
+        lease: null,
+        artifacts: [],
+        summary: '',
+        reviewNotes: '',
+        lastError: '',
+        selfCheck: {},
+        criteria: {},
+        createdAt: now(),
+      };
+      bundle.tasks.push(record);
+      created.push(id);
+      event(bundle, 'task.created', { taskId: id, data: { title: record.title, owner: record.owner, reviewer: record.reviewer, role: record.role, replan: true } });
+    }
+    bundle.project.gate = {
+      id: mintCollabId('g'),
+      type: 'replan',
+      summary: `Approve the revised plan (${created.length} new task${created.length === 1 ? '' : 's'}) before that work starts.`,
+      taskId: '',
+      op: { taskIds: created },
+    };
+    event(bundle, 'approval.requested', { data: { type: 'replan', summary: bundle.project.gate.summary } });
+    bundle.project.activity = bundle.project.gate.summary;
+    rewriteSummary(bundle);
+    return '';
+  }
+
+  async function applyMerge(bundle, op) {
+    const sub = subagentById(bundle.project, op.subagentId);
+    if (!sub || sub.status !== 'completed' || sub.merged) return 'Merge a completed subagent that is not merged yet.';
+    const blocked = mergeBlocked(sub, bundle.project.subagents, bundle.tasks);
+    if (blocked) return blocked;
+    const workspace = bundle.project.workspace;
+    let outcome = { merged: true, conflicts: [] };
+    if (sub.isolated && sub.branch) outcome = mergeBranch(workspace, sub.branch);
+    else copyOwnedFiles(workspace, sub);
+    if (!outcome.merged) {
+      for (const file of outcome.conflicts) {
+        const title = `Resolve ${file}`.slice(0, 200);
+        if (bundle.tasks.some(task => task.title === title && !['canceled', 'failed', 'completed'].includes(task.status))) continue;
+        const owner = bundle.project.orchestrator;
+        const record = {
+          id: mintCollabId('t'),
+          title,
+          spec: `Merge conflict in ${file} while merging ${sub.name}. One writer should produce a single version. Do not push until Kyle approves.`,
+          acceptance: [`${file} has a single resolved version.`],
+          dependsOn: [],
+          owner,
+          reviewer: other(owner),
+          role: 'executor',
+          skillsHint: ['code'],
+          risk: '',
+          status: 'submitted',
+          attempts: 0,
+          reviewAttempts: 0,
+          maxAttempts: 2,
+          lease: null,
+          artifacts: [],
+          summary: '',
+          reviewNotes: '',
+          lastError: '',
+          selfCheck: {},
+          criteria: {},
+          createdAt: now(),
+        };
+        bundle.tasks.push(record);
+        event(bundle, 'task.created', { taskId: record.id, data: { title, owner, reviewer: record.reviewer, role: 'executor', resolve: file } });
+      }
+      event(bundle, 'subagent.merge', { actor: bundle.project.orchestrator, taskId: sub.taskId, data: { subagentId: sub.id, conflicts: outcome.conflicts } });
+      bundle.project.activity = `Merge conflict in ${outcome.conflicts.join(', ') || sub.name}. A resolve task is on the board.`;
+      return '';
+    }
+    sub.merged = true;
+    sub.status = 'merged';
+    event(bundle, 'subagent.merged', { actor: bundle.project.orchestrator, taskId: sub.taskId, data: { subagentId: sub.id, branch: sub.branch, files: sub.files } });
+    return '';
+  }
+
+  async function finishSubagent(bundle, sub, run, output, tokens) {
+    dropSubagentRun(bundle.project, run.runId);
+    if (tokens) {
+      bundle.project.budget.spentTokens += tokens;
+      sub.spentTokens += tokens;
+    }
+    sub.transcript = [...(sub.transcript || []), { role: 'assistant', text: String(output || '').slice(0, 4000) }];
+    const parsed = parseCollabBlock(output);
+    if (!parsed.ok) return failSubagent(bundle, sub, parsed.error);
+    const submit = parsed.ops.find(item => item.op === 'submit');
+    if (!submit?.summary) return failSubagent(bundle, sub, 'A subagent must submit a summary and artifact paths.');
+    sub.result = { summary: submit.summary, paths: submit.paths || [], artifacts: submit.artifacts || [] };
+    sub.status = 'completed';
+    event(bundle, 'span', {
+      actor: sub.provider, taskId: sub.taskId,
+      data: spanData({ name: 'subagent', spanId: sub.spanId, parentSpanId: sub.parentSubagentId, agent: `${sub.provider}:${sub.name}`, status: 'ok', startedAt: sub.createdAt, endedAt: now(), summary: submit.summary.slice(0, 180) }),
+    });
+    event(bundle, 'subagent.completed', { actor: sub.provider, taskId: sub.taskId, data: { subagentId: sub.id, summary: submit.summary, paths: sub.result.paths } });
+    await archiveSubagent(bundle, sub);
+    for (const child of parsed.ops.filter(item => item.op === 'spawn')) {
+      const problem = await applySpawn(bundle, sub.provider, child, { parentSubagentId: sub.id });
+      if (problem) event(bundle, 'error', { actor: sub.provider, taskId: sub.taskId, data: { message: problem, subagentId: sub.id } });
+    }
+    return 'ok';
+  }
+
+  async function settleSubagent(bundle, run) {
+    const sub = subagentById(bundle.project, run.subagentId);
+    if (!sub) {
+      dropSubagentRun(bundle.project, run.runId);
+      return 'done';
+    }
+    const limit = Number(run.timeoutMs) || Math.min(turnTimeout, 30 * 60 * 1000);
+    if (run.started && now() - run.started > limit) {
+      try { await gateways.stopSpeaker(run); } catch { /* the failure still counts */ }
+      await failSubagent(bundle, sub, `${sub.name} did not finish within ${Math.max(1, Math.round(limit / 60000))} minutes.`);
+      return 'done';
+    }
+    let view;
+    try { view = await gateways.pollSpeaker(run); }
+    catch (error) {
+      await failSubagent(bundle, sub, error.message || 'The subagent could not be reached.');
+      return 'done';
+    }
+    if (view.status === 'running') return 'running';
+    if (view.status === 'waiting_for_approval') {
+      bundle.project.status = 'paused';
+      bundle.project.activity = view.error || `${sub.name} is waiting for a tool approval.`;
+      return 'waiting';
+    }
+    if (view.status === 'failed') {
+      await failSubagent(bundle, sub, view.error || 'The subagent failed.');
+      return 'done';
+    }
+    await finishSubagent(bundle, sub, run, view.output || '', view.tokens || 0);
+    return 'done';
+  }
+
   async function applyOps(bundle, speaker, ops) {
     for (const op of ops) {
       if (op.risk && bundle.project.policy.approve.includes(op.risk)) {
@@ -757,6 +1266,38 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
         bundle.project.memory.decisions = bundle.project.memory.decisions.slice(-40);
         event(bundle, 'decision', { actor: speaker, data: { text: op.text } });
         rewriteSummary(bundle);
+        continue;
+      }
+      if (op.op === 'status') {
+        bundle.project.activity = op.text;
+        event(bundle, 'status', { actor: speaker, data: { text: op.text, summary: op.text } });
+        continue;
+      }
+      if (op.op === 'replan') {
+        const error = materializeReplan(bundle, op.tasks);
+        if (error) throw fail(error, 400);
+        continue;
+      }
+      if (op.op === 'spawn') {
+        const error = await applySpawn(bundle, speaker, op);
+        if (error) throw fail(error, 400);
+        if (bundle.project.gate) return;
+        continue;
+      }
+      if (op.op === 'assign') {
+        const target = taskById(bundle, op.taskId);
+        if (!target) throw fail('That task is not on the board.', 400);
+        if (target.reviewer === op.to) target.reviewer = target.owner;
+        target.owner = op.to;
+        if (target.owner === target.reviewer) target.reviewer = other(target.owner);
+        target.status = target.status === 'working' ? 'submitted' : target.status;
+        target.lease = null;
+        event(bundle, 'handoff', { actor: speaker, taskId: target.id, data: { to: op.to, reason: op.reason, assign: true } });
+        continue;
+      }
+      if (op.op === 'merge') {
+        const error = await applyMerge(bundle, op);
+        if (error) throw fail(error, 400);
         continue;
       }
       const task = taskById(bundle, op.taskId);
@@ -995,6 +1536,7 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
   }
 
   async function advance(bundle) {
+    ensureOrchestration(bundle.project);
     for (const task of bundle.tasks) task.protocolHold = false;
     const defer = new Set();
     for (let step = 0; step < 12; step += 1) {
@@ -1010,6 +1552,14 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
         const next = ensureRuns(bundle.project)[agent];
         if (next && next.runId !== run.runId) replaced = true;
       }
+      const seenSubagents = new Set(bundle.project.subagentRuns.map(item => item.runId));
+      for (const run of [...bundle.project.subagentRuns]) {
+        if (!seenSubagents.has(run.runId)) continue;
+        if (!bundle.project.subagentRuns.some(item => item.runId === run.runId)) continue;
+        const outcome = await settleSubagent(bundle, run);
+        if (outcome === 'waiting') waiting = true;
+      }
+      if (bundle.project.subagentRuns.some(item => !seenSubagents.has(item.runId))) replaced = true;
       if (budgetBlocked(bundle, { warn: false }) && bundle.project.status === 'paused') return;
       if (waiting || bundle.project.gate) return;
       if (bundle.project.status !== 'active') return;
@@ -1047,6 +1597,11 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
       memory: { summary: '', decisions: [] },
       gate: null,
       runs: { hermes: null, grok: null },
+      orchestratorSource: body.orchestrator === 'hermes' || body.orchestrator === 'grok' ? body.orchestrator : 'auto',
+      orchestrator: body.orchestrator === 'hermes' || body.orchestrator === 'grok' ? body.orchestrator : chooseAgent('planner', [], defaultCapabilities()),
+      subagentLimits: { ...DEFAULT_SUBAGENT_LIMITS },
+      subagents: [],
+      subagentRuns: [],
       hermesSession: `orbit-${randomUUID()}`,
       grokAgentId: '',
       activity: 'Choosing who should draft the plan.',
@@ -1067,7 +1622,7 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
   async function resolveGate(bundle, choice, note) {
     const gate = bundle.project.gate;
     if (!gate) throw fail('Nothing is waiting for approval.', 409);
-    if (bundle.project.status === 'paused' && gate.type !== 'plan' && gate.type !== 'final' && gate.type !== 'ask' && gate.type !== 'risk') throw fail('Resume the project before resolving that gate.', 409);
+    if (bundle.project.status === 'paused' && !['plan', 'final', 'ask', 'risk', 'replan', 'scale', 'handoff'].includes(gate.type)) throw fail('Resume the project before resolving that gate.', 409);
     const text = clean(note, 2000);
     if (choice === 'approve' && gate.type === 'risk' && gate.op) {
       const taskId = gate.taskId;
@@ -1104,6 +1659,38 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
       } else {
         bundle.project.status = 'paused';
         bundle.project.activity = 'Kyle rejected the final result.';
+      }
+      return;
+    }
+    if (gate.type === 'replan') {
+      if (choice === 'reject') {
+        for (const id of gate.op?.taskIds || []) {
+          const task = taskById(bundle, id);
+          if (task && task.status === 'submitted') task.status = 'canceled';
+        }
+        bundle.project.activity = 'Revised plan rejected.';
+      } else bundle.project.activity = 'Revised plan approved.';
+      return;
+    }
+    if (gate.type === 'scale' || gate.type === 'handoff') {
+      const ids = gate.op?.subagentIds || [];
+      if (choice === 'approve') {
+        for (const id of ids) {
+          const sub = subagentById(bundle.project, id);
+          if (!sub || sub.status !== 'pending-approval') continue;
+          if (gate.type === 'handoff') await openHeldSubagent(bundle, sub);
+          else await startSubagentTurn(bundle, sub);
+        }
+        bundle.project.activity = gate.type === 'handoff' ? 'Kyle can talk to that subagent directly.' : 'Subagents started.';
+      } else {
+        for (const id of ids) {
+          const sub = subagentById(bundle.project, id);
+          if (!sub || sub.status !== 'pending-approval') continue;
+          sub.status = 'canceled';
+          removeWorktree(bundle.project.workspace, sub);
+          event(bundle, 'subagent.canceled', { actor: 'kyle', taskId: sub.taskId, data: { subagentId: sub.id } });
+        }
+        bundle.project.activity = gate.type === 'handoff' ? 'Handoff canceled.' : 'Subagent batch canceled.';
       }
       return;
     }
@@ -1161,15 +1748,55 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
     if (!body.project_id) throw fail('Choose a Collab project.', 400);
     const bundle = store.load(body.project_id);
     if (bundle.project.workspaceId !== body.workspace_id) throw fail('Unknown Collab project.', 404);
-    ensureRuns(bundle.project);
+    ensureOrchestration(bundle.project);
     if (!bundle.project.workspace) bundle.project.workspace = store.initWorkspace(bundle.project.id);
     if (operation === 'state' || operation === 'advance') await advance(bundle);
     else if (operation === 'resolve') {
       if (!['approve', 'reject'].includes(body.choice)) throw fail('Approve or reject the waiting gate.', 400);
       await resolveGate(bundle, body.choice, body.note);
       if (bundle.project.status === 'active') await advance(bundle);
-    } else if (operation === 'reassign') reassign(bundle, body);
+    }     else if (operation === 'reassign') reassign(bundle, body);
     else if (operation === 'capabilities') updateCapabilities(bundle, body);
+    else if (operation === 'set_orchestrator') {
+      const choice = body.orchestrator;
+      if (!['auto', 'hermes', 'grok'].includes(choice)) throw fail('Orchestrator must be auto, hermes, or grok.', 400);
+      bundle.project.orchestratorSource = choice;
+      bundle.project.orchestrator = choice === 'auto' ? chooseAgent('planner', [], bundle.project.capabilities) : choice;
+      event(bundle, 'decision', { actor: 'kyle', data: { text: `Orchestrator is ${labels[bundle.project.orchestrator]}.` } });
+    } else if (operation === 'subagent_limits') {
+      const maxConcurrent = Number(body.max_concurrent);
+      const maxDepth = Number(body.max_depth);
+      if (!Number.isInteger(maxConcurrent) || maxConcurrent < 1 || maxConcurrent > 4) throw fail('Concurrent subagents must be from 1 to 4.', 400);
+      if (maxDepth !== 1 && maxDepth !== 2) throw fail('Subagent depth must be 1 or 2.', 400);
+      bundle.project.subagentLimits = { maxConcurrent, maxDepth };
+      event(bundle, 'decision', { actor: 'kyle', data: { text: `Subagent limits are ${maxConcurrent} at once and depth ${maxDepth}.` } });
+    } else if (operation === 'cancel_subagent') {
+      const sub = subagentById(bundle.project, body.subagent_id);
+      if (!sub) throw fail('Unknown subagent.', 404);
+      const run = bundle.project.subagentRuns.find(item => item.subagentId === sub.id);
+      if (run) {
+        try { await gateways.stopSpeaker(run); } catch { /* cancellation still stands */ }
+        dropSubagentRun(bundle.project, run.runId);
+      }
+      sub.status = 'canceled';
+      removeWorktree(bundle.project.workspace, sub);
+      await archiveSubagent(bundle, sub);
+      event(bundle, 'subagent.canceled', { actor: 'kyle', taskId: sub.taskId, data: { subagentId: sub.id } });
+      bundle.project.activity = `${sub.name} canceled.`;
+    } else if (operation === 'subagent_transcript') {
+      const sub = subagentById(bundle.project, body.subagent_id);
+      if (!sub) throw fail('Unknown subagent.', 404);
+      let messages = sub.transcript || [];
+      if (typeof gateways.readSubagentTranscript === 'function') {
+        try {
+          const remote = await gateways.readSubagentTranscript(sub);
+          if (remote?.messages?.length) messages = remote.messages.map(item => ({ role: item.role || 'assistant', text: item.text || '' }));
+        } catch { /* the stored transcript remains readable */ }
+      }
+      store.save(bundle);
+      noteActive(bundle);
+      return { transcript: { id: sub.id, name: sub.name, status: sub.status, resumable: sub.status === 'ready-for-kyle' || sub.status === 'running', messages } };
+    }
     else if (operation === 'pause') {
       bundle.project.status = 'paused';
       const running = AGENTS.filter(agent => ensureRuns(bundle.project)[agent]).map(agent => labels[agent]);
@@ -1272,8 +1899,36 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
         },
         summary: project.memory.summary || '',
         decisions: project.memory.decisions,
+        orchestrator: project.orchestrator || '',
+        orchestratorSource: project.orchestratorSource || 'auto',
+        subagentLimits: project.subagentLimits || { ...DEFAULT_SUBAGENT_LIMITS },
         gate: project.gate ? { id: project.gate.id, type: project.gate.type, summary: project.gate.summary, taskId: project.gate.taskId || '' } : null,
       },
+      subagents: (project.subagents || []).map(sub => ({
+        id: sub.id,
+        name: sub.name,
+        parent: sub.parent,
+        parentSubagentId: sub.parentSubagentId || '',
+        depth: sub.depth || 1,
+        taskId: sub.taskId,
+        status: sub.status,
+        mode: sub.mode || 'tool',
+        provider: sub.provider,
+        files: sub.files || [],
+        branch: sub.branch || '',
+        worktree: sub.worktree || '',
+        strategy: sub.strategy || '',
+        brief: sub.brief || null,
+        result: sub.result || null,
+        spentTurns: sub.spentTurns || 0,
+        spentTokens: sub.spentTokens || 0,
+        budgetTurns: sub.brief?.budget?.turns || 0,
+        budgetMinutes: sub.brief?.budget?.minutes || 0,
+        attempts: sub.attempts || 0,
+        archived: sub.archived === true,
+        lastError: sub.lastError || '',
+        merged: sub.merged === true,
+      })),
       tasks: bundle.tasks.map(task => {
         const view = publicTask(task);
         if (project.gate?.type === 'plan' && view.status === 'submitted') view.status = 'planned';

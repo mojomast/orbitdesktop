@@ -35,4 +35,6 @@ A turn that does not finish is stopped (20 minutes, or `ORBIT_COLLAB_TURN_TIMEOU
 
 When a reviewer accepts a task, Orbit commits the project workspace. The commit message is the task title and the author is the owning agent.
 
+One agent is the orchestrator (auto, or Hermes or Grok Bot if you set it). That agent can replan, assign, spawn subagents, merge their worktrees, and post status. Subagents are tools by default: they return a summary and file paths. A handoff is only for a conversation you should have yourself. See [Orchestration](COLLAB_ORCHESTRATION.md).
+
 The record lives under the Orbit runtime directory in `collab/<projectId>/` (project, tasks, versioned artifacts, and append-only `events.jsonl`). Each project also has `workspace/`, a git-initialized directory. Hermes can use its terminal there. Grok Bot uses `shell` and `artifact.put`. Orbit indexes text files from that directory after either agent's turn. The record does not include gateway tokens. Project Workbench has no Grok Bot API; see [GROK_PARITY.md](GROK_PARITY.md).

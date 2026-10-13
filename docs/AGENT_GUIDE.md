@@ -42,7 +42,7 @@ successful inference or execution. Invocation rechecks the actual prerequisites.
 | --- | --- | --- |
 | Outputs | `orbit://surface/outputs` | Published files, aliases/pins/tags and selected-draft references; `docs/OUTPUT_LIBRARY.md` |
 | Workspace Activity | `orbit://surface/activity` | Observed live activity; `docs/HERMES_LIVE_VIEW.md` |
-| Collab | `orbit://surface/collab` | Hermes and Grok Bot project board, approvals, and workspace; `docs/COLLAB.md` |
+| Collab | `orbit://surface/collab` | Hermes and Grok Bot project board, approvals, orchestrator, and subagents; `docs/COLLAB.md` |
 | IRC | `orbit://surface/irc` | Loopback ircd and an authenticated websocket channel window; `docs/IRC.md` |
 | Knowledge search | `orbit://surface/search` | Explicit source snapshots and exact citations; keyword search without a model, optional pinned local embeddings; `docs/KNOWLEDGE_SEARCH.md` |
 | Interactive results | `orbit://surface/interactive-results` | Import actual A2UI v0.9 JSON/NDJSON, edit/save/pin/export; `docs/INTERACTIVE_RESULTS.md` |

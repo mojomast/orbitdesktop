@@ -84,12 +84,75 @@ export function createAgentGateways({ fetchImpl = fetch, grok, hermesProfile, gr
     if (!run) return;
     if (run.speaker === 'hermes') {
       const profile = hermesProfile();
-      if (profile) await hermes(profile, `/v1/runs/${run.runId}/stop`, {});
+      if (profile && run.runId) await hermes(profile, `/v1/runs/${run.runId}/stop`, {});
       return;
     }
     const profile = grokProfile();
     if (profile && run.agentId) await grok.stopSharedPrompt(profile, run.agentId);
   }
 
-  return { startSpeaker, pollSpeaker, stopSpeaker };
+  async function tryDelegate(profile, body) {
+    let response;
+    try {
+      response = await fetchImpl(`${profile.apiUrl.replace(/\/$/, '')}/v1/delegate_task`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${profile.apiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(20000),
+        redirect: 'error',
+      });
+    } catch {
+      return { exposed: false };
+    }
+    const text = typeof response?.text === 'function' ? await response.text() : '';
+    try { await response?.body?.cancel?.(); } catch { /* the status is enough */ }
+    if ([404, 405, 501].includes(response?.status)) return { exposed: false };
+    if (!response?.ok) throw fail('Hermes could not start that subagent.', response?.status >= 500 ? 502 : (response?.status || 502));
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; }
+    catch { throw fail('Hermes returned invalid JSON.'); }
+    if (!runPattern.test(data?.run_id || '')) throw fail('Hermes did not return a usable subagent run.');
+    return { exposed: true, runId: data.run_id, sessionId: typeof data.session_id === 'string' ? data.session_id : '' };
+  }
+
+  async function startSubagent({ speaker, prompt, instructions, name, parentSession, hold = false }) {
+    const label = String(name || 'worker').replace(/\s+/g, ' ').trim().slice(0, 60);
+    if (speaker === 'hermes') {
+      const profile = hermesProfile();
+      if (!profile?.apiUrl || !profile.apiKey) throw fail('Hermes is not configured on this Orbit server.', 409);
+      if (!hold) {
+        const delegated = await tryDelegate(profile, { session_id: parentSession || '', name: label, input: prompt, instructions });
+        if (delegated.exposed) return { strategy: 'delegate_task', speaker, runId: delegated.runId, sessionId: delegated.sessionId || parentSession || '', started: now() };
+      }
+      const sessionId = `orbit-sub-${randomUUID()}`;
+      if (hold) return { strategy: 'session', speaker, runId: '', sessionId, hold: true, started: now() };
+      const data = await hermes(profile, '/v1/runs', { input: prompt, session_id: sessionId, instructions, conversation_history: [] });
+      if (!runPattern.test(data?.run_id || '')) throw fail('Hermes did not return a usable subagent run.');
+      return { strategy: 'session', speaker, runId: data.run_id, sessionId, started: now(), ...(tokenCount(data) ? { tokens: tokenCount(data) } : {}) };
+    }
+    const profile = grokProfile();
+    if (!profile?.apiUrl || !profile.apiKey) throw fail('Grok Bot is not configured on this Orbit server.', 409);
+    const agentName = `Orbit collab sub: ${label}`.slice(0, 80);
+    const agentId = await grok.ensureSharedAgent(profile, '', agentName);
+    if (hold) return { strategy: 'agent', speaker, runId: '', agentId, hold: true, started: now() };
+    const started = await grok.startSharedPrompt(profile, agentId, prompt);
+    return { strategy: 'agent', speaker, runId: `run_${randomUUID().replaceAll('-', '')}`, agentId, started: started.started, nonce: started.nonce, baseline: started.baseline };
+  }
+
+  async function archiveSubagent(sub) {
+    if (!sub || sub.provider !== 'grok' || !sub.agentId) return { archived: false };
+    const profile = grokProfile();
+    if (!profile || typeof grok.archiveSharedAgent !== 'function') return { archived: false, note: 'Grok Bot archive is not available.' };
+    return grok.archiveSharedAgent(profile, sub.agentId);
+  }
+
+  async function readSubagentTranscript(sub) {
+    if (!sub || sub.provider !== 'grok' || !sub.agentId || typeof grok.previewSession !== 'function') return { messages: [] };
+    const profile = grokProfile();
+    if (!profile) return { messages: [] };
+    const preview = await grok.previewSession(profile, sub.agentId);
+    return { messages: preview?.messages || [] };
+  }
+
+  return { startSpeaker, pollSpeaker, stopSpeaker, startSubagent, archiveSubagent, readSubagentTranscript };
 }

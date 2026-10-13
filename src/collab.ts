@@ -54,6 +54,27 @@ interface CollabPresence {
   taskTitle: string;
 }
 
+interface CollabSubagent {
+  id: string;
+  name: string;
+  parent: string;
+  parentSubagentId: string;
+  depth: number;
+  taskId: string;
+  status: string;
+  mode: string;
+  provider: string;
+  files: string[];
+  branch: string;
+  strategy: string;
+  spentTurns: number;
+  spentTokens: number;
+  budgetTurns: number;
+  budgetMinutes: number;
+  lastError: string;
+  result: { summary?: string; paths?: string[] } | null;
+}
+
 interface CollabProject {
   id: string;
   title: string;
@@ -64,6 +85,9 @@ interface CollabProject {
   capabilities: { hermes: { skills: string[] }; grok: { skills: string[] } };
   budget: { maxTurns: number; maxWallMin: number; maxTokens: number | null; spentTurns: number; spentTokens: number; warned: boolean };
   summary: string;
+  orchestrator?: string;
+  orchestratorSource?: string;
+  subagentLimits?: { maxConcurrent: number; maxDepth: number };
   gate: { id: string; type: string; summary: string; taskId?: string } | null;
 }
 
@@ -75,6 +99,8 @@ interface CollabState {
   running: string;
   presence?: CollabPresence[];
   workspace?: string;
+  subagents?: CollabSubagent[];
+  transcript?: { id: string; name: string; status: string; messages: { role?: string; text?: string }[] };
 }
 
 interface ProjectSummary {
@@ -125,13 +151,17 @@ export function mountCollab(options: {
   const createForm = el('form', 'collab-create');
   const createButton = button('Create project', 'Create a Collab project from this goal', () => {});
   createButton.type = 'submit';
-  createForm.append(goal, createButton);
+  const orchestratorPick = select([['auto', 'Orchestrator: auto'], ['hermes', 'Orchestrator: Hermes'], ['grok', 'Orchestrator: Grok Bot']], 'auto', () => {});
+  orchestratorPick.setAttribute('aria-label', 'Orchestrator');
+  createForm.append(goal, orchestratorPick, createButton);
   let timer: ReturnType<typeof setTimeout> | undefined;
   let disposed = false;
   let open = false;
   let projectId = '';
   let projects: ProjectSummary[] = [];
   let drawerId = '';
+  let transcriptId = '';
+  let transcriptText = '';
   let artifactId = '';
   let artifactVersion = 0;
   let artifactText = '';
@@ -293,6 +323,73 @@ export function mountCollab(options: {
     return card;
   }
 
+  function agentTree(data: CollabState) {
+    const section = el('section', 'collab-tree');
+    section.setAttribute('aria-label', 'Agent tree');
+    const orchestrator = data.project.orchestrator || '';
+    section.append(el('h3', '', 'Agents'));
+    const pick = select([['auto', 'Auto'], ['hermes', 'Hermes'], ['grok', 'Grok Bot']], data.project.orchestratorSource || 'auto', () => {});
+    pick.setAttribute('aria-label', 'Project orchestrator');
+    const limits = data.project.subagentLimits || { maxConcurrent: 3, maxDepth: 1 };
+    const concurrent = select([['1', '1 at once'], ['2', '2 at once'], ['3', '3 at once'], ['4', '4 at once']], String(limits.maxConcurrent), () => {});
+    concurrent.setAttribute('aria-label', 'Subagent concurrency');
+    const depth = select([['1', 'Depth 1'], ['2', 'Depth 2']], String(limits.maxDepth), () => {});
+    depth.setAttribute('aria-label', 'Subagent depth');
+    const controls = el('div', 'collab-tree-controls');
+    controls.append(el('span', '', `Orchestrator ${labels[orchestrator] || 'not set'}`), pick, concurrent, depth, button('Save orchestration', 'Save the orchestrator and subagent limits', () => {
+      void options.request({ operation: 'set_orchestrator', project_id: data.project.id, orchestrator: pick.value }).then(() => options.request({
+        operation: 'subagent_limits', project_id: data.project.id, max_concurrent: Number(concurrent.value), max_depth: Number(depth.value),
+      })).then(drawProject).catch(error => fail(error, 'Orchestration settings were not saved.'));
+    }, 'small-button'));
+    section.append(controls);
+    const subs = data.subagents || [];
+    for (const agent of ['hermes', 'grok']) {
+      const node = el('div', 'collab-tree-node');
+      node.dataset.agent = agent;
+      const mine = subs.filter(item => item.parent === agent && !item.parentSubagentId);
+      node.append(el('strong', '', `${labels[agent]}${agent === orchestrator ? ' · orchestrator' : ''}`));
+      if (!mine.length) node.append(el('p', 'collab-empty', 'No subagents'));
+      for (const sub of mine) node.append(subagentRow(data, sub, subs));
+      section.append(node);
+    }
+    if (transcriptId && transcriptText) {
+      const drawer = el('aside', 'collab-transcript');
+      drawer.setAttribute('aria-label', 'Subagent transcript');
+      drawer.append(el('h4', '', 'Subagent transcript'), el('pre', 'collab-transcript-body', transcriptText));
+      section.append(drawer);
+    }
+    return section;
+  }
+
+  function subagentRow(data: CollabState, sub: CollabSubagent, all: CollabSubagent[]): HTMLElement {
+    const row = el('div', 'collab-subagent');
+    row.dataset.status = sub.status;
+    row.dataset.subagentId = sub.id;
+    const budget = `${sub.spentTurns}/${sub.budgetTurns || '?'} turns`;
+    const result = sub.result?.summary ? ` · ${sub.result.summary.slice(0, 120)}` : '';
+    row.append(el('p', '', `${sub.name} · ${sub.status} · ${sub.mode} · ${budget}${sub.lastError ? ` · ${sub.lastError}` : ''}${result}`));
+    const actions = el('div', 'collab-tree-controls');
+    if (!['completed', 'merged', 'failed', 'canceled'].includes(sub.status)) {
+      actions.append(button('Cancel', `Cancel ${sub.name}`, () => {
+        void options.request({ operation: 'cancel_subagent', project_id: data.project.id, subagent_id: sub.id }).then(next => {
+          if (transcriptId === sub.id) { transcriptId = ''; transcriptText = ''; }
+          drawProject(next);
+        }).catch(error => fail(error, 'That subagent was not canceled.'));
+      }, 'small-button'));
+    }
+    actions.append(button('Transcript', `Read the transcript for ${sub.name}`, () => {
+      void options.request({ operation: 'subagent_transcript', project_id: data.project.id, subagent_id: sub.id }).then(payload => {
+        const messages = payload.transcript?.messages || [];
+        transcriptId = sub.id;
+        transcriptText = messages.length ? messages.map(item => `${item.role || 'note'}: ${item.text || ''}`).join('\n\n') : 'No transcript yet.';
+        drawProject(data);
+      }).catch(error => fail(error, 'That transcript could not be read.'));
+    }, 'small-button'));
+    row.append(actions);
+    for (const child of all.filter(item => item.parentSubagentId === sub.id)) row.append(subagentRow(data, child, all));
+    return row;
+  }
+
   function drawProject(data: CollabState) {
     const project = data.project;
     body.replaceChildren();
@@ -362,7 +459,7 @@ export function mountCollab(options: {
     const selected = data.tasks.find(task => task.id === drawerId);
     const lower = el('div', 'collab-lower');
     lower.append(artifactPanel(data), timeline(data, selected?.id || ''));
-    main.append(head, el('p', 'collab-goal', project.goal), presenceRow(data), budgetText, meter, inbox, assignZones(data), board, lower);
+    main.append(head, el('p', 'collab-goal', project.goal), presenceRow(data), agentTree(data), budgetText, meter, inbox, assignZones(data), board, lower);
     if (workspace) main.append(el('p', 'collab-workspace', `Workspace ${workspace}`));
     main.append(capabilitiesEditor(data));
     if (selected) main.append(drawer(data, selected));
@@ -514,7 +611,7 @@ export function mountCollab(options: {
     const text = goal.value.trim();
     if (!text) return;
     goal.value = '';
-    void options.request({ operation: 'create', goal: text }).then(data => {
+    void options.request({ operation: 'create', goal: text, orchestrator: orchestratorPick.value }).then(data => {
       projectId = data.project.id;
       projects = [{ id: data.project.id, title: data.project.title, goal: data.project.goal, status: data.project.status, gate: data.project.gate?.type || '' }, ...projects.filter(item => item.id !== data.project.id)];
       drawProject(data);

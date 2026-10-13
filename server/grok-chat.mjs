@@ -841,6 +841,17 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
     await command(profile, 'interruptAgentRun', { id: agentId });
   }
 
+  async function archiveSharedAgent(profile, agentId) {
+    if (!validSessionId(agentId)) throw fail('Grok Bot subagent id is not usable.', 400);
+    try {
+      await command(profile, 'archiveAgent', { id: agentId });
+      return { archived: true };
+    } catch (error) {
+      if (error.status === 404) return { archived: false, note: 'Grok Bot has no archive for this subagent.' };
+      throw error;
+    }
+  }
+
   async function previewSession(profile, sessionId) {
     try {
       const tail = await command(profile, 'getAgentTranscriptTail', { id: sessionId, limit: 80 });
@@ -900,5 +911,5 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
     });
   }
 
-  return { sessionPage, selectSession, turn, control, surface, events, ensureSharedAgent, startSharedPrompt, pollSharedPrompt, stopSharedPrompt, compactSession, previewSession };
+  return { sessionPage, selectSession, turn, control, surface, events, ensureSharedAgent, startSharedPrompt, pollSharedPrompt, stopSharedPrompt, archiveSharedAgent, compactSession, previewSession };
 }
