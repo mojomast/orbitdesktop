@@ -258,7 +258,7 @@ const technologyCapabilities=technologyOwnerRoute({token,port,devOrigins,reply,m
   if(!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).length!==1||body.action!=='capabilities')throw {code:'invalid_request'};
   return {browser_copilot:!!process.env.ORBIT_BROWSER_EXECUTABLE&&!!process.env.ORBIT_BROWSER_ALLOWED_ORIGINS,mcp_apps:!!mcpSandbox,descriptors:capabilityDescription('owner')};
 }});
-const server = http.createServer(async (req, res) => {
+async function handleOrbitRequest(req, res) {
   const allowedHosts = acceptedHosts(port, devOrigins, listenHost).hosts;
   if (!allowedHosts.has(req.headers.host))
     return reply(res, 403, { error: "Host rejected" });
@@ -364,6 +364,15 @@ const server = http.createServer(async (req, res) => {
   } catch {
     reply(res, 404, { error: "Build the client with npm run build first." });
   }
+}
+const server = http.createServer((req, res) => {
+  // A provider rejection must not become an unhandled rejection and stop the process.
+  void handleOrbitRequest(req, res).catch(error => {
+    console.error("Orbit request failed.", error instanceof Error ? error.message : "");
+    if (res.headersSent || res.writableEnded) { try { res.end(); } catch {} return; }
+    try { reply(res, 500, { error: "Orbit could not complete the request." }); }
+    catch { try { res.end(); } catch {} }
+  });
 });
 const wss = new WebSocketServer({
   noServer: true,

@@ -85,3 +85,83 @@ test('Grok Bot is selectable beside Hermes and uses the gateway token', async t 
   assert.equal(calls.at(-1).url, 'http://hermes.test/v1/runs');
   assert.equal(calls.at(-1).options.headers.Authorization, 'Bearer hermes-key');
 });
+
+test('a rejected Grok Bot sendPrompt is a chat error and the server keeps serving Hermes', async t => {
+  const rejections = [];
+  const onRejection = reason => { rejections.push(reason); };
+  process.on('unhandledRejection', onRejection);
+  const gateway = http.createServer((req, res) => {
+    const chunks = [];
+    req.on('data', chunk => chunks.push(chunk));
+    req.on('end', () => {
+      if (req.url === '/api/createAgent') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ agent: { id: agentId, name: 'Orbit chat' } }));
+        return;
+      }
+      if (req.url === '/api/sendPrompt') {
+        res.writeHead(400, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: 'unknown conversation id' }));
+        return;
+      }
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end('[]');
+    });
+  });
+  const hermesGateway = http.createServer((req, res) => {
+    const chunks = [];
+    req.on('data', chunk => chunks.push(chunk));
+    req.on('end', () => {
+      if (req.url === '/v1/runs') {
+        res.writeHead(202, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ run_id: 'run_hermes12345678', status: 'running', session_id: session }));
+        return;
+      }
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ data: [] }));
+    });
+  });
+  await new Promise(resolve => gateway.listen(0, '127.0.0.1', resolve));
+  await new Promise(resolve => hermesGateway.listen(0, '127.0.0.1', resolve));
+  const runtimeDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'orbit-grok-reject-'));
+  let port;
+  let handler;
+  const reply = (res, status, data) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(data)); };
+  const workspaceRead = () => ({ state: { monitors: [{ layout: { type: 'pane', pane: { id: pane_id, kind: 'agent' } } }] } });
+  const server = http.createServer((req, res) => (handler ||= createAgentHandler({
+    token, port, devOrigins: [], reply, runtimeDirectory, workspaceRead,
+    apiUrl: `http://127.0.0.1:${hermesGateway.address().port}`, apiKey: 'hermes-key',
+    additionalProfiles: [{ id: 'grok', label: 'Grok Bot', provider: 'grok', apiUrl: `http://127.0.0.1:${gateway.address().port}`, apiKey: 'grok-token-secret' }],
+  }))(req, res));
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  port = server.address().port;
+  t.after(async () => {
+    process.off('unhandledRejection', onRejection);
+    await new Promise(resolve => server.close(resolve));
+    await new Promise(resolve => gateway.close(resolve));
+    await new Promise(resolve => hermesGateway.close(resolve));
+    fs.rmSync(runtimeDirectory, { recursive: true, force: true });
+  });
+  const origin = `http://127.0.0.1:${port}`;
+  async function request(body) {
+    const response = await fetch(origin + '/api/agent', {
+      method: 'POST',
+      headers: { Origin: origin, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: session, ...body }),
+    });
+    return { status: response.status, body: await response.json() };
+  }
+  const base = { workspace_id, pane_id, session_id: session };
+  assert.equal((await request({ ...base, action: 'shared_chat', initial: { session, messages: [] } })).status, 200);
+  const selected = await request({ ...base, action: 'select_session', target_profile_id: 'grok', expected_binding_revision: 0 });
+  assert.equal(selected.status, 200);
+  const rejected = await request({ ...base, profile_id: 'grok', session_id: agentId, expected_binding_revision: 1, action: 'start', input: 'hello missing bot' });
+  assert.equal(rejected.status, 400);
+  assert.match(rejected.body.error, /unknown conversation id/);
+  assert.equal(JSON.stringify(rejected.body).includes('grok-token-secret'), false);
+  await new Promise(resolve => setTimeout(resolve, 50));
+  assert.equal(rejections.length, 0);
+  const still = await request({ action: 'start', input: 'hermes still running', profile_id: 'default' });
+  assert.equal(still.status, 202);
+  assert.equal(still.body.run_id, 'run_hermes12345678');
+});

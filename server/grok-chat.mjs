@@ -42,6 +42,34 @@ function historyFromEntries(entries) {
   return { data };
 }
 
+function gatewayDetail(text, token) {
+  let detail = '';
+  if (text && text.length <= 2_000_000) {
+    try {
+      const parsed = JSON.parse(text);
+      detail = typeof parsed?.error === 'string' ? parsed.error : typeof parsed?.message === 'string' ? parsed.message : '';
+    } catch {
+      detail = text;
+    }
+  }
+  if (token) detail = detail.split(token).join('');
+  return detail.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 180);
+}
+
+/** Read or cancel every gateway body so a rejection cannot surface later as an unhandled error. */
+async function drain(response) {
+  try {
+    if (!response || typeof response.text !== 'function') return '';
+    const text = await response.text();
+    if (text.length > 2_000_000) throw fail('Grok Bot response exceeds the bounded JSON limit.');
+    return text;
+  } catch (error) {
+    try { await response?.body?.cancel?.(); } catch {}
+    if (error?.status) throw error;
+    throw fail('Grok Bot could not complete the request.');
+  }
+}
+
 export function createGrokChat({ fetchImpl = fetch } = {}) {
   const runs = new Map();
 
@@ -59,17 +87,35 @@ export function createGrokChat({ fetchImpl = fetch } = {}) {
         signal: AbortSignal.timeout(15000),
         redirect: 'error',
       });
+      const text = await drain(response);
+      if (!response || response.ok !== true) {
+        const status = Number.isInteger(response?.status) && response.status >= 400 && response.status < 600 ? response.status : 502;
+        const detail = gatewayDetail(text, profile.apiKey);
+        const message = status === 404
+          ? (detail ? `Grok Bot could not find that conversation. ${detail}` : 'Grok Bot could not find that conversation.')
+          : (detail ? `Grok Bot could not complete the request. ${detail}` : 'Grok Bot could not complete the request.');
+        throw fail(message, status >= 500 ? 502 : status);
+      }
+      if (!text) return null;
+      try { return JSON.parse(text); }
+      catch { throw fail('Grok Bot returned invalid JSON.'); }
     } catch (error) {
-      const message = String(error?.message || '');
-      if (profile.apiKey && message.includes(profile.apiKey)) throw fail('Cannot reach Grok Bot right now. The turn may still be running; check status before sending again.');
+      if (error?.status) throw error;
       throw fail('Cannot reach Grok Bot right now. The turn may still be running; check status before sending again.');
     }
-    if (!response.ok) throw fail(response.status === 404 ? 'Grok Bot does not provide this action.' : 'Grok Bot could not complete the request.', response.status === 404 ? 404 : 502);
-    const text = await response.text();
-    if (text.length > 2_000_000) throw fail('Grok Bot response exceeds the bounded JSON limit.');
-    if (!text) return null;
-    try { return JSON.parse(text); }
-    catch { throw fail('Grok Bot returned invalid JSON.'); }
+  }
+
+  async function guard(reply, res, work) {
+    try {
+      return await work();
+    } catch (error) {
+      const status = Number.isInteger(error?.status) ? error.status : 502;
+      let message = typeof error?.message === 'string' ? error.message : '';
+      if (!message.trim() || message.length > 500) message = 'Grok Bot could not complete the request.';
+      if (res.headersSent || res.writableEnded) { try { res.end(); } catch {} return; }
+      try { return reply(res, status, { error: message }); }
+      catch { try { res.end(); } catch {} }
+    }
   }
 
   async function sessionPage(profile, offset = 0) {
@@ -94,7 +140,11 @@ export function createGrokChat({ fetchImpl = fetch } = {}) {
     }
   }
 
-  async function selectSession(reply, res, { body, target, revision, profileId, shared, validatePane, conversations }) {
+  async function selectSession(reply, res, scope) {
+    return guard(reply, res, () => selectSessionBody(reply, res, scope));
+  }
+
+  async function selectSessionBody(reply, res, { body, target, revision, profileId, shared, validatePane, conversations }) {
     const creating = body.target_session_id === undefined || body.target_session_id === null;
     let targetId = creating ? null : body.target_session_id;
     if (!creating && !validSessionId(targetId)) return reply(res, 400, { error: 'Invalid Grok Bot conversation.' });
@@ -126,7 +176,11 @@ export function createGrokChat({ fetchImpl = fetch } = {}) {
     return reply(res, 200, { state });
   }
 
-  async function turn(reply, res, { body, profile, shared, workspaceContext, executionGate }) {
+  async function turn(reply, res, scope) {
+    return guard(reply, res, () => turnBody(reply, res, scope));
+  }
+
+  async function turnBody(reply, res, { body, profile, shared, workspaceContext, executionGate }) {
     if (typeof body.input !== 'string' || !body.input.trim() || body.input.length > 100000) return reply(res, 400, { error: 'Enter a message of 1–100,000 characters.' });
     if (!validSessionId(body.session_id)) return reply(res, 400, { error: 'Invalid Grok Bot conversation.' });
     if (executionGate && ((typeof executionGate.busy === 'function' && executionGate.busy('agent')) || executionGate.status?.().job)) return reply(res, 409, { error: 'The shared execution lane is busy or unresolved. Wait for active work or reconcile an unknown outcome before starting a new chat turn.' });
@@ -139,7 +193,10 @@ export function createGrokChat({ fetchImpl = fetch } = {}) {
     const nonce = randomUUID();
     const runId = `run_${randomUUID().replaceAll('-', '')}`;
     const accepted = await command(profile, 'sendPrompt', { prompt, agentId: body.session_id, clientNonce: nonce });
-    if (!accepted || accepted.accepted !== true) return reply(res, 502, { error: 'Grok Bot did not accept the message.' });
+    if (!accepted || accepted.accepted !== true) {
+      const detail = gatewayDetail(JSON.stringify({ error: typeof accepted?.error === 'string' ? accepted.error : typeof accepted?.message === 'string' ? accepted.message : '' }), profile.apiKey);
+      return reply(res, 502, { error: detail ? `Grok Bot did not accept the message. ${detail}` : 'Grok Bot did not accept the message.' });
+    }
     remember(runId, { nonce, agentId: body.session_id, profileId: profile.id, status: 'running', started: Date.now(), seenBusy: false });
     if (body.pane_id) {
       const current = shared.read(body.workspace_id, body.pane_id);
@@ -188,7 +245,11 @@ export function createGrokChat({ fetchImpl = fetch } = {}) {
     }
   }
 
-  async function control(reply, res, { body, profile, shared }) {
+  async function control(reply, res, scope) {
+    return guard(reply, res, () => controlBody(reply, res, scope));
+  }
+
+  async function controlBody(reply, res, { body, profile, shared }) {
     if (!runPattern.test(body.run_id || '')) return reply(res, 400, { error: 'Invalid run.' });
     const run = runs.get(body.run_id);
     if (!run || run.agentId !== body.session_id || run.profileId !== profile.id) return reply(res, 404, { error: 'Run not found in this Orbit conversation.' });

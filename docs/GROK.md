@@ -43,6 +43,8 @@ Normal chat maps onto the host gateway:
 
 The token is sent only on those server-side requests. It is not returned by the profile list, written into shell environments, or printed in the Orbit log.
 
+A gateway rejection, including `sendPrompt` for an unknown conversation, is returned to that chat as an error. The response body is always read or cancelled. It does not stop the Orbit process or other Hermes runs. The live gateway listens on port 1340, often bound to `0.0.0.0`; Orbit dials `127.0.0.1` for that wildcard.
+
 These Hermes tools are not available on the Grok Bot profile: build queue, skills/tool catalog, scheduled jobs, activity history, mid-run guidance, tool approvals, and the run event stream. Capabilities report `run_events_sse: false`. Use a Hermes profile for that work.
 
 ## Together with Hermes
