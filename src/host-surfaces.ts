@@ -4,9 +4,9 @@ import { publishedDataInput } from './data-published-input';
 import { workspaceId } from './workspace-sync';
 import { TECHNOLOGY_SURFACES, mountTechnologySurface, type TechnologySurfaceId, type TechnologySurfaceOptions } from './technology-surfaces';
 
-export type HostSurfaceId = 'outputs' | 'activity' | 'collab' | 'irc' | TechnologySurfaceId;
+export type HostSurfaceId = 'outputs' | 'activity' | 'collab' | 'irc' | 'colab-runtime' | TechnologySurfaceId;
 export const HOST_SURFACE_LABELS = {
-  outputs:'Apps and outputs',activity:'Live activity',collab:'Collab',irc:'IRC',
+  outputs:'Apps and outputs',activity:'Live activity',collab:'Collab',irc:'IRC','colab-runtime':'Google Colab',
   search:TECHNOLOGY_SURFACES.search.title,
   'interactive-results':TECHNOLOGY_SURFACES['interactive-results'].title,
   data:TECHNOLOGY_SURFACES.data.title,voice:TECHNOLOGY_SURFACES.voice.title,
@@ -18,6 +18,7 @@ export const HOST_SURFACE_URLS = {
   activity: 'orbit://surface/activity',
   collab: 'orbit://surface/collab',
   irc: 'orbit://surface/irc',
+  'colab-runtime': 'orbit://surface/colab-runtime',
   search: 'orbit://surface/search',
   'interactive-results': 'orbit://surface/interactive-results',
   data: 'orbit://surface/data',
@@ -79,6 +80,24 @@ export function mountHostSurface(host: HTMLElement, id: HostSurfaceId, token: ()
           });
           const data = await response.json().catch(() => ({}));
           if (!response.ok) throw Error(data.error || 'Collab request failed');
+          return data;
+        },
+      });
+      root.append(view.element);
+      cleanup = () => view.dispose();
+    }) : id === 'colab-runtime' ? import('./colab-orchestrator').then(module => {
+      if (disposed) return;
+      root.replaceChildren();
+      const view = module.mountColab({
+        token,
+        request: async payload => {
+          const response = await fetch('/api/colab-runtime', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) throw Error(data.error || 'Colab request failed');
           return data;
         },
       });
