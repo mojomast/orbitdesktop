@@ -1,9 +1,9 @@
 import { editAutomation } from './automation-editor';
 import { el, button } from './dom';
-export function showHermesJobs(api: (body: Record<string, unknown>) => Promise<any>) {
- const dialog = el('dialog', 'hermes-tools-dialog'); dialog.setAttribute('aria-label', 'Hermes scheduled tasks');
- const status = el('p', '', 'Loading from Hermes…'); const list = el('div', 'hermes-job-list');
- const search = el('input'); search.placeholder = 'Filter tasks'; search.setAttribute('aria-label', 'Filter Hermes tasks');
+export function showHermesJobs(api: (body: Record<string, unknown>) => Promise<any>, agentName = 'Hermes') {
+ const dialog = el('dialog', 'hermes-tools-dialog'); dialog.setAttribute('aria-label', `${agentName} scheduled tasks`);
+ const status = el('p', '', `Loading from ${agentName}…`); const list = el('div', 'hermes-job-list');
+ const search = el('input'); search.placeholder = 'Filter tasks'; search.setAttribute('aria-label', `Filter ${agentName} tasks`);
  let jobs: Record<string, any>[] = []; let timer: ReturnType<typeof setTimeout> | undefined; let loading = false;
  function draw() {
   list.replaceChildren();
@@ -14,7 +14,7 @@ export function showHermesJobs(api: (body: Record<string, unknown>) => Promise<a
    }
    for (const operation of ['pause', 'resume']) card.append(button(operation === 'pause' ? 'Pause' : 'Resume', `${operation} task ${job.name || job.id}`, () => {
     const confirm = el('dialog', 'hermes-tools-dialog'); confirm.setAttribute('aria-label', 'Confirm schedule change');
-    const note = el('p', '', `${operation === 'pause' ? 'Pause future executions of' : 'Resume scheduling for'} ${job.name || job.id}? This changes the actual Hermes schedule. Pausing does not stop an already-running task.`);
+    const note = el('p', '', `${operation === 'pause' ? 'Pause future executions of' : 'Resume scheduling for'} ${job.name || job.id}? This changes the ${agentName} schedule. Pausing does not stop an already-running task.`);
     const commit = button('Confirm', 'Confirm schedule change', async () => {
      commit.disabled = true; cancel.disabled = true;
      try { await api({action:'job_control',job_id:job.id,operation,confirm:true}); confirm.close(); await refresh(); }
@@ -28,7 +28,7 @@ export function showHermesJobs(api: (body: Record<string, unknown>) => Promise<a
    for(const operation of ['run','delete'])card.append(button(operation==='run'?'Run now':'Delete',`${operation} task ${job.name||job.id}`,async()=>{if(!window.confirm(operation==='run'?`Run ${job.name||job.id} now? May incur costs and external effects.`:`Permanently delete ${job.name||job.id}? Workspace checkpoints cannot restore this task.`))return;try{await api({action:'automation',operation,job_id:job.id,confirm:true});await refresh();}catch(e){status.textContent=`Action not confirmed: ${String(e)}. Check state before retrying.`;}}));
    list.append(card);
   }
-  if (!list.childElementCount) list.append(el('p', '', jobs.length ? 'No matching tasks.' : 'Hermes returned no scheduled tasks.'));
+  if (!list.childElementCount) list.append(el('p', '', jobs.length ? 'No matching tasks.' : `${agentName} returned no scheduled tasks.`));
  }
  async function refresh() {
   if(loading || !dialog.open) return; loading=true;clearTimeout(timer);
@@ -37,7 +37,8 @@ export function showHermesJobs(api: (body: Record<string, unknown>) => Promise<a
   finally{loading=false;if(dialog.open)timer=setTimeout(()=>{void refresh();},15000);}
  }
  search.addEventListener('input',draw);
- dialog.append(el('h2','','Hermes scheduled tasks'),button('Close','Close scheduled tasks',()=>dialog.close()),el('p','','Live tasks for this Hermes profile. Pause/resume changes require confirmation. Tasks execute on the gateway independently of Orbit. Times are shown as returned by Hermes. Up to 200 tasks; prompts and delivery details are loaded only when you open Edit or Duplicate.'),search,button('Refresh','Refresh scheduled tasks',()=>{void refresh();}),status,list);
+ const skillNote = agentName === 'Grok Bot' ? ' Skill names are stored in the prompt because the gateway has no skills field, and delivery stays local.' : '';
+ dialog.append(el('h2','',`${agentName} scheduled tasks`),button('Close','Close scheduled tasks',()=>dialog.close()),el('p','',`Live tasks for this ${agentName} profile. Pause/resume changes require confirmation. Tasks execute on the gateway independently of Orbit. Times are shown as returned by ${agentName}. Up to 200 tasks; prompts and delivery details are loaded only when you open Edit or Duplicate.${skillNote}`),search,button('Refresh','Refresh scheduled tasks',()=>{void refresh();}),status,list);
  dialog.prepend(button('New automation','New automation',()=>{void editAutomation(api,refresh);}));
  dialog.addEventListener('close',()=>{clearTimeout(timer);dialog.remove();});document.body.append(dialog);dialog.showModal();void refresh();
 }

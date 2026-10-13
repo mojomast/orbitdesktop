@@ -1,0 +1,16 @@
+{
+  "name": "@orbit-irc/client",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./cli": "./src/cli.js"
+  },
+  "bin": {
+    "orbit-irc": "src/cli.js"
+  },
+  "scripts": {
+    "test": "node --test test/"
+  }
+}

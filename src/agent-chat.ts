@@ -22,7 +22,8 @@ import { createConversationDraft } from './conversation-draft';
 import { conversationRequest } from './conversation-client';
 import { registerConversationRecipient, type ConversationRecipientHandle } from './conversation-transfer';
 import { completeResultActions } from './interactive-result-delivery';
-
+import { mountSharedAgents } from './shared-agents';
+import { mountAgentPaneSession } from './agent-pane-session';
 import { archiveChat, validChat, transcript, chatProfileId, chatBindingKey, type ChatState } from './chat-storage';
 export function createAgentChat(body: HTMLElement, paneId: string, getToken: () => string, toolbar?: HTMLElement) {
   const storageKey = `orbit-hermes-chat:${paneId}`;
@@ -83,6 +84,8 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   const chatNormal = el('div', 'agent-chat-normal');
   const workbenchHost = el('div', 'agent-workbench-host');
   workbenchHost.hidden = true;
+  const workbenchUnavailable = el('div', 'agent-notice', 'Project Workbench runs on Hermes workers and the Hermes run API. Grok Bot does not have that API, so this view stays in chat. Use Collab for a shared workspace and approved shell commands, or switch this pane back to Hermes.');
+  workbenchUnavailable.hidden = true;
   // Independent timelines retain their DOM and subscriptions while hidden.
   const normalTimelineHost = el('div', 'agent-live-host');
   let panePrefs: PaneWorkbenchPrefs = readPanePrefs(workspaceId, paneId);
@@ -231,7 +234,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   const overflowMenu = el('div', 'agent-overflow-menu'); overflowMenu.hidden = true;
   overflowMenu.setAttribute('role', 'menu');
   document.body.append(overflowMenu);
-  const inspector = createAgentInspector({ title: 'Hermes inspector' });
+  const inspector = createAgentInspector({ title: 'Agent inspector' });
   inspector.element.dataset.paneId = paneId;
   function openPanel(id: string, trigger?: HTMLElement) {
     overflowMenu.hidden = true; overflow.setAttribute('aria-expanded', 'false');
@@ -248,7 +251,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   menuEntry('Activity', () => openPanel('activity', overflow));
   menuEntry('Saved tools', () => openPanel('tools', overflow));
   menuEntry('Troubleshooting', () => openPanel('troubleshooting', overflow));
-  menuEntry('Hermes tools and conversations', () => { overflowMenu.hidden = true; overflow.setAttribute('aria-expanded', 'false'); openTools(); });
+  const toolsEntry = menuEntry('Agent tools and conversations', () => { overflowMenu.hidden = true; overflow.setAttribute('aria-expanded', 'false'); openTools(); });
   overflowMenu.addEventListener('keydown', event => {
     if (event.key === 'Escape') { event.preventDefault(); overflowMenu.hidden = true; overflow.setAttribute('aria-expanded', 'false'); overflow.focus(); }
     if (['ArrowDown','ArrowUp','Home','End'].includes(event.key)) {
@@ -269,7 +272,13 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   const profileSelect = el('select'); profileSelect.setAttribute('aria-label', 'Profile');
   const sessionSelect = el('select'); sessionSelect.setAttribute('aria-label', 'Session');
   const bindingNote = el('span', 'agent-binding-note'); bindingNote.setAttribute('role', 'status');
-  let profiles: { id: string; label: string; configured: boolean }[] = [];
+  let profiles: { id: string; label: string; configured: boolean; provider?: string }[] = [];
+  const agentName = () => profiles.find(profile => profile.id === chatProfileId(state))?.provider === 'grok' ? 'Grok Bot' : 'Hermes';
+  const providerIsGrok = () => {
+    const id = chatProfileId(state);
+    const known = profiles.find(profile => profile.id === id);
+    return known ? known.provider === 'grok' : id === 'grok';
+  };
   let metadataReady = false, sessionsReady = false, metadataSequence = 0, catalogRequested = false;
   function option(value: string, label: string, disabled = false) {
     const node = el('option', '', label); node.value = value; node.disabled = disabled; return node;
@@ -314,9 +323,9 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
       const data = await api({ action: 'profiles' }, requested);
       if (sequence !== metadataSequence) return;
       if (!Array.isArray(data.profiles)) throw Error('Profile selection is unsupported by this backend.');
-      profiles = data.profiles.flatMap((p: { id?: string; profile_id?: string; label?: string; name?: string; configured?: boolean }) => {
+      profiles = data.profiles.flatMap((p: { id?: string; profile_id?: string; label?: string; name?: string; configured?: boolean; provider?: string }) => {
         const id = p.profile_id ?? p.id;
-        return typeof id === 'string' && validChat({session:'orbit-placeholder',profile_id:id,messages:[]}) ? [{ id, label: String(p.label || p.name || id), configured: p.configured !== false }] : [];
+        return typeof id === 'string' && validChat({session:'orbit-placeholder',profile_id:id,messages:[]}) ? [{ id, label: String(p.label || p.name || id), configured: p.configured !== false, provider: p.provider === 'grok' ? 'grok' : 'hermes' }] : [];
       });
       profileSelect.replaceChildren(...profiles.map(p => option(p.id, `${p.label}${p.configured ? '' : ' (unconfigured)'}`, !p.configured)));
       const bound = profiles.find(p => p.id === chatProfileId(state));
@@ -448,8 +457,9 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     openPanel('activity', activityButton);
   };
   const activityButton = button('Ready','Show live tool details',onActivityAction,'small-button');
-  const conversations = button('History', 'Open recent Hermes conversations', () => openTools(), 'small-button');
-  strip.append(newChat, conversations, inlineTools.toggle, activityButton);
+  const conversations = button('History', 'Open recent conversations', () => openTools(), 'small-button');
+  const sharedAgentsButton = button('Shared agents', 'Open the shared Hermes and Grok Bot conversation', () => setShared(true), 'small-button');
+  strip.append(newChat, sharedAgentsButton, conversations, inlineTools.toggle, activityButton);
   // Shown only when this pane's stored mode is Workbench while the experimental
   // surface is off. Normal chat remains fully usable here and the preference is
   // restored when the owner enables the feature.
@@ -472,7 +482,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     const observed = normalLive.counts();
     activityButton.textContent = attention ? label : observed.failures ? `${observed.failures} activity warning${observed.failures === 1 ? '' : 's'} · View` : state.run && streamStatus ? streamStatus.replace('Tool stream disconnected', 'Live updates disconnected') : `Activity · ${observed.events} events`;
     activityButton.hidden = !attention && !observed.events && !(state.run && streamStatus);
-    activity.update({title:state.title || 'Hermes',task:state.messages.filter(m=>m.role==='user').at(-1)?.text.slice(0,200) || 'No task yet',status:label,mode:activeMode(),normalStatus:label,workbenchStatus});
+    activity.update({title:state.title || agentName(),task:state.messages.filter(m=>m.role==='user').at(-1)?.text.slice(0,200) || 'No task yet',status:label,mode:activeMode(),normalStatus:label,workbenchStatus});
     normalLive.status({ status: label, run: state.run, at: Date.now() });
     updateModeBadge();
   }
@@ -491,6 +501,8 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   messages.setAttribute('role', 'log');
   messages.setAttribute('aria-label', 'Hermes conversation');
   const notice = el('div', 'agent-notice', 'Hermes can inspect and change this workspace, build apps, and open their previews here. Host terminals run as your account. Workspace context includes layout and app URLs, not private terminal buffers or iframe contents.');
+  const hermesNotice = 'Hermes can inspect and change this workspace, build apps, and open their previews here. Host terminals run as your account. Workspace context includes layout and app URLs, not private terminal buffers or iframe contents.';
+  const grokNotice = 'Grok Bot answers in this pane. Collab can run terminal commands in a project workspace after you approve a shell write. Workspace context includes layout and app URLs, not private terminal buffers or iframe contents.';
   const progress = el('div', 'agent-progress');
   progress.setAttribute('role', 'status');
   progress.tabIndex = -1;
@@ -504,20 +516,22 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   const stop = button('Stop', 'Ask Hermes to stop this run', async () => {
     if (!state.run) return;
     stop.disabled = true; queuePaused = true;
-    try { await api({ action: 'stop', run_id: state.run }); status.textContent = 'STOPPING'; progress.textContent = 'Stop requested. Waiting for Hermes to finish stopping…'; schedule(); }
+    try { await api({ action: 'stop', run_id: state.run }); status.textContent = 'STOPPING'; progress.textContent = `Stop requested. Waiting for ${agentName()} to finish stopping…`; schedule(); }
     catch (e) { showError(e); }
     finally { stop.disabled = false; }
   }, 'small-button');
-  const resume = button('Check status', 'Resume checking the active Hermes run', () => { void poll(); }, 'small-button');
-  const steer = button('Send guidance', 'Send composer text to the active Hermes run', async () => {
+  const resume = button('Check status', 'Resume checking the active run', () => { void poll(); }, 'small-button');
+  const steer = button('Send guidance', 'Send composer text to the active run', async () => {
     const text = input.value.trim(); if (!state.run || !text) return;
     steer.disabled = true;
     try {
       const result = await api({ action: 'steer', run_id: state.run, input: text });
-      if (!result.accepted) throw Error('Hermes did not accept this guidance. Your draft is preserved.');
+      if (!result.accepted) throw Error(`${agentName()} did not accept this guidance. Your draft is preserved.`);
       state.messages.push({ role: 'user', text: `[Guidance to active run] ${text}` }); save(); render();
        if (input.value.trim() === text) { input.value = ''; saveDraft(); }
-      progress.textContent = 'Guidance accepted by Hermes. It will be consumed at a safe point; already-running tool actions are not undone.';
+      progress.textContent = providerIsGrok()
+        ? 'Guidance was sent as a follow-up prompt. The open turn still finishes from the next reply. Already-running tool actions are not undone.'
+        : 'Guidance accepted. It will be consumed at a safe point; already-running tool actions are not undone.';
     } catch (error) { showError(error); }
     finally { steer.disabled = false; }
   }, 'small-button');
@@ -574,13 +588,18 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     const requested = scope();
     const scopedApi = (payload: Record<string, unknown>) => api(payload, requested);
     const dialog = document.createElement('dialog'); toolsDialog = dialog;
-    dialog.className = 'hermes-tools-dialog'; dialog.setAttribute('aria-label', 'Hermes tools');
-    const close = button('Close', 'Close Hermes tools', () => dialog.close());
-    dialog.append(el('h2', '', 'Hermes tools'), close);
-    for (const extension of workspaceExtensions) dialog.append(button(extension.title, extension.label, () => {
-      dialog.close(); void extension.activate({token:getToken,api:scopedApi}).catch(error=>{ if (current(requested)) window.alert(`Module ${extension.id} could not open: ${String(error)}`); });
-    }));
-    const live = button('Live activity', 'Open live Hermes activity', () => { if (current(requested) && state.run) { dialog.close(); const run = state.run; liveController?.abort(); liveController = new AbortController(); const signal = liveController.signal; void import('./hermes-surfaces').then(m => { if (current(requested) && !signal.aborted) return m.showLive(getToken, requested.session_id, run, requested.profile_id, requested.pane_id, signal, requested.revision ?? 0); }).catch(e => { if (current(requested)) window.alert(String(e)); }); } });
+    const name = agentName();
+    dialog.className = 'hermes-tools-dialog'; dialog.setAttribute('aria-label', `${name} tools`);
+    const close = button('Close', `Close ${name} tools`, () => dialog.close());
+    dialog.append(el('h2', '', `${name} tools`), close);
+    if (providerIsGrok()) dialog.append(el('p', '', 'The build queue and Project Workbench use Hermes workers. Grok Bot does not have those APIs. Collab can run shell commands in a project workspace after approval.'));
+    for (const extension of workspaceExtensions) {
+      if (providerIsGrok() && (extension.id === 'build-queue' || extension.id === 'project-workbench')) continue;
+      dialog.append(button(extension.title, extension.label, () => {
+        dialog.close(); void extension.activate({ token: getToken, api: scopedApi, agentName: name }).catch(error => { if (current(requested)) window.alert(`Module ${extension.id} could not open: ${String(error)}`); });
+      }));
+    }
+    const live = button('Live activity', `Open live ${name} activity`, () => { if (current(requested) && state.run) { dialog.close(); const run = state.run; liveController?.abort(); liveController = new AbortController(); const signal = liveController.signal; void import('./hermes-surfaces').then(m => { if (current(requested) && !signal.aborted) return m.showLive(getToken, requested.session_id, run, requested.profile_id, requested.pane_id, signal, requested.revision ?? 0); }).catch(e => { if (current(requested)) window.alert(String(e)); }); } });
     live.disabled = true; dialog.append(live);
     if (state.run) void scopedApi({action:'capabilities'}).then(data => { if (current(requested)) live.disabled = !data.features?.run_events_sse; }).catch(() => { if (current(requested)) live.title = 'Streaming unavailable; use Tool activity'; });
     const activity = el('div', 'hermes-activity');
@@ -602,12 +621,12 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
       } catch (error) { if (dialog.open && current(requested)) activity.textContent = error instanceof Error ? error.message : 'Activity unavailable'; }
       if (dialog.open && current(requested)) activityTimer = setTimeout(() => { void loadActivity(); }, 3000);
     }
-    dialog.append(button('Tool activity', 'Inspect actual Hermes tool calls and results', () => { clearTimeout(activityTimer); void loadActivity(); }), activity);
+    dialog.append(button('Tool activity', `Inspect ${name} tool calls and results`, () => { clearTimeout(activityTimer); void loadActivity(); }), activity);
     dialog.addEventListener('close', () => clearTimeout(activityTimer));
-    dialog.append(el('h3', '', 'Hermes conversation history'),
-      el('p', '', 'Open the conversation library for Hermes titles and IDs, Orbit names, pins and archives. Drafts save privately on the host with a tab recovery cache. Recent transcripts below are tab-local. Exports may contain private conversation content.'),
-      button('Conversation library', 'Browse durable Hermes sessions by profile', () => { dialog.close(); showConversationLibrary(getToken,paneId,chatProfileId(state)); }));
-    dialog.append(button('Export conversation', 'Download this Hermes conversation', () => {
+    dialog.append(el('h3', '', `${name} conversation history`),
+      el('p', '', `Open the conversation library for ${name} titles and IDs, Orbit names, pins and archives. Drafts save privately on the host with a tab recovery cache. Recent transcripts below are tab-local. Exports may contain private conversation content.`),
+      button('Conversation library', `Browse saved ${name} conversations by profile`, () => { dialog.close(); showConversationLibrary(getToken,paneId,chatProfileId(state)); }));
+    dialog.append(button('Export conversation', `Download this ${name} conversation`, () => {
       const blob = new Blob([transcript(state)], { type: 'text/plain;charset=utf-8' });
       const url = URL.createObjectURL(blob); const a = document.createElement('a');
       a.href = url; a.download = `${chatProfileId(state)}-${state.session}.txt`; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
@@ -674,15 +693,24 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     send.disabled = busy || switching || !bindingReady || blocked;
     newChat.disabled = switchBlocked() || !getToken();
     historyRecovery.disabled = newChat.disabled;
-    newChat.title = !getToken() ? 'Connect host to start a new chat' : !bindingReady ? 'Connecting this conversation to the host' : switchBlocked() ? 'Finish pending work, approvals and queued messages before starting a new chat' : 'Start a separate Hermes conversation';
+    const name = agentName();
+    newChat.title = !getToken() ? 'Connect host to start a new chat' : !bindingReady ? 'Connecting this conversation to the host' : switchBlocked() ? 'Finish pending work, approvals and queued messages before starting a new chat' : `Start a separate ${name} conversation`;
     profileSelect.disabled = switchBlocked() || !getToken() || !metadataReady;
     sessionSelect.disabled = switchBlocked() || !getToken() || !sessionsReady;
     applyBinding.disabled = switchBlocked() || !getToken() || !metadataReady || !sessionsReady;
     refreshBindings.disabled = switchBlocked() || !getToken();
-    refreshBindings.title = getToken() ? 'Load available Hermes profiles and sessions' : 'Connect host first to load profiles';
+    refreshBindings.title = getToken() ? `Load available ${name} profiles and sessions` : 'Connect host first to load profiles';
     const sendLabel = state.run ? 'Queue' : 'Send';
     if (send.textContent !== sendLabel) send.textContent = sendLabel;
-    send.title = !bindingReady ? 'Connect host and wait for this conversation to link' : blocked ? laneReason() || 'Shared agent lane is busy.' : state.run ? 'Queue message after the current turn' : 'Send message to Hermes';
+    send.title = !bindingReady ? 'Connect host and wait for this conversation to link' : blocked ? laneReason() || 'Shared agent lane is busy.' : state.run ? 'Queue message after the current turn' : `Send message to ${name}`;
+    input.placeholder = `Ask ${name}… (up to 100,000 characters)`;
+    stop.title = `Ask ${name} to stop this run`;
+    resume.title = `Resume checking the active ${name} run`;
+    steer.title = `Send composer text to the active ${name} run`;
+    conversations.title = `Open recent ${name} conversations`;
+    toolsEntry.textContent = `${name} tools and conversations`;
+    toolsEntry.title = `${name} tools and conversations`;
+    notice.textContent = providerIsGrok() ? grokNotice : hermesNotice;
     drainButton.disabled = blocked;
     stop.hidden = !state.run; resume.hidden = !state.run; steer.hidden = !state.run;
     // Allow composing the next message while Hermes works; Send remains disabled.
@@ -779,7 +807,15 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     const inactive = modeButtons.get(activeMode() === 'normal' ? 'workbench' : 'normal');
     if (inactive) inactive.button.dataset.badge = String(inactive.button.dataset.mode === 'workbench' ? count : state.queue?.length ?? 0);
   }
+  function showGrokWorkbenchNotice() {
+    if (workbench) { workbench.dispose(); workbench = undefined; }
+    workbenchHost.replaceChildren(workbenchUnavailable);
+    workbenchUnavailable.hidden = false;
+  }
   function ensureWorkbench() {
+    if (providerIsGrok()) { showGrokWorkbenchNotice(); return undefined; }
+    workbenchUnavailable.hidden = true;
+    workbenchUnavailable.remove();
     if (workbench || disposed) return workbench;
     workbench = mountPaneWorkbench({
       paneId,
@@ -817,8 +853,19 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   // DOM is hidden by attribute, so the same nodes, session, draft and queue persist.
   // While Project Workbench is disabled the stored preference above is retained
   // and only the rendered view falls back to Normal.
+  let sharedOpen = false;
+  let sharedView: ReturnType<typeof mountSharedAgents> | undefined;
+  function setShared(open: boolean) {
+    sharedOpen = open;
+    sharedView?.setVisible(open);
+    if (open) {
+      chatNormal.hidden = true;
+      workbenchHost.hidden = true;
+    } else if (!disposed) setMode(paneMode, false);
+  }
   function setMode(next: PaneMode, persist = true) {
     if (disposed) return;
+    if (sharedOpen) { sharedOpen = false; sharedView?.setVisible(false); }
     paneMode = next;
     if (persist) panePrefs = writePanePrefs(workspaceId, paneId, { mode: next });
     const view = activeMode();
@@ -836,7 +883,11 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     if(!state.run) {toolStatus='';streamStatus='';}
     refreshActivity();
     titleInput.value = state.title || '';
-    heading.textContent = state.title || 'Hermes';
+    heading.textContent = state.title || agentName();
+    input.placeholder = `Ask ${agentName()}… (up to 100,000 characters)`;
+    input.setAttribute('aria-label', `Message to ${agentName()}`);
+    workbenchTask.title = providerIsGrok() ? 'Project Workbench uses Hermes workers. This Grok Bot pane stays in chat.' : 'Open goal-first Workbench setup with your current draft; nothing is created until you confirm';
+    messages.setAttribute('aria-label', `${agentName()} conversation`);
     colorInput.value = state.color || '#b5f268';
     body.style.setProperty('--accent', state.color || '');
     body.style.background = state.color ? `color-mix(in srgb, ${state.color} 12%, #10141c)` : '';
@@ -855,6 +906,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     inlineTools.sync(chatBindingKey(state), state.run);
     sizeComposer();
     update();
+    sessionChrome.sync();
   }
   async function api(payload: Record<string, unknown>, requested = scope(), passive = false) {
     if (!current(requested)) throw new StaleRequest();
@@ -903,7 +955,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
       status.textContent = String(data.status || 'working').replaceAll('_', ' ').toUpperCase();
       approvals.replaceChildren();
       if (['completed', 'failed', 'cancelled', 'interrupted'].includes(data.status)) {
-        state.messages.push({ role: 'assistant', text: data.output || (data.status === 'completed' ? 'Hermes finished without a text reply.' : data.error || `Run ${data.status}.`) });
+        state.messages.push({ role: 'assistant', text: data.output || (data.status === 'completed' ? `${agentName()} finished without a text reply.` : data.error || `Run ${data.status}.`) });
         state.messages = state.messages.slice(-100);
         const finishedRun = state.run;
         state.run = undefined; save(); render();
@@ -931,7 +983,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
         if (data.status === 'completed' && !queuePaused && !workbenchLaneActive && !laneUnknown) void drainQueue();
         return;
       }
-      progress.textContent = data.status === 'waiting_for_approval' ? 'Hermes needs your permission before continuing.' : 'Hermes is working. You can stop the run. Replies appear when the turn completes.';
+      progress.textContent = data.status === 'waiting_for_approval' ? `${agentName()} needs your permission before continuing.` : `${agentName()} is working. You can stop the run. Replies appear when the turn completes.`;
       if (data.status === 'waiting_for_approval') {
         for (const a of data.approvals || []) approvals.append(el('pre', '', `${a.command}\n${a.reason}`));
         // No blind approval when details are unavailable.
@@ -964,7 +1016,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
       render(); return;
     }
     if (!getToken()) { showError(new Error('Use “Connect host” in the top bar first.')); return; }
-    busy = true; update(); status.textContent = 'CONNECTING'; progress.textContent = 'Sending to Hermes…';
+    busy = true; update(); status.textContent = 'CONNECTING'; progress.textContent = `Sending to ${agentName()}…`;
     try {
       await ensureWorkspaceSynced();
       const data = await api({ action: 'start', input: text }, requested);
@@ -1016,8 +1068,24 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   form.append(input, workbenchTask, send);
   form.onsubmit = e => { e.preventDefault(); void submit(); };
   input.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); void submit(); } };
-  chatNormal.append(strip, experimentalNotice, inlineTools.root, messages, messageRenderer.latest, taskCards, syncNotice, progress, historyRecovery, approvals, unknownAction, controls, queueList, draftStatus, form);
-  body.append(chatNormal, workbenchHost);
+  const sessionChrome = mountAgentPaneSession({
+    api: (payload, passive) => api(payload, scope(), passive),
+    library: (profileId, body) => conversationRequest(getToken, { ...body, workspace_id: workspaceId, profile_id: profileId }),
+    profiles: () => profiles,
+    state: () => state,
+    providerOf: id => profiles.find(profile => profile.id === id)?.provider === 'grok' || id === 'grok' ? 'grok' : 'hermes',
+    switchConversation: (profileId, sessionId) => switchConversation(profileId, sessionId),
+    acceptState: next => { if (validChat(next)) acceptState(next); },
+    showError,
+  });
+  badge.append(sessionChrome.header);
+  chatNormal.append(strip, experimentalNotice, sessionChrome.banner, sessionChrome.notes, sessionChrome.sidecar, inlineTools.root, messages, messageRenderer.latest, taskCards, syncNotice, progress, historyRecovery, approvals, unknownAction, controls, queueList, draftStatus, form);
+  sharedView = mountSharedAgents({
+    request: payload => api({ action: 'shared_agents', ...payload }, scope(), true),
+    onClose: () => setShared(false),
+  });
+  sharedView.element.hidden = true;
+  body.append(chatNormal, workbenchHost, sharedView.element);
   if (toolbar) {
     toolbar.classList.add('agent-pane-head');
     badge.classList.add('agent-toolbar-meta');
@@ -1026,6 +1094,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     chatNormal.prepend(badge);
   }
   render();
+  void sessionChrome.refreshMeter();
   // Restore the persisted view after the DOM exists, honoring the experimental
   // gate. This only reads host state (owner read APIs); it never starts a run or
   // drains the queue.
@@ -1089,7 +1158,13 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     }
     state = next;
     if (changed) {
-      workbench?.invalidateBinding();
+      if (providerIsGrok()) showGrokWorkbenchNotice();
+      else {
+        workbenchUnavailable.hidden = true;
+        workbenchUnavailable.remove();
+        if (workbench) workbench.invalidateBinding();
+        else if (activeMode() === 'workbench') ensureWorkbench()?.setVisible(true);
+      }
       loadDraft(); resetBindingControls(); status.textContent = state.run ? 'WORKING' : 'READY'; progress.textContent = ''; historyRecovery.hidden = true;
       selectDraft();
       // A binding change resets the shared timeline (Normal feed and idle Workbench scope).
@@ -1097,16 +1172,48 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     }
     save(); render();
   }
+  function askGrokConversationName(): Promise<string | null> {
+    return new Promise(resolve => {
+      const dialog = document.createElement('dialog');
+      dialog.className = 'hermes-tools-dialog';
+      dialog.setAttribute('aria-label', 'Name Grok Bot conversation');
+      const name = el('input');
+      name.maxLength = 80;
+      name.placeholder = 'Orbit chat';
+      name.setAttribute('aria-label', 'Grok Bot conversation name');
+      const form = el('form');
+      const commit = button('Create', 'Create Grok Bot conversation', () => {});
+      commit.type = 'submit';
+      let settled = false;
+      const finish = (value: string | null) => { if (settled) return; settled = true; resolve(value); dialog.close(); };
+      form.append(el('h2', '', 'New Grok Bot conversation'), el('p', '', 'Name this conversation, or leave it blank to reuse an empty Orbit chat.'), name, commit, button('Cancel', 'Cancel new conversation', () => finish(null)));
+      form.onsubmit = event => { event.preventDefault(); finish(name.value.trim()); };
+      dialog.append(form);
+      dialog.addEventListener('cancel', event => { event.preventDefault(); finish(null); });
+      dialog.addEventListener('close', () => { dialog.remove(); finish(null); });
+      document.body.append(dialog);
+      dialog.showModal();
+      name.focus();
+    });
+  }
   async function switchConversation(targetProfile: string, targetSession?: string, report?: ConversationSelection['report']) {
     if(requestedSelection){requestedSelection.report?.('failed','Replaced by a newer conversation choice.');requestedSelection=undefined;}
     const reject = (message: string) => { showError(Error(message)); report?.('failed',message); };
     if (switchBlocked()) { reject(state.run ? 'Wait for the current run or unresolved outcome to finish, or use New window.' : state.queue?.length ? 'Send or remove queued messages before switching, or use New window.' : approvals.childElementCount ? 'Resolve pending approvals before switching, or use New window.' : 'Wait for the pane to finish linking or synchronizing, then retry.'); return; }
     if (!Number.isSafeInteger(state.binding_revision)) { reject('Session switching is unsupported until the backend supplies an authoritative binding revision. Refresh the connection first.'); return; }
     const requested = scope();
+    const grokProfile = profiles.find(profile => profile.id === targetProfile)?.provider === 'grok' || (!profiles.some(profile => profile.id === targetProfile) && targetProfile === 'grok');
+    let conversationName = '';
+    if (!targetSession && grokProfile) {
+      const named = await askGrokConversationName();
+      if (!current(requested) || disposed) return;
+      if (named === null) { report?.('failed', 'New conversation cancelled.'); progress.textContent = 'New conversation cancelled.'; return; }
+      conversationName = named;
+    }
     switching = true; sharedEpoch++; update();
     report?.('opening','Opening conversation on the host… This submitted selection cannot be cancelled.');
     try {
-      const data = await api({action:'select_session',target_profile_id:targetProfile,...(targetSession ? {target_session_id:targetSession} : {}),expected_binding_revision:requested.revision}, requested);
+      const data = await api({action:'select_session',target_profile_id:targetProfile,...(targetSession ? {target_session_id:targetSession} : {}),...(conversationName ? {conversation_name:conversationName} : {}),expected_binding_revision:requested.revision}, requested);
       if (!validChat(data.state) || !Number.isSafeInteger(data.state.binding_revision) || chatProfileId(data.state) !== targetProfile || (targetSession && data.state.session !== targetSession)) throw Error('Session switching is unsupported: the backend did not return the requested authoritative binding. Refresh before any further actions.');
       remember(); acceptState(data.state);
       report?.('opened',`Opened ${targetProfile} · ${state.session}.`);
@@ -1129,5 +1236,5 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     progress.textContent = 'A saved run may still be active. Connect host to check its status. Closing the pane does not stop Hermes.';
     if (getToken()) void poll();
   }
-  return () => { messageRenderer.dispose(); saveDraft(); durableDraft?.dispose(); disposed = true; conversationRecipient?.dispose(); generation++; unsubscribeExperimental(); statusObserver.disconnect(); activity.dispose(); clearInterval(sharedTimer); stopToolFeed(); inlineTools.dispose(); workbench?.dispose(); timeline.dispose(); workbenchTimeline.dispose(); inspector.dispose(); overflowMenu.remove(); toolsDialog?.close(); liveController?.abort(); clearTimeout(timer); controller.abort(); document.removeEventListener('pointerdown', onOutsideMenu); window.removeEventListener('orbit-host-connected', onUnlock); window.removeEventListener('orbit-open-hermes-tools', onOpenTools); window.removeEventListener('orbit-open-conversation-library',onOpenLibrary);window.removeEventListener('orbit-select-conversation',onSelectConversation);window.removeEventListener('pagehide',flushDraft); };
+  return () => { messageRenderer.dispose(); saveDraft(); durableDraft?.dispose(); disposed = true; conversationRecipient?.dispose(); generation++; unsubscribeExperimental(); statusObserver.disconnect(); activity.dispose(); clearInterval(sharedTimer); stopToolFeed(); inlineTools.dispose(); workbench?.dispose(); sharedView?.dispose(); timeline.dispose(); workbenchTimeline.dispose(); inspector.dispose(); overflowMenu.remove(); toolsDialog?.close(); liveController?.abort(); clearTimeout(timer); controller.abort(); document.removeEventListener('pointerdown', onOutsideMenu); window.removeEventListener('orbit-host-connected', onUnlock); window.removeEventListener('orbit-open-hermes-tools', onOpenTools); window.removeEventListener('orbit-open-conversation-library',onOpenLibrary);window.removeEventListener('orbit-select-conversation',onSelectConversation);window.removeEventListener('pagehide',flushDraft); };
 }

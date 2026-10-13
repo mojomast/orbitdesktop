@@ -7,6 +7,12 @@ import { automation } from './automation.mjs';
 import { tokenMatches, allowedRequest } from './security.mjs';
 import { createBuildQueue } from './build-queue.mjs';
 import { createAgentProfiles, validSessionId, sanitizeSessions, sanitizeHistory } from './agent-profiles.mjs';
+import { attachProviders } from './agent-discovery.mjs';
+import { applyCalibration, calibrateEstimate, estimateTokens, forkSeed, HERMES_COMPRESSION_NOTE, meterLevel, modelWindow, readReportedUsage, summarizeTranscript, usageBreakdown } from './agent-session-controls.mjs';
+import { createGrokChat } from './grok-chat.mjs';
+import { createAgentGateways } from './agent-gateways.mjs';
+import { createSharedAgents } from './shared-agents.mjs';
+import { createCollab } from './collab.mjs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -14,7 +20,7 @@ const sessionPattern = /^orbit-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[
 const runPattern = /^run_[a-zA-Z0-9_-]{8,100}$/;
 const instructions = 'You are Hermes, accessed through the owner’s Comet/Orbit Desktop agent chat. This pane uses its explicitly selected profile and conversation, which may resume a saved Hermes session. Orbit terminal panes run as the owner on the host. Your agent tools still run in the configured Hermes environment. Use plain text in replies. Do not claim to see screen pixels, iframe contents, or terminal buffers unless supplied. Follow normal tool approval policies.';
 
-export function createAgentHandler({ token, port, devOrigins, reply, workspaceContext, workspaceRead, runtimeDirectory = process.env.ORBIT_RUNTIME_DIR || fileURLToPath(new URL('../.runtime/', import.meta.url)), apiUrl = process.env.HERMES_API_URL, apiKey = process.env.HERMES_API_KEY, profiles, profilesJson = process.env.HERMES_PROFILES_JSON, fetchImpl = fetch, executionGate, onRunEvent, onNormalAccepted }) {
+export function createAgentHandler({ token, port, devOrigins, reply, workspaceContext, workspaceRead, runtimeDirectory = process.env.ORBIT_RUNTIME_DIR || fileURLToPath(new URL('../.runtime/', import.meta.url)), apiUrl = process.env.HERMES_API_URL, apiKey = process.env.HERMES_API_KEY, profiles, profilesJson = process.env.HERMES_PROFILES_JSON, additionalProfiles, fetchImpl = fetch, executionGate, onRunEvent, onNormalAccepted, grokOptions = {} }) {
   // Derived observation only, using the exact run-trace contract. Never await or
   // let an observer alter a receipt, response, approval or dispatch outcome.
   const observeStatus=(binding,run)=>{
@@ -23,6 +29,45 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
   };
   let configuration;
   try { configuration = createAgentProfiles({profiles,profilesJson,apiUrl,apiKey}); } catch { configuration = null; }
+  if (configuration && Array.isArray(additionalProfiles) && additionalProfiles.length) configuration = attachProviders(configuration, additionalProfiles);
+  const grok = createGrokChat({
+    fetchImpl,
+    runtimeDirectory,
+    ...(typeof grokOptions.now === 'function' ? { now: grokOptions.now } : {}),
+    ...(Number.isFinite(grokOptions.acceptanceGraceMs) ? { acceptanceGraceMs: grokOptions.acceptanceGraceMs } : {}),
+    ...(Number.isFinite(grokOptions.runTimeoutMs) ? { runTimeoutMs: grokOptions.runTimeoutMs } : {}),
+  });
+  const hermesProfile = () => {
+    const profile = configuration?.get('default');
+    return profile && profile.provider !== 'grok' ? profile : null;
+  };
+  const grokProfile = () => {
+    const listed = configuration?.list?.find(profile => profile.provider === 'grok');
+    const profile = listed ? configuration.get(listed.id) : null;
+    return profile?.apiUrl && profile?.apiKey ? profile : null;
+  };
+  const gatewayNow = typeof grokOptions.now === 'function' ? grokOptions.now : undefined;
+  const gateways = createAgentGateways({ fetchImpl, grok, hermesProfile, grokProfile, ...(gatewayNow ? { now: gatewayNow } : {}) });
+  const collab = createCollab({
+    directory: path.join(runtimeDirectory, 'collab'),
+    gateways,
+    ...(gatewayNow ? { now: gatewayNow } : {}),
+    ...(Number.isFinite(grokOptions.turnTimeoutMs) ? { turnTimeoutMs: grokOptions.turnTimeoutMs } : {}),
+    ...(Number.isFinite(grokOptions.advanceIntervalMs) ? { advanceIntervalMs: grokOptions.advanceIntervalMs } : {}),
+  });
+  const sharedAgents = createSharedAgents({
+    directory: path.join(runtimeDirectory, 'shared-agents'),
+    fetchImpl,
+    grok,
+    gateways,
+    openCollab: args => collab.openFromRoom(args),
+    ...(gatewayNow ? { now: gatewayNow } : {}),
+    ...(Number.isFinite(grokOptions.turnTimeoutMs) ? { turnTimeoutMs: grokOptions.turnTimeoutMs } : {}),
+    ...(Number.isFinite(grokOptions.advanceIntervalMs) ? { advanceIntervalMs: grokOptions.advanceIntervalMs } : {}),
+    hermesProfile,
+    grokProfile,
+  });
+  const estimateFactors = new Map();
   const endpoint = (profile, route) => `${profile.apiUrl.replace(/\/$/, '')}${route}`;
   // Bounded upstream JSON: read the real byte stream with a hard cap, cancel on
   // overflow, and decode as fatal UTF-8. There is no unbounded r.json() fallback;
@@ -154,7 +199,9 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
           if (!Number.isSafeInteger(offset) || offset < 0 || offset > 10000) return reply(res,400,{error:'Invalid session page.'});
           const target = configuration.get(body.profile_id);
           let page = {data:[],has_more:false}, supported = true;
-          try { page = sanitizeSessions(await upstreamFor(target,`/api/sessions?limit=100&offset=${offset}`)); }
+          try {
+            page = sanitizeSessions(target.provider === 'grok' ? await grok.sessionPage(target, offset) : await upstreamFor(target,`/api/sessions?limit=100&offset=${offset}`));
+          }
           catch (error) { if (error.status !== 404) throw error; supported = false; }
           const metadata = conversations.list(body.workspace_id,body.profile_id).map(publicMetadata);
           const rows = new Map(page.data.map(item => [item.id,{session_id:item.id,profile_id:body.profile_id,upstream_title:item.title,updated_at:item.updated_at,...publicMetadata(conversations.read({...body,session_id:item.id}))}]));
@@ -193,9 +240,12 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
         if(shared.locks.has(candidateLock)) return reply(res,409,{error:'This pane is busy; retry shortly.'});
         paneLock = candidateLock;
         shared.locks.add(paneLock);
+        if (body.action === 'shared_agents') return sharedAgents.handle(reply, res, body);
+        if (body.action === 'collab') return collab.handle(reply, res, body);
         if (body.action === 'sessions') {
           const target = configuration.get(body.target_profile_id);
           if (!target) return reply(res,400,{error:'Unknown Hermes profile.'});
+          if (target.provider === 'grok') { const page = sanitizeSessions(await grok.sessionPage(target, 0)); return reply(res,200,{sessions:page.data,supported:true}); }
           try { const data = await upstreamFor(target,'/api/sessions?limit=100&offset=0'); return reply(res,200,{sessions:sanitizeSessions(data).data,supported:true}); }
           catch(error) { if (error.status === 404) return reply(res,200,{sessions:[],supported:false,note:'Session catalog unavailable on this Hermes version.'}); throw error; }
         }
@@ -213,6 +263,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
           if (revision !== linked.binding_revision || linked.session !== body.session_id || linked.profile_id !== profileId || linked.run || shared.locks.has(`session:${linked.profile_id}:${linked.session}`)) return reply(res,409,{error:'Conversation changed or is still running.'});
           const target = configuration.get(body.target_profile_id);
           if (!target) return reply(res,400,{error:'Unknown Hermes profile.'});
+          if (target.provider === 'grok') return grok.selectSession(reply, res, { body, target, revision, profileId, shared, validatePane, conversations });
           const creating = body.target_session_id === undefined || body.target_session_id === null;
           const targetId = creating ? `orbit-${randomUUID()}` : body.target_session_id;
           if (!validSessionId(targetId)) return reply(res,400,{error:'Invalid Hermes session.'});
@@ -234,6 +285,121 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
             const display=conversations.read({workspace_id:body.workspace_id,profile_id:target.id,session_id:targetId});
             const state = shared.write(body.workspace_id,body.pane_id,{session:targetId,profile_id:target.id,binding_revision:revision+1,messages,title:display.title || title,history_unstarted:creating});
           return reply(res,200,{state});
+        }
+        if (body.action === 'context_meter' || body.action === 'session_preview' || body.action === 'compact_session' || body.action === 'fork_session') {
+          if (revision !== linked.binding_revision || linked.session !== body.session_id || linked.profile_id !== profileId) return reply(res,409,{error:'This pane is linked to another conversation. Wait for synchronization.'});
+          if (body.action === 'compact_session' && body.confirm !== true) return reply(res,400,{error:'Confirm compact before changing this session.'});
+          if (body.action === 'fork_session' && body.confirm !== true) return reply(res,400,{error:'Confirm before forking this session.'});
+          if ((body.action === 'compact_session' || body.action === 'fork_session') && linked.run) return reply(res,409,{error:'Conversation changed or is still running.'});
+          if (body.action === 'fork_session') {
+            const sourceProfileId = typeof body.source_profile_id === 'string' ? body.source_profile_id : profileId;
+            const source = configuration.get(sourceProfileId);
+            const sourceSession = typeof body.source_session_id === 'string' ? body.source_session_id : body.session_id;
+            const targetProfileId = typeof body.target_profile_id === 'string' ? body.target_profile_id : sourceProfileId;
+            const target = configuration.get(targetProfileId);
+            if (!source || !target || !validSessionId(sourceSession)) return reply(res,400,{error:'Invalid conversation to fork.'});
+            let transcript = [];
+            if (source.provider === 'grok') {
+              const preview = await grok.previewSession(source, sourceSession);
+              transcript = preview.messages || [];
+              if (preview.resumable === false && !transcript.length) return reply(res,409,{error:'This session cannot be forked because its transcript is unavailable.'});
+            } else {
+              try {
+                const history = await upstreamFor(source, `/api/sessions/${encodeURIComponent(sourceSession)}/messages?limit=80&offset=0`);
+                transcript = sanitizeHistory(history);
+              } catch (error) {
+                if (error.status !== 404) throw error;
+                if (sourceSession === linked.session && source.id === profileId) transcript = linked.messages || [];
+                else return reply(res,409,{error:'This session cannot be forked because its transcript is unavailable.'});
+              }
+            }
+            const through = body.through_index === undefined ? Math.max(0, transcript.length - 1) : body.through_index;
+            if (transcript.length && (!Number.isInteger(through) || through < 0 || through >= transcript.length)) return reply(res,400,{error:'Fork from a message in this transcript.'});
+            const slice = transcript.length ? transcript.slice(0, through + 1) : [];
+            const summary = summarizeTranscript(slice);
+            const sourceProvider = source.provider === 'grok' ? 'grok' : 'hermes';
+            const targetProvider = target.provider === 'grok' ? 'grok' : 'hermes';
+            const cross = sourceProvider !== targetProvider;
+            const seed = forkSeed({ summary, sourceSession, sourceProvider, targetProvider, through: transcript.length ? through : undefined, cross });
+            if (target.provider === 'grok') return grok.forkSession(reply, res, { body, target, revision, profileId, shared, conversations, seed, summary, sourceSession, cross });
+            const created = `orbit-${randomUUID()}`;
+            if (shared.locks.has(`session:${target.id}:${created}`) || shared.hasActive(target.id, created, body.workspace_id, body.pane_id)) return reply(res,409,{error:'This conversation is already running.'});
+            const title = `Fork of ${String(sourceSession).slice(-12)}`.slice(0, 100);
+            try { conversations.write({ workspace_id: body.workspace_id, profile_id: target.id, session_id: created }, 0, { title }); } catch { /* the pane title still shows the fork */ }
+            const text = seed.slice(0, 16000);
+            const state = shared.write(body.workspace_id, body.pane_id, {
+              session: created, profile_id: target.id, binding_revision: revision + 1,
+              messages: [{ role: 'user', text }], title, history_unstarted: true, fork_preface: text,
+            });
+            const published = { ...state };
+            delete published.fork_preface;
+            return reply(res,200,{ state: published, strategy: cross ? 'cross-provider-fork' : 'fork', previous_session_id: sourceSession, session_id: created, summary, note: `Forked into ${created}. The original session stays unchanged.` });
+          }
+          if (body.action === 'session_preview') {
+            const target = configuration.get(body.target_profile_id);
+            if (!target || !validSessionId(body.target_session_id)) return reply(res,400,{error:'Invalid conversation preview.'});
+            if (target.provider === 'grok') return reply(res,200,{...await grok.previewSession(target, body.target_session_id), provider:'grok'});
+            try {
+              const history = await upstreamFor(target, `/api/sessions/${encodeURIComponent(body.target_session_id)}/messages?limit=80&offset=0`);
+              return reply(res,200,{messages:sanitizeHistory(history), resumable:true, provider:'hermes'});
+            } catch (error) {
+              if (error.status === 404) return reply(res,200,{messages:[], resumable:false, provider:'hermes', note:'This Hermes session cannot be resumed from here.'});
+              throw error;
+            }
+          }
+          if (profile?.provider === 'grok') {
+            if (body.action === 'compact_session') return grok.compactSession(reply, res, { body, target: profile, revision, profileId, shared, conversations });
+            const preview = await grok.previewSession(profile, body.session_id);
+            const text = preview.messages.map(item => item.text).join('\n');
+            const rawEstimate = estimateTokens(text);
+            const modelName = typeof profile.model === 'string' ? profile.model : '';
+            const factor = estimateFactors.get(`${profileId}:${modelName || 'grok'}`) || 1;
+            const meter = meterLevel(applyCalibration(rawEstimate, factor), modelWindow(modelName));
+            return reply(res,200,{...meter, source:'estimated', calibrated: factor !== 1, breakdown: usageBreakdown(null, rawEstimate, text.length), model: modelName, tools:true, provider:'grok', hermes_compression:null});
+          }
+          if (body.action === 'compact_session') {
+            const response = await fetchImpl(endpoint(profile, `/api/sessions/${encodeURIComponent(body.session_id)}/compress`), {
+              method: 'POST',
+              headers: { Authorization: `Bearer ${profile.apiKey}`, 'Content-Type': 'application/json' },
+              body: '{}',
+              signal: AbortSignal.timeout(20000),
+              redirect: 'error',
+            });
+            if ([404, 405, 501].includes(response.status)) {
+              try { await response.body?.cancel?.(); } catch { /* already closed */ }
+              return reply(res,200,{strategy:'hermes-native', applied:false, note:HERMES_COMPRESSION_NOTE});
+            }
+            if (!response.ok) {
+              try { await response.body?.cancel?.(); } catch { /* already closed */ }
+              return reply(res,502,{error:'Hermes could not compact this session.'});
+            }
+            let summary = '';
+            try { const data = await readBoundedJson(response); summary = typeof data?.summary === 'string' ? data.summary.slice(0, 4000) : ''; }
+            catch { summary = ''; }
+            return reply(res,200,{strategy:'hermes-native', applied:true, summary, note: summary || 'Hermes compressed this session.'});
+          }
+          let session = null;
+          try { session = await upstream(`/api/sessions/${encodeURIComponent(body.session_id)}`); }
+          catch (error) { if (error.status !== 404) throw error; }
+          const reported = readReportedUsage(session);
+          const localText = (Array.isArray(linked.messages) ? linked.messages : []).map(item => item.text || '').join('\n');
+          let sampleText = localText;
+          if (!reported.used && !estimateTokens(sampleText)) {
+            try {
+              const history = await upstream(`/api/sessions/${encodeURIComponent(body.session_id)}/messages?limit=80&offset=0`);
+              sampleText = sanitizeHistory(history).map(item => item.text).join('\n');
+            } catch (error) { if (error.status !== 404) throw error; }
+          }
+          const rawEstimate = estimateTokens(sampleText);
+          const model = reported.model || '';
+          const factorKey = `${profileId}:${model || 'default'}`;
+          let factor = estimateFactors.get(factorKey) || 1;
+          if (reported.used && rawEstimate) {
+            const sample = calibrateEstimate(rawEstimate, reported.used);
+            if (sample.calibrated) { factor = sample.factor; estimateFactors.set(factorKey, factor); }
+          }
+          const meter = meterLevel(reported.used || applyCalibration(rawEstimate, factor), reported.window || modelWindow(model));
+          return reply(res,200,{...meter, source: reported.used ? 'reported' : 'estimated', calibrated: !reported.used && factor !== 1, breakdown: usageBreakdown(session, rawEstimate, sampleText.length), model, tools:true, provider:'hermes', hermes_compression:{native:true, detail:HERMES_COMPRESSION_NOTE}});
         }
         if(linked.session !== body.session_id || linked.profile_id !== profileId || revision !== linked.binding_revision) return reply(res,409,{error:'This pane is linked to another conversation. Wait for synchronization.'});
         const receipt = readSubmission(body, linked);
@@ -268,6 +434,14 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
             return reply(res,200,{...result,approvals});
           }
         }
+      }
+      if (profile?.provider === 'grok' && body.action === 'build_queue') return reply(res, 409, { error: 'The build queue uses Hermes workers. Grok Bot has no build-queue API.' });
+      if (profile?.provider === 'grok' && body.action === 'events') {
+        if (paneLock) { shared.locks.delete(paneLock); paneLock = undefined; }
+        return grok.events(reply, res, { body, profile, shared });
+      }
+      if (profile?.provider === 'grok' && ['catalog', 'capabilities', 'activity', 'automation', 'jobs', 'job_control'].includes(body.action)) {
+        return grok.surface(reply, res, { body, profile });
       }
       if (body.action === 'build_queue') {
         if (profileId !== 'default') return reply(res,409,{error:'Build queue is only available for the default Hermes profile.'});
@@ -350,6 +524,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
         return reply(res, 200, { activity, note: 'Persisted tool history for this conversation; active tools may appear only after Hermes saves them. Results are truncated.' });
       }
       if (body.action === 'start') {
+        if (profile?.provider === 'grok') return grok.turn(reply, res, { body, profile, shared, workspaceContext, executionGate });
         if (typeof body.input !== 'string' || !body.input.trim() || body.input.length > 100000) return reply(res, 400, { error: 'Enter a message of 1–100,000 characters.' });
         // Do not start while the shared agent lane is held or legacy-unknown.
         // Pane-backed submissions claim it through preparation and dispatch below.
@@ -423,6 +598,11 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
           }
           while (conversation_history.length && conversation_history[0].role !== 'user') conversation_history.shift();
         } catch (error) { if (error.status !== 404) throw error; }
+        if (body.pane_id) {
+          const bound = shared.read(body.workspace_id, body.pane_id);
+          if (bound && !conversation_history.length && typeof bound.fork_preface === 'string' && bound.fork_preface.trim()) conversation_history = [{ role: 'user', content: bound.fork_preface.slice(0, 16000) }];
+          else if (bound?.fork_preface && conversation_history.length) shared.write(body.workspace_id, body.pane_id, { ...bound, fork_preface: undefined });
+        }
         let context = '';
         if (body.workspace_id && workspaceContext) {
           try { context = workspaceContext(body.workspace_id); }
@@ -437,6 +617,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
         } finally {shared.locks.delete(lock);}
       }
       if (!['status', 'stop', 'approval', 'steer'].includes(body.action) || !runPattern.test(body.run_id || '')) return reply(res, 400, { error: 'Invalid agent action.' });
+      if (profile?.provider === 'grok') return grok.control(reply, res, { body, profile, shared });
       const runPath = `/v1/runs/${body.run_id}`;
       const run = await upstream(runPath);
       // Never let Orbit operate on another dashboard's sessions/runs.

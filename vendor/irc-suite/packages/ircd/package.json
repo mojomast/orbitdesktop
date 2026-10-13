@@ -1,0 +1,9 @@
+{
+  "name": "@orbit-irc/ircd",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/server.js",
+  "exports": "./src/server.js",
+  "bin": { "orbit-ircd": "bin/ircd.js" },
+  "scripts": { "start": "node bin/ircd.js", "test": "node --test test/" }
+}

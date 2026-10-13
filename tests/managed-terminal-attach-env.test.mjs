@@ -13,7 +13,7 @@ test('attach-mode tmux client exec environment excludes owner/agent credentials'
   const root = await mkdtemp('/tmp/opencode/attach-env-');
   await chmod(root, 0o700);
   const saved = {};
-  for (const key of ['HERMES_PROFILES_JSON', 'HERMES_API_KEY', 'ORBIT_TOKEN', 'TMUX']) saved[key] = process.env[key];
+  for (const key of ['HERMES_PROFILES_JSON', 'HERMES_API_KEY', 'ORBIT_TOKEN', 'TMUX', 'API_SERVER_KEY', 'SAND_GATEWAY_TOKEN', 'GROK_BOT_API_KEY', 'GROKBOT_GATEWAY_TOKEN']) saved[key] = process.env[key];
   t.after(async () => {
     for (const [key, value] of Object.entries(saved)) {
       if (value === undefined) delete process.env[key];
@@ -24,6 +24,10 @@ test('attach-mode tmux client exec environment excludes owner/agent credentials'
   process.env.HERMES_PROFILES_JSON = 'attach-secret-profile';
   process.env.HERMES_API_KEY = 'attach-secret-key';
   process.env.ORBIT_TOKEN = 'attach-secret-token';
+  process.env.API_SERVER_KEY = 'attach-secret-api-server';
+  process.env.SAND_GATEWAY_TOKEN = 'attach-secret-sand';
+  process.env.GROK_BOT_API_KEY = 'attach-secret-grok';
+  process.env.GROKBOT_GATEWAY_TOKEN = 'attach-secret-grokbot';
   process.env.TMUX = 'nested-server,1,0';
 
   const socket = 'attach-env-' + randomUUID().slice(0, 8);
@@ -47,12 +51,16 @@ test('attach-mode tmux client exec environment excludes owner/agent credentials'
   const options = { mode: 'attach', socket, ledger, tmuxTmpDir: root };
   assert.throws(() => new ManagedTerminalProvider({ ...options, envAllowlist: { HERMES_PROFILES_JSON: 'x' } }),
     (error) => error.code === 'invalid_request', 'attach allowlist must reject credentials');
+  assert.throws(() => new ManagedTerminalProvider({ ...options, envAllowlist: { API_SERVER_KEY: 'x' } }),
+    (error) => error.code === 'invalid_request', 'attach allowlist must reject the Hermes API server key');
+  assert.throws(() => new ManagedTerminalProvider({ ...options, envAllowlist: { GROK_BOT_API_KEY: 'x' } }),
+    (error) => error.code === 'invalid_request', 'attach allowlist must reject the Grok Bot gateway token');
   const provider = new ManagedTerminalProvider(options);
   await provider.start();
   await provider.observeExact({ sessionName: `pane-${randomUUID()}` }).catch(() => null);
   assert.ok(captured.length >= 1, 'expected a real tmux exec attempt');
   for (const call of captured) {
-    for (const key of ['HERMES_PROFILES_JSON', 'HERMES_API_KEY', 'ORBIT_TOKEN', 'TMUX']) {
+    for (const key of ['HERMES_PROFILES_JSON', 'HERMES_API_KEY', 'ORBIT_TOKEN', 'TMUX', 'API_SERVER_KEY', 'SAND_GATEWAY_TOKEN', 'GROK_BOT_API_KEY', 'GROKBOT_GATEWAY_TOKEN']) {
       assert.equal(Object.hasOwn(call.env, key), false, `${key} must not reach the attach tmux client env`);
     }
     assert.equal(JSON.stringify(call.env).includes('attach-secret'), false, 'no credential value may reach the attach tmux client env');

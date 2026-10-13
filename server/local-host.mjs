@@ -46,6 +46,10 @@ export class LocalHostProvider {
     delete env.ORBIT_TOKEN;
     delete env.HERMES_API_KEY;
     delete env.HERMES_PROFILES_JSON;
+    delete env.API_SERVER_KEY;
+    delete env.SAND_GATEWAY_TOKEN;
+    delete env.GROK_BOT_API_KEY;
+    delete env.GROKBOT_GATEWAY_TOKEN;
     const persistent = typeof pane_id === 'string' && /^[a-f0-9-]{36}$/.test(pane_id);
     if (tmuxArguments && (!persistent || !Array.isArray(tmuxArguments))) throw Error('Invalid managed attachment');
     return pty.spawn(persistent ? '/usr/bin/tmux' : shell, persistent ? ['-L', this.tmuxSocket, ...(this.tmuxConfig ? ['-f', this.tmuxConfig] : []), ...(tmuxArguments || ['new-session', '-A', '-s', 'pane-' + pane_id, shell])] : [], {

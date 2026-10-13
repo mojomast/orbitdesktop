@@ -3,6 +3,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tarfile
@@ -27,6 +28,7 @@ def main():
     parser.add_argument('--directory', required=True, type=Path, help='Dedicated deployment directory outside the installed plugin')
     parser.add_argument('--approve-dependencies', action='store_true', help='Approve npm network downloads and native dependency install scripts')
     parser.add_argument('--port', type=int, default=4318)
+    parser.add_argument('--host', default=os.environ.get('ORBIT_HOST', '127.0.0.1'), help='Bind address. Use 0.0.0.0 to accept tailnet connections, then set ORBIT_PUBLIC_ORIGIN to the exact browser origin.')
     args = parser.parse_args()
     destination = args.directory.expanduser().resolve()
     plugin_dir = Path(__file__).resolve().parent
@@ -34,6 +36,9 @@ def main():
         parser.error('Use a deployment directory outside the immutable plugin installation')
     if not 1024 <= args.port <= 65535:
         parser.error('Choose a port from 1024 to 65535')
+    host = args.host.strip()
+    if not re.fullmatch(r'[A-Za-z0-9_.:-]{1,253}', host) or '..' in host:
+        parser.error('Choose a hostname or IP address for --host')
     if not shutil.which('node') or not shutil.which('npm'):
         parser.error('Install Node.js >=22.12 and npm first; see README')
     version = subprocess.check_output(['node', '--version'], text=True).strip().lstrip('v').split('.')
@@ -57,8 +62,12 @@ def main():
     else:
         if not (destination / 'dist/index.html').is_file():
             parser.error('Run setup successfully first')
-        print(f'Opening Orbit server on http://127.0.0.1:{args.port}. Ctrl+C stops this server, not other Orbit deployments.', flush=True)
+        shown = '127.0.0.1' if host in ('0.0.0.0', '::') else (f'[{host}]' if ':' in host else host)
+        print(f'Opening Orbit server on http://{shown}:{args.port}. Ctrl+C stops this server, not other Orbit deployments.', flush=True)
+        if host in ('0.0.0.0', '::', '[::]'):
+            print('Set ORBIT_PUBLIC_ORIGIN to the exact browser origin, for example http://100.120.57.35:4318, before browsers on another address can connect.', flush=True)
         os.chdir(destination)
+        os.environ['ORBIT_HOST'] = host
         os.environ['PORT'] = str(args.port)
         os.execvp('node', ['node', '--experimental-strip-types', 'server/index.mjs'])
 

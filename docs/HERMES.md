@@ -76,7 +76,7 @@ Live verification: `tests/browser-hermes-runtime-live.py` starts a real harmless
 
 ## Tools menu, history, and drafts
 
-The agent header's `⋯` menu opens conversation settings, activity and troubleshooting.
+The agent header's `⋯` menu opens conversation settings, activity and troubleshooting. The header also switches Hermes and Grok Bot, opens History, shows context use, and asks before Compact. See [Agent pane session](AGENT_PANE_SESSION.md).
 The visible History action above the conversation opens Hermes tools and recent conversations.
 
 - **Recent conversations:** New chat retains the previous completed conversation. Up to ten are kept per pane in this browser tab. Restore switches back to its original Hermes session, preserving server-side follow-up context. Switching is blocked during an active run.
@@ -101,12 +101,28 @@ Set these server environment variables (never Vite/client variables):
 - `HERMES_API_KEY`: the configured profile's API_SERVER_KEY.
 - `HERMES_PROFILES_JSON` (optional): private server-side JSON allowlist of profiles. Example: `[{"id":"studio","label":"Studio","apiUrl":"http://127.0.0.1:28643/p/studio","apiKey":"REPLACE_WITH_PRIVATE_KEY"}]`. Each entry requires a unique safe ID, display label, HTTP(S) **base URL**, and matching profile key. Orbit appends API paths to this base verbatim: use `/p/studio` for a multiplexed gateway, or the dedicated profile gateway's base URL for older installations. The Orbit profile ID does not select an upstream global profile or imply a URL prefix. The legacy `HERMES_API_URL`/`HERMES_API_KEY` pair remains the `default` profile; do not duplicate `default` in JSON. Alternatively define `default` in JSON without the legacy pair. Keep this JSON in private service environment, never a Vite variable or checked-in file. Invalid configuration fails closed.
 - `ORBIT_TOKEN`: a private 32+ character Orbit access token.
-- `ORBIT_PUBLIC_ORIGIN`: exact externally served HTTP(S) origin when using a reverse proxy. Tailscale Serve is optional, not required for local operation or other HTTPS deployments.
-- `PORT`: loopback listener port.
+- `ORBIT_PUBLIC_ORIGIN`: exact externally served HTTP(S) origin when using a reverse proxy. Tailscale Serve is optional, not required for local operation or other HTTPS deployments. A wildcard bind (`ORBIT_HOST=0.0.0.0`) requires this origin before a tailnet browser is accepted.
+- `ORBIT_HOST`: listen address. Defaults to `127.0.0.1`. Use `0.0.0.0` only together with `ORBIT_PUBLIC_ORIGIN`. A specific non-loopback address is accepted as its own Host and Origin.
+- `PORT`: listener port, 1024–65535, default `4318`.
 
-The existing Connect host token unlocks both shells and agent chat. Never send the Hermes API key to the browser. `.env.deploy` is chmod 0600, Git-ignored, and excluded from Docker build contexts. `HERMES_API_KEY` and `ORBIT_TOKEN` are removed from the spawned terminal's explicit environment. This is not isolation from a malicious same-UID process or Docker administrator; Orbit remains a trusted single-owner service.
+### Hermes on this computer
 
-Each agent pane now has a server-authoritative profile/session binding and revision. The authenticated profile catalog returns IDs and labels only; bounded session listings and server-loaded user/assistant text history omit upstream private fields. Switching validates the target session upstream before committing; New chat instead issues a fresh `orbit-<UUID>` ID. Stale revisions and active runs block switches, and requests are routed with the selected profile's URL/key rather than a global active-profile mutation. Legacy clients bind only an Orbit-namespaced conversation to `default`; subsequent pane requests must carry the bound profile/session/revision. A non-Orbit Hermes session may only be used after validated pane selection. The build queue remains default-profile only.
+When `HERMES_API_URL`, `HERMES_API_KEY`, and `HERMES_PROFILES_JSON` are all unset, Orbit reads the Hermes home (`HERMES_HOME` when it is absolute, otherwise `~/.hermes`). It uses `.env`, then `config.yaml`. The API server block is `gateway.api_server`, otherwise `gateway.platforms.api_server`, otherwise `platforms.api_server`. Process environment overrides the file, and the file overrides YAML.
+
+Orbit talks to that API server only. The server already holds the model. A deployment that matches the current target box looks like this in `~/.hermes/.env`:
+
+```sh
+API_SERVER_ENABLED=true
+API_SERVER_HOST=100.120.57.35
+API_SERVER_PORT=8642
+API_SERVER_KEY=replace-with-the-gateway-key
+```
+
+`config.yaml` supplies the model, for example `model.default: deepseek-v4.1-flash` and `model.provider: opencode-go`. Orbit labels the default profile with that model name. It does not copy the model provider's key. If `API_SERVER_HOST` is `0.0.0.0` or `::`, Orbit dials `127.0.0.1` on the same machine. If the API server listens only on a tailnet address, set `API_SERVER_HOST` or `HERMES_API_URL` to that address. `API_SERVER_ENABLED=false` or a missing key leaves Hermes unconfigured. Explicit `HERMES_API_URL` and `HERMES_API_KEY`, or `HERMES_PROFILES_JSON`, skip discovery.
+
+The existing Connect host token unlocks both shells and agent chat. Never send the Hermes API key to the browser. `.env.deploy` is chmod 0600, Git-ignored, and excluded from Docker build contexts. `HERMES_API_KEY`, `API_SERVER_KEY`, `ORBIT_TOKEN`, and Grok Bot gateway tokens are removed from the spawned terminal's explicit environment. This is not isolation from a malicious same-UID process or Docker administrator; Orbit remains a trusted single-owner service.
+
+Each agent pane now has a server-authoritative profile/session binding and revision. The authenticated profile catalog returns ids and labels; a Grok Bot profile also includes `provider: "grok"`. Keys stay on the server. Bounded session listings and server-loaded user/assistant text history omit upstream private fields. Switching validates the target session upstream before committing; New chat instead issues a fresh `orbit-<UUID>` ID. Stale revisions and active runs block switches, and requests are routed with the selected profile's URL/key rather than a global active-profile mutation. Legacy clients bind only an Orbit-namespaced conversation to `default`; subsequent pane requests must carry the bound profile/session/revision. A non-Orbit Hermes session may only be used after validated pane selection. The build queue remains default-profile only.
 
 The session catalog and metadata/messages endpoints are based on the published Hermes API contract and have not been exercised against the currently installed gateway version. An unsupported catalog reports that it is unavailable; selection failures leave the original binding intact. Orbit cannot prove that an external Hermes client has no active run merely from session timestamps, nor can it guarantee recovery of a run whose creation response was lost. Reconcile uncertain actions upstream; do not use a timestamp as an active-run lock. Profile-specific endpoint deployment must be verified with the installed gateway before relying on a new profile.
 

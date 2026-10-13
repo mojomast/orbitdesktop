@@ -6,7 +6,8 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
-import { tokenMatches, geometry, allowedRequest, publicHost } from "./security.mjs";
+import { tokenMatches, geometry, allowedRequest, resolveListenHost, acceptedHosts } from "./security.mjs";
+import { discoverAgentBackends, publicBackendSummary } from "./agent-discovery.mjs";
 import { LocalHostProvider } from "./local-host.mjs";
 import { createAgentHandler } from "./agent.mjs";
 import { createWorkspaceService, runtimeRoot } from "./workspace.mjs";
@@ -35,9 +36,15 @@ import {createWorkbenchLiveHandler} from './workbench-live-route.mjs';
 import {createWorkbenchNativeRuntime,nativeRuntimeEnvironmentOptions,nativeRuntimeMetadata} from './workbench-native-runtime.mjs';
 import {technologyOwnerRoute,lazyTechnologyService} from './technology-owner-route.mjs';
 import {createWorkbenchSandboxProvider} from './workbench-sandbox-provider.mjs';
+import { createIrcService } from './irc.mjs';
 const port = Number(process.env.PORT || 4318);
 if (!Number.isInteger(port) || port < 1024 || port > 65535)
   throw Error("PORT must be between 1024 and 65535");
+const listenHost = resolveListenHost();
+const explicitHermes = Boolean(process.env.HERMES_API_URL || process.env.HERMES_API_KEY || process.env.HERMES_PROFILES_JSON);
+let discovered = { hermes: null, grok: null };
+try { discovered = discoverAgentBackends(); }
+catch (error) { console.error("Agent backend discovery failed; explicit configuration still applies.", error instanceof Error ? error.message : ""); }
 const token = process.env.ORBIT_TOKEN || randomBytes(32).toString("base64url");
 if (token.length < 32)
   throw Error("ORBIT_TOKEN must have at least 32 characters");
@@ -85,7 +92,12 @@ const workbench = createWorkbench({store:workspaceService.store,token,port,devOr
 const workbenchData=new WorkbenchData(workspaceService.store);
 const executionGate=createWorkbenchGate({legacySnapshot:legacyQueueSnapshot(runtimeRoot)});
 let normalResources;
-const agentHandler = createAgentHandler({ token, port, devOrigins, reply, workspaceContext: workspaceService.context, workspaceRead:workspaceService.read, runtimeDirectory:runtimeRoot,executionGate,onRunEvent:event=>observeTechnologyTrace(event,'observeAgentRunEvent'),onNormalAccepted:record=>normalResources?.normalAccepted(record) });
+const repoRoot = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
+const irc = createIrcService({ token, orbitPort: port, devOrigins, reply, repoRoot });
+const agentHandler = createAgentHandler({ token, port, devOrigins, reply, workspaceContext: workspaceService.context, workspaceRead:workspaceService.read, runtimeDirectory:runtimeRoot,executionGate,onRunEvent:event=>observeTechnologyTrace(event,'observeAgentRunEvent'),onNormalAccepted:record=>normalResources?.normalAccepted(record),
+  ...(!explicitHermes && discovered.hermes ? { apiUrl: null, apiKey: null, profiles: [{ id: "default", label: discovered.hermes.label, apiUrl: discovered.hermes.apiUrl, apiKey: discovered.hermes.apiKey }] } : {}),
+  ...(discovered.grok ? { additionalProfiles: [discovered.grok] } : {}),
+});
 const sandboxProvider=createWorkbenchSandboxProvider({root:path.join(workspaceService.store.root,'workbench-sandbox'),env:process.env});
 const environments=createWorkbenchEnvironments({store:workspaceService.store,records:workbench.records,data:workbenchData,gate:executionGate,sandboxProvider});
 const execution=createWorkbenchExecution({store:workspaceService.store,records:workbench.records,data:workbenchData,gate:executionGate,environments,sandboxProvider});
@@ -249,13 +261,8 @@ const technologyCapabilities=technologyOwnerRoute({token,port,devOrigins,reply,m
   if(!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).length!==1||body.action!=='capabilities')throw {code:'invalid_request'};
   return {browser_copilot:!!process.env.ORBIT_BROWSER_EXECUTABLE&&!!process.env.ORBIT_BROWSER_ALLOWED_ORIGINS,mcp_apps:!!mcpSandbox,descriptors:capabilityDescription('owner')};
 }});
-const server = http.createServer(async (req, res) => {
-  const allowedHosts = new Set([
-    `127.0.0.1:${port}`,
-    `localhost:${port}`,
-    `[::1]:${port}`,
-    ...(publicHost ? [publicHost] : []),
-  ]);
+async function handleOrbitRequest(req, res) {
+  const allowedHosts = acceptedHosts(port, devOrigins, listenHost).hosts;
   if (!allowedHosts.has(req.headers.host))
     return reply(res, 403, { error: "Host rejected" });
   const url = new URL(req.url, "http://localhost");
@@ -295,6 +302,7 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === "/api/workspace/control") return workspaceService.handle(req, res, true);
   if (url.pathname.startsWith("/apps/")) return workspaceService.serveApp(req, res, url.pathname);
   if (url.pathname === "/api/agent") return agentHandler(req, res);
+  if (url.pathname === "/api/irc") return irc.handle(req, res);
   if (url.pathname === "/api/health")
     return reply(res, 200, {
       service: "orbit",
@@ -360,6 +368,15 @@ const server = http.createServer(async (req, res) => {
   } catch {
     reply(res, 404, { error: "Build the client with npm run build first." });
   }
+}
+const server = http.createServer((req, res) => {
+  // A provider rejection must not become an unhandled rejection and stop the process.
+  void handleOrbitRequest(req, res).catch(error => {
+    console.error("Orbit request failed.", error instanceof Error ? error.message : "");
+    if (res.headersSent || res.writableEnded) { try { res.end(); } catch {} return; }
+    try { reply(res, 500, { error: "Orbit could not complete the request." }); }
+    catch { try { res.end(); } catch {} }
+  });
 });
 const wss = new WebSocketServer({
   noServer: true,
@@ -367,6 +384,10 @@ const wss = new WebSocketServer({
   perMessageDeflate: false,
 });
 server.on("upgrade", (req, socket, head) => {
+  if (String(req.url || '').split('?')[0] === '/api/irc') {
+    irc.upgrade(req, socket, head);
+    return;
+  }
   if (
     req.url !== "/api/terminal" ||
     !allowedRequest(req, port, devOrigins) ||
@@ -526,13 +547,33 @@ wss.on("connection", (ws) => {
   ws.on("close", close);
   ws.on("error", close);
 });
-server.listen(port, "127.0.0.1", () => {
-  console.log(
-    `\nOrbit Desktop\nOpen: http://127.0.0.1:${port}\nOwner authentication: ${process.env.ORBIT_TOKEN?'configured token (not logged)':'generated token in the private runtime session-token file'}\n\nBound to loopback. Shells run as your current user.\n`,
-  );
+server.listen(port, listenHost, () => {
+  const wildcard = listenHost === "0.0.0.0" || listenHost === "::" || listenHost === "[::]";
+  const loopback = ["127.0.0.1", "localhost", "::1", "[::1]"].includes(listenHost);
+  const openHost = wildcard || loopback ? "127.0.0.1" : (listenHost.includes(":") ? `[${listenHost}]` : listenHost);
+  const lines = [
+    "",
+    "Orbit Desktop",
+    `Open: http://${openHost}:${port}`,
+    `Owner authentication: ${process.env.ORBIT_TOKEN ? "configured token (not logged)" : "generated token in the private runtime session-token file"}`,
+    "",
+    loopback ? "Bound to loopback. Shells run as your current user." : `Listening on ${listenHost}:${port}. Shells run as your current user.`,
+  ];
+  if (wildcard && !process.env.ORBIT_PUBLIC_ORIGIN) lines.push("Browsers that open a tailnet address are rejected until ORBIT_PUBLIC_ORIGIN is that exact origin, for example http://100.120.57.35:4318.");
+  if (explicitHermes) lines.push("Hermes profiles: explicit server environment.");
+  else if (discovered.hermes) {
+    const hermes = publicBackendSummary(discovered.hermes);
+    lines.push(`Hermes API server: ${hermes.apiUrl}${hermes.model ? ` model ${hermes.model}` : ""}${hermes.modelProvider ? ` via ${hermes.modelProvider}` : ""} (${hermes.source}).`);
+  }
+  if (discovered.grok) {
+    const grok = publicBackendSummary(discovered.grok);
+    lines.push(`Grok Bot gateway: ${grok.apiUrl}${grok.model ? ` model ${grok.model}` : ""} (${grok.source}).`);
+  }
+  console.log(lines.join("\n") + "\n");
 });
 for (const signal of ["SIGTERM", "SIGINT"])
   process.on(signal, () => {
+    irc.close();
     execution.close();
     sandboxProvider.close();
     contextSharing.close?.();

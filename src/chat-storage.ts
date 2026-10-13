@@ -27,5 +27,7 @@ export function archiveChat(list: ChatState[], state: ChatState): ChatState[] {
   return [{ ...state, run: undefined }, ...list.filter(x => chatBindingKey(x) !== key)].slice(0, 10);
 }
 export function transcript(state: ChatState): string {
-  return `Hermes profile: ${chatProfileId(state)}\nHermes conversation: ${state.session}\n\n` + state.messages.map(m => `${m.role === 'user' ? 'YOU' : 'HERMES'}\n${m.text}`).join('\n\n');
+  const name = chatProfileId(state) === 'grok' ? 'Grok Bot' : 'Hermes';
+  const speaker = name === 'Grok Bot' ? 'GROK BOT' : 'HERMES';
+  return `${name} profile: ${chatProfileId(state)}\n${name} conversation: ${state.session}\n\n` + state.messages.map(m => `${m.role === 'user' ? 'YOU' : speaker}\n${m.text}`).join('\n\n');
 }

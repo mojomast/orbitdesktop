@@ -76,6 +76,8 @@ updates. New output follows automatically only near the bottom; otherwise a
 whole messages and fenced code. Formatting is intentionally bounded to paragraphs,
 code fences and safe links; generated HTML stays literal text.
 
+An agent chat pane’s **Shared agents** button opens one group transcript for Kyle, Hermes, and Grok Bot. The pane header switches Hermes and Grok Bot, lists earlier sessions (search, date groups, pin, rename, resume, and fork), shows a context meter, and compacts only after confirmation. A cross-provider switch forks a summary into a new session. See [Agent pane session](AGENT_PANE_SESSION.md). `@hermes`, `@grok`, and `@all` choose who answers, and agents continue only when they hand off the floor. Either agent can hand the other a fenced `delegate` task; the pane shows that task and a Cancel button. **Collab** is a separate app in Start and the Orbit menu (`orbit://surface/collab`). `/collab` and a goal in the shared room opens that app. The board has an orchestrator and a tree of subagents. See [Grok Bot](GROK.md#shared-agents), [Collab](COLLAB.md), and [Orchestration](COLLAB_ORCHESTRATION.md). **IRC** is its own window at `orbit://surface/irc`. See [IRC](IRC.md).
+
 History opens the conversation library over the existing Hermes profile/session
 catalog. The next feature round adds host-backed drafts and private Orbit
 names/pins/archive flags without duplicating transcripts. See
