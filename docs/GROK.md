@@ -88,4 +88,4 @@ A chain stops at depth 2 so the agents cannot ping-pong. A conversation keeps at
 
 ## Together with Hermes
 
-Leave Hermes unset and Orbit uses `~/.hermes` as the default profile. See [HERMES.md](HERMES.md). Grok Bot is an extra choice in the same menu. To serve the desktop on a tailnet, set `ORBIT_HOST=0.0.0.0` and `ORBIT_PUBLIC_ORIGIN` as described in the README.
+Leave Hermes unset and Orbit uses `~/.hermes` as the default profile. See [HERMES.md](HERMES.md). Grok Bot is an extra choice in the same menu. The pane header lists it as **Grok Bot › model** with gateway health, context window, and a tools badge. History for Grok Bot is paged `listAgents` plus transcript tails. See [AGENT_CONTEXT.md](AGENT_CONTEXT.md). To serve the desktop on a tailnet, set `ORBIT_HOST=0.0.0.0` and `ORBIT_PUBLIC_ORIGIN` as described in the README.

@@ -348,6 +348,33 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
     }
   }
 
+  async function createConversation(profile, name) {
+    const reusable = name ? null : await findReusable(profile);
+    if (reusable) return { id: reusable.id, title: String(reusable.name || 'Orbit chat').slice(0, 100) };
+    const created = await command(profile, 'createAgent', { name: name || 'Orbit chat', description: '', isIntroductionSuppressed: true });
+    const id = created?.agent?.id;
+    if (!validSessionId(id)) throw fail('Grok Bot did not return a usable conversation id.');
+    return { id, title: typeof created.agent.name === 'string' ? created.agent.name.slice(0, 100) : (name || 'Orbit chat') };
+  }
+
+  async function readTranscript(profile, agentId) {
+    if (!validSessionId(agentId)) throw fail('Invalid Grok Bot conversation.', 400);
+    const tail = await command(profile, 'getAgentTranscriptTail', { id: agentId, limit: 80 });
+    return sanitizeHistory(historyFromEntries(entriesOf(tail)));
+  }
+
+  async function probe(profile) {
+    try { await command(profile, 'listAgents', {}); }
+    catch { return { ok: false, tools: false }; }
+    let tools = false;
+    try {
+      const servers = await command(profile, 'listBoxMcpServers', {});
+      const list = Array.isArray(servers) ? servers : Array.isArray(servers?.servers) ? servers.servers : [];
+      tools = list.length > 0;
+    } catch { tools = false; }
+    return { ok: true, tools };
+  }
+
   async function sessionPage(profile, offset = 0) {
     const agents = await command(profile, 'listAgents', {});
     const rows = (Array.isArray(agents) ? agents : []).filter(agent => agent && validSessionId(agent.id));
@@ -388,19 +415,18 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
     let title;
     let messages = [];
     if (creating) {
-      const reusable = name ? null : await findReusable(target);
-      if (reusable) {
-        targetId = reusable.id;
-        title = String(reusable.name || 'Orbit chat').slice(0, 100);
-      } else {
-        const created = await command(target, 'createAgent', { name: name || 'Orbit chat', description: '', isIntroductionSuppressed: true });
-        targetId = created?.agent?.id;
-        if (!validSessionId(targetId)) return reply(res, 502, { error: 'Grok Bot did not return a usable conversation id.' });
-        title = typeof created.agent.name === 'string' ? created.agent.name.slice(0, 100) : (name || 'Orbit chat');
-      }
+      let created;
+      try { created = await createConversation(target, name); }
+      catch (error) { if (error.status) return reply(res, error.status, { error: error.message }); throw error; }
+      targetId = created.id;
+      title = created.title;
     } else {
-      const page = await sessionPage(target, 0);
-      const found = page.data.find(item => item.id === targetId);
+      let found;
+      for (let pageOffset = 0; pageOffset <= 10000; pageOffset += 100) {
+        const page = await sessionPage(target, pageOffset);
+        found = page.data.find(item => item.id === targetId);
+        if (found || !page.has_more) break;
+      }
       if (!found) return reply(res, 404, { error: 'Grok Bot conversation not found.' });
       title = found.title.slice(0, 100);
       try {
@@ -440,7 +466,12 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
       try { context = String(workspaceContext(body.workspace_id) || '').slice(0, 8000); }
       catch { return reply(res, 409, { error: 'Workspace has not synced yet. Wait for workspace connection and retry.' }); }
     }
-    const prompt = context ? `${body.input.trim()}\n\nWorkspace context:\n${context}` : body.input.trim();
+    const linked = body.pane_id ? shared.read(body.workspace_id, body.pane_id) : null;
+    const preamble = typeof linked?.orbit_preamble === 'string' ? linked.orbit_preamble.trim().slice(0, 16000) : '';
+    let prompt = body.input.trim();
+    if (preamble) prompt = `${preamble}\n\n${prompt}`;
+    if (context) prompt = `${prompt}\n\nWorkspace context:\n${context}`;
+    prompt = prompt.slice(0, 100000);
     const baseline = await transcriptBaseline(profile, body.session_id);
     const nonce = randomUUID();
     const runId = `run_${randomUUID().replaceAll('-', '')}`;
@@ -452,7 +483,7 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
     remember({ runId, nonce, agentId: body.session_id, profileId: profile.id, status: 'running', started: now(), baseline });
     if (body.pane_id) {
       const current = shared.read(body.workspace_id, body.pane_id);
-      if (current) shared.write(body.workspace_id, body.pane_id, { ...current, run: runId, messages: [...(current.messages || []), { role: 'user', text: body.input.trim() }].slice(-100) });
+      if (current) shared.write(body.workspace_id, body.pane_id, { ...current, orbit_preamble: undefined, run: runId, messages: [...(current.messages || []), { role: 'user', text: body.input.trim() }].slice(-100) });
     }
     return reply(res, 202, { run_id: runId, status: 'running' });
   }
@@ -950,5 +981,5 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
     });
   }
 
-  return { sessionPage, selectSession, turn, control, surface, events, ensureSharedAgent, startSharedPrompt, pollSharedPrompt, stopSharedPrompt, archiveSharedAgent, compactSession, forkSession, previewSession };
+  return { sessionPage, selectSession, turn, control, surface, events, ensureSharedAgent, startSharedPrompt, pollSharedPrompt, stopSharedPrompt, archiveSharedAgent, compactSession, forkSession, previewSession, createConversation, readTranscript, probe };
 }

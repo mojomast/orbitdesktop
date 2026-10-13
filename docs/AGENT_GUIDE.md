@@ -79,7 +79,9 @@ no fallback to trusted-host execution is permitted. See `docs/ISOLATED_CHECKS.md
   transcript search or upstream deletion. Host-backed drafts follow workspace,
   profile and session identity; conflict/uncertain writes retain local recovery.
   Switching remains fenced during active or unresolved work. See
-  `docs/CONVERSATION_LIBRARY.md`.
+  `docs/CONVERSATION_LIBRARY.md`. The pane header also chooses provider and
+  model for this session, and **Sessions** searches transcript text. See
+  `docs/AGENT_CONTEXT.md`.
 - **Send to conversation:** preview content and choose one recipient draft. This
   neither sends nor grants execution authority. Do not claim the model received
   it until the owner submits it. The single review shows the exact final draft,

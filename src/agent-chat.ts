@@ -25,6 +25,7 @@ import { completeResultActions } from './interactive-result-delivery';
 import { mountSharedAgents } from './shared-agents';
 import { mountAgentPaneSession } from './agent-pane-session';
 import { archiveChat, validChat, transcript, chatProfileId, chatBindingKey, type ChatState } from './chat-storage';
+import { mountAgentPaneContext, type HistoryPreview } from './agent-pane-context';
 export function createAgentChat(body: HTMLElement, paneId: string, getToken: () => string, toolbar?: HTMLElement) {
   const storageKey = `orbit-hermes-chat:${paneId}`;
   const archiveKey = `${storageKey}:archive`, legacyDraftKey = `${storageKey}:draft`;
@@ -62,6 +63,8 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   } catch {}
 
   let disposed = false, busy = false, polling = false, queuePaused = false, sharing = false, switching = false;
+  let preview: HistoryPreview | null = null;
+  let contextChrome: ReturnType<typeof mountAgentPaneContext> | undefined;
   let generation = 0, pending = 0, sharedEpoch = 0;
   // A cached revision is not proof that this mount has linked to the host.
   let bindingReady = false;
@@ -690,7 +693,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     // pane's Workbench task (or its outcome is unknown) this pane must not send
     // or drain, unless this pane's own normal run owns the current state.
     const blocked = laneBlocked();
-    send.disabled = busy || switching || !bindingReady || blocked;
+    send.disabled = busy || switching || !bindingReady || blocked || !!preview;
     newChat.disabled = switchBlocked() || !getToken();
     historyRecovery.disabled = newChat.disabled;
     const name = agentName();
@@ -708,13 +711,14 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     resume.title = `Resume checking the active ${name} run`;
     steer.title = `Send composer text to the active ${name} run`;
     conversations.title = `Open recent ${name} conversations`;
+    conversations.setAttribute('aria-label', conversations.title);
     toolsEntry.textContent = `${name} tools and conversations`;
     toolsEntry.title = `${name} tools and conversations`;
     notice.textContent = providerIsGrok() ? grokNotice : hermesNotice;
     drainButton.disabled = blocked;
     stop.hidden = !state.run; resume.hidden = !state.run; steer.hidden = !state.run;
     // Allow composing the next message while Hermes works; Send remains disabled.
-    input.disabled = false;
+    input.disabled = !!preview;
     refreshConversationRecipient();
   }
   // Stable, recognizable recipient identity, used identically on registration,
@@ -902,7 +906,8 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
       queueList.prepend(el('small', '', 'Queued in order · keep this tab open. Errors or Stop pause delivery.'));
       if (!state.run && !busy) queueList.append(drainButton);
     }
-    messageRenderer.render(state.messages, chatBindingKey(state));
+    messageRenderer.render(preview?.messages || state.messages, preview ? `preview:${preview.profileId}:${preview.sessionId}` : chatBindingKey(state));
+    contextChrome?.sync();
     inlineTools.sync(chatBindingKey(state), state.run);
     sizeComposer();
     update();
@@ -954,6 +959,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
       if (disposed) return;
       status.textContent = String(data.status || 'working').replaceAll('_', ' ').toUpperCase();
       approvals.replaceChildren();
+      if (typeof data.usage?.prompt_tokens === 'number') contextChrome?.noteUsage(data.usage.prompt_tokens);
       if (['completed', 'failed', 'cancelled', 'interrupted'].includes(data.status)) {
         state.messages.push({ role: 'assistant', text: data.output || (data.status === 'completed' ? `${agentName()} finished without a text reply.` : data.error || `Run ${data.status}.`) });
         state.messages = state.messages.slice(-100);
@@ -1079,7 +1085,10 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     showError,
   });
   badge.append(sessionChrome.header);
-  chatNormal.append(strip, experimentalNotice, sessionChrome.banner, sessionChrome.notes, sessionChrome.sidecar, inlineTools.root, messages, messageRenderer.latest, taskCards, syncNotice, progress, historyRecovery, approvals, unknownAction, controls, queueList, draftStatus, form);
+  chatNormal.classList.add('agent-chat-split');
+  const chatColumn = el('div', 'agent-chat-column');
+  chatColumn.append(strip, experimentalNotice, sessionChrome.banner, sessionChrome.notes, sessionChrome.sidecar, inlineTools.root, messages, messageRenderer.latest, taskCards, syncNotice, progress, historyRecovery, approvals, unknownAction, controls, queueList, draftStatus, form);
+  chatNormal.append(chatColumn);
   sharedView = mountSharedAgents({
     request: payload => api({ action: 'shared_agents', ...payload }, scope(), true),
     onClose: () => setShared(false),
@@ -1091,8 +1100,21 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     badge.classList.add('agent-toolbar-meta');
     toolbar.insertBefore(badge, toolbar.children[1] || null);
   } else {
-    chatNormal.prepend(badge);
+    chatColumn.prepend(badge);
   }
+  contextChrome = mountAgentPaneContext({
+    paneId, workspaceId, badge, strip, column: chatColumn, chat: chatNormal, anchor: conversations, getToken,
+    api: (payload, passive) => api(payload, scope(), passive),
+    profiles: () => profiles,
+    getState: () => state,
+    switchBlocked,
+    providerIsGrok,
+    showError,
+    applyState: next => { if (!validChat(next)) { showError(Error('The host returned an invalid conversation binding.')); return; } preview = null; acceptState(next); },
+    resume: (profileId, sessionId) => { preview = null; void switchConversation(profileId, sessionId); },
+    setPreview: next => { preview = next; render(); },
+    getPreview: () => preview,
+  });
   render();
   void sessionChrome.refreshMeter();
   // Restore the persisted view after the DOM exists, honoring the experimental
@@ -1158,6 +1180,8 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     }
     state = next;
     if (changed) {
+      preview = null;
+      contextChrome?.onBinding();
       if (providerIsGrok()) showGrokWorkbenchNotice();
       else {
         workbenchUnavailable.hidden = true;
@@ -1197,6 +1221,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     });
   }
   async function switchConversation(targetProfile: string, targetSession?: string, report?: ConversationSelection['report']) {
+    preview = null;
     if(requestedSelection){requestedSelection.report?.('failed','Replaced by a newer conversation choice.');requestedSelection=undefined;}
     const reject = (message: string) => { showError(Error(message)); report?.('failed',message); };
     if (switchBlocked()) { reject(state.run ? 'Wait for the current run or unresolved outcome to finish, or use New window.' : state.queue?.length ? 'Send or remove queued messages before switching, or use New window.' : approvals.childElementCount ? 'Resolve pending approvals before switching, or use New window.' : 'Wait for the pane to finish linking or synchronizing, then retry.'); return; }
@@ -1236,5 +1261,5 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     progress.textContent = 'A saved run may still be active. Connect host to check its status. Closing the pane does not stop Hermes.';
     if (getToken()) void poll();
   }
-  return () => { messageRenderer.dispose(); saveDraft(); durableDraft?.dispose(); disposed = true; conversationRecipient?.dispose(); generation++; unsubscribeExperimental(); statusObserver.disconnect(); activity.dispose(); clearInterval(sharedTimer); stopToolFeed(); inlineTools.dispose(); workbench?.dispose(); sharedView?.dispose(); timeline.dispose(); workbenchTimeline.dispose(); inspector.dispose(); overflowMenu.remove(); toolsDialog?.close(); liveController?.abort(); clearTimeout(timer); controller.abort(); document.removeEventListener('pointerdown', onOutsideMenu); window.removeEventListener('orbit-host-connected', onUnlock); window.removeEventListener('orbit-open-hermes-tools', onOpenTools); window.removeEventListener('orbit-open-conversation-library',onOpenLibrary);window.removeEventListener('orbit-select-conversation',onSelectConversation);window.removeEventListener('pagehide',flushDraft); };
+  return () => { messageRenderer.dispose(); contextChrome?.dispose(); saveDraft(); durableDraft?.dispose(); disposed = true; conversationRecipient?.dispose(); generation++; unsubscribeExperimental(); statusObserver.disconnect(); activity.dispose(); clearInterval(sharedTimer); stopToolFeed(); inlineTools.dispose(); workbench?.dispose(); sharedView?.dispose(); timeline.dispose(); workbenchTimeline.dispose(); inspector.dispose(); overflowMenu.remove(); toolsDialog?.close(); liveController?.abort(); clearTimeout(timer); controller.abort(); document.removeEventListener('pointerdown', onOutsideMenu); window.removeEventListener('orbit-host-connected', onUnlock); window.removeEventListener('orbit-open-hermes-tools', onOpenTools); window.removeEventListener('orbit-open-conversation-library',onOpenLibrary);window.removeEventListener('orbit-select-conversation',onSelectConversation);window.removeEventListener('pagehide',flushDraft); };
 }
