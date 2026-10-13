@@ -50,6 +50,8 @@ Run records are stored under `ORBIT_RUNTIME_DIR/grok-runs` (mode `0600`, no gate
 
 The token is sent only on server-side gateway requests. It is not returned by the profile list, written into shell environments, or printed in the Orbit log.
 
+Agent chat can build and publish apps. On the first turn of a Grok Bot conversation, and on a follow-up when that block is not already in the conversation, Orbit sends the full workspace operator block: the repository path, `python3 scripts/workspace_control.py` `read`, `apply`, and `publish`, `plugin_publish.py` plus `plugin_install` / `plugin_enable`, and current workspace metadata. `docs/AGENT_GUIDE.md` is not inlined; the prompt tells Grok Bot to read that file from disk. Shell and publish commands still wait for approval. This is separate from the build queue, which stays Hermes-only. See [GROK_PARITY.md](GROK_PARITY.md).
+
 A gateway rejection, including `sendPrompt` for an unknown conversation, is returned to that chat as an error. Transport failures and unexpected handler errors are HTTP 502. The response body is always read or cancelled. It does not stop the Orbit process or other Hermes runs. The live gateway listens on port 1340, often bound to `0.0.0.0`; Orbit dials `127.0.0.1` for that wildcard.
 
 ## Jobs, catalog, approvals, guidance, and live events

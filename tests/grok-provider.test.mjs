@@ -5,6 +5,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createAgentHandler } from '../server/agent.mjs';
+import { createWorkspaceService } from '../server/workspace.mjs';
+import { initial } from '../src/model.ts';
 
 const token = 'orbit-test-token-'.repeat(4);
 const session = 'orbit-12345678-1234-4234-9234-123456789abc';
@@ -189,7 +191,7 @@ test('a rejected Grok Bot sendPrompt is a chat error and the server keeps servin
 const json = (value, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
 const grokProfile = { id: 'grok', label: 'Grok Bot', provider: 'grok', apiUrl: 'http://127.0.0.1:1340', apiKey: 'grok-token-secret', model: 'grok-4' };
 
-async function openOrbit(t, { fetchImpl, runtimeDirectory, grokOptions, cleanup = !runtimeDirectory } = {}) {
+async function openOrbit(t, { fetchImpl, runtimeDirectory, grokOptions, workspaceContext, cleanup = !runtimeDirectory } = {}) {
   const dir = runtimeDirectory || fs.mkdtempSync(path.join(os.tmpdir(), 'orbit-grok-'));
   let port;
   let handler;
@@ -197,6 +199,7 @@ async function openOrbit(t, { fetchImpl, runtimeDirectory, grokOptions, cleanup 
   const workspaceRead = () => ({ state: { monitors: [{ layout: { type: 'pane', pane: { id: pane_id, kind: 'agent' } } }] } });
   const server = http.createServer((req, res) => (handler ||= createAgentHandler({
     token, port, devOrigins: [], reply, runtimeDirectory: dir, workspaceRead,
+    ...(workspaceContext ? { workspaceContext } : {}),
     apiUrl: 'http://hermes.test', apiKey: 'hermes-key',
     additionalProfiles: [grokProfile],
     fetchImpl, grokOptions,
@@ -486,6 +489,64 @@ test('Grok jobs, catalog, approvals, activity, and events stay on the Grok gatew
   assert.equal(/Hermes/.test(broken.body.error), false);
   await new Promise(resolve => setTimeout(resolve, 20));
   assert.equal(rejections.length, 0);
+});
+
+test('Grok agent chat prompt includes workspace_control.py and publish', async t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'orbit-grok-workspace-'));
+  let service;
+  const wsReply = (res, status, data) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(data)); };
+  const wsServer = http.createServer((req, res) => service.handle(req, res, req.url === '/control'));
+  await new Promise(resolve => wsServer.listen(0, '127.0.0.1', resolve));
+  const wsPort = wsServer.address().port;
+  service = createWorkspaceService({ token, port: wsPort, devOrigins: [], root, reply: wsReply });
+  t.after(async () => {
+    await new Promise(resolve => wsServer.close(resolve));
+    service.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+  const wsOrigin = `http://127.0.0.1:${wsPort}`;
+  const synced = await fetch(wsOrigin + '/workspace', {
+    method: 'POST',
+    headers: { Origin: wsOrigin, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ workspace_id, action: 'sync', state: initial() }),
+  });
+  assert.equal(synced.status, 200);
+  const calls = [];
+  const fetchImpl = async (url, options) => {
+    calls.push({ url: String(url), body: options?.body });
+    const route = String(url);
+    if (route.endsWith('/api/listAgents')) return json([{ id: agentId, name: 'Orbit chat', isRunning: true }]);
+    if (route.endsWith('/api/createAgent')) return json({ agent: { id: agentId, name: 'Orbit chat' } });
+    if (route.endsWith('/api/sendPrompt')) return json({ accepted: true });
+    if (route.endsWith('/api/promptAcceptanceStatus')) return json({ outcome: 'not-found' });
+    if (route.endsWith('/api/getAgentTranscriptTail')) return json([]);
+    return json({ error: 'missing' }, 404);
+  };
+  const first = await openOrbit(t, { fetchImpl, workspaceContext: service.context, cleanup: false });
+  const scoped = await bindGrok(first.request);
+  const started = await first.request({ ...scoped, action: 'start', input: 'build a timer app' });
+  assert.equal(started.status, 202);
+  const sent = calls.find(call => call.url.endsWith('/api/sendPrompt'));
+  const prompt = JSON.parse(sent.body).prompt;
+  const operator = service.context.parts(workspace_id).operator;
+  assert.match(prompt, /workspace_control\.py/);
+  assert.match(prompt, /publish/);
+  assert.ok(prompt.includes(operator.trim()));
+  assert.match(prompt, /build a timer app/);
+  assert.match(prompt, /AGENT_GUIDE\.md/);
+  assert.equal(prompt.includes('# Hermes workspace operator guide'), false);
+  const steered = await first.request({ ...scoped, action: 'steer', run_id: started.body.run_id, input: 'look at the tests' });
+  assert.equal(steered.status, 200);
+  const followUp = calls.filter(call => call.url.endsWith('/api/sendPrompt')).at(-1);
+  assert.equal(JSON.parse(followUp.body).prompt, 'look at the tests');
+  calls.length = 0;
+  const restarted = await openOrbit(t, { fetchImpl, runtimeDirectory: first.dir, workspaceContext: service.context, cleanup: true });
+  const again = await restarted.request({ ...scoped, action: 'steer', run_id: started.body.run_id, input: 'publish the app' });
+  assert.equal(again.status, 200);
+  const recovered = JSON.parse(calls.find(call => call.url.endsWith('/api/sendPrompt')).body).prompt;
+  assert.match(recovered, /publish the app/);
+  assert.match(recovered, /workspace_control\.py/);
+  assert.match(recovered, /publish/);
 });
 
 test('Grok Bot conversation pages slice listAgents instead of stopping at the first page', async t => {
