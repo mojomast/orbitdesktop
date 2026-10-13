@@ -10,7 +10,16 @@ const MAX_DEPTH = 2;
 const MAX_TASKS = 8;
 const MAX_AGENT_STREAK = 20;
 const DELEGATION_TIMEOUT_MS = 3 * 60 * 1000;
+const DEFAULT_TURN_TIMEOUT_MS = 3 * 60 * 1000;
+const DEFAULT_ADVANCE_INTERVAL_MS = 15 * 1000;
 const HOLD_ACTIVITY = 'Paused. Continue when you want the agents to keep going.';
+
+/** Shared-room turn limit. `ORBIT_SHARED_TURN_TIMEOUT_MS` overrides the 3 minute default. */
+export function sharedTurnTimeoutMs(env = process.env) {
+  const raw = Number(env?.ORBIT_SHARED_TURN_TIMEOUT_MS);
+  if (Number.isFinite(raw) && raw >= 1000 && raw <= 30 * 60 * 1000) return Math.floor(raw);
+  return DEFAULT_TURN_TIMEOUT_MS;
+}
 
 function fail(message, status = 502) {
   const error = new Error(message);
@@ -258,7 +267,10 @@ function cleanDelegations(list) {
   return tasks.slice(-MAX_TASKS);
 }
 
-export function createSharedAgents({ directory, fetchImpl = fetch, grok, hermesProfile, grokProfile, now = () => Date.now() }) {
+export function createSharedAgents({ directory, fetchImpl = fetch, grok, hermesProfile, grokProfile, now = () => Date.now(), turnTimeoutMs, advanceIntervalMs } = {}) {
+  const turnTimeout = Number.isFinite(turnTimeoutMs) && turnTimeoutMs >= 1000 ? Math.floor(turnTimeoutMs) : sharedTurnTimeoutMs();
+  const turnTimeoutMinutes = Math.max(1, Math.round(turnTimeout / 60000));
+  const advanceEvery = Number.isFinite(advanceIntervalMs) && advanceIntervalMs >= 15 ? Math.floor(advanceIntervalMs) : DEFAULT_ADVANCE_INTERVAL_MS;
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   const chains = new Map();
 
@@ -468,14 +480,23 @@ function findTask(state, id) {
 
   async function expireRunning(state) {
     const run = state.run;
-    if (!run || run.purpose !== 'delegation') return false;
-    const task = findTask(state, run.taskId);
-    if (!task || task.status !== 'running' || !task.deadline || now() <= task.deadline) return false;
+    if (!run) return false;
+    if (run.purpose === 'delegation') {
+      const task = findTask(state, run.taskId);
+      if (!task || task.status !== 'running' || !task.deadline || now() <= task.deadline) return false;
+      await stopProvider(state);
+      state.run = null;
+      state.activity = '';
+      failTask(task, 'This delegated task timed out.', state);
+      append(state, task.to, 'This delegated task timed out.', true);
+      return true;
+    }
+    const started = Number(run.started) || 0;
+    if (!started || now() - started <= turnTimeout) return false;
     await stopProvider(state);
     state.run = null;
     state.activity = '';
-    failTask(task, 'This delegated task timed out.', state);
-    append(state, task.to, 'This delegated task timed out.', true);
+    append(state, run.speaker, `${labels[run.speaker]} did not reply within ${turnTimeoutMinutes} minute${turnTimeoutMinutes === 1 ? '' : 's'}, so Orbit stopped that turn.`, true);
     return true;
   }
 
@@ -779,15 +800,58 @@ function findTask(state, id) {
       append(state, 'note', 'Cancelled a delegated task.');
     } else throw fail('Unknown shared-agents operation.', 400);
     save(state);
+    noteActivity(state);
     return state;
   }
 
+  function noteActivity(state) {
+    if (state?.run) active.add(state.key);
+    else if (state?.key) active.delete(state.key);
+  }
+
+  function chain(key, work) {
+    const previous = chains.get(key) || Promise.resolve();
+    const result = previous.catch(() => {}).then(work);
+    chains.set(key, result);
+    return result;
+  }
+
+  function scanActive() {
+    let names;
+    try { names = fs.readdirSync(directory); }
+    catch { return; }
+    for (const name of names) {
+      if (!name.endsWith('.json')) continue;
+      try {
+        const record = JSON.parse(fs.readFileSync(path.join(directory, name), 'utf8'));
+        if (record?.run) active.add(name.slice(0, -'.json'.length));
+      } catch {}
+    }
+  }
+
+  async function tickOne(key) {
+    if (!fs.existsSync(fileFor(key))) {
+      active.delete(key);
+      return;
+    }
+    const state = load(key);
+    await advance(state);
+    save(state);
+    noteActivity(state);
+  }
+
+  const active = new Set();
+  scanActive();
+  const timer = setInterval(() => {
+    try { fs.readdirSync(directory); }
+    catch { clearInterval(timer); return; }
+    for (const key of [...active]) chain(key, () => tickOne(key)).catch(() => {});
+  }, advanceEvery);
+  timer.unref();
+
   function handle(reply, res, body) {
     const key = `${body.workspace_id || ''}.${body.pane_id || ''}`;
-    const previous = chains.get(key) || Promise.resolve();
-    const result = previous.catch(() => {}).then(() => operate(body));
-    chains.set(key, result);
-    return result.then(state => reply(res, 200, publicState(state))).catch(error => {
+    return chain(key, () => operate(body)).then(state => reply(res, 200, publicState(state))).catch(error => {
       const status = Number.isInteger(error?.status) ? error.status : 502;
       let message = typeof error?.message === 'string' ? error.message : '';
       if (!message.trim() || message.length > 500) message = 'The shared conversation could not complete that request.';

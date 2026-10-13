@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createAgentHandler } from '../server/agent.mjs';
-import { parseDelegate, routeAddressees } from '../server/shared-agents.mjs';
+import { parseDelegate, routeAddressees, sharedTurnTimeoutMs } from '../server/shared-agents.mjs';
 
 const token = 'orbit-test-token-'.repeat(4);
 const session = 'orbit-12345678-1234-4234-9234-123456789abc';
@@ -523,4 +523,50 @@ test('a ping-pong handoff pauses without a turn counter, and continue lets it pr
   assert.equal(paused.body.running, '');
   assert.match(paused.body.activity, /Continue when you want/);
   assert.equal(/\b20\b/.test(paused.body.activity), false);
+});
+
+test('sharedTurnTimeoutMs defaults to 3 minutes and honors a bounded override', () => {
+  assert.equal(sharedTurnTimeoutMs({}), 3 * 60 * 1000);
+  assert.equal(sharedTurnTimeoutMs({ ORBIT_SHARED_TURN_TIMEOUT_MS: '120000' }), 120000);
+  assert.equal(sharedTurnTimeoutMs({ ORBIT_SHARED_TURN_TIMEOUT_MS: 'nope' }), 3 * 60 * 1000);
+  assert.equal(sharedTurnTimeoutMs({ ORBIT_SHARED_TURN_TIMEOUT_MS: '999' }), 3 * 60 * 1000);
+  assert.equal(sharedTurnTimeoutMs({ ORBIT_SHARED_TURN_TIMEOUT_MS: String(30 * 60 * 1000) }), 30 * 60 * 1000);
+});
+
+test('a hung Hermes turn is stopped by the server timer without a state poll', async t => {
+  let clock = 1_700_000_000_000;
+  let stoppedAt = 0;
+  const calls = [];
+  const fetchImpl = async (url, options = {}) => {
+    const route = String(url);
+    const at = Date.now();
+    calls.push({ route, method: options.method || 'GET', at });
+    const json = (value, status = 200) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
+    if (route === 'http://hermes.test/v1/runs' && options.method === 'POST') return json({ run_id: 'run_hunghermes01', status: 'running' });
+    if (route === 'http://hermes.test/v1/runs/run_hunghermes01/stop') {
+      stoppedAt = at;
+      return json({ status: 'stopping' });
+    }
+    if (route === 'http://hermes.test/v1/runs/run_hunghermes01') return json({ status: 'running' });
+    return json({ error: 'missing' }, 404);
+  };
+  const room = await open(t, fetchImpl, undefined, {
+    grokOptions: { now: () => clock, turnTimeoutMs: 3 * 60 * 1000, advanceIntervalMs: 25 },
+  });
+  const posted = await room.request({ action: 'shared_agents', operation: 'post', text: '@hermes are you there' });
+  assert.equal(posted.status, 200);
+  assert.equal(posted.body.running, 'hermes');
+  clock += (3 * 60 * 1000) + 1;
+  const deadline = Date.now() + 1000;
+  while (!stoppedAt && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 20));
+  assert.ok(stoppedAt > 0);
+  const beforeState = Date.now();
+  assert.ok(stoppedAt < beforeState);
+  const finished = await room.request({ action: 'shared_agents', operation: 'state' });
+  assert.equal(finished.status, 200);
+  assert.equal(finished.body.running, '');
+  const line = finished.body.messages.find(message => message.speaker === 'hermes' && message.error === true);
+  assert.ok(line);
+  assert.match(line.text, /Hermes did not reply within 3 minutes, so Orbit stopped that turn\./);
+  assert.equal(calls.some(call => call.route === 'http://hermes.test/v1/runs/run_hunghermes01/stop' && call.method === 'POST' && call.at < beforeState), true);
 });

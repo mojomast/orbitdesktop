@@ -39,6 +39,8 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
     fetchImpl,
     grok,
     now: typeof grokOptions.now === 'function' ? grokOptions.now : undefined,
+    ...(Number.isFinite(grokOptions.turnTimeoutMs) ? { turnTimeoutMs: grokOptions.turnTimeoutMs } : {}),
+    ...(Number.isFinite(grokOptions.advanceIntervalMs) ? { advanceIntervalMs: grokOptions.advanceIntervalMs } : {}),
     hermesProfile: () => {
       const profile = configuration?.get('default');
       return profile && profile.provider !== 'grok' ? profile : null;
