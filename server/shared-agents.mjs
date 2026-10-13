@@ -1,8 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-
-const runPattern = /^run_[a-zA-Z0-9_-]{8,100}$/;
+import { createAgentGateways } from './agent-gateways.mjs';
 const taskPattern = /^d_[a-z0-9]{8,32}$/;
 const speakers = ['hermes', 'grok'];
 const labels = { owner: 'Kyle', hermes: 'Hermes', grok: 'Grok Bot', note: 'Orbit' };
@@ -267,10 +266,11 @@ function cleanDelegations(list) {
   return tasks.slice(-MAX_TASKS);
 }
 
-export function createSharedAgents({ directory, fetchImpl = fetch, grok, hermesProfile, grokProfile, now = () => Date.now(), turnTimeoutMs, advanceIntervalMs } = {}) {
+export function createSharedAgents({ directory, fetchImpl = fetch, grok, hermesProfile, grokProfile, now = () => Date.now(), turnTimeoutMs, advanceIntervalMs, gateways: providedGateways, openCollab } = {}) {
   const turnTimeout = Number.isFinite(turnTimeoutMs) && turnTimeoutMs >= 1000 ? Math.floor(turnTimeoutMs) : sharedTurnTimeoutMs();
   const turnTimeoutMinutes = Math.max(1, Math.round(turnTimeout / 60000));
   const advanceEvery = Number.isFinite(advanceIntervalMs) && advanceIntervalMs >= 15 ? Math.floor(advanceIntervalMs) : DEFAULT_ADVANCE_INTERVAL_MS;
+  const gateways = providedGateways || createAgentGateways({ fetchImpl, grok, hermesProfile, grokProfile, now });
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   const chains = new Map();
 
@@ -376,54 +376,23 @@ function findTask(state, id) {
     return state.delegations.filter(task => task.status === 'pending' || task.status === 'running');
   }
 
-  async function hermes(profile, route, body) {
-    let response;
-    try {
-      response = await fetchImpl(`${profile.apiUrl.replace(/\/$/, '')}${route}`, {
-        method: body === undefined ? 'GET' : 'POST',
-        headers: { Authorization: `Bearer ${profile.apiKey}`, 'Content-Type': 'application/json' },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-        signal: AbortSignal.timeout(20000),
-        redirect: 'error',
-      });
-      const text = typeof response?.text === 'function' ? await response.text() : '';
-      if (!response || response.ok !== true) throw fail(response?.status === 404 ? 'Hermes can no longer find that run.' : 'Hermes could not complete the shared turn.', response?.status >= 500 ? 502 : (response?.status || 502));
-      if (!text) return null;
-      try { return JSON.parse(text); }
-      catch { throw fail('Hermes returned invalid JSON.'); }
-    } catch (error) {
-      try { await response?.body?.cancel?.(); } catch {}
-      if (error?.status) throw error;
-      throw fail('Cannot reach Hermes right now.');
-    }
-  }
-
-  function hermesView(run) {
-    const status = run?.status;
-    if (status === 'waiting_for_approval') return { status, error: 'Hermes is waiting for a tool approval. Resolve it in the Hermes chat, or cancel the delegated task.' };
-    if (status === 'completed') return { status, output: String(run.output || 'Hermes finished without a text reply.').slice(0, 16000) };
-    if (['failed', 'cancelled', 'interrupted'].includes(status)) return { status: 'failed', error: status === 'failed' ? 'Hermes reported a failure.' : `Hermes ${status} this turn.` };
-    return { status: 'running' };
-  }
-
   async function begin(state, speaker, meta = {}) {
     const purpose = meta.purpose || 'turn';
     const prompt = meta.prompt || promptFor(speaker, state.messages);
     const instructions = `${preamble(speaker)} Delegate only with the \`\`\`delegate fence.`;
     try {
-      if (speaker === 'hermes') {
-        const profile = hermesProfile();
-        if (!profile?.apiUrl || !profile.apiKey) throw fail('Hermes is not configured on this Orbit server.', 409);
-        const data = await hermes(profile, '/v1/runs', { input: prompt, session_id: state.hermesSession, instructions, conversation_history: [] });
-        if (!runPattern.test(data?.run_id || '')) throw fail('Hermes did not return a usable run.');
-        state.run = { speaker, purpose, taskId: meta.taskId || '', depth: meta.depth || 0, chain: meta.chain || '', runId: data.run_id, started: now() };
-      } else {
-        const profile = grokProfile();
-        if (!profile?.apiUrl || !profile.apiKey) throw fail('Grok Bot is not configured on this Orbit server.', 409);
-        state.grokAgentId = await grok.ensureSharedAgent(profile, state.grokAgentId);
-        const started = await grok.startSharedPrompt(profile, state.grokAgentId, prompt);
-        state.run = { speaker, purpose, taskId: meta.taskId || '', depth: meta.depth || 0, chain: meta.chain || '', runId: `run_${randomUUID().replaceAll('-', '')}`, started: started.started, nonce: started.nonce, baseline: started.baseline, agentId: state.grokAgentId };
-      }
+      const started = await gateways.startSpeaker({ speaker, prompt, instructions, hermesSession: state.hermesSession, grokAgentId: state.grokAgentId });
+      if (started.agentId) state.grokAgentId = started.agentId;
+      state.run = {
+        speaker,
+        purpose,
+        taskId: meta.taskId || '',
+        depth: meta.depth || 0,
+        chain: meta.chain || '',
+        runId: started.runId,
+        started: started.started,
+        ...(started.nonce ? { nonce: started.nonce, baseline: started.baseline, agentId: started.agentId } : {}),
+      };
       if (purpose === 'turn') state.next = other(speaker);
       state.activity = purpose === 'delegation'
         ? `${labels[speaker]} is working on a delegated task.`
@@ -445,28 +414,14 @@ function findTask(state, id) {
 
   async function poll(state) {
     if (!state.run) return { status: 'idle' };
-    if (state.run.speaker === 'hermes') {
-      const profile = hermesProfile();
-      if (!profile) return { status: 'failed', error: 'Hermes is not configured on this Orbit server.' };
-      return hermesView(await hermes(profile, `/v1/runs/${state.run.runId}`));
-    }
-    const profile = grokProfile();
-    if (!profile) return { status: 'failed', error: 'Grok Bot is not configured on this Orbit server.' };
-    return grok.pollSharedPrompt(profile, state.run);
+    return gateways.pollSpeaker(state.run);
   }
 
   async function stopProvider(state) {
     if (!state.run) return;
     const run = state.run;
-    try {
-      if (run.speaker === 'hermes') {
-        const profile = hermesProfile();
-        if (profile) await hermes(profile, `/v1/runs/${run.runId}/stop`, {});
-      } else {
-        const profile = grokProfile();
-        if (profile && run.agentId) await grok.stopSharedPrompt(profile, run.agentId);
-      }
-    } catch (error) {
+    try { await gateways.stopSpeaker(run); }
+    catch (error) {
       append(state, run.speaker, error?.message || 'Stop request failed.', true);
     }
   }
@@ -753,6 +708,23 @@ function findTask(state, id) {
     } else if (operation === 'post') {
       if (typeof body.text !== 'string' || !body.text.trim() || body.text.length > 16000) throw fail('Enter a message of 1–16,000 characters.', 400);
       const text = body.text.trim();
+      const collabGoal = text.match(/^\/collab\s+(\S[\s\S]*)$/);
+      if (text === '/collab' || text.startsWith('/collab ')) {
+        append(state, 'owner', text);
+        if (!collabGoal) append(state, 'note', 'Add a goal after /collab.', true);
+        else if (!openCollab) append(state, 'note', 'Collab is not available on this Orbit server.', true);
+        else {
+          try {
+            const project = await openCollab({ goal: collabGoal[1].trim().slice(0, 4000), workspaceId: body.workspace_id, paneId: body.pane_id });
+            append(state, 'note', `Opened Collab project ${project.id}. The board is waiting on the plan. Open Collab in this pane to approve it.`);
+          } catch (error) {
+            append(state, 'note', error?.message || 'Collab did not open.', true);
+          }
+        }
+        save(state);
+        noteActivity(state);
+        return state;
+      }
       append(state, 'owner', text);
       state.agentStreak = 0;
       state.floorMark = state.messages.length;

@@ -9,7 +9,9 @@ import { createBuildQueue } from './build-queue.mjs';
 import { createAgentProfiles, validSessionId, sanitizeSessions, sanitizeHistory } from './agent-profiles.mjs';
 import { attachProviders } from './agent-discovery.mjs';
 import { createGrokChat } from './grok-chat.mjs';
+import { createAgentGateways } from './agent-gateways.mjs';
 import { createSharedAgents } from './shared-agents.mjs';
+import { createCollab } from './collab.mjs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -34,22 +36,35 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
     ...(Number.isFinite(grokOptions.acceptanceGraceMs) ? { acceptanceGraceMs: grokOptions.acceptanceGraceMs } : {}),
     ...(Number.isFinite(grokOptions.runTimeoutMs) ? { runTimeoutMs: grokOptions.runTimeoutMs } : {}),
   });
+  const hermesProfile = () => {
+    const profile = configuration?.get('default');
+    return profile && profile.provider !== 'grok' ? profile : null;
+  };
+  const grokProfile = () => {
+    const listed = configuration?.list?.find(profile => profile.provider === 'grok');
+    const profile = listed ? configuration.get(listed.id) : null;
+    return profile?.apiUrl && profile?.apiKey ? profile : null;
+  };
+  const gatewayNow = typeof grokOptions.now === 'function' ? grokOptions.now : undefined;
+  const gateways = createAgentGateways({ fetchImpl, grok, hermesProfile, grokProfile, ...(gatewayNow ? { now: gatewayNow } : {}) });
+  const collab = createCollab({
+    directory: path.join(runtimeDirectory, 'collab'),
+    gateways,
+    ...(gatewayNow ? { now: gatewayNow } : {}),
+    ...(Number.isFinite(grokOptions.turnTimeoutMs) ? { turnTimeoutMs: grokOptions.turnTimeoutMs } : {}),
+    ...(Number.isFinite(grokOptions.advanceIntervalMs) ? { advanceIntervalMs: grokOptions.advanceIntervalMs } : {}),
+  });
   const sharedAgents = createSharedAgents({
     directory: path.join(runtimeDirectory, 'shared-agents'),
     fetchImpl,
     grok,
-    now: typeof grokOptions.now === 'function' ? grokOptions.now : undefined,
+    gateways,
+    openCollab: args => collab.openFromRoom(args),
+    ...(gatewayNow ? { now: gatewayNow } : {}),
     ...(Number.isFinite(grokOptions.turnTimeoutMs) ? { turnTimeoutMs: grokOptions.turnTimeoutMs } : {}),
     ...(Number.isFinite(grokOptions.advanceIntervalMs) ? { advanceIntervalMs: grokOptions.advanceIntervalMs } : {}),
-    hermesProfile: () => {
-      const profile = configuration?.get('default');
-      return profile && profile.provider !== 'grok' ? profile : null;
-    },
-    grokProfile: () => {
-      const listed = configuration?.list?.find(profile => profile.provider === 'grok');
-      const profile = listed ? configuration.get(listed.id) : null;
-      return profile?.apiUrl && profile?.apiKey ? profile : null;
-    },
+    hermesProfile,
+    grokProfile,
   });
   const endpoint = (profile, route) => `${profile.apiUrl.replace(/\/$/, '')}${route}`;
   // Bounded upstream JSON: read the real byte stream with a hard cap, cancel on
@@ -224,6 +239,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
         paneLock = candidateLock;
         shared.locks.add(paneLock);
         if (body.action === 'shared_agents') return sharedAgents.handle(reply, res, body);
+        if (body.action === 'collab') return collab.handle(reply, res, body);
         if (body.action === 'sessions') {
           const target = configuration.get(body.target_profile_id);
           if (!target) return reply(res,400,{error:'Unknown Hermes profile.'});

@@ -14,7 +14,7 @@ export function mountSharedAgents(options: { request: (body: Record<string, unkn
   tasks.setAttribute('aria-label', 'Delegated tasks');
   const composer = el('textarea');
   composer.maxLength = 16000;
-  composer.placeholder = 'Message the group. Use @hermes, @grok, or @all';
+  composer.placeholder = 'Message the group. Use @hermes, @grok, @all, or /collab <goal>';
   composer.setAttribute('aria-label', 'Message to the shared conversation');
   const form = el('form', 'shared-agents-form');
   const send = button('Send', 'Post to the shared conversation', () => {});
@@ -98,7 +98,7 @@ export function mountSharedAgents(options: { request: (body: Record<string, unkn
   head.append(el('h2', '', 'Shared agents'), button('Back to this chat', 'Return to the single-agent conversation', () => options.onClose(), 'small-button'));
   element.append(
     head,
-    el('p', '', 'Kyle, Hermes, and Grok Bot share this transcript. Address someone with @hermes, @grok, or @all. Agents reply to each other only when they hand off the floor. You can post at any time.'),
+    el('p', '', 'Kyle, Hermes, and Grok Bot share this transcript. Address someone with @hermes, @grok, or @all. Agents reply to each other only when they hand off the floor. You can post at any time. Start a Collab project with /collab and a goal.'),
     status,
     log,
     tasks,

@@ -757,17 +757,20 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
 
   const sharedAgentName = 'Orbit shared chat';
 
-  async function ensureSharedAgent(profile, currentId) {
+  async function ensureSharedAgent(profile, currentId, agentName = sharedAgentName) {
+    const name = typeof agentName === 'string' && agentName.trim() ? agentName.trim().slice(0, 80) : sharedAgentName;
     if (validSessionId(currentId)) {
       try {
         const agents = await command(profile, 'listAgents', {});
-        const found = (Array.isArray(agents) ? agents : []).find(agent => agent && agent.id === currentId && agent.name === sharedAgentName);
+        const found = (Array.isArray(agents) ? agents : []).find(agent => agent && agent.id === currentId && agent.name === name);
         if (found) return found.id;
       } catch (error) { if (error.status !== 404) throw error; }
     }
     const created = await command(profile, 'createAgent', {
-      name: sharedAgentName,
-      description: 'Shared Orbit pane. Not the owner’s main Grok Bot conversation.',
+      name,
+      description: name === sharedAgentName
+        ? 'Shared Orbit pane. Not the owner’s main Grok Bot conversation.'
+        : 'Orbit Collab agent. Not the owner’s main Grok Bot conversation.',
       isIntroductionSuppressed: true,
     });
     const id = created?.agent?.id;

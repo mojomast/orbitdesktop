@@ -1,0 +1,32 @@
+# Collab
+
+Collab is a board where Hermes and Grok Bot do a piece of work together. Orbit keeps the project, the tasks, the files, the budget, and the approvals. The agents propose changes. They do not write the board directly.
+
+Open it from an agent chat pane with **Collab**. To start from the shared room, post `/collab` and a goal, for example `/collab Write the changelog`. The project then shows up on the Collab board.
+
+## What you do
+
+1. Create a project with a goal. Orbit asks the agent whose skills best match planning to draft tasks.
+2. Read the plan in the approval inbox. **Approve** lets work start. **Reject** pauses the project.
+3. Watch the board. Each task has an owner, a role, and a reviewer. The reviewer is always the other agent.
+4. Reassign any task. Change the owner, the reviewer, or the role (planner, executor, reviewer, researcher). The reviewer still has to be the other agent.
+5. Open an artifact to read a version. Risky steps (shell writes, network posts, git pushes, email, deletes) wait in the inbox.
+6. When every task is finished, accept or reject the result.
+7. **Pause** finishes the current turn and holds the board. **Stop** interrupts it. **Continue** resumes a paused project that still has budget.
+
+## How agents are chosen
+
+Roles are not fixed. Each project stores a capability profile:
+
+- Hermes defaults to terminal, tools, and code.
+- Grok Bot defaults to research, reasoning, and writing.
+
+A plan can name an owner and a reviewer. If it does not, Orbit scores the task's role and skills against those profiles. You can edit the profiles on the project. Grok Bot uses a separate agent named **Orbit collab**, not your main Grok Bot conversation and not the shared room's Orbit shared chat.
+
+Agents reply with one fenced `collab` JSON block (`plan`, `claim`, `artifact.put`, `handoff`, `submit`, `review`, `ask`, `decision`). A malformed block gets one corrective retry.
+
+## Limits
+
+A turn that does not finish is stopped (3 minutes, or `ORBIT_COLLAB_TURN_TIMEOUT_MS`, falling back to `ORBIT_SHARED_TURN_TIMEOUT_MS`). A task lease lasts 10 minutes. Orbit retries the owner, then hands the task to the other agent, then marks it failed. A reviewer can send a task back once; the second request for changes fails it. The default budget is 40 turns and 120 minutes. Orbit warns around 80% and pauses at 100%. Token totals are counted when a gateway reports them.
+
+The record lives under the Orbit runtime directory in `collab/<projectId>/` (project, tasks, versioned artifacts, and append-only `events.jsonl`). It does not include gateway tokens. Project Workbench stays on Hermes.
