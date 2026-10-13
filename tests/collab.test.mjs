@@ -20,11 +20,11 @@ function taskIdFrom(prompt) {
   return String(prompt || '').match(/Current task (t_[a-f0-9]{16})/)?.[1] || '';
 }
 
-function workBlock(prompt, { risk = '', name = '' } = {}) {
+function workBlock(prompt, { risk = '', name = '', content = '' } = {}) {
   const id = taskIdFrom(prompt);
   const ops = [
     { op: 'claim', taskId: id },
-    { op: 'artifact.put', name: name || `${id}.md`, kind: 'note', content: `notes for ${id}`, taskId: id, baseVersion: 0, ...(risk ? { risk } : {}) },
+    { op: 'artifact.put', name: name || `${id}.md`, kind: 'note', content: content || `notes for ${id}`, taskId: id, baseVersion: 0, ...(risk ? { risk } : {}) },
   ];
   if (!risk) ops.push({ op: 'submit', taskId: id, summary: `finished ${id}`, artifacts: [], selfCheck: {} });
   return block(ops);
@@ -314,6 +314,76 @@ test('wall-clock budget pauses an otherwise idle project', async t => {
   const paused = await room.request({ action: 'collab', operation: 'state', project_id: created.body.project.id });
   assert.equal(paused.body.project.status, 'paused');
   assert.match(paused.body.project.activity, /Budget reached/);
+});
+
+test('a plan accepts display names and unknown roles, lists the vocabulary, and waits on dependsOn titles', async t => {
+  const { fetchImpl, calls } = scripted({
+    grok: () => block([{
+      op: 'plan',
+      tasks: [
+        { title: 'Research the notes', spec: 'Find the facts', acceptance: ['Sources are listed'], role: 'Writer', owner: 'Grok Bot', skillsHint: ['Research', 'writing'] },
+        { title: 'Implement the change', spec: 'Edit the code', acceptance: ['Tests pass'], role: 'Planner', owner: 'Hermes', reviewer: 'Grok Bot', skillsHint: ['code'], dependsOn: ['Research the notes'] },
+      ],
+    }]),
+  });
+  const room = await open(t, fetchImpl);
+  const created = await room.request({ action: 'collab', operation: 'create', goal: 'Ship the notes' });
+  assert.equal(created.status, 200);
+  const research = created.body.tasks.find(task => task.title === 'Research the notes');
+  const implement = created.body.tasks.find(task => task.title === 'Implement the change');
+  assert.equal(research.owner, 'grok');
+  assert.equal(research.role, 'researcher');
+  assert.equal(research.reviewer, 'hermes');
+  assert.equal(research.status, 'planned');
+  assert.equal(implement.owner, 'hermes');
+  assert.equal(implement.reviewer, 'grok');
+  assert.equal(implement.role, 'planner');
+  assert.deepEqual(implement.dependsOn, [research.id]);
+  const prompt = calls.find(call => call.route.endsWith('/api/sendPrompt')).payload.prompt;
+  assert.match(prompt, /planner, executor, reviewer, researcher/);
+  assert.match(prompt, /hermes or grok/);
+  assert.match(prompt, /terminal, tools, code, research, reasoning, writing/);
+  assert.match(prompt, /dependsOn is an array of exact task titles/);
+  assert.match(prompt, /No tasks exist yet/);
+});
+
+test('a reviewer receives the current task artifact text', async t => {
+  const marker = `ALPHA-REVIEW-BODY${'x'.repeat(2500)}OMEGA-TAIL`;
+  const { fetchImpl, calls } = scripted({
+    grok(prompt) {
+      if (prompt.includes('No tasks exist yet')) return block([{ op: 'plan', tasks: [{ title: 'Draft', spec: 'Write it', acceptance: ['Clear'], owner: 'hermes', reviewer: 'grok', role: 'executor' }] }]);
+      return reviewBlock(prompt);
+    },
+    hermes: prompt => workBlock(prompt, { content: marker }),
+  });
+  const room = await open(t, fetchImpl);
+  const created = await room.request({ action: 'collab', operation: 'create', goal: 'Read the file' });
+  await room.request({ action: 'collab', operation: 'resolve', project_id: created.body.project.id, choice: 'approve' });
+  const review = calls.filter(call => call.route.endsWith('/api/sendPrompt')).map(call => call.payload.prompt).find(prompt => prompt.includes('reviewer as'));
+  assert.match(review, /ALPHA-REVIEW-BODY/);
+  assert.equal(review.includes('OMEGA-TAIL'), false);
+});
+
+test('archive keeps a project out of scheduling and delete removes it', async t => {
+  const { fetchImpl } = scripted({
+    grok: () => block([{ op: 'plan', tasks: [{ title: 'Draft', spec: 'Write it', acceptance: ['Clear'], role: 'executor', skillsHint: ['code'] }] }]),
+  });
+  const room = await open(t, fetchImpl);
+  const created = await room.request({ action: 'collab', operation: 'create', goal: 'Keep or drop' });
+  const project_id = created.body.project.id;
+  const archived = await room.request({ action: 'collab', operation: 'archive', project_id });
+  assert.equal(archived.status, 200);
+  assert.equal(archived.body.project.status, 'archived');
+  assert.equal(archived.body.running, '');
+  const listed = await room.request({ action: 'collab', operation: 'list' });
+  assert.equal(listed.body.projects[0].status, 'archived');
+  const removed = await room.request({ action: 'collab', operation: 'delete', project_id });
+  assert.equal(removed.status, 200);
+  assert.equal(removed.body.deleted, true);
+  const after = await room.request({ action: 'collab', operation: 'list' });
+  assert.equal(after.body.projects.length, 0);
+  const missing = await room.request({ action: 'collab', operation: 'state', project_id });
+  assert.equal(missing.status, 404);
 });
 
 test('/collab in the shared room opens a project', async t => {

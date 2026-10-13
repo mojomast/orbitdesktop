@@ -7,12 +7,12 @@ Open it from an agent chat pane with **Collab**. To start from the shared room, 
 ## What you do
 
 1. Create a project with a goal. Orbit asks the agent whose skills best match planning to draft tasks.
-2. Read the plan in the approval inbox. **Approve** lets work start. **Reject** pauses the project.
+2. Read the plan in the approval inbox. Until you approve it, those tasks show as awaiting approval. **Approve** lets work start. **Reject** pauses the project.
 3. Watch the board. Each task has an owner, a role, and a reviewer. The reviewer is always the other agent.
 4. Reassign any task. Change the owner, the reviewer, or the role (planner, executor, reviewer, researcher). The reviewer still has to be the other agent.
 5. Open an artifact to read a version. Risky steps (shell writes, network posts, git pushes, email, deletes) wait in the inbox.
 6. When every task is finished, accept or reject the result.
-7. **Pause** finishes the current turn and holds the board. **Stop** interrupts it. **Continue** resumes a paused project that still has budget.
+7. **Pause** finishes the current turn and holds the board. **Stop** interrupts it. **Continue** resumes a paused project that still has budget. **Archive** keeps the record and stops scheduling. **Delete** removes the project after you confirm.
 
 ## How agents are chosen
 
@@ -21,7 +21,7 @@ Roles are not fixed. Each project stores a capability profile:
 - Hermes defaults to terminal, tools, and code.
 - Grok Bot defaults to research, reasoning, and writing.
 
-A plan can name an owner and a reviewer. If it does not, Orbit scores the task's role and skills against those profiles. You can edit the profiles on the project. Grok Bot uses a separate agent named **Orbit collab**, not your main Grok Bot conversation and not the shared room's Orbit shared chat.
+A plan can name an owner (`hermes` or `grok`, or Hermes / Grok Bot) and a reviewer. `dependsOn` is a list of exact task titles, and those tasks wait until the named ones are done. A role outside planner, executor, reviewer, and researcher is ignored and Orbit scores `skillsHint` instead. You can edit the profiles on the project. Each turn includes the current task's artifact text so a reviewer can read the work. Grok Bot uses a separate agent named **Orbit collab**, not your main Grok Bot conversation and not the shared room's Orbit shared chat.
 
 Agents reply with one fenced `collab` JSON block (`plan`, `claim`, `artifact.put`, `handoff`, `submit`, `review`, `ask`, `decision`). A malformed block gets one corrective retry.
 

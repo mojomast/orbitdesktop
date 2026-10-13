@@ -35,7 +35,19 @@ function clean(value, max) {
 
 function asSkills(list) {
   if (!Array.isArray(list)) return [];
-  return [...new Set(list.filter(skill => SKILLS.includes(skill)))].slice(0, SKILLS.length);
+  return [...new Set(list.map(skill => clean(skill, 40).toLowerCase()).filter(skill => SKILLS.includes(skill)))].slice(0, SKILLS.length);
+}
+
+function normalizeRole(value) {
+  const role = clean(value, 40).toLowerCase();
+  return ROLES.includes(role) ? role : '';
+}
+
+function normalizeAgent(value) {
+  const name = clean(value, 40).toLowerCase();
+  if (name === 'hermes') return 'hermes';
+  if (name === 'grok' || name === 'grok bot') return 'grok';
+  return '';
 }
 
 export function defaultCapabilities() {
@@ -75,12 +87,9 @@ function parseOp(raw) {
       if (!Array.isArray(task.acceptance) || task.acceptance.length < 1 || task.acceptance.length > 8) return { error: `Task "${title}" needs 1–8 acceptance criteria.` };
       const acceptance = task.acceptance.map(item => clean(item, 500)).filter(Boolean);
       if (acceptance.length !== task.acceptance.length) return { error: `Task "${title}" has an empty acceptance criterion.` };
-      const role = task.role === undefined ? '' : task.role;
-      if (role && !ROLES.includes(role)) return { error: `Task "${title}" has an unknown role.` };
-      const owner = task.owner === undefined || task.owner === null || task.owner === '' ? '' : task.owner;
-      const reviewer = task.reviewer === undefined || task.reviewer === null || task.reviewer === '' ? '' : task.reviewer;
-      if (owner && !AGENTS.includes(owner)) return { error: `Task "${title}" has an unknown owner.` };
-      if (reviewer && !AGENTS.includes(reviewer)) return { error: `Task "${title}" has an unknown reviewer.` };
+      const role = normalizeRole(task.role);
+      const owner = normalizeAgent(task.owner);
+      const reviewer = normalizeAgent(task.reviewer);
       const dependsOn = Array.isArray(task.dependsOn) ? task.dependsOn.map(item => clean(item, 200)).filter(Boolean).slice(0, 8) : [];
       const skillsHint = asSkills(task.skillsHint);
       const risk = task.risk ? clean(task.risk, 40) : '';
@@ -254,13 +263,14 @@ Spec: ${task.spec}
 Acceptance:
 ${criteria}
 Reviewer notes: ${task.reviewNotes || '(none)'}
-Existing artifacts: ${(task.artifacts || []).map(id => {
-      const meta = bundle.artifacts.find(item => item.id === id);
-      const version = meta?.versions?.at(-1)?.v;
-      return meta && version ? `${meta.name}@v${version}` : '';
-    }).filter(Boolean).join(', ') || '(none)'}
+Existing artifacts:${(task.artifacts || []).map(artifactExcerpt).join('') || '\n(none)'}
 Dependencies:
-${dependencyText || '(none)'}` : 'No tasks exist yet. Reply with a plan op. Give each task a title, spec, acceptance criteria, role, and optional owner, reviewer, and skillsHint. The reviewer must not be the owner. Match code, terminal, and tools to the agent who has those skills, and research, reasoning, and writing the same way.'}
+${dependencyText || '(none)'}` : `No tasks exist yet. Reply with one plan op.
+Each task needs a title, a spec, and acceptance (1–8 testable strings).
+role must be one of: planner, executor, reviewer, researcher. Any other role is ignored and Orbit chooses from skillsHint.
+owner and reviewer must be hermes or grok. Hermes and Grok Bot are accepted names for those ids. The reviewer must not be the owner. Omit either one and Orbit assigns from skills.
+skillsHint is an array of: terminal, tools, code, research, reasoning, writing.
+dependsOn is an array of exact task titles from this same plan. A task waits until every title in dependsOn is completed. Use [] when the task can start immediately.`}
 Budget: ${budget.spentTurns}/${budget.maxTurns} turns, ${spentMin}/${wallMin} minutes${budget.maxTokens ? `, ${budget.spentTokens}/${budget.maxTokens} tokens` : ''}.
 Last error: ${task?.lastError || project.activity || '(none)'}`;
   }
@@ -846,6 +856,24 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
       bundle.project.status = 'paused';
       bundle.project.activity = 'Stopped.';
       event(bundle, 'task.state', { data: { status: 'paused', reason: 'Kyle stopped the project.' } });
+    } else if (operation === 'archive') {
+      if (bundle.project.run) {
+        try { await gateways.stopSpeaker(bundle.project.run); } catch (error) {
+          event(bundle, 'error', { data: { message: error?.message || 'Stop failed.' } });
+        }
+        bundle.project.run = null;
+      }
+      bundle.project.status = 'archived';
+      bundle.project.activity = 'Archived.';
+      event(bundle, 'project.archived', { actor: 'kyle', data: { goal: bundle.project.goal } });
+    } else if (operation === 'delete') {
+      if (bundle.project.run) {
+        try { await gateways.stopSpeaker(bundle.project.run); } catch { /* the files are about to go */ }
+      }
+      const id = bundle.project.id;
+      store.removeProject(id);
+      active.delete(id);
+      return { deleted: true, id };
     } else if (operation === 'artifact') {
       const stored = store.readArtifact(bundle.project.id, body.artifact_id, Number.isInteger(body.version) ? body.version : 0);
       store.save(bundle);
@@ -916,7 +944,11 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
         decisions: project.memory.decisions,
         gate: project.gate ? { id: project.gate.id, type: project.gate.type, summary: project.gate.summary, taskId: project.gate.taskId || '' } : null,
       },
-      tasks: bundle.tasks.map(publicTask),
+      tasks: bundle.tasks.map(task => {
+        const view = publicTask(task);
+        if (project.gate?.type === 'plan' && view.status === 'submitted') view.status = 'planned';
+        return view;
+      }),
       artifacts: bundle.artifacts.map(publicArtifact),
       events,
       running: project.run?.speaker || '',
@@ -931,7 +963,9 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
   }
 
   async function tick(id) {
-    const bundle = store.load(id);
+    let bundle;
+    try { bundle = store.load(id); }
+    catch { active.delete(id); return; }
     await advance(bundle);
     store.save(bundle);
     noteActive(bundle);

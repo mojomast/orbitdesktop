@@ -3,6 +3,7 @@ import { el, button, select } from './dom';
 const labels: Record<string, string> = { hermes: 'Hermes', grok: 'Grok Bot', kyle: 'Kyle', orbit: 'Orbit' };
 const skillNames = ['terminal', 'tools', 'code', 'research', 'reasoning', 'writing'];
 const columns: [string, string][] = [
+  ['planned', 'Awaiting approval'],
   ['submitted', 'Submitted'],
   ['working', 'Working'],
   ['input-required', 'Needs input'],
@@ -131,6 +132,14 @@ export function mountCollab(options: { request: (body: Record<string, unknown>) 
     head.append(
       el('h2', '', project.title),
       button('All projects', 'Return to the Collab project list', () => { projectId = ''; artifactNote = ''; void refresh(); }, 'small-button'),
+      button('Archive', 'Archive this project and stop scheduling it', () => {
+        if (!window.confirm(`Archive “${project.title}”?`)) return;
+        void options.request({ operation: 'archive', project_id: project.id }).then(() => { projectId = ''; void refresh(); }).catch(error => fail(error, 'That project was not archived.'));
+      }, 'small-button'),
+      button('Delete', 'Delete this project and its files', () => {
+        if (!window.confirm(`Delete “${project.title}”? This cannot be undone.`)) return;
+        void options.request({ operation: 'delete', project_id: project.id }).then(() => { projectId = ''; artifactNote = ''; void refresh(); }).catch(error => fail(error, 'That project was not deleted.'));
+      }, 'small-button'),
       button('Back to this chat', 'Return to the single-agent conversation', () => options.onClose(), 'small-button'),
     );
     const budget = project.budget;

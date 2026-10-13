@@ -161,5 +161,9 @@ export function createCollabStore(directory) {
     return projects.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
   }
 
-  return { load, save, writeProject, appendEvent, readEvents, putArtifact, readArtifact, listProjects, listArtifactMetas };
+  function removeProject(id) {
+    fs.rmSync(projectDir(id), { recursive: true, force: true });
+  }
+
+  return { load, save, writeProject, appendEvent, readEvents, putArtifact, readArtifact, listProjects, listArtifactMetas, removeProject };
 }
