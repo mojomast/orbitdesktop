@@ -9,7 +9,7 @@ type Runtime = { id: string; kind: string; label: string; highMem: boolean; note
 type Session = { name: string; orphan?: boolean; hardware: string; shape: string; variant: string; status: string };
 type Rich = { id: string; kind: string; mime: string; name: string };
 type Progress = { percent: number | null; stage: string; step: number | null; total: number | null; loss: number | null; eta: string; gpuMemory: string; losses: Array<{ step: number; loss: number }> };
-type Job = { id: string; action: string; session: string; state: string; exitCode: number | null; startedAt?: string; endedAt?: string | null; bytes: number; error: string; rich: Rich[]; truncated?: boolean; label?: string; remote?: boolean; progress?: Progress };
+type Job = { id: string; action: string; session: string; state: string; exitCode: number | null; startedAt?: string; endedAt?: string | null; bytes: number; error: string; rich: Rich[]; truncated?: boolean; label?: string; remote?: boolean; lastLine?: string; durationMs?: number | null; progress?: Progress };
 type Usage = { balance: number | null; ratePerHour: number | null; assignments: number | null; raw: string };
 
 export function mountColab(options: { token: () => string; request: (body: Record<string, unknown>) => Promise<Record<string, unknown>> }) {
@@ -638,6 +638,15 @@ export function mountColab(options: { token: () => string; request: (body: Recor
     if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / 1048576).toFixed(1)} MB`;
   }
+  function formatDuration(ms: number | null | undefined) {
+    if (ms === null || ms === undefined || !Number.isFinite(ms)) return '—';
+    const seconds = Math.max(0, Math.round(ms / 1000));
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    if (hours) return `${hours}h ${minutes % 60}m`;
+    if (minutes) return `${minutes}m ${seconds % 60}s`;
+    return `${seconds}s`;
+  }
   function stamp(value: string | null | undefined) {
     if (!value) return '—';
     const date = new Date(value);
@@ -665,9 +674,10 @@ export function mountColab(options: { token: () => string; request: (body: Recor
       control.append(
         el('strong', '', `${job.label ? `${job.label} · ` : ''}${job.action} · ${job.state}`),
         el('span', '', job.session || 'no session'),
-        el('small', '', `${job.id.slice(0, 8)} · start ${stamp(job.startedAt)} · end ${stamp(job.endedAt)} · exit ${job.exitCode === null || job.exitCode === undefined ? '—' : job.exitCode} · ${formatBytes(job.bytes)}`),
+        el('small', '', `${job.id.slice(0, 8)} · ${formatDuration(job.durationMs)} · start ${stamp(job.startedAt)} · end ${stamp(job.endedAt)} · exit ${job.exitCode === null || job.exitCode === undefined ? '—' : job.exitCode} · ${formatBytes(job.bytes)}`),
       );
       if (progressLine) control.append(el('small', '', progressLine));
+      if (job.lastLine) control.append(el('small', '', job.lastLine));
       return control;
     }) : [el('p', 'colab-note', jobScope === 'session' && selected ? 'No jobs for this session yet. Agent runs show up here.' : 'No jobs yet.')];
     jobsList.replaceChildren(el('h3', '', 'Jobs'), scope, ...rows);

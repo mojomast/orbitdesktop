@@ -124,9 +124,21 @@ def launch(root, script):
     waiter = os.fork()
     if waiter == 0:
         os.setsid()
+        null = os.open(os.devnull, os.O_RDWR)
+        os.dup2(null, 0)
+        os.dup2(null, 1)
+        os.dup2(null, 2)
+        os.close(null)
         log = open(log_path, "ab", buffering=0)
-        proc = subprocess.Popen([sys.executable, "-u", script], stdout=log, stderr=subprocess.STDOUT, cwd=root)
+        proc = subprocess.Popen(
+            [sys.executable, "-u", script],
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            cwd=root,
+            start_new_session=True,
+        )
         open(pid_path, "w").write(str(proc.pid))
+        log.close()
         code = proc.wait()
         open(exit_path, "w").write(str(code))
         os._exit(0)

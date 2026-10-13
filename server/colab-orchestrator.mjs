@@ -107,8 +107,23 @@ export function createColabOrchestrator(options = {}) {
       truncated: job.truncated === true,
       label: job.label || '',
       remote: job.remote === true,
+      lastLine: job.lastLine || '',
+      durationMs: durationMs(job),
       progress: job.progress || emptyProgress(),
     };
+  }
+
+  function durationMs(job) {
+    const started = Date.parse(job.startedAt || '');
+    if (!Number.isFinite(started)) return null;
+    const ended = job.endedAt ? Date.parse(job.endedAt) : Date.now();
+    if (!Number.isFinite(ended)) return null;
+    return Math.max(0, ended - started);
+  }
+
+  function noteLastLine(job, text) {
+    const line = collapseTerminal(text).split('\n').map(item => item.trim()).filter(Boolean).at(-1);
+    if (line) job.lastLine = line.slice(0, 200);
   }
 
   function remember(job) {
@@ -117,7 +132,8 @@ export function createColabOrchestrator(options = {}) {
       stepIndex: job.stepIndex || 0, stepCount: job.stepCount || 1, notebook: job.notebook || '',
       remotePid: job.remotePid || 0, remoteOffset: job.remoteOffset || 0,
     };
-    fs.writeFileSync(path.join(job.dir, 'meta.json'), JSON.stringify(meta), { mode: 0o600 });
+    try { fs.writeFileSync(path.join(job.dir, 'meta.json'), JSON.stringify(meta), { mode: 0o600 }); }
+    catch (error) { if (error?.code !== 'ENOENT') throw error; }
   }
 
   function processAlive(pid) {
@@ -199,6 +215,7 @@ export function createColabOrchestrator(options = {}) {
       await fs.promises.appendFile(job.logPath, piece);
       job.bytes += Buffer.byteLength(piece);
       emit(job, { type: 'data', offset, text: piece, stream });
+      noteLastLine(job, piece);
       const blob = job.carry + piece;
       const marks = imageMarkers(blob);
       const end = marks.length ? blob.lastIndexOf(']') + 1 : Math.max(0, blob.length - 180);
@@ -391,7 +408,7 @@ export function createColabOrchestrator(options = {}) {
     let nextState = state || (job.truncated ? 'truncated' : 'exited');
     let nextCode = code;
     let nextError = error ? redactSecrets(error).slice(0, 2000) : '';
-    if (nextState === 'exited' && (nextCode === 0 || nextCode === null)) {
+    if (!job.remoteExitKnown && nextState === 'exited' && (nextCode === 0 || nextCode === null)) {
       const found = remoteFailure(await readLogTail(job));
       if (found.failed) {
         nextState = 'failed';
@@ -548,10 +565,7 @@ export function createColabOrchestrator(options = {}) {
   }
 
   function sleep(ms) {
-    return new Promise(resolve => {
-      const timer = setTimeout(resolve, ms);
-      timer.unref?.();
-    });
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   async function consoleText(session, command, timeoutMs, owner = null) {
@@ -660,7 +674,8 @@ export function createColabOrchestrator(options = {}) {
         }
         if (parsed.exitCode !== null && !parsed.alive) {
           const failed = parsed.exitCode !== 0;
-          await finishJob(job, parsed.exitCode, failed ? `Remote exit ${parsed.exitCode}` : '', failed ? 'failed' : '');
+          job.remoteExitKnown = true;
+          await finishJob(job, parsed.exitCode, failed ? `Remote process exited ${parsed.exitCode}` : '', failed ? 'failed' : '');
           return;
         }
         if (!parsed.length) await sleep(reconnectDelay);
