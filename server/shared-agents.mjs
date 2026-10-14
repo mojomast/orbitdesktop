@@ -235,11 +235,12 @@ ${transcriptTail(messages) || '(no messages yet)'}`;
 }
 
 function normalizeTarget(value) {
-  const text = String(value || '').trim().toLowerCase();
+  const text = String(value || '').trim().toLowerCase().replace(/^@/, '');
   if (text === 'hermes') return 'hermes';
   if (text === 'grok' || text === 'grok bot') return 'grok';
   if (text === 'pi' || text === 'pi agent') return 'pi';
-  return '';
+  // Group rooms name members by handle; the room checks membership.
+  return /^[a-z0-9_]{1,32}$/.test(text) && !['owner', 'kyle', 'all', 'note', 'orbit'].includes(text) ? text : '';
 }
 
 function cleanField(value, max) {
@@ -331,7 +332,7 @@ export function parseDelegate(text) {
   const to = normalizeTarget(target);
   task = cleanField(task, 4000);
   context = cleanField(context, 4000);
-  if (!to) return { error: 'Name the target agent as hermes, grok, or pi.' };
+  if (!to) return { error: 'Name the target agent by its @handle (for example hermes, grok, or pi).' };
   if (!task) return { error: 'A delegated task must be 1–4,000 characters.' };
   const brief = briefFrom(briefSource);
   if (brief?.error) return brief;
@@ -345,6 +346,7 @@ function publicState(state, participants = DEFAULT_PARTICIPANTS) {
     paused: state.paused,
     hold: state.hold === true,
     running: state.run?.speaker || '',
+    queued: (state.queue || []).map(item => item.speaker),
     activity: state.activity || '',
     ...(state.collabProject?.id ? { collabProject: { id: state.collabProject.id } } : {}),
     delegations: state.delegations.map(task => ({
@@ -386,14 +388,30 @@ function cleanDelegations(list, participants = DEFAULT_PARTICIPANTS) {
   return tasks.slice(-MAX_TASKS);
 }
 
-export function createSharedAgents({ directory, fetchImpl = fetch, chats, grok, hermesProfile, gatewayProfile, grokProfile, now = () => Date.now(), turnTimeoutMs, advanceIntervalMs, gateways: providedGateways, openCollab } = {}) {
+/**
+ * `members` (optional): a group room with arbitrary members, each {id: @handle, label}. The handle is the
+ * speaker id; `gateways` must then map handles to providers. `defaultResponder` ('all' or a handle) answers
+ * Kyle's un-mentioned messages instead of the provider-room heuristic.
+ */
+export function createSharedAgents({ directory, fetchImpl = fetch, chats, grok, hermesProfile, gatewayProfile, grokProfile, now = () => Date.now(), turnTimeoutMs, advanceIntervalMs, gateways: providedGateways, openCollab, members, defaultResponder } = {}) {
   const turnTimeout = Number.isFinite(turnTimeoutMs) && turnTimeoutMs >= 1000 ? Math.floor(turnTimeoutMs) : sharedTurnTimeoutMs();
   const turnTimeoutMinutes = Math.max(1, Math.round(turnTimeout / 60000));
   const advanceEvery = Number.isFinite(advanceIntervalMs) && advanceIntervalMs >= 15 ? Math.floor(advanceIntervalMs) : DEFAULT_ADVANCE_INTERVAL_MS;
   // The room is Hermes plus every configured gateway provider. An older caller that
   // still passes a single `grok` chat keeps the original two-member room.
   const roomChats = chats instanceof Map ? chats : (grok ? new Map([['grok', grok]]) : null);
-  const speakers = ['hermes', ...((roomChats ? [...roomChats.keys()] : ['grok']).filter(id => id !== 'hermes'))];
+  const memberList = Array.isArray(members) ? members.filter(m => m && /^[a-z0-9_]{1,32}$/.test(m.id) && !['owner', 'note', 'all', 'kyle'].includes(m.id)) : null;
+  if (memberList) for (const m of memberList) labels[m.id] = String(m.label || m.id).replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 80);
+  const speakers = memberList && memberList.length
+    ? memberList.map(m => m.id)
+    : ['hermes', ...((roomChats ? [...roomChats.keys()] : ['grok']).filter(id => id !== 'hermes'))];
+  const routeOwner = text => {
+    if (memberList && defaultResponder) {
+      const found = mentionedAgents(text, speakers);
+      if (!found.all && !speakers.some(id => found[id])) return defaultResponder === 'all' ? speakers.slice() : speakers.includes(defaultResponder) ? [defaultResponder] : speakers.slice();
+    }
+    return null;
+  };
   const gateways = providedGateways || createAgentGateways({ fetchImpl, chats: roomChats, hermesProfile, gatewayProfile: gatewayProfile || grokProfile, now });
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   const chains = new Map();
@@ -405,7 +423,8 @@ export function createSharedAgents({ directory, fetchImpl = fetch, chats, grok, 
   function load(key) {
     try {
       const record = JSON.parse(fs.readFileSync(fileFor(key), 'utf8'));
-      if (!record || !Array.isArray(record.messages) || !speakers.includes(record.next)) return blank(key);
+      if (!record || !Array.isArray(record.messages)) return { ...blank(key), next: speakers[0] };
+      if (!speakers.includes(record.next)) { if (!memberList) return blank(key); record.next = speakers[0]; }
       record.key = key;
       record.messages = record.messages.filter(message => message && labels[message.speaker] && typeof message.text === 'string').slice(-200);
       record.auto = record.auto === true;
@@ -436,7 +455,7 @@ export function createSharedAgents({ directory, fetchImpl = fetch, chats, grok, 
       return record;
     } catch (error) {
       if (error.code !== 'ENOENT') throw fail('The shared transcript could not be read.');
-      return blank(key);
+      return { ...blank(key), next: speakers[0] };
     }
   }
 
@@ -481,7 +500,7 @@ export function createSharedAgents({ directory, fetchImpl = fetch, chats, grok, 
     if (!participants.includes(speaker) || queue.some(entry => entry.speaker === speaker)) continue;
     queue.push({ speaker, fromOwner: item?.fromOwner === true });
   }
-  return queue.slice(0, 2);
+  return queue.slice(0, Math.max(2, participants.length));
 }
 
 function enqueue(state, targets, fromOwner, participants = DEFAULT_PARTICIPANTS) {
@@ -868,7 +887,7 @@ function findTask(state, id) {
       state.hold = false;
       if (state.activity === HOLD_ACTIVITY) state.activity = '';
       rememberAddress(state, text, speakers);
-      enqueue(state, routeAddressees(text, state.lastAddressed, speakers), true, speakers);
+      enqueue(state, routeOwner(text) || routeAddressees(text, state.lastAddressed, speakers), true, speakers);
       if (!state.run && !state.paused && !delegationBusy(state)) await startNextSpeaker(state);
       await advance(state);
     } else if (operation === 'speak') {
@@ -957,6 +976,7 @@ function findTask(state, id) {
     for (const key of [...active]) chain(key, () => tickOne(key)).catch(() => {});
   }, advanceEvery);
   timer.unref();
+  const dispose = () => clearInterval(timer);
 
   function handle(reply, res, body) {
     const key = `${body.workspace_id || ''}.${body.pane_id || ''}`;
@@ -970,5 +990,5 @@ function findTask(state, id) {
     });
   }
 
-  return { handle };
+  return { handle, dispose, speakers: () => speakers.slice() };
 }

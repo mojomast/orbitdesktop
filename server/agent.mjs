@@ -175,8 +175,11 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
     if(!workspaceRead)throw Object.assign(Error('Authoritative workspace access unavailable'),{status:503});
     let record;
     try {record=workspaceRead(body.workspace_id);}catch(error) {throw Object.assign(Error('Workspace unavailable'),{status:error.code==='ENOENT'?404:503});}
-    const contains = layout => layout.type === 'pane' ? layout.pane.id === body.pane_id && layout.pane.kind === 'agent' : contains(layout.first) || contains(layout.second);
-    if (!record.state.monitors.some(m => contains(m.layout))) throw Object.assign(Error('Chat pane is not open in this workspace'),{status:404});
+    // The standalone Collab app is a browser pane at orbit://surface/collab (not an agent pane); it may
+    // only use the collab action. Every other pane-scoped action still needs a real agent chat pane.
+    const surfaceOk = pane => body.action === 'collab' && pane.kind === 'browser' && String(pane.url || '').split('#')[0] === 'orbit://surface/collab';
+    const contains = layout => layout.type === 'pane' ? layout.pane.id === body.pane_id && (layout.pane.kind === 'agent' || surfaceOk(layout.pane)) : contains(layout.first) || contains(layout.second);
+    if (!record.state.monitors.some(m => contains(m.layout))) throw Object.assign(Error(body.action === 'collab' ? 'Collab pane is not open in this workspace' : 'Chat pane is not open in this workspace'),{status:404});
   }
   const agent = async function agent(req, res) {
     if (req.method !== 'POST' || !allowedRequest(req, port, devOrigins)) return reply(res, 403, { error: 'Origin rejected' });
@@ -744,5 +747,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
   };
   // Read-only access to the same profile catalog the agent-chat provider dropdown uses.
   agent.profileCatalog = () => configuration;
+  // Grok Bots app group rooms reuse the same gateway chat surfaces as the shared room.
+  agent.gatewayChats = () => chats;
   return agent;
 }
