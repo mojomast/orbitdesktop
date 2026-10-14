@@ -126,7 +126,7 @@ const colab = createColabOrchestrator({ token, port, devOrigins, reply, root: pa
 const kittyDoom = createKittyDoomService({ token, port, devOrigins, reply });
 // Grok Bots app: capability-scoped list/history/send for the sandboxed app iframe.
 const agentStatus = createAgentStatus({ runtimeRoot });
-const grokBotsApp = createGrokBotsApp({ runtimeRoot, catalog: () => agentHandler.profileCatalog?.(), agentStatus });
+const grokBotsApp = createGrokBotsApp({ runtimeRoot, catalog: () => agentHandler.profileCatalog?.(), agentStatus, chats: () => agentHandler.gatewayChats?.() });
 const agentHandler = createAgentHandler({ token, port, devOrigins, reply, workspaceContext: workspaceService.context, workspaceRead:workspaceService.read, runtimeDirectory:runtimeRoot,executionGate,onRunEvent:event=>observeTechnologyTrace(event,'observeAgentRunEvent'),onNormalAccepted:record=>normalResources?.normalAccepted(record),
   ...(!explicitHermes && discovered.hermes ? { apiUrl: null, apiKey: null, profiles: [{ id: "default", label: discovered.hermes.label, apiUrl: discovered.hermes.apiUrl, apiKey: discovered.hermes.apiKey }] } : {}),
   ...(discovered.grok || piProfile ? { additionalProfiles: [...(discovered.grok ? [discovered.grok] : []), ...(piProfile ? [piProfile] : [])] } : {}),

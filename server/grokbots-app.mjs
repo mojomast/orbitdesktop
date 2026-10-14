@@ -21,6 +21,7 @@ import { createGatewayActivity, makeRedactor } from './grokbots-activity.mjs';
 import * as hermesControls from './grokbots-controls-hermes.mjs';
 import * as piControls from './grokbots-controls-pi.mjs';
 import * as grokControls from './grokbots-controls-grok.mjs';
+import { createGroups } from './grokbots-groups.mjs';
 
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const SAFE = /^[A-Za-z0-9_:-]{1,128}$/;
@@ -184,7 +185,7 @@ adapters.set('hermes', sessionsAdapter);
 export function registerProviderAdapter(provider, adapter) { adapters.set(provider, adapter); }
 const adapterFor = provider => adapters.get(provider) || sessionsAdapter; // Orbit treats unknown providers as Hermes-compatible
 
-export function createGrokBotsApp({ runtimeRoot, catalog, agentStatus }) {
+export function createGrokBotsApp({ runtimeRoot, catalog, agentStatus, chats }) {
   const keyBuf = Buffer.from(loadGrokBotsKey(runtimeRoot));
   const cors = { 'Access-Control-Allow-Origin': 'null', 'Access-Control-Allow-Headers': 'Authorization, Content-Type', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Max-Age': '600', Vary: 'Origin', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
   const send = (res, status, data) => { res.writeHead(status, { ...cors, 'Content-Type': 'application/json' }); res.end(JSON.stringify(data)); };
@@ -195,6 +196,9 @@ export function createGrokBotsApp({ runtimeRoot, catalog, agentStatus }) {
       return p?.apiUrl && p?.apiKey ? { p, provider, adapter: adapterFor(provider), label: String(item.label || LABELS[provider] || provider).slice(0, 120), providerLabel: LABELS[provider] || provider } : null; }).filter(Boolean);
   }
   const keyText = keyBuf.toString();
+  let groupsApi = null;
+  const groupsFor = () => groupsApi || (groupsApi = createGroups({ runtimeRoot, catalog, chats: () => (typeof chats === 'function' ? chats() : null) || new Map(), profiles }));
+  const rosterFor = async id => { const f = profiles().find(x => x.p.id === id); if (!f || f.adapter.kind !== 'gateway') return []; return f.adapter.agents(f.p, f.label); };
   const ctx = { profile: id => profiles().find(x => x.p.id === id)?.p || null, secrets: () => [keyText], agentStatus };
   function resolve(id) { const f = profiles().find(x => x.p.id === id); if (!f) throw fail('Unknown provider profile.', 404); return f; }
 
@@ -216,6 +220,7 @@ export function createGrokBotsApp({ runtimeRoot, catalog, agentStatus }) {
     let b; try { b = JSON.parse(raw || '{}'); } catch { return send(res, 400, { error: 'Invalid JSON' }); }
     try {
       if (b.action === 'agents') return send(res, 200, await agents());
+      if (b.action === 'groups') return send(res, 200, JSON.parse(redactFull(JSON.stringify(await groupsFor().handle(b, rosterFor)), '')));
       const x = resolve(b.profile);
       if (b.action === 'describe' || b.action === 'controls') {
         // Provider control modules: Grok gateway, Pi gateway, and Hermes(-compatible) sessions profiles.
