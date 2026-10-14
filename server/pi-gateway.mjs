@@ -41,6 +41,27 @@ const TRIM_EVERY_APPENDS = 500;
 const HEARTBEAT_MS = 25_000;
 const SWEEP_MS = 60_000;
 
+const ACTIVITY_RING = 200;
+/** Pi RPC commands Orbit may forward, with the fields each may carry. No bash, delete, or switch_session. */
+const CONTROL_COMMANDS = Object.freeze({
+  get_state: [],
+  get_session_stats: [],
+  get_available_models: [],
+  set_model: ['provider', 'modelId'],
+  get_available_thinking_levels: [],
+  set_thinking_level: ['level'],
+  compact: ['customInstructions'],
+  set_auto_compaction: ['enabled'],
+  steer: ['message'],
+  follow_up: ['message'],
+  clear_queue: [],
+  set_steering_mode: ['mode'],
+  set_follow_up_mode: ['mode'],
+  set_session_name: ['name'],
+  get_fork_messages: [],
+  fork: ['entryId'],
+});
+
 function fail(message, status = 502) {
   const error = new Error(message);
   error.status = status;
@@ -113,6 +134,8 @@ export function createPiGateway({
   idleMs = 15 * 60 * 1000,
   requestTimeoutMs = 60_000,
   log = () => {},
+  /** Hold Pi extension dialogs this long for an Orbit answer before cancelling. 0 keeps the old auto-cancel. */
+  dialogHoldMs = Math.max(0, Math.min(Number(process.env.PI_DIALOG_HOLD_MS) || 0, 600_000)),
 } = {}) {
   if (typeof token !== 'string' || token.length < 32 || token.length > 256) {
     throw Error('The Pi gateway needs a bearer token of 32 to 256 characters.');
@@ -133,6 +156,10 @@ export function createPiGateway({
   const runs = new Map();
   const subscribers = new Set();
   let disposed = false;
+  /** dialog id -> {agentId, method, timer} while an extension dialog waits for an Orbit answer */
+  const pendingDialogs = new Map();
+  /** agent id -> recent activity records (ring) for clients that poll instead of streaming */
+  const activity = new Map();
 
   function transcriptFile(id) {
     return path.join(directory, `${id}.jsonl`);
@@ -285,6 +312,23 @@ export function createPiGateway({
   function handleExtensionUi(agentId, session, record) {
     const method = String(record.method || '');
     const dialog = ['select', 'confirm', 'input', 'editor'].includes(method);
+    if (dialog && dialogHoldMs > 0 && typeof record.id === 'string' && record.id) {
+      const id = record.id.slice(0, 200);
+      const timer = setTimeout(() => {
+        if (!pendingDialogs.delete(id)) return;
+        try {
+          session.rpc.send({ type: 'extension_ui_response', id, cancelled: true });
+        } catch {}
+        publish('note', { agentId, kind: 'extension_ui_expired', id, method });
+      }, dialogHoldMs);
+      timer.unref?.();
+      pendingDialogs.set(id, { agentId, method, timer });
+      const options = Array.isArray(record.options) ? record.options.slice(0, 50).map(option => String(option).slice(0, 200)) : undefined;
+      const detail = { agentId, kind: 'extension_ui_request', id, method, title: String(record.title || '').slice(0, 400), text: String(record.message || '').slice(0, 2_000), ...(options ? { options } : {}), expiresAt: now() + dialogHoldMs };
+      remember(agentId, detail);
+      publish('approval', detail);
+      return;
+    }
     if (dialog) {
       try {
         session.rpc.send({ type: 'extension_ui_response', id: record.id, cancelled: true });
@@ -296,11 +340,45 @@ export function createPiGateway({
     publish('note', { agentId, kind: 'extension_ui', method, text: String(record.title || record.message || '').slice(0, 400) });
   }
 
+  /** Keep a short per-conversation activity ring so a polling client can catch up. */
+  function remember(agentId, payload) {
+    let ring = activity.get(agentId);
+    if (!ring) activity.set(agentId, (ring = { items: [], seq: 0 }));
+    ring.items.push({ seq: ++ring.seq, at: now(), ...payload });
+    if (ring.items.length > ACTIVITY_RING) ring.items.splice(0, ring.items.length - ACTIVITY_RING);
+  }
+
+  /** Content-light forwarding of Pi state events the Activity panel maps (never prompt text). */
+  function forwardActivity(agentId, type, record) {
+    let payload = null;
+    switch (type) {
+      case 'agent_settled': payload = { aborted: record.aborted === true }; break;
+      case 'thinking_level_changed': payload = { level: String(record.level || '') }; break;
+      case 'session_info_changed': payload = { name: typeof record.name === 'string' ? record.name.slice(0, 200) : null }; break;
+      case 'queue_update': payload = { steering: Array.isArray(record.steering) ? record.steering.length : 0, followUp: Array.isArray(record.followUp) ? record.followUp.length : 0 }; break;
+      case 'compaction_start': payload = { reason: String(record.reason || '') }; break;
+      case 'compaction_end': payload = { reason: String(record.reason || ''), aborted: record.aborted === true, willRetry: record.willRetry === true, ...(record.result ? { tokensBefore: Number(record.result.tokensBefore) || 0, estimatedTokensAfter: Number(record.result.estimatedTokensAfter) || 0 } : {}), ...(record.errorMessage ? { error: String(record.errorMessage).slice(0, 400) } : {}) }; break;
+      case 'auto_retry_start': payload = { attempt: Number(record.attempt) || 0, maxAttempts: Number(record.maxAttempts) || 0, delayMs: Number(record.delayMs) || 0, error: String(record.errorMessage || '').slice(0, 400) }; break;
+      case 'auto_retry_end': payload = { success: record.success === true, attempt: Number(record.attempt) || 0, ...(record.finalError ? { error: String(record.finalError).slice(0, 400) } : {}) }; break;
+      case 'summarization_retry_scheduled': case 'summarization_retry_attempt_start': case 'summarization_retry_finished':
+        payload = { source: String(record.source || ''), attempt: Number(record.attempt) || 0 }; break;
+      case 'turn_end': payload = {}; break;
+      default: return;
+    }
+    const detail = { agentId, kind: type, ...payload };
+    remember(agentId, detail);
+    publish('activity', detail);
+  }
+
   function onPiEvent(agentId, record) {
     const session = sessions.get(agentId);
     if (!session || !record || typeof record !== 'object') return;
     session.lastUsedAt = now();
     const type = typeof record.type === 'string' ? record.type : '';
+    forwardActivity(agentId, type, record);
+    if (type === 'message_update' && record.assistantMessageEvent?.type === 'thinking_start') {
+      publish('activity', { agentId, kind: 'thinking' });
+    }
     if (type === 'extension_ui_request') {
       handleExtensionUi(agentId, session, record);
       return;
@@ -559,6 +637,43 @@ export function createPiGateway({
     return agent;
   }
 
+  /**
+   * Send one allowlisted Pi RPC command to this conversation's process (started if
+   * idle; starting sends no prompt). Each entry lists the fields it may carry.
+   */
+  async function piControl(agent, name, rawFields) {
+    const allowed = CONTROL_COMMANDS[name];
+    if (!allowed) throw fail(`Pi control ${name.slice(0, 40)} is not allowed.`, 400);
+    const input = rawFields && typeof rawFields === 'object' && !Array.isArray(rawFields) ? rawFields : {};
+    const fields = {};
+    for (const key of allowed) if (input[key] !== undefined) fields[key] = input[key];
+    const session = await ensureSession(agent);
+    try {
+      const data = await session.rpc.request(name, fields);
+      return { data: data ?? null };
+    } catch (error) {
+      throw fail(error instanceof Error ? error.message.slice(0, 400) : 'Pi rejected the command.', error?.code === 'PI_TIMEOUT' ? 504 : 409);
+    }
+  }
+
+  function answerDialog(agentId, wire) {
+    const id = String(wire.dialogId || '');
+    const pending = pendingDialogs.get(id);
+    if (!pending || pending.agentId !== agentId) throw fail('That Pi dialog is no longer waiting.', 410);
+    const session = sessions.get(agentId);
+    if (!session?.rpc.alive) throw fail('This conversation has no running Pi process.', 409);
+    const reply = { type: 'extension_ui_response', id };
+    if (wire.cancelled === true) reply.cancelled = true;
+    else if (pending.method === 'confirm') reply.confirmed = wire.confirmed === true;
+    else if (typeof wire.value === 'string') reply.value = wire.value.slice(0, 20_000);
+    else reply.cancelled = true;
+    pendingDialogs.delete(id);
+    clearTimeout(pending.timer);
+    session.rpc.send(reply);
+    remember(agentId, { agentId, kind: 'extension_ui_answered', id, method: pending.method });
+    return { answered: true };
+  }
+
   async function dispatch(name, body) {
     const wire = body && typeof body === 'object' && !Array.isArray(body) ? body : {};
     switch (name) {
@@ -603,6 +718,20 @@ export function createPiGateway({
         agents.delete(id);
         persistStore();
         return { archived: true };
+      }
+      case 'piControl': {
+        const agent = await command(String(wire.id || ''), wire);
+        return piControl(agent, String(wire.command || ''), wire.fields);
+      }
+      case 'piAnswerDialog': {
+        await command(String(wire.id || ''), wire);
+        return answerDialog(String(wire.id), wire);
+      }
+      case 'piActivity': {
+        await command(String(wire.id || ''), wire);
+        const ring = activity.get(String(wire.id));
+        const after = Number(wire.after) || 0;
+        return { items: ring ? ring.items.filter(item => item.seq > after) : [], seq: ring?.seq || 0 };
       }
       case 'listBoxMcpServers':
         return {

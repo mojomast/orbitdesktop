@@ -83,11 +83,10 @@ in the room. Pi can be handed the floor, and either agent can end a reply with a
 the per-task timeout, and the owner's floor behave exactly as they do between
 Hermes and Grok Bot.
 
-**Collab is not extended yet.** The project board is pairwise by design (the
-reviewer is always *the other agent*), so this change leaves it on Hermes and Grok
-Bot rather than pretending Pi is a full board member. Pi work that should be
-tracked belongs in a Pi chat or the shared room until the board is redesigned for
-more than two agents.
+**Collab now accepts any configured agent.** The project board can assign owners,
+reviewers, orchestration and capability profiles to Hermes, Grok Bot or Pi when
+those profiles are configured. Pi uses the same gateway-backed turn path as Grok
+Bot and is not a special-cased board member.
 
 ## Limits, stated plainly
 
@@ -96,7 +95,7 @@ more than two agents.
 | Chat, sessions, history, stop, live events | Yes, through the gateway |
 | Workspace operator block, app build and publish | Yes |
 | Shared room, @mention, delegate target | Yes, when the profile is configured |
-| Collab board | No, still Hermes and Grok Bot |
+| Collab board | Yes, when Pi is configured |
 | Build queue, Project Workbench | No API. 409, as for Grok Bot |
 | Scheduled tasks (`listAllAutomations`) | Empty list. The Pi gateway has no automations surface |
 | Skills catalog | 404. The pane says Pi does not advertise this catalog |

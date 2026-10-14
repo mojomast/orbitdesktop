@@ -6,7 +6,7 @@ import {
   DEFAULT_SUBAGENT_LIMITS, addWorktree, admitSpawn, copyOwnedFiles, mergeBlocked, mergeBranch, parseOrchestratorOp, projectedCost, removeWorktree, spanData, subagentPrompt,
 } from './collab-orchestrator.mjs';
 
-const AGENTS = ['hermes', 'grok'];
+const AGENTS = ['hermes', 'grok', 'pi'];
 const ROLES = ['planner', 'executor', 'reviewer', 'researcher'];
 const SKILLS = ['terminal', 'tools', 'code', 'research', 'reasoning', 'writing'];
 const RISKS = ['shell.write', 'net.post', 'git.push', 'email.send', 'delete'];
@@ -19,7 +19,7 @@ const ROLE_SKILLS = {
 const LEASE_MS = 10 * 60 * 1000;
 const DEFAULT_TURN_TIMEOUT_MS = 20 * 60 * 1000;
 const DEFAULT_ADVANCE_INTERVAL_MS = 15 * 1000;
-const labels = { hermes: 'Hermes', grok: 'Grok Bot', kyle: 'Kyle', orbit: 'Orbit' };
+const labels = { hermes: 'Hermes', grok: 'Grok Bot', pi: 'Pi', kyle: 'Kyle', orbit: 'Orbit' };
 
 const OPS = ['plan', 'replan', 'assign', 'spawn', 'merge', 'status', 'claim', 'artifact.put', 'handoff', 'submit', 'review', 'ask', 'decision', 'run-tests', 'workspace.sync', 'shell'];
 const TEST_PREFIXES = [
@@ -142,17 +142,29 @@ function normalizeRole(value) {
   return ROLES.includes(role) ? role : '';
 }
 
+function gatewayAgentId(project, speaker) {
+  const own = project?.gatewayAgents && typeof project.gatewayAgents[speaker] === 'string' ? project.gatewayAgents[speaker] : '';
+  if (own) return own;
+  const legacy = typeof project?.grokAgentId === 'string' ? project.grokAgentId : '';
+  // Legacy projects kept one id; only reuse it for the provider whose id shape it has.
+  if (speaker === 'grok') return /^pi_/.test(legacy) ? '' : legacy;
+  if (speaker === 'pi') return /^pi_[a-f0-9]{16}$/.test(legacy) ? legacy : '';
+  return '';
+}
+
 function normalizeAgent(value) {
   const name = clean(value, 40).toLowerCase();
-  if (name === 'hermes') return 'hermes';
-  if (name === 'grok' || name === 'grok bot') return 'grok';
-  return '';
+  if (name === 'hermes') return AGENTS.includes('hermes') ? 'hermes' : '';
+  if (name === 'grok' || name === 'grok bot') return AGENTS.includes('grok') ? 'grok' : '';
+  if (name === 'pi') return AGENTS.includes('pi') ? 'pi' : '';
+  return AGENTS.includes(name) ? name : '';
 }
 
 export function defaultCapabilities() {
   return {
     hermes: { skills: ['terminal', 'tools', 'code'] },
     grok: { skills: ['terminal', 'tools', 'code', 'research', 'reasoning', 'writing'] },
+    pi: { skills: ['terminal', 'tools', 'code'] },
   };
 }
 
@@ -202,7 +214,7 @@ function parseOp(raw) {
     if (!/^t_[a-f0-9]{16}$/.test(taskId)) return { error: `${op} needs a taskId.` };
     if (op === 'claim') return { op: { op, taskId } };
     if (op === 'handoff') {
-      if (!AGENTS.includes(raw.to)) return { error: 'handoff.to must be hermes or grok.' };
+      if (!AGENTS.includes(raw.to)) return { error: 'handoff.to must be one of the available Collab agents.' };
       const reason = clean(raw.reason, 1000);
       if (!reason) return { error: 'handoff needs a reason.' };
       return { op: { op, taskId, to: raw.to, reason } };
@@ -351,11 +363,11 @@ export function createCollab({ directory, gateways, now = () => Date.now(), adva
   }
 
   function other(agent) {
-    return agent === 'hermes' ? 'grok' : 'hermes';
+    return AGENTS.find(item => item !== agent) || agent;
   }
 
   function ensureRuns(project) {
-    if (!project.runs || typeof project.runs !== 'object' || Array.isArray(project.runs)) project.runs = { hermes: null, grok: null };
+    if (!project.runs || typeof project.runs !== 'object' || Array.isArray(project.runs)) project.runs = Object.fromEntries(AGENTS.map(agent => [agent, null]));
     if (project.run?.speaker && AGENTS.includes(project.run.speaker) && !project.runs[project.run.speaker]) project.runs[project.run.speaker] = project.run;
     delete project.run;
     for (const agent of AGENTS) if (!project.runs[agent]) project.runs[agent] = null;
@@ -363,6 +375,8 @@ export function createCollab({ directory, gateways, now = () => Date.now(), adva
   }
 
   function ensureOrchestration(project) {
+    if (!project.capabilities || typeof project.capabilities !== 'object') project.capabilities = defaultCapabilities();
+    for (const agent of AGENTS) if (!project.capabilities[agent]) project.capabilities[agent] = (defaultCapabilities()[agent] || { skills: ['terminal', 'tools', 'code'] });
     ensureRuns(project);
     if (!Array.isArray(project.subagents)) project.subagents = [];
     if (!Array.isArray(project.subagentRuns)) project.subagentRuns = [];
@@ -370,11 +384,11 @@ export function createCollab({ directory, gateways, now = () => Date.now(), adva
     const maxConcurrent = Number.isInteger(limits.maxConcurrent) && limits.maxConcurrent >= 1 && limits.maxConcurrent <= 4 ? limits.maxConcurrent : DEFAULT_SUBAGENT_LIMITS.maxConcurrent;
     const maxDepth = limits.maxDepth === 2 ? 2 : DEFAULT_SUBAGENT_LIMITS.maxDepth;
     project.subagentLimits = { maxConcurrent, maxDepth };
-    if (project.orchestrator !== 'hermes' && project.orchestrator !== 'grok') {
+    if (!AGENTS.includes(project.orchestrator)) {
       project.orchestrator = chooseAgent('planner', [], project.capabilities || defaultCapabilities());
       project.orchestratorSource = 'auto';
     }
-    if (project.orchestratorSource !== 'hermes' && project.orchestratorSource !== 'grok') project.orchestratorSource = 'auto';
+    if (project.orchestratorSource !== 'auto' && !AGENTS.includes(project.orchestratorSource)) project.orchestratorSource = 'auto';
     return project;
   }
 
@@ -533,7 +547,7 @@ Your role this turn: ${turnRole} as ${labels[speaker]}
 Orchestrator: ${labels[project.orchestrator] || project.orchestrator}. ${speaker === project.orchestrator ? 'You are the orchestrator. Decompose, schedule, replan on failure, merge, and post status for Kyle. Workers are agents-as-tools unless Kyle should talk to them.' : 'The orchestrator schedules and merges. You still own only your task.'}
 Subagents: at most ${project.subagentLimits?.maxConcurrent || 3} running per agent, depth cap ${project.subagentLimits?.maxDepth || 1}. A coding subagent gets its own worktree and disjoint files.
 ${(project.subagents || []).length ? `Current subagents:\n${project.subagents.map(item => `- ${item.id} ${item.name} (${item.status}) on ${item.taskId} files ${(item.files || []).join(', ') || 'none'}`).join('\n')}` : 'Current subagents: none.'}
-Capabilities: Hermes (${project.capabilities.hermes.skills.join(', ')}); Grok Bot (${project.capabilities.grok.skills.join(', ')})
+Capabilities: ${AGENTS.map(agent => `${labels[agent] || agent} (${(project.capabilities?.[agent]?.skills || []).join(', ')})`).join('; ')}
 Workspace directory: ${project.workspace || '(not ready)'}
 Both agents can read and write that directory. Read-only shell commands run immediately. Other shell commands wait for Kyle when they include risk "shell.write". Orbit indexes workspace files after either agent's turn and when workspace.sync runs. Either agent can use artifact.put and run-tests there.
 The other agent may be working on a different task at the same time. Write an artifact only at the baseVersion shown above; if it changed, the put is rejected and you must read the new version.
@@ -548,7 +562,7 @@ Dependencies:
 ${dependencyText || '(none)'}` : `No tasks exist yet. Reply with one plan op.
 Each task needs a title, a spec, and acceptance (1–8 testable strings).
 role must be one of: planner, executor, reviewer, researcher. Any other role is ignored and Orbit chooses from skillsHint.
-owner and reviewer must be hermes or grok. Hermes and Grok Bot are accepted names for those ids. The reviewer must not be the owner. Omit either one and Orbit assigns from skills.
+owner and reviewer must be hermes or grok (or pi when it is configured). The reviewer must not be the owner. Omit either one and Orbit assigns from skills.
 skillsHint is an array of: terminal, tools, code, research, reasoning, writing.
 dependsOn is an array of exact task titles from this same plan. A task waits until every title in dependsOn is completed. Use [] when the task can start immediately.`}
 Budget: ${budget.spentTurns}/${budget.maxTurns} turns, ${spentMin}/${wallMin} minutes${budget.maxTokens ? `, ${budget.spentTokens}/${budget.maxTokens} tokens` : ''}.
@@ -590,10 +604,15 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
         prompt,
         instructions: INSTRUCTIONS,
         hermesSession: project.hermesSession,
-        grokAgentId: project.grokAgentId,
+        // One gateway agent per provider: Grok Bot ids are UUIDs, Pi ids are pi_<hex>. A single shared
+        // field made each provider overwrite the other's agent and create a new one every turn.
+        grokAgentId: gatewayAgentId(project, speaker),
         grokAgentName: 'Orbit collab',
       });
-      if (started.agentId) project.grokAgentId = started.agentId;
+      if (started.agentId && speaker !== 'hermes') {
+        project.gatewayAgents = { ...(project.gatewayAgents || {}), [speaker]: started.agentId };
+        if (speaker === 'grok') project.grokAgentId = started.agentId;
+      }
       project.budget.spentTurns += 1;
       if (started.tokens) project.budget.spentTokens += started.tokens;
       runs[speaker] = {
@@ -1596,14 +1615,15 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
       policy: { approve: [...RISKS] },
       memory: { summary: '', decisions: [] },
       gate: null,
-      runs: { hermes: null, grok: null },
-      orchestratorSource: body.orchestrator === 'hermes' || body.orchestrator === 'grok' ? body.orchestrator : 'auto',
-      orchestrator: body.orchestrator === 'hermes' || body.orchestrator === 'grok' ? body.orchestrator : chooseAgent('planner', [], defaultCapabilities()),
+      runs: Object.fromEntries(AGENTS.map(agent => [agent, null])),
+      orchestratorSource: AGENTS.includes(body.orchestrator) ? body.orchestrator : 'auto',
+      orchestrator: AGENTS.includes(body.orchestrator) ? body.orchestrator : chooseAgent('planner', [], defaultCapabilities()),
       subagentLimits: { ...DEFAULT_SUBAGENT_LIMITS },
       subagents: [],
       subagentRuns: [],
       hermesSession: `orbit-${randomUUID()}`,
       grokAgentId: '',
+      gatewayAgents: {},
       activity: 'Choosing who should draft the plan.',
       pausedReason: '',
     };
@@ -1724,7 +1744,7 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
 
   function updateCapabilities(bundle, body) {
     const next = body.capabilities;
-    if (!next || typeof next !== 'object') throw fail('Send capabilities for Hermes and Grok Bot.', 400);
+    if (!next || typeof next !== 'object') throw fail('Send capabilities for the Collab agents.', 400);
     for (const agent of AGENTS) {
       const skills = asSkills(next[agent]?.skills);
       if (!skills.length) throw fail(`Give ${labels[agent]} at least one skill.`, 400);
@@ -1759,7 +1779,7 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
     else if (operation === 'capabilities') updateCapabilities(bundle, body);
     else if (operation === 'set_orchestrator') {
       const choice = body.orchestrator;
-      if (!['auto', 'hermes', 'grok'].includes(choice)) throw fail('Orchestrator must be auto, hermes, or grok.', 400);
+      if (choice !== 'auto' && !AGENTS.includes(choice)) throw fail('Orchestrator must be auto or one of the Collab agents.', 400);
       bundle.project.orchestratorSource = choice;
       bundle.project.orchestrator = choice === 'auto' ? chooseAgent('planner', [], bundle.project.capabilities) : choice;
       event(bundle, 'decision', { actor: 'kyle', data: { text: `Orchestrator is ${labels[bundle.project.orchestrator]}.` } });

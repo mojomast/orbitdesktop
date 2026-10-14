@@ -82,7 +82,7 @@ interface CollabProject {
   status: string;
   activity: string;
   workspace?: string;
-  capabilities: { hermes: { skills: string[] }; grok: { skills: string[] } };
+  capabilities: Record<string, { skills: string[] }>;
   budget: { maxTurns: number; maxWallMin: number; maxTokens: number | null; spentTurns: number; spentTokens: number; warned: boolean };
   summary: string;
   orchestrator?: string;
@@ -146,12 +146,12 @@ export function mountCollab(options: {
   const body = el('div', 'collab-body');
   const goal = el('textarea');
   goal.maxLength = 4000;
-  goal.placeholder = 'What should Hermes and Grok Bot accomplish together?';
+  goal.placeholder = 'What should Hermes, Grok Bot and Pi accomplish together?';
   goal.setAttribute('aria-label', 'Collab project goal');
   const createForm = el('form', 'collab-create');
   const createButton = button('Create project', 'Create a Collab project from this goal', () => {});
   createButton.type = 'submit';
-  const orchestratorPick = select([['auto', 'Orchestrator: auto'], ['hermes', 'Orchestrator: Hermes'], ['grok', 'Orchestrator: Grok Bot']], 'auto', () => {});
+  const orchestratorPick = select([['auto', 'Orchestrator: auto'], ['hermes', 'Orchestrator: Hermes'], ['grok', 'Orchestrator: Grok Bot'], ['pi', 'Orchestrator: Pi']], 'auto', () => {});
   orchestratorPick.setAttribute('aria-label', 'Orchestrator');
   createForm.append(goal, orchestratorPick, createButton);
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -242,7 +242,7 @@ export function mountCollab(options: {
     const main = el('div', 'collab-main');
     main.append(
       el('h2', '', 'Projects'),
-      el('p', '', 'Collab is the shared project board for Hermes and Grok Bot. Orbit keeps the tasks, the files, and the budget. You approve the plan, risky steps, and the final result. Open it from Start, or type /collab and a goal in the shared room.'),
+      el('p', '', 'Collab is the shared project board for Hermes, Grok Bot and Pi. Orbit keeps the tasks, the files, and the budget. You approve the plan, risky steps, and the final result. Open it from Start, or type /collab and a goal in the shared room.'),
     );
     if (!projects.length) main.append(el('p', 'collab-empty', 'Create a project from the sidebar.'));
     const app = el('div', 'collab-app');
@@ -255,7 +255,7 @@ export function mountCollab(options: {
     const row = el('div', 'collab-presence');
     row.setAttribute('aria-label', 'Who is working');
     const active = new Map((data.presence || []).map(item => [item.agent, item]));
-    for (const agent of ['hermes', 'grok']) {
+    for (const agent of ['hermes', 'grok', 'pi']) {
       const item = active.get(agent);
       const chip = el('div', 'collab-presence-chip');
       chip.dataset.agent = agent;
@@ -271,7 +271,7 @@ export function mountCollab(options: {
   function assignZones(data: CollabState) {
     const zones = el('div', 'collab-assign');
     zones.setAttribute('aria-label', 'Drag a task here to reassign it');
-    for (const agent of ['hermes', 'grok'] as const) {
+    for (const agent of ['hermes', 'grok', 'pi'] as const) {
       const zone = el('div', 'collab-drop');
       zone.tabIndex = 0;
       zone.dataset.agent = agent;
@@ -281,7 +281,7 @@ export function mountCollab(options: {
         const task = data.tasks.find(item => item.id === id);
         if (!task) return;
         const owner = agent;
-        const reviewer = task.reviewer === owner ? (owner === 'hermes' ? 'grok' : 'hermes') : task.reviewer;
+        const reviewer = task.reviewer === owner ? (['hermes','grok','pi'].find(item => item !== owner) || owner) : task.reviewer;
         void options.request({
           operation: 'reassign', project_id: data.project.id, task_id: task.id, owner, reviewer, role: task.role,
         }).then(drawProject).catch(error => fail(error, 'That reassignment was not applied.'));
@@ -328,7 +328,7 @@ export function mountCollab(options: {
     section.setAttribute('aria-label', 'Agent tree');
     const orchestrator = data.project.orchestrator || '';
     section.append(el('h3', '', 'Agents'));
-    const pick = select([['auto', 'Auto'], ['hermes', 'Hermes'], ['grok', 'Grok Bot']], data.project.orchestratorSource || 'auto', () => {});
+    const pick = select([['auto', 'Auto'], ['hermes', 'Hermes'], ['grok', 'Grok Bot'], ['pi', 'Pi']], data.project.orchestratorSource || 'auto', () => {});
     pick.setAttribute('aria-label', 'Project orchestrator');
     const limits = data.project.subagentLimits || { maxConcurrent: 3, maxDepth: 1 };
     const concurrent = select([['1', '1 at once'], ['2', '2 at once'], ['3', '3 at once'], ['4', '4 at once']], String(limits.maxConcurrent), () => {});
@@ -343,7 +343,7 @@ export function mountCollab(options: {
     }, 'small-button'));
     section.append(controls);
     const subs = data.subagents || [];
-    for (const agent of ['hermes', 'grok']) {
+    for (const agent of ['hermes', 'grok', 'pi']) {
       const node = el('div', 'collab-tree-node');
       node.dataset.agent = agent;
       const mine = subs.filter(item => item.parent === agent && !item.parentSubagentId);
@@ -489,9 +489,9 @@ export function mountCollab(options: {
     if (task.summary) panel.append(el('p', '', task.summary));
     if (task.reviewNotes) panel.append(el('p', '', task.reviewNotes));
     if (task.lastError) panel.append(el('p', 'collab-error', task.lastError));
-    const ownerPick = select([['hermes', 'Hermes'], ['grok', 'Grok Bot']], task.owner, () => {});
+    const ownerPick = select([['hermes', 'Hermes'], ['grok', 'Grok Bot'], ['pi', 'Pi']], task.owner, () => {});
     ownerPick.setAttribute('aria-label', `Owner of ${task.title}`);
-    const reviewerPick = select([['hermes', 'Hermes'], ['grok', 'Grok Bot']], task.reviewer, () => {});
+    const reviewerPick = select([['hermes', 'Hermes'], ['grok', 'Grok Bot'], ['pi', 'Pi']], task.reviewer, () => {});
     reviewerPick.setAttribute('aria-label', `Reviewer of ${task.title}`);
     const rolePick = select([['planner', 'Planner'], ['executor', 'Executor'], ['reviewer', 'Reviewer'], ['researcher', 'Researcher']], task.role, () => {});
     rolePick.setAttribute('aria-label', `Role of ${task.title}`);
@@ -581,8 +581,8 @@ export function mountCollab(options: {
   function capabilitiesEditor(data: CollabState) {
     const section = el('details', 'collab-capabilities');
     section.append(el('summary', '', 'What each agent can do'));
-    const boxes: { agent: 'hermes' | 'grok'; skill: string; input: HTMLInputElement }[] = [];
-    for (const agent of ['hermes', 'grok'] as const) {
+    const boxes: { agent: string; skill: string; input: HTMLInputElement }[] = [];
+    for (const agent of ['hermes', 'grok', 'pi'] as const) {
       const row = el('div', 'collab-skill-row');
       row.append(el('span', '', labels[agent]));
       for (const skill of skillNames) {
@@ -597,10 +597,10 @@ export function mountCollab(options: {
       section.append(row);
     }
     section.append(button('Save capabilities', 'Update who should be offered each kind of task', () => {
-      const capabilities = {
-        hermes: { skills: boxes.filter(box => box.agent === 'hermes' && box.input.checked).map(box => box.skill) },
-        grok: { skills: boxes.filter(box => box.agent === 'grok' && box.input.checked).map(box => box.skill) },
-      };
+      const capabilities = {} as Record<string, { skills: string[] }>;
+      for (const agent of ['hermes', 'grok', 'pi']) {
+        capabilities[agent] = { skills: boxes.filter(box => box.agent === agent && box.input.checked).map(box => box.skill) };
+      }
       void options.request({ operation: 'capabilities', project_id: data.project.id, capabilities }).then(drawProject).catch(error => fail(error, 'Capabilities were not saved.'));
     }, 'small-button'));
     return section;
