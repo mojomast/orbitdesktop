@@ -143,6 +143,21 @@ test('chooseAgent uses capability profiles and keeps the reviewer off the owner'
   assert.equal(chooseAgent('planner', [], swapped), 'hermes');
 });
 
+test('Collab treats Pi as a third agent beside Hermes and Grok Bot', () => {
+  const caps = defaultCapabilities();
+  assert.equal(caps.pi.skills.includes('code'), true);
+  // A task whose skills only Pi carries is assigned to Pi, not to the default bias.
+  const split = { hermes: { skills: [] }, grok: { skills: ['research'] }, pi: { skills: ['code'] } };
+  assert.equal(chooseAgent('executor', ['code'], split), 'pi');
+  assert.equal(chooseAgent('executor', ['code'], split, 'pi') === 'pi', false);
+  // A handoff to Pi parses; an unknown target still fails closed.
+  const handoff = parseCollabBlock(block([{ op: 'handoff', taskId: 't_0123456789abcdef', to: 'pi', reason: 'Pi owns the build' }]));
+  assert.equal(handoff.ok, true);
+  assert.equal(handoff.ops[0].to, 'pi');
+  const unknown = parseCollabBlock(block([{ op: 'handoff', taskId: 't_0123456789abcdef', to: 'nobody', reason: 'Pi owns the build' }]));
+  assert.equal(unknown.ok, false);
+});
+
 test('a project plans from capabilities, gates on Kyle, then reviews across agents', async t => {
   const { fetchImpl, calls } = scripted({
     grok(prompt) {

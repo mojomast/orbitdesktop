@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
 import { validSessionId, sanitizeSessions, sanitizeHistory } from './agent-profiles.mjs';
+import { GATEWAY_PROVIDERS, isGatewayProvider, providerLabel } from './agent-providers.mjs';
 import {
   AUTO_COMPACT_RATIO, CONTEXT_SYSTEM_TEXT, CONTEXT_TOOLS_TEXT, compactTranscript, contextWindowFor,
   measureContext, meterLevel, shouldAutoCompact, smallerWindow, calibrate,
@@ -11,7 +12,7 @@ const uuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
 const fail = (status, message) => Object.assign(Error(message), { status });
 
 function providerOf(profile) {
-  return profile?.provider === 'grok' ? 'grok' : 'hermes';
+  return isGatewayProvider(profile?.provider) ? profile.provider : 'hermes';
 }
 
 function modelOf(profile) {
@@ -27,7 +28,7 @@ export function tokenRatioKey(profile) {
 }
 
 function gatewayOf(profile) {
-  if (providerOf(profile) === 'grok') return 'Grok Bot';
+  if (isGatewayProvider(providerOf(profile))) return providerLabel(providerOf(profile));
   try {
     const url = new URL(profile.apiUrl);
     return `Hermes :${url.port || (url.protocol === 'https:' ? '443' : '80')}`;
@@ -120,7 +121,9 @@ function saveRaw(directory, profileId, sessionId, raw) {
   return name;
 }
 
-export function createAgentContextApi({ configuration, shared, conversations, grok, upstreamFor, runtimeDirectory, workspaceRead, workspaceContext }) {
+export function createAgentContextApi({ configuration, shared, conversations, chats, upstreamFor, runtimeDirectory, workspaceRead, workspaceContext }) {
+  // One chat surface per gateway provider; Hermes profiles keep the run API.
+  const chatFor = profile => (isGatewayProvider(profile?.provider) ? chats?.get(profile.provider) || null : null);
   function requireWorkspace(body) {
     if (!uuid.test(body.workspace_id || '')) throw fail(400, 'Invalid conversation scope.');
     if (!workspaceRead) throw fail(503, 'Authoritative workspace access unavailable.');
@@ -128,13 +131,15 @@ export function createAgentContextApi({ configuration, shared, conversations, gr
   }
 
   async function loadMessages(profile, sessionId) {
-    if (providerOf(profile) === 'grok') return grok.readTranscript(profile, sessionId);
+    const chat = chatFor(profile);
+    if (chat) return chat.readTranscript(profile, sessionId);
     const history = await upstreamFor(profile, `/api/sessions/${encodeURIComponent(sessionId)}/messages?limit=80&offset=0`);
     return sanitizeHistory(history);
   }
 
   async function probe(profile) {
-    if (providerOf(profile) === 'grok') return grok.probe(profile);
+    const chat = chatFor(profile);
+    if (chat) return chat.probe(profile);
     try {
       const caps = await upstreamFor(profile, '/v1/capabilities');
       const tools = !!(caps?.endpoints?.toolsets || caps?.endpoints?.tools || caps?.features?.tools || caps?.features?.tool_execution);
@@ -174,7 +179,7 @@ export function createAgentContextApi({ configuration, shared, conversations, gr
     const offset = body.offset ?? 0;
     if (!Number.isSafeInteger(offset) || offset < 0 || offset > 10000) throw fail(400, 'Invalid session page.');
     const query = typeof body.query === 'string' ? body.query.trim().slice(0, 200).toLowerCase() : '';
-    const providerFilter = body.provider === 'grok' || body.provider === 'hermes' ? body.provider : '';
+    const providerFilter = body.provider === 'hermes' || GATEWAY_PROVIDERS.includes(body.provider) ? body.provider : '';
     const rows = [];
     let hasMore = false;
     let partial = false;
@@ -183,7 +188,8 @@ export function createAgentContextApi({ configuration, shared, conversations, gr
       if (!profile || (providerFilter && providerOf(profile) !== providerFilter)) continue;
       let page = { data: [], has_more: false };
       try {
-        page = sanitizeSessions(providerOf(profile) === 'grok' ? await grok.sessionPage(profile, offset) : await upstreamFor(profile, `/api/sessions?limit=100&offset=${offset}`));
+        const chat = chatFor(profile);
+        page = sanitizeSessions(chat ? await chat.sessionPage(profile, offset) : await upstreamFor(profile, `/api/sessions?limit=100&offset=${offset}`));
       } catch (error) { if (error.status !== 404) partial = true; continue; }
       if (page.has_more) hasMore = true;
       let examined = 0;
@@ -266,7 +272,7 @@ export function createAgentContextApi({ configuration, shared, conversations, gr
   }
 
   async function ownsOrbitCopy(profile, current) {
-    if (providerOf(profile) === 'grok') return true;
+    if (isGatewayProvider(providerOf(profile))) return true;
     if (current?.orbit_owned !== true) return false;
     try {
       const page = await upstreamFor(profile, `/api/sessions/${encodeURIComponent(current.session)}/messages?limit=1&offset=0`);
@@ -328,8 +334,9 @@ export function createAgentContextApi({ configuration, shared, conversations, gr
     const view = [{ role: 'assistant', text: marker }, ...compacted.view];
     let sessionId;
     let title = `Fork of ${linked.title || linked.session}`.slice(0, 100);
-    if (providerOf(target) === 'grok') {
-      const created = await grok.createConversation(target, title.slice(0, 80));
+    const targetChat = chatFor(target);
+    if (targetChat) {
+      const created = await targetChat.createConversation(target, title.slice(0, 80));
       sessionId = created.id;
       title = created.title || title;
     } else sessionId = `orbit-${randomUUID()}`;
@@ -340,7 +347,7 @@ export function createAgentContextApi({ configuration, shared, conversations, gr
       binding_revision: linked.binding_revision + 1,
       messages: publicMessages(view),
       title,
-      history_unstarted: providerOf(target) !== 'grok',
+      history_unstarted: !chatFor(target),
       orbit_owned: true,
       orbit_preamble: compacted.summary,
     });
@@ -366,8 +373,9 @@ export function createAgentContextApi({ configuration, shared, conversations, gr
     saveRaw(runtimeDirectory, source.id, body.source_session_id, slice);
     let sessionId;
     let title = `Fork of ${body.source_session_id}`.slice(0, 100);
-    if (providerOf(target) === 'grok') {
-      const created = await grok.createConversation(target, title.slice(0, 80));
+    const targetChat = chatFor(target);
+    if (targetChat) {
+      const created = await targetChat.createConversation(target, title.slice(0, 80));
       sessionId = created.id;
       title = created.title || title;
     } else sessionId = `orbit-${randomUUID()}`;
@@ -378,7 +386,7 @@ export function createAgentContextApi({ configuration, shared, conversations, gr
       binding_revision: linked.binding_revision + 1,
       messages: publicMessages(view),
       title,
-      history_unstarted: providerOf(target) !== 'grok',
+      history_unstarted: !chatFor(target),
       orbit_owned: true,
       orbit_preamble: different ? compacted.summary : '',
     });

@@ -2,9 +2,15 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createAgentGateways } from './agent-gateways.mjs';
+import { providerLabel, GATEWAY_PROVIDERS } from './agent-providers.mjs';
 const taskPattern = /^d_[a-z0-9]{8,32}$/;
-const speakers = ['hermes', 'grok'];
-const labels = { owner: 'Kyle', hermes: 'Hermes', grok: 'Grok Bot', note: 'Orbit' };
+/** Provider ids a bare @mention can name: Hermes plus every gateway provider. */
+const PROVIDER_PARTICIPANTS = Object.freeze(['hermes', ...GATEWAY_PROVIDERS]);
+/** Default members for the exported helpers; a live room passes its own list. */
+const DEFAULT_PARTICIPANTS = Object.freeze(['hermes', 'grok']);
+/** Display names. Owner and note are not agents. */
+const labels = { owner: 'Kyle', note: 'Orbit', hermes: providerLabel('hermes') };
+for (const provider of GATEWAY_PROVIDERS) labels[provider] = providerLabel(provider);
 const MAX_DEPTH = 2;
 const MAX_TASKS = 8;
 const MAX_AGENT_STREAK = 20;
@@ -26,8 +32,20 @@ function fail(message, status = 502) {
   return error;
 }
 
-function other(speaker) {
-  return speaker === 'hermes' ? 'grok' : 'hermes';
+function others(speaker, participants = DEFAULT_PARTICIPANTS) {
+  return participants.filter(participant => participant !== speaker);
+}
+
+function andList(names) {
+  if (!names.length) return '';
+  if (names.length === 1) return names[0];
+  return `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
+}
+
+function commaList(names) {
+  if (!names.length) return '';
+  if (names.length === 1) return names[0];
+  return `${names.slice(0, -1).join(', ')}, and ${names.at(-1)}`;
 }
 
 function paneKey(body) {
@@ -51,7 +69,7 @@ function blank(key) {
     queue: [],
     activity: '',
     hermesSession: `orbit-${randomUUID()}`,
-    grokAgentId: '',
+    agents: {},
     run: null,
     delegations: [],
   };
@@ -62,10 +80,36 @@ function transcriptTail(messages) {
   return lines.slice(-12000);
 }
 
-function preamble(speaker) {
+function groupPreamble(speaker, partners) {
   const name = labels[speaker];
-  const partner = labels[other(speaker)];
-  const target = other(speaker);
+  const names = partners.map(participant => labels[participant] || 'Orbit');
+  const group = commaList(names);
+  const roster = andList(names);
+  const mentions = partners.map(participant => `@${participant}`).join(', ');
+  const targets = partners.join(' or ');
+  return `You are ${name} in a shared chat with Kyle, ${group}. Kyle is the owner. Reply only as ${name}. Do not write lines for Kyle or ${roster}. Use plain text.
+
+Stay quiet unless Kyle or ${roster} addressed you, or you genuinely have something useful to add. If you have nothing to add, reply with exactly (quiet).
+
+Address ${roster} as ${mentions} when you want them to respond. Use @all to hand the floor to everyone else. Address Kyle as @kyle. The conversation stops when you do not hand the floor to someone.
+
+To delegate a task, end your reply with one fenced block exactly like this:
+
+\`\`\`delegate
+target: ${targets}
+task: what the agent should do
+context: optional details
+\`\`\`
+
+Orbit gives that task to the named agent's gateway and posts the result back here and to you. Delegate only to ${roster}. A chain may be at most ${MAX_DEPTH} delegations deep, and this conversation keeps at most ${MAX_TASKS} delegated tasks. If a tool needs approval, use your normal tool-approval flow; the owner resolves it on the agent that is executing. A structured brief is optional. If you include objective, also include deliverable, acceptance, tools, scope, budget (turns 1–20 and minutes 1–30), and returnFormat (a summary and artifact paths).`;
+}
+
+function preamble(speaker, participants = DEFAULT_PARTICIPANTS) {
+  const name = labels[speaker];
+  const partners = others(speaker, participants);
+  if (partners.length > 1) return groupPreamble(speaker, partners);
+  const partner = labels[partners[0]] || 'Orbit';
+  const target = partners[0] || 'hermes';
   return `You are ${name} in a three-way chat with Kyle and ${partner}. Kyle is the owner. Reply only as ${name}. Do not write lines for Kyle or ${partner}. Use plain text.
 
 Stay quiet unless Kyle or ${partner} addressed you, or you genuinely have something useful to add. If you have nothing to add, reply with exactly (quiet).
@@ -83,29 +127,35 @@ context: optional details
 Orbit gives that task to ${partner} through that agent's gateway and posts the result back here and to you. Delegate only to ${partner}. A chain may be at most ${MAX_DEPTH} delegations deep, and this conversation keeps at most ${MAX_TASKS} delegated tasks. If a tool needs approval, use your normal tool-approval flow; the owner resolves it on the agent that is executing. A structured brief is optional. If you include objective, also include deliverable, acceptance, tools, scope, budget (turns 1–20 and minutes 1–30), and returnFormat (a summary and artifact paths).`;
 }
 
-/** @hermes, @grok, and @all. An email local-part does not count. */
-export function mentionedAgents(text) {
-  const found = { hermes: false, grok: false, all: false };
-  for (const match of String(text || '').matchAll(/(^|[^A-Za-z0-9_])@(hermes|grok|all)\b/gi)) found[match[2].toLowerCase()] = true;
+/** @hermes, @grok, @pi, and @all by default. An email local-part does not count. */
+export function mentionedAgents(text, participants = PROVIDER_PARTICIPANTS) {
+  const list = Array.isArray(participants) && participants.length ? participants : PROVIDER_PARTICIPANTS;
+  const found = { all: false };
+  for (const participant of list) found[participant] = false;
+  for (const match of String(text || '').matchAll(/(^|[^A-Za-z0-9_])@([A-Za-z0-9_]+)\b/g)) {
+    const key = match[2].toLowerCase();
+    if (key === 'all' || list.includes(key)) found[key] = true;
+  }
   return found;
 }
 
 /** Who should answer a message from Kyle. */
-export function routeAddressees(text, lastAddressed = '') {
-  const found = mentionedAgents(text);
-  if (found.all || (found.hermes && found.grok)) return ['hermes', 'grok'];
-  if (found.hermes) return ['hermes'];
-  if (found.grok) return ['grok'];
-  if (String(text || '').includes('?')) return ['hermes', 'grok'];
-  if (lastAddressed === 'hermes' || lastAddressed === 'grok') return [lastAddressed];
-  if (lastAddressed === 'all') return ['hermes', 'grok'];
-  return ['hermes'];
+export function routeAddressees(text, lastAddressed = '', participants = DEFAULT_PARTICIPANTS) {
+  const list = Array.isArray(participants) && participants.length ? participants : DEFAULT_PARTICIPANTS;
+  const found = mentionedAgents(text, list);
+  const mentioned = list.filter(participant => found[participant]);
+  if (found.all) return list.slice();
+  if (mentioned.length) return mentioned;
+  if (String(text || '').includes('?')) return list.slice();
+  if (list.includes(lastAddressed)) return [lastAddressed];
+  if (lastAddressed === 'all') return list.slice();
+  return list.includes('hermes') ? ['hermes'] : [list[0]];
 }
 
-function handoffTargets(speaker, text) {
-  const found = mentionedAgents(text);
-  if (found.all) return [other(speaker)];
-  return ['hermes', 'grok'].filter(target => found[target] && target !== speaker);
+function handoffTargets(speaker, text, participants = DEFAULT_PARTICIPANTS) {
+  const found = mentionedAgents(text, participants);
+  if (found.all) return others(speaker, participants);
+  return participants.filter(participant => found[participant] && participant !== speaker);
 }
 
 function isQuiet(text) {
@@ -116,26 +166,26 @@ function normalizeUtterance(text) {
   return String(text || '').toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 240);
 }
 
-function agentTurnsSinceOwner(messages, floorMark = 0) {
+function agentTurnsSinceOwner(messages, floorMark = 0, participants = DEFAULT_PARTICIPANTS) {
   const visible = messages.slice(Math.max(0, floorMark) || 0);
   let start = 0;
   for (let index = visible.length - 1; index >= 0; index -= 1) {
     if (visible[index].speaker === 'owner') { start = index + 1; break; }
   }
-  return visible.slice(start).filter(message => message.speaker === 'hermes' || message.speaker === 'grok');
+  return visible.slice(start).filter(message => participants.includes(message.speaker));
 }
 
-function agentFloorBlocked(state) {
+function agentFloorBlocked(state, participants = DEFAULT_PARTICIPANTS) {
   if (state.agentStreak >= MAX_AGENT_STREAK) return true;
-  const recent = agentTurnsSinceOwner(state.messages, state.floorMark || 0);
+  const recent = agentTurnsSinceOwner(state.messages, state.floorMark || 0, participants);
   const speakersNow = recent.slice(-4).map(message => message.speaker);
   if (speakersNow.length === 4 && speakersNow[0] !== speakersNow[1] && speakersNow[0] === speakersNow[2] && speakersNow[1] === speakersNow[3]) return true;
   const norms = recent.map(message => normalizeUtterance(message.text)).filter(text => text.length >= 24);
   return new Set(norms).size !== norms.length;
 }
 
-function promptFor(speaker, messages) {
-  return `${preamble(speaker)}
+function promptFor(speaker, messages, participants = DEFAULT_PARTICIPANTS) {
+  return `${preamble(speaker, participants)}
 
 Recent transcript:
 ${transcriptTail(messages) || '(no messages yet)'}
@@ -156,9 +206,11 @@ Return format: ${brief.returnFormat}
 `;
 }
 
-function delegationPrompt(task, messages) {
-  const partner = labels[other(task.to)];
-  return `${preamble(task.to)}
+function delegationPrompt(task, messages, participants = DEFAULT_PARTICIPANTS) {
+  const onward = participants.filter(participant => participant !== task.to);
+  const onwardNames = onward.map(participant => labels[participant] || 'Orbit');
+  const partner = onward.length === 1 ? onwardNames[0] : (andList(onwardNames) || 'another agent');
+  return `${preamble(task.to, participants)}
 
 ${labels[task.from]} delegated this task to you. Do the task and reply with the result. You may delegate onward to ${partner} only if the chain is still within ${MAX_DEPTH} steps.
 
@@ -169,8 +221,8 @@ Recent transcript:
 ${transcriptTail(messages) || '(no messages yet)'}`;
 }
 
-function returnPrompt(task, messages) {
-  return `${preamble(task.from)}
+function returnPrompt(task, messages, participants = DEFAULT_PARTICIPANTS) {
+  return `${preamble(task.from, participants)}
 
 ${labels[task.to]} finished a task you delegated.
 Task: ${task.task}
@@ -186,6 +238,7 @@ function normalizeTarget(value) {
   const text = String(value || '').trim().toLowerCase();
   if (text === 'hermes') return 'hermes';
   if (text === 'grok' || text === 'grok bot') return 'grok';
+  if (text === 'pi' || text === 'pi agent') return 'pi';
   return '';
 }
 
@@ -278,15 +331,16 @@ export function parseDelegate(text) {
   const to = normalizeTarget(target);
   task = cleanField(task, 4000);
   context = cleanField(context, 4000);
-  if (!to) return { error: 'Name the other agent as target hermes or grok.' };
+  if (!to) return { error: 'Name the target agent as hermes, grok, or pi.' };
   if (!task) return { error: 'A delegated task must be 1–4,000 characters.' };
   const brief = briefFrom(briefSource);
   if (brief?.error) return brief;
   return brief?.brief ? { to, task, context, brief: brief.brief } : { to, task, context };
 }
 
-function publicState(state) {
+function publicState(state, participants = DEFAULT_PARTICIPANTS) {
   return {
+    participants: participants.slice(),
     messages: state.messages.map(message => ({ id: message.id, speaker: message.speaker, text: message.text, at: message.at, ...(message.error ? { error: true } : {}) })),
     paused: state.paused,
     hold: state.hold === true,
@@ -304,12 +358,12 @@ function publicState(state) {
   };
 }
 
-function cleanDelegations(list) {
+function cleanDelegations(list, participants = DEFAULT_PARTICIPANTS) {
   if (!Array.isArray(list)) return [];
   const tasks = [];
   for (const raw of list) {
     if (!raw || typeof raw !== 'object' || !taskPattern.test(raw.id || '')) continue;
-    if (!speakers.includes(raw.from) || !speakers.includes(raw.to)) continue;
+    if (!participants.includes(raw.from) || !participants.includes(raw.to)) continue;
     if (!['pending', 'running', 'done', 'failed'].includes(raw.status)) continue;
     const depth = Number.isInteger(raw.depth) && raw.depth >= 1 && raw.depth <= MAX_DEPTH ? raw.depth : 1;
     tasks.push({
@@ -332,11 +386,15 @@ function cleanDelegations(list) {
   return tasks.slice(-MAX_TASKS);
 }
 
-export function createSharedAgents({ directory, fetchImpl = fetch, grok, hermesProfile, grokProfile, now = () => Date.now(), turnTimeoutMs, advanceIntervalMs, gateways: providedGateways, openCollab } = {}) {
+export function createSharedAgents({ directory, fetchImpl = fetch, chats, grok, hermesProfile, gatewayProfile, grokProfile, now = () => Date.now(), turnTimeoutMs, advanceIntervalMs, gateways: providedGateways, openCollab } = {}) {
   const turnTimeout = Number.isFinite(turnTimeoutMs) && turnTimeoutMs >= 1000 ? Math.floor(turnTimeoutMs) : sharedTurnTimeoutMs();
   const turnTimeoutMinutes = Math.max(1, Math.round(turnTimeout / 60000));
   const advanceEvery = Number.isFinite(advanceIntervalMs) && advanceIntervalMs >= 15 ? Math.floor(advanceIntervalMs) : DEFAULT_ADVANCE_INTERVAL_MS;
-  const gateways = providedGateways || createAgentGateways({ fetchImpl, grok, hermesProfile, grokProfile, now });
+  // The room is Hermes plus every configured gateway provider. An older caller that
+  // still passes a single `grok` chat keeps the original two-member room.
+  const roomChats = chats instanceof Map ? chats : (grok ? new Map([['grok', grok]]) : null);
+  const speakers = ['hermes', ...((roomChats ? [...roomChats.keys()] : ['grok']).filter(id => id !== 'hermes'))];
+  const gateways = providedGateways || createAgentGateways({ fetchImpl, chats: roomChats, hermesProfile, gatewayProfile: gatewayProfile || grokProfile, now });
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   const chains = new Map();
 
@@ -357,11 +415,16 @@ export function createSharedAgents({ directory, fetchImpl = fetch, grok, hermesP
       record.hold = record.hold === true;
       record.agentStreak = Number.isInteger(record.agentStreak) && record.agentStreak >= 0 && record.agentStreak <= 100 ? record.agentStreak : 0;
       record.floorMark = Number.isInteger(record.floorMark) && record.floorMark >= 0 ? record.floorMark : 0;
-      record.lastAddressed = ['hermes', 'grok', 'all'].includes(record.lastAddressed) ? record.lastAddressed : '';
-      record.queue = cleanQueue(record.queue);
+      record.lastAddressed = [...speakers, 'all'].includes(record.lastAddressed) ? record.lastAddressed : '';
+      record.queue = cleanQueue(record.queue, speakers);
       record.activity = typeof record.activity === 'string' ? record.activity.slice(0, 300) : '';
       record.hermesSession = /^orbit-[0-9a-f-]{36}$/.test(record.hermesSession || '') ? record.hermesSession : `orbit-${randomUUID()}`;
-      record.grokAgentId = typeof record.grokAgentId === 'string' ? record.grokAgentId : '';
+      const rawAgents = record.agents && typeof record.agents === 'object' && !Array.isArray(record.agents) ? record.agents : {};
+      record.agents = {};
+      for (const participant of speakers) {
+        const agentId = typeof rawAgents[participant] === 'string' ? rawAgents[participant] : (participant === 'grok' && typeof record.grokAgentId === 'string' ? record.grokAgentId : '');
+        if (agentId) record.agents[participant] = agentId;
+      }
       record.run = record.run && speakers.includes(record.run.speaker) && typeof record.run.runId === 'string' ? record.run : null;
       if (record.run) {
         record.run.purpose = ['turn', 'delegation', 'return'].includes(record.run.purpose) ? record.run.purpose : 'turn';
@@ -369,7 +432,7 @@ export function createSharedAgents({ directory, fetchImpl = fetch, grok, hermesP
         record.run.taskId = typeof record.run.taskId === 'string' ? record.run.taskId : '';
         record.run.chain = typeof record.run.chain === 'string' ? record.run.chain : '';
       }
-      record.delegations = cleanDelegations(record.delegations);
+      record.delegations = cleanDelegations(record.delegations, speakers);
       return record;
     } catch (error) {
       if (error.code !== 'ENOENT') throw fail('The shared transcript could not be read.');
@@ -394,7 +457,8 @@ export function createSharedAgents({ directory, fetchImpl = fetch, grok, hermesP
       queue: state.queue || [],
       activity: state.activity || '',
       hermesSession: state.hermesSession,
-      grokAgentId: state.grokAgentId || '',
+      agents: state.agents,
+      grokAgentId: (state.agents && state.agents.grok) || '',
       run: state.run,
       delegations: state.delegations.slice(-MAX_TASKS),
     };
@@ -409,29 +473,29 @@ export function createSharedAgents({ directory, fetchImpl = fetch, grok, hermesP
     state.messages = state.messages.slice(-200);
   }
 
-  function cleanQueue(list) {
+  function cleanQueue(list, participants = DEFAULT_PARTICIPANTS) {
   if (!Array.isArray(list)) return [];
   const queue = [];
   for (const item of list) {
     const speaker = typeof item === 'string' ? item : item?.speaker;
-    if (!speakers.includes(speaker) || queue.some(entry => entry.speaker === speaker)) continue;
+    if (!participants.includes(speaker) || queue.some(entry => entry.speaker === speaker)) continue;
     queue.push({ speaker, fromOwner: item?.fromOwner === true });
   }
   return queue.slice(0, 2);
 }
 
-function enqueue(state, targets, fromOwner) {
+function enqueue(state, targets, fromOwner, participants = DEFAULT_PARTICIPANTS) {
   for (const speaker of targets) {
-    if (!speakers.includes(speaker) || state.queue.some(entry => entry.speaker === speaker)) continue;
+    if (!participants.includes(speaker) || state.queue.some(entry => entry.speaker === speaker)) continue;
     state.queue.push({ speaker, fromOwner: fromOwner === true });
   }
 }
 
-function rememberAddress(state, text) {
-  const found = mentionedAgents(text);
-  if (found.all || (found.hermes && found.grok)) state.lastAddressed = 'all';
-  else if (found.hermes) state.lastAddressed = 'hermes';
-  else if (found.grok) state.lastAddressed = 'grok';
+function rememberAddress(state, text, participants = DEFAULT_PARTICIPANTS) {
+  const found = mentionedAgents(text, participants);
+  const mentioned = participants.filter(participant => found[participant]);
+  if (found.all || mentioned.length > 1) state.lastAddressed = 'all';
+  else if (mentioned.length === 1) state.lastAddressed = mentioned[0];
 }
 
 function findTask(state, id) {
@@ -444,11 +508,11 @@ function findTask(state, id) {
 
   async function begin(state, speaker, meta = {}) {
     const purpose = meta.purpose || 'turn';
-    const prompt = meta.prompt || promptFor(speaker, state.messages);
-    const instructions = `${preamble(speaker)} Delegate only with the \`\`\`delegate fence.`;
+    const prompt = meta.prompt || promptFor(speaker, state.messages, speakers);
+    const instructions = `${preamble(speaker, speakers)} Delegate only with the \`\`\`delegate fence.`;
     try {
-      const started = await gateways.startSpeaker({ speaker, prompt, instructions, hermesSession: state.hermesSession, grokAgentId: state.grokAgentId });
-      if (started.agentId) state.grokAgentId = started.agentId;
+      const started = await gateways.startSpeaker({ speaker, prompt, instructions, hermesSession: state.hermesSession, grokAgentId: state.agents[speaker] || '' });
+      if (started.agentId) state.agents[speaker] = started.agentId;
       state.run = {
         speaker,
         purpose,
@@ -459,7 +523,7 @@ function findTask(state, id) {
         started: started.started,
         ...(started.nonce ? { nonce: started.nonce, baseline: started.baseline, agentId: started.agentId } : {}),
       };
-      if (purpose === 'turn') state.next = other(speaker);
+      if (purpose === 'turn') state.next = others(speaker, speakers)[0] || speaker;
       state.activity = purpose === 'delegation'
         ? `${labels[speaker]} is working on a delegated task.`
         : purpose === 'return'
@@ -537,7 +601,7 @@ function findTask(state, id) {
       depth: task.depth,
       chain: task.chain,
       task,
-      prompt: delegationPrompt(task, state.messages),
+      prompt: delegationPrompt(task, state.messages, speakers),
     });
   }
 
@@ -545,7 +609,7 @@ function findTask(state, id) {
     if (state.run || state.paused || state.hold) return false;
     while (state.queue.length) {
       const next = state.queue[0];
-      if (!next.fromOwner && agentFloorBlocked(state)) {
+      if (!next.fromOwner && agentFloorBlocked(state, speakers)) {
         state.hold = true;
         state.activity = HOLD_ACTIVITY;
         return false;
@@ -574,7 +638,7 @@ function findTask(state, id) {
         taskId: returning.id,
         depth: returning.depth,
         chain: returning.chain,
-        prompt: returnPrompt(returning, state.messages),
+        prompt: returnPrompt(returning, state.messages, speakers),
       });
       return true;
     }
@@ -589,7 +653,11 @@ function findTask(state, id) {
       return false;
     }
     if (parsed.to === speaker) {
-      append(state, 'note', 'Delegation must target the other agent.');
+      append(state, 'note', 'Delegation must target a different agent.');
+      return false;
+    }
+    if (!speakers.includes(parsed.to)) {
+      append(state, 'note', 'Delegation must target another agent in this room.');
       return false;
     }
     const depth = (run.depth || 0) + 1;
@@ -711,11 +779,11 @@ function findTask(state, id) {
       }
       state.agentStreak += 1;
       if (delegated) continue;
-      const handoff = handoffTargets(speaker, output);
+      const handoff = handoffTargets(speaker, output, speakers);
       if (handoff.length) {
-        rememberAddress(state, output);
-        enqueue(state, handoff, false);
-        if (agentFloorBlocked(state)) {
+        rememberAddress(state, output, speakers);
+        enqueue(state, handoff, false, speakers);
+        if (agentFloorBlocked(state, speakers)) {
           state.hold = true;
           state.activity = HOLD_ACTIVITY;
         }
@@ -799,12 +867,12 @@ function findTask(state, id) {
       state.floorMark = state.messages.length;
       state.hold = false;
       if (state.activity === HOLD_ACTIVITY) state.activity = '';
-      rememberAddress(state, text);
-      enqueue(state, routeAddressees(text, state.lastAddressed), true);
+      rememberAddress(state, text, speakers);
+      enqueue(state, routeAddressees(text, state.lastAddressed, speakers), true, speakers);
       if (!state.run && !state.paused && !delegationBusy(state)) await startNextSpeaker(state);
       await advance(state);
     } else if (operation === 'speak') {
-      if (!speakers.includes(body.speaker)) throw fail('Choose Hermes or Grok Bot.', 400);
+      if (!speakers.includes(body.speaker)) throw fail('Choose an agent in this room.', 400);
       if (state.run || delegationBusy(state)) throw fail('Wait for the current speaker, or press Stop.', 409);
       state.next = body.speaker;
       await begin(state, body.speaker);
@@ -812,7 +880,7 @@ function findTask(state, id) {
     } else if (operation === 'settings') {
       if (body.auto !== undefined) state.auto = body.auto === true;
       if (body.next !== undefined) {
-        if (!speakers.includes(body.next)) throw fail('Choose Hermes or Grok Bot.', 400);
+        if (!speakers.includes(body.next)) throw fail('Choose an agent in this room.', 400);
         state.next = body.next;
       }
       if (body.max_turns !== undefined) {
@@ -892,7 +960,7 @@ function findTask(state, id) {
 
   function handle(reply, res, body) {
     const key = `${body.workspace_id || ''}.${body.pane_id || ''}`;
-    return chain(key, () => operate(body)).then(state => reply(res, 200, publicState(state))).catch(error => {
+    return chain(key, () => operate(body)).then(state => reply(res, 200, publicState(state, speakers))).catch(error => {
       const status = Number.isInteger(error?.status) ? error.status : 502;
       let message = typeof error?.message === 'string' ? error.message : '';
       if (!message.trim() || message.length > 500) message = 'The shared conversation could not complete that request.';

@@ -1,6 +1,7 @@
+import { isGatewayProvider } from './agent-providers';
 import { editAutomation } from './automation-editor';
 import { el, button } from './dom';
-export function showHermesJobs(api: (body: Record<string, unknown>) => Promise<any>, agentName = 'Hermes') {
+export function showHermesJobs(api: (body: Record<string, unknown>) => Promise<any>, agentName = 'Hermes', provider = 'hermes') {
  const dialog = el('dialog', 'hermes-tools-dialog'); dialog.setAttribute('aria-label', `${agentName} scheduled tasks`);
  const status = el('p', '', `Loading from ${agentName}…`); const list = el('div', 'hermes-job-list');
  const search = el('input'); search.placeholder = 'Filter tasks'; search.setAttribute('aria-label', `Filter ${agentName} tasks`);
@@ -37,7 +38,7 @@ export function showHermesJobs(api: (body: Record<string, unknown>) => Promise<a
   finally{loading=false;if(dialog.open)timer=setTimeout(()=>{void refresh();},15000);}
  }
  search.addEventListener('input',draw);
- const skillNote = agentName === 'Grok Bot' ? ' Skill names are stored in the prompt because the gateway has no skills field, and delivery stays local.' : '';
+ const skillNote = isGatewayProvider(provider) ? ` Skill names are stored in the prompt because the ${agentName} gateway has no skills field, and delivery stays local.` : '';
  dialog.append(el('h2','',`${agentName} scheduled tasks`),button('Close','Close scheduled tasks',()=>dialog.close()),el('p','',`Live tasks for this ${agentName} profile. Pause/resume changes require confirmation. Tasks execute on the gateway independently of Orbit. Times are shown as returned by ${agentName}. Up to 200 tasks; prompts and delivery details are loaded only when you open Edit or Duplicate.${skillNote}`),search,button('Refresh','Refresh scheduled tasks',()=>{void refresh();}),status,list);
  dialog.prepend(button('New automation','New automation',()=>{void editAutomation(api,refresh);}));
  dialog.addEventListener('close',()=>{clearTimeout(timer);dialog.remove();});document.body.append(dialog);dialog.showModal();void refresh();

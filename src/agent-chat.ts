@@ -18,6 +18,7 @@ import { experimentalEnabled, subscribeExperimental } from './experimental';
 import { showOrbitSettings } from './orbit-settings';
 import { showConversationLibrary } from './conversation-library';
 import type { ConversationSelection } from './conversation-selection';
+import { asProvider, isGatewayProvider, providerLabel, type AgentProvider } from './agent-providers';
 import { createConversationDraft } from './conversation-draft';
 import { conversationRequest } from './conversation-client';
 import { registerConversationRecipient, type ConversationRecipientHandle } from './conversation-transfer';
@@ -87,7 +88,8 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   const chatNormal = el('div', 'agent-chat-normal');
   const workbenchHost = el('div', 'agent-workbench-host');
   workbenchHost.hidden = true;
-  const workbenchUnavailable = el('div', 'agent-notice', 'Project Workbench runs on Hermes workers and the Hermes run API. Grok Bot does not have that API, so this view stays in chat. Use Collab for a shared workspace and approved shell commands, or switch this pane back to Hermes.');
+  const workbenchUnavailableText = (provider: AgentProvider) => `Project Workbench runs on Hermes workers and the Hermes run API. ${providerLabel(provider)} does not have that API, so this view stays in chat. Use Collab for a shared workspace and approved shell commands, or switch this pane back to Hermes.`;
+  const workbenchUnavailable = el('div', 'agent-notice', workbenchUnavailableText('grok'));
   workbenchUnavailable.hidden = true;
   // Independent timelines retain their DOM and subscriptions while hidden.
   const normalTimelineHost = el('div', 'agent-live-host');
@@ -276,12 +278,13 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   const sessionSelect = el('select'); sessionSelect.setAttribute('aria-label', 'Session');
   const bindingNote = el('span', 'agent-binding-note'); bindingNote.setAttribute('role', 'status');
   let profiles: { id: string; label: string; configured: boolean; provider?: string }[] = [];
-  const agentName = () => profiles.find(profile => profile.id === chatProfileId(state))?.provider === 'grok' ? 'Grok Bot' : 'Hermes';
-  const providerIsGrok = () => {
+  const currentProvider = (): AgentProvider => {
     const id = chatProfileId(state);
     const known = profiles.find(profile => profile.id === id);
-    return known ? known.provider === 'grok' : id === 'grok';
+    return asProvider(known ? known.provider : id);
   };
+  const agentName = () => providerLabel(currentProvider());
+  const providerIsGateway = () => isGatewayProvider(currentProvider());
   let metadataReady = false, sessionsReady = false, metadataSequence = 0, catalogRequested = false;
   function option(value: string, label: string, disabled = false) {
     const node = el('option', '', label); node.value = value; node.disabled = disabled; return node;
@@ -328,7 +331,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
       if (!Array.isArray(data.profiles)) throw Error('Profile selection is unsupported by this backend.');
       profiles = data.profiles.flatMap((p: { id?: string; profile_id?: string; label?: string; name?: string; configured?: boolean; provider?: string }) => {
         const id = p.profile_id ?? p.id;
-        return typeof id === 'string' && validChat({session:'orbit-placeholder',profile_id:id,messages:[]}) ? [{ id, label: String(p.label || p.name || id), configured: p.configured !== false, provider: p.provider === 'grok' ? 'grok' : 'hermes' }] : [];
+        return typeof id === 'string' && validChat({session:'orbit-placeholder',profile_id:id,messages:[]}) ? [{ id, label: String(p.label || p.name || id), configured: p.configured !== false, provider: asProvider(p.provider) }] : [];
       });
       profileSelect.replaceChildren(...profiles.map(p => option(p.id, `${p.label}${p.configured ? '' : ' (unconfigured)'}`, !p.configured)));
       const bound = profiles.find(p => p.id === chatProfileId(state));
@@ -505,7 +508,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   messages.setAttribute('aria-label', 'Hermes conversation');
   const notice = el('div', 'agent-notice', 'Hermes can inspect and change this workspace, build apps, and open their previews here. Host terminals run as your account. Workspace context includes layout and app URLs, not private terminal buffers or iframe contents.');
   const hermesNotice = 'Hermes can inspect and change this workspace, build apps, and open their previews here. Host terminals run as your account. Workspace context includes layout and app URLs, not private terminal buffers or iframe contents.';
-  const grokNotice = 'Grok Bot can build and publish apps in this pane (with approvals). Collab can run terminal commands in a project workspace after you approve a shell write. Workspace context includes layout and app URLs, not private terminal buffers or iframe contents.';
+  const gatewayNotice = (provider: AgentProvider) => `${providerLabel(provider)} can build and publish apps in this pane (with approvals). Collab can run terminal commands in a project workspace after you approve a shell write. Workspace context includes layout and app URLs, not private terminal buffers or iframe contents.`;
   const progress = el('div', 'agent-progress');
   progress.setAttribute('role', 'status');
   progress.tabIndex = -1;
@@ -532,7 +535,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
       if (!result.accepted) throw Error(`${agentName()} did not accept this guidance. Your draft is preserved.`);
       state.messages.push({ role: 'user', text: `[Guidance to active run] ${text}` }); save(); render();
        if (input.value.trim() === text) { input.value = ''; saveDraft(); }
-      progress.textContent = providerIsGrok()
+      progress.textContent = providerIsGateway()
         ? 'Guidance was sent as a follow-up prompt. The open turn still finishes from the next reply. Already-running tool actions are not undone.'
         : 'Guidance accepted. It will be consumed at a safe point; already-running tool actions are not undone.';
     } catch (error) { showError(error); }
@@ -595,11 +598,11 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     dialog.className = 'hermes-tools-dialog'; dialog.setAttribute('aria-label', `${name} tools`);
     const close = button('Close', `Close ${name} tools`, () => dialog.close());
     dialog.append(el('h2', '', `${name} tools`), close);
-    if (providerIsGrok()) dialog.append(el('p', '', 'The build queue and Project Workbench use Hermes workers. Grok Bot does not have those APIs. Collab can run shell commands in a project workspace after approval.'));
+    if (providerIsGateway()) dialog.append(el('p', '', `The build queue and Project Workbench use Hermes workers. ${providerLabel(currentProvider())} does not have those APIs. Collab can run shell commands in a project workspace after approval.`));
     for (const extension of workspaceExtensions) {
-      if (providerIsGrok() && (extension.id === 'build-queue' || extension.id === 'project-workbench')) continue;
+      if (providerIsGateway() && (extension.id === 'build-queue' || extension.id === 'project-workbench')) continue;
       dialog.append(button(extension.title, extension.label, () => {
-        dialog.close(); void extension.activate({ token: getToken, api: scopedApi, agentName: name }).catch(error => { if (current(requested)) window.alert(`Module ${extension.id} could not open: ${String(error)}`); });
+        dialog.close(); void extension.activate({ token: getToken, api: scopedApi, agentName: name, provider: currentProvider() }).catch(error => { if (current(requested)) window.alert(`Module ${extension.id} could not open: ${String(error)}`); });
       }));
     }
     const live = button('Live activity', `Open live ${name} activity`, () => { if (current(requested) && state.run) { dialog.close(); const run = state.run; liveController?.abort(); liveController = new AbortController(); const signal = liveController.signal; void import('./hermes-surfaces').then(m => { if (current(requested) && !signal.aborted) return m.showLive(getToken, requested.session_id, run, requested.profile_id, requested.pane_id, signal, requested.revision ?? 0); }).catch(e => { if (current(requested)) window.alert(String(e)); }); } });
@@ -714,7 +717,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     conversations.setAttribute('aria-label', conversations.title);
     toolsEntry.textContent = `${name} tools and conversations`;
     toolsEntry.title = `${name} tools and conversations`;
-    notice.textContent = providerIsGrok() ? grokNotice : hermesNotice;
+    notice.textContent = providerIsGateway() ? gatewayNotice(currentProvider()) : hermesNotice;
     drainButton.disabled = blocked;
     stop.hidden = !state.run; resume.hidden = !state.run; steer.hidden = !state.run;
     // Allow composing the next message while Hermes works; Send remains disabled.
@@ -811,13 +814,14 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     const inactive = modeButtons.get(activeMode() === 'normal' ? 'workbench' : 'normal');
     if (inactive) inactive.button.dataset.badge = String(inactive.button.dataset.mode === 'workbench' ? count : state.queue?.length ?? 0);
   }
-  function showGrokWorkbenchNotice() {
+  function showWorkbenchUnavailableNotice() {
     if (workbench) { workbench.dispose(); workbench = undefined; }
+    workbenchUnavailable.textContent = workbenchUnavailableText(currentProvider());
     workbenchHost.replaceChildren(workbenchUnavailable);
     workbenchUnavailable.hidden = false;
   }
   function ensureWorkbench() {
-    if (providerIsGrok()) { showGrokWorkbenchNotice(); return undefined; }
+    if (providerIsGateway()) { showWorkbenchUnavailableNotice(); return undefined; }
     workbenchUnavailable.hidden = true;
     workbenchUnavailable.remove();
     if (workbench || disposed) return workbench;
@@ -890,7 +894,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     heading.textContent = state.title || agentName();
     input.placeholder = `Ask ${agentName()}… (up to 100,000 characters)`;
     input.setAttribute('aria-label', `Message to ${agentName()}`);
-    workbenchTask.title = providerIsGrok() ? 'Project Workbench uses Hermes workers. This Grok Bot pane stays in chat.' : 'Open goal-first Workbench setup with your current draft; nothing is created until you confirm';
+    workbenchTask.title = providerIsGateway() ? `Project Workbench uses Hermes workers. This ${providerLabel(currentProvider())} pane stays in chat.` : 'Open goal-first Workbench setup with your current draft; nothing is created until you confirm';
     messages.setAttribute('aria-label', `${agentName()} conversation`);
     colorInput.value = state.color || '#b5f268';
     body.style.setProperty('--accent', state.color || '');
@@ -1079,7 +1083,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     library: (profileId, body) => conversationRequest(getToken, { ...body, workspace_id: workspaceId, profile_id: profileId }),
     profiles: () => profiles,
     state: () => state,
-    providerOf: id => profiles.find(profile => profile.id === id)?.provider === 'grok' || id === 'grok' ? 'grok' : 'hermes',
+    providerOf: id => { const listed = profiles.find(profile => profile.id === id); return isGatewayProvider(listed?.provider ?? id) ? asProvider(listed?.provider ?? id) : 'hermes'; },
     switchConversation: (profileId, sessionId) => switchConversation(profileId, sessionId),
     acceptState: next => { if (validChat(next)) acceptState(next); },
     showError,
@@ -1108,7 +1112,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     profiles: () => profiles,
     getState: () => state,
     switchBlocked,
-    providerIsGrok,
+    providerIsGateway,
     showError,
     applyState: next => { if (!validChat(next)) { showError(Error('The host returned an invalid conversation binding.')); return; } preview = null; acceptState(next); },
     resume: (profileId, sessionId) => { preview = null; void switchConversation(profileId, sessionId); },
@@ -1182,7 +1186,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     if (changed) {
       preview = null;
       contextChrome?.onBinding();
-      if (providerIsGrok()) showGrokWorkbenchNotice();
+      if (providerIsGateway()) showWorkbenchUnavailableNotice();
       else {
         workbenchUnavailable.hidden = true;
         workbenchUnavailable.remove();
@@ -1196,21 +1200,22 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     }
     save(); render();
   }
-  function askGrokConversationName(): Promise<string | null> {
+  function askGatewayConversationName(provider: AgentProvider): Promise<string | null> {
     return new Promise(resolve => {
       const dialog = document.createElement('dialog');
       dialog.className = 'hermes-tools-dialog';
-      dialog.setAttribute('aria-label', 'Name Grok Bot conversation');
+      const label = providerLabel(provider);
+      dialog.setAttribute('aria-label', `Name ${label} conversation`);
       const name = el('input');
       name.maxLength = 80;
       name.placeholder = 'Orbit chat';
-      name.setAttribute('aria-label', 'Grok Bot conversation name');
+      name.setAttribute('aria-label', `${label} conversation name`);
       const form = el('form');
-      const commit = button('Create', 'Create Grok Bot conversation', () => {});
+      const commit = button('Create', `Create ${label} conversation`, () => {});
       commit.type = 'submit';
       let settled = false;
       const finish = (value: string | null) => { if (settled) return; settled = true; resolve(value); dialog.close(); };
-      form.append(el('h2', '', 'New Grok Bot conversation'), el('p', '', 'Name this conversation, or leave it blank to reuse an empty Orbit chat.'), name, commit, button('Cancel', 'Cancel new conversation', () => finish(null)));
+      form.append(el('h2', '', `New ${label} conversation`), el('p', '', 'Name this conversation, or leave it blank to reuse an empty Orbit chat.'), name, commit, button('Cancel', 'Cancel new conversation', () => finish(null)));
       form.onsubmit = event => { event.preventDefault(); finish(name.value.trim()); };
       dialog.append(form);
       dialog.addEventListener('cancel', event => { event.preventDefault(); finish(null); });
@@ -1227,10 +1232,12 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     if (switchBlocked()) { reject(state.run ? 'Wait for the current run or unresolved outcome to finish, or use New window.' : state.queue?.length ? 'Send or remove queued messages before switching, or use New window.' : approvals.childElementCount ? 'Resolve pending approvals before switching, or use New window.' : 'Wait for the pane to finish linking or synchronizing, then retry.'); return; }
     if (!Number.isSafeInteger(state.binding_revision)) { reject('Session switching is unsupported until the backend supplies an authoritative binding revision. Refresh the connection first.'); return; }
     const requested = scope();
-    const grokProfile = profiles.find(profile => profile.id === targetProfile)?.provider === 'grok' || (!profiles.some(profile => profile.id === targetProfile) && targetProfile === 'grok');
+    const listedTarget = profiles.find(profile => profile.id === targetProfile);
+    const targetProvider = asProvider(listedTarget?.provider ?? targetProfile);
+    const gatewayProfile = listedTarget ? isGatewayProvider(listedTarget.provider) : isGatewayProvider(targetProfile);
     let conversationName = '';
-    if (!targetSession && grokProfile) {
-      const named = await askGrokConversationName();
+    if (!targetSession && gatewayProfile) {
+      const named = await askGatewayConversationName(targetProvider);
       if (!current(requested) || disposed) return;
       if (named === null) { report?.('failed', 'New conversation cancelled.'); progress.textContent = 'New conversation cancelled.'; return; }
       conversationName = named;

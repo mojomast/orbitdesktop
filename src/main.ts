@@ -10,6 +10,7 @@ import { installStart } from './taskbar';
 import { showOrbitSettings, setOrbitSettingsNavigation } from './orbit-settings';
 import { createWorkspaceCommands, type WorkspaceCommand } from './workspace-commands';
 import { HOST_SURFACE_URLS, HOST_SURFACE_LABELS, type HostSurfaceId } from './host-surfaces';
+import { isGatewayProvider, providerLabel } from './agent-providers';
 import { TECHNOLOGY_SURFACES } from './technology-surfaces';
 import {createTechnologyReadiness} from './technology-readiness';
 import { installCommandPalette } from './command-palette';
@@ -279,7 +280,7 @@ function focusedAgentChat(): { profileId: string; agentName: string } {
       if (saved && typeof saved.profile_id === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(saved.profile_id)) profileId = saved.profile_id;
     } catch { /* A missing chat record stays on the default Hermes profile. */ }
   }
-  return { profileId, agentName: profileId === 'grok' ? 'Grok Bot' : 'Hermes' };
+  return { profileId, agentName: providerLabel(profileId) };
 }
 function menuAgentApi(payload: Record<string, unknown>): Promise<any> {
   if (!sessionToken) return Promise.reject(Error('Connect host first: use the host button in the top bar.'));
@@ -457,11 +458,11 @@ const commands = createWorkspaceCommands((): WorkspaceCommand[] => [
     run: () => {
       if (extension.id === 'outputs') { openHostSurface('outputs'); return; }
       const focusedChat = focusedAgentChat();
-      if (focusedChat.agentName === 'Grok Bot' && (extension.id === 'build-queue' || extension.id === 'project-workbench')) {
-        notify('The build queue and Project Workbench use Hermes workers. Grok Bot does not have those APIs. Switch this chat to Hermes, or use Collab for a shared workspace and approved shell commands.');
+      if (isGatewayProvider(focusedChat.profileId) && (extension.id === 'build-queue' || extension.id === 'project-workbench')) {
+        notify(`The build queue and Project Workbench use Hermes workers. ${focusedChat.agentName} does not have those APIs. Switch this chat to Hermes, or use Collab for a shared workspace and approved shell commands.`);
         return;
       }
-      void extension.activate({ token: () => sessionToken, api: menuAgentApi, agentName: focusedChat.agentName });
+      void extension.activate({ token: () => sessionToken, api: menuAgentApi, agentName: focusedChat.agentName, provider: focusedChat.profileId });
     },
   })),
 ], notify);

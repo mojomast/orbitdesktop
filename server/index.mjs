@@ -10,6 +10,7 @@ import { tokenMatches, geometry, allowedRequest, resolveListenHost, acceptedHost
 import { discoverAgentBackends, publicBackendSummary } from "./agent-discovery.mjs";
 import { LocalHostProvider } from "./local-host.mjs";
 import { createAgentHandler } from "./agent.mjs";
+import { startPiGateway } from "./pi-gateway.mjs";
 import { createWorkspaceService, runtimeRoot } from "./workspace.mjs";
 import {observeFeatureReadiness} from './feature-readiness.mjs';
 import {featureCapabilities} from '../contracts/feature-capabilities.mjs';
@@ -43,7 +44,7 @@ if (!Number.isInteger(port) || port < 1024 || port > 65535)
   throw Error("PORT must be between 1024 and 65535");
 const listenHost = resolveListenHost();
 const explicitHermes = Boolean(process.env.HERMES_API_URL || process.env.HERMES_API_KEY || process.env.HERMES_PROFILES_JSON);
-let discovered = { hermes: null, grok: null };
+let discovered = { hermes: null, grok: null, pi: null };
 try { discovered = discoverAgentBackends(); }
 catch (error) { console.error("Agent backend discovery failed; explicit configuration still applies.", error instanceof Error ? error.message : ""); }
 const token = process.env.ORBIT_TOKEN || randomBytes(32).toString("base64url");
@@ -94,11 +95,33 @@ const workbenchData=new WorkbenchData(workspaceService.store);
 const executionGate=createWorkbenchGate({legacySnapshot:legacyQueueSnapshot(runtimeRoot)});
 let normalResources;
 const repoRoot = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
+// Pi is hosted by this process when the harness binary exists: one loopback
+// gateway with a token generated in memory, so the Pi profile reaches the same
+// agent command surface the Grok Bot host gateway serves. Nothing here reads a
+// model-vendor key; Pi authenticates through its own configuration.
+let piGateway = null;
+let piProfile = null;
+if (discovered.pi) {
+  if (discovered.pi.apiUrl) piProfile = discovered.pi;
+  else {
+    try {
+      piGateway = await startPiGateway({
+        directory: path.join(runtimeRoot, 'pi-gateway'),
+        token: randomBytes(32).toString('base64url'),
+        binary: discovered.pi.binary,
+        cwd: repoRoot,
+      });
+      piProfile = { id: 'pi', label: discovered.pi.label, provider: 'pi', apiUrl: piGateway.url, apiKey: piGateway.token, source: discovered.pi.source };
+    } catch (error) {
+      console.error('Pi gateway did not start; the Pi profile stays out of the agent menu.', error instanceof Error ? error.message : '');
+    }
+  }
+}
 const irc = createIrcService({ token, orbitPort: port, devOrigins, reply, repoRoot });
 const colab = createColabOrchestrator({ token, port, devOrigins, reply, root: path.join(runtimeRoot, 'colab-orchestrator') });
 const agentHandler = createAgentHandler({ token, port, devOrigins, reply, workspaceContext: workspaceService.context, workspaceRead:workspaceService.read, runtimeDirectory:runtimeRoot,executionGate,onRunEvent:event=>observeTechnologyTrace(event,'observeAgentRunEvent'),onNormalAccepted:record=>normalResources?.normalAccepted(record),
   ...(!explicitHermes && discovered.hermes ? { apiUrl: null, apiKey: null, profiles: [{ id: "default", label: discovered.hermes.label, apiUrl: discovered.hermes.apiUrl, apiKey: discovered.hermes.apiKey }] } : {}),
-  ...(discovered.grok ? { additionalProfiles: [discovered.grok] } : {}),
+  ...(discovered.grok || piProfile ? { additionalProfiles: [...(discovered.grok ? [discovered.grok] : []), ...(piProfile ? [piProfile] : [])] } : {}),
 });
 const sandboxProvider=createWorkbenchSandboxProvider({root:path.join(workspaceService.store.root,'workbench-sandbox'),env:process.env});
 const environments=createWorkbenchEnvironments({store:workspaceService.store,records:workbench.records,data:workbenchData,gate:executionGate,sandboxProvider});
@@ -572,11 +595,14 @@ server.listen(port, listenHost, () => {
     const grok = publicBackendSummary(discovered.grok);
     lines.push(`Grok Bot gateway: ${grok.apiUrl}${grok.model ? ` model ${grok.model}` : ""} (${grok.source}).`);
   }
+  if (piProfile) lines.push(`Pi agent: ${publicBackendSummary(piProfile).apiUrl} (${discovered.pi?.source || 'gateway'}).`);
+  else if (discovered.pi && !discovered.pi.apiUrl) lines.push("Pi harness was found but its gateway did not start; the Pi profile stays out of the agent menu.");
   console.log(lines.join("\n") + "\n");
 });
 for (const signal of ["SIGTERM", "SIGINT"])
   process.on(signal, () => {
     irc.close();
+    piGateway?.close?.();
     colab.close();
     execution.close();
     sandboxProvider.close();

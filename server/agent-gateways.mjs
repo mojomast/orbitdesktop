@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { isGatewayProvider, providerLabel } from './agent-providers.mjs';
 
 const runPattern = /^run_[a-zA-Z0-9_-]{8,100}$/;
 
@@ -17,7 +18,19 @@ function tokenCount(run) {
  * Hermes and Grok Bot calls shared by the shared room and Collab.
  * Callers own transcripts, budgets and task state.
  */
-export function createAgentGateways({ fetchImpl = fetch, grok, hermesProfile, grokProfile, now = () => Date.now() } = {}) {
+export function createAgentGateways({ fetchImpl = fetch, chats, grok, hermesProfile, gatewayProfile, grokProfile, now = () => Date.now() } = {}) {
+  // One chat surface per gateway provider. A caller from the days of a single
+  // Grok Bot gateway can still pass `grok` + `grokProfile` and gets the same map.
+  const surfaces = chats instanceof Map ? chats : (grok ? new Map([['grok', grok]]) : new Map());
+  const profileFor = typeof gatewayProfile === 'function'
+    ? gatewayProfile
+    : (typeof grokProfile === 'function' ? provider => (provider === 'grok' ? grokProfile() : null) : () => null);
+  /** The chat surface for a gateway provider, with its bound profile. */
+  const gatewayFor = provider => {
+    const chat = isGatewayProvider(provider) ? surfaces.get(provider) : null;
+    const profile = profileFor(provider);
+    return chat && profile ? { chat, profile, name: providerLabel(provider) } : null;
+  };
   async function hermes(profile, route, body) {
     let response;
     try {
@@ -57,10 +70,10 @@ export function createAgentGateways({ fetchImpl = fetch, grok, hermesProfile, gr
       const tokens = tokenCount(data);
       return { runId: data.run_id, started: now(), ...(tokens ? { tokens } : {}) };
     }
-    const profile = grokProfile();
-    if (!profile?.apiUrl || !profile.apiKey) throw fail('Grok Bot is not configured on this Orbit server.', 409);
-    const agentId = await grok.ensureSharedAgent(profile, grokAgentId, grokAgentName);
-    const started = await grok.startSharedPrompt(profile, agentId, prompt);
+    const gateway = gatewayFor(speaker);
+    if (!gateway) throw fail(`${providerLabel(speaker)} is not configured on this Orbit server.`, 409);
+    const agentId = await gateway.chat.ensureSharedAgent(gateway.profile, grokAgentId, grokAgentName);
+    const started = await gateway.chat.startSharedPrompt(gateway.profile, agentId, prompt);
     return { runId: `run_${randomUUID().replaceAll('-', '')}`, started: started.started, nonce: started.nonce, baseline: started.baseline, agentId };
   }
 
@@ -75,9 +88,9 @@ export function createAgentGateways({ fetchImpl = fetch, grok, hermesProfile, gr
       if (tokens) view.tokens = tokens;
       return view;
     }
-    const profile = grokProfile();
-    if (!profile) return { status: 'failed', error: 'Grok Bot is not configured on this Orbit server.' };
-    return grok.pollSharedPrompt(profile, run);
+    const gateway = gatewayFor(run.speaker);
+    if (!gateway) return { status: 'failed', error: `${providerLabel(run.speaker)} is not configured on this Orbit server.` };
+    return gateway.chat.pollSharedPrompt(gateway.profile, run);
   }
 
   async function stopSpeaker(run) {
@@ -87,8 +100,8 @@ export function createAgentGateways({ fetchImpl = fetch, grok, hermesProfile, gr
       if (profile && run.runId) await hermes(profile, `/v1/runs/${run.runId}/stop`, {});
       return;
     }
-    const profile = grokProfile();
-    if (profile && run.agentId) await grok.stopSharedPrompt(profile, run.agentId);
+    const gateway = gatewayFor(run.speaker);
+    if (gateway && run.agentId) await gateway.chat.stopSharedPrompt(gateway.profile, run.agentId);
   }
 
   async function tryDelegate(profile, body) {
@@ -130,27 +143,25 @@ export function createAgentGateways({ fetchImpl = fetch, grok, hermesProfile, gr
       if (!runPattern.test(data?.run_id || '')) throw fail('Hermes did not return a usable subagent run.');
       return { strategy: 'session', speaker, runId: data.run_id, sessionId, started: now(), ...(tokenCount(data) ? { tokens: tokenCount(data) } : {}) };
     }
-    const profile = grokProfile();
-    if (!profile?.apiUrl || !profile.apiKey) throw fail('Grok Bot is not configured on this Orbit server.', 409);
+    const gateway = gatewayFor(speaker);
+    if (!gateway) throw fail(`${providerLabel(speaker)} is not configured on this Orbit server.`, 409);
     const agentName = `Orbit collab sub: ${label}`.slice(0, 80);
-    const agentId = await grok.ensureSharedAgent(profile, '', agentName);
+    const agentId = await gateway.chat.ensureSharedAgent(gateway.profile, '', agentName);
     if (hold) return { strategy: 'agent', speaker, runId: '', agentId, hold: true, started: now() };
-    const started = await grok.startSharedPrompt(profile, agentId, prompt);
+    const started = await gateway.chat.startSharedPrompt(gateway.profile, agentId, prompt);
     return { strategy: 'agent', speaker, runId: `run_${randomUUID().replaceAll('-', '')}`, agentId, started: started.started, nonce: started.nonce, baseline: started.baseline };
   }
 
   async function archiveSubagent(sub) {
-    if (!sub || sub.provider !== 'grok' || !sub.agentId) return { archived: false };
-    const profile = grokProfile();
-    if (!profile || typeof grok.archiveSharedAgent !== 'function') return { archived: false, note: 'Grok Bot archive is not available.' };
-    return grok.archiveSharedAgent(profile, sub.agentId);
+    const gateway = sub?.agentId ? gatewayFor(sub.provider) : null;
+    if (!gateway || typeof gateway.chat.archiveSharedAgent !== 'function') return { archived: false, note: `${providerLabel(sub?.provider)} archive is not available.` };
+    return gateway.chat.archiveSharedAgent(gateway.profile, sub.agentId);
   }
 
   async function readSubagentTranscript(sub) {
-    if (!sub || sub.provider !== 'grok' || !sub.agentId || typeof grok.previewSession !== 'function') return { messages: [] };
-    const profile = grokProfile();
-    if (!profile) return { messages: [] };
-    const preview = await grok.previewSession(profile, sub.agentId);
+    const gateway = sub?.agentId ? gatewayFor(sub.provider) : null;
+    if (!gateway || typeof gateway.chat.previewSession !== 'function') return { messages: [] };
+    const preview = await gateway.chat.previewSession(gateway.profile, sub.agentId);
     return { messages: preview?.messages || [] };
   }
 

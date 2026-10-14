@@ -9,7 +9,8 @@ import { createBuildQueue } from './build-queue.mjs';
 import { createAgentProfiles, validSessionId, sanitizeSessions, sanitizeHistory } from './agent-profiles.mjs';
 import { attachProviders } from './agent-discovery.mjs';
 import { applyCalibration, calibrateEstimate, estimateTokens, forkSeed, HERMES_COMPRESSION_NOTE, meterLevel, modelWindow, readReportedUsage, summarizeTranscript, usageBreakdown } from './agent-session-controls.mjs';
-import { createGrokChat } from './grok-chat.mjs';
+import { createGatewayChat } from './gateway-chat.mjs';
+import { isGatewayProvider, providerIds, providerLabel } from './agent-providers.mjs';
 import { createAgentContextApi, tokenRatioKey, writeTokenRatio } from './agent-context.mjs';
 import { calibrate, measureContext } from '../src/context-budget.ts';
 import { createAgentGateways } from './agent-gateways.mjs';
@@ -32,24 +33,33 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
   let configuration;
   try { configuration = createAgentProfiles({profiles,profilesJson,apiUrl,apiKey}); } catch { configuration = null; }
   if (configuration && Array.isArray(additionalProfiles) && additionalProfiles.length) configuration = attachProviders(configuration, additionalProfiles);
-  const grok = createGrokChat({
+  // One gateway chat per provider. Grok Bot and Pi answer the same command set, so
+  // the agent pane, the shared room and Collab reach either of them through the
+  // same surface instead of a second copy of the chat code.
+  const gatewayOptions = {
     fetchImpl,
     runtimeDirectory,
     ...(typeof grokOptions.now === 'function' ? { now: grokOptions.now } : {}),
     ...(Number.isFinite(grokOptions.acceptanceGraceMs) ? { acceptanceGraceMs: grokOptions.acceptanceGraceMs } : {}),
     ...(Number.isFinite(grokOptions.runTimeoutMs) ? { runTimeoutMs: grokOptions.runTimeoutMs } : {}),
-  });
+  };
+  const chats = new Map();
+  for (const provider of providerIds(configuration)) {
+    if (!isGatewayProvider(provider)) continue;
+    chats.set(provider, createGatewayChat({ provider, ...gatewayOptions }));
+  }
+  const chatFor = profile => (isGatewayProvider(profile?.provider) ? chats.get(profile.provider) : null);
   const hermesProfile = () => {
     const profile = configuration?.get('default');
-    return profile && profile.provider !== 'grok' ? profile : null;
+    return profile && !isGatewayProvider(profile.provider) ? profile : null;
   };
-  const grokProfile = () => {
-    const listed = configuration?.list?.find(profile => profile.provider === 'grok');
+  const gatewayProfile = provider => {
+    const listed = configuration?.list?.find(profile => profile.provider === provider);
     const profile = listed ? configuration.get(listed.id) : null;
     return profile?.apiUrl && profile?.apiKey ? profile : null;
   };
   const gatewayNow = typeof grokOptions.now === 'function' ? grokOptions.now : undefined;
-  const gateways = createAgentGateways({ fetchImpl, grok, hermesProfile, grokProfile, ...(gatewayNow ? { now: gatewayNow } : {}) });
+  const gateways = createAgentGateways({ fetchImpl, chats, hermesProfile, gatewayProfile, ...(gatewayNow ? { now: gatewayNow } : {}) });
   const collab = createCollab({
     directory: path.join(runtimeDirectory, 'collab'),
     gateways,
@@ -60,14 +70,14 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
   const sharedAgents = createSharedAgents({
     directory: path.join(runtimeDirectory, 'shared-agents'),
     fetchImpl,
-    grok,
+    chats,
     gateways,
     openCollab: args => collab.openFromRoom(args),
     ...(gatewayNow ? { now: gatewayNow } : {}),
     ...(Number.isFinite(grokOptions.turnTimeoutMs) ? { turnTimeoutMs: grokOptions.turnTimeoutMs } : {}),
     ...(Number.isFinite(grokOptions.advanceIntervalMs) ? { advanceIntervalMs: grokOptions.advanceIntervalMs } : {}),
     hermesProfile,
-    grokProfile,
+    gatewayProfile,
   });
   const estimateFactors = new Map();
   const endpoint = (profile, route) => `${profile.apiUrl.replace(/\/$/, '')}${route}`;
@@ -115,7 +125,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
   let buildQueue;
   const shared = createSharedChats(path.join(runtimeDirectory,'shared-chats'));
   const conversations = createConversationPrivateStore(path.join(runtimeDirectory, 'conversation-private'));
-  const contextApi = createAgentContextApi({ configuration, shared, conversations, grok, upstreamFor, runtimeDirectory, workspaceRead, workspaceContext });
+  const contextApi = createAgentContextApi({ configuration, shared, conversations, chats, upstreamFor, runtimeDirectory, workspaceRead, workspaceContext });
   // Private, bounded intent/receipt journal. Nothing here is workspace layout or
   // project data; credentials are represented only by the adapter's opaque digest.
   const journalDirectory = path.join(runtimeDirectory, 'ordinary-submissions');
@@ -206,7 +216,8 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
           const target = configuration.get(body.profile_id);
           let page = {data:[],has_more:false}, supported = true;
           try {
-            page = sanitizeSessions(target.provider === 'grok' ? await grok.sessionPage(target, offset) : await upstreamFor(target,`/api/sessions?limit=100&offset=${offset}`));
+            const libraryChat = chatFor(target);
+            page = sanitizeSessions(libraryChat ? await libraryChat.sessionPage(target, offset) : await upstreamFor(target,`/api/sessions?limit=100&offset=${offset}`));
           }
           catch (error) { if (error.status !== 404) throw error; supported = false; }
           const metadata = conversations.list(body.workspace_id,body.profile_id).map(publicMetadata);
@@ -251,7 +262,8 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
         if (body.action === 'sessions') {
           const target = configuration.get(body.target_profile_id);
           if (!target) return reply(res,400,{error:'Unknown Hermes profile.'});
-          if (target.provider === 'grok') { const page = sanitizeSessions(await grok.sessionPage(target, 0)); return reply(res,200,{sessions:page.data,supported:true}); }
+          const sessionChat = chatFor(target);
+          if (sessionChat) { const page = sanitizeSessions(await sessionChat.sessionPage(target, 0)); return reply(res,200,{sessions:page.data,supported:true}); }
           try { const data = await upstreamFor(target,'/api/sessions?limit=100&offset=0'); return reply(res,200,{sessions:sanitizeSessions(data).data,supported:true}); }
           catch(error) { if (error.status === 404) return reply(res,200,{sessions:[],supported:false,note:'Session catalog unavailable on this Hermes version.'}); throw error; }
         }
@@ -269,7 +281,8 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
           if (revision !== linked.binding_revision || linked.session !== body.session_id || linked.profile_id !== profileId || linked.run || shared.locks.has(`session:${linked.profile_id}:${linked.session}`)) return reply(res,409,{error:'Conversation changed or is still running.'});
           const target = configuration.get(body.target_profile_id);
           if (!target) return reply(res,400,{error:'Unknown Hermes profile.'});
-          if (target.provider === 'grok') return grok.selectSession(reply, res, { body, target, revision, profileId, shared, validatePane, conversations });
+          const selectChat = chatFor(target);
+          if (selectChat) return selectChat.selectSession(reply, res, { body, target, revision, profileId, shared, validatePane, conversations });
           const creating = body.target_session_id === undefined || body.target_session_id === null;
           const targetId = creating ? `orbit-${randomUUID()}` : body.target_session_id;
           if (!validSessionId(targetId)) return reply(res,400,{error:'Invalid Hermes session.'});
@@ -305,8 +318,9 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
             const target = configuration.get(targetProfileId);
             if (!source || !target || !validSessionId(sourceSession)) return reply(res,400,{error:'Invalid conversation to fork.'});
             let transcript = [];
-            if (source.provider === 'grok') {
-              const preview = await grok.previewSession(source, sourceSession);
+            const sourceChat = chatFor(source);
+            if (sourceChat) {
+              const preview = await sourceChat.previewSession(source, sourceSession);
               transcript = preview.messages || [];
               if (preview.resumable === false && !transcript.length) return reply(res,409,{error:'This session cannot be forked because its transcript is unavailable.'});
             } else {
@@ -323,11 +337,12 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
             if (transcript.length && (!Number.isInteger(through) || through < 0 || through >= transcript.length)) return reply(res,400,{error:'Fork from a message in this transcript.'});
             const slice = transcript.length ? transcript.slice(0, through + 1) : [];
             const summary = summarizeTranscript(slice);
-            const sourceProvider = source.provider === 'grok' ? 'grok' : 'hermes';
-            const targetProvider = target.provider === 'grok' ? 'grok' : 'hermes';
+            const sourceProvider = isGatewayProvider(source.provider) ? source.provider : 'hermes';
+            const targetProvider = isGatewayProvider(target.provider) ? target.provider : 'hermes';
             const cross = sourceProvider !== targetProvider;
             const seed = forkSeed({ summary, sourceSession, sourceProvider, targetProvider, through: transcript.length ? through : undefined, cross });
-            if (target.provider === 'grok') return grok.forkSession(reply, res, { body, target, revision, profileId, shared, conversations, seed, summary, sourceSession, cross });
+            const forkChat = chatFor(target);
+            if (forkChat) return forkChat.forkSession(reply, res, { body, target, revision, profileId, shared, conversations, seed, summary, sourceSession, cross });
             const created = `orbit-${randomUUID()}`;
             if (shared.locks.has(`session:${target.id}:${created}`) || shared.hasActive(target.id, created, body.workspace_id, body.pane_id)) return reply(res,409,{error:'This conversation is already running.'});
             const title = `Fork of ${String(sourceSession).slice(-12)}`.slice(0, 100);
@@ -344,7 +359,8 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
           if (body.action === 'session_preview') {
             const target = configuration.get(body.target_profile_id);
             if (!target || !validSessionId(body.target_session_id)) return reply(res,400,{error:'Invalid conversation preview.'});
-            if (target.provider === 'grok') return reply(res,200,{...await grok.previewSession(target, body.target_session_id), provider:'grok'});
+            const previewChat = chatFor(target);
+            if (previewChat) return reply(res,200,{...await previewChat.previewSession(target, body.target_session_id), provider: target.provider});
             try {
               const history = await upstreamFor(target, `/api/sessions/${encodeURIComponent(body.target_session_id)}/messages?limit=80&offset=0`);
               return reply(res,200,{messages:sanitizeHistory(history), resumable:true, provider:'hermes'});
@@ -353,15 +369,16 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
               throw error;
             }
           }
-          if (profile?.provider === 'grok') {
-            if (body.action === 'compact_session') return grok.compactSession(reply, res, { body, target: profile, revision, profileId, shared, conversations });
-            const preview = await grok.previewSession(profile, body.session_id);
+          const profileChat = chatFor(profile);
+          if (profileChat) {
+            if (body.action === 'compact_session') return profileChat.compactSession(reply, res, { body, target: profile, revision, profileId, shared, conversations });
+            const preview = await profileChat.previewSession(profile, body.session_id);
             const text = preview.messages.map(item => item.text).join('\n');
             const rawEstimate = estimateTokens(text);
             const modelName = typeof profile.model === 'string' ? profile.model : '';
-            const factor = estimateFactors.get(`${profileId}:${modelName || 'grok'}`) || 1;
+            const factor = estimateFactors.get(`${profileId}:${modelName || profile.provider}`) || 1;
             const meter = meterLevel(applyCalibration(rawEstimate, factor), modelWindow(modelName));
-            return reply(res,200,{...meter, source:'estimated', calibrated: factor !== 1, breakdown: usageBreakdown(null, rawEstimate, text.length), model: modelName, tools:true, provider:'grok', hermes_compression:null});
+            return reply(res,200,{...meter, source:'estimated', calibrated: factor !== 1, breakdown: usageBreakdown(null, rawEstimate, text.length), model: modelName, tools:true, provider: profile.provider, hermes_compression:null});
           }
           if (body.action === 'compact_session') {
             const response = await fetchImpl(endpoint(profile, `/api/sessions/${encodeURIComponent(body.session_id)}/compress`), {
@@ -444,13 +461,14 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
           }
         }
       }
-      if (profile?.provider === 'grok' && body.action === 'build_queue') return reply(res, 409, { error: 'The build queue uses Hermes workers. Grok Bot has no build-queue API.' });
-      if (profile?.provider === 'grok' && body.action === 'events') {
+      const providerChat = chatFor(profile);
+      if (providerChat && body.action === 'build_queue') return reply(res, 409, { error: `The build queue uses Hermes workers. ${providerLabel(profile?.provider)} has no build-queue API.` });
+      if (providerChat && body.action === 'events') {
         if (paneLock) { shared.locks.delete(paneLock); paneLock = undefined; }
-        return grok.events(reply, res, { body, profile, shared });
+        return providerChat.events(reply, res, { body, profile, shared });
       }
-      if (profile?.provider === 'grok' && ['catalog', 'capabilities', 'activity', 'automation', 'jobs', 'job_control'].includes(body.action)) {
-        return grok.surface(reply, res, { body, profile });
+      if (providerChat && ['catalog', 'capabilities', 'activity', 'automation', 'jobs', 'job_control'].includes(body.action)) {
+        return providerChat.surface(reply, res, { body, profile });
       }
       if (body.action === 'build_queue') {
         if (profileId !== 'default') return reply(res,409,{error:'Build queue is only available for the default Hermes profile.'});
@@ -533,7 +551,8 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
         return reply(res, 200, { activity, note: 'Persisted tool history for this conversation; active tools may appear only after Hermes saves them. Results are truncated.' });
       }
       if (body.action === 'start') {
-        if (profile?.provider === 'grok') return grok.turn(reply, res, { body, profile, shared, workspaceContext, executionGate });
+        const turnChat = chatFor(profile);
+        if (turnChat) return turnChat.turn(reply, res, { body, profile, shared, workspaceContext, executionGate });
         if (typeof body.input !== 'string' || !body.input.trim() || body.input.length > 100000) return reply(res, 400, { error: 'Enter a message of 1–100,000 characters.' });
         // Do not start while the shared agent lane is held or legacy-unknown.
         // Pane-backed submissions claim it through preparation and dispatch below.
@@ -626,7 +645,8 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
         } finally {shared.locks.delete(lock);}
       }
       if (!['status', 'stop', 'approval', 'steer'].includes(body.action) || !runPattern.test(body.run_id || '')) return reply(res, 400, { error: 'Invalid agent action.' });
-      if (profile?.provider === 'grok') return grok.control(reply, res, { body, profile, shared, workspaceContext });
+      const controlChat = chatFor(profile);
+      if (controlChat) return controlChat.control(reply, res, { body, profile, shared, workspaceContext });
       const runPath = `/v1/runs/${body.run_id}`;
       const run = await upstream(runPath);
       // Never let Orbit operate on another dashboard's sessions/runs.
@@ -722,5 +742,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
       if(!['queued','running','waiting_for_approval'].includes(run.status))resourceFailure('permission_denied');
     },
   };
+  // Read-only access to the same profile catalog the agent-chat provider dropdown uses.
+  agent.profileCatalog = () => configuration;
   return agent;
 }

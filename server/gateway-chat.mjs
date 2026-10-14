@@ -3,6 +3,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { validSessionId, sanitizeHistory } from './agent-profiles.mjs';
 import { summarizeTranscript } from './agent-session-controls.mjs';
+import { providerLabel } from './agent-providers.mjs';
 
 const runPattern = /^run_[a-zA-Z0-9_-]{8,100}$/;
 const jobPattern = /^[a-zA-Z0-9_-]{1,100}$/;
@@ -220,13 +221,13 @@ function automationSpec(data) {
   return { name: data.name.trim(), prompt: `${skillPreface(data.skills)}${data.prompt}`, schedule, trigger: { type: 'cron', schedule } };
 }
 
-function validateAutomation(data) {
+function validateAutomation(data, agentLabel) {
   if (!data || typeof data !== 'object' || Array.isArray(data) || Object.keys(data).some(key => !automationFields.includes(key))) throw fail('Unsupported automation fields', 400);
   for (const key of ['name', 'prompt', 'schedule', 'deliver']) if (typeof data[key] !== 'string' || data[key].length > (key === 'prompt' ? 16000 : 500)) throw fail(`Invalid ${key}`, 400);
   if (!data.name.trim() || !data.schedule.trim() || !data.prompt.trim()) throw fail('Name, schedule and prompt required', 400);
   if (!Array.isArray(data.skills) || data.skills.length > 20 || data.skills.some(skill => typeof skill !== 'string' || !skill.trim() || skill.length > 100)) throw fail('Invalid skills', 400);
   if (skillPreface(data.skills).length + data.prompt.length > 16000) throw fail('Invalid prompt', 400);
-  if (data.deliver.trim() && data.deliver.trim() !== 'local') throw fail('Grok Bot automations have no delivery target. Leave delivery as local.', 409);
+  if (data.deliver.trim() && data.deliver.trim() !== 'local') throw fail(`${agentLabel} automations have no delivery target. Leave delivery as local.`, 409);
 }
 
 function toolFeedPayload(channel, payload) {
@@ -243,23 +244,28 @@ function toolFeedPayload(channel, payload) {
 }
 
 /** Read or cancel every gateway body so a rejection cannot surface later as an unhandled error. */
-async function drain(response) {
+async function drain(response, agentLabel) {
   try {
     if (!response || typeof response.text !== 'function') return '';
     const text = await response.text();
-    if (text.length > 2_000_000) throw fail('Grok Bot response exceeds the bounded JSON limit.');
+    if (text.length > 2_000_000) throw fail(`${agentLabel} response exceeds the bounded JSON limit.`);
     return text;
   } catch (error) {
     try { await response?.body?.cancel?.(); } catch {}
     if (error?.status) throw error;
-    throw fail('Grok Bot could not complete the request.');
+    throw fail(`${agentLabel} could not complete the request.`);
   }
 }
 
-export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () => Date.now(), acceptanceGraceMs = 8000, runTimeoutMs = 10 * 60 * 1000 } = {}) {
+export function createGatewayChat({ provider = 'grok', fetchImpl = fetch, runtimeDirectory, now = () => Date.now(), acceptanceGraceMs = 8000, runTimeoutMs = 10 * 60 * 1000 } = {}) {
+  // One chat surface per gateway provider. The label comes from the provider id so
+  // an error can never blame Grok Bot for a Pi failure.
+  const agentLabel = providerLabel(provider);
   const runs = new Map();
   const operatorDelivered = new Set();
-  const directory = runtimeDirectory ? path.join(runtimeDirectory, 'grok-runs') : '';
+  // Run records are per provider so a restarted Orbit process never reads a
+  // Grok Bot run as if it were a Pi run (the default keeps the historical path).
+  const directory = runtimeDirectory ? path.join(runtimeDirectory, `${provider}-runs`) : '';
 
   function loadRuns() {
     if (!directory) return;
@@ -318,21 +324,21 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
         signal: AbortSignal.timeout(15000),
         redirect: 'error',
       });
-      const text = await drain(response);
+      const text = await drain(response, agentLabel);
       if (!response || response.ok !== true) {
         const status = Number.isInteger(response?.status) && response.status >= 400 && response.status < 600 ? response.status : 502;
         const detail = gatewayDetail(text, profile.apiKey);
         const message = status === 404
-          ? (detail ? `Grok Bot could not find that conversation. ${detail}` : 'Grok Bot could not find that conversation.')
-          : (detail ? `Grok Bot could not complete the request. ${detail}` : 'Grok Bot could not complete the request.');
+          ? (detail ? `${agentLabel} could not find that conversation. ${detail}` : `${agentLabel} could not find that conversation.`)
+          : (detail ? `${agentLabel} could not complete the request. ${detail}` : `${agentLabel} could not complete the request.`);
         throw fail(message, status >= 500 ? 502 : status);
       }
       if (!text) return null;
       try { return JSON.parse(text); }
-      catch { throw fail('Grok Bot returned invalid JSON.'); }
+      catch { throw fail(`${agentLabel} returned invalid JSON.`); }
     } catch (error) {
       if (error?.status) throw error;
-      throw fail('Cannot reach Grok Bot right now. The turn may still be running; check status before sending again.');
+      throw fail(`Cannot reach ${agentLabel} right now. The turn may still be running; check status before sending again.`);
     }
   }
 
@@ -342,7 +348,7 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
     } catch (error) {
       const status = Number.isInteger(error?.status) ? error.status : 502;
       let message = typeof error?.message === 'string' ? error.message : '';
-      if (!message.trim() || message.length > 500) message = 'Grok Bot could not complete the request.';
+      if (!message.trim() || message.length > 500) message = `${agentLabel} could not complete the request.`;
       if (res.headersSent || res.writableEnded) { try { res.end(); } catch {} return; }
       try { return reply(res, status, { error: message }); }
       catch { try { res.end(); } catch {} }
@@ -354,12 +360,12 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
     if (reusable) return { id: reusable.id, title: String(reusable.name || 'Orbit chat').slice(0, 100) };
     const created = await command(profile, 'createAgent', { name: name || 'Orbit chat', description: '', isIntroductionSuppressed: true });
     const id = created?.agent?.id;
-    if (!validSessionId(id)) throw fail('Grok Bot did not return a usable conversation id.');
+    if (!validSessionId(id)) throw fail(`${agentLabel} did not return a usable conversation id.`);
     return { id, title: typeof created.agent.name === 'string' ? created.agent.name.slice(0, 100) : (name || 'Orbit chat') };
   }
 
   async function readTranscript(profile, agentId) {
-    if (!validSessionId(agentId)) throw fail('Invalid Grok Bot conversation.', 400);
+    if (!validSessionId(agentId)) throw fail(`Invalid ${agentLabel} conversation.`, 400);
     const tail = await command(profile, 'getAgentTranscriptTail', { id: agentId, limit: 80 });
     return sanitizeHistory(historyFromEntries(entriesOf(tail)));
   }
@@ -410,7 +416,7 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
   async function selectSessionBody(reply, res, { body, target, revision, profileId, shared, validatePane, conversations }) {
     const creating = body.target_session_id === undefined || body.target_session_id === null;
     let targetId = creating ? null : body.target_session_id;
-    if (!creating && !validSessionId(targetId)) return reply(res, 400, { error: 'Invalid Grok Bot conversation.' });
+    if (!creating && !validSessionId(targetId)) return reply(res, 400, { error: `Invalid ${agentLabel} conversation.` });
     if (!creating && (shared.locks.has(`session:${target.id}:${targetId}`) || shared.hasActive(target.id, targetId, body.workspace_id, body.pane_id))) return reply(res, 409, { error: 'This conversation is already running.' });
     const name = creating ? conversationName(body.conversation_name) : '';
     let title;
@@ -428,7 +434,7 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
         found = page.data.find(item => item.id === targetId);
         if (found || !page.has_more) break;
       }
-      if (!found) return reply(res, 404, { error: 'Grok Bot conversation not found.' });
+      if (!found) return reply(res, 404, { error: `${agentLabel} conversation not found.` });
       title = found.title.slice(0, 100);
       try {
         const tail = await command(target, 'getAgentTranscriptTail', { id: targetId, limit: 80 });
@@ -520,7 +526,7 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
 
   async function turnBody(reply, res, { body, profile, shared, workspaceContext, executionGate }) {
     if (typeof body.input !== 'string' || !body.input.trim() || body.input.length > 100000) return reply(res, 400, { error: 'Enter a message of 1–100,000 characters.' });
-    if (!validSessionId(body.session_id)) return reply(res, 400, { error: 'Invalid Grok Bot conversation.' });
+    if (!validSessionId(body.session_id)) return reply(res, 400, { error: `Invalid ${agentLabel} conversation.` });
     if (executionGate && ((typeof executionGate.busy === 'function' && executionGate.busy('agent')) || executionGate.status?.().job)) return reply(res, 409, { error: 'The shared execution lane is busy or unresolved. Wait for active work or reconcile an unknown outcome before starting a new chat turn.' });
     const entries = await transcriptEntries(profile, body.session_id);
     let composed;
@@ -541,7 +547,7 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
     if (composed.attached && accepted?.accepted === true) operatorDelivered.add(sessionKey(profile, body.session_id));
     if (!accepted || accepted.accepted !== true) {
       const detail = gatewayDetail(JSON.stringify({ error: typeof accepted?.error === 'string' ? accepted.error : typeof accepted?.message === 'string' ? accepted.message : '' }), profile.apiKey);
-      return reply(res, 502, { error: detail ? `Grok Bot did not accept the message. ${detail}` : 'Grok Bot did not accept the message.' });
+      return reply(res, 502, { error: detail ? `${agentLabel} did not accept the message. ${detail}` : `${agentLabel} did not accept the message.` });
     }
     remember({ runId, nonce, agentId: body.session_id, profileId: profile.id, status: 'running', started: now(), baseline });
     if (body.pane_id) {
@@ -565,10 +571,10 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
     } catch (error) { if (error.status !== 404) throw error; }
     const output = repliesAfter(entries, run.baseline).slice(0, 16000);
     const rejected = acceptance?.outcome === 'found' && acceptance.record?.status === 'rejected';
-    if (rejected && !output) return { status: 'failed', output: '', approvals: [], error: 'Grok Bot rejected the message.' };
+    if (rejected && !output) return { status: 'failed', output: '', approvals: [], error: `${agentLabel} rejected the message.` };
     if (output) return { status: 'completed', output, approvals: [] };
     const age = now() - run.started;
-    if (age >= runTimeoutMs) return { status: 'interrupted', output: '', approvals: [], error: 'Grok Bot did not finish this turn before the time limit.' };
+    if (age >= runTimeoutMs) return { status: 'interrupted', output: '', approvals: [], error: `${agentLabel} did not finish this turn before the time limit.` };
     const pendingAcceptance = acceptance?.outcome === 'found' && acceptance.record?.status === 'pending';
     const acceptanceMissing = !acceptance || acceptance.outcome === 'not-found' || acceptance.outcome === 'unknown-durability';
     if (pendingAcceptance || (acceptanceMissing && age < acceptanceGraceMs)) return { status: 'running', output: '', approvals: [] };
@@ -656,7 +662,7 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
       }
       const accepted = await command(profile, 'sendPrompt', { prompt: composed.prompt, agentId: run.agentId, clientNonce: randomUUID() });
       if (composed.attached && accepted?.accepted === true) operatorDelivered.add(sessionKey(profile, run.agentId));
-      if (!accepted || accepted.accepted !== true) return reply(res, 502, { error: 'Grok Bot did not accept the follow-up prompt.' });
+      if (!accepted || accepted.accepted !== true) return reply(res, 502, { error: `${agentLabel} did not accept the follow-up prompt.` });
       return reply(res, 200, { accepted: true });
     }
     if (body.action === 'approval') {
@@ -696,14 +702,14 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
     if (body.action === 'job_control') {
       if (!['pause', 'resume'].includes(body.operation) || typeof body.job_id !== 'string' || !jobPattern.test(body.job_id) || body.confirm !== true) return reply(res, 400, { error: 'Confirm a valid pause or resume operation.' });
       const found = await findAutomation(profile, body.job_id);
-      if (!found) return reply(res, 404, { error: 'Grok Bot could not find that automation.' });
+      if (!found) return reply(res, 404, { error: `${agentLabel} could not find that automation.` });
       await command(profile, 'setAgentAutomationEnabled', { id: found.agentId, automationId: body.job_id, isEnabled: body.operation === 'resume' });
       return reply(res, 200, { accepted: true, operation: body.operation });
     }
     if (body.action === 'automation') return reply(res, 200, await automationAction(profile, body));
     if (body.action === 'catalog') return reply(res, 200, await catalog(profile, body));
     if (body.action === 'activity') return reply(res, 200, await activity(profile, body));
-    return reply(res, 409, { error: 'This Hermes tool is not available for the Grok Bot provider.' });
+    return reply(res, 409, { error: `This Hermes tool is not available for the ${agentLabel} provider.` });
   }
 
   async function automationAction(profile, body) {
@@ -714,26 +720,26 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
     if (operation !== 'get' && body.confirm !== true) throw fail('Explicit confirmation required', 400);
     if (operation === 'get') {
       const found = await findAutomation(profile, id);
-      if (!found) throw fail('Grok Bot could not find that automation.', 404);
+      if (!found) throw fail(`${agentLabel} could not find that automation.`, 404);
       return { job: jobRecord(found) };
     }
     if (operation === 'delete' || operation === 'run') {
       const found = await findAutomation(profile, id);
-      if (!found) throw fail('Grok Bot could not find that automation.', 404);
+      if (!found) throw fail(`${agentLabel} could not find that automation.`, 404);
       await command(profile, operation === 'delete' ? 'deleteAgentAutomation' : 'runAgentAutomationNow', { id: found.agentId, automationId: id });
       return { accepted: true };
     }
-    validateAutomation(body.fields);
+    validateAutomation(body.fields, agentLabel);
     if (operation === 'create') {
-      if (!validSessionId(body.session_id)) throw fail('Invalid Grok Bot conversation.', 400);
+      if (!validSessionId(body.session_id)) throw fail(`Invalid ${agentLabel} conversation.`, 400);
       const created = await command(profile, 'createAgentAutomation', { id: body.session_id, spec: automationSpec(body.fields) });
       const automation = created?.automation || created;
       const createdId = typeof automation?.id === 'string' ? automation.id : '';
-      if (!jobPattern.test(createdId)) throw fail('Grok Bot did not return a usable automation id.');
+      if (!jobPattern.test(createdId)) throw fail(`${agentLabel} did not return a usable automation id.`);
       return { job: jobRecord({ agentId: body.session_id, automation: { ...automationSpec(body.fields), ...automation, id: createdId } }) };
     }
     const found = await findAutomation(profile, id);
-    if (!found) throw fail('Grok Bot could not find that automation.', 404);
+    if (!found) throw fail(`${agentLabel} could not find that automation.`, 404);
     const updated = await command(profile, 'updateAgentAutomation', { id: found.agentId, automationId: id, spec: automationSpec(body.fields) });
     const automation = updated?.automation || { ...found.automation, ...automationSpec(body.fields), id };
     return { job: jobRecord({ agentId: found.agentId, automation }) };
@@ -745,7 +751,7 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
     try {
       payload = await command(profile, body.kind === 'skills' ? 'skillsCatalog' : 'listBoxMcpServers', {});
     } catch (error) {
-      if (error.status === 404) throw fail('Grok Bot does not advertise this catalog.', 409);
+      if (error.status === 404) throw fail(`${agentLabel} does not advertise this catalog.`, 409);
       throw error;
     }
     if (body.kind === 'skills') {
@@ -779,7 +785,7 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
   }
 
   async function activity(profile, body) {
-    if (!validSessionId(body.session_id)) throw fail('Invalid Grok Bot conversation.', 400);
+    if (!validSessionId(body.session_id)) throw fail(`Invalid ${agentLabel} conversation.`, 400);
     let items = [];
     try {
       const outline = await command(profile, 'getConversationOutline', { id: body.session_id });
@@ -805,7 +811,7 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
       }
       if (activityRows.length >= 100) break;
     }
-    return { activity: activityRows, note: 'Tool history from this Grok Bot conversation. Active tools may still be running. Results are truncated.' };
+    return { activity: activityRows, note: `Tool history from this ${agentLabel} conversation. Active tools may still be running. Results are truncated.` };
   }
 
   async function events(reply, res, { body, profile, shared }) {
@@ -828,16 +834,16 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
           redirect: 'error',
         });
       } catch {
-        return reply(res, 502, { error: 'Grok Bot activity stream is unavailable. Status polling still works.' });
+        return reply(res, 502, { error: `${agentLabel} activity stream is unavailable. Status polling still works.` });
       }
       if (!response || response.ok !== true) {
-        await drain(response);
-        return reply(res, 502, { error: 'Grok Bot activity stream is unavailable. Status polling still works.' });
+        await drain(response, agentLabel);
+        return reply(res, 502, { error: `${agentLabel} activity stream is unavailable. Status polling still works.` });
       }
       const reader = response.body?.getReader?.();
       if (!reader) {
         try { await response.body?.cancel?.(); } catch {}
-        return reply(res, 502, { error: 'Grok Bot activity stream is unavailable. Status polling still works.' });
+        return reply(res, 502, { error: `${agentLabel} activity stream is unavailable. Status polling still works.` });
       }
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no' });
       const decoder = new TextDecoder();
@@ -896,12 +902,12 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
     const created = await command(profile, 'createAgent', {
       name,
       description: name === sharedAgentName
-        ? 'Shared Orbit pane. Not the owner’s main Grok Bot conversation.'
-        : 'Orbit Collab agent. Not the owner’s main Grok Bot conversation.',
+        ? `Shared Orbit pane. Not the owner’s main ${agentLabel} conversation.`
+        : `Orbit Collab agent. Not the owner’s main ${agentLabel} conversation.`,
       isIntroductionSuppressed: true,
     });
     const id = created?.agent?.id;
-    if (!validSessionId(id)) throw fail('Grok Bot did not return a usable shared conversation id.');
+    if (!validSessionId(id)) throw fail(`${agentLabel} did not return a usable shared conversation id.`);
     return id;
   }
 
@@ -909,7 +915,7 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
     const baseline = await transcriptBaseline(profile, agentId);
     const nonce = randomUUID();
     const accepted = await command(profile, 'sendPrompt', { prompt, agentId, clientNonce: nonce });
-    if (!accepted || accepted.accepted !== true) throw fail('Grok Bot did not accept the shared message.');
+    if (!accepted || accepted.accepted !== true) throw fail(`${agentLabel} did not accept the shared message.`);
     return { nonce, baseline, started: now(), agentId };
   }
 
@@ -924,17 +930,17 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
       entries = entriesOf(tail);
     } catch (error) { if (error.status !== 404) throw error; }
     const output = repliesAfter(entries, run.baseline).slice(0, 16000);
-    if (acceptance?.outcome === 'found' && acceptance.record?.status === 'rejected' && !output) return { status: 'failed', output: '', error: 'Grok Bot rejected the shared message.' };
+    if (acceptance?.outcome === 'found' && acceptance.record?.status === 'rejected' && !output) return { status: 'failed', output: '', error: `${agentLabel} rejected the shared message.` };
     if (output) return { status: 'completed', output };
     const age = now() - (Number(run.started) || 0);
-    if (age >= timeoutMs) return { status: 'failed', output: '', error: 'Grok Bot did not reply before the shared-turn time limit.' };
+    if (age >= timeoutMs) return { status: 'failed', output: '', error: `${agentLabel} did not reply before the shared-turn time limit.` };
     let agents = [];
     try { agents = await command(profile, 'listAgents', {}); } catch (error) { if (error.status !== 404) throw error; }
     const agent = Array.isArray(agents) ? agents.find(item => item && item.id === run.agentId) : null;
     const pending = acceptance?.outcome === 'found' && acceptance.record?.status === 'pending';
     const missing = !acceptance || acceptance.outcome === 'not-found' || acceptance.outcome === 'unknown-durability';
     if (pending || (missing && age < acceptanceGraceMs)) return { status: 'running', output: '' };
-    if (approvalFrom(agent, entries)) return { status: 'waiting_for_approval', output: '', error: 'Grok Bot is waiting for a tool approval. Stop this turn or resolve it from a Grok Bot chat.' };
+    if (approvalFrom(agent, entries)) return { status: 'waiting_for_approval', output: '', error: `${agentLabel} is waiting for a tool approval. Stop this turn or resolve it from a ${agentLabel} chat.` };
     return { status: 'running', output: '' };
   }
 
@@ -943,12 +949,12 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
   }
 
   async function archiveSharedAgent(profile, agentId) {
-    if (!validSessionId(agentId)) throw fail('Grok Bot subagent id is not usable.', 400);
+    if (!validSessionId(agentId)) throw fail(`${agentLabel} subagent id is not usable.`, 400);
     try {
       await command(profile, 'archiveAgent', { id: agentId });
       return { archived: true };
     } catch (error) {
-      if (error.status === 404) return { archived: false, note: 'Grok Bot has no archive for this subagent.' };
+      if (error.status === 404) return { archived: false, note: `${agentLabel} has no archive for this subagent.` };
       throw error;
     }
   }
@@ -958,7 +964,7 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
       const tail = await command(profile, 'getAgentTranscriptTail', { id: sessionId, limit: 80 });
       return { messages: sanitizeHistory(historyFromEntries(entriesOf(tail))), resumable: true };
     } catch (error) {
-      if (error.status === 404) return { messages: [], resumable: false, note: 'This Grok Bot conversation cannot be resumed from here.' };
+      if (error.status === 404) return { messages: [], resumable: false, note: `This ${agentLabel} conversation cannot be resumed from here.` };
       throw error;
     }
   }
@@ -980,11 +986,11 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
       isIntroductionSuppressed: true,
     });
     const targetId = created?.agent?.id;
-    if (!validSessionId(targetId)) return reply(res, 502, { error: 'Grok Bot did not return a usable conversation id.' });
+    if (!validSessionId(targetId)) return reply(res, 502, { error: `${agentLabel} did not return a usable conversation id.` });
     const nonce = randomUUID();
     const runId = `run_${randomUUID().replaceAll('-', '')}`;
     const accepted = await command(target, 'sendPrompt', { prompt: String(seed || '').slice(0, 16000), agentId: targetId, clientNonce: nonce });
-    if (!accepted || accepted.accepted !== true) return reply(res, 502, { error: 'Grok Bot did not accept the forked summary.' });
+    if (!accepted || accepted.accepted !== true) return reply(res, 502, { error: `${agentLabel} did not accept the forked summary.` });
     remember({ runId, nonce, agentId: targetId, profileId: target.id, status: 'running', started: now(), baseline: baselineFrom([]) });
     const title = `Fork of ${String(sourceSession).slice(-12)}`.slice(0, 100);
     try { conversations.write({ workspace_id: body.workspace_id, profile_id: target.id, session_id: targetId }, 0, { title }); } catch { /* the pane title still shows the fork */ }
@@ -994,7 +1000,7 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
       binding_revision: revision + 1,
       run: runId,
       title,
-      messages: [{ role: 'assistant', text: `${cross ? 'Forked across providers' : 'Forked'} into a new Grok Bot agent. Previous session ${sourceSession} stays in history.\n\n${summary}` }],
+      messages: [{ role: 'assistant', text: `${cross ? 'Forked across providers' : 'Forked'} into a new ${agentLabel} agent. Previous session ${sourceSession} stays in history.\n\n${summary}` }],
     });
     return reply(res, 200, {
       state,
@@ -1002,12 +1008,12 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
       previous_session_id: sourceSession,
       session_id: targetId,
       summary,
-      note: `Grok Bot is continuing in ${targetId}. The original session stays in history.`,
+      note: `${agentLabel} is continuing in ${targetId}. The original session stays in history.`,
     });
   }
 
   async function compactBody(reply, res, { body, target, revision, profileId, shared, conversations }) {
-    if (body.confirm !== true) return reply(res, 400, { error: 'Confirm compact before starting a fresh Grok Bot agent.' });
+    if (body.confirm !== true) return reply(res, 400, { error: `Confirm compact before starting a fresh ${agentLabel} agent.` });
     const current = shared.read(body.workspace_id, body.pane_id);
     if (!current || current.binding_revision !== revision || current.session !== body.session_id || current.profile_id !== profileId || current.run) return reply(res, 409, { error: 'Conversation changed or is still running.' });
     let entries = [];
@@ -1024,12 +1030,12 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
       isIntroductionSuppressed: true,
     });
     const targetId = created?.agent?.id;
-    if (!validSessionId(targetId)) return reply(res, 502, { error: 'Grok Bot did not return a usable conversation id.' });
+    if (!validSessionId(targetId)) return reply(res, 502, { error: `${agentLabel} did not return a usable conversation id.` });
     const nonce = randomUUID();
     const runId = `run_${randomUUID().replaceAll('-', '')}`;
     const seed = `This conversation continues compacted session ${previous}.\n\n${summary}\n\nContinue from this summary.`;
     const accepted = await command(target, 'sendPrompt', { prompt: seed.slice(0, 16000), agentId: targetId, clientNonce: nonce });
-    if (!accepted || accepted.accepted !== true) return reply(res, 502, { error: 'Grok Bot did not accept the compact summary.' });
+    if (!accepted || accepted.accepted !== true) return reply(res, 502, { error: `${agentLabel} did not accept the compact summary.` });
     remember({ runId, nonce, agentId: targetId, profileId: target.id, status: 'running', started: now(), baseline: baselineFrom([]) });
     const title = `Continued from ${String(previous).slice(-12)}`.slice(0, 100);
     try { conversations.write({ workspace_id: body.workspace_id, profile_id: target.id, session_id: targetId }, 0, { title }); } catch { /* display title is also on the pane */ }
@@ -1039,7 +1045,7 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
       binding_revision: revision + 1,
       run: runId,
       title,
-      messages: [{ role: 'assistant', text: `Compacted into a new Grok Bot agent. Previous session ${previous} stays in history.\n\n${summary}` }],
+      messages: [{ role: 'assistant', text: `Compacted into a new ${agentLabel} agent. Previous session ${previous} stays in history.\n\n${summary}` }],
     });
     return reply(res, 200, {
       state,
@@ -1047,7 +1053,7 @@ export function createGrokChat({ fetchImpl = fetch, runtimeDirectory, now = () =
       previous_session_id: previous,
       session_id: targetId,
       summary,
-      note: `Grok Bot is continuing in ${targetId}. The previous session remains in history.`,
+      note: `${agentLabel} is continuing in ${targetId}. The previous session remains in history.`,
     });
   }
 
