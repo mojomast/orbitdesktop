@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { GATEWAY_PROVIDERS } from './agent-providers.mjs';
 
 const WILDCARDS = new Set(['0.0.0.0', '::', '[::]']);
 const MODEL_ID = /^[A-Za-z0-9._:-]{1,128}$/;
@@ -222,12 +223,73 @@ export function discoverGrokGateway({ env = process.env, home = os.homedir(), re
   };
 }
 
+function defaultIsExecutable(file) {
+  try {
+    const stat = fs.statSync(file);
+    if (!stat.isFile()) return false;
+    fs.accessSync(file, fs.constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The Pi harness binary on this computer. `PI_BIN` wins when it is an absolute
+ * path; otherwise PATH and the usual per-user bin directories are searched. A
+ * relative PI_BIN is refused because it would resolve against the server's
+ * working directory instead of the owner's shell.
+ */
+function findPiBinary(env, home, isExecutable) {
+  const explicit = typeof env.PI_BIN === 'string' ? env.PI_BIN.trim() : '';
+  if (explicit) return path.isAbsolute(explicit) && isExecutable(explicit) ? explicit : null;
+  const candidates = [];
+  const pathValue = typeof env.PATH === 'string' ? env.PATH : '';
+  for (const dir of pathValue.split(path.delimiter)) {
+    if (!dir || !path.isAbsolute(dir)) continue;
+    candidates.push(path.join(dir, 'pi'));
+  }
+  candidates.push(path.join(home, '.local', 'bin', 'pi'), path.join(home, 'bin', 'pi'), '/usr/local/bin/pi', '/opt/homebrew/bin/pi');
+  for (const candidate of candidates) if (isExecutable(candidate)) return candidate;
+  return null;
+}
+
+/**
+ * Pi harness discovery. Two shapes, in order:
+ *
+ * 1. An external Pi gateway: `PI_GATEWAY_URL` plus `PI_GATEWAY_TOKEN`. Orbit
+ *    dials it the way it dials the Grok Bot host gateway.
+ * 2. A binary on this computer: Orbit hosts the gateway itself on a loopback
+ *    port and keeps the token in memory (see server/index.mjs).
+ *
+ * No model credential is read from another application. Pi authenticates itself
+ * through its own configuration or environment.
+ */
+export function discoverPiHarness({ env = process.env, home = os.homedir(), isExecutable = defaultIsExecutable } = {}) {
+  const urlRaw = [env.PI_GATEWAY_URL].map(value => (typeof value === 'string' ? value.trim() : '')).find(Boolean);
+  const fromUrl = urlRaw ? parseGatewayUrl(urlRaw) : null;
+  if (urlRaw && !fromUrl) return null;
+  const token = [env.PI_GATEWAY_TOKEN, env.PI_API_KEY].map(value => (typeof value === 'string' ? value.trim() : '')).find(Boolean);
+  const labelRaw = typeof env.PI_LABEL === 'string' ? env.PI_LABEL.trim() : '';
+  const label = labelRaw && labelRaw.length <= 200 && !/[\x00-\x1f\x7f]/.test(labelRaw) ? labelRaw : 'Pi';
+  if (fromUrl) {
+    if (!token) return null;
+    return { id: 'pi', label, provider: 'pi', apiUrl: fromUrl.apiUrl, apiKey: token, source: 'environment', external: true };
+  }
+  if (flag(env.PI_HARNESS_DISABLED) === true) return null;
+  const binary = findPiBinary(env, home, isExecutable);
+  if (!binary) return null;
+  const model = modelId(env.PI_MODEL);
+  return { id: 'pi', label, provider: 'pi', source: 'pi-harness', binary, managed: true, ...(model ? { model } : {}) };
+}
+
 export function discoverAgentBackends(options = {}) {
   const env = options.env || process.env;
   const explicitHermes = Boolean(env.HERMES_API_URL || env.HERMES_API_KEY || env.HERMES_PROFILES_JSON);
   return {
     hermes: explicitHermes ? null : discoverHermesGateway(options),
     grok: discoverGrokGateway(options),
+    pi: discoverPiHarness(options),
   };
 }
 
@@ -246,29 +308,30 @@ export function publicBackendSummary(backend) {
   };
 }
 
-/** Append discovered Grok profiles without changing the Hermes profile schema. */
+/** Append discovered gateway providers without changing the Hermes profile schema. */
 export function attachProviders(catalog, additional = []) {
   const extras = new Map();
   const added = [];
   for (const entry of additional) {
-    if (!entry || entry.provider !== 'grok' || extras.has(entry.id) || catalog.get(entry.id)) continue;
+    if (!entry || !GATEWAY_PROVIDERS.includes(entry.provider) || extras.has(entry.id) || catalog.get(entry.id)) continue;
     if (typeof entry.id !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(entry.id)) continue;
     if (typeof entry.label !== 'string' || !entry.label.trim() || entry.label.length > 200 || /[\x00-\x1f\x7f]/.test(entry.label)) continue;
     if (typeof entry.apiUrl !== 'string' || typeof entry.apiKey !== 'string' || !entry.apiKey.trim()) continue;
     let url;
     try { url = new URL(entry.apiUrl); } catch { continue; }
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash || (url.pathname !== '/' && url.pathname !== '')) continue;
+    const provider = entry.provider;
     const profile = Object.freeze({
       id: entry.id,
       label: entry.label,
-      provider: 'grok',
+      provider,
       apiUrl: url.origin,
       apiKey: entry.apiKey,
       ...(modelId(entry.model) ? { model: modelId(entry.model) } : {}),
       legacy: false,
     });
     extras.set(profile.id, profile);
-    added.push(Object.freeze({ id: profile.id, label: profile.label, provider: 'grok' }));
+    added.push(Object.freeze({ id: profile.id, label: profile.label, provider }));
   }
   if (!added.length) return catalog;
   const list = Object.freeze([...catalog.list, ...added]);

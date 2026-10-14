@@ -1,6 +1,6 @@
 # Collab
 
-Collab is a board where Hermes and Grok Bot do a piece of work together. Orbit keeps the project, the tasks, the files, the budget, and the approvals. The agents propose changes. They do not write the board directly.
+Collab is a board where Hermes and Grok Bot do a piece of work together. Pi is not on the board yet: the board is pairwise by design, and [docs/PI.md](PI.md) records that gap rather than pretending Pi is a full member. Orbit keeps the project, the tasks, the files, the budget, and the approvals. The agents propose changes. They do not write the board directly.
 
 Open **Collab** from the Start menu, the command palette, or the Orbit menu. It is its own window at `orbit://surface/collab`, with the project list, the board, the approval inbox, and the activity timeline. To start from the shared room, post `/collab` and a goal, for example `/collab Write the changelog`. That opens the Collab app on the new project.
 

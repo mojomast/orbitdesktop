@@ -1,11 +1,34 @@
 import { el, button } from './dom';
 import { requestOpenHostSurface } from './host-surfaces';
+import { providerLabel } from './agent-providers';
 
-const labels: Record<string, string> = { owner: 'Kyle', hermes: 'Hermes', grok: 'Grok Bot', note: 'Orbit' };
+const labels: Record<string, string> = { owner: 'Kyle', hermes: 'Hermes', grok: 'Grok Bot', pi: 'Pi', note: 'Orbit' };
+// Used only when the server's state payload does not report the room's members.
+const DEFAULT_PARTICIPANTS = ['hermes', 'grok', 'pi'];
+
+function participantNames(ids: string[]): string[] {
+  return ids.map(id => providerLabel(id));
+}
+function andList(names: string[]): string {
+  if (!names.length) return '';
+  if (names.length === 1) return names[0];
+  return `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
+}
+function commaList(names: string[]): string {
+  if (!names.length) return '';
+  if (names.length === 1) return names[0];
+  return `${names.slice(0, -1).join(', ')}, and ${names.at(-1)}`;
+}
+function mentionList(ids: string[]): string {
+  return ids.map(id => `@${id}`).join(', ');
+}
+function participantHint(ids: string[]): string {
+  return `Kyle, ${commaList(participantNames(ids))} share this transcript. Address someone with ${mentionList(ids)}, or @all. Agents reply to each other only when they hand off the floor. You can post at any time. /collab and a goal opens the Collab app.`;
+}
 
 export function mountSharedAgents(options: { request: (body: Record<string, unknown>) => Promise<any>; onClose: () => void }) {
   const element = el('section', 'shared-agents');
-  element.setAttribute('aria-label', 'Shared Hermes and Grok Bot conversation');
+  element.setAttribute('aria-label', `Shared ${andList(participantNames(DEFAULT_PARTICIPANTS))} conversation`);
   const status = el('p', 'shared-agents-status', 'Loading the shared conversation…');
   status.setAttribute('role', 'status');
   const log = el('div', 'shared-agents-log');
@@ -15,7 +38,7 @@ export function mountSharedAgents(options: { request: (body: Record<string, unkn
   tasks.setAttribute('aria-label', 'Delegated tasks');
   const composer = el('textarea');
   composer.maxLength = 16000;
-  composer.placeholder = 'Message the group. Use @hermes, @grok, @all, or /collab <goal>';
+  composer.placeholder = `Message the group. Use ${mentionList(DEFAULT_PARTICIPANTS)}, @all, or /collab <goal>`;
   composer.setAttribute('aria-label', 'Message to the shared conversation');
   const form = el('form', 'shared-agents-form');
   const send = button('Send', 'Post to the shared conversation', () => {});
@@ -30,6 +53,7 @@ export function mountSharedAgents(options: { request: (body: Record<string, unkn
   continueButton.hidden = true;
 
   function draw(data: any) {
+    applyParticipants(data?.participants);
     log.replaceChildren();
     for (const message of data.messages || []) {
       const line = el('article', 'shared-agents-line');
@@ -103,9 +127,19 @@ export function mountSharedAgents(options: { request: (body: Record<string, unkn
   );
   const head = el('div', 'shared-agents-head');
   head.append(el('h2', '', 'Shared agents'), button('Back to this chat', 'Return to the single-agent conversation', () => options.onClose(), 'small-button'));
+  const description = el('p', '', participantHint(DEFAULT_PARTICIPANTS));
+  // The server reports which agents share the room. When the payload omits the
+  // list, fall back to the known hosts so the room is never described as empty.
+  function applyParticipants(raw: unknown) {
+    const ids = Array.isArray(raw) && raw.length > 0 && raw.every(id => typeof id === 'string') ? raw as string[] : DEFAULT_PARTICIPANTS;
+    element.setAttribute('aria-label', `Shared ${andList(participantNames(ids))} conversation`);
+    composer.placeholder = `Message the group. Use ${mentionList(ids)}, @all, or /collab <goal>`;
+    description.textContent = participantHint(ids);
+  }
+  applyParticipants(undefined);
   element.append(
     head,
-    el('p', '', 'Kyle, Hermes, and Grok Bot share this transcript. Address someone with @hermes, @grok, or @all. Agents reply to each other only when they hand off the floor. You can post at any time. /collab and a goal opens the Collab app.'),
+    description,
     status,
     log,
     tasks,

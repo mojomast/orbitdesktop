@@ -1,6 +1,6 @@
 import { el, button, select } from './dom';
 
-const labels: Record<string, string> = { hermes: 'Hermes', grok: 'Grok Bot', kyle: 'Kyle', orbit: 'Orbit' };
+const labels: Record<string, string> = { hermes: 'Hermes', grok: 'Grok Bot', pi: 'Pi', kyle: 'Kyle', orbit: 'Orbit' };
 const skillNames = ['terminal', 'tools', 'code', 'research', 'reasoning', 'writing'];
 const columns: [string, string][] = [
   ['planned', 'Awaiting approval'],

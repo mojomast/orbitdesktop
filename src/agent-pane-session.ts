@@ -1,5 +1,6 @@
 import { el, button } from './dom';
 import { dateGroup, formatWindow, groupHistory, matchesHistoryQuery, providerSwitchNote, type HistoryRow } from './agent-session-model';
+import { isGatewayProvider, providerLabel, type AgentProvider } from './agent-providers';
 
 type Profile = { id: string; label: string; configured: boolean; provider?: string };
 type Breakdown = { input?: number; output?: number; tools?: number; chars?: number; estimated?: number };
@@ -21,7 +22,7 @@ export function mountAgentPaneSession({
   library: (profileId: string, body: Record<string, unknown>) => Promise<Record<string, unknown>>;
   profiles: () => Profile[];
   state: () => { session: string; profile_id?: string; title?: string; run?: string; binding_revision?: number };
-  providerOf: (id: string) => 'grok' | 'hermes';
+  providerOf: (id: string) => AgentProvider;
   switchConversation: (profileId: string, sessionId?: string) => Promise<void>;
   acceptState: (next: { session: string; messages: { role: 'user' | 'assistant'; text: string }[] }) => void;
   showError: (error: unknown) => void;
@@ -111,8 +112,8 @@ export function mountAgentPaneSession({
     meter.title = limit ? `${used} / ${limit} ${source}.${calibrated} ${bits.join(', ')}`.trim() : 'Context unavailable';
     tools.hidden = data.tools === false;
     banner.hidden = level !== 'hot';
-    if (level === 'hot') banner.textContent = data.provider === 'grok'
-      ? 'Context is about 80% of the window (estimate), leaving about 10–15k tokens of headroom. Compact waits for confirmation and starts a fresh Grok Bot agent seeded with a summary.'
+    if (level === 'hot') banner.textContent = isGatewayProvider(data.provider)
+      ? `Context is about 80% of the window (estimate), leaving about 10–15k tokens of headroom. Compact waits for confirmation and starts a fresh ${providerLabel(data.provider)} agent seeded with a summary.`
       : 'Context is about 80% of the window, leaving about 10–15k tokens of headroom. Compact waits for confirmation. Hermes already keeps the first 3 turns and the last 20 messages; Compact only runs Hermes compression when that command is available.';
     sync();
   }
@@ -267,7 +268,7 @@ export function mountAgentPaneSession({
     const dialog = el('dialog', 'hermes-tools-dialog');
     dialog.setAttribute('aria-label', 'Confirm compact');
     const provider = providerOf(state().profile_id || 'default');
-    const copy = provider === 'grok'
+    const copy = isGatewayProvider(provider)
       ? 'Compact keeps the goal, decisions, plan, TODOs, files, commands, constraints, the first request, and the last 10 turns, then continues in a new agent. The raw transcript stays in History. This does not run by itself.'
       : 'Compact asks Hermes for its compression command. If that command is not available, Orbit leaves the session in place because Hermes already keeps the first 3 turns and the last 20 messages. Orbit does not summarize that session again.';
     let agreed = false;
@@ -339,8 +340,13 @@ export function mountAgentPaneSession({
   function sync() {
     syncing = true;
     const listProfiles = profiles();
-    const hermes = listProfiles.filter(profile => providerOf(profile.id) !== 'grok');
-    const grok = listProfiles.filter(profile => providerOf(profile.id) === 'grok');
+    const byProvider = new Map<string, Profile[]>();
+    for (const profile of listProfiles) {
+      const provider = providerOf(profile.id);
+      const bucket = byProvider.get(provider) || [];
+      bucket.push(profile);
+      byProvider.set(provider, bucket);
+    }
     select.replaceChildren();
     const add = (label: string, items: Profile[]) => {
       if (!items.length) return;
@@ -352,8 +358,11 @@ export function mountAgentPaneSession({
       }
       select.append(group);
     };
-    add('Hermes', hermes);
-    add('Grok Bot', grok);
+    // One group per provider present, labelled from the provider id. Hermes goes
+    // first so an unchanged pane keeps the familiar group order.
+    const hermesProfiles = byProvider.get('hermes');
+    if (hermesProfiles) { add(providerLabel('hermes'), hermesProfiles); byProvider.delete('hermes'); }
+    for (const [provider, items] of byProvider) add(providerLabel(provider), items);
     const id = state().profile_id || 'default';
     if (!listProfiles.some(profile => profile.id === id)) select.append(option(id, id));
     select.value = id;

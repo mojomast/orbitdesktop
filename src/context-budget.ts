@@ -4,6 +4,8 @@
  * estimate with reported/estimated, clamped so one odd reply cannot run away.
  */
 
+import type { AgentProvider } from './agent-providers.ts';
+
 export const AUTO_COMPACT_RATIO = 0.8;
 export const CONTEXT_SYSTEM_TEXT = 'Orbit agent instructions and conversation frame. ';
 export const CONTEXT_TOOLS_TEXT = 'tool schema allowance '.repeat(40);
@@ -102,7 +104,7 @@ export function meterLabel(measure: ContextMeasure, window: number): string {
 }
 
 /** Known windows. `window-<tokens>` is an explicit size for a configured label. */
-export function contextWindowFor(model: string | undefined, provider: string | undefined): number {
+export function contextWindowFor(model: string | undefined, provider: AgentProvider): number {
   const name = String(model || '');
   const sized = /^window-(\d{2,7})$/.exec(name);
   if (sized) return Number(sized[1]);
@@ -115,6 +117,8 @@ export function contextWindowFor(model: string | undefined, provider: string | u
     [/deepseek/i, 128000],
   ];
   for (const [pattern, size] of table) if (pattern.test(name)) return size;
+  // Pi has no model-name patterns of its own; its window comes from its own
+  // profile, so fall back to the 128000 default. Grok keeps its 131072 default.
   return provider === 'grok' ? 131072 : 128000;
 }
 

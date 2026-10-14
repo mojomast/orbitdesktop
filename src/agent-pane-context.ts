@@ -1,6 +1,7 @@
 import { el, button } from './dom';
 import { conversationRequest } from './conversation-client';
 import { chatProfileId, type ChatState, type Message } from './chat-storage';
+import { asProvider, providerLabel, providerMark } from './agent-providers';
 import {
   CONTEXT_SYSTEM_TEXT, CONTEXT_TOOLS_TEXT, DATE_GROUP_ORDER, calibrate, contextWindowFor, dateGroup,
   formatTokens, measureContext, meterLabel, meterLevel, shouldAutoCompact, type ContextMeasure,
@@ -32,7 +33,7 @@ export function mountAgentPaneContext(options: {
   profiles: () => Profile[];
   getState: () => ChatState;
   switchBlocked: () => boolean;
-  providerIsGrok: () => boolean;
+  providerIsGateway: () => boolean;
   showError: (error: unknown) => void;
   applyState: (state: ChatState) => void;
   resume: (profileId: string, sessionId: string) => void;
@@ -87,7 +88,7 @@ export function mountAgentPaneContext(options: {
   search.setAttribute('aria-label', 'Search chat history');
   const filter = el('select');
   filter.setAttribute('aria-label', 'Filter history by provider');
-  for (const [value, label] of [['', 'All providers'], ['hermes', 'Hermes'], ['grok', 'Grok Bot']]) {
+  for (const [value, label] of [['', 'All providers'], ['hermes', 'Hermes'], ['grok', 'Grok Bot'], ['pi', 'Pi']]) {
     const option = el('option', '', label);
     option.value = value;
     filter.append(option);
@@ -132,11 +133,12 @@ export function mountAgentPaneContext(options: {
     const state = options.getState();
     const profile = options.profiles().find(item => item.id === chatProfileId(state));
     const listed = providers.find(item => item.id === chatProfileId(state));
-    return listed?.model || (profile?.provider === 'grok' ? 'grok' : 'gateway model');
+    return listed?.model || (asProvider(profile?.provider) === 'grok' ? 'grok' : 'gateway model');
   }
   function currentWindow() {
+    const profile = options.profiles().find(item => item.id === chatProfileId(options.getState()));
     const listed = providers.find(item => item.id === chatProfileId(options.getState()));
-    return listed?.context_window || contextWindowFor(currentModel(), options.providerIsGrok() ? 'grok' : 'hermes');
+    return listed?.context_window || contextWindowFor(currentModel(), asProvider(profile?.provider));
   }
   function toolsText() {
     const listed = providers.find(item => item.id === chatProfileId(options.getState()));
@@ -176,11 +178,11 @@ export function mountAgentPaneContext(options: {
       ? 'Total is reported by the gateway. Breakdown is estimated.'
       : '≈ estimated from characters (prose ÷ 4, code ÷ 3), calibrated after a reported reply.';
     meter.title = `${source} System ${formatTokens(parts.system)}, tools ${formatTokens(parts.tools)}, history ${formatTokens(parts.history)}, files ${formatTokens(parts.files)}.`;
-    const hermes = !options.providerIsGrok() && !orbitOwned();
+    const hermes = !options.providerIsGateway() && !orbitOwned();
     compactButton.title = hermes
       ? 'Hermes compresses this session on the gateway. Orbit will not compact it again.'
       : 'Compact this Orbit transcript. Raw text stays on disk.';
-    if (!options.getPreview() && shouldAutoCompact(reading.used, window) && (options.providerIsGrok() || orbitOwned())) {
+    if (!options.getPreview() && shouldAutoCompact(reading.used, window) && (options.providerIsGateway() || orbitOwned())) {
       const key = `${chatProfileId(options.getState())}:${options.getState().session}`;
       if (autoFor !== key) { autoFor = key; void compact(true); }
     }
@@ -190,7 +192,7 @@ export function mountAgentPaneContext(options: {
     const state = options.getState();
     const profile = options.profiles().find(item => item.id === chatProfileId(state));
     const listed = providers.find(item => item.id === chatProfileId(state));
-    const name = listed ? `${listed.provider === 'grok' ? 'Grok Bot' : 'Hermes'} › ${listed.model}` : (profile?.label || chatProfileId(state));
+    const name = listed ? `${providerLabel(listed.provider)} › ${listed.model}` : (profile?.label || chatProfileId(state));
     providerButton.textContent = name;
     try { localStorage.setItem(memoryKey(options.workspaceId, options.paneId), chatProfileId(state)); } catch { /* Preference is optional. */ }
   }
@@ -247,7 +249,7 @@ export function mountAgentPaneContext(options: {
         const dot = el('span', 'agent-health-dot');
         dot.dataset.health = row.health;
         dot.title = row.health === 'up' ? 'Gateway up' : 'Gateway down';
-        option.replaceChildren(dot, el('span', '', `${row.provider === 'grok' ? 'Grok Bot' : 'Hermes'} › ${row.model}`), el('span', 'agent-window-badge', formatTokens(row.context_window)), el('span', 'agent-tools-badge', row.tools ? 'tools' : 'no tools'));
+        option.replaceChildren(dot, el('span', '', `${providerLabel(row.provider)} › ${row.model}`), el('span', 'agent-window-badge', formatTokens(row.context_window)), el('span', 'agent-tools-badge', row.tools ? 'tools' : 'no tools'));
         group.append(option);
       }
       menu.append(group);
@@ -303,7 +305,7 @@ export function mountAgentPaneContext(options: {
 
   async function compact(automatic: boolean) {
     if (!automatic) {
-      const hermes = !options.providerIsGrok() && !orbitOwned();
+      const hermes = !options.providerIsGateway() && !orbitOwned();
       const choice = await ask('Compact conversation', hermes
         ? 'Hermes compresses this session on the gateway from reported usage. Orbit will show that state and will not compact the same transcript again.'
         : 'Orbit will prune old tool output, keep the first request and the last 10 turns, and replace the middle with a summary. The raw transcript stays on disk.',
@@ -344,10 +346,10 @@ export function mountAgentPaneContext(options: {
     const item = el('article', 'agent-history-row');
     item.dataset.session = row.session_id;
     const title = el('p', '', `${row.pinned ? '★ ' : ''}${row.title || row.session_id}`);
-    const mark = el('span', 'agent-provider-mark', row.provider === 'grok' ? 'G' : 'H');
-    mark.title = row.provider === 'grok' ? 'Grok Bot' : 'Hermes';
+    const mark = el('span', 'agent-provider-mark', providerMark(row.provider));
+    mark.title = providerLabel(row.provider);
     const line = el('p');
-    line.append(mark, document.createTextNode(` ${row.provider === 'grok' ? 'Grok Bot' : 'Hermes'}${row.snippet ? ` · ${row.snippet}` : ''}`));
+    line.append(mark, document.createTextNode(` ${providerLabel(row.provider)}${row.snippet ? ` · ${row.snippet}` : ''}`));
     const rowActions = el('div', 'agent-history-actions');
     rowActions.append(
       button('Open', 'Open this conversation read-only', () => { void openRow(row); }, 'small-button'),
