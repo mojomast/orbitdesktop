@@ -169,6 +169,7 @@ const desktopHost = el('div', 'desktop-host');
 desktopHost.setAttribute('aria-label', 'Movable workspace windows');
 const desktopIcons = installDesktopIcons(desktopHost, () => [
   {id:'colab-runtime',title:'Google Colab',icon:'▣',pinned:true,run:()=>{void commands.execute('colab-runtime');}},
+  {id:'kitty-doom',title:'Kitty DOOM',icon:'👾',run:()=>{void commands.execute('kitty-doom');}},
   ...xpraApps.map(a=>({id:`xpra-${a.id}`,title:a.title,icon:a.icon,run:()=>{
     if(focused)unfocus();
     const existing=state.monitors.find(m=>leaves(m.layout).some(p=>p.kind==='browser'&&p.url===a.url));
@@ -434,6 +435,7 @@ const commands = createWorkspaceCommands((): WorkspaceCommand[] => [
   { id: 'new-terminal', title: 'New terminal', detail: 'Open a host terminal pane', group: 'Create', run: () => addMonitor('terminal') },
   { id: 'new-browser', title: 'New browser', detail: 'Open an app or website', group: 'Create', run: () => addMonitor('browser') },
   { id: 'colab-runtime', title: 'Google Colab', detail: 'GPU and TPU runtimes on colab.research.google.com', group: 'Apps', keywords: ['colab', 'gpu', 'tpu', 'notebook'], disabledReason: !sessionToken ? 'Connect host first to use Google Colab.' : undefined, run: () => openHostSurface('colab-runtime') },
+  { id: 'kitty-doom', title: 'Kitty DOOM', detail: 'Play kitty-doom (Freedoom) in a Kitty-graphics window', group: 'Apps', keywords: ['doom', 'game', 'kitty', 'freedoom', 'play'], disabledReason: !sessionToken ? 'Connect host first to use Kitty DOOM.' : undefined, run: () => openHostSurface('kitty-doom') },
   { id: 'windows', title: 'Windows view', detail: 'Movable desktop windows', group: 'Layout', run: () => windowsButton.click() },
   { id: 'spatial', title: 'Spatial view', detail: 'Explore your 3D workspace', group: 'Layout', run: () => sceneButton.click() },
   { id: 'focus', title: 'Focus selected window', detail: 'Expand the selected display', group: 'Layout', run: () => flatButton.click() },
@@ -538,6 +540,9 @@ function orbitMenuSections(): OrbitMenuSection[] {
   return [
     { id: 'google-colab', title: 'Google Colab', detail: 'Runtimes on colab.research.google.com.', items: [
       { id: 'colab-runtime', label: 'Google Colab', icon: '▣', button: button('Google Colab', 'Google Colab runtimes', () => { void commands.execute('colab-runtime'); }) },
+    ] },
+    { id: 'games', title: 'Games', detail: 'Play a game inside your workspace.', items: [
+      { id: 'kitty-doom', label: 'Kitty DOOM', icon: '👾', button: button('Kitty DOOM', 'Play kitty-doom with Freedoom', () => { void commands.execute('kitty-doom'); }) },
     ] },
     { id: 'view', title: 'Workspace view', detail: 'Choose how your windows are arranged.', items: [
       { id: 'windows', label: 'Windows', icon: '▤', button: windowsButton },

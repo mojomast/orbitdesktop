@@ -39,6 +39,9 @@ import {technologyOwnerRoute,lazyTechnologyService} from './technology-owner-rou
 import {createWorkbenchSandboxProvider} from './workbench-sandbox-provider.mjs';
 import { createIrcService } from './irc.mjs';
 import { createColabOrchestrator } from './colab-orchestrator.mjs';
+import { createKittyDoomService } from './kitty-doom.mjs';
+import { createGrokBotsApp } from './grokbots-app.mjs';
+import { createAgentStatus } from './agent-status.mjs';
 const port = Number(process.env.PORT || 4318);
 if (!Number.isInteger(port) || port < 1024 || port > 65535)
   throw Error("PORT must be between 1024 and 65535");
@@ -119,6 +122,11 @@ if (discovered.pi) {
 }
 const irc = createIrcService({ token, orbitPort: port, devOrigins, reply, repoRoot });
 const colab = createColabOrchestrator({ token, port, devOrigins, reply, root: path.join(runtimeRoot, 'colab-orchestrator') });
+// Kitty DOOM: one kitty-graphics PTY session per websocket window on this origin.
+const kittyDoom = createKittyDoomService({ token, port, devOrigins, reply });
+// Grok Bots app: capability-scoped list/history/send for the sandboxed app iframe.
+const agentStatus = createAgentStatus({ runtimeRoot });
+const grokBotsApp = createGrokBotsApp({ runtimeRoot, catalog: () => agentHandler.profileCatalog?.(), agentStatus });
 const agentHandler = createAgentHandler({ token, port, devOrigins, reply, workspaceContext: workspaceService.context, workspaceRead:workspaceService.read, runtimeDirectory:runtimeRoot,executionGate,onRunEvent:event=>observeTechnologyTrace(event,'observeAgentRunEvent'),onNormalAccepted:record=>normalResources?.normalAccepted(record),
   ...(!explicitHermes && discovered.hermes ? { apiUrl: null, apiKey: null, profiles: [{ id: "default", label: discovered.hermes.label, apiUrl: discovered.hermes.apiUrl, apiKey: discovered.hermes.apiKey }] } : {}),
   ...(discovered.grok || piProfile ? { additionalProfiles: [...(discovered.grok ? [discovered.grok] : []), ...(piProfile ? [piProfile] : [])] } : {}),
@@ -329,6 +337,9 @@ async function handleOrbitRequest(req, res) {
   if (url.pathname === "/api/agent") return agentHandler(req, res);
   if (url.pathname === "/api/irc") return irc.handle(req, res);
   if (url.pathname === '/api/colab-runtime' || url.pathname.startsWith('/api/colab-runtime/')) return colab.handle(req, res, url);
+  if (url.pathname === '/api/kitty-doom') return kittyDoom.handle(req, res);
+  if (url.pathname === '/api/grokbots-app') return grokBotsApp.handle(req, res);
+  if (url.pathname === '/api/agent-status') return agentStatus.handle(req, res);
   if (url.pathname === "/api/health")
     return reply(res, 200, {
       service: "orbit",
@@ -410,8 +421,13 @@ const wss = new WebSocketServer({
   perMessageDeflate: false,
 });
 server.on("upgrade", (req, socket, head) => {
-  if (String(req.url || '').split('?')[0] === '/api/irc') {
+  const upgradePath = String(req.url || '').split('?')[0];
+  if (upgradePath === '/api/irc') {
     irc.upgrade(req, socket, head);
+    return;
+  }
+  if (upgradePath === '/api/kitty-doom') {
+    kittyDoom.upgrade(req, socket, head);
     return;
   }
   if (
@@ -604,6 +620,7 @@ for (const signal of ["SIGTERM", "SIGINT"])
     irc.close();
     piGateway?.close?.();
     colab.close();
+    kittyDoom.close();
     execution.close();
     sandboxProvider.close();
     contextSharing.close?.();

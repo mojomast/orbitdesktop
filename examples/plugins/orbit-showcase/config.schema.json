@@ -1,0 +1,7 @@
+{
+  "fields": [
+    { "key": "title", "type": "string", "title": "Heading", "description": "Page/window heading.", "default": "Orbit Feature Showcase" },
+    { "key": "subtitle", "type": "string", "title": "Subtitle", "description": "Intro line under the heading." },
+    { "key": "accentColor", "type": "string", "title": "Accent color", "description": "Six-digit hex accent used locally.", "default": "#b5f268" }
+  ]
+}

@@ -4,9 +4,9 @@ import { publishedDataInput } from './data-published-input';
 import { workspaceId } from './workspace-sync';
 import { TECHNOLOGY_SURFACES, mountTechnologySurface, type TechnologySurfaceId, type TechnologySurfaceOptions } from './technology-surfaces';
 
-export type HostSurfaceId = 'outputs' | 'activity' | 'collab' | 'irc' | 'colab-runtime' | TechnologySurfaceId;
+export type HostSurfaceId = 'outputs' | 'activity' | 'collab' | 'irc' | 'colab-runtime' | 'kitty-doom' | TechnologySurfaceId;
 export const HOST_SURFACE_LABELS = {
-  outputs:'Apps and outputs',activity:'Live activity',collab:'Collab',irc:'IRC','colab-runtime':'Google Colab',
+  outputs:'Apps and outputs',activity:'Live activity',collab:'Collab',irc:'IRC','colab-runtime':'Google Colab','kitty-doom':'Kitty DOOM',
   search:TECHNOLOGY_SURFACES.search.title,
   'interactive-results':TECHNOLOGY_SURFACES['interactive-results'].title,
   data:TECHNOLOGY_SURFACES.data.title,voice:TECHNOLOGY_SURFACES.voice.title,
@@ -19,6 +19,7 @@ export const HOST_SURFACE_URLS = {
   collab: 'orbit://surface/collab',
   irc: 'orbit://surface/irc',
   'colab-runtime': 'orbit://surface/colab-runtime',
+  'kitty-doom': 'orbit://surface/kitty-doom',
   search: 'orbit://surface/search',
   'interactive-results': 'orbit://surface/interactive-results',
   data: 'orbit://surface/data',
@@ -102,6 +103,11 @@ export function mountHostSurface(host: HTMLElement, id: HostSurfaceId, token: ()
         },
       });
       root.append(view.element);
+      cleanup = () => view.dispose();
+    }) : id === 'kitty-doom' ? import('./kitty-doom').then(module => {
+      if (disposed) return;
+      root.replaceChildren();
+      const view = module.mountKittyDoom(root, token, options);
       cleanup = () => view.dispose();
     }) : id === 'irc' ? import('./irc').then(module => {
       if (disposed) return;
