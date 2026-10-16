@@ -205,3 +205,36 @@ test('workspace context toggle is saved per conversation and sends the workspace
   assert.deepEqual(errors, []);
   await context.close();
 });
+
+test('notifies when an unseen bot finishes (respecting mute), and colours a conversation', async () => {
+  fx.state.running = true;
+  const { page, app, errors, context } = await open(`&p=grok&a=${AGENT2}`);
+  await page.evaluate(() => { window.__ops.length = 0; window.__hostReply.notify = { data: { shown: true } }; });
+  await app.locator('.bot', { hasText: 'Stub Bot' }).locator('.dot').waitFor();
+  fx.state.running = false;
+  await app.locator('#rf').click();
+  await page.waitForFunction(() => window.__ops.some(o => o.op === 'notify'));
+  const n = await page.evaluate(() => window.__ops.find(o => o.op === 'notify'));
+  assert.equal(n.title, 'Stub Bot finished'); assert.equal(n.tag, `grok|${'11111111-2222-4333-8444-555555555555'}`);
+  // mute Stub Bot, then the next finished turn is silent
+  await app.locator('.bot', { hasText: 'Stub Bot' }).click();
+  await app.locator('#prefbtn').click();
+  await app.locator('#pmute').check();
+  await app.locator('#pcolor').evaluate(el => { el.value = '#7a2f5c'; el.dispatchEvent(new Event('input', { bubbles: true })); });
+  await page.waitForTimeout(600);
+  const bg = await app.locator('#msgs .m.user').first().evaluate(el => getComputedStyle(el).backgroundColor);
+  assert.equal(bg, 'rgb(122, 47, 92)');
+  await page.screenshot({ path: process.env.GB_SHOTS ? process.env.GB_SHOTS + '/08-notifications-theme.png' : '/tmp/gb-08.png' });
+  const saved = JSON.parse(fs.readFileSync(fx.runtimeRoot + '/grokbots-prefs.json', 'utf8'));
+  assert.equal(saved.themes[`grok|${'11111111-2222-4333-8444-555555555555'}`], '#7a2f5c');
+  assert.equal(saved.muted[`grok|${'11111111-2222-4333-8444-555555555555'}`], true);
+  await app.locator('.bot', { hasText: 'Second Bot' }).click();
+  await page.evaluate(() => { window.__ops.length = 0; });
+  fx.state.running = true; await app.locator('#rf').click(); await page.waitForTimeout(500);
+  fx.state.running = false; await app.locator('#rf').click(); await page.waitForTimeout(800);
+  assert.equal(await page.evaluate(() => window.__ops.filter(o => o.op === 'notify').length), 0);
+  // the theme dot shows in the sidebar; the other conversation keeps the default colour
+  await app.locator('.bot', { hasText: 'Stub Bot' }).locator('.tdot').waitFor();
+  assert.deepEqual(errors, []);
+  await context.close();
+});

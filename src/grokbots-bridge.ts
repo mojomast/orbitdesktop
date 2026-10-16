@@ -111,3 +111,21 @@ registerGrokBotsOp('workbench', async () => {
   window.dispatchEvent(new CustomEvent('orbit-open-workbench-window', { detail: {} }));
   return { opened: true };
 });
+
+// Desktop notifications, the same Notification API the agent chat uses. The app
+// decides when (turn finished while unseen); the host only shows bounded text.
+registerGrokBotsOp('notify', async (message, context) => {
+  if (!('Notification' in window)) return { shown: false, reason: 'unsupported' };
+  if (Notification.permission !== 'granted') return { shown: false, reason: Notification.permission };
+  const title = clipText(message.title, 120).replace(/[\u0000-\u001f]+/g, ' ').trim() || 'Grok Bots';
+  const body = clipText(message.body, 300).replace(/[\u0000-\u0008\u000b-\u001f]+/g, ' ');
+  const tag = clipText(message.tag, 200);
+  const n = new Notification(title, { body, ...(tag ? { tag: `grokbots:${tag}` } : {}) });
+  n.onclick = () => { window.focus(); context.frame.scrollIntoView?.({ block: 'nearest' }); context.post({ op: 'notification-click', tag }); n.close(); };
+  return { shown: true };
+});
+registerGrokBotsOp('notify-permission', async () => {
+  if (!('Notification' in window)) return { permission: 'unsupported' };
+  if (Notification.permission === 'default') { try { await Notification.requestPermission(); } catch {} }
+  return { permission: Notification.permission };
+});

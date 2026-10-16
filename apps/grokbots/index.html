@@ -1,4 +1,4 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="orbit-builtin-app" content="grokbots@8"><title>Agents</title><meta name="viewport" content="width=device-width,initial-scale=1">
+<!doctype html><html><head><meta charset="utf-8"><meta name="orbit-builtin-app" content="grokbots@9"><title>Agents</title><meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 *{box-sizing:border-box}html,body{margin:0;height:100%;background:#0d0f14;color:#e6e8ee;font:14px/1.45 system-ui,-apple-system,Segoe UI,sans-serif}
 #app{display:flex;height:100%}
@@ -613,6 +613,41 @@ b.onclick=()=>{const k=window.convKey&&convKey();if(!k)return;if(!gbPrefs.contex
 wb.onclick=async()=>{try{await host('workbench',{})}catch(e){err(e)}};
 window.gbSendExtras=()=>on()&&window.HOST&&HOST.workspaceId?{context:true,workspace:HOST.workspaceId}:{};
 addEventListener('gb-conv',render);addEventListener('gb-host',render);addEventListener('gb-host-hello',render);setTimeout(render,0);
+})();
+</script>
+<script>
+// ---- Notifications (turn finished while unseen) and per-conversation colour themes ----
+(function(){
+const st=document.createElement('style');st.textContent=`#prefpop{position:absolute;right:12px;top:48px;z-index:40;background:#141822;border:1px solid #2b3248;border-radius:10px;padding:10px 12px;display:none;flex-direction:column;gap:8px;font-size:12px;min-width:250px;box-shadow:0 8px 30px #0008}#prefpop.on{display:flex}#prefpop label{display:flex;gap:8px;align-items:center}#prefpop .pn{font-size:11px;color:#8b93a7}#prefpop input[type=color]{width:34px;height:22px;padding:0;border:none;background:none}.bot .tdot{width:8px;height:8px;border-radius:50%;flex:none}`;document.head.append(st);
+const theme=document.createElement('style');theme.id='convtheme';document.head.append(theme);
+const b=document.createElement('button');b.id='prefbtn';b.type='button';b.textContent='🔔';b.title='Notifications and colour for this conversation';$('actbtn').before(b);
+const pop=document.createElement('div');pop.id='prefpop';pop.innerHTML='<label><input type="checkbox" id="pnotify"> Desktop notifications when a bot finishes</label><div class="pn" id="pperm"></div><label><input type="checkbox" id="pmute"> Mute this conversation</label><label>Colour <input type="color" id="pcolor" value="#2c3d78"><button id="pcolorx" type="button">Reset</button></label>';document.body.append(pop);
+const P=()=>window.gbPrefs||{};const key=()=>window.convKey?convKey():'';
+const enabled=()=>P().settings?P().settings.notifications!==false:true;
+const muted=k=>!!(P().muted&&P().muted[k]);
+function applyTheme(){const c=P().themes&&P().themes[key()];theme.textContent=c?`.m.user{background:${c}}#top{border-bottom:2px solid ${c}}#send.pri,#send{background:${c};border-color:${c}}`:'';$('pcolor').value=c||'#2c3d78'}
+function renderPop(){$('pnotify').checked=enabled();$('pmute').checked=muted(key());$('pmute').disabled=!key();const f=window.HOST&&HOST.features||{};const perm=f.notifications;
+  $('pperm').textContent=!(window.HOST&&HOST.ready)?'Open inside Orbit for desktop notifications; you will see in-app toasts instead.':perm==='granted'?'Orbit may show notifications.':perm==='denied'?'Notifications are blocked for Orbit in the browser; in-app toasts are used.':perm==='unsupported'?'This browser has no notifications; in-app toasts are used.':'Orbit will ask for permission when you turn this on.';applyTheme()}
+b.onclick=e=>{e.stopPropagation();pop.classList.toggle('on');renderPop()};document.addEventListener('click',e=>{if(!pop.contains(e.target)&&e.target!==b)pop.classList.remove('on')});
+$('pnotify').onchange=async()=>{const v=$('pnotify').checked;const pr=P();pr.settings=pr.settings||{};pr.settings.notifications=v;gbSavePref('settings','notifications',v);
+  if(v&&window.HOST&&HOST.ready){try{const r=await host('notify-permission',{},60000);HOST.features.notifications=r.permission}catch{}}renderPop()};
+$('pmute').onchange=()=>{const k=key();if(!k)return;const pr=P();pr.muted=pr.muted||{};if($('pmute').checked)pr.muted[k]=true;else delete pr.muted[k];gbSavePref('muted',k,$('pmute').checked?true:null)};
+$('pcolor').oninput=()=>{const k=key();if(!k)return;const pr=P();pr.themes=pr.themes||{};pr.themes[k]=$('pcolor').value;applyTheme();clearTimeout(window.__thT);window.__thT=setTimeout(()=>gbSavePref('themes',k,$('pcolor').value),300)};
+$('pcolorx').onclick=()=>{const k=key();if(!k)return;delete P().themes[k];gbSavePref('themes',k,null);applyTheme()};
+addEventListener('gb-conv',()=>{applyTheme();renderPop()});
+// Sidebar dots for themed conversations.
+const rl=window.renderList;window.renderList=function(){const r=rl.apply(this,arguments);try{const th=P().themes||{};for(const row of document.querySelectorAll('#list .bot')){row.querySelector('.tdot')?.remove()}
+  for(const g of groups)for(const a of g.agents){const c=th[g.profile+'|'+a.id];if(!c)continue;const row=[...document.querySelectorAll('#list .bot')].find(x=>x.title===a.id);if(row){const d=document.createElement('span');d.className='tdot';d.style.background=c;row.insertBefore(d,row.children[1])}}}catch{}return r};
+// When to notify: a roster bot that was running stops while you are not looking at it.
+const was=new Map();
+async function notify(title,body,tag){if(!enabled()||muted(tag))return;let shown=false;if(window.HOST&&HOST.ready){try{shown=(await host('notify',{title,body,tag})).shown}catch{}}if(!shown&&window.toast)toast(title+(body?' — '+body.slice(0,80):''))}
+window.gbNotify=notify;
+const la=window.loadAgents;window.loadAgents=async function(){for(const g of groups)for(const a of g.agents||[])if(!was.has(g.profile+'|'+a.id))was.set(g.profile+'|'+a.id,!!a.running);const r=await la.apply(this,arguments);try{for(const g of groups){if(g.kind!=='gateway')continue;for(const a of g.agents){const k=g.profile+'|'+a.id,prev=was.get(k);was.set(k,!!a.running);
+  if(prev&&!a.running){const viewing=sel&&sel.profile===g.profile&&sel.agent===a.id&&!document.hidden;if(!viewing)notify(a.awaiting?a.name+' needs your input':a.name+' finished',a.preview||'',k)}}}}catch{}return r};
+// Hermes runs in this window: notify if the run ends while the page is hidden.
+let lastRun=null;setInterval(()=>{if(lastRun&&!run&&document.hidden&&sel){const b=cur();notify((b?b.name:'Hermes')+' replied','',window.convKey?convKey():'')}lastRun=run},1000);
+addEventListener('gb-host-notification-click',e=>{const t=e.detail&&e.detail.tag||'';const [p,a,s2]=t.split('|');if(p&&a&&!(sel&&sel.profile===p&&sel.agent===a)){pick(p,a);if(s2)openSession(s2)}});
+setTimeout(applyTheme,0);
 })();
 </script>
 </body></html>
