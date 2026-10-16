@@ -18,7 +18,7 @@ function tokenCount(run) {
  * Hermes and Grok Bot calls shared by the shared room and Collab.
  * Callers own transcripts, budgets and task state.
  */
-export function createAgentGateways({ fetchImpl = fetch, chats, grok, hermesProfile, gatewayProfile, grokProfile, now = () => Date.now() } = {}) {
+export function createAgentGateways({ fetchImpl = fetch, chats, grok, hermesProfile, gatewayProfile, grokProfile, now = () => Date.now(), sharedTimeoutMs, interimMessages = false, longTurns = false } = {}) {
   // One chat surface per gateway provider. A caller from the days of a single
   // Grok Bot gateway can still pass `grok` + `grokProfile` and gets the same map.
   const surfaces = chats instanceof Map ? chats : (grok ? new Map([['grok', grok]]) : new Map());
@@ -61,14 +61,27 @@ export function createAgentGateways({ fetchImpl = fetch, chats, grok, hermesProf
     return { status: 'running' };
   }
 
+  // Hermes session messages (GET /api/sessions/<id>/messages): interim assistant texts of a running group turn.
+  const messageList = data => (Array.isArray(data) ? data : Array.isArray(data?.data) ? data.data : Array.isArray(data?.messages) ? data.messages : []);
+  const textOf = content => typeof content === 'string' ? content : Array.isArray(content) ? content.map(part => (typeof part === 'string' ? part : part?.type === 'text' || typeof part?.text === 'string' ? part.text || '' : '')).join('') : '';
+  async function sessionMessageCount(profile, session) {
+    try { return messageList(await hermes(profile, `/api/sessions/${encodeURIComponent(session)}/messages`)).length; }
+    catch (error) { return error?.status === 404 ? 0 : null; }
+  }
+  async function sessionAssistantTexts(profile, session, base) {
+    const list = messageList(await hermes(profile, `/api/sessions/${encodeURIComponent(session)}/messages`)).slice(base);
+    return list.filter(item => item && item.role === 'assistant').map(item => textOf(item.content).trim()).filter(Boolean).map(text => text.slice(0, 16000));
+  }
+
   async function startSpeaker({ speaker, prompt, instructions, hermesSession, grokAgentId, grokAgentName }) {
     if (speaker === 'hermes') {
       const profile = hermesProfile();
       if (!profile?.apiUrl || !profile.apiKey) throw fail('Hermes is not configured on this Orbit server.', 409);
+      const msgBase = interimMessages ? await sessionMessageCount(profile, hermesSession) : null;
       const data = await hermes(profile, '/v1/runs', { input: prompt, session_id: hermesSession, instructions, conversation_history: [] });
       if (!runPattern.test(data?.run_id || '')) throw fail('Hermes did not return a usable run.');
       const tokens = tokenCount(data);
-      return { runId: data.run_id, started: now(), ...(tokens ? { tokens } : {}) };
+      return { runId: data.run_id, started: now(), ...(tokens ? { tokens } : {}), ...(Number.isInteger(msgBase) ? { msgBase, session: hermesSession } : {}) };
     }
     const gateway = gatewayFor(speaker);
     if (!gateway) throw fail(`${providerLabel(speaker)} is not configured on this Orbit server.`, 409);
@@ -84,13 +97,22 @@ export function createAgentGateways({ fetchImpl = fetch, chats, grok, hermesProf
       if (!profile) return { status: 'failed', error: 'Hermes is not configured on this Orbit server.' };
       const raw = await hermes(profile, `/v1/runs/${run.runId}`);
       const view = hermesView(raw);
+      // Run-status heartbeat: Hermes bumps updated_at/last_event on tool and control events, so tool work resets the inactivity timer.
+      view.activityKey = `${raw?.updated_at || ''}:${raw?.last_event || ''}`;
+      if (interimMessages && Number.isInteger(run.msgBase) && run.session && (view.status === 'running' || view.status === 'completed')) {
+        try { view.interim = await sessionAssistantTexts(profile, run.session, run.msgBase); } catch { /* interim bubbles are best effort */ }
+      }
       const tokens = tokenCount(raw);
       if (tokens) view.tokens = tokens;
       return view;
     }
     const gateway = gatewayFor(run.speaker);
     if (!gateway) return { status: 'failed', error: `${providerLabel(run.speaker)} is not configured on this Orbit server.` };
-    return gateway.chat.pollSharedPrompt(gateway.profile, run);
+    if (longTurns && typeof gateway.chat.pollSharedTurn === 'function') {
+      const view = await gateway.chat.pollSharedTurn(gateway.profile, run);
+      return { ...view, interim: view.messages || [] };
+    }
+    return Number.isFinite(sharedTimeoutMs) ? gateway.chat.pollSharedPrompt(gateway.profile, run, sharedTimeoutMs) : gateway.chat.pollSharedPrompt(gateway.profile, run);
   }
 
   async function stopSpeaker(run) {

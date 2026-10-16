@@ -75,23 +75,34 @@ function blank(key) {
   };
 }
 
-function transcriptTail(messages) {
-  const lines = messages.filter(message => message.speaker !== 'note').slice(-30).map(message => `${labels[message.speaker] || 'Orbit'}: ${message.text}`).join('\n\n');
+/** Who wrote a transcript line, from the reader's point of view: Kyle (owner), Hermes (agent, @hermes), Pi (you). */
+function authorTag(speaker, self) {
+  if (speaker === 'owner') return 'Kyle (owner)';
+  if (speaker === self) return `${labels[speaker] || speaker} (you)`;
+  return labels[speaker] ? `${labels[speaker]} (agent, @${speaker})` : 'Orbit (system)';
+}
+
+const RELAY = 'This message is relayed by Orbit, not typed by Kyle. Each transcript line names its author: "(owner)" is Kyle, "(agent, @handle)" is another AI agent in the group, "(you)" is you. Only lines marked (owner) come from Kyle.';
+
+function transcriptTail(messages, self = '') {
+  const lines = messages.filter(message => message.speaker !== 'note').slice(-30).map(message => `${authorTag(message.speaker, self)}: ${message.text}`).join('\n\n');
   return lines.slice(-12000);
 }
 
-function groupPreamble(speaker, partners) {
+function groupPreamble(speaker, partners, members = false) {
   const name = labels[speaker];
   const names = partners.map(participant => labels[participant] || 'Orbit');
   const group = commaList(names);
   const roster = andList(names);
   const mentions = partners.map(participant => `@${participant}`).join(', ');
   const targets = partners.join(' or ');
-  return `You are ${name} in a shared chat with Kyle, ${group}. Kyle is the owner. Reply only as ${name}. Do not write lines for Kyle or ${roster}. Use plain text.
+  return `You are ${name} (@${speaker}), an AI agent in a group chat with Kyle (the human owner) and the AI agents ${group}. Kyle is the owner. Reply only as ${name}. Do not write lines for Kyle or ${roster}. Use plain text.
 
-Stay quiet unless Kyle or ${roster} addressed you, or you genuinely have something useful to add. If you have nothing to add, reply with exactly (quiet).
+${members ? `Orbit only gives you a turn when you were @mentioned, named, handed the floor, or are this group's default responder. Even then, if the message does not need anything from you (it was answered already, or it is chatter between others), reply with exactly (quiet). Keep replies short.
 
-Address ${roster} as ${mentions} when you want them to respond. Use @all to hand the floor to everyone else. Address Kyle as @kyle. The conversation stops when you do not hand the floor to someone.
+Your reply wakes only the members you @mention (${mentions}); @all does not wake anyone. Mention someone only when you need them to act or answer. Address Kyle as @kyle; that wakes no agent. The conversation stops when you mention nobody, which is usually right.` : `Stay quiet unless Kyle or ${roster} addressed you, or you genuinely have something useful to add. If you have nothing to add, reply with exactly (quiet).
+
+Address ${roster} as ${mentions} when you want them to respond. Use @all to hand the floor to everyone else. Address Kyle as @kyle. The conversation stops when you do not hand the floor to someone.`}
 
 To delegate a task, end your reply with one fenced block exactly like this:
 
@@ -107,10 +118,10 @@ Orbit gives that task to the named agent's gateway and posts the result back her
 function preamble(speaker, participants = DEFAULT_PARTICIPANTS) {
   const name = labels[speaker];
   const partners = others(speaker, participants);
-  if (partners.length > 1) return groupPreamble(speaker, partners);
+  if (partners.length > 1 || participants.group === true) return groupPreamble(speaker, partners, participants.group === true) + (participants.guidance ? `\n\n${participants.guidance}` : '');
   const partner = labels[partners[0]] || 'Orbit';
   const target = partners[0] || 'hermes';
-  return `You are ${name} in a three-way chat with Kyle and ${partner}. Kyle is the owner. Reply only as ${name}. Do not write lines for Kyle or ${partner}. Use plain text.
+  return `You are ${name} (@${speaker}), an AI agent in a three-way chat with Kyle (the human owner) and the AI agent ${partner}. Kyle is the owner. Reply only as ${name}. Do not write lines for Kyle or ${partner}. Use plain text.
 
 Stay quiet unless Kyle or ${partner} addressed you, or you genuinely have something useful to add. If you have nothing to add, reply with exactly (quiet).
 
@@ -128,15 +139,38 @@ Orbit gives that task to ${partner} through that agent's gateway and posts the r
 }
 
 /** @hermes, @grok, @pi, and @all by default. An email local-part does not count. */
+/** A handle with case and punctuation removed: mr_india, mr.india, mr-india and MrIndia all squash to mrindia. */
+export function squashHandle(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+/** The participant a typed handle names (case- and punctuation-insensitive), or ''. */
+export function resolveHandle(value, participants = PROVIDER_PARTICIPANTS) {
+  const key = squashHandle(String(value || '').replace(/^@/, ''));
+  if (!key) return '';
+  return (Array.isArray(participants) ? participants : []).find(participant => squashHandle(participant) === key) || '';
+}
+
 export function mentionedAgents(text, participants = PROVIDER_PARTICIPANTS) {
   const list = Array.isArray(participants) && participants.length ? participants : PROVIDER_PARTICIPANTS;
   const found = { all: false };
   for (const participant of list) found[participant] = false;
-  for (const match of String(text || '').matchAll(/(^|[^A-Za-z0-9_])@([A-Za-z0-9_]+)\b/g)) {
-    const key = match[2].toLowerCase();
-    if (key === 'all' || list.includes(key)) found[key] = true;
+  for (const match of String(text || '').matchAll(/(^|[^A-Za-z0-9_])@([A-Za-z0-9_](?:[A-Za-z0-9_.\-]*[A-Za-z0-9_])?)/g)) {
+    const raw = match[2].toLowerCase();
+    if (raw === 'all') { found.all = true; continue; }
+    const hit = resolveHandle(raw, list);
+    if (hit) found[hit] = true;
   }
   return found;
+}
+
+/** Members named in plain words ("Hermes, can you…", "pipi do X"), matched by label or handle as whole words. */
+export function namedAgents(text, participants, labelOf = id => labels[id]) {
+  const body = ` ${String(text || '').toLowerCase().replace(/@[a-z0-9_.\-]+/g, ' ')} `;
+  return participants.filter(id => {
+    const names = [String(labelOf(id) || ''), id, id.replace(/_/g, ' ')].map(n => n.toLowerCase().trim()).filter(n => n.length >= 2);
+    return names.some(n => new RegExp(`(^|[^a-z0-9])${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^a-z0-9]|$)`).test(body));
+  });
 }
 
 /** Who should answer a message from Kyle. */
@@ -184,13 +218,41 @@ function agentFloorBlocked(state, participants = DEFAULT_PARTICIPANTS) {
   return new Set(norms).size !== norms.length;
 }
 
-function promptFor(speaker, messages, participants = DEFAULT_PARTICIPANTS) {
+function latestLine(messages, self) {
+  const last = [...messages].reverse().find(message => message.speaker !== 'note');
+  if (!last) return '';
+  return `The latest message is from ${authorTag(last.speaker, self)}${last.speaker !== 'owner' && last.speaker !== self ? ', an agent, not Kyle' : ''}.\n`;
+}
+
+/** Persistent group sessions already hold the rules and earlier transcript: send a short header and only what is new. */
+function deltaPrompt(speaker, fresh, participants, ownerAddressed = false) {
+  const name = labels[speaker] || speaker;
+  const mentions = others(speaker, participants).map(id => `@${id}`).join(', ');
+  const last = fresh[fresh.length - 1];
+  const tail = ownerAddressed && last && last.speaker !== 'owner'
+    ? "Kyle's latest message was addressed to you too (others may have answered first). Reply to Kyle; do not answer (quiet)."
+    : (ownerAddressed ? 'Kyle addressed this message to you. Reply to it; do not answer (quiet).' : 'Reply to the latest message, or with exactly (quiet) if it needs nothing from you.');
+  return `[Orbit group chat update: relayed by Orbit, not typed by Kyle. You are ${name} (@${speaker}). Same rules as before: lines marked (owner) are Kyle, (agent, @handle) are other AI agents, (you) is you. Your reply wakes only members you @mention (${mentions}).${participants.guidance ? ' Track build work on the Collab board with ~/bin/collab-board as described in your first group message.' : ''}]
+
+New messages since your last turn:
+${transcriptTail(fresh, speaker) || '(none)'}
+
+${latestLine(fresh, speaker)}${tail}`;
+}
+
+function promptFor(speaker, messages, participants = DEFAULT_PARTICIPANTS, ownerAddressed = false) {
+  const last = messages[messages.length - 1];
+  const tail = ownerAddressed && last && last.speaker !== 'owner'
+    ? "Kyle's latest message was addressed to you too (others may have answered first). Reply to Kyle; do not answer (quiet)."
+    : (ownerAddressed ? 'Kyle addressed this message to you. Reply to it; do not answer (quiet).' : 'Reply to the latest message.');
   return `${preamble(speaker, participants)}
 
-Recent transcript:
-${transcriptTail(messages) || '(no messages yet)'}
+${RELAY}
 
-Reply to the latest message.`;
+Recent transcript:
+${transcriptTail(messages, speaker) || '(no messages yet)'}
+
+${latestLine(messages, speaker)}${tail}`;
 }
 
 function briefBlock(brief) {
@@ -212,26 +274,30 @@ function delegationPrompt(task, messages, participants = DEFAULT_PARTICIPANTS) {
   const partner = onward.length === 1 ? onwardNames[0] : (andList(onwardNames) || 'another agent');
   return `${preamble(task.to, participants)}
 
-${labels[task.from]} delegated this task to you. Do the task and reply with the result. You may delegate onward to ${partner} only if the chain is still within ${MAX_DEPTH} steps.
+${authorTag(task.from, task.to)} delegated this task to you. Do the task and reply with the result. You may delegate onward to ${partner} only if the chain is still within ${MAX_DEPTH} steps.
 
 Task:
 ${task.task}
 ${task.context ? `\nContext:\n${task.context}\n` : ''}${briefBlock(task.brief)}
+${RELAY}
+
 Recent transcript:
-${transcriptTail(messages) || '(no messages yet)'}`;
+${transcriptTail(messages, task.to) || '(no messages yet)'}`;
 }
 
 function returnPrompt(task, messages, participants = DEFAULT_PARTICIPANTS) {
   return `${preamble(task.from, participants)}
 
-${labels[task.to]} finished a task you delegated.
+${authorTag(task.to, task.from)} finished a task you delegated.
 Task: ${task.task}
 Result: ${task.result || '(no text)'}
 
 Continue the shared conversation. The result is already in the transcript. Do not repeat a delegate block unless you are delegating a new task within the depth limit.
 
+${RELAY}
+
 Recent transcript:
-${transcriptTail(messages) || '(no messages yet)'}`;
+${transcriptTail(messages, task.from) || '(no messages yet)'}`;
 }
 
 function normalizeTarget(value) {
@@ -240,7 +306,8 @@ function normalizeTarget(value) {
   if (text === 'grok' || text === 'grok bot') return 'grok';
   if (text === 'pi' || text === 'pi agent') return 'pi';
   // Group rooms name members by handle; the room checks membership.
-  return /^[a-z0-9_]{1,32}$/.test(text) && !['owner', 'kyle', 'all', 'note', 'orbit'].includes(text) ? text : '';
+  const handle = text.replace(/[.\-\s]+/g, '_');
+  return /^[a-z0-9_]{1,32}$/.test(handle) && !['owner', 'kyle', 'all', 'note', 'orbit'].includes(handle) ? handle : '';
 }
 
 function cleanField(value, max) {
@@ -257,9 +324,13 @@ function asList(value) {
 function parseBudget(value) {
   if (value && typeof value === 'object' && !Array.isArray(value)) return { turns: Number(value.turns), minutes: Number(value.minutes) };
   const text = String(value || '');
-  const turns = /(\d+)\s*turns?/i.exec(text);
-  const minutes = /(\d+)\s*(?:minutes?|min)\b/i.exec(text);
-  return { turns: turns ? Number(turns[1]) : Number.NaN, minutes: minutes ? Number(minutes[1]) : Number.NaN };
+  // Accept "2 turns, 10 minutes" and the "turns 1-10, minutes 1-25" form agents copy from the prompt (upper bound wins).
+  const N = '(\\d+)(?:\\s*[-–]\\s*(\\d+))?';
+  const pick = (re1, re2) => { const m = re1.exec(text) || re2.exec(text); return m ? Number(m[2] || m[1]) : Number.NaN; };
+  return {
+    turns: pick(new RegExp(`${N}\\s*turns?`, 'i'), new RegExp(`turns?\\s*:?\\s*${N}`, 'i')),
+    minutes: pick(new RegExp(`${N}\\s*(?:minutes?|mins?)\\b`, 'i'), new RegExp(`(?:minutes?|mins?)\\s*:?\\s*${N}`, 'i')),
+  };
 }
 
 /** Null when the block is a plain target/task. An error when a brief was started but is incomplete. */
@@ -330,10 +401,12 @@ export function parseDelegate(text) {
     briefSource = fields;
   }
   const to = normalizeTarget(target);
+  // A structured brief may carry its ask in objective: only; use it as the task rather than rejecting the block.
+  if (!String(task || '').trim() && briefSource && typeof briefSource.objective === 'string') task = briefSource.objective;
   task = cleanField(task, 4000);
   context = cleanField(context, 4000);
   if (!to) return { error: 'Name the target agent by its @handle (for example hermes, grok, or pi).' };
-  if (!task) return { error: 'A delegated task must be 1–4,000 characters.' };
+  if (!task) return { error: 'A delegated task needs a task: (or objective:) line. Nothing was delegated.' };
   const brief = briefFrom(briefSource);
   if (brief?.error) return brief;
   return brief?.brief ? { to, task, context, brief: brief.brief } : { to, task, context };
@@ -345,7 +418,8 @@ function publicState(state, participants = DEFAULT_PARTICIPANTS) {
     messages: state.messages.map(message => ({ id: message.id, speaker: message.speaker, text: message.text, at: message.at, ...(message.error ? { error: true } : {}) })),
     paused: state.paused,
     hold: state.hold === true,
-    running: state.run?.speaker || '',
+    running: state.run?.speaker || Object.keys(state.side || {})[0] || '',
+    working: [...new Set([...(state.run?.speaker ? [state.run.speaker] : []), ...Object.keys(state.side || {})])],
     queued: (state.queue || []).map(item => item.speaker),
     activity: state.activity || '',
     ...(state.collabProject?.id ? { collabProject: { id: state.collabProject.id } } : {}),
@@ -393,7 +467,7 @@ function cleanDelegations(list, participants = DEFAULT_PARTICIPANTS) {
  * speaker id; `gateways` must then map handles to providers. `defaultResponder` ('all' or a handle) answers
  * Kyle's un-mentioned messages instead of the provider-room heuristic.
  */
-export function createSharedAgents({ directory, fetchImpl = fetch, chats, grok, hermesProfile, gatewayProfile, grokProfile, now = () => Date.now(), turnTimeoutMs, advanceIntervalMs, gateways: providedGateways, openCollab, members, defaultResponder } = {}) {
+export function createSharedAgents({ directory, fetchImpl = fetch, chats, grok, hermesProfile, gatewayProfile, grokProfile, now = () => Date.now(), turnTimeoutMs, advanceIntervalMs, gateways: providedGateways, openCollab, members, defaultResponder, delegationTimeoutMs, guidance, parallel: parallelOption, hardCapMs } = {}) {
   const turnTimeout = Number.isFinite(turnTimeoutMs) && turnTimeoutMs >= 1000 ? Math.floor(turnTimeoutMs) : sharedTurnTimeoutMs();
   const turnTimeoutMinutes = Math.max(1, Math.round(turnTimeout / 60000));
   const advanceEvery = Number.isFinite(advanceIntervalMs) && advanceIntervalMs >= 15 ? Math.floor(advanceIntervalMs) : DEFAULT_ADVANCE_INTERVAL_MS;
@@ -405,13 +479,42 @@ export function createSharedAgents({ directory, fetchImpl = fetch, chats, grok, 
   const speakers = memberList && memberList.length
     ? memberList.map(m => m.id)
     : ['hermes', ...((roomChats ? [...roomChats.keys()] : ['grok']).filter(id => id !== 'hermes'))];
+  if (memberList && memberList.length) speakers.group = true; // group prompts: strict reply gating
+  const parallel = Boolean(memberList && memberList.length) && parallelOption !== false; // groups default to parallel turns
+  if (memberList && typeof guidance === 'string' && guidance.trim()) speakers.guidance = guidance.trim().slice(0, 4000);
+  // Member rooms (groups): @mentions win, then members named in plain words, then the default responder.
+  // Everyone answers an un-mentioned message only when the group explicitly chose 'all'.
   const routeOwner = text => {
-    if (memberList && defaultResponder) {
-      const found = mentionedAgents(text, speakers);
-      if (!found.all && !speakers.some(id => found[id])) return defaultResponder === 'all' ? speakers.slice() : speakers.includes(defaultResponder) ? [defaultResponder] : speakers.slice();
-    }
-    return null;
+    if (!memberList) return null;
+    const found = mentionedAgents(text, speakers);
+    if (found.all) return speakers.slice();
+    const mentioned = speakers.filter(id => found[id]);
+    if (mentioned.length) return mentioned;
+    const named = namedAgents(text, speakers);
+    if (named.length) return named;
+    if (defaultResponder === 'all') return speakers.slice();
+    return [speakers.includes(defaultResponder) ? defaultResponder : speakers[0]];
   };
+  const agentHandoff = (speaker, output) => {
+    if (!memberList) return handoffTargets(speaker, output, speakers);
+    const found = mentionedAgents(output, speakers); // an agent wakes only the members it @mentions; @all from an agent wakes no one
+    return speakers.filter(id => found[id] && id !== speaker);
+  };
+  const hardCap = Number.isFinite(hardCapMs) && hardCapMs >= 1000 ? Math.floor(hardCapMs) : 0;
+  const hardCapLabel = hardCap >= 3600000 && hardCap % 3600000 === 0 ? `${hardCap / 3600000}-hour` : `${Math.round(hardCap / 60000)}-minute`;
+  /** Group turns: the turn limit is an inactivity limit (new output or transcript activity resets it), under an optional hard cap. */
+  const noteRunActivity = (run, view) => {
+    const key = `${Array.isArray(view?.interim) ? view.interim.length : 0}:${view?.activityKey || ''}`;
+    if (run.activityKey !== key) { run.activityKey = key; run.lastActivity = now(); }
+  };
+  const turnExpired = run => {
+    const started = Number(run.started) || 0;
+    if (!started) return '';
+    if (hardCap && now() - started > hardCap) return `${labels[run.speaker]} reached the ${hardCapLabel} turn cap, so Orbit stopped that turn.`;
+    const since = hardCap ? Math.max(started, Number(run.lastActivity) || 0) : started;
+    return now() - since > turnTimeout ? `${labels[run.speaker]} ${hardCap ? 'showed no new activity for' : 'did not reply within'} ${turnTimeoutMinutes} minute${turnTimeoutMinutes === 1 ? '' : 's'}, so Orbit stopped that turn.` : '';
+  };
+  const delegationTimeout = Number.isFinite(delegationTimeoutMs) && delegationTimeoutMs >= 1000 ? Math.floor(delegationTimeoutMs) : DELEGATION_TIMEOUT_MS;
   const gateways = providedGateways || createAgentGateways({ fetchImpl, chats: roomChats, hermesProfile, gatewayProfile: gatewayProfile || grokProfile, now });
   fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   const chains = new Map();
@@ -445,6 +548,7 @@ export function createSharedAgents({ directory, fetchImpl = fetch, chats, grok, 
         if (agentId) record.agents[participant] = agentId;
       }
       record.run = record.run && speakers.includes(record.run.speaker) && typeof record.run.runId === 'string' ? record.run : null;
+      record.side = record.side && typeof record.side === 'object' ? Object.fromEntries(Object.entries(record.side).filter(([id, run]) => speakers.includes(id) && run && run.speaker === id && typeof run.runId === 'string')) : {};
       if (record.run) {
         record.run.purpose = ['turn', 'delegation', 'return'].includes(record.run.purpose) ? record.run.purpose : 'turn';
         record.run.depth = Number.isInteger(record.run.depth) ? record.run.depth : 0;
@@ -479,7 +583,9 @@ export function createSharedAgents({ directory, fetchImpl = fetch, chats, grok, 
       agents: state.agents,
       grokAgentId: (state.agents && state.agents.grok) || '',
       run: state.run,
+      ...(state.side && Object.keys(state.side).length ? { side: state.side } : {}),
       delegations: state.delegations.slice(-MAX_TASKS),
+      ...(state.seen && typeof state.seen === 'object' ? { seen: state.seen } : {}),
     };
     fs.writeFileSync(temp, JSON.stringify(record), { mode: 0o600 });
     fs.renameSync(temp, dest);
@@ -527,12 +633,19 @@ function findTask(state, id) {
 
   async function begin(state, speaker, meta = {}) {
     const purpose = meta.purpose || 'turn';
-    const prompt = meta.prompt || promptFor(speaker, state.messages, speakers);
+    const seenAt = memberList && !meta.prompt && state.seen && state.seen[speaker] ? state.messages.findIndex(message => message.id === state.seen[speaker]) : -1;
+    const fresh = seenAt >= 0 ? state.messages.slice(seenAt + 1).filter(message => message.speaker !== 'note') : null;
+    const prompt = meta.prompt || (fresh && fresh.length ? deltaPrompt(speaker, fresh, speakers, meta.ownerAddressed === true) : promptFor(speaker, state.messages, speakers, meta.ownerAddressed === true));
     const instructions = `${preamble(speaker, speakers)} Delegate only with the \`\`\`delegate fence.`;
+    const concurrent = Array.isArray(meta.concurrent) ? meta.concurrent.filter(id => id !== speaker && labels[id]) : [];
+    const fullPrompt = concurrent.length
+      ? `${prompt}\n\nWorking in parallel: ${andList(concurrent.map(id => `${labels[id]} (@${id})`))} ${concurrent.length === 1 ? 'is' : 'are'} taking a turn at the same time as you and cannot see your reply yet. Do not duplicate their work: claim your part on the Collab board entry (check in with what you are taking) and read the board before starting.`
+      : prompt;
     try {
-      const started = await gateways.startSpeaker({ speaker, prompt, instructions, hermesSession: state.hermesSession, grokAgentId: state.agents[speaker] || '' });
+      const started = await gateways.startSpeaker({ speaker, prompt: fullPrompt, instructions, hermesSession: state.hermesSession, grokAgentId: state.agents[speaker] || '' });
       if (started.agentId) state.agents[speaker] = started.agentId;
-      state.run = {
+      if (memberList && state.messages.length) state.seen = { ...(state.seen || {}), [speaker]: state.messages.at(-1).id };
+      const run = {
         speaker,
         purpose,
         taskId: meta.taskId || '',
@@ -541,7 +654,14 @@ function findTask(state, id) {
         runId: started.runId,
         started: started.started,
         ...(started.nonce ? { nonce: started.nonce, baseline: started.baseline, agentId: started.agentId } : {}),
+        ...(Number.isInteger(started.msgBase) ? { msgBase: started.msgBase, session: started.session || '' } : {}),
       };
+      if (meta.side) {
+        state.side = { ...(state.side || {}), [speaker]: run };
+        state.activity = sideActivity(state);
+        return;
+      }
+      state.run = run;
       if (purpose === 'turn') state.next = others(speaker, speakers)[0] || speaker;
       state.activity = purpose === 'delegation'
         ? `${labels[speaker]} is working on a delegated task.`
@@ -549,6 +669,7 @@ function findTask(state, id) {
           ? `${labels[speaker]} is continuing after a delegated result.`
           : `${labels[speaker]} is replying.`;
     } catch (error) {
+      if (meta.side) { append(state, speaker, error?.message || `${labels[speaker]} could not take a turn.`, true); return; }
       state.run = null;
       state.activity = '';
       const message = error?.message || `${labels[speaker]} could not take a turn.`;
@@ -558,6 +679,20 @@ function findTask(state, id) {
         meta.task.needsReturn = !state.paused;
       } else state.paused = true;
       append(state, speaker, message, true);
+    }
+  }
+
+  /** Interim assistant texts a run produced so far (Hermes session messages): one bubble each, never twice. */
+  function postInterim(state, view, run = state.run) {
+    if (!run || (run.purpose || 'turn') !== 'turn' || !Array.isArray(view?.interim)) return;
+    run.interim = Array.isArray(run.interim) ? run.interim : [];
+    const finalText = view.status === 'completed' ? normalizeUtterance(view.output) : '';
+    for (const text of view.interim.slice(0, 40)) {
+      const norm = normalizeUtterance(text);
+      if (!norm || run.interim.includes(norm) || isQuiet(text)) continue;
+      if (finalText && norm === finalText) continue; // the final reply is posted by the normal path
+      run.interim.push(norm);
+      append(state, run.speaker, text);
     }
   }
 
@@ -595,12 +730,12 @@ function findTask(state, id) {
       append(state, task.to, 'This delegated task timed out.', true);
       return true;
     }
-    const started = Number(run.started) || 0;
-    if (!started || now() - started <= turnTimeout) return false;
+    const expired = turnExpired(run);
+    if (!expired) return false;
     await stopProvider(state);
     state.run = null;
     state.activity = '';
-    append(state, run.speaker, `${labels[run.speaker]} did not reply within ${turnTimeoutMinutes} minute${turnTimeoutMinutes === 1 ? '' : 's'}, so Orbit stopped that turn.`, true);
+    append(state, run.speaker, expired, true);
     return true;
   }
 
@@ -625,6 +760,7 @@ function findTask(state, id) {
   }
 
   async function startNextSpeaker(state) {
+    if (parallel) return false; // advanceSide starts queued members
     if (state.run || state.paused || state.hold) return false;
     while (state.queue.length) {
       const next = state.queue[0];
@@ -634,7 +770,7 @@ function findTask(state, id) {
         return false;
       }
       state.queue.shift();
-      await begin(state, next.speaker);
+      await begin(state, next.speaker, { ownerAddressed: next.fromOwner === true });
       return Boolean(state.run);
     }
     return false;
@@ -644,7 +780,7 @@ function findTask(state, id) {
     if (state.run) return false;
     expirePending(state);
     if (state.paused || state.hold) return false;
-    const pending = state.delegations.find(task => task.status === 'pending');
+    const pending = state.delegations.find(task => task.status === 'pending' && !(state.side && state.side[task.to]));
     if (pending) {
       await startTask(state, pending);
       return true;
@@ -671,6 +807,11 @@ function findTask(state, id) {
       append(state, 'note', parsed.error);
       return false;
     }
+    if (parsed.to === speaker) {
+      append(state, 'note', 'Delegation must target a different agent.');
+      return false;
+    }
+    if (!speakers.includes(parsed.to)) parsed.to = resolveHandle(parsed.to, speakers) || parsed.to;
     if (parsed.to === speaker) {
       append(state, 'note', 'Delegation must target a different agent.');
       return false;
@@ -708,7 +849,7 @@ function findTask(state, id) {
       result: '',
       waitingOn: '',
       needsReturn: false,
-      deadline: now() + DELEGATION_TIMEOUT_MS,
+      deadline: now() + delegationTimeout,
     };
     state.delegations.push(task);
     if (!state.paused && !state.run) await startTask(state, task);
@@ -724,7 +865,74 @@ function findTask(state, id) {
     parent.needsReturn = !state.paused;
   }
 
+  // ---- parallel group turns: every woken member gets its own in-flight turn (state.side), one per member.
+  function sideActivity(state) {
+    const names = Object.keys(state.side || {}).map(id => labels[id] || id);
+    return names.length ? `${andList(names)} ${names.length === 1 ? 'is' : 'are'} working.` : '';
+  }
+
+  /** The same bookkeeping a sequential turn gets: post, (quiet), streak, delegate block, @mention wakes. */
+  async function finishSideTurn(state, run, view) {
+    const speaker = run.speaker;
+    const failed = view.status !== 'completed';
+    const output = failed ? (view.error || `${labels[speaker]} could not finish this turn.`) : (view.output || `${labels[speaker]} finished without a text reply.`);
+    if (!failed) postInterim(state, view, run);
+    const shownAlready = !failed && (run.interim || []).includes(normalizeUtterance(output));
+    if (failed) { append(state, speaker, output, true); return; }
+    if (isQuiet(output)) return;
+    if (!shownAlready) append(state, speaker, output);
+    state.agentStreak += 1;
+    if (await acceptDelegate(state, speaker, output, run)) return;
+    const handoff = agentHandoff(speaker, output);
+    if (handoff.length) {
+      rememberAddress(state, output, speakers);
+      enqueue(state, handoff, false, speakers);
+    }
+  }
+
+  async function advanceSide(state) {
+    state.side = state.side && typeof state.side === 'object' ? state.side : {};
+    for (let pass = 0; pass < 3; pass += 1) {
+      // Start: every queued member that has no turn in flight (a member already working keeps its wake queued).
+      if (!state.paused && !state.hold) {
+        const busy = id => Boolean(state.side[id]) || state.run?.speaker === id;
+        const batch = [...new Set([...Object.keys(state.side), ...state.queue.map(item => item.speaker)])];
+        for (let index = 0; index < state.queue.length;) {
+          const next = state.queue[index];
+          if (busy(next.speaker)) { index += 1; continue; }
+          if (!next.fromOwner && agentFloorBlocked(state, speakers)) { state.hold = true; state.activity = HOLD_ACTIVITY; break; }
+          state.queue.splice(index, 1);
+          await begin(state, next.speaker, { side: true, ownerAddressed: next.fromOwner === true, concurrent: batch });
+        }
+      }
+      // Poll every in-flight member; each reply posts as soon as it is ready.
+      let finished = 0;
+      for (const [speaker, run] of Object.entries(state.side)) {
+        const expired = turnExpired(run);
+        if (expired) {
+          try { await gateways.stopSpeaker(run); } catch {}
+          delete state.side[speaker];
+          append(state, speaker, expired, true);
+          finished += 1;
+          continue;
+        }
+        let view;
+        try { view = await gateways.pollSpeaker(run); }
+        catch (error) { delete state.side[speaker]; append(state, speaker, error?.message || 'That speaker could not be reached.', true); finished += 1; continue; }
+        noteRunActivity(run, view);
+        if (view.status === 'running') { postInterim(state, view, run); continue; }
+        if (view.status === 'waiting_for_approval') { run.awaiting = view.error || `${labels[speaker]} is waiting for a tool approval.`; continue; }
+        delete state.side[speaker];
+        await finishSideTurn(state, run, view);
+        finished += 1;
+      }
+      state.activity = state.hold ? HOLD_ACTIVITY : (sideActivity(state) || (state.run ? state.activity : ''));
+      if (!finished) return;
+    }
+  }
+
   async function advance(state) {
+    if (parallel) await advanceSide(state);
     for (let step = 0; step < 4; step += 1) {
       if (!state.run) {
         const started = await startQueued(state);
@@ -751,7 +959,11 @@ function findTask(state, id) {
         state.paused = true;
         return;
       }
-      if (view.status === 'running') return;
+      if (state.run) noteRunActivity(state.run, view);
+      if (view.status === 'running') {
+        postInterim(state, view);
+        return;
+      }
       if (view.status === 'waiting_for_approval') {
         state.activity = view.error || `${labels[state.run.speaker]} is waiting for a tool approval. Resolve it on that agent, or cancel the delegated task.`;
         if ((state.run.purpose || 'turn') !== 'delegation') state.paused = true;
@@ -765,7 +977,9 @@ function findTask(state, id) {
       const output = failed
         ? (view.error || `${labels[speaker]} could not finish this turn.`)
         : (view.output || `${labels[speaker]} finished without a text reply.`);
-      append(state, speaker, output, failed);
+      if (!failed) postInterim(state, view, run);
+      const shownAlready = !failed && (run.interim || []).includes(normalizeUtterance(output));
+      if (!shownAlready) append(state, speaker, output, failed);
       state.activity = '';
       if (failed) {
         if (purpose === 'delegation') {
@@ -793,12 +1007,12 @@ function findTask(state, id) {
         continue;
       }
       if (isQuiet(output)) {
-        state.messages.pop();
+        if (!shownAlready) state.messages.pop();
         continue;
       }
       state.agentStreak += 1;
       if (delegated) continue;
-      const handoff = handoffTargets(speaker, output, speakers);
+      const handoff = agentHandoff(speaker, output);
       if (handoff.length) {
         rememberAddress(state, output, speakers);
         enqueue(state, handoff, false, speakers);
@@ -812,8 +1026,12 @@ function findTask(state, id) {
   }
 
   async function stopRun(state) {
+    for (const [speaker, sideRun] of Object.entries(state.side || {})) {
+      try { await gateways.stopSpeaker(sideRun); } catch (error) { append(state, speaker, error?.message || 'Stop request failed.', true); }
+    }
+    state.side = {};
     const run = state.run;
-    if (!run) return;
+    if (!run) { state.activity = ''; return; }
     if (run.purpose === 'delegation') {
       const task = findTask(state, run.taskId);
       if (task && task.status === 'running') {
@@ -933,7 +1151,7 @@ function findTask(state, id) {
   }
 
   function noteActivity(state) {
-    if (state?.run) active.add(state.key);
+    if (state?.run || (state?.side && Object.keys(state.side).length)) active.add(state.key);
     else if (state?.key) active.delete(state.key);
   }
 
@@ -952,7 +1170,7 @@ function findTask(state, id) {
       if (!name.endsWith('.json')) continue;
       try {
         const record = JSON.parse(fs.readFileSync(path.join(directory, name), 'utf8'));
-        if (record?.run) active.add(name.slice(0, -'.json'.length));
+        if (record?.run || (record?.side && Object.keys(record.side).length)) active.add(name.slice(0, -'.json'.length));
       } catch {}
     }
   }

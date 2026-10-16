@@ -205,7 +205,7 @@ export function createGrokBotsApp({ runtimeRoot, catalog, agentStatus, chats }) 
   async function agents() {
     return { groups: await Promise.all(profiles().map(async x => {
       const base = { profile: x.p.id, provider: x.provider, providerLabel: x.providerLabel, label: x.label, kind: x.adapter.kind };
-      try { return { ...base, agents: await x.adapter.agents(x.p, x.label) }; } catch (e) { return { ...base, agents: [], error: e.message }; }
+      try { const hid = groupsFor().hidden().agents; return { ...base, agents: (await x.adapter.agents(x.p, x.label)).filter(a => !hid.has(a.id)) }; } catch (e) { return { ...base, agents: [], error: e.message }; }
     })) };
   }
 
@@ -241,8 +241,10 @@ export function createGrokBotsApp({ runtimeRoot, catalog, agentStatus, chats }) 
       const fn = { sessions: x.adapter.sessions, history: x.adapter.history, send: x.adapter.send, run: x.adapter.run, stop: x.adapter.stop, activity: x.adapter.activity }[b.action];
       if (!fn) return send(res, 400, { error: `Action not supported for ${x.providerLabel}.` });
       if (b.action === 'send') { const t = typeof b.prompt === 'string' ? b.prompt.trim() : ''; if (!t || t.length > 20000) throw fail('Message must be 1–20000 characters.', 400); b.prompt = t; }
-      return send(res, 200, await fn(x.p, x.label, b, ctx));
+      const out = await fn(x.p, x.label, b, ctx);
+      if (b.action === 'sessions' && Array.isArray(out?.sessions)) { const hid = groupsFor().hidden().sessions; out.sessions = out.sessions.filter(r => !hid.has(r.id)); } // group sessions stay out of 1-on-1 lists
+      return send(res, 200, out);
     } catch (e) { return send(res, e.status || 502, { error: String(e.message || 'Failed').slice(0, 400) }); }
   }
-  return { handle };
+  return { handle, groupsApi: () => groupsFor() };
 }

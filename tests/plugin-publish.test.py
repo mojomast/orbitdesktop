@@ -129,7 +129,7 @@ class Publication(unittest.TestCase):
             root = Path(tmp)
             source, runtime, command = self.setup_bundle(root)
             with (source / 'large.bin').open('wb') as stream:
-                stream.truncate(20_000_001)
+                stream.truncate(100_000_001)
             self.assertNotEqual(subprocess.run(command, capture_output=True).returncode, 0)
             self.assertFalse((runtime / 'apps').exists())
             (source / 'large.bin').unlink()

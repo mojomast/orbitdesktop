@@ -749,5 +749,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
   agent.profileCatalog = () => configuration;
   // Grok Bots app group rooms reuse the same gateway chat surfaces as the shared room.
   agent.gatewayChats = () => chats;
+  // Loopback collab-board API (server/collab-board.mjs): same Collab engine, called in-process.
+  agent.collabOperate = body => new Promise((resolve, reject) => collab.handle((_res, status, obj) => (status >= 400 ? reject(Object.assign(new Error(obj?.error || 'Collab request failed.'), { status })) : resolve(obj)), {}, body));
   return agent;
 }

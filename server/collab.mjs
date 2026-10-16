@@ -1629,6 +1629,16 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
     };
     const bundle = { project, tasks: [], artifacts: [] };
     project.workspace = store.initWorkspace(project.id);
+    if (body.board_only === true) {
+      // A tracking board for work that agents do elsewhere (group chats): no planner, no scheduled turns.
+      project.boardOnly = true;
+      project.status = 'tracking';
+      project.activity = clean(body.activity, 200) || 'Tracking work from a group chat. Agents update entries with collab-board.';
+      store.writeProject(project);
+      event(bundle, 'project.created', { actor: clean(body.by, 64) || 'kyle', data: { goal, workspace: project.workspace, boardOnly: true } });
+      store.save(bundle);
+      return bundle;
+    }
     store.writeProject(project);
     event(bundle, 'project.created', { actor: 'kyle', data: { goal, workspace: project.workspace } });
     const planner = chooseAgent('planner', [], project.capabilities);
@@ -1753,6 +1763,45 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
     event(bundle, 'decision', { actor: 'kyle', data: { text: 'Updated agent capability profiles.' } });
   }
 
+  // Board-only projects: entries (tasks) that agents create, move and check in on. Status words map to Collab task states.
+  const BOARD_STATUS = { todo: 'submitted', doing: 'working', working: 'working', review: 'review', done: 'completed', completed: 'completed', blocked: 'input-required', failed: 'failed', canceled: 'canceled', cancelled: 'canceled' };
+  function boardOp(bundle, body) {
+    if (!bundle.project.boardOnly) throw fail('Board entries can only be edited on a group tracking board.', 409);
+    const by = clean(body.by, 64) || 'agent';
+    const action = String(body.board_action || '');
+    const note = clean(body.note, 1000);
+    if (action === 'add') {
+      const title = clean(body.title, 120);
+      if (!title) throw fail('Give the board entry a title.', 400);
+      if (bundle.tasks.length >= 100) throw fail('This board already has 100 entries.', 409);
+      const existing = bundle.tasks.find(task => task.title.toLowerCase() === title.toLowerCase() && !['completed', 'canceled', 'failed'].includes(task.status));
+      if (existing) return existing.id;
+      const task = { id: mintCollabId('t'), title, spec: clean(body.spec, 2000) || title, acceptance: clean(body.acceptance, 1000), dependsOn: [], owner: clean(body.owner, 64) || by, reviewer: '', role: 'builder', skillsHint: [], risk: '', status: BOARD_STATUS[body.status] || 'submitted', attempts: 0, reviewAttempts: 0, maxAttempts: 0, lease: null, artifacts: [], summary: note, reviewNotes: '', lastError: '', checkins: [], createdAt: now() };
+      bundle.tasks.push(task);
+      event(bundle, 'task.created', { actor: by, taskId: task.id, data: { title, owner: task.owner } });
+      bundle.lastBoardTask = task.id;
+      return task.id;
+    }
+    const task = taskById(bundle, String(body.task_id || ''));
+    if (!task) throw fail('Unknown board entry. Run collab-board list to see entry ids.', 404);
+    bundle.lastBoardTask = task.id;
+    if (action === 'update') {
+      const status = BOARD_STATUS[String(body.status || '').toLowerCase()];
+      if (body.status && !status) throw fail('Status must be todo, doing, review, done, or blocked.', 400);
+      if (status) task.status = status;
+      if (body.owner) task.owner = clean(body.owner, 64);
+      if (note) task.summary = note;
+      event(bundle, 'task.state', { actor: by, taskId: task.id, data: { status: task.status, ...(note ? { summary: note } : {}) } });
+    } else if (action === 'checkin') {
+      if (!note) throw fail('Say what you are doing in the check-in note.', 400);
+      task.checkins = [...(task.checkins || []), { by, note, at: now() }].slice(-30);
+      if (task.status === 'submitted') task.status = 'working';
+      event(bundle, 'task.checkin', { actor: by, taskId: task.id, data: { note } });
+    } else throw fail('Board action must be add, update, or checkin.', 400);
+    bundle.project.updatedAt = now();
+    return task.id;
+  }
+
   async function operate(body) {
     const operation = body.operation || 'state';
     if (operation === 'list') {
@@ -1821,6 +1870,8 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
       bundle.project.status = 'paused';
       const running = AGENTS.filter(agent => ensureRuns(bundle.project)[agent]).map(agent => labels[agent]);
       bundle.project.activity = running.length ? `${running.join(' and ')} will finish this turn, then the project stays paused.` : 'Paused.';
+    } else if ((operation === 'resume' || operation === 'continue') && bundle.project.boardOnly) {
+      throw fail('This is a tracking board; agents work in the group chat, not here.', 409);
     } else if (operation === 'resume' || operation === 'continue') {
       if (bundle.project.budget.spentTurns >= bundle.project.budget.maxTurns || now() - bundle.project.createdAt >= bundle.project.budget.maxWallMs) {
         throw fail('Budget reached. Raise the budget or accept the project as far as it got.', 409);
@@ -1844,6 +1895,11 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
       store.removeProject(id);
       active.delete(id);
       return { deleted: true, id };
+    } else if (operation === 'board') {
+      const entry = boardOp(bundle, body);
+      store.save(bundle);
+      noteActive(bundle);
+      return { ...publicState(bundle), entry };
     } else if (operation === 'artifact') {
       const stored = store.readArtifact(bundle.project.id, body.artifact_id, Number.isInteger(body.version) ? body.version : 0);
       store.save(bundle);
@@ -1875,6 +1931,7 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
       summary: task.summary,
       reviewNotes: task.reviewNotes,
       lastError: task.lastError,
+      ...(Array.isArray(task.checkins) ? { checkins: task.checkins.slice(-10) } : {}),
     };
   }
 

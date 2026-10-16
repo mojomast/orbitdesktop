@@ -70,6 +70,24 @@ function replyText(entry) {
   return '';
 }
 
+/** Every finished reply text after the baseline, oldest first (group turns post each as its own bubble). */
+function repliesListAfter(entries, baseline) {
+  const list = Array.isArray(entries) ? entries : [];
+  const known = new Set(baseline?.fingerprints || []);
+  const knownIds = new Set(baseline?.ids || []);
+  const maxSeq = Number(baseline?.maxSeq) || 0;
+  const texts = [];
+  for (const raw of list) {
+    const seq = entrySeq(raw);
+    const id = entryId(raw);
+    const isNew = maxSeq > 0 && seq != null ? seq > maxSeq : id ? !knownIds.has(id) : !known.has(fingerprint(raw));
+    if (!isNew) continue;
+    const text = replyText(unwrap(raw));
+    if (text) texts.push(text.slice(0, 16000));
+  }
+  return texts;
+}
+
 function repliesAfter(entries, baseline) {
   const list = Array.isArray(entries) ? entries : [];
   const known = new Set(baseline?.fingerprints || []);
@@ -257,7 +275,7 @@ async function drain(response, agentLabel) {
   }
 }
 
-export function createGatewayChat({ provider = 'grok', fetchImpl = fetch, runtimeDirectory, now = () => Date.now(), acceptanceGraceMs = 8000, runTimeoutMs = 10 * 60 * 1000 } = {}) {
+export function createGatewayChat({ provider = 'grok', fetchImpl = fetch, runtimeDirectory, now = () => Date.now(), acceptanceGraceMs = 8000, runTimeoutMs = 4 * 60 * 60 * 1000 } = {}) {
   // One chat surface per gateway provider. The label comes from the provider id so
   // an error can never blame Grok Bot for a Pi failure.
   const agentLabel = providerLabel(provider);
@@ -944,6 +962,46 @@ export function createGatewayChat({ provider = 'grok', fetchImpl = fetch, runtim
     return { status: 'running', output: '' };
   }
 
+  /**
+   * Group turns: the turn stays open until the agent is idle (not running, composing, or mid-turn) for settleMs,
+   * so later messages are not lost. Returns every new reply text as messages, and an activity key that changes
+   * whenever the transcript grows (the engine's inactivity timeout resets on it).
+   */
+  // Idle tracking lives here, keyed by the turn, because callers poll with copies of the run record.
+  const turnIdle = new Map();
+  async function pollSharedTurn(profile, run, { settleMs = 4000, quietFinishMs = 30000 } = {}) {
+    const turnKey = `${run.agentId}:${run.nonce || run.runId || ''}`;
+    if (turnIdle.size > 500) turnIdle.clear();
+    let acceptance = null;
+    try { acceptance = await command(profile, 'promptAcceptanceStatus', { accountSlot: 'host', clientNonce: run.nonce, agentId: run.agentId }); }
+    catch (error) { if (error.status !== 404) throw error; }
+    let entries = [];
+    try { entries = entriesOf(await command(profile, 'getAgentTranscriptTail', { id: run.agentId, limit: 200 })); }
+    catch (error) { if (error.status !== 404) throw error; }
+    const messages = repliesListAfter(entries, run.baseline);
+    const top = baselineFrom(entries);
+    const activityKey = `${top.maxSeq}:${top.count}:${messages.length}`;
+    if (acceptance?.outcome === 'found' && acceptance.record?.status === 'rejected' && !messages.length) return { status: 'failed', output: '', error: `${agentLabel} rejected the shared message.` };
+    const age = now() - (Number(run.started) || 0);
+    const pending = acceptance?.outcome === 'found' && acceptance.record?.status === 'pending';
+    const missing = !acceptance || acceptance.outcome === 'not-found' || acceptance.outcome === 'unknown-durability';
+    if (pending || (missing && age < acceptanceGraceMs && !messages.length)) { turnIdle.delete(turnKey); return { status: 'running', output: '', messages, activityKey }; }
+    let agents = [];
+    try { agents = await command(profile, 'listAgents', {}); } catch (error) { if (error.status !== 404) throw error; }
+    const agent = Array.isArray(agents) ? agents.find(item => item && item.id === run.agentId) : null;
+    if (approvalFrom(agent, entries)) return { status: 'waiting_for_approval', output: '', messages, activityKey, error: `${agentLabel} is waiting for a tool approval. Stop this turn or resolve it from a ${agentLabel} chat.` };
+    const busy = Boolean(agent && (agent.isRunning || agent.isRunningTurn || agent.isComposingMessage));
+    // Tool work counts as activity: the agent's own lastActivityAt moves while it runs tools.
+    const liveKey = `${activityKey}:${Number(agent?.lastActivityAt) || 0}`;
+    if (busy || entries.some(raw => unwrap(raw)?.streaming === true)) { turnIdle.delete(turnKey); return { status: 'running', output: '', messages, activityKey: liveKey }; }
+    let idle = turnIdle.get(turnKey);
+    if (!idle || idle.key !== activityKey) { idle = { since: now(), key: activityKey }; turnIdle.set(turnKey, idle); }
+    const idleFor = now() - idle.since;
+    if (messages.length && idleFor >= settleMs) { turnIdle.delete(turnKey); return { status: 'completed', output: messages.at(-1), messages, activityKey }; }
+    if (!messages.length && idleFor >= quietFinishMs) { turnIdle.delete(turnKey); return { status: 'completed', output: '', messages, activityKey }; }
+    return { status: 'running', output: '', messages, activityKey };
+  }
+
   async function stopSharedPrompt(profile, agentId) {
     await command(profile, 'interruptAgentRun', { id: agentId });
   }
@@ -1057,5 +1115,5 @@ export function createGatewayChat({ provider = 'grok', fetchImpl = fetch, runtim
     });
   }
 
-  return { sessionPage, selectSession, turn, control, surface, events, ensureSharedAgent, startSharedPrompt, pollSharedPrompt, stopSharedPrompt, archiveSharedAgent, compactSession, forkSession, previewSession, createConversation, readTranscript, probe };
+  return { sessionPage, selectSession, turn, control, surface, events, ensureSharedAgent, startSharedPrompt, pollSharedPrompt, pollSharedTurn, stopSharedPrompt, archiveSharedAgent, compactSession, forkSession, previewSession, createConversation, readTranscript, probe };
 }

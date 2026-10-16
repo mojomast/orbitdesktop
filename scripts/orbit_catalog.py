@@ -16,7 +16,7 @@ from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
 UPSTREAM = 'mojomast/orbitdesktop'
-MAX_BYTES = 20_000_000
+MAX_BYTES = 100_000_000
 # `removed.json` is the removal list; `schema.json` documents the entry format.
 # Neither is a catalog entry and both are skipped by local and reviewed loads.
 RESERVED_CATALOG_FILES = {'removed.json', 'schema.json'}
@@ -165,7 +165,7 @@ def unpack(entry, archive, destination, required='index.html'):
             require(relative not in names, 'Duplicate archive file')
             names.add(relative)
             total += member.size
-            require(total <= MAX_BYTES and len(names) <= 500, 'Bundle exceeds 20 MB / 500 files')
+            require(total <= MAX_BYTES and len(names) <= 500, 'Bundle exceeds 100 MB / 500 files')
             target = destination / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(tar.extractfile(member).read())

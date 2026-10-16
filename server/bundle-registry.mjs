@@ -104,12 +104,12 @@ export function createBundleRegistry({db,root}) {
         if(stat.isDirectory())walk(name,depth+1);
         else {
           if(!stat.isFile())throw Error('non-regular file');
-          if(collected.length>=500||size+stat.size>20_000_000)throw Error('bundle limit: 20 MB / 500 files');
+          if(collected.length>=500||size+stat.size>100_000_000)throw Error('bundle limit: 100 MB / 500 files');
           const fd=fs.openSync(target,fs.constants.O_RDONLY|fs.constants.O_NOFOLLOW|fs.constants.O_NONBLOCK);
           let bytes;
           try {
             const current=fs.fstatSync(fd);
-            if(!current.isFile()||current.size+size>20_000_000)throw Error('bundle limit or non-regular file');
+            if(!current.isFile()||current.size+size>100_000_000)throw Error('bundle limit or non-regular file');
             // Bounded reads even if the owner grows a file during refresh.
             bytes=Buffer.alloc(current.size+1);
             let used=0,n;

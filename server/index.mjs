@@ -1,6 +1,6 @@
 import http from "node:http";
 import os from 'node:os';
-import { existsSync, mkdirSync, writeFileSync, renameSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync, renameSync, readFileSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -42,6 +42,7 @@ import { createColabOrchestrator } from './colab-orchestrator.mjs';
 import { createKittyDoomService } from './kitty-doom.mjs';
 import { createGrokBotsApp } from './grokbots-app.mjs';
 import { createAgentStatus } from './agent-status.mjs';
+import { createCollabBoard } from './collab-board.mjs';
 const port = Number(process.env.PORT || 4318);
 if (!Number.isInteger(port) || port < 1024 || port > 65535)
   throw Error("PORT must be between 1024 and 65535");
@@ -131,6 +132,11 @@ const agentHandler = createAgentHandler({ token, port, devOrigins, reply, worksp
   ...(!explicitHermes && discovered.hermes ? { apiUrl: null, apiKey: null, profiles: [{ id: "default", label: discovered.hermes.label, apiUrl: discovered.hermes.apiUrl, apiKey: discovered.hermes.apiKey }] } : {}),
   ...(discovered.grok || piProfile ? { additionalProfiles: [...(discovered.grok ? [discovered.grok] : []), ...(piProfile ? [piProfile] : [])] } : {}),
 });
+// Group-chat build tracking on the Collab board (loopback CLI ~/bin/collab-board).
+const collabBoard = createCollabBoard({ runtimeRoot, collab: () => agentHandler.collabOperate, groups: () => grokBotsApp.groupsApi(), workspace: () => {
+  if (/^[0-9a-f-]{36}$/i.test(process.env.ORBIT_BOARD_WORKSPACE || '')) return process.env.ORBIT_BOARD_WORKSPACE;
+  try { return JSON.parse(readFileSync(path.join(runtimeRoot, 'collab-board.json'), 'utf8')).workspace || ''; } catch { return ''; }
+} });
 const sandboxProvider=createWorkbenchSandboxProvider({root:path.join(workspaceService.store.root,'workbench-sandbox'),env:process.env});
 const environments=createWorkbenchEnvironments({store:workspaceService.store,records:workbench.records,data:workbenchData,gate:executionGate,sandboxProvider});
 const execution=createWorkbenchExecution({store:workspaceService.store,records:workbench.records,data:workbenchData,gate:executionGate,environments,sandboxProvider});
@@ -340,6 +346,7 @@ async function handleOrbitRequest(req, res) {
   if (url.pathname === '/api/kitty-doom') return kittyDoom.handle(req, res);
   if (url.pathname === '/api/grokbots-app') return grokBotsApp.handle(req, res);
   if (url.pathname === '/api/agent-status') return agentStatus.handle(req, res);
+  if (url.pathname === '/api/collab-board') return collabBoard.handle(req, res);
   if (url.pathname === "/api/health")
     return reply(res, 200, {
       service: "orbit",

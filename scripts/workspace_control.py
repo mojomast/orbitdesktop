@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 import uuid
@@ -17,6 +18,8 @@ import urllib.error
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNTIME = Path(os.environ.get('ORBIT_RUNTIME_DIR', ROOT / '.runtime'))
+sys.path.insert(0, str(ROOT / 'scripts'))
+from node_cli import resolve_node  # noqa: E402  (sibling helper, resolved by path)
 # BEGIN GENERATED WORKSPACE LIMITS
 maxOperations = 32
 maxRequestBytes = 150000
@@ -136,7 +139,7 @@ def main():
         if source == dest.resolve() or apps.resolve() in source.parents: p.error('Use a source directory outside the published app store')
         files = list(source.rglob('*'))
         if any(f.is_symlink() for f in files): p.error('Symlinks are not allowed in published apps')
-        if len(files) > 5000 or sum(f.stat().st_size for f in files if f.is_file()) > 50_000_000: p.error('App exceeds 5000 entries or 50MB')
+        if len(files) > 5000 or sum(f.stat().st_size for f in files if f.is_file()) > 100_000_000: p.error('App exceeds 5000 entries or 100 MB')
         stage = Path(tempfile.mkdtemp(prefix='publish-', dir=apps))
         try:
             shutil.copytree(source, stage, dirs_exist_ok=True, ignore=shutil.ignore_patterns('.*', 'node_modules'))
@@ -147,7 +150,7 @@ def main():
         finally:
             if stage.exists(): shutil.rmtree(stage)
         if (RUNTIME / 'workspace.sqlite').exists():
-            completed = subprocess.run(['node', '--experimental-strip-types', str(ROOT / 'scripts/workspace_bundles.mjs'), 'refresh', '--root', str(RUNTIME.resolve())], capture_output=True, timeout=120)
+            completed = subprocess.run([resolve_node(), '--experimental-strip-types', str(ROOT / 'scripts/workspace_bundles.mjs'), 'refresh', '--root', str(RUNTIME.resolve())], capture_output=True, timeout=120)
             if completed.returncode != 0: raise RuntimeError('Files published, but bundle indexing failed; review the runtime schema and explicitly refresh before opening the app')
         url = '/apps/' + args.slug + '/'
         if args.no_open: print(json.dumps({'published': True, 'url': url, 'opened': False})); return

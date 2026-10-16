@@ -85,7 +85,7 @@ test('mentions choose who speaks, and a reply with no handoff ends the exchange'
   const hermesCall = calls.find(call => call.route === 'http://hermes.test/v1/runs' && call.method === 'POST');
   assert.match(hermesCall.payload.input, /Kyle/);
   assert.match(hermesCall.payload.input, /@grok/);
-  assert.match(hermesCall.payload.input, /Kyle: @hermes hello from the owner/);
+  assert.match(hermesCall.payload.input, /Kyle \(owner\): @hermes hello from the owner/);
   assert.match(hermesCall.payload.instructions, /\(quiet\)/);
   assert.notEqual(hermesCall.payload.session_id, session);
   const finished = await request({ action: 'shared_agents', operation: 'state' });
@@ -96,7 +96,7 @@ test('mentions choose who speaks, and a reply with no handoff ends the exchange'
   const prompts = calls.filter(call => call.route.endsWith('/api/sendPrompt'));
   assert.equal(prompts.length, 1);
   assert.equal(prompts[0].payload.agentId, 'agent_shared_1');
-  assert.match(prompts[0].payload.prompt, /Hermes: from hermes/);
+  assert.match(prompts[0].payload.prompt, /Hermes \(agent, @hermes\): from hermes/);
   assert.match(prompts[0].payload.prompt, /hold this until Hermes finishes/);
   assert.equal(calls.find(call => call.route.endsWith('/api/createAgent')).payload.name, 'Orbit shared chat');
   assert.equal(prompts.some(call => call.payload.agentId === 'main_bot'), false);

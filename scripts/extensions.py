@@ -25,7 +25,7 @@ def digest(folder):
 def stage(source):
     source=Path(source).resolve();m=manifest(source);files=list(source.rglob('*'))
     if any(p.is_symlink() or any(x.startswith('.') for x in p.relative_to(source).parts) for p in files):raise ValueError('Hidden files and symlinks forbidden; stage a clean build folder')
-    if len(files)>1000 or sum(p.stat().st_size for p in files if p.is_file())>20_000_000:raise ValueError('Bundle exceeds limits')
+    if len(files)>1000 or sum(p.stat().st_size for p in files if p.is_file())>100_000_000:raise ValueError('Bundle exceeds limits (100 MB / 1000 files)')
     release=digest(source);dest=ROOT/'releases'/m['id']/release
     if not dest.exists():
         dest.parent.mkdir(parents=True,exist_ok=True);tmp=Path(tempfile.mkdtemp(dir=dest.parent));shutil.copytree(source,tmp,dirs_exist_ok=True)
