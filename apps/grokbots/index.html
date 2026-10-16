@@ -1,4 +1,4 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="orbit-builtin-app" content="grokbots@2"><title>Agents</title><meta name="viewport" content="width=device-width,initial-scale=1">
+<!doctype html><html><head><meta charset="utf-8"><meta name="orbit-builtin-app" content="grokbots@3"><title>Agents</title><meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 *{box-sizing:border-box}html,body{margin:0;height:100%;background:#0d0f14;color:#e6e8ee;font:14px/1.45 system-ui,-apple-system,Segoe UI,sans-serif}
 #app{display:flex;height:100%}
@@ -80,7 +80,7 @@ function renderList(){const q=$('q').value.toLowerCase();const L=$('list');L.tex
 function renderMsgs(keep){const M=$('msgs');const atBottom=M.scrollHeight-M.scrollTop-M.clientHeight<60;const prevH=M.scrollHeight;M.textContent='';
  if(older){const b=document.createElement('button');b.id='older';b.textContent='Load older';b.onclick=loadOlder;M.append(b)}
  if(!msgs.length&&!stream)M.innerHTML+='<div class="empty">'+(isSes()&&!session?'New conversation — send a message to start it.':'No messages yet.')+'</div>';
- for(const m of msgs){const d=document.createElement('div');d.className='m '+m.role;d.innerHTML=md(m.content);if(m.ts){const t=document.createElement('div');t.className='ts';t.textContent=new Date(m.ts).toLocaleString()+(m.state==='sending'?' · sending…':m.state==='delivered'?' · ✓ delivered':m.state==='failed'?' · ⚠ not delivered':'');if(m.state==='failed'){t.style.color='#ff8a8a';t.title=m.error||'';const rb=document.createElement('button');rb.textContent='Retry';rb.style.marginLeft='8px';rb.onclick=()=>retry(m);t.append(rb)}d.append(t)}M.append(d)}
+ for(const m of msgs){const d=document.createElement('div');d.className='m '+m.role;d.innerHTML=md(m.content);d._m=m;if(m.ts){const t=document.createElement('div');t.className='ts';t.textContent=new Date(m.ts).toLocaleString()+(m.state==='sending'?' · sending…':m.state==='delivered'?' · ✓ delivered':m.state==='failed'?' · ⚠ not delivered':'');if(m.state==='failed'){t.style.color='#ff8a8a';t.title=m.error||'';const rb=document.createElement('button');rb.textContent='Retry';rb.style.marginLeft='8px';rb.onclick=()=>retry(m);t.append(rb)}d.append(t)}M.append(d)}
  if(stream){const d=document.createElement('div');d.className='m assistant stream';d.innerHTML=md(stream);M.append(d)}
  if(keep==='top')M.scrollTop=M.scrollHeight-prevH;else if(keep!=='stay'||atBottom)M.scrollTop=M.scrollHeight}
 function showPicker(on){picking=on;$('picker').style.display=on?'block':'none';$('msgs').style.display=on?'none':'flex';$('comp').style.display=on?'none':'flex'}
@@ -348,9 +348,9 @@ function renderGroup(){const M=$('msgs');const atBottom=M.scrollHeight-M.scrollT
  for(const m of groom.messages){if(m.speaker==='note'){M.append(mk('div','gm note',m.text));continue}
   const own=m.speaker==='owner';const w=mk('div','gm'+(own?' owner':''));const mem=memberOf(m.speaker);w.append(own?Object.assign(mk('span','av','K'),{}):avEl(mem||{label:m.speaker}));
   const col=mk('div');if(!own){col.append(mk('div','who',(mem?mem.label:m.speaker)+' · @'+m.speaker+' · '+new Date(m.at).toLocaleTimeString()))}
-  const b=mk('div','m '+(own?'user':'assistant'));b.innerHTML=md(m.text);if(m.error)b.style.borderLeft='3px solid #ff8a8a';col.append(b);w.append(col);M.append(w)}
+  const b=mk('div','m '+(own?'user':'assistant'));b.innerHTML=md(m.text);b._m={id:m.id,role:own?'user':'assistant',content:m.text,speaker:m.speaker,ts:Date.parse(m.at)||0};if(m.error)b.style.borderLeft='3px solid #ff8a8a';col.append(b);w.append(col);M.append(w)}
  for(const who of (groom.working||(groom.running?[groom.running]:[]))){const mem=memberOf(who);const w=mk('div','gm');w.append(avEl(mem||{label:who}));const b=mk('div','m assistant stream',(mem?mem.label:who)+' is typing…');w.append(b);M.append(w)}
- if(atBottom)M.scrollTop=M.scrollHeight;renderBar()}
+ if(atBottom)M.scrollTop=M.scrollHeight;renderBar();if(window.gbDecorate)window.gbDecorate()}
 function renderBar(){bar.textContent='';if(!isG()||!gview){bar.classList.remove('on');return}bar.classList.add('on');
  for(const m of gview.members){const working=groom&&(groom.working||(groom.running?[groom.running]:[])).includes(m.id),queued=groom&&(groom.queued||[]).includes(m.id);const c=mk('span','mem'+(working?' work':queued?' queue':''));c.append(avEl(m),mk('span',null,'@'+m.id+(working?' · working':queued?' · next':'')));c.title=m.label+' ('+m.provider+')';bar.append(c)}
  const sp=mk('span');sp.style.flex='1';bar.append(sp);
@@ -394,6 +394,39 @@ function upd(){const n=inp.value.length;c.textContent=n>=MAX*0.8?n.toLocaleStrin
 inp.addEventListener('input',upd);window.gbComposerChanged=upd;
 // Paste that would overflow: keep what fits and say so instead of silently truncating.
 inp.addEventListener('paste',e=>{const t=(e.clipboardData&&e.clipboardData.getData('text'))||'';const room=MAX-(inp.value.length-(inp.selectionEnd-inp.selectionStart));if(t.length>room){e.preventDefault();inp.setRangeText(t.slice(0,Math.max(0,room)),inp.selectionStart,inp.selectionEnd,'end');upd();err('Pasted text was cut to fit the 100,000-character limit ('+(t.length-room).toLocaleString()+' characters left out).')}});
+})();
+</script>
+<script>
+// ---- Orbit host bridge (postMessage to the Orbit page that embeds this app) ----
+const HOST={ready:false,workspaceId:null,features:{}};let hostSeq=0;const hostWait=new Map();
+function host(op,data,timeout){return new Promise((res,rej)=>{if(window.parent===window)return rej(Error('Open Grok Bots inside Orbit to use this.'));const id='h'+(++hostSeq);hostWait.set(id,{res,rej});window.parent.postMessage({type:'grokbots',op,id,...(data||{})},'*');setTimeout(()=>{const w=hostWait.get(id);if(w){hostWait.delete(id);rej(Error('Orbit did not answer. Reload the window from Orbit.'))}},timeout||120000)})}
+function hostSend(op,data){if(window.parent!==window)window.parent.postMessage({type:'grokbots',op,...(data||{})},'*')}
+addEventListener('message',e=>{if(e.source!==window.parent)return;const d=e.data;if(!d||typeof d!=='object'||d.type!=='grokbots-host')return;
+ if(d.re){const w=hostWait.get(d.re);if(w){hostWait.delete(d.re);d.ok?w.res(d.data):w.rej(Error(d.error||'Failed'))}return}
+ if(d.op==='hello'){HOST.ready=true;HOST.workspaceId=typeof d.workspaceId==='string'?d.workspaceId:null;HOST.features=d.features||{};dispatchEvent(new CustomEvent('gb-host'));return}
+ dispatchEvent(new CustomEvent('gb-host-'+String(d.op).replace(/[^a-z-]/g,''),{detail:d}))});
+hostSend('hello');
+</script>
+<script>
+// ---- Message actions: copy message, copy code block, create a document from a reply ----
+(function(){
+const st=document.createElement('style');st.textContent=`.m{position:relative}.mact{position:absolute;top:-10px;right:6px;display:none;gap:4px;z-index:3}.m:hover .mact,.m:focus-within .mact{display:flex}.mact button{padding:1px 7px;font-size:11px;border-radius:5px;background:#202638}.m.user .mact{right:auto;left:6px}
+.m pre{position:relative}.m pre .cc{position:absolute;top:4px;right:4px;padding:0 6px;font-size:10px;opacity:.75}#toast{position:fixed;bottom:84px;left:50%;transform:translateX(-50%);background:#1c2232;border:1px solid #3b4256;border-radius:8px;padding:6px 12px;font-size:12px;display:none;z-index:60;max-width:80vw}`;document.head.append(st);
+const toastEl=document.createElement('div');toastEl.id='toast';toastEl.setAttribute('role','status');document.body.append(toastEl);let tt=0;
+window.toast=function(t){toastEl.textContent=t;toastEl.style.display='block';clearTimeout(tt);tt=setTimeout(()=>toastEl.style.display='none',2600)};
+window.copyText=async function(t){try{await navigator.clipboard.writeText(t);return true}catch{}
+ const ta=document.createElement('textarea');ta.value=t;ta.setAttribute('readonly','');ta.style.cssText='position:fixed;left:-9999px;top:0;opacity:0';document.body.append(ta);ta.select();let ok=false;try{ok=document.execCommand('copy')}catch{}ta.remove();if(ok)return true;
+ try{await host('copy',{text:t},8000);return true}catch{return false}};
+function titleOf(m){const t=String(m.content||'').split('\n').map(x=>x.replace(/^[#>*\-\s]+/,'').trim()).find(Boolean)||'Reply';const who=(typeof cur==='function'&&cur()&&cur().name)||'';return ((who?who+' — ':'')+t).slice(0,100)}
+function btn(label,title,fn){const b=document.createElement('button');b.type='button';b.textContent=label;b.title=title;b.onclick=e=>{e.stopPropagation();fn(b)};return b}
+async function makeDoc(m,b){b.disabled=true;try{const r=await host('document',{text:m.content,title:titleOf(m)},600000);toast(r&&r.status==='created-draft'?'Document draft created — open it from the Document library.':(r&&r.reason)||'Document review cancelled.')}catch(e){toast(e.message)}finally{b.disabled=false}}
+function decorate(){for(const d of document.querySelectorAll('#msgs .m')){if(!d._m||d.querySelector(':scope > .mact'))continue;const m=d._m;const bar=document.createElement('div');bar.className='mact';
+  bar.append(btn('Copy','Copy this message',async b=>{toast(await copyText(m.content)?'Copied.':'Copy failed — select the text and copy manually.')}));
+  if(m.role==='assistant')bar.append(btn('📄 Document','Create a document draft from this reply (you review it before anything is saved)',b=>makeDoc(m,b)));
+  d.prepend(bar);
+  for(const pre of d.querySelectorAll('pre')){if(pre.querySelector('.cc'))continue;const code=pre.textContent;pre.append(btn('Copy','Copy code',async()=>{toast(await copyText(code)?'Code copied.':'Copy failed.')}));pre.lastChild.className='cc'}}}
+window.gbDecorate=decorate;
+const _rm=renderMsgs;renderMsgs=function(k){_rm(k);decorate()};
 })();
 </script>
 </body></html>
