@@ -147,3 +147,29 @@ test('attachments upload to the host and reach the agent as paths (small text in
     assert.ok(last.length <= MAX_PROMPT && !last.includes('remember milk') && last.includes('notes.md'));
   } finally { await h.close(); }
 });
+
+test('history returns redacted tool calls and results anchored to the preceding message', async () => {
+  const h = await harness();
+  try {
+    h.gw.transcript.push(
+      { id: 'u1', kind: 'message', role: 'user', content: 'go', timestampMs: 1000 },
+      { id: 'c1', kind: 'tool-call', toolCallId: 'call_1', name: 'bash', status: 'pending', input: { cmd: 'curl -H "Authorization: Bearer abc.def" x', key: 'stub-secret-key-0123456789' }, timestampMs: 1100 },
+      { id: 'r1', kind: 'tool-result', toolCallId: 'call_1', output: 'ok '.repeat(3000), timestampMs: 1600 },
+      { id: 'a1', kind: 'message', role: 'assistant', content: 'done', timestampMs: 2000 });
+    const r = await h.call({ action: 'history', profile: 'grok', agent: AGENT });
+    assert.equal(r.status, 200);
+    assert.equal(r.body.messages.length, 2);
+    const [t] = r.body.tools;
+    assert.equal(t.id, 'call_1'); assert.equal(t.name, 'bash'); assert.equal(t.status, 'done'); assert.equal(t.after, 'u1'); assert.equal(t.durationMs, 500);
+    assert.ok(!t.input.includes('stub-secret-key') && !t.input.includes('abc.def'));
+    assert.ok(t.output.length <= 4000);
+    h.gw.transcript.hermes = [
+      { id: 1, role: 'user', content: 'list files', timestamp: 1 },
+      { id: 2, role: 'assistant', content: '', tool_calls: [{ id: 'tc1', function: { name: 'terminal', arguments: '{"command":"ls"}' } }], timestamp: 2 },
+      { id: 3, role: 'tool', tool_call_id: 'tc1', name: 'terminal', content: 'a.txt', timestamp: 3 },
+      { id: 4, role: 'assistant', content: 'a.txt', timestamp: 4 }];
+    const hr = await h.call({ action: 'history', profile: 'default', session: 'sess_1' });
+    assert.equal(hr.status, 200, JSON.stringify(hr.body));
+    assert.deepEqual(hr.body.tools.map(x => [x.name, x.status, x.after, x.input, x.output]), [['terminal', 'done', '1', '{"command":"ls"}', 'a.txt']]);
+  } finally { await h.close(); }
+});

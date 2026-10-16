@@ -1,4 +1,4 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="orbit-builtin-app" content="grokbots@5"><title>Agents</title><meta name="viewport" content="width=device-width,initial-scale=1">
+<!doctype html><html><head><meta charset="utf-8"><meta name="orbit-builtin-app" content="grokbots@6"><title>Agents</title><meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 *{box-sizing:border-box}html,body{margin:0;height:100%;background:#0d0f14;color:#e6e8ee;font:14px/1.45 system-ui,-apple-system,Segoe UI,sans-serif}
 #app{display:flex;height:100%}
@@ -80,7 +80,8 @@ function renderList(){const q=$('q').value.toLowerCase();const L=$('list');L.tex
 function renderMsgs(keep){const M=$('msgs');const atBottom=M.scrollHeight-M.scrollTop-M.clientHeight<60;const prevH=M.scrollHeight;M.textContent='';
  if(older){const b=document.createElement('button');b.id='older';b.textContent='Load older';b.onclick=loadOlder;M.append(b)}
  if(!msgs.length&&!stream)M.innerHTML+='<div class="empty">'+(isSes()&&!session?'New conversation — send a message to start it.':'No messages yet.')+'</div>';
- for(const m of msgs){const d=document.createElement('div');d.className='m '+m.role;d.innerHTML=md(m.content);d._m=m;if(m.attachments&&m.attachments.length){const a=document.createElement('div');a.className='matt';a.textContent='📎 '+m.attachments.map(x=>x.name).join(', ');d.append(a)}if(m.ts){const t=document.createElement('div');t.className='ts';t.textContent=new Date(m.ts).toLocaleString()+(m.state==='sending'?' · sending…':m.state==='delivered'?' · ✓ delivered':m.state==='failed'?' · ⚠ not delivered':'');if(m.state==='failed'){t.style.color='#ff8a8a';t.title=m.error||'';const rb=document.createElement('button');rb.textContent='Retry';rb.style.marginLeft='8px';rb.onclick=()=>retry(m);t.append(rb)}d.append(t)}M.append(d)}
+ if(window.gbToolCards)gbToolCards(M,'');
+ for(const m of msgs){const d=document.createElement('div');d.className='m '+m.role;d.innerHTML=md(m.content);d._m=m;if(m.attachments&&m.attachments.length){const a=document.createElement('div');a.className='matt';a.textContent='📎 '+m.attachments.map(x=>x.name).join(', ');d.append(a)}if(m.ts){const t=document.createElement('div');t.className='ts';t.textContent=new Date(m.ts).toLocaleString()+(m.state==='sending'?' · sending…':m.state==='delivered'?' · ✓ delivered':m.state==='failed'?' · ⚠ not delivered':'');if(m.state==='failed'){t.style.color='#ff8a8a';t.title=m.error||'';const rb=document.createElement('button');rb.textContent='Retry';rb.style.marginLeft='8px';rb.onclick=()=>retry(m);t.append(rb)}d.append(t)}M.append(d);if(window.gbToolCards&&m.id&&!String(m.id).startsWith('local-'))gbToolCards(M,m.id)}
  if(stream){const d=document.createElement('div');d.className='m assistant stream';d.innerHTML=md(stream);M.append(d)}
  if(keep==='top')M.scrollTop=M.scrollHeight-prevH;else if(keep!=='stay'||atBottom)M.scrollTop=M.scrollHeight}
 function showPicker(on){picking=on;$('picker').style.display=on?'block':'none';$('msgs').style.display=on?'none':'flex';$('comp').style.display=on?'none':'flex'}
@@ -99,10 +100,11 @@ async function loadSessions(more){const g=group();if(!g)return;const P=$('picker
 function openSession(id){session=id;msgs=[];older=null;stream=null;run=null;saveHash();showPicker(false);renderTop();if(id){$('msgs').innerHTML='<div class="empty">Loading…</div>';loadHist(true)}else renderMsgs()}
 function hargs(extra){return {action:'history',profile:sel.profile,agent:sel.agent,...(session?{session}:{}),...extra}}
 async function loadHist(first,merge){if(!sel||picking||(isSes()&&!session))return;const key=JSON.stringify([sel,session]);try{const h=await api(hargs({}));if(key!==JSON.stringify([sel,session]))return;
- if(first){const srv=h.messages;const loc=merge?msgs.filter(m=>String(m.id).startsWith('local-')&&!srv.some(x=>x.role===m.role&&x.content.trim()===m.content.trim())&&(m.state==='failed'||m.state==='sending'||!srv.some(x=>x.role==='user'&&x.ts>=m.ts-60000))):[];msgs=srv.concat(loc);if(!merge)older=h.before}else{const known=new Set(msgs.map(m=>m.id));const add=h.messages.filter(m=>!known.has(m.id));const changed=add.length||(h.streaming||null)!==stream;msgs=msgs.concat(add).filter((m,i,a)=>!(m.id.startsWith('local-')&&a.some(x=>!x.id.startsWith('local-')&&x.role===m.role&&x.content.trim()===m.content.trim())));if(!changed)return}
+ if(first&&window.gbToolsIn)gbToolsIn(h.tools,!merge);
+ if(first){const srv=h.messages;const loc=merge?msgs.filter(m=>String(m.id).startsWith('local-')&&!srv.some(x=>x.role===m.role&&x.content.trim()===m.content.trim())&&(m.state==='failed'||m.state==='sending'||!srv.some(x=>x.role==='user'&&x.ts>=m.ts-60000))):[];msgs=srv.concat(loc);if(!merge)older=h.before}else{const known=new Set(msgs.map(m=>m.id));const add=h.messages.filter(m=>!known.has(m.id));const changed=add.length||(h.streaming||null)!==stream||(window.gbToolsIn&&gbToolsIn(h.tools,false));msgs=msgs.concat(add).filter((m,i,a)=>!(m.id.startsWith('local-')&&a.some(x=>!x.id.startsWith('local-')&&x.role===m.role&&x.content.trim()===m.content.trim())));if(!changed)return}
  stream=h.streaming;renderMsgs(first?'bottom':'stay');err()}catch(e){err(e)}}
-async function loadOlder(){if(!older)return;try{const h=await api(hargs({before:older}));const known=new Set(msgs.map(m=>m.id));msgs=h.messages.filter(m=>!known.has(m.id)).concat(msgs);older=h.before;renderMsgs('top')}catch(e){err(e)}}
-function pick(profile,agent){sel={profile,agent};session=null;msgs=[];older=null;stream=null;run=null;saveHash();renderList();
+async function loadOlder(){if(!older)return;try{const h=await api(hargs({before:older}));if(window.gbToolsIn)gbToolsIn(h.tools,false);const known=new Set(msgs.map(m=>m.id));msgs=h.messages.filter(m=>!known.has(m.id)).concat(msgs);older=h.before;renderMsgs('top')}catch(e){err(e)}}
+function pick(profile,agent){sel={profile,agent};session=null;msgs=[];if(window.gbToolsIn)gbToolsIn([],true);older=null;stream=null;run=null;saveHash();renderList();
  if(isSes()){showPicker(true);renderTop();loadSessions(false)}else{showPicker(false);renderTop();$('msgs').innerHTML='<div class="empty">Loading…</div>';loadHist(true)}}
 function nonce(){return (crypto.randomUUID?crypto.randomUUID():String(Date.now())+Math.random().toString(16).slice(2)).replace(/[^A-Za-z0-9_-]/g,'')}
 async function deliver(m){m.state='sending';renderMsgs();sending=true;renderTop();
@@ -513,6 +515,47 @@ window.gbTakeAttachments=()=>{const out=items.filter(i=>i.state==='ok').map(({id
 window.gbRestoreAttachments=list=>{items=list.map(a=>({...a,state:'ok'})).concat(items);render();persist()};
 // restore per-conversation attachments with the draft
 addEventListener('gb-conv',()=>{const k=key();const d=k&&window.gbPrefs&&gbPrefs.drafts[k];items=(d&&d.attachments||[]).map(a=>({...a,state:'ok'}));render()});
+})();
+</script>
+<script>
+// ---- Inline tool cards: tool calls/results from history, grouped between the messages they ran after ----
+(function(){
+const st=document.createElement('style');st.textContent=`details.tools{align-self:stretch;margin:2px 0;font-size:12px;border:1px solid #232838;border-radius:8px;background:#11141c}details.tools>summary{cursor:pointer;padding:4px 10px;color:#9aa3b8;list-style:none}details.tools>summary::-webkit-details-marker{display:none}details.tools>summary:before{content:'▸ ';}details.tools[open]>summary:before{content:'▾ '}
+.tcard{border-top:1px solid #1d2230;padding:4px 10px}.tcard summary{cursor:pointer;display:flex;gap:8px;align-items:center}.tcard .tn{font-family:ui-monospace,monospace;color:#cdd6f4}.tcard .tm{color:#7a8299;margin-left:auto}.tcard pre{max-height:240px;overflow:auto;white-space:pre-wrap;word-break:break-word;background:#0b0d13;padding:6px;border-radius:6px;margin:4px 0}.tcard .tl{color:#7a8299;font-size:11px}.tcard.error .tn{color:#ff8a8a}.tcard.running .tn{color:#ffd666}#toolsTog.off{opacity:.5}.m pre:has(.cc){padding-top:24px}`;document.head.append(st);
+let tools=new Map(),sig='',show=true,open=new Set();
+const icon=t=>t.status==='error'?'⚠':t.status==='running'?'⏳':'✓';
+const dur=ms=>ms==null?'':ms<1000?ms+' ms':ms<60000?(ms/1000).toFixed(1)+' s':Math.round(ms/60000)+' min';
+window.gbToolsIn=(list,reset)=>{if(reset){tools=new Map();open=new Set()}for(const t of Array.isArray(list)?list:[])tools.set(t.id,t);const n=JSON.stringify([...tools.values()].map(t=>[t.id,t.status,t.output.length]));const ch=n!==sig;sig=n;return ch};
+window.gbTools=()=>[...tools.values()];
+window.gbToolCards=(M,after)=>{if(!show)return;const list=[...tools.values()].filter(t=>t.after===after);if(!list.length)return;
+  const box=document.createElement('details');box.className='tools';const k='g:'+after;box.open=open.has(k);box.ontoggle=()=>box.open?open.add(k):open.delete(k);
+  const bad=list.filter(t=>t.status==='error').length,runn=list.filter(t=>t.status==='running').length;
+  const sm=document.createElement('summary');sm.textContent=`🔧 ${list.length} tool call${list.length>1?'s':''}: ${[...new Set(list.map(t=>t.name))].slice(0,4).join(', ')}${bad?` · ⚠ ${bad} failed`:''}${runn?` · ⏳ ${runn} running`:''}`;box.append(sm);
+  for(const t of list){const c=document.createElement('details');c.className='tcard '+t.status;c.dataset.id=t.id;const ck='t:'+t.id;c.open=open.has(ck);c.ontoggle=()=>c.open?open.add(ck):open.delete(ck);
+    const s=document.createElement('summary');const i=document.createElement('span');i.textContent=icon(t);const n=document.createElement('span');n.className='tn';n.textContent=t.name;const meta=document.createElement('span');meta.className='tm';meta.textContent=[t.status,dur(t.durationMs),t.ts?new Date(t.ts).toLocaleTimeString():''].filter(Boolean).join(' · ');s.append(i,n,meta);c.append(s);
+    for(const [lab,val] of [['Input',t.input],['Output',t.output]]){if(!val)continue;const l=document.createElement('div');l.className='tl';l.textContent=lab;const pre=document.createElement('pre');pre.textContent=val;c.append(l,pre)}
+    if(!t.input&&!t.output){const l=document.createElement('div');l.className='tl';l.textContent='No details recorded.';c.append(l)}
+    const cp=document.createElement('button');cp.textContent='Copy';cp.style.fontSize='11px';cp.onclick=e=>{e.preventDefault();(window.copyText||(x=>navigator.clipboard.writeText(x)))(`${t.name} (${t.status})\nInput:\n${t.input}\n\nOutput:\n${t.output}`)};c.append(cp);box.append(c)}
+  M.append(box)};
+const b=document.createElement('button');b.id='toolsTog';b.textContent='🔧';b.title='Show or hide tool calls in the conversation';b.onclick=()=>{show=!show;b.classList.toggle('off',!show);renderMsgs('stay')};
+const act=$('actbtn')||document.querySelector('#top button:last-of-type');if(act&&act.parentNode)act.parentNode.insertBefore(b,act);
+})();
+</script>
+<script>
+// ---- Activity timeline tools: filter, hide finished steps, jump to the first failure, copy ids ----
+(function(){
+const st=document.createElement('style');st.textContent=`#actbar{display:flex;gap:6px;align-items:center;padding:6px 10px;border-bottom:1px solid #232733;flex-wrap:wrap}#actbar input[type=search]{flex:1;min-width:90px;font-size:12px;padding:4px 6px}#actbar button,#actbar label{font-size:11px}.ai.flash{outline:2px solid #ff8a8a}.ai.hid{display:none}`;document.head.append(st);
+const bar=document.createElement('div');bar.id='actbar';bar.innerHTML='<input type="search" id="actq" placeholder="Filter activity…"><label><input type="checkbox" id="actdone"> Hide finished</label><button id="actfail" title="Scroll to the earliest failed step">⚠ First failure</button><button id="actid" title="Copy this conversation\'s id">Copy id</button>';
+$('actlist').before(bar);
+const DONE=/^(done|sent|completed|success|ok|received|finished)$/i,BAD=/error|fail|denied|rejected|timeout/i;
+function apply(){const q=$('actq').value.trim().toLowerCase(),hide=$('actdone').checked;let n=0,bad=0;
+  for(const r of $('actlist').querySelectorAll('.ai')){const s=r.querySelector('.s');const status=s?s.textContent:'';const isBad=BAD.test(status);if(isBad)bad++;
+    const off=(q&&!r.textContent.toLowerCase().includes(q))||(hide&&DONE.test(status)&&!isBad);r.classList.toggle('hid',off);if(!off)n++}
+  $('actfail').disabled=!bad;$('actfail').textContent=bad?`⚠ First failure (${bad})`:'⚠ No failures'}
+const orig=window.renderAct;window.renderAct=function(){const r=orig.apply(this,arguments);try{apply()}catch{}return r};
+$('actq').oninput=apply;$('actdone').onchange=apply;
+$('actfail').onclick=()=>{const rows=[...$('actlist').querySelectorAll('.ai')].filter(r=>{const s=r.querySelector('.s');return s&&BAD.test(s.textContent)});const r=rows[rows.length-1];if(!r)return;r.classList.remove('hid');r.scrollIntoView({block:'center'});r.classList.add('flash');setTimeout(()=>r.classList.remove('flash'),1600)};
+$('actid').onclick=()=>{if(!sel)return;const id=session||sel.agent;(window.copyText||(x=>navigator.clipboard.writeText(x)))(id)};
 })();
 </script>
 </body></html>

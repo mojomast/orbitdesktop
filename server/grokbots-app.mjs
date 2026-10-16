@@ -73,6 +73,31 @@ function entryText(e) {
   if ((e.kind === 'message' || e.kind == null) && (e.role === 'user' || e.role === 'assistant') && typeof e.content === 'string') return { role: e.role, content: e.content };
   return null;
 }
+// Tool calls/results for inline cards. Each tool is anchored to the chat message before it (`after`).
+const TOOL_TEXT = 4000;
+const toolStr = v => (typeof v === 'string' ? v : v == null ? '' : JSON.stringify(v)).slice(0, TOOL_TEXT);
+function toolTracker(secret) {
+  const list = [], byId = new Map();
+  const clean = v => redactFull(toolStr(v), secret);
+  return {
+    call({ id, name, input, status, ts, end, after }) {
+      const key = String(id || `t${list.length}`).slice(0, 150);
+      let t = byId.get(key);
+      if (!t) { t = { id: key, name: String(name || 'tool').slice(0, 80), status: 'running', input: '', output: '', ts: Number(ts) || 0, after: after || '' }; byId.set(key, t); list.push(t); }
+      if (name) t.name = String(name).slice(0, 80);
+      if (input != null && input !== '') t.input = clean(input);
+      if (status) t.status = /error|fail/i.test(status) ? 'error' : /pending|running|progress|started/i.test(status) ? 'running' : 'done';
+      if (Number(end) && t.ts) t.durationMs = Math.max(0, Number(end) - t.ts);
+      return t;
+    },
+    result({ id, name, output, isError, ts, after }) {
+      const t = byId.get(String(id || '')) || this.call({ id, name, ts, after });
+      t.output = clean(output); t.status = isError ? 'error' : 'done';
+      if (Number(ts) && t.ts) t.durationMs = Math.max(0, Number(ts) - t.ts);
+    },
+    list: () => list.slice(-200),
+  };
+}
 // Gateway agent ids: Grok Bot uses UUIDs, the Pi gateway uses pi_<16 hex> (server/pi-gateway.mjs AGENT_ID).
 const GW_ID = { test: v => UUID.test(v) || /^pi_[a-f0-9]{16}$/.test(v) };
 const gatewayAdapter = {
@@ -92,16 +117,19 @@ const gatewayAdapter = {
     // Pi's tail has no paging and tool entries dominate it, so ask for a larger window there.
     const req = { id: agent, limit: /^pi_/.test(agent) ? 400 : 60 }; if (Number.isSafeInteger(before) && before > 0) req.beforeSeq = before;
     const tail = await http(p, '/api/getAgentTranscriptTail', { body: req, label });
-    const messages = []; let streaming = null;
+    const messages = []; let streaming = null; const tools = toolTracker(p.apiKey);
     for (const raw of Array.isArray(tail?.entries) ? tail.entries : []) {
       const e = raw?.entry && raw.kind == null ? raw.entry : raw; if (!e || typeof e !== 'object') continue;
+      const kind = String(e.kind || ''), after = messages.at(-1)?.id || '', tts = Number(e.timestampMs) || Date.parse(e.at || '') || 0;
+      if (kind === 'tool-call' || kind === 'tool_call' || e.toolCall) { const c = e.toolCall || e; tools.call({ id: e.toolCallId || c.id || e.id, name: c.name || c.toolName, input: e.summary || c.input || c.arguments, status: e.status || (kind ? 'running' : ''), ts: tts, end: e.completedAt, after }); continue; }
+      if (kind === 'tool-result' || kind === 'tool_result') { tools.result({ id: e.toolCallId || e.tool_call_id || e.id, name: e.name, output: e.output ?? e.content ?? '', isError: e.isError === true || e.error === true, ts: tts, after }); continue; }
       if (e.isStreaming === true || e.streaming === true) { const c = e.kind === 'send-message' ? e.message?.content : e.content; if (typeof c === 'string' && c.trim()) streaming = c.slice(0, MAX_PROMPT); continue; }
       const m = entryText(e); if (!m || !m.content.trim()) continue;
       messages.push({ id: String(e.id || e.seq || ''), ts: Number(e.timestampMs) || Date.parse(e.at || '') || 0, role: m.role, content: m.content.slice(0, MAX_PROMPT) });
     }
     let cards = [];
     if (p.provider === 'grok') { try { cards = grokControls.extractPendingCards(tail?.entries).map(c => JSON.parse(redactFull(JSON.stringify(c), p.apiKey))); } catch { cards = []; } }
-    return { messages, streaming, cards, before: Number.isSafeInteger(tail?.nextBeforeSeq) ? tail.nextBeforeSeq : null };
+    return { messages, streaming, cards, tools: tools.list(), before: Number.isSafeInteger(tail?.nextBeforeSeq) ? tail.nextBeforeSeq : null };
   },
   async send(p, label, { agent, prompt }) {
     if (!GW_ID.test(agent || '')) throw fail('Invalid agent id.', 400);
@@ -160,8 +188,16 @@ const sessionsAdapter = {
     const messages = rows.filter(keep)
       .map(m => ({ id: String(m.id ?? ''), ts: ts(m.timestamp ?? m.created_at), role: m.role, content: String(m.content ?? m.text).slice(0, MAX_PROMPT), _n: Number(m.id) || 0 }))
       .sort((a, b) => a._n - b._n || a.ts - b.ts).map(({ _n, ...m }) => m);
-    const page = { has_more: more, rows: [] };
-    return { messages, streaming: null, before: page.has_more ? off : null };
+    // Tool cards: assistant tool_calls + role:'tool' results, anchored to the preceding kept message.
+    const tools = toolTracker(p.apiKey); let after = '';
+    for (const m of [...rows].sort((a, b) => (Number(a.id) || 0) - (Number(b.id) || 0))) {
+      if (!m) continue;
+      if (keep(m)) after = String(m.id ?? '');
+      const t0 = ts(m.timestamp ?? m.created_at);
+      for (const c of Array.isArray(m.tool_calls) ? m.tool_calls : []) tools.call({ id: c?.id, name: c?.function?.name || c?.name, input: c?.function?.arguments ?? c?.arguments, ts: t0, after });
+      if (m.role === 'tool') tools.result({ id: m.tool_call_id, name: m.name || m.tool_name, output: m.content ?? m.text ?? '', isError: /^(error|failed)\b/i.test(String(m.content || '')), ts: t0, after });
+    }
+    return { messages, streaming: null, tools: tools.list(), before: more ? off : null };
   },
   async send(p, label, { session, prompt, nonce }) {
     const creating = !session;

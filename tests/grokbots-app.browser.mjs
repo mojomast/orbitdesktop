@@ -11,6 +11,8 @@ const executablePath = process.env.ORBIT_TEST_CHROMIUM || (fs.existsSync('/usr/b
 const transcript = [
   { id: 'u1', kind: 'message', role: 'user', content: 'Write a plan', timestampMs: 1000 },
   { id: 't1', kind: 'tool-call', name: 'read_file', status: 'completed', summary: 'docs/PLAN.md', timestampMs: 1500, completedAt: 1900 },
+  { id: 't2e', kind: 'tool-call', toolCallId: 't2', name: 'run_tests', status: 'failed', summary: 'npm test', timestampMs: 1600 },
+  { id: 't2r', kind: 'tool-result', toolCallId: 't2', name: 'run_tests', output: '3 failing', isError: true, timestampMs: 1800 },
   { id: 'a1', kind: 'message', role: 'assistant', content: '# Plan\n\nStep one.\n\n```js\nconsole.log(1)\n```', timestampMs: 2000 },
 ];
 let fx, browser;
@@ -114,6 +116,31 @@ test('attach files with the picker; the sent message carries their host paths', 
   assert.match(prompt, /--- todo\.txt ---\nbuy milk/);
   assert.equal(await app.locator('#atts .att').count(), 0);
   await app.locator('#msgs .matt', { hasText: 'todo.txt, pic.png' }).waitFor();
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('tool calls render as inline cards between messages, and the activity panel has filter tools', async () => {
+  const { page, app, errors, context } = await open(`&p=grok&a=${AGENT}`);
+  const group = app.locator('details.tools').first();
+  await group.waitFor();
+  assert.match(await group.locator('summary').first().textContent(), /2 tool calls: read_file, run_tests · ⚠ 1 failed/);
+  // anchored after the user message, before the reply
+  assert.equal(await app.locator('#msgs > *').evaluateAll(els => els.map(e => e.className.split(' ')[0] || e.tagName).join(',')), 'm,tools,m');
+  await group.locator('summary').first().click();
+  const failed = app.locator('.tcard.error');
+  await failed.locator('summary').click();
+  assert.match(await failed.textContent(), /npm test[\s\S]*3 failing/);
+  assert.match(await app.locator('.tcard.done .tm').textContent(), /done · 400 ms/);
+  // hide/show tool cards
+  await app.locator('#toolsTog').click();
+  assert.equal(await app.locator('details.tools').count(), 0);
+  await app.locator('#toolsTog').click();
+  assert.equal(await app.locator('details.tools').count(), 1);
+  // activity toolbar exists
+  await app.locator('#actbtn').click();
+  await app.locator('#actq').waitFor();
+  await page.screenshot({ path: process.env.GB_SHOTS ? process.env.GB_SHOTS + '/05-tool-cards.png' : '/tmp/gb-05.png' });
   assert.deepEqual(errors, []);
   await context.close();
 });
