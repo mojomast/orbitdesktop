@@ -29,6 +29,10 @@ const RUN = /^[A-Za-z0-9_.:-]{1,128}$/;
 let gatewayProviders = ['grok', 'pi'];
 try { const m = await import('./agent-providers.mjs'); if (Array.isArray(m.GATEWAY_PROVIDERS)) gatewayProviders = [...m.GATEWAY_PROVIDERS]; } catch {}
 const LABELS = { hermes: 'Hermes', grok: 'Grok Bot', pi: 'Pi' };
+// Same prompt ceiling as Orbit's agent chat (server/agent.mjs, src/agent-chat.ts).
+export const MAX_PROMPT = 100000;
+// Request body ceiling: a 100,000-character prompt JSON-encoded at up to 4 bytes per char, plus envelope.
+const MAX_BODY_BYTES = 1_600_000;
 
 const fail = (message, status = 502) => Object.assign(Error(message), { status });
 // Full-length redaction for JSON payloads (redact() below also trims to 300 chars for error text).
@@ -88,9 +92,9 @@ const gatewayAdapter = {
     const messages = []; let streaming = null;
     for (const raw of Array.isArray(tail?.entries) ? tail.entries : []) {
       const e = raw?.entry && raw.kind == null ? raw.entry : raw; if (!e || typeof e !== 'object') continue;
-      if (e.isStreaming === true || e.streaming === true) { const c = e.kind === 'send-message' ? e.message?.content : e.content; if (typeof c === 'string' && c.trim()) streaming = c.slice(0, 60000); continue; }
+      if (e.isStreaming === true || e.streaming === true) { const c = e.kind === 'send-message' ? e.message?.content : e.content; if (typeof c === 'string' && c.trim()) streaming = c.slice(0, MAX_PROMPT); continue; }
       const m = entryText(e); if (!m || !m.content.trim()) continue;
-      messages.push({ id: String(e.id || e.seq || ''), ts: Number(e.timestampMs) || Date.parse(e.at || '') || 0, role: m.role, content: m.content.slice(0, 60000) });
+      messages.push({ id: String(e.id || e.seq || ''), ts: Number(e.timestampMs) || Date.parse(e.at || '') || 0, role: m.role, content: m.content.slice(0, MAX_PROMPT) });
     }
     let cards = [];
     if (p.provider === 'grok') { try { cards = grokControls.extractPendingCards(tail?.entries).map(c => JSON.parse(redactFull(JSON.stringify(c), p.apiKey))); } catch { cards = []; } }
@@ -151,7 +155,7 @@ const sessionsAdapter = {
       if (!more || rows.filter(keep).length >= 30) break;
     }
     const messages = rows.filter(keep)
-      .map(m => ({ id: String(m.id ?? ''), ts: ts(m.timestamp ?? m.created_at), role: m.role, content: String(m.content ?? m.text).slice(0, 60000), _n: Number(m.id) || 0 }))
+      .map(m => ({ id: String(m.id ?? ''), ts: ts(m.timestamp ?? m.created_at), role: m.role, content: String(m.content ?? m.text).slice(0, MAX_PROMPT), _n: Number(m.id) || 0 }))
       .sort((a, b) => a._n - b._n || a.ts - b.ts).map(({ _n, ...m }) => m);
     const page = { has_more: more, rows: [] };
     return { messages, streaming: null, before: page.has_more ? off : null };
@@ -173,7 +177,7 @@ const sessionsAdapter = {
     // Hermes may rotate a long session to a compression continuation id; follow it rather than failing.
     const runSession = typeof r?.session_id === 'string' && SAFE.test(r.session_id) ? r.session_id : null;
     const le = r?.last_event; const lastEvent = le ? redact(typeof le === 'string' ? le : (le.event || le.type || le.name || '') + (le.tool ? ` ${le.tool}` : le.tool_name ? ` ${le.tool_name}` : ''), p.apiKey).slice(0, 120) : '';
-    return { lastEvent, session: runSession, status: String(r?.status || 'unknown'), output: typeof r?.output === 'string' ? r.output.slice(0, 60000) : '', error: r?.error ? redact(typeof r.error === 'string' ? r.error : r.error.message || JSON.stringify(r.error), p.apiKey) : '' };
+    return { lastEvent, session: runSession, status: String(r?.status || 'unknown'), output: typeof r?.output === 'string' ? r.output.slice(0, MAX_PROMPT) : '', error: r?.error ? redact(typeof r.error === 'string' ? r.error : r.error.message || JSON.stringify(r.error), p.apiKey) : '' };
   },
   async stop(p, label, { run }) { if (!RUN.test(run || '')) throw fail('Invalid run id.', 400); await http(p, `/v1/runs/${encodeURIComponent(run)}/stop`, { body: {}, label }); return { ok: true }; },
 };
@@ -215,8 +219,9 @@ export function createGrokBotsApp({ runtimeRoot, catalog, agentStatus, chats }) 
     if (req.headers.origin !== undefined && req.headers.origin !== 'null') return send(res, 403, { error: 'Origin rejected' });
     const given = Buffer.from(String(req.headers.authorization || '').replace(/^Bearer\s+/i, ''));
     if (given.length !== keyBuf.length || !timingSafeEqual(given, keyBuf)) return send(res, 401, { error: 'Missing or invalid app key. Reopen the pane from Orbit.' });
-    let raw = '';
-    for await (const part of req) { raw += part; if (raw.length > 64000) { send(res, 413, { error: 'Too large' }); return req.destroy(); } }
+    const chunks = []; let size = 0;
+    for await (const part of req) { size += part.length; if (size > MAX_BODY_BYTES) { send(res, 413, { error: 'Request too large.' }); return req.destroy(); } chunks.push(part); }
+    const raw = Buffer.concat(chunks).toString('utf8');
     let b; try { b = JSON.parse(raw || '{}'); } catch { return send(res, 400, { error: 'Invalid JSON' }); }
     try {
       if (b.action === 'agents') return send(res, 200, await agents());
@@ -240,7 +245,7 @@ export function createGrokBotsApp({ runtimeRoot, catalog, agentStatus, chats }) 
       }
       const fn = { sessions: x.adapter.sessions, history: x.adapter.history, send: x.adapter.send, run: x.adapter.run, stop: x.adapter.stop, activity: x.adapter.activity }[b.action];
       if (!fn) return send(res, 400, { error: `Action not supported for ${x.providerLabel}.` });
-      if (b.action === 'send') { const t = typeof b.prompt === 'string' ? b.prompt.trim() : ''; if (!t || t.length > 20000) throw fail('Message must be 1–20000 characters.', 400); b.prompt = t; }
+      if (b.action === 'send') { const t = typeof b.prompt === 'string' ? b.prompt.trim() : ''; if (!t || t.length > MAX_PROMPT) throw fail('Message must be 1–100,000 characters.', 400); b.prompt = t; }
       const out = await fn(x.p, x.label, b, ctx);
       if (b.action === 'sessions' && Array.isArray(out?.sessions)) { const hid = groupsFor().hidden().sessions; out.sessions = out.sessions.filter(r => !hid.has(r.id)); } // group sessions stay out of 1-on-1 lists
       return send(res, 200, out);

@@ -1,4 +1,4 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="orbit-builtin-app" content="grokbots@1"><title>Agents</title><meta name="viewport" content="width=device-width,initial-scale=1">
+<!doctype html><html><head><meta charset="utf-8"><meta name="orbit-builtin-app" content="grokbots@2"><title>Agents</title><meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 *{box-sizing:border-box}html,body{margin:0;height:100%;background:#0d0f14;color:#e6e8ee;font:14px/1.45 system-ui,-apple-system,Segoe UI,sans-serif}
 #app{display:flex;height:100%}
@@ -40,7 +40,7 @@ button{background:#2b3248;color:inherit;border:1px solid #3b4256;border-radius:6
 <div id="side"><header>🤖 Agents <span style="flex:1"></span><button id="rf" title="Refresh">⟳</button></header><input id="q" placeholder="Search agents"><div id="list"></div></div>
 <div id="main"><div id="top"><button id="back" hidden>◂ Sessions</button><span class="t" id="title">Pick an agent</span><span id="wk"></span><span id="st"></span><button id="stop" hidden>Stop</button><button id="actbtn" title="Show live activity">⚡ Activity</button></div><div id="err"></div>
 <div id="picker"></div><div id="msgs"><div class="empty">Select an agent on the left to see its conversation.</div></div>
-<div id="comp"><textarea id="in" placeholder="Message… (Enter to send, Shift+Enter for newline)" disabled></textarea><button class="pri" id="send" disabled>Send</button></div></div><div id="act"><header><span>Live activity</span><button id="actx">✕</button></header><div id="actlist"><div class="sec">No activity yet.</div></div><div id="actmeta"></div></div></div>
+<div id="comp"><textarea id="in" maxlength="100000" placeholder="Message… up to 100,000 characters (Enter to send, Shift+Enter for newline)" disabled></textarea><button class="pri" id="send" disabled>Send</button></div></div><div id="act"><header><span>Live activity</span><button id="actx">✕</button></header><div id="actlist"><div class="sec">No activity yet.</div></div><div id="actmeta"></div></div></div>
 <script>
 const hp=new URLSearchParams(location.hash.slice(1));const KEY=hp.get('k')||'';
 const API=new URL('/api/grokbots-app',location.href).href;
@@ -386,4 +386,14 @@ loadGroups();setInterval(()=>{if(isG())refreshGroup()},2500);
 // restore a group selection from the URL hash
 const hp=new URLSearchParams(location.hash.slice(1));if(hp.get('p')===G&&hp.get('a'))setTimeout(async()=>{await loadGroups();if(gchats.some(g=>g.id===hp.get('a')))pickGroup(hp.get('a'))},800);
 })();
-</script></body></html>
+</script><script>
+// ---- Long prompts: 100,000-character cap (same as Orbit's agent chat), live counter near the limit ----
+(function(){
+const MAX=100000,inp=$('in');const c=document.createElement('span');c.id='ccount';c.style.cssText='position:absolute;right:96px;bottom:2px;font-size:10px;color:#8a90a6;pointer-events:none';$('comp').style.position='relative';$('comp').append(c);
+function upd(){const n=inp.value.length;c.textContent=n>=MAX*0.8?n.toLocaleString()+' / 100,000':'';c.style.color=n>=MAX?'#ff8a8a':n>=MAX*0.95?'#ffd666':'#8a90a6'}
+inp.addEventListener('input',upd);window.gbComposerChanged=upd;
+// Paste that would overflow: keep what fits and say so instead of silently truncating.
+inp.addEventListener('paste',e=>{const t=(e.clipboardData&&e.clipboardData.getData('text'))||'';const room=MAX-(inp.value.length-(inp.selectionEnd-inp.selectionStart));if(t.length>room){e.preventDefault();inp.setRangeText(t.slice(0,Math.max(0,room)),inp.selectionStart,inp.selectionEnd,'end');upd();err('Pasted text was cut to fit the 100,000-character limit ('+(t.length-room).toLocaleString()+' characters left out).')}});
+})();
+</script>
+</body></html>

@@ -467,7 +467,7 @@ function cleanDelegations(list, participants = DEFAULT_PARTICIPANTS) {
  * speaker id; `gateways` must then map handles to providers. `defaultResponder` ('all' or a handle) answers
  * Kyle's un-mentioned messages instead of the provider-room heuristic.
  */
-export function createSharedAgents({ directory, fetchImpl = fetch, chats, grok, hermesProfile, gatewayProfile, grokProfile, now = () => Date.now(), turnTimeoutMs, advanceIntervalMs, gateways: providedGateways, openCollab, members, defaultResponder, delegationTimeoutMs, guidance, parallel: parallelOption, hardCapMs } = {}) {
+export function createSharedAgents({ directory, fetchImpl = fetch, chats, grok, hermesProfile, gatewayProfile, grokProfile, now = () => Date.now(), turnTimeoutMs, advanceIntervalMs, gateways: providedGateways, openCollab, members, defaultResponder, delegationTimeoutMs, guidance, parallel: parallelOption, hardCapMs, maxMessage = 16000 } = {}) {
   const turnTimeout = Number.isFinite(turnTimeoutMs) && turnTimeoutMs >= 1000 ? Math.floor(turnTimeoutMs) : sharedTurnTimeoutMs();
   const turnTimeoutMinutes = Math.max(1, Math.round(turnTimeout / 60000));
   const advanceEvery = Number.isFinite(advanceIntervalMs) && advanceIntervalMs >= 15 ? Math.floor(advanceIntervalMs) : DEFAULT_ADVANCE_INTERVAL_MS;
@@ -592,7 +592,7 @@ export function createSharedAgents({ directory, fetchImpl = fetch, chats, grok, 
   }
 
   function append(state, speaker, text, error = false) {
-    const clean = String(text || '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 16000);
+    const clean = String(text || '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, maxMessage);
     if (!clean) return;
     state.messages.push({ id: `m_${randomUUID().replaceAll('-', '')}`, speaker, text: clean, at: new Date(now()).toISOString(), ...(error ? { error: true } : {}) });
     state.messages = state.messages.slice(-200);
@@ -1078,7 +1078,7 @@ function findTask(state, id) {
     if (operation === 'state') {
       await advance(state);
     } else if (operation === 'post') {
-      if (typeof body.text !== 'string' || !body.text.trim() || body.text.length > 16000) throw fail('Enter a message of 1–16,000 characters.', 400);
+      if (typeof body.text !== 'string' || !body.text.trim() || body.text.length > maxMessage) throw fail(`Enter a message of 1–${maxMessage.toLocaleString('en-US')} characters.`, 400);
       const text = body.text.trim();
       const collabGoal = text.match(/^\/collab\s+(\S[\s\S]*)$/);
       if (text === '/collab' || text.startsWith('/collab ')) {

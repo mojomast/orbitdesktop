@@ -10,7 +10,7 @@
 const SESSION = /^pi_[a-f0-9]{16}$/;
 const THINKING = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 const QUEUE_MODES = ['all', 'one-at-a-time'];
-const MAX_TEXT = 20_000;
+const MAX_TEXT = 100_000; // matches the 100,000-character prompt cap
 
 /** Pi live event -> Activity panel label (gateway channels: run, message, tool, activity, approval, note). */
 export const ACTIVITY_EVENTS = Object.freeze({

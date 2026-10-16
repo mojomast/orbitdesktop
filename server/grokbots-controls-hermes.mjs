@@ -228,7 +228,8 @@ export async function control(profile, { action, session, run, args = {} } = {},
     }
     case 'steer': {
       needId(run, 'run');
-      const input = str(args.text, 4000);
+      if (typeof args.text === 'string' && args.text.trim().length > 100000) throw fail('Guidance must be 1–100,000 characters.');
+      const input = str(args.text, 100000);
       if (!input) throw fail('Type guidance first.');
       const r = await ctx.fetchHermes(`/v1/runs/${enc(run)}/steer`, { method: 'POST', body: { input } });
       return { ok: true, status: str(r?.status, 40) };
