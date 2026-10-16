@@ -228,7 +228,39 @@ adapters.set('hermes', sessionsAdapter);
 export function registerProviderAdapter(provider, adapter) { adapters.set(provider, adapter); }
 const adapterFor = provider => adapters.get(provider) || sessionsAdapter; // Orbit treats unknown providers as Hermes-compatible
 
-export function createGrokBotsApp({ runtimeRoot, catalog, agentStatus, chats }) {
+// Orbit workspace context (same text the agent chat attaches for gateway agents): the operator
+// block plus a pointer to the on-disk guide, appended once per conversation when enabled.
+const CONTEXT_MARK = 'Orbit workspace operator block';
+const CONTEXT_SEP = '\n\nWorkspace context:\n';
+export function workspaceContextText(workspaceContext, workspaceId) {
+  const raw = typeof workspaceContext?.parts === 'function' ? workspaceContext.parts(workspaceId) : null;
+  if (!raw || typeof raw.operator !== 'string') return '';
+  const guidePath = typeof raw.guidePath === 'string' && raw.guidePath ? raw.guidePath : 'docs/AGENT_GUIDE.md';
+  return `${raw.operator}Read ${guidePath} from disk for the full workspace operator guide before changing the workspace. That guide is not inlined in this prompt.\n`;
+}
+export function createGrokBotsApp({ runtimeRoot, catalog, agentStatus, chats, workspaceContext }) {
+  const contextDelivered = new Set();
+  // Returns {prompt, context} where context is 'attached' | 'already' | 'too-long' | 'unavailable'.
+  async function withContext(x, b) {
+    if (!workspaceContext) return { prompt: b.prompt, context: 'unavailable' };
+    if (!UUID.test(String(b.workspace || ''))) throw fail('Workspace context needs the Orbit workspace. Reopen Grok Bots from Orbit.', 409);
+    const key = `${x.p.id}|${b.agent || ''}|${b.session || ''}|${b.workspace}`; // matches the add after send
+    const fresh = x.adapter.kind === 'sessions' ? !b.session : false;
+    if (!fresh && contextDelivered.has(key)) return { prompt: b.prompt, context: 'already' };
+    if (!fresh) {
+      let seen = false;
+      try {
+        if (x.adapter.kind === 'gateway') { const tail = await http(x.p, '/api/getAgentTranscriptTail', { body: { id: b.agent, limit: 60 }, label: x.label }); seen = JSON.stringify(tail?.entries || []).includes(CONTEXT_MARK); }
+        else { const page = await hermesMessages(x.p, x.label, b.session, 100, 0); seen = page.rows.some(m => String(m?.content ?? m?.text ?? '').includes(CONTEXT_MARK)); }
+      } catch {}
+      if (seen) { contextDelivered.add(key); return { prompt: b.prompt, context: 'already' }; }
+    }
+    let text; try { text = workspaceContextText(workspaceContext, b.workspace); } catch { throw fail('Workspace has not synced yet. Wait for the workspace connection and retry.', 409); }
+    if (!text) return { prompt: b.prompt, context: 'unavailable' };
+    const prompt = `${b.prompt}${CONTEXT_SEP}${text}`;
+    if (prompt.length > MAX_PROMPT) return { prompt: b.prompt, context: 'too-long' };
+    return { prompt, context: 'attached' };
+  }
   const keyBuf = Buffer.from(loadGrokBotsKey(runtimeRoot));
   const cors = { 'Access-Control-Allow-Origin': 'null', 'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-File-Name', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Max-Age': '600', Vary: 'Origin', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
   const send = (res, status, data) => { res.writeHead(status, { ...cors, 'Content-Type': 'application/json' }); res.end(JSON.stringify(data)); };
@@ -304,7 +336,11 @@ export function createGrokBotsApp({ runtimeRoot, catalog, agentStatus, chats }) 
       const fn = { sessions: x.adapter.sessions, history: x.adapter.history, send: x.adapter.send, run: x.adapter.run, stop: x.adapter.stop, activity: x.adapter.activity }[b.action];
       if (!fn) return send(res, 400, { error: `Action not supported for ${x.providerLabel}.` });
       if (b.action === 'send') { const t = typeof b.prompt === 'string' ? b.prompt.trim() : ''; const hasFiles = Array.isArray(b.attachments) && b.attachments.length > 0; if ((!t && !hasFiles) || t.length > MAX_PROMPT) throw fail('Message must be 1–100,000 characters.', 400); b.prompt = uploads.compose(t, b.attachments, MAX_PROMPT); }
+      let ctxInfo = null;
+      if (b.action === 'send' && b.context === true) { ctxInfo = await withContext(x, b); b.prompt = ctxInfo.prompt; }
       const out = await fn(x.p, x.label, b, ctx);
+      if (ctxInfo) { if (ctxInfo.context === 'attached') contextDelivered.add(`${x.p.id}|${b.agent || ''}|${b.session || out?.session || ''}|${b.workspace}`); out.context = ctxInfo.context; }
+      if (b.action === 'history' && Array.isArray(out?.messages)) for (const m of out.messages) { if (m.role === 'user' && m.content.includes(CONTEXT_SEP)) { m.content = m.content.split(CONTEXT_SEP)[0]; m.context = true; } }
       if (b.action === 'sessions' && Array.isArray(out?.sessions)) { const hid = groupsFor().hidden().sessions; out.sessions = out.sessions.filter(r => !hid.has(r.id)); } // group sessions stay out of 1-on-1 lists
       return send(res, 200, out);
     } catch (e) { return send(res, e.status || 502, { error: String(e.message || 'Failed').slice(0, 400) }); }

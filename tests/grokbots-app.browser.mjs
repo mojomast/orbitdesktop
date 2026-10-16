@@ -179,3 +179,29 @@ test('conversation library searches bots and Hermes sessions, opens here or in a
   assert.deepEqual(errors, []);
   await context.close();
 });
+
+test('workspace context toggle is saved per conversation and sends the workspace id', async () => {
+  const { page, app, errors, context } = await open(`&p=grok&a=${AGENT2}`);
+  const btn = app.locator('#ctxbtn');
+  await btn.waitFor();
+  await page.waitForFunction(() => document.querySelector('#app').contentWindow && true);
+  await app.locator('#ctxbtn:not([disabled])').waitFor();
+  await btn.click();
+  await app.locator('#ctxbtn.on').waitFor();
+  await app.locator('#in').fill('with context');
+  await app.locator('#send').click();
+  for (let i = 0; i < 20 && !fx.seen.some(s => s.url === '/api/sendPrompt' && s.body.prompt.startsWith('with context')); i++) await page.waitForTimeout(250);
+  const p = fx.seen.find(s => s.url === '/api/sendPrompt' && s.body.prompt.startsWith('with context')).body.prompt;
+  assert.match(p, /Workspace context:\n\nOrbit workspace operator block\nWorkspace: aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee/);
+  await app.locator('.ctxnote').first().waitFor();
+  await page.screenshot({ path: process.env.GB_SHOTS ? process.env.GB_SHOTS + '/07-workspace-context.png' : '/tmp/gb-07.png' });
+  // per conversation: the other bot is off; coming back it is on (saved on the server)
+  await app.locator('.bot', { hasText: 'Stub Bot' }).click();
+  await app.locator('#ctxbtn:not(.on)').waitFor();
+  await app.locator('.bot', { hasText: 'Second Bot' }).click();
+  await app.locator('#ctxbtn.on').waitFor();
+  await app.locator('#wbbtn').click();
+  await page.waitForFunction(() => window.__ops.some(o => o.op === 'workbench'));
+  assert.deepEqual(errors, []);
+  await context.close();
+});

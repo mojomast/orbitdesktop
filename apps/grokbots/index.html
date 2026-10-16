@@ -1,4 +1,4 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="orbit-builtin-app" content="grokbots@7"><title>Agents</title><meta name="viewport" content="width=device-width,initial-scale=1">
+<!doctype html><html><head><meta charset="utf-8"><meta name="orbit-builtin-app" content="grokbots@8"><title>Agents</title><meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 *{box-sizing:border-box}html,body{margin:0;height:100%;background:#0d0f14;color:#e6e8ee;font:14px/1.45 system-ui,-apple-system,Segoe UI,sans-serif}
 #app{display:flex;height:100%}
@@ -81,7 +81,7 @@ function renderMsgs(keep){const M=$('msgs');const atBottom=M.scrollHeight-M.scro
  if(older){const b=document.createElement('button');b.id='older';b.textContent='Load older';b.onclick=loadOlder;M.append(b)}
  if(!msgs.length&&!stream)M.innerHTML+='<div class="empty">'+(isSes()&&!session?'New conversation — send a message to start it.':'No messages yet.')+'</div>';
  if(window.gbToolCards)gbToolCards(M,'');
- for(const m of msgs){const d=document.createElement('div');d.className='m '+m.role;d.innerHTML=md(m.content);d._m=m;if(m.attachments&&m.attachments.length){const a=document.createElement('div');a.className='matt';a.textContent='📎 '+m.attachments.map(x=>x.name).join(', ');d.append(a)}if(m.ts){const t=document.createElement('div');t.className='ts';t.textContent=new Date(m.ts).toLocaleString()+(m.state==='sending'?' · sending…':m.state==='delivered'?' · ✓ delivered':m.state==='failed'?' · ⚠ not delivered':'');if(m.state==='failed'){t.style.color='#ff8a8a';t.title=m.error||'';const rb=document.createElement('button');rb.textContent='Retry';rb.style.marginLeft='8px';rb.onclick=()=>retry(m);t.append(rb)}d.append(t)}M.append(d);if(window.gbToolCards&&m.id&&!String(m.id).startsWith('local-'))gbToolCards(M,m.id)}
+ for(const m of msgs){const d=document.createElement('div');d.className='m '+m.role;d.innerHTML=md(m.content);d._m=m;if(m.context){const c=document.createElement('div');c.className='ctxnote';c.textContent='🧭 with Orbit workspace context';d.append(c)}if(m.attachments&&m.attachments.length){const a=document.createElement('div');a.className='matt';a.textContent='📎 '+m.attachments.map(x=>x.name).join(', ');d.append(a)}if(m.ts){const t=document.createElement('div');t.className='ts';t.textContent=new Date(m.ts).toLocaleString()+(m.state==='sending'?' · sending…':m.state==='delivered'?' · ✓ delivered':m.state==='failed'?' · ⚠ not delivered':'');if(m.state==='failed'){t.style.color='#ff8a8a';t.title=m.error||'';const rb=document.createElement('button');rb.textContent='Retry';rb.style.marginLeft='8px';rb.onclick=()=>retry(m);t.append(rb)}d.append(t)}M.append(d);if(window.gbToolCards&&m.id&&!String(m.id).startsWith('local-'))gbToolCards(M,m.id)}
  if(stream){const d=document.createElement('div');d.className='m assistant stream';d.innerHTML=md(stream);M.append(d)}
  if(keep==='top')M.scrollTop=M.scrollHeight-prevH;else if(keep!=='stay'||atBottom)M.scrollTop=M.scrollHeight}
 function showPicker(on){picking=on;$('picker').style.display=on?'block':'none';$('msgs').style.display=on?'none':'flex';$('comp').style.display=on?'none':'flex'}
@@ -108,7 +108,7 @@ function pick(profile,agent){sel={profile,agent};session=null;msgs=[];if(window.
  if(isSes()){showPicker(true);renderTop();loadSessions(false)}else{showPicker(false);renderTop();$('msgs').innerHTML='<div class="empty">Loading…</div>';loadHist(true)}}
 function nonce(){return (crypto.randomUUID?crypto.randomUUID():String(Date.now())+Math.random().toString(16).slice(2)).replace(/[^A-Za-z0-9_-]/g,'')}
 async function deliver(m){m.state='sending';renderMsgs();sending=true;renderTop();
- try{const r=await api({action:'send',profile:sel.profile,agent:sel.agent,...(m.session?{session:m.session}:{}),prompt:m.content,nonce:m.nonce,...(m.attachments&&m.attachments.length?{attachments:m.attachments.map(a=>({id:a.id}))}:{}),...(window.gbSendExtras?gbSendExtras():{})});
+ try{const r=await api({action:'send',profile:sel.profile,agent:sel.agent,...(m.session?{session:m.session}:{}),prompt:m.content,nonce:m.nonce,...(m.attachments&&m.attachments.length?{attachments:m.attachments.map(a=>({id:a.id}))}:{}),...(window.gbSendExtras?gbSendExtras():{})});if(r&&r.context==='attached')m.context=true;else if(r&&r.context==='too-long'&&window.toast)toast('Workspace context skipped: this message is near the 100,000-character limit');
   m.state='delivered';if(r.session&&r.session!==session){session=r.session;saveHash()}m.session=session;if(r.run){run=r.run;runSince=Date.now();stream='…'}
   fast=Date.now()+180000;err()}catch(e){m.state='failed';m.error=e.message;err(e)}finally{sending=false;renderMsgs();renderTop()}}
 async function doSend(){const t=$('in').value.trim();const hasAtt=!!(window.gbPendingAttachments&&gbPendingAttachments().length);if((!t&&!hasAtt)||!sel||sending||run)return;if(window.gbAttachBusy&&gbAttachBusy()){err('Wait for the uploads to finish.');return}$('in').value='';const att=hasAtt?gbTakeAttachments():null;
@@ -598,6 +598,21 @@ window.gbExport=(fmt)=>{if(!sel)return;const b=cur();exportConv({profile:sel.pro
 btn.onclick=()=>{lib.classList.add('on');render();loadSes(false);$('libq').focus()};
 $('libx').onclick=close;lib.onclick=e=>{if(e.target===lib)close()};$('libq').oninput=render;$('libmore').onclick=()=>loadSes(true);
 addEventListener('keydown',e=>{if(e.key==='Escape'&&lib.classList.contains('on'))close();if((e.ctrlKey||e.metaKey)&&e.shiftKey&&e.key.toLowerCase()==='o'){e.preventDefault();btn.click()}});
+})();
+</script>
+<script>
+// ---- Orbit workspace context: per-conversation toggle; the server attaches the operator block once per conversation ----
+(function(){
+const st=document.createElement('style');st.textContent=`#ctxbtn.on{background:#24315f;border-color:#4f6bf0;color:#dfe5ff}#ctxbtn{white-space:nowrap}.m .ctxnote{font-size:10px;color:#8fa2ff;margin-top:3px}`;document.head.append(st);
+const b=document.createElement('button');b.id='ctxbtn';b.type='button';$('actbtn').before(b);
+const wb=document.createElement('button');wb.id='wbbtn';wb.type='button';wb.textContent='◧';wb.title='Open a Workbench window (Workbench context stays owner-approved inside Workbench panes)';$('actbtn').before(wb);
+const on=()=>{const k=window.convKey&&convKey();return !!(k&&window.gbPrefs&&gbPrefs.context&&gbPrefs.context[k])};
+function render(){const ok=!!(window.HOST&&HOST.ready&&HOST.workspaceId);const v=on();b.classList.toggle('on',v&&ok);b.textContent=v?'🧭 Context on':'🧭 Context';
+  b.title=!ok?'Workspace context is available when Grok Bots runs inside Orbit':v?'This conversation gets the Orbit workspace operator block (once) so the agent can read and change your workspace. Click to stop.':'Give this conversation the Orbit workspace context (operator block and guide path), like the agent chat';b.disabled=!ok&&!v;wb.hidden=!(window.HOST&&HOST.ready)}
+b.onclick=()=>{const k=window.convKey&&convKey();if(!k)return;if(!gbPrefs.context)gbPrefs.context={};const v=!on();if(v)gbPrefs.context[k]=true;else delete gbPrefs.context[k];gbSavePref('context',k,v?true:null);render();if(window.toast)toast(v?'Workspace context will be attached to the next message':'Workspace context off for this conversation')};
+wb.onclick=async()=>{try{await host('workbench',{})}catch(e){err(e)}};
+window.gbSendExtras=()=>on()&&window.HOST&&HOST.workspaceId?{context:true,workspace:HOST.workspaceId}:{};
+addEventListener('gb-conv',render);addEventListener('gb-host',render);addEventListener('gb-host-hello',render);setTimeout(render,0);
 })();
 </script>
 </body></html>

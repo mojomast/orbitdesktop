@@ -173,3 +173,32 @@ test('history returns redacted tool calls and results anchored to the preceding 
     assert.deepEqual(hr.body.tools.map(x => [x.name, x.status, x.after, x.input, x.output]), [['terminal', 'done', '1', '{"command":"ls"}', 'a.txt']]);
   } finally { await h.close(); }
 });
+
+test('workspace context is attached once per conversation when the app asks for it', async () => {
+  const WS = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+  const workspaceContext = Object.assign(() => 'full', { parts: id => ({ operator: `\nOrbit workspace operator block\nWorkspace: ${id}\n`, guide: 'G', guidePath: '/repo/docs/AGENT_GUIDE.md' }) });
+  const h = await harness({ workspaceContext });
+  try {
+    const prompts = () => h.gw.seen.filter(s => s.url === '/api/sendPrompt').map(s => s.body.prompt);
+    const r1 = await h.call({ action: 'send', profile: 'grok', agent: AGENT, prompt: 'hello', context: true, workspace: WS });
+    assert.equal(r1.body.context, 'attached');
+    assert.equal(prompts()[0], `hello\n\nWorkspace context:\n\nOrbit workspace operator block\nWorkspace: ${WS}\nRead /repo/docs/AGENT_GUIDE.md from disk for the full workspace operator guide before changing the workspace. That guide is not inlined in this prompt.\n`);
+    const r2 = await h.call({ action: 'send', profile: 'grok', agent: AGENT, prompt: 'again', context: true, workspace: WS });
+    assert.equal(r2.body.context, 'already'); assert.equal(prompts()[1], 'again');
+    assert.equal((await h.call({ action: 'send', profile: 'grok', agent: AGENT, prompt: 'plain' })).body.context, undefined);
+    assert.equal((await h.call({ action: 'send', profile: 'grok', agent: AGENT, prompt: 'x', context: true, workspace: 'nope' })).status, 409);
+    // a restarted server still sees the block in the transcript
+    h.gw.transcript.push({ id: 'u9', kind: 'message', role: 'user', content: prompts()[0], timestampMs: 5 });
+    const h2 = await harness({ workspaceContext }); h2.gw.transcript.push(...h.gw.transcript);
+    try { assert.equal((await h2.call({ action: 'send', profile: 'grok', agent: AGENT, prompt: 'x', context: true, workspace: WS })).body.context, 'already'); } finally { await h2.close(); }
+    // history hides the attached block and flags the message
+    const hist = await h.call({ action: 'history', profile: 'grok', agent: AGENT });
+    const m = hist.body.messages.find(x => x.id === 'u9'); assert.equal(m.content, 'hello'); assert.equal(m.context, true);
+    // Hermes: new sessions get it; too-long prompts skip it
+    const hr = await h.call({ action: 'send', profile: 'default', agent: 'default', prompt: 'hi', context: true, workspace: WS });
+    assert.equal(hr.body.context, 'attached');
+    assert.match(h.gw.seen.find(s => s.url === '/v1/runs').body.input, /^hi\n\nWorkspace context:/);
+    const long = await h.call({ action: 'send', profile: 'default', agent: 'default', prompt: 'z'.repeat(MAX_PROMPT - 10), context: true, workspace: WS });
+    assert.equal(long.body.context, 'too-long');
+  } finally { await h.close(); }
+});

@@ -104,3 +104,10 @@ registerGrokBotsOp('open', async message => {
   if (!event.defaultPrevented) throw Error('Orbit cannot open windows here.');
   return { opened: true };
 });
+
+// Workbench: owner-approved, recipient-bound context stays in Workbench panes
+// (server/workbench-context.mjs); Grok Bots can only open a Workbench window.
+registerGrokBotsOp('workbench', async () => {
+  window.dispatchEvent(new CustomEvent('orbit-open-workbench-window', { detail: {} }));
+  return { opened: true };
+});
