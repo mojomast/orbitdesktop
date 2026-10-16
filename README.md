@@ -208,6 +208,10 @@ The apps have separate persistent home directories and a shared Documents volume
 
 Setup and limitations: [per-app launchers](docs/XPRA_APPS.md) and [Xpra deployment](docs/XPRA.md).
 
+### Chat with all your agents in Grok Bots
+
+Grok Bots is a built-in app (desktop icon, command palette or Orbit menu) that lists every Grok Bot, Pi and Hermes agent, with 1-on-1 chat, group rooms, session controls, context meters, approval cards and a live Activity panel. It installs itself on server start. See [Grok Bots](docs/GROKBOTS.md).
+
 ### Work with Hermes where the work happens
 
 Use separate conversations in separate panes. Inspect tool activity, guide an active run, respond to approvals, and use supported scheduling controls. Available features depend on the configured Hermes gateway. Chat messages, guidance, and saved drafts support up to 100,000 characters. Optional browser desktop notifications announce agent replies without including conversation content; permission is required, Orbit must remain open, and browser/OS restrictions apply.

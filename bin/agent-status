@@ -1,0 +1,10 @@
+#!/bin/sh
+# agent-status <parent-bot-uuid> <agent-id-or-label> "doing X" [working|done|blocked]
+# Posts a phase status to Orbit (loopback only). Never fails, never blocks more than ~2s.
+[ $# -ge 3 ] || { echo 'usage: agent-status <parent> <agent> "doing X" [working|done|blocked]' >&2; exit 0; }
+K="${ORBIT_RUNTIME_DIR:-$HOME/.orbit-runtime}/agent-status.key"
+[ -r "$K" ] || exit 0
+command -v python3 >/dev/null 2>&1 || exit 0
+BODY=$(python3 -c 'import json,sys; a=sys.argv[1:]; print(json.dumps({"parent":a[0],"agent":a[1][:64],"status":a[2][:200],"state":(a[3] if len(a)>3 else "working")}))' "$@" 2>/dev/null) || exit 0
+printf 'Authorization: Bearer %s\n' "$(cat "$K")" | curl -s -o /dev/null -m 2 -X POST -H @- -H 'Content-Type: application/json' --data-binary "$BODY" "http://127.0.0.1:${ORBIT_PORT:-${PORT:-4318}}/api/agent-status" >/dev/null 2>&1
+exit 0

@@ -12,6 +12,7 @@ import { LocalHostProvider } from "./local-host.mjs";
 import { createAgentHandler } from "./agent.mjs";
 import { startPiGateway } from "./pi-gateway.mjs";
 import { createWorkspaceService, runtimeRoot } from "./workspace.mjs";
+import { installBuiltinApps } from "./builtin-apps.mjs";
 import {observeFeatureReadiness} from './feature-readiness.mjs';
 import {featureCapabilities} from '../contracts/feature-capabilities.mjs';
 import { createWorkspaceLayouts } from './workspace-layouts.mjs';
@@ -81,6 +82,8 @@ function reply(res, status, data) {
   res.end(JSON.stringify(data));
 }
 const capabilityDescription=audience=>featureCapabilities({audience,observation:observeFeatureReadiness({root:fileURLToPath(new URL('../',import.meta.url)),runtimeRoot,mcpConfigured:!!mcpSandbox})});
+// Built-in apps (Grok Bots) ship in apps/ and are installed before the bundle index refresh.
+installBuiltinApps({ runtimeRoot, log: message => console.log(message) });
 const workspaceService = createWorkspaceService({ token, port, devOrigins, reply, capabilityDescription });
 const workspaceLayouts = createWorkspaceLayouts({ store: workspaceService.store, token, port, devOrigins, reply, root: runtimeRoot });
 const outputLibrary = createOutputLibrary({ store: workspaceService.store, workspaceRead: workspaceService.read, token, port, devOrigins, reply, root: runtimeRoot });
@@ -344,6 +347,11 @@ async function handleOrbitRequest(req, res) {
   if (url.pathname === "/api/irc") return irc.handle(req, res);
   if (url.pathname === '/api/colab-runtime' || url.pathname.startsWith('/api/colab-runtime/')) return colab.handle(req, res, url);
   if (url.pathname === '/api/kitty-doom') return kittyDoom.handle(req, res);
+  if (url.pathname === '/api/grokbots-app/launch') {
+    // Host-only: hands the Orbit page the capability URL for the sandboxed Grok Bots pane.
+    if (req.method !== 'POST' || !allowedRequest(req, port, devOrigins) || !tokenMatches(String(req.headers.authorization || '').replace(/^Bearer /, ''), token)) return reply(res, 403, { error: 'Orbit authentication required' });
+    return reply(res, 200, { url: grokBotsApp.launchUrl() });
+  }
   if (url.pathname === '/api/grokbots-app') return grokBotsApp.handle(req, res);
   if (url.pathname === '/api/agent-status') return agentStatus.handle(req, res);
   if (url.pathname === '/api/collab-board') return collabBoard.handle(req, res);

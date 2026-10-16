@@ -169,6 +169,7 @@ const desktopHost = el('div', 'desktop-host');
 desktopHost.setAttribute('aria-label', 'Movable workspace windows');
 const desktopIcons = installDesktopIcons(desktopHost, () => [
   {id:'colab-runtime',title:'Google Colab',icon:'▣',pinned:true,run:()=>{void commands.execute('colab-runtime');}},
+  {id:'grokbots',title:'Grok Bots',icon:'🤖',pinned:true,run:()=>{void commands.execute('grokbots');}},
   {id:'kitty-doom',title:'Kitty DOOM',icon:'👾',run:()=>{void commands.execute('kitty-doom');}},
   ...xpraApps.map(a=>({id:`xpra-${a.id}`,title:a.title,icon:a.icon,run:()=>{
     if(focused)unfocus();
@@ -435,6 +436,7 @@ const commands = createWorkspaceCommands((): WorkspaceCommand[] => [
   { id: 'new-terminal', title: 'New terminal', detail: 'Open a host terminal pane', group: 'Create', run: () => addMonitor('terminal') },
   { id: 'new-browser', title: 'New browser', detail: 'Open an app or website', group: 'Create', run: () => addMonitor('browser') },
   { id: 'colab-runtime', title: 'Google Colab', detail: 'GPU and TPU runtimes on colab.research.google.com', group: 'Apps', keywords: ['colab', 'gpu', 'tpu', 'notebook'], disabledReason: !sessionToken ? 'Connect host first to use Google Colab.' : undefined, run: () => openHostSurface('colab-runtime') },
+  { id: 'grokbots', title: 'Grok Bots', detail: 'Chat with Grok Bot, Pi and Hermes agents, alone or in group rooms', group: 'Apps', keywords: ['grok', 'bots', 'agents', 'chat', 'group', 'pi', 'hermes'], disabledReason: !sessionToken ? 'Connect host first to use Grok Bots.' : undefined, run: () => { void openGrokBots(); } },
   { id: 'kitty-doom', title: 'Kitty DOOM', detail: 'Play kitty-doom (Freedoom) in a Kitty-graphics window', group: 'Apps', keywords: ['doom', 'game', 'kitty', 'freedoom', 'play'], disabledReason: !sessionToken ? 'Connect host first to use Kitty DOOM.' : undefined, run: () => openHostSurface('kitty-doom') },
   { id: 'windows', title: 'Windows view', detail: 'Movable desktop windows', group: 'Layout', run: () => windowsButton.click() },
   { id: 'spatial', title: 'Spatial view', detail: 'Explore your 3D workspace', group: 'Layout', run: () => sceneButton.click() },
@@ -540,6 +542,9 @@ function orbitMenuSections(): OrbitMenuSection[] {
   return [
     { id: 'google-colab', title: 'Google Colab', detail: 'Runtimes on colab.research.google.com.', items: [
       { id: 'colab-runtime', label: 'Google Colab', icon: '▣', button: button('Google Colab', 'Google Colab runtimes', () => { void commands.execute('colab-runtime'); }) },
+    ] },
+    { id: 'grokbots', title: 'Grok Bots', detail: 'Multi-agent chat with your bots.', items: [
+      { id: 'grokbots', label: 'Grok Bots', icon: '🤖', button: button('Grok Bots', 'Chat with your agents and group rooms', () => { void commands.execute('grokbots'); }) },
     ] },
     { id: 'games', title: 'Games', detail: 'Play a game inside your workspace.', items: [
       { id: 'kitty-doom', label: 'Kitty DOOM', icon: '👾', button: button('Kitty DOOM', 'Play kitty-doom with Freedoom', () => { void commands.execute('kitty-doom'); }) },
@@ -1321,6 +1326,28 @@ async function launchDesktopPlugin(plugin:PluginInstance) {
      await api({action:'plugins_apply',base_revision:current.revision,operations:[{action:'plugin_enable',...pluginSelector(plugin)}],intent:`Enable desktop plugin ${plugin.manifest.id}`});
     notify('App enabled; workspace is synchronizing.');
   } catch(e) { notify(String(e)); } finally { desktopLaunchBusy = false; }
+}
+// Built-in Grok Bots app: a browser pane on the sandboxed /apps/grokbots/ bundle.
+// The host asks the server for the capability URL (key in the fragment), then
+// reuses an existing Grok Bots window when one is open.
+async function openGrokBots() {
+  if (!sessionToken) { notify('Connect host first to use Grok Bots.'); return; }
+  try {
+    const response = await fetch('/api/grokbots-app/launch', { method: 'POST', headers: { Authorization: `Bearer ${sessionToken}`, 'Content-Type': 'application/json' }, body: '{}' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || typeof data.url !== 'string' || !data.url.startsWith('/apps/grokbots/')) throw Error(data.error || 'Grok Bots is unavailable on this host.');
+    if (focused) unfocus();
+    const existing = state.monitors.find(m => leaves(m.layout).some(p => p.kind === 'browser' && typeof p.url === 'string' && p.url.startsWith('/apps/grokbots/')));
+    if (existing) {
+      const pane = leaves(existing.layout).find(p => p.kind === 'browser' && typeof p.url === 'string' && p.url.startsWith('/apps/grokbots/'));
+      if (pane && pane.url !== data.url) { pane.url = data.url; renderAll(); save(); }
+      choose(existing.id); return;
+    }
+    const m = monitor(state.monitors.length + 1, 'browser'); m.name = 'Grok Bots';
+    leaves(m.layout)[0].url = data.url;
+    state.monitors.push(m); state.selected = m.id; state.view = 'windows';
+    work.classList.add('windows-mode'); renderAll(); choose(m.id); save();
+  } catch (error) { notify(String(error instanceof Error ? error.message : error)); }
 }
 function addMonitor(kind: PaneKind = 'terminal') {
 

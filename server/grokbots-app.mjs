@@ -246,5 +246,7 @@ export function createGrokBotsApp({ runtimeRoot, catalog, agentStatus, chats }) 
       return send(res, 200, out);
     } catch (e) { return send(res, e.status || 502, { error: String(e.message || 'Failed').slice(0, 400) }); }
   }
-  return { handle, groupsApi: () => groupsFor() };
+  // Pane URL for the built-in app; the key travels in the fragment and is never sent as a path or query.
+  const launchUrl = () => `/apps/grokbots/#k=${encodeURIComponent(keyText)}`;
+  return { handle, launchUrl, groupsApi: () => groupsFor() };
 }

@@ -1,0 +1,389 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="orbit-builtin-app" content="grokbots@1"><title>Agents</title><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+*{box-sizing:border-box}html,body{margin:0;height:100%;background:#0d0f14;color:#e6e8ee;font:14px/1.45 system-ui,-apple-system,Segoe UI,sans-serif}
+#app{display:flex;height:100%}
+#side{width:240px;min-width:180px;border-right:1px solid #232733;display:flex;flex-direction:column;background:#11141b}
+#side header{padding:10px;font-weight:600;display:flex;gap:6px;align-items:center}
+#q{margin:0 10px 8px;padding:6px 8px;border-radius:6px;border:1px solid #2b3040;background:#0d0f14;color:inherit}
+#list{overflow:auto;flex:1}
+.sec{padding:8px 12px 4px;font-size:11px;text-transform:uppercase;color:#7b8299;cursor:pointer;user-select:none}
+.bot{display:flex;gap:8px;padding:7px 10px;cursor:pointer;align-items:center;border-left:3px solid transparent}
+.bot:hover{background:#181c26}.bot.sel{background:#1c2232;border-left-color:#6d8cff}
+.av{width:28px;height:28px;border-radius:50%;flex:none;display:grid;place-items:center;font-weight:700;font-size:12px;background:#2b3248;overflow:hidden}.av img{width:100%;height:100%;object-fit:cover}
+.bm{min-width:0;flex:1}.bn{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.bp{font-size:12px;color:#8a90a6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dot{width:8px;height:8px;border-radius:50%;background:#4ade80;flex:none;animation:p 1s infinite alternate}@keyframes p{to{opacity:.3}}
+.badge{background:#6d8cff;color:#fff;border-radius:9px;padding:0 6px;font-size:11px}
+#main{flex:1;display:flex;flex-direction:column;min-width:0}
+#top{padding:10px 14px;border-bottom:1px solid #232733;display:flex;align-items:center;gap:10px}#top .t{font-weight:600;flex:1}#st{font-size:12px;color:#8a90a6}
+#msgs{flex:1;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:10px}
+.m{max-width:85%;padding:8px 12px;border-radius:12px;white-space:pre-wrap;word-wrap:break-word}
+.m.user{align-self:flex-end;background:#2c3d78}.m.assistant{align-self:flex-start;background:#1a1e29}.m.stream{opacity:.75;border:1px dashed #3b4256}
+.m pre{background:#0a0c10;padding:8px;border-radius:6px;overflow:auto;white-space:pre}.m code{background:#0a0c10;padding:1px 4px;border-radius:4px}
+.ts{font-size:10px;color:#6b7186;margin-top:3px}
+#older{align-self:center}
+#comp{display:flex;gap:8px;padding:10px;border-top:1px solid #232733}
+#in{flex:1;resize:none;height:64px;padding:8px;border-radius:8px;border:1px solid #2b3040;background:#0d0f14;color:inherit;font:inherit}
+button{background:#2b3248;color:inherit;border:1px solid #3b4256;border-radius:6px;padding:6px 12px;cursor:pointer;font:inherit}button.pri{background:#4f6bf0;border-color:#4f6bf0}button:disabled{opacity:.5;cursor:default}
+#err{color:#ff8a8a;font-size:12px;padding:0 14px}
+.empty{margin:auto;color:#6b7186;text-align:center}
+.grp{padding:10px 12px 4px;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#a9b4ff;display:flex;gap:6px;flex-wrap:wrap}.grp small{color:#ff8a8a;font-weight:400;text-transform:none}
+.ses{padding:9px 14px;border-bottom:1px solid #1d212c;cursor:pointer}.ses:hover{background:#161a24}.ses .bn{font-weight:600}.ses .bp{font-size:12px;color:#8a90a6}
+#picker{flex:1;overflow:auto;display:none}#picker .bar{display:flex;gap:8px;padding:10px 14px;align-items:center;border-bottom:1px solid #232733}
+#act{width:300px;border-left:1px solid #232733;background:#10131a;display:none;flex-direction:column;min-width:0}#act.on{display:flex}
+#act header{padding:10px 12px;font-weight:600;display:flex;gap:6px;align-items:center;border-bottom:1px solid #232733}#act header span{flex:1}
+#actlist{flex:1;overflow:auto;padding:6px 0}#actmeta{font-size:11px;color:#7b8299;padding:6px 12px;border-top:1px solid #232733}
+.ai{padding:6px 12px;border-bottom:1px solid #191d27;font-size:12px}.ai .h{display:flex;gap:6px;align-items:center}.ai .n{font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ai .d{color:#8a90a6;word-break:break-word;margin-top:2px;font-family:ui-monospace,monospace;font-size:11px}.ai .s{font-size:10px;padding:0 5px;border-radius:6px;background:#262b3a}
+.s.pending,.s.working,.s.streaming,.s.running{background:#3b3413;color:#ffd666}.s.done,.s.completed,.s.sent{background:#15331f;color:#7ee2a0}.s.failed{background:#3a1717;color:#ff8a8a}.s.waiting{background:#3a2440;color:#f0a6ff}
+#wk{font-size:12px;color:#ffd666;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:40%}
+</style></head><body><div id="app">
+<div id="side"><header>🤖 Agents <span style="flex:1"></span><button id="rf" title="Refresh">⟳</button></header><input id="q" placeholder="Search agents"><div id="list"></div></div>
+<div id="main"><div id="top"><button id="back" hidden>◂ Sessions</button><span class="t" id="title">Pick an agent</span><span id="wk"></span><span id="st"></span><button id="stop" hidden>Stop</button><button id="actbtn" title="Show live activity">⚡ Activity</button></div><div id="err"></div>
+<div id="picker"></div><div id="msgs"><div class="empty">Select an agent on the left to see its conversation.</div></div>
+<div id="comp"><textarea id="in" placeholder="Message… (Enter to send, Shift+Enter for newline)" disabled></textarea><button class="pri" id="send" disabled>Send</button></div></div><div id="act"><header><span>Live activity</span><button id="actx">✕</button></header><div id="actlist"><div class="sec">No activity yet.</div></div><div id="actmeta"></div></div></div>
+<script>
+const hp=new URLSearchParams(location.hash.slice(1));const KEY=hp.get('k')||'';
+const API=new URL('/api/grokbots-app',location.href).href;
+const $=id=>document.getElementById(id);
+const INTERNAL=/^(Orbit (chat|collab|shared chat)|Fork [0-9a-f]+|Hermes bridge|orbittest)$/;
+let runSince=0,groups=[],sel=null,session=null,msgs=[],older=null,stream=null,fast=0,run=null,sending=false,openInternal={},picking=false,sesNext=null,sesList=[];
+// sel = {profile, agent}; legacy #bot= means Grok Bot gateway agent
+if(hp.get('p')&&hp.get('a'))sel={profile:hp.get('p'),agent:hp.get('a')};else if(hp.get('bot'))sel={profile:'grok',agent:hp.get('bot')};
+session=hp.get('s')||null;
+async function api(b){const r=await fetch(API,{method:'POST',headers:{Authorization:'Bearer '+KEY,'Content-Type':'application/json'},body:JSON.stringify(b)});const j=await r.json().catch(()=>({error:'HTTP '+r.status}));if(!r.ok)throw Error(j.error||('HTTP '+r.status));return j}
+function err(e){$('err').textContent=e?String(e.message||e):''}
+const esc=s=>s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function md(s){return esc(s).replace(/```[\w-]*\n?([\s\S]*?)```/g,(_,c)=>'<pre>'+c+'</pre>').replace(/`([^`\n]+)`/g,'<code>$1</code>').replace(/\*\*([^*\n]+)\*\*/g,'<b>$1</b>')}
+function av(b){const d=document.createElement('div');d.className='av';if(b.avatar){const i=new Image();i.src=b.avatar;d.append(i)}else{d.textContent=(b.name.match(/[A-Za-z0-9]/)||['?'])[0].toUpperCase();if(b.color)d.style.background=b.color}return d}
+const group=()=>sel&&groups.find(g=>g.profile===sel.profile);
+const cur=()=>{const g=group();return g&&g.agents.find(a=>a.id===sel.agent)};
+const isSes=()=>{const g=group();return g?g.kind==='sessions':false};
+function saveHash(){history.replaceState(null,'','#k='+encodeURIComponent(KEY)+(sel?'&p='+encodeURIComponent(sel.profile)+'&a='+encodeURIComponent(sel.agent):'')+(session?'&s='+encodeURIComponent(session):''))}
+// Unread badge: counted locally (new finished turns since Kyle last viewed the chat), never the gateway unreadCount,
+// which also grows from hidden/background turns and is only cleared by openAgent (a mutating call we avoid).
+const SEEN_K='gb-seen-v1';let SEEN={};try{SEEN=JSON.parse(localStorage.getItem(SEEN_K)||'{}')||{}}catch{}
+function seenSave(){try{localStorage.setItem(SEEN_K,JSON.stringify(SEEN))}catch{}}
+function unseen(pid,b){const k=pid+':'+b.id,t=Number(b.updatedAt)||0;let e=SEEN[k];const viewing=sel&&sel.profile===pid&&sel.agent===b.id;
+ if(!e||viewing){if(!e||e.at!==t||e.n){SEEN[k]={at:t,n:0};seenSave()}return 0}
+ if(t>e.at&&!b.running){e.at=t;e.n=Math.min(99,(e.n||0)+1);seenSave()}return e.n||0}
+function renderList(){const q=$('q').value.toLowerCase();const L=$('list');L.textContent='';
+ const titles={};for(const g of groups){const t=g.kind==='gateway'?(g.providerLabel==='Grok Bot'?'Grok Bots':g.providerLabel+' agents'):(g.provider==='hermes'?'Hermes profiles':g.providerLabel+' profiles');(titles[t]=titles[t]||[]).push(g)}
+ for(const [t,gs] of Object.entries(titles)){const h=document.createElement('div');h.className='grp';h.textContent=t;const errs=gs.filter(g=>g.error);if(errs.length){const e=document.createElement('small');e.textContent='⚠ '+errs[0].error;h.append(e)}L.append(h);
+  for(const g of gs){const f=g.agents.filter(b=>!q||b.name.toLowerCase().includes(q)).sort((a,b)=>b.updatedAt-a.updatedAt);
+   const row=b=>{const r=document.createElement('div');r.className='bot'+(sel&&sel.profile===g.profile&&sel.agent===b.id?' sel':'');r.title=b.id;r.append(av(b));const m=document.createElement('div');m.className='bm';m.innerHTML='<div class="bn"></div><div class="bp"></div>';m.firstChild.textContent=b.name;m.lastChild.textContent=b.preview||b.description||'';r.append(m);
+    if(b.running){const d=document.createElement('span');d.className='dot';r.append(d)}else{const n=unseen(g.profile,b);if(n){const u=document.createElement('span');u.className='badge';u.textContent=n;r.append(u)}}
+    r.onclick=()=>pick(g.profile,b.id);L.append(r)};
+   const main=g.kind==='gateway'?f.filter(b=>!INTERNAL.test(b.name)):f,internal=g.kind==='gateway'?f.filter(b=>INTERNAL.test(b.name)):[];
+   main.forEach(row);
+   if(internal.length){const s=document.createElement('div');s.className='sec';s.textContent=(openInternal[g.profile]?'▾ ':'▸ ')+'Orbit internal ('+internal.length+')';s.onclick=()=>{openInternal[g.profile]=!openInternal[g.profile];renderList()};L.append(s);if(openInternal[g.profile])internal.forEach(row)}}}
+ if(!groups.length)L.innerHTML='<div class="sec">No providers configured</div>'}
+function renderMsgs(keep){const M=$('msgs');const atBottom=M.scrollHeight-M.scrollTop-M.clientHeight<60;const prevH=M.scrollHeight;M.textContent='';
+ if(older){const b=document.createElement('button');b.id='older';b.textContent='Load older';b.onclick=loadOlder;M.append(b)}
+ if(!msgs.length&&!stream)M.innerHTML+='<div class="empty">'+(isSes()&&!session?'New conversation — send a message to start it.':'No messages yet.')+'</div>';
+ for(const m of msgs){const d=document.createElement('div');d.className='m '+m.role;d.innerHTML=md(m.content);if(m.ts){const t=document.createElement('div');t.className='ts';t.textContent=new Date(m.ts).toLocaleString()+(m.state==='sending'?' · sending…':m.state==='delivered'?' · ✓ delivered':m.state==='failed'?' · ⚠ not delivered':'');if(m.state==='failed'){t.style.color='#ff8a8a';t.title=m.error||'';const rb=document.createElement('button');rb.textContent='Retry';rb.style.marginLeft='8px';rb.onclick=()=>retry(m);t.append(rb)}d.append(t)}M.append(d)}
+ if(stream){const d=document.createElement('div');d.className='m assistant stream';d.innerHTML=md(stream);M.append(d)}
+ if(keep==='top')M.scrollTop=M.scrollHeight-prevH;else if(keep!=='stay'||atBottom)M.scrollTop=M.scrollHeight}
+function showPicker(on){picking=on;$('picker').style.display=on?'block':'none';$('msgs').style.display=on?'none':'flex';$('comp').style.display=on?'none':'flex'}
+function renderTop(){const b=cur();const sesTitle=session&&sesList.find(x=>x.id===session);
+ $('title').textContent=(b?b.name:(sel?sel.agent:'Pick an agent'))+(isSes()&&!picking?' — '+(session?(sesTitle?sesTitle.title:session):'new conversation'):'');
+ const busy=(b&&b.running&&!isSes())||!!run;$('st').textContent=sending?'sending…':busy?'working…':b&&b.awaiting?'waiting for you':'';
+ $('stop').hidden=!busy||picking;$('back').hidden=!(isSes()&&!picking);$('in').disabled=!sel||picking;$('send').disabled=!sel||sending||picking||!!run}
+async function loadAgents(){try{groups=(await api({action:'agents'})).groups;err();renderList();renderTop()}catch(e){err(e)}}
+async function loadSessions(more){const g=group();if(!g)return;const P=$('picker');
+ if(!more){sesList=[];sesNext=null;P.innerHTML='<div class="empty" style="padding:20px">Loading conversations…</div>'}
+ try{const r=await api({action:'sessions',profile:g.profile,offset:more?sesNext:0});sesList=sesList.concat(r.sessions);sesNext=r.next;
+  P.textContent='';const bar=document.createElement('div');bar.className='bar';bar.innerHTML='<b style="flex:1"></b>';bar.firstChild.textContent=sesList.length+' conversations · '+(cur()?.name||g.label);const nb=document.createElement('button');nb.className='pri';nb.textContent='+ New conversation';nb.onclick=()=>openSession(null);bar.append(nb);P.append(bar);
+  for(const s of sesList){const d=document.createElement('div');d.className='ses';d.innerHTML='<div class="bn"></div><div class="bp"></div>';d.firstChild.textContent=s.title;d.lastChild.textContent=[s.updatedAt?new Date(s.updatedAt).toLocaleString():'',s.messages+' msgs',s.source,s.preview&&s.preview!==s.title?s.preview:''].filter(Boolean).join(' · ');d.onclick=()=>openSession(s.id);P.append(d)}
+  if(!sesList.length)P.innerHTML+='<div class="empty" style="padding:20px">No previous conversations.</div>';
+  if(sesNext!=null){const m=document.createElement('button');m.textContent='Load more';m.style.margin='10px';m.onclick=()=>loadSessions(true);P.append(m)}err()}catch(e){err(e);P.innerHTML='<div class="empty" style="padding:20px">Could not load conversations.</div>'}}
+function openSession(id){session=id;msgs=[];older=null;stream=null;run=null;saveHash();showPicker(false);renderTop();if(id){$('msgs').innerHTML='<div class="empty">Loading…</div>';loadHist(true)}else renderMsgs()}
+function hargs(extra){return {action:'history',profile:sel.profile,agent:sel.agent,...(session?{session}:{}),...extra}}
+async function loadHist(first,merge){if(!sel||picking||(isSes()&&!session))return;const key=JSON.stringify([sel,session]);try{const h=await api(hargs({}));if(key!==JSON.stringify([sel,session]))return;
+ if(first){const srv=h.messages;const loc=merge?msgs.filter(m=>String(m.id).startsWith('local-')&&!srv.some(x=>x.role===m.role&&x.content.trim()===m.content.trim())&&(m.state==='failed'||m.state==='sending'||!srv.some(x=>x.role==='user'&&x.ts>=m.ts-60000))):[];msgs=srv.concat(loc);if(!merge)older=h.before}else{const known=new Set(msgs.map(m=>m.id));const add=h.messages.filter(m=>!known.has(m.id));const changed=add.length||(h.streaming||null)!==stream;msgs=msgs.concat(add).filter((m,i,a)=>!(m.id.startsWith('local-')&&a.some(x=>!x.id.startsWith('local-')&&x.role===m.role&&x.content.trim()===m.content.trim())));if(!changed)return}
+ stream=h.streaming;renderMsgs(first?'bottom':'stay');err()}catch(e){err(e)}}
+async function loadOlder(){if(!older)return;try{const h=await api(hargs({before:older}));const known=new Set(msgs.map(m=>m.id));msgs=h.messages.filter(m=>!known.has(m.id)).concat(msgs);older=h.before;renderMsgs('top')}catch(e){err(e)}}
+function pick(profile,agent){sel={profile,agent};session=null;msgs=[];older=null;stream=null;run=null;saveHash();renderList();
+ if(isSes()){showPicker(true);renderTop();loadSessions(false)}else{showPicker(false);renderTop();$('msgs').innerHTML='<div class="empty">Loading…</div>';loadHist(true)}}
+function nonce(){return (crypto.randomUUID?crypto.randomUUID():String(Date.now())+Math.random().toString(16).slice(2)).replace(/[^A-Za-z0-9_-]/g,'')}
+async function deliver(m){m.state='sending';renderMsgs();sending=true;renderTop();
+ try{const r=await api({action:'send',profile:sel.profile,agent:sel.agent,...(m.session?{session:m.session}:{}),prompt:m.content,nonce:m.nonce});
+  m.state='delivered';if(r.session&&r.session!==session){session=r.session;saveHash()}m.session=session;if(r.run){run=r.run;runSince=Date.now();stream='…'}
+  fast=Date.now()+180000;err()}catch(e){m.state='failed';m.error=e.message;err(e)}finally{sending=false;renderMsgs();renderTop()}}
+async function doSend(){const t=$('in').value.trim();if(!t||!sel||sending||run)return;$('in').value='';
+ const m={id:'local-'+Date.now(),role:'user',content:t,ts:Date.now(),nonce:nonce(),session};msgs.push(m);await deliver(m)}
+function retry(m){if(sending||run)return;if(m.session===undefined)m.session=session;deliver(m)}
+// After a run ends, every assistant message of the turn comes from session history (not only the run's final output).
+async function settleRun(r,fin){run=null;stream=null;renderTop();
+ const before=msgs.filter(m=>m.role==='assistant'&&!String(m.id).startsWith('local-')).length;
+ for(const wait of [0,1500,4000]){if(wait)await new Promise(z=>setTimeout(z,wait));await loadHist(true,true);
+  if(msgs.filter(m=>m.role==='assistant'&&!String(m.id).startsWith('local-')).length>before)break}
+ const got=msgs.filter(m=>m.role==='assistant'&&!String(m.id).startsWith('local-')).length>before;
+ if(!got&&fin==='completed'&&r.output){msgs.push({id:'local-r'+Date.now(),role:'assistant',content:r.output,ts:Date.now()});renderMsgs()}
+ if(fin!=='completed')err(Error('Run '+fin+(r.error?': '+r.error:'')))}
+var pollRun=async function(){if(!run||!sel)return;try{const r=await api({action:'run',profile:sel.profile,run,session});
+ if(r.session&&r.session!==session){session=r.session;saveHash()}
+ if(['completed','failed','cancelled','interrupted','expired'].includes(r.status))await settleRun(r,r.status);
+ else{stream=r.output||(r.status==='waiting_for_approval'?'Waiting for a tool approval (resolve it in Orbit\'s agent chat).':'…');renderMsgs('stay');
+  if(Date.now()-runSince>3000)loadHist(false)}}catch(e){err(e)}}
+$('send').onclick=doSend;$('in').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();doSend()}};
+$('q').oninput=renderList;$('rf').onclick=()=>{loadAgents();if(picking)loadSessions(false);else loadHist(true)};
+$('back').onclick=()=>{session=null;run=null;saveHash();showPicker(true);renderTop();loadSessions(false)};
+$('stop').onclick=async()=>{try{await api(run?{action:'stop',profile:sel.profile,run}:{action:'stop',profile:sel.profile,agent:sel.agent});loadAgents()}catch(e){err(e)}};
+async function tick(){if(run)await pollRun();else if(sel&&!picking)await loadHist(false);const b=cur();setTimeout(tick,run||(b&&b.running)||Date.now()<fast?1500:6000)}
+async function listLoop(){await loadAgents();const b=cur();setTimeout(listLoop,(b&&b.running)||Date.now()<fast?3000:10000)}
+if(!KEY){err('No app key in the pane URL. Ask your agent to reopen this pane.')}else{(async()=>{await loadAgents();setTimeout(listLoop,10000);
+ if(sel){if(isSes()){if(session){await loadSessions(false);openSession(session)}else{showPicker(true);renderTop();loadSessions(false)}}else{renderList();renderTop();loadHist(true)}}
+ setTimeout(tick,2000)})()}
+
+// ---- live activity -------------------------------------------------------
+let actOn=false,actItems=new Map(),actCursor=0,actKey='',actInfo=null,hermesAct=[];
+const ICON={subagent:'◈',tool:'🔧',step:'•',state:'◉','needs-input':'✋',progress:'📋'};
+const fmtDur=ms=>ms==null?'':ms<1000?ms+'ms':ms<60000?(ms/1000).toFixed(1)+'s':Math.floor(ms/60000)+'m'+Math.round(ms%60000/1000)+'s';
+function actRow(i){const d=document.createElement('div');d.className='ai';const h=document.createElement('div');h.className='h';
+  const n=document.createElement('span');n.className='n';n.textContent=(ICON[i.type]||'•')+' '+i.title;const st=document.createElement('span');st.className='s '+String(i.status).replace(/[^a-z-]/gi,'');st.textContent=i.status;
+  const du=document.createElement('span');du.className='s';du.textContent=i.durationMs!=null?fmtDur(i.durationMs):(/pending|working|streaming|running/.test(i.status)?fmtDur(Date.now()-i.ts)+'…':'');
+  h.append(n,st);if(du.textContent)h.append(du);d.append(h);
+  if(i.detail){const x=document.createElement('div');x.className='d';x.textContent=i.detail;d.append(x)}
+  const t=document.createElement('div');t.className='d';t.style.fontSize='10px';t.textContent=new Date(i.ts).toLocaleTimeString();d.append(t);return d}
+function renderAct(){const L=$('actlist');L.textContent='';const g=group();
+ if(g&&g.kind==='gateway'&&actInfo&&actInfo.state&&actInfo.state.subagent){const h=document.createElement('div');h.className='sec';h.style.color='#f0a6ff';h.textContent='A subagent is working — its tool calls are not visible here.';L.append(h)}
+ const sb=g&&g.kind==='gateway'&&actInfo&&actInfo.subagents;
+ if(sb&&(sb.agents.length||sb.history.length)){const box=document.createElement('div');box.style.borderBottom='2px solid #232733';
+  const h=document.createElement('div');h.className='sec';h.style.textTransform='none';h.textContent='◈ Subagents'+(actInfo.state&&actInfo.state.subagent?' · working…':'');box.append(h);
+  for(const a of sb.agents){box.append(actRow({type:'subagent',title:a.agent+': '+a.status,status:a.state,ts:a.ts,durationMs:a.state==='working'?null:Math.max(0,a.ts-a.since)}))}
+  if(sb.history.length>sb.agents.length){const d=document.createElement('details');const su=document.createElement('summary');su.className='sec';su.textContent='Recent updates ('+sb.history.length+')';d.append(su);
+   for(const u of sb.history){const x=document.createElement('div');x.className='d';x.textContent=new Date(u.ts).toLocaleTimeString()+' · '+u.agent+' · '+u.state+' — '+u.status;d.append(x)}box.append(d)}
+  L.append(box)}
+
+ const list=g&&g.kind==='gateway'?[...actItems.values()].sort((a,b)=>b.seq-a.seq):hermesAct.slice().reverse();
+ if(!list.length){L.innerHTML+='<div class="sec">'+(sel?'No activity seen yet. Activity appears while the agent works.':'Pick an agent.')+'</div>'}
+ if(g&&g.kind==='gateway'){
+  // group by run, newest run first; run header from its Working/Done state item
+  const runs=new Map();for(const i of list){const k=i.run||'_';if(!runs.has(k))runs.set(k,[]);runs.get(k).push(i)}
+  const order=[...runs.entries()].sort((x,y)=>Math.max(...y[1].map(i=>i.seq))-Math.max(...x[1].map(i=>i.seq)));
+  for(const [k,items] of order.slice(0,20)){const head=items.find(i=>i.type==='state'&&i.key===k);const box=document.createElement('div');box.style.borderBottom='2px solid #232733';
+   const h=document.createElement('div');h.className='sec';h.style.textTransform='none';
+   const tools=items.filter(i=>i.type==='tool').length;
+   h.textContent=k==='_'?'Other activity':((head&&head.status==='done'?'✔ Run · ':'◉ Run in progress · ')+new Date(head?head.ts:items[items.length-1].ts).toLocaleTimeString()+' · '+tools+' tool'+(tools===1?'':'s')+' · '+(head&&head.durationMs!=null?fmtDur(head.durationMs):fmtDur(Date.now()-(head?head.ts:items[items.length-1].ts))+'…'));
+   box.append(h);for(const i of items.filter(i=>i!==head).slice(0,100))box.append(actRow(i));L.append(box)}
+ } else for(const i of list.slice(0,150))L.append(actRow(i));
+ const m=$('actmeta');if(g&&g.kind==='gateway'&&actInfo){m.textContent=(actInfo.stream.connected?'● live stream connected':'○ stream '+(actInfo.stream.error||'connecting…'))+' · '+actInfo.stream.events+' events · roster poll 2s while running'+(actInfo.health?(' · gateway '+(actInfo.health.busy?'busy':'idle')):'')}
+ else m.textContent=g?'Hermes: run status and last event while a run is active.':''}
+function renderWorking(){const g=group();let t='';
+ if(g&&g.kind==='gateway'&&actInfo){const s=actInfo.state;if(s.awaiting)t='✋ needs input';else if(s.tool==='thinking')t='thinking…';else if(s.tool)t='working: '+s.tool;else if(s.subagent){const la=actInfo&&actInfo.subagents&&actInfo.subagents.agents.find(a=>a.state!=='done');t=la?('subagent: '+la.status).slice(0,90):'subagent working…'}else if(s.running||s.composing)t='working…'}
+ else if(run){const last=hermesAct[hermesAct.length-1];t='working'+(last&&last.title?': '+last.title:'…')}
+ $('wk').textContent=t}
+async function pollAct(){const g=group();
+ if(sel&&g&&g.kind==='gateway'){const k=sel.profile+'|'+sel.agent;if(k!==actKey){actKey=k;actItems=new Map();actCursor=0}
+  try{const r=await api({action:'activity',profile:sel.profile,agent:sel.agent,since:actCursor});if(k!==actKey)return;actInfo=r;for(const i of r.items)actItems.set(i.key,i);actCursor=r.cursor;if(actOn)renderAct();renderWorking()}catch(e){if(actOn)$('actmeta').textContent='activity unavailable: '+e.message}}
+ else{renderWorking();if(actOn)renderAct()}
+ const b=cur();const busy=actInfo&&actInfo.state&&(actInfo.state.running||actInfo.state.composing);setTimeout(pollAct,busy||run||(actInfo&&actInfo.state&&actInfo.state.subagent)?2000:actOn?3000:5000)}
+$('actbtn').onclick=()=>{actOn=!actOn;$('act').classList.toggle('on',actOn);if(actOn)renderAct()};$('actx').onclick=()=>{actOn=false;$('act').classList.remove('on')};
+// Hermes: record run status / last event changes from the existing run poll
+const _pollRun=pollRun;pollRun=async function(){if(!run||!sel)return _pollRun();const id=run;try{const r=await api({action:'run',profile:sel.profile,run:id,session});
+ const last=hermesAct[hermesAct.length-1];const title=r.lastEvent||r.status;if(!last||last.title!==title||last.run!==id){if(last&&last.durationMs==null)last.durationMs=Date.now()-last.ts;hermesAct.push({run:id,ts:Date.now(),type:/tool/i.test(title)?'tool':'step',title,status:r.status,detail:''})}else last.status=r.status;
+ if(['completed','failed','cancelled','interrupted','expired'].includes(r.status)){const l=hermesAct[hermesAct.length-1];if(l&&l.durationMs==null)l.durationMs=Date.now()-l.ts;hermesAct.push({run:id,ts:Date.now(),type:'state',title:r.status==='completed'?'Done':'Run '+r.status,status:r.status==='completed'?'done':r.status,detail:r.error||''})}
+ if(hermesAct.length>200)hermesAct.splice(0,hermesAct.length-200)}catch(e){}return _pollRun()};
+setTimeout(pollAct,1200);
+</script>
+<script>
+// ---- Provider controls: meter/cost chips, Session drawer, inline cards, steer/follow-up, inline rename, Pi activity ----
+(function(){
+const st=document.createElement('style');st.textContent=`.chip{font-size:11px;padding:2px 7px;border-radius:9px;background:#1a1e29;border:1px solid #2b3248;white-space:nowrap;margin-left:6px}.chip.warn{color:#ffd666;border-color:#6b5a1a}.chip.hot{color:#ff8a8a;border-color:#6b2020}
+#sesd{width:320px;border-left:1px solid #232733;background:#10131a;display:none;flex-direction:column;min-width:0}#sesd.on{display:flex}#sesd header{padding:10px 12px;font-weight:600;display:flex;gap:6px;align-items:center;border-bottom:1px solid #232733}#sesd header span{flex:1}
+#seslist{overflow:auto;flex:1}.ctl{padding:8px 12px;border-bottom:1px solid #191d27;font-size:12px}.ctl .l{display:flex;gap:6px;align-items:center;margin-bottom:4px}.ctl .l b{flex:1}.ctl.off{opacity:.45}.ctl .note{color:#8b93a7;font-size:11px;margin-top:3px}.ctl select,.ctl input{background:#0b0d12;color:inherit;border:1px solid #2b3248;border-radius:5px;padding:4px;max-width:100%;font:inherit}.ctl .out{color:#9fb3ff;font-size:11px;margin-top:3px;white-space:pre-wrap;word-break:break-word}
+.rk{font-size:10px;padding:1px 5px;border-radius:6px;background:#232733}.rk.high{background:#3a1717;color:#ff8a8a}.rk.medium{background:#3b3413;color:#ffd666}
+.card{align-self:stretch;border:1px solid #6b5a1a;background:#1d1a0f;border-radius:10px;padding:10px 12px;font-size:13px}.card .bt{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}.card pre{max-height:140px;overflow:auto}
+#mode{background:#0b0d12;color:inherit;border:1px solid #2b3248;border-radius:6px;font:inherit;display:none}`;document.head.append(st);
+const top=$('top');const mk=(t,id,cls)=>{const e=document.createElement(t);if(id)e.id=id;if(cls)e.className=cls;return e};
+const meter=mk('span','meter','chip'),cost=mk('span','cost','chip'),sb=mk('button','sesbtn');meter.hidden=cost.hidden=true;sb.textContent='⚙ Session';sb.title='Session controls';
+top.insertBefore(meter,$('actbtn'));top.insertBefore(cost,$('actbtn'));top.insertBefore(sb,$('actbtn'));
+const drawer=mk('div','sesd');drawer.innerHTML='<header><span>Session</span><button id="sesx">✕</button></header><div id="seslist"></div>';$('act').parentNode.insertBefore(drawer,$('act'));
+const mode=mk('select','mode');mode.innerHTML='<option value="send">Send</option><option value="steer">Steer</option><option value="follow-up">Follow-up</option>';$('comp').insertBefore(mode,$('send'));
+let desc=null,descKey='',sesOn=false,cards=[],runStatus='',piPending=[],piSeq=0,piKey='',ctlBusy=false;
+const prov=()=>{const g=group();return !g?null:g.provider==='grok'?'grok':g.provider==='pi'?'pi':g.kind==='sessions'?'hermes':null};
+const ARG={hermes:{set_model:'model',reasoning:'effort',rename:'title',pin:'value',archive:'value'},pi:{thinking:'level','steering-mode':'mode','follow-up-mode':'mode',rename:'name',fork:'entryId','auto-compaction':'enabled'},grok:{rename:'name',unread:'isUnread',hidden:'isHidden'}};
+const INLINE={'widget.respond':'Answered inline in the chat.','widget.dismiss':'Dismissed inline in the chat.','approval.autoReview':'Shown inline in the chat when pending.','approval.localTool':'Shown inline in the chat when pending.',approval:'Shown inline in the chat when a run waits.',approvals:'Shown inline in the chat when pending.',react:'Not shown in this app.',steer:'Use the Steer mode next to Send while a run is in flight.','follow-up':'Use the Follow-up mode next to Send while Pi is working.',activity:'Shown in ⚡ Activity.',context_meter:'Shown in the header.',context:'Shown in the header.'};
+function ctl(control,args){const p=prov();const b={action:'controls',profile:sel.profile,control,args:args||{}};if(p==='hermes'){if(session)b.session=session;if(run)b.run=run}else b.agent=sel.agent;return api(b)}
+function ok(c){return !(c.supported===false||c.disabled||c.available===false)}
+function needsMissing(c){return (c.needs==='session'&&!session)?'Open a conversation first.':(c.needs==='run'&&!run)?'Only while a run is in flight.':''}
+async function ensureDesc(){if(!sel)return null;if(descKey!==sel.profile){descKey=sel.profile;desc=null;try{desc=await api({action:'describe',profile:sel.profile})}catch(e){desc={controls:[],error:e.message}}}return desc}
+function fmtN(n){return n>=1e6?(n/1e6).toFixed(1)+'M':n>=1e3?Math.round(n/1e3)+'k':String(n)}
+async function refreshMeter(){const p=prov();meter.hidden=cost.hidden=true;if(!sel||!p||p==='grok')return;if(p==='hermes'&&!session)return;
+ try{if(p==='hermes'){const [m,u]=await Promise.all([ctl('context_meter'),ctl('usage')]);showMeter(m.used,m.window,m.estimated,m.source);if(u&&u.cost_usd!=null){cost.hidden=false;cost.textContent='$'+Number(u.cost_usd).toFixed(3)+(u.cost_kind==='estimated'?' ≈':'');cost.title=(u.input_tokens+u.output_tokens)+' tokens · '+u.api_calls+' calls'}}
+  else{const s=await ctl('context');const c=s.context||{};const used=Number(c.tokens??c.used??c.contextTokens??0),win=Number(c.contextWindow??c.window??c.max??0);if(win)showMeter(used,win,false,'pi');else if(c.percent!=null){meter.hidden=false;meter.textContent='ctx '+Math.round(c.percent)+'%'}
+   const cv=typeof s.cost==='number'?s.cost:s.cost&&typeof s.cost.total==='number'?s.cost.total:null;if(cv!=null){cost.hidden=false;cost.textContent='$'+cv.toFixed(3);cost.title=s.tokens?JSON.stringify(s.tokens):''}}}catch(e){meter.hidden=false;meter.className='chip';meter.textContent='ctx ?';meter.title=e.message}}
+function showMeter(used,win,est,src){if(!win)return;const r=used/win;meter.hidden=false;meter.className='chip'+(r>=.8?' hot':r>=.6?' warn':'');meter.textContent='ctx '+Math.round(r*100)+'% · '+fmtN(used)+'/'+fmtN(win)+(est?' ≈':'');meter.title='Context window'+(est?' (estimated, '+src+')':'')}
+function confirmFor(c,choice){const msg=typeof c.confirm==='string'?c.confirm:(c.label+(choice!=null?' → '+choice:'')+'?');if(c.confirm||c.risk==='high'||c.risk==='medium'){if(!confirm(msg))return false}
+ if(Array.isArray(c.confirm2)&&c.confirm2.includes(choice)&&!confirm('Are you sure? "'+choice+'" applies beyond this one request.'))return false;return true}
+async function run1(c,args,out){if(ctlBusy)return;ctlBusy=true;out.textContent='…';try{const r=await ctl(c.id,args);out.textContent=summ(r);if(r&&r.session_id&&prov()==='hermes'&&r.session_id!==session&&c.id==='compact'){session=r.session_id;saveHash()}if(c.id==='rename'){loadAgents();if(isSes())loadSessions&&0}refreshMeter()}catch(e){out.textContent='⚠ '+e.message}finally{ctlBusy=false}}
+function summ(r){if(r==null)return 'ok';if(r.applied===false&&r.reason)return 'Not applied: '+r.reason;const s=JSON.stringify(r);return s.length>300?s.slice(0,300)+'…':s}
+function optList(o){return (Array.isArray(o)?o:[]).map(x=>typeof x==='string'?{value:x,label:x}:{value:String(x.value),label:String(x.label??x.name??x.value)})}
+async function renderSes(){const L=$('seslist');if(!sesOn)return;L.textContent='';if(!sel){L.innerHTML='<div class="sec">Pick an agent.</div>';return}
+ const d=await ensureDesc();const p=prov();if(!d||!d.controls.length){L.innerHTML='<div class="sec">'+(d&&d.error?esc(d.error):'No session controls for this provider.')+'</div>';return}
+ for(const c of d.controls){const box=mk('div',null,'ctl');const l=mk('div',null,'l');const b=mk('b');b.textContent=c.label;const rk=mk('span',null,'rk '+(c.risk||''));rk.textContent=c.risk||'';l.append(b,rk);box.append(l);
+  const out=mk('div',null,'out');const miss=needsMissing(c);const note=mk('div',null,'note');
+  if(!ok(c)||miss){box.classList.add('off');note.textContent=miss||c.note||c.reason||'Not available for this provider.';box.append(note);L.append(box);continue}
+  if(INLINE[c.id]){note.textContent=INLINE[c.id];box.append(note);L.append(box);continue}
+  const key=(ARG[p]||{})[c.id];
+  if(c.kind==='meter'){const bt=mk('button');bt.textContent='Read';bt.onclick=()=>run1(c,{},out);box.append(bt)}
+  else if(c.kind==='select'){const s=mk('select');s.innerHTML='<option value="">Loading…</option>';box.append(s);
+   (async()=>{let opts=[],curv=null;try{
+     if(p==='hermes'&&(c.id==='set_model'||c.id==='model_options')){const r=await ctl('model_options');curv=r.current&&r.current.provider+'\u0001'+r.current.model;for(const pr of r.providers)for(const m of pr.models)opts.push({value:pr.provider+'\u0001'+m,label:pr.label+' · '+m})}
+     else if(Array.isArray(c.options)&&c.id!=='fork'){opts=optList(c.options);if(p==='pi'&&c.id==='thinking'){const r=await ctl('thinking');curv=r.current;opts=optList(r.options)}}
+     else if(p==='pi'&&(c.id==='model'||c.id==='fork')){const r=await ctl(c.id);curv=r.current||null;opts=optList(r.options)}
+     else{note.textContent=c.note||'No options.'}}catch(e){note.textContent='⚠ '+e.message}
+    s.innerHTML='<option value="">— choose —</option>';for(const o of opts){const op=mk('option');op.value=o.value;op.textContent=o.label;if(o.value===curv)op.selected=true;s.append(op)}
+    if(c.id==='model_options')s.disabled=true})();
+   s.onchange=()=>{const v=s.value;if(!v)return;if(!confirmFor(c,v)){s.value='';return}let a;
+    if(p==='hermes'&&c.id==='set_model'){const [pv,m]=v.split('\u0001');a={model:m,provider:pv}}
+    else if(p==='pi'&&c.id==='model'){const i=v.indexOf('/');a={provider:v.slice(0,i),modelId:v.slice(i+1)}}
+    else a={[key||'value']:v};if(c.confirm||c.risk==='high')Object.assign(a,{confirm:true,confirmed:true});run1(c,a,out)}}
+  else if(c.kind==='toggle'){const cb=mk('input');cb.type='checkbox';box.append(cb);
+   if(p==='pi'&&c.id==='auto-compaction')ctl(c.id).then(r=>{cb.checked=!!r.enabled}).catch(()=>{});
+   cb.onchange=()=>{if(!confirmFor(c,cb.checked)){cb.checked=!cb.checked;return}run1(c,{[key||'value']:cb.checked},out)}}
+  else if(c.kind==='text'){const i=mk('input');i.placeholder=c.id==='rename'?'New name':'Text';const bt=mk('button');bt.textContent='Save';bt.onclick=()=>{const v=i.value.trim();if(!v||!confirmFor(c,v))return;run1(c,{[key||'text']:v},out)};box.append(i,bt)}
+  else if(c.kind==='action'){const bt=mk('button');bt.textContent=c.label;let extra=null;if(Array.isArray(c.args)&&c.args.length){extra=mk('input');extra.placeholder=c.args.join(', ')+' (optional)';box.append(extra)}
+   bt.onclick=()=>{if(!confirmFor(c))return;const a={confirm:true,confirmed:true};if(extra&&extra.value.trim())a[c.args[0]]=extra.value.trim();run1(c,a,out)};box.append(bt)}
+  if(c.note){note.textContent=c.note;box.append(note)}box.append(out);L.append(box)}}
+sb.onclick=()=>{sesOn=!sesOn;drawer.classList.toggle('on',sesOn);renderSes()};$('sesx').onclick=()=>{sesOn=false;drawer.classList.remove('on')};
+// inline rename
+$('title').ondblclick=()=>{const p=prov();if(!sel||!p||(p==='hermes'&&!session))return;const t=$('title');const old=(p==='hermes'?(sesList.find(x=>x.id===session)||{}).title:(cur()||{}).name)||'';const i=mk('input');i.value=old;i.style.cssText='font:inherit;background:#0b0d12;color:inherit;border:1px solid #4f6bf0;border-radius:5px;padding:2px 6px;width:60%';t.textContent='';t.append(i);i.focus();i.select();
+ const end=async save=>{const v=i.value.trim();if(save&&v&&v!==old){try{await ctl('rename',{[(ARG[p]||{}).rename||'name']:v});if(p==='hermes'){const s=sesList.find(x=>x.id===session);if(s)s.title=v}else{const a=cur();if(a)a.name=v}loadAgents()}catch(e){err(e)}}renderTop()};
+ i.onkeydown=e=>{if(e.key==='Enter')end(true);if(e.key==='Escape')end(false)};i.onblur=()=>end(true)};$('title').title='Double-click to rename';
+// capture history cards and run status from existing calls
+const _api=api;api=async function(b){const r=await _api(b);if(b&&b.action==='history'&&r&&Array.isArray(r.cards))cards=r.cards;if(b&&b.action==='run'&&r)runStatus=r.status||'';return r};
+// inline cards
+async function act(control,args,c){try{await ctl(control,args);cards=cards.filter(x=>x!==c);piPending=piPending.filter(x=>x!==c);renderMsgs('stay');loadHist(false)}catch(e){err(e)}}
+function cardEl(title,body,buttons){const d=mk('div',null,'card');const h=mk('b');h.textContent=title;d.append(h);if(body){const pre=mk('pre');pre.textContent=body;d.append(pre)}const bt=mk('div',null,'bt');for(const [label,fn,cls] of buttons){const b=mk('button');b.textContent=label;if(cls)b.className=cls;b.onclick=fn;bt.append(b)}d.append(bt);return d}
+function renderCards(){const M=$('msgs');const p=prov();if(!sel)return;
+ if(p==='grok')for(const c of cards){
+  if(c.type==='widget')M.append(cardEl('❓ '+c.prompt,'',[...c.options.map(o=>[o.label,()=>{if(o.style==='destructive'&&!confirm('Choose "'+o.label+'"?'))return;act('widget.respond',{entryId:c.entryId,value:o.value},c)},o.style==='primary'?'pri':'']),['Dismiss',()=>act('widget.dismiss',{entryId:c.entryId},c)]]));
+  else if(c.type==='auto-review')M.append(cardEl('🛡 Approval needed: '+(c.summary||'blocked action'),[c.command,c.reason].filter(Boolean).join('\n\n'),(c.options||[]).map(o=>{const v=o.value||o;return [o.label||v,()=>{if(v!=='denied'&&!confirm((v==='always'?'Always allow this kind of action?':'Run this blocked action for the bot?')+'\n\n'+(c.command||c.summary||'')))return;if(v==='always'&&!confirm('Are you sure? This applies to future requests too.'))return;act('approval.autoReview',{entryId:c.entryId,requestId:c.requestId,resolution:v,confirmed:true},c)},v==='denied'?'':'pri']})));
+  else if(c.type==='local-tool')M.append(cardEl('💻 Computer access: '+(c.action||''),[c.target,c.command].filter(Boolean).join('\n'),(c.options||[]).map(o=>{const v=o.value||o;return [o.label||v,()=>{if((v==='allow-once'||v==='always')&&!confirm('Let the bot use this computer?\n\n'+(c.action||'')+' '+(c.target||'')))return;if(v==='always'&&!confirm('Always allow? This applies to future requests too.'))return;act('approval.localTool',{entryId:c.entryId,requestId:c.requestId,resolution:v,confirmed:true},c)}]})))}
+ if(p==='hermes'&&run&&runStatus==='waiting_for_approval'){const c={};M.append(cardEl('🛡 Hermes is waiting for a tool approval','',[['Allow once',()=>{if(confirm('Allow this tool call once?'))act('approval',{choice:'once',confirm:true},c)},'pri'],['Allow for session',()=>{if(confirm('Allow this tool for the rest of the session?'))act('approval',{choice:'session',confirm:true},c)}],['Always',()=>{if(confirm('Always allow this tool?')&&confirm('Are you sure? This applies to future sessions too.'))act('approval',{choice:'always',confirm:true,confirmAlways:true},c)}],['Deny',()=>act('approval',{choice:'deny',confirm:true},c)]]))}
+ if(p==='pi')for(const c of piPending){const t=c.title||c.message||c.method||'Pi extension request';const btns=[];
+  if(c.method==='confirm'||!c.options){btns.push(['Approve',()=>{if(confirm('Approve: '+t+'?'))act('approvals',{dialogId:c.id,confirmed:true},c)},'pri'],['Reject',()=>act('approvals',{dialogId:c.id,confirmed:false},c)])}
+  else for(const o of c.options)btns.push([String(o),()=>{if(confirm('Choose "'+o+'"?'))act('approvals',{dialogId:c.id,value:String(o)},c)}]);
+  btns.push(['Cancel',()=>act('approvals',{dialogId:c.id,cancelled:true},c)]);M.append(cardEl('🛡 '+t,c.detail||c.message&&c.title?c.message:'',btns))}}
+const _rm=renderMsgs;renderMsgs=function(keep){_rm(keep);renderCards();if(keep!=='top'){const M=$('msgs');if(M.scrollHeight-M.scrollTop-M.clientHeight<200)M.scrollTop=M.scrollHeight}};
+// steer / follow-up composer modes
+function inflight(){const p=prov();return p==='hermes'?!!run:p==='pi'?!!(cur()&&cur().running):false}
+const _rt=renderTop;renderTop=function(){_rt();const p=prov();const show=inflight();mode.style.display=show?'':'none';mode.querySelector('[value="follow-up"]').hidden=p!=='pi';if(!show)mode.value='send';if(show&&mode.value!=='send')$('send').disabled=sending||picking;$('send').textContent=mode.value==='send'?'Send':mode.value==='steer'?'Steer':'Queue'};
+mode.onchange=()=>renderTop();
+async function steer(){const t=$('in').value.trim();if(!t)return;const p=prov();const m=mode.value;$('in').value='';const b={id:'local-'+Date.now(),role:'user',content:(m==='steer'?'↪ steer: ':'⏭ follow-up: ')+t,ts:Date.now(),state:'sending'};msgs.push(b);renderMsgs();
+ try{await ctl(m,p==='hermes'?{text:t}:{message:t});b.state='delivered'}catch(e){b.state='failed';b.error=e.message;err(e)}renderMsgs('stay')}
+const send0=()=>{if(inflight()&&mode.value!=='send')steer();else doSend()};$('send').onclick=send0;$('in').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send0()}};
+// Pi: activity events -> Activity panel, pending approvals -> inline cards
+async function piTick(){try{if(sel&&prov()==='pi'){const k=sel.profile+'|'+sel.agent;if(k!==piKey){piKey=k;piSeq=0;piPending=[]}
+  const r=await ctl('activity',{after:piSeq});if(k!==piKey)return;const ev=(desc&&desc.activityEvents)||{};
+  for(const i of r.items||[]){const s=Number(i.seq)||0;if(s>piSeq)piSeq=s;const kind=String(i.kind||'');const name=i.tool||i.name||i.toolName||'';
+   actItems.set('pi-'+s,{key:'pi-'+s,seq:1e9+s,type:/^tool/.test(kind)?'tool':'step',title:(i.label||ev[kind]||kind)+(name?': '+name:''),status:kind==='tool-call'||kind==='agent_start'?'running':kind==='aborted'||kind==='exit'?'failed':'done',ts:Number(i.ts)||Date.parse(i.at||'')||Date.now(),detail:String(i.detail||i.text||'').slice(0,160),run:i.run||null})}
+  if(r.items&&r.items.length&&actOn)renderAct();
+  const before=piPending.length;try{const a=await ctl('approvals',{});piPending=a.pending||[]}catch{}if(piPending.length||before)renderMsgs('stay')}}catch(e){}
+ setTimeout(piTick,sel&&prov()==='pi'&&(actOn||(cur()&&cur().running))?2000:6000)}
+setTimeout(piTick,1500);
+// refresh chips + drawer on selection/session change and periodically
+let lastSel='';setInterval(()=>{const k=sel?sel.profile+'|'+sel.agent+'|'+(session||''):'';if(k!==lastSel){lastSel=k;cards=[];runStatus='';refreshMeter();renderTop();if(sesOn)renderSes()}},700);
+setInterval(()=>{if(sel)refreshMeter()},20000);
+let wasRun=null;setInterval(()=>{if(wasRun&&!run){refreshMeter()}wasRun=run},1500);
+})();
+</script>
+<script>
+// ---- Group chats (Orbit shared-room engine with arbitrary members) ----
+(function(){
+const G='__group';let gchats=[],groom=null,gview=null,gLoaded=false,acIdx=0;
+const st=document.createElement('style');st.textContent=`#gbar{display:none;flex-wrap:wrap;gap:6px;align-items:center;padding:6px 10px;border-bottom:1px solid #232733;font-size:12px}#gbar.on{display:flex}
+.mem{display:inline-flex;align-items:center;gap:4px;padding:2px 8px 2px 2px;border-radius:12px;background:#1a1e29;border:1px solid #2b3248}.mem.work{border-color:#ffd666;color:#ffd666}.mem.queue{border-color:#6b5a1a}
+.mem .av,.gm .av{width:18px;height:18px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;background:#34406a;flex:none;overflow:hidden}.mem img,.gm img{width:100%;height:100%;object-fit:cover}
+.gm{display:flex;gap:8px;align-items:flex-start;max-width:90%}.gm.owner{align-self:flex-end;flex-direction:row-reverse}.gm .av{width:28px;height:28px;font-size:12px;margin-top:2px}.gm .who{font-size:11px;color:#8b93a7;margin-bottom:2px}.gm.note{align-self:center;color:#8b93a7;font-size:12px}
+#gmodal{position:fixed;inset:0;background:#0009;display:none;align-items:center;justify-content:center;z-index:50}#gmodal.on{display:flex}#gmodal .box{background:#141821;border:1px solid #2b3248;border-radius:12px;width:min(520px,94vw);max-height:86vh;display:flex;flex-direction:column}
+#gmodal .bd{padding:12px;overflow:auto;flex:1}#gmodal .ft{padding:10px 12px;display:flex;gap:8px;justify-content:flex-end;border-top:1px solid #232733}#gmodal input[type=text]{width:100%;box-sizing:border-box;background:#0b0d12;color:inherit;border:1px solid #2b3248;border-radius:6px;padding:6px;font:inherit;margin-bottom:8px}
+#gmodal label{display:flex;gap:8px;align-items:center;padding:3px 2px;font-size:13px}#gmodal .gh{font-size:11px;text-transform:uppercase;color:#8b93a7;margin:10px 0 4px}
+#acbox{position:absolute;bottom:58px;left:10px;background:#141821;border:1px solid #2b3248;border-radius:8px;display:none;z-index:20;min-width:200px;max-height:220px;overflow:auto}#acbox div{padding:5px 10px;cursor:pointer;font-size:13px}#acbox div.on{background:#2b3248}`;document.head.append(st);
+const mk=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e};
+const isG=()=>!!(sel&&sel.profile===G);
+const gcur=()=>isG()?gchats.find(g=>g.id===sel.agent):null;
+const gapi=b=>api({action:'groups',...b});
+const bar=mk('div');bar.id='gbar';$('err').after(bar);
+const modal=mk('div');modal.id='gmodal';modal.innerHTML='<div class="box"><div class="bd"></div><div class="ft"></div></div>';document.body.append(modal);
+const ac=mk('div');ac.id='acbox';$('comp').style.position='relative';$('comp').append(ac);
+// avatar from the provider roster
+function memberRow(m){const g=groups.find(x=>x.profile===m.profile);if(!g)return null;return m.agentId?g.agents.find(a=>a.id===m.agentId):g.agents[0]}
+function avEl(m,cls){const s=mk('span','av');const r=m&&memberRow(m);if(r&&r.avatar){const i=mk('img');i.src=r.avatar;s.append(i)}else{s.textContent=((m&&m.label)||'?').slice(0,1).toUpperCase();if(r&&r.color)s.style.background=r.color}return s}
+async function loadGroups(){try{gchats=(await gapi({op:'list'})).groups;gLoaded=true;renderList()}catch(e){err(e)}}
+// sidebar section
+const _rl=renderList;renderList=function(){_rl();const L=$('list');const h=mk('div','grp');h.textContent='Groups';const nb=mk('button',null,'+ New group');nb.style.cssText='float:right;padding:1px 8px;font-size:11px';nb.onclick=e=>{e.stopPropagation();openModal(null)};h.append(nb);
+ const box=mk('div');box.append(h);const q=$('q').value.toLowerCase();
+ for(const g of gchats.filter(g=>!q||g.name.toLowerCase().includes(q))){const r=mk('div','bot'+(isG()&&sel.agent===g.id?' sel':''));const a=mk('div','av');a.textContent='👥';a.style.cssText='display:flex;align-items:center;justify-content:center';r.append(a);const m=mk('div','bm');m.innerHTML='<div class="bn"></div><div class="bp"></div>';m.firstChild.textContent=g.name;m.lastChild.textContent=g.members.map(x=>'@'+x.id).join(' ');r.append(m);
+  if(gview&&gview.id===g.id&&groom&&(groom.running||(groom.queued||[]).length)){const d=mk('span','dot');r.append(d)}r.onclick=()=>pickGroup(g.id);box.append(r)}
+ if(gLoaded&&!gchats.length){const e=mk('div','sec','No groups yet.');box.append(e)}L.prepend(box)};
+// member picker modal (create or edit)
+function openModal(g){const bd=modal.querySelector('.bd'),ft=modal.querySelector('.ft');bd.textContent='';ft.textContent='';
+ const title=mk('b',null,g?'Members of '+g.name:'New group');bd.append(title,mk('div'));const name=mk('input');name.type='text';name.placeholder='Group name';name.value=g?g.name:'';if(!g)bd.append(name);
+ const filt=mk('input');filt.type='text';filt.placeholder='Filter agents and bots';bd.append(filt);const list=mk('div');bd.append(list);
+ const have=new Set(g?g.members.map(m=>m.profile+'|'+(m.agentId||'')):[]);const picks=new Set(have);
+ const draw=()=>{list.textContent='';const q=filt.value.toLowerCase();
+  for(const pg of groups){const items=pg.kind==='sessions'?[{key:pg.profile+'|',label:pg.label,sub:'Hermes profile'}]:pg.agents.filter(a=>!INTERNAL.test(a.name)||/shared chat/i.test(a.name)).map(a=>({key:pg.profile+'|'+a.id,label:a.name,sub:pg.providerLabel,id:a.id}));
+   if(pg.kind==='gateway'&&pg.provider==='pi')items.unshift({key:pg.profile+'|',label:'Pi (new group conversation)',sub:'Pi'});
+   const vis=items.filter(i=>!q||i.label.toLowerCase().includes(q));if(!vis.length)continue;bd;list.append(mk('div','gh',pg.kind==='sessions'?'Hermes profiles':pg.providerLabel+(pg.kind==='gateway'?' agents':'')));
+   for(const i of vis){const l=mk('label');const cb=mk('input');cb.type='checkbox';cb.checked=picks.has(i.key);cb.onchange=()=>{cb.checked?picks.add(i.key):picks.delete(i.key)};l.append(cb,mk('span',null,i.label));const s=mk('small',null,' '+(i.id?i.id.slice(0,8):''));s.style.color='#8b93a7';l.append(s);list.append(l)}}};
+ filt.oninput=draw;draw();
+ const cancel=mk('button',null,'Cancel');cancel.onclick=()=>modal.classList.remove('on');const okb=mk('button','pri',g?'Save members':'Create group');
+ okb.onclick=async()=>{const spec=k=>{const [profile,agent]=k.split('|');return agent?{profile,agent}:{profile}};okb.disabled=true;
+  try{if(!g){if(!name.value.trim())throw Error('Name the group.');if(!picks.size)throw Error('Pick at least one member.');const r=await gapi({op:'create',name:name.value.trim(),members:[...picks].map(spec)});modal.classList.remove('on');await loadGroups();pickGroup(r.group.id)}
+   else{const add=[...picks].filter(k=>!have.has(k)).map(spec);const remove=g.members.filter(m=>!picks.has(m.profile+'|'+(m.agentId||''))).map(m=>m.id);if(remove.length&&!confirm('Remove '+remove.map(x=>'@'+x).join(', ')+' from the group?')){okb.disabled=false;return}
+    await gapi({op:'update',group:g.id,add,remove});modal.classList.remove('on');await loadGroups();refreshGroup()}}catch(e){err(e);okb.disabled=false}};
+ ft.append(cancel,okb);modal.classList.add('on');(g?filt:name).focus()}
+// open a group
+function pickGroup(id){lastSig='';gBusy=false;gGen++;sel={profile:G,agent:id};session=null;msgs=[];older=null;stream=null;run=null;groom=null;gview=gchats.find(g=>g.id===id)||null;saveHash();showPicker(false);
+ $('act').classList.remove('on');renderList();renderTop();$('msgs').innerHTML='<div class="empty">Loading…</div>';refreshGroup()}
+let gBusy=false,gGen=0;async function refreshGroup(){if(!isG()||gBusy)return;gBusy=true;const id=sel.agent,gen=gGen;try{const r=await gapi({op:'state',group:id});if(gen!==gGen||!isG()||sel.agent!==id)return;apply(r)}catch(e){if(gen===gGen)err(e)}finally{if(gen===gGen)gBusy=false}}
+let lastSig='';function apply(r){gview=r.group;groom=r.room;const i=gchats.findIndex(g=>g.id===gview.id);if(i>=0)gchats[i]=gview;
+ const busy=groom.running||(groom.queued||[]).length;if(busy)fast=Date.now()+30000;
+ const sig=JSON.stringify([groom.messages.length,groom.messages.at(-1)&&groom.messages.at(-1).id,groom.running,groom.working,groom.queued,groom.activity,groom.paused,gview]);if(sig===lastSig)return;lastSig=sig;renderGroup();renderTop();renderList()}
+function memberOf(h){return gview&&gview.members.find(m=>m.id===h)}
+function renderGroup(){const M=$('msgs');const atBottom=M.scrollHeight-M.scrollTop-M.clientHeight<80;M.textContent='';
+ if(!groom.messages.length)M.innerHTML='<div class="empty">Say hello. Mention @handles to address someone; un-mentioned messages go to '+(gview.defaultResponder==='all'?'everyone':'@'+esc(gview.defaultResponder))+'.</div>';
+ for(const m of groom.messages){if(m.speaker==='note'){M.append(mk('div','gm note',m.text));continue}
+  const own=m.speaker==='owner';const w=mk('div','gm'+(own?' owner':''));const mem=memberOf(m.speaker);w.append(own?Object.assign(mk('span','av','K'),{}):avEl(mem||{label:m.speaker}));
+  const col=mk('div');if(!own){col.append(mk('div','who',(mem?mem.label:m.speaker)+' · @'+m.speaker+' · '+new Date(m.at).toLocaleTimeString()))}
+  const b=mk('div','m '+(own?'user':'assistant'));b.innerHTML=md(m.text);if(m.error)b.style.borderLeft='3px solid #ff8a8a';col.append(b);w.append(col);M.append(w)}
+ for(const who of (groom.working||(groom.running?[groom.running]:[]))){const mem=memberOf(who);const w=mk('div','gm');w.append(avEl(mem||{label:who}));const b=mk('div','m assistant stream',(mem?mem.label:who)+' is typing…');w.append(b);M.append(w)}
+ if(atBottom)M.scrollTop=M.scrollHeight;renderBar()}
+function renderBar(){bar.textContent='';if(!isG()||!gview){bar.classList.remove('on');return}bar.classList.add('on');
+ for(const m of gview.members){const working=groom&&(groom.working||(groom.running?[groom.running]:[])).includes(m.id),queued=groom&&(groom.queued||[]).includes(m.id);const c=mk('span','mem'+(working?' work':queued?' queue':''));c.append(avEl(m),mk('span',null,'@'+m.id+(working?' · working':queued?' · next':'')));c.title=m.label+' ('+m.provider+')';bar.append(c)}
+ const sp=mk('span');sp.style.flex='1';bar.append(sp);
+ const dr=mk('select');dr.title='Who answers messages without an @mention';dr.style.cssText='background:#0b0d12;color:inherit;border:1px solid #2b3248;border-radius:5px;font:inherit';
+ for(const [v,l] of [['all','Un-mentioned → everyone'],...gview.members.map(m=>[m.id,'Un-mentioned → @'+m.id])]){const o=mk('option',null,l);o.value=v;if(v===gview.defaultResponder)o.selected=true;dr.append(o)}
+ dr.onchange=async()=>{try{await gapi({op:'update',group:gview.id,defaultResponder:dr.value});refreshGroup()}catch(e){err(e)}};bar.append(dr);
+ const md=mk('select');md.title='How woken members take turns';for(const [v,t] of [['parallel','Parallel turns'],['sequential','One at a time']]){const o=mk('option',null,t);o.value=v;md.append(o)}md.value=gview.mode||'parallel';md.onchange=async()=>{try{await gapi({op:'update',group:gview.id,mode:md.value});refreshGroup()}catch(e){err(e)}};bar.append(md);
+ const bm=mk('button',null,'Members');bm.onclick=()=>openModal(gview);const st=mk('button',null,'Stop all');st.disabled=!(groom&&(groom.running||(groom.queued||[]).length));st.onclick=async()=>{try{apply(await gapi({op:'stop',group:gview.id}))}catch(e){err(e)}};
+ const del=mk('button',null,'Delete');del.onclick=async()=>{if(!confirm('Delete the group "'+gview.name+'" and its chat history? Members themselves are not deleted.'))return;try{await gapi({op:'delete',group:gview.id});sel=null;gview=null;groom=null;bar.classList.remove('on');await loadGroups();renderTop();$('msgs').innerHTML='<div class="empty">Group deleted.</div>'}catch(e){err(e)}};
+ bar.append(bm,st,del);if(groom&&groom.activity){const a=mk('span',null,groom.activity);a.style.color='#8b93a7';bar.append(a)}}
+// wrap existing app flows for groups
+const _rt=renderTop;renderTop=function(){if(!isG()){bar.classList.remove('on');return _rt()}const g=gcur()||gview;$('title').textContent=g?'👥 '+g.name:'Group';
+ $('st').textContent=groom&&(groom.working||(groom.running?[groom.running]:[])).length?(groom.working||(groom.running?[groom.running]:[])).map(x=>'@'+x).join(', ')+' working…':'';$('stop').hidden=true;$('back').hidden=true;$('in').disabled=false;$('send').disabled=false;$('send').textContent='Send';
+ for(const id of ['meter','cost','mode'])if($(id))$(id).style.display='none';$('wk').textContent=''};
+const _lh=loadHist;loadHist=function(...a){if(isG())return refreshGroup();return _lh(...a)};
+const _pa=pollAct;pollAct=async function(){if(isG()){setTimeout(pollAct,4000);return}return _pa()};
+const _pick=pick;pick=function(...a){bar.classList.remove('on');for(const id of ['meter','cost'])if($(id))$(id).style.display='';if($('mode'))$('mode').style.display='';return _pick(...a)};
+const _title=$('title').ondblclick;$('title').ondblclick=async e=>{if(!isG())return _title&&_title(e);const n=prompt('Rename group',gview?gview.name:'');if(n&&n.trim()){try{await gapi({op:'update',group:gview.id,name:n.trim()});await loadGroups();refreshGroup()}catch(x){err(x)}}};
+const prevSend=$('send').onclick;
+async function gsend(){const t=$('in').value.trim();if(!t||!gview)return;$('in').value='';ac.style.display='none';
+ groom.messages.push({id:'local',speaker:'owner',text:t,at:new Date().toISOString()});renderGroup();
+ try{apply(await gapi({op:'post',group:gview.id,text:t}))}catch(e){err(e);$('in').value=t}}
+$('send').onclick=e=>isG()?gsend():prevSend&&prevSend(e);
+// @mention autocomplete
+const inp=$('in');const prevKey=inp.onkeydown;
+function acItems(){const v=inp.value.slice(0,inp.selectionStart);const m=/(^|\s)@([a-z0-9_]*)$/i.exec(v);if(!m||!gview)return null;const q=m[2].toLowerCase();return {q,items:[{id:'all',label:'everyone'},...gview.members].filter(x=>x.id.startsWith(q)||String(x.label).toLowerCase().includes(q))}}
+function acShow(){const r=isG()&&acItems();if(!r||!r.items.length){ac.style.display='none';return}acIdx=Math.min(acIdx,r.items.length-1);ac.textContent='';r.items.forEach((x,i)=>{const d=mk('div',i===acIdx?'on':'','@'+x.id+'  '+(x.label||''));d.onmousedown=e=>{e.preventDefault();acPick(x.id)};ac.append(d)});ac.style.display='block'}
+function acPick(id){const pos=inp.selectionStart;const v=inp.value;const before=v.slice(0,pos).replace(/@([a-z0-9_]*)$/i,'@'+id+' ');inp.value=before+v.slice(pos);inp.selectionStart=inp.selectionEnd=before.length;ac.style.display='none';inp.focus()}
+inp.addEventListener('input',()=>{acIdx=0;acShow()});inp.addEventListener('blur',()=>setTimeout(()=>ac.style.display='none',150));
+inp.onkeydown=e=>{if(isG()){if(ac.style.display==='block'){const r=acItems();if(r&&r.items.length){if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();acIdx=(acIdx+(e.key==='ArrowDown'?1:r.items.length-1))%r.items.length;acShow();return}if(e.key==='Tab'||e.key==='Enter'){e.preventDefault();acPick(r.items[acIdx].id);return}if(e.key==='Escape'){ac.style.display='none';return}}}
+  if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();gsend()}return}return prevKey&&prevKey(e)};
+loadGroups();setInterval(()=>{if(isG())refreshGroup()},2500);
+// restore a group selection from the URL hash
+const hp=new URLSearchParams(location.hash.slice(1));if(hp.get('p')===G&&hp.get('a'))setTimeout(async()=>{await loadGroups();if(gchats.some(g=>g.id===hp.get('a')))pickGroup(hp.get('a'))},800);
+})();
+</script></body></html>
