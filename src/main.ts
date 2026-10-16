@@ -1330,13 +1330,21 @@ async function launchDesktopPlugin(plugin:PluginInstance) {
 // Built-in Grok Bots app: a browser pane on the sandboxed /apps/grokbots/ bundle.
 // The host asks the server for the capability URL (key in the fragment), then
 // reuses an existing Grok Bots window when one is open.
-async function openGrokBots() {
+type GrokBotsTarget = { profile: string; agent: string; session?: string; newWindow?: boolean };
+async function openGrokBots(target?: GrokBotsTarget) {
   if (!sessionToken) { notify('Connect host first to use Grok Bots.'); return; }
   try {
     const response = await fetch('/api/grokbots-app/launch', { method: 'POST', headers: { Authorization: `Bearer ${sessionToken}`, 'Content-Type': 'application/json' }, body: '{}' });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || typeof data.url !== 'string' || !data.url.startsWith('/apps/grokbots/')) throw Error(data.error || 'Grok Bots is unavailable on this host.');
     if (focused) unfocus();
+    const url = target ? `${data.url}&p=${encodeURIComponent(target.profile)}&a=${encodeURIComponent(target.agent)}${target.session ? `&s=${encodeURIComponent(target.session)}` : ''}` : data.url;
+    if (target?.newWindow) {
+      const m = monitor(state.monitors.length + 1, 'browser'); m.name = 'Grok Bots';
+      leaves(m.layout)[0].url = url;
+      state.monitors.push(m); state.selected = m.id; state.view = 'windows';
+      work.classList.add('windows-mode'); renderAll(); choose(m.id); save(); return;
+    }
     const existing = state.monitors.find(m => leaves(m.layout).some(p => p.kind === 'browser' && typeof p.url === 'string' && p.url.startsWith('/apps/grokbots/')));
     if (existing) {
       const pane = leaves(existing.layout).find(p => p.kind === 'browser' && typeof p.url === 'string' && p.url.startsWith('/apps/grokbots/'));
@@ -1349,6 +1357,13 @@ async function openGrokBots() {
     work.classList.add('windows-mode'); renderAll(); choose(m.id); save();
   } catch (error) { notify(String(error instanceof Error ? error.message : error)); }
 }
+// Grok Bots app → "Open in new window" (src/grokbots-bridge.ts 'open' op).
+window.addEventListener('orbit-grokbots-open', event => {
+  const detail = (event as CustomEvent<GrokBotsTarget>).detail;
+  if (!detail || !sessionToken) return;
+  event.preventDefault();
+  void openGrokBots({ profile: detail.profile, agent: detail.agent, session: detail.session || undefined, newWindow: detail.newWindow !== false });
+});
 function addMonitor(kind: PaneKind = 'terminal') {
 
   const m = monitor(state.monitors.length + 1, kind);

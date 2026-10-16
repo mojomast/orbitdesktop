@@ -131,7 +131,7 @@ export function createGatewayActivity({ profile, label = 'Grok Bot', extraSecret
     let backoff = 1000;
     while (running) {
       const p = profile();
-      if (!p?.apiUrl || !p.apiKey) { lastError = `${label} gateway not configured`; await new Promise(r => setTimeout(r, 10000)); continue; }
+      if (!p?.apiUrl || !p.apiKey) { lastError = `${label} gateway not configured`; await new Promise(r => setTimeout(r, 10000).unref?.()); continue; }
       red = redactor();
       abort = new AbortController();
       try {
@@ -155,7 +155,7 @@ export function createGatewayActivity({ profile, label = 'Grok Bot', extraSecret
       } catch (e) { if (running) lastError = `activity stream: ${String(e?.message || e).slice(0, 80)}`; }
       connected = false;
       try { abort.abort(); } catch {}
-      if (running) { await new Promise(r => setTimeout(r, backoff)); backoff = Math.min(backoff * 2, 30000); }
+      if (running) { await new Promise(r => setTimeout(r, backoff).unref?.()); backoff = Math.min(backoff * 2, 30000); }
     }
   }
   function touch() { lastUse = Date.now(); if (!running) { running = true; void loop(); } }

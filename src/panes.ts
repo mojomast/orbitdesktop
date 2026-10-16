@@ -10,6 +10,7 @@ import { mountManagedTerminalControls } from './managed-terminals';
 import { hostSurfaceId, mountHostSurface } from './host-surfaces';
 import {documentSurfaceId} from './technology-surfaces';
 import { bindToolFeed } from "./tool-feed";
+import { bindGrokBots } from "./grokbots-bridge";
 import type { Pane, PaneKind } from "./model";
 export interface PaneView {
   element: HTMLElement;
@@ -445,7 +446,7 @@ export function createPane(p: Pane, font: number, a: PaneActions): PaneView {
         );
         frame.src = current;
         surface.replaceChildren(frame);
-        if (localApp) cleanup = bindToolFeed(frame);
+        if (localApp) { const unbindFeed = bindToolFeed(frame), unbindGrokBots = bindGrokBots(frame); cleanup = () => { unbindFeed(); unbindGrokBots(); }; }
         zoomFrame();
       } catch (e) {
         surface.replaceChildren(

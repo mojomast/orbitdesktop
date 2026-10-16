@@ -9,6 +9,8 @@ import { createAgentGateways } from './agent-gateways.mjs';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const GW_ID = v => UUID.test(v) || /^pi_[a-f0-9]{16}$/.test(v);
+// Group posts share the 100,000-character prompt cap of 1-on-1 chat.
+export const GROUP_MAX_MESSAGE = 100000;
 const ROOM_NS = '0b0b0b0b-0000-4000-8000-00000000c0de'; // synthetic workspace id for group room keys
 const MAX_MEMBERS = 12;
 // Build tracking: every member checks build work in on this group's Collab board.
@@ -114,7 +116,7 @@ export function createGroups({ runtimeRoot, catalog, chats, profiles }) {
     if (e && e.sig === JSON.stringify([group.members, group.defaultResponder, group.mode || 'parallel'])) return e.room;
     if (e) e.room.dispose();
     const dir = path.join(roomsDir, group.id);
-    const room = createSharedAgents({ directory: dir, gateways: memberGateways(group), members: group.members.map(m => ({ id: m.id, label: m.label })), defaultResponder: group.defaultResponder || 'all', guidance: boardGuidance(group), parallel: group.mode !== 'sequential', turnTimeoutMs: GROUP_TURN_MS, delegationTimeoutMs: GROUP_TURN_MS, hardCapMs: GROUP_HARD_CAP_MS });
+    const room = createSharedAgents({ maxMessage: GROUP_MAX_MESSAGE, directory: dir, gateways: memberGateways(group), members: group.members.map(m => ({ id: m.id, label: m.label })), defaultResponder: group.defaultResponder || 'all', guidance: boardGuidance(group), parallel: group.mode !== 'sequential', turnTimeoutMs: GROUP_TURN_MS, delegationTimeoutMs: GROUP_TURN_MS, hardCapMs: GROUP_HARD_CAP_MS });
     engines.set(group.id, { room, sig: JSON.stringify([group.members, group.defaultResponder, group.mode || 'parallel']) });
     return room;
   }
@@ -185,7 +187,7 @@ export function createGroups({ runtimeRoot, catalog, chats, profiles }) {
       case 'state': { const g = find(b.group); return { group: view(g), room: await call(g, { operation: 'state' }) }; }
       case 'post': {
         const g = find(b.group); const text = typeof b.text === 'string' ? b.text.trim() : '';
-        if (!text || text.length > 16000) throw fail('Message must be 1–16,000 characters.');
+        if (!text || text.length > GROUP_MAX_MESSAGE) throw fail('Message must be 1–100,000 characters.');
         if (/^\/collab(\s|$)/.test(text)) throw fail('/collab is not available in group chats.');
         // Kyle can speak anytime: a stopped room resumes on his next message.
         await ensureClones(g);
@@ -194,6 +196,22 @@ export function createGroups({ runtimeRoot, catalog, chats, profiles }) {
         return { group: view(g), room: await call(g, { operation: 'post', text }) };
       }
       case 'stop': { const g = find(b.group); return { group: view(g), room: await call(g, { operation: 'stop' }) }; }
+      // Shared-agent handoff, the same room operations the agent chat's shared panes use.
+      case 'pause': { const g = find(b.group); return { group: view(g), room: await call(g, { operation: 'pause' }) }; }
+      case 'continue': { const g = find(b.group); return { group: view(g), room: await call(g, { operation: 'continue' }) }; }
+      case 'speak': {
+        const g = find(b.group); if (!g.members.some(m => m.id === b.speaker)) throw fail('Choose a member of this group.');
+        await ensureClones(g);
+        return { group: view(g), room: await call(g, { operation: 'speak', speaker: b.speaker }) };
+      }
+      case 'settings': {
+        const g = find(b.group); const body = { operation: 'settings' };
+        if (b.auto !== undefined) body.auto = b.auto === true;
+        if (b.next !== undefined) { if (!g.members.some(m => m.id === b.next)) throw fail('Choose a member of this group.'); body.next = b.next; }
+        if (b.maxTurns !== undefined) { if (!Number.isInteger(b.maxTurns) || b.maxTurns < 1 || b.maxTurns > 8) throw fail('The turn limit must be from 1 to 8.'); body.max_turns = b.maxTurns; }
+        return { group: view(g), room: await call(g, body) };
+      }
+      case 'cancel_delegation': { const g = find(b.group); if (typeof b.task !== 'string' || b.task.length > 100) throw fail('Choose a delegated task to cancel.'); return { group: view(g), room: await call(g, { operation: 'cancel_delegation', task_id: b.task }) }; }
       default: throw fail('Unknown group operation.');
     }
   }
