@@ -238,3 +238,30 @@ test('notifies when an unseen bot finishes (respecting mute), and colours a conv
   assert.deepEqual(errors, []);
   await context.close();
 });
+
+test('group handoff controls: give floor, pause/continue, auto handoff and turn limit', async () => {
+  const key = decodeURIComponent(fx.appUrl.split('#k=')[1]);
+  const call = async body => (await fetch(fx.origin + '/api/grokbots-app', { method: 'POST', headers: { Origin: 'null', Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
+  const made = await call({ action: 'groups', op: 'create', name: 'Handoff room', members: [{ profile: 'default' }] });
+  const { page, app, errors, context } = await open();
+  await app.locator('#list .bot', { hasText: 'Handoff room' }).click();
+  await app.locator('#hand #handgive').waitFor();
+  await app.locator('#handauto').check();
+  await app.locator('#handmax').selectOption('4');
+  await page.waitForTimeout(400);
+  let st = await call({ action: 'groups', op: 'state', group: made.group.id });
+  assert.deepEqual([st.room.auto, st.room.maxTurns], [true, 4]);
+  await app.locator('#handpause').click();
+  await app.locator('#handpause', { hasText: 'Continue' }).waitFor();
+  await page.screenshot({ path: process.env.GB_SHOTS ? process.env.GB_SHOTS + '/09-group-handoff.png' : '/tmp/gb-09.png' });
+  await app.locator('#handpause').click();
+  await app.locator('#handpause', { hasText: 'Pause' }).waitFor();
+  const before = fx.seen.filter(s => s.url === '/v1/runs').length;
+  await app.locator('#handgive').click();
+  for (let i = 0; i < 20 && fx.seen.filter(s => s.url === '/v1/runs').length === before; i++) await page.waitForTimeout(200);
+  assert.ok(fx.seen.filter(s => s.url === '/v1/runs').length > before);
+  await call({ action: 'groups', op: 'stop', group: made.group.id });
+  await call({ action: 'groups', op: 'delete', group: made.group.id });
+  assert.deepEqual(errors, []);
+  await context.close();
+});

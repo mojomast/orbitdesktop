@@ -196,6 +196,22 @@ export function createGroups({ runtimeRoot, catalog, chats, profiles }) {
         return { group: view(g), room: await call(g, { operation: 'post', text }) };
       }
       case 'stop': { const g = find(b.group); return { group: view(g), room: await call(g, { operation: 'stop' }) }; }
+      // Shared-agent handoff, the same room operations the agent chat's shared panes use.
+      case 'pause': { const g = find(b.group); return { group: view(g), room: await call(g, { operation: 'pause' }) }; }
+      case 'continue': { const g = find(b.group); return { group: view(g), room: await call(g, { operation: 'continue' }) }; }
+      case 'speak': {
+        const g = find(b.group); if (!g.members.some(m => m.id === b.speaker)) throw fail('Choose a member of this group.');
+        await ensureClones(g);
+        return { group: view(g), room: await call(g, { operation: 'speak', speaker: b.speaker }) };
+      }
+      case 'settings': {
+        const g = find(b.group); const body = { operation: 'settings' };
+        if (b.auto !== undefined) body.auto = b.auto === true;
+        if (b.next !== undefined) { if (!g.members.some(m => m.id === b.next)) throw fail('Choose a member of this group.'); body.next = b.next; }
+        if (b.maxTurns !== undefined) { if (!Number.isInteger(b.maxTurns) || b.maxTurns < 1 || b.maxTurns > 8) throw fail('The turn limit must be from 1 to 8.'); body.max_turns = b.maxTurns; }
+        return { group: view(g), room: await call(g, body) };
+      }
+      case 'cancel_delegation': { const g = find(b.group); if (typeof b.task !== 'string' || b.task.length > 100) throw fail('Choose a delegated task to cancel.'); return { group: view(g), room: await call(g, { operation: 'cancel_delegation', task_id: b.task }) }; }
       default: throw fail('Unknown group operation.');
     }
   }

@@ -202,3 +202,26 @@ test('workspace context is attached once per conversation when the app asks for 
     assert.equal(long.body.context, 'too-long');
   } finally { await h.close(); }
 });
+
+test('group rooms expose shared-agent handoff: settings, pause/continue, give the floor, cancel delegation', async () => {
+  const h = await harness();
+  try {
+    const g = async b => h.call({ action: 'groups', ...b });
+    const c = await g({ op: 'create', name: 'Pair', members: [{ profile: 'default' }] });
+    assert.equal(c.status, 200, JSON.stringify(c.body));
+    const id = c.body.group.id, who = c.body.group.members[0].id;
+    let r = await g({ op: 'settings', group: id, auto: true, maxTurns: 3, next: who });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.deepEqual([r.body.room.auto, r.body.room.maxTurns, r.body.room.next], [true, 3, who]);
+    assert.equal((await g({ op: 'settings', group: id, maxTurns: 9 })).status, 400);
+    assert.equal((await g({ op: 'settings', group: id, next: 'nobody' })).status, 400);
+    r = await g({ op: 'pause', group: id }); assert.equal(r.body.room.paused, true);
+    r = await g({ op: 'continue', group: id }); assert.equal(r.body.room.paused, false);
+    r = await g({ op: 'speak', group: id, speaker: who });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.ok(h.gw.seen.some(s => s.url === '/v1/runs'));
+    assert.equal((await g({ op: 'speak', group: id, speaker: 'nobody' })).status, 400);
+    assert.ok([400, 404, 409].includes((await g({ op: 'cancel_delegation', group: id, task: 'task_nope' })).status));
+    await g({ op: 'stop', group: id });
+  } finally { await h.close(); }
+});

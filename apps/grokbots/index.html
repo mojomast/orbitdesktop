@@ -1,4 +1,4 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="orbit-builtin-app" content="grokbots@9"><title>Agents</title><meta name="viewport" content="width=device-width,initial-scale=1">
+<!doctype html><html><head><meta charset="utf-8"><meta name="orbit-builtin-app" content="grokbots@10"><title>Agents</title><meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 *{box-sizing:border-box}html,body{margin:0;height:100%;background:#0d0f14;color:#e6e8ee;font:14px/1.45 system-ui,-apple-system,Segoe UI,sans-serif}
 #app{display:flex;height:100%}
@@ -36,6 +36,7 @@ button{background:#2b3248;color:inherit;border:1px solid #3b4256;border-radius:6
 .ai .d{color:#8a90a6;word-break:break-word;margin-top:2px;font-family:ui-monospace,monospace;font-size:11px}.ai .s{font-size:10px;padding:0 5px;border-radius:6px;background:#262b3a}
 .s.pending,.s.working,.s.streaming,.s.running{background:#3b3413;color:#ffd666}.s.done,.s.completed,.s.sent{background:#15331f;color:#7ee2a0}.s.failed{background:#3a1717;color:#ff8a8a}.s.waiting{background:#3a2440;color:#f0a6ff}
 #wk{font-size:12px;color:#ffd666;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:40%}
+#hand{display:none;gap:8px;align-items:center;flex-wrap:wrap;padding:6px 14px;border-bottom:1px solid #232733;font-size:12px}#hand .hl{color:#8b93a7;text-transform:uppercase;font-size:10px;letter-spacing:.05em}#hand select{background:#0b0d12;color:inherit;border:1px solid #2b3248;border-radius:5px;font:inherit}#hand details{flex-basis:100%}#hand .dt{display:flex;gap:8px;align-items:center;padding:2px 0;color:#b8c0d6}#hand .dt span{flex:1}
 </style></head><body><div id="app">
 <div id="side"><header>🤖 Agents <span style="flex:1"></span><button id="rf" title="Refresh">⟳</button></header><input id="q" placeholder="Search agents"><div id="list"></div></div>
 <div id="main"><div id="top"><button id="back" hidden>◂ Sessions</button><span class="t" id="title">Pick an agent</span><span id="wk"></span><span id="st"></span><button id="stop" hidden>Stop</button><button id="actbtn" title="Show live activity">⚡ Activity</button></div><div id="err"></div>
@@ -343,7 +344,7 @@ function pickGroup(id){lastSig='';gBusy=false;gGen++;sel={profile:G,agent:id};se
 let gBusy=false,gGen=0;async function refreshGroup(){if(!isG()||gBusy)return;gBusy=true;const id=sel.agent,gen=gGen;try{const r=await gapi({op:'state',group:id});if(gen!==gGen||!isG()||sel.agent!==id)return;apply(r)}catch(e){if(gen===gGen)err(e)}finally{if(gen===gGen)gBusy=false}}
 let lastSig='';function apply(r){gview=r.group;groom=r.room;const i=gchats.findIndex(g=>g.id===gview.id);if(i>=0)gchats[i]=gview;
  const busy=groom.running||(groom.queued||[]).length;if(busy)fast=Date.now()+30000;
- const sig=JSON.stringify([groom.messages.length,groom.messages.at(-1)&&groom.messages.at(-1).id,groom.running,groom.working,groom.queued,groom.activity,groom.paused,gview]);if(sig===lastSig)return;lastSig=sig;renderGroup();renderTop();renderList()}
+ const sig=JSON.stringify([groom.messages.length,groom.messages.at(-1)&&groom.messages.at(-1).id,groom.running,groom.working,groom.queued,groom.activity,groom.paused,groom.auto,groom.maxTurns,groom.next,groom.delegations,gview]);if(sig===lastSig)return;lastSig=sig;renderGroup();renderTop();renderList()}
 function memberOf(h){return gview&&gview.members.find(m=>m.id===h)}
 function renderGroup(){const M=$('msgs');const atBottom=M.scrollHeight-M.scrollTop-M.clientHeight<80;M.textContent='';
  if(!groom.messages.length)M.innerHTML='<div class="empty">Say hello. Mention @handles to address someone; un-mentioned messages go to '+(gview.defaultResponder==='all'?'everyone':'@'+esc(gview.defaultResponder))+'.</div>';
@@ -353,7 +354,7 @@ function renderGroup(){const M=$('msgs');const atBottom=M.scrollHeight-M.scrollT
   const b=mk('div','m '+(own?'user':'assistant'));b.innerHTML=md(m.text);b._m={id:m.id,role:own?'user':'assistant',content:m.text,speaker:m.speaker,ts:Date.parse(m.at)||0};if(m.error)b.style.borderLeft='3px solid #ff8a8a';col.append(b);w.append(col);M.append(w)}
  for(const who of (groom.working||(groom.running?[groom.running]:[]))){const mem=memberOf(who);const w=mk('div','gm');w.append(avEl(mem||{label:who}));const b=mk('div','m assistant stream',(mem?mem.label:who)+' is typing…');w.append(b);M.append(w)}
  if(atBottom)M.scrollTop=M.scrollHeight;renderBar();if(window.gbDecorate)window.gbDecorate()}
-function renderBar(){bar.textContent='';if(!isG()||!gview){bar.classList.remove('on');return}bar.classList.add('on');
+function renderBar(){bar.textContent='';if(!isG()||!gview){bar.classList.remove('on');if($('hand'))$('hand').style.display='none';return}bar.classList.add('on');
  for(const m of gview.members){const working=groom&&(groom.working||(groom.running?[groom.running]:[])).includes(m.id),queued=groom&&(groom.queued||[]).includes(m.id);const c=mk('span','mem'+(working?' work':queued?' queue':''));c.append(avEl(m),mk('span',null,'@'+m.id+(working?' · working':queued?' · next':'')));c.title=m.label+' ('+m.provider+')';bar.append(c)}
  const sp=mk('span');sp.style.flex='1';bar.append(sp);
  const dr=mk('select');dr.title='Who answers messages without an @mention';dr.style.cssText='background:#0b0d12;color:inherit;border:1px solid #2b3248;border-radius:5px;font:inherit';
@@ -362,14 +363,29 @@ function renderBar(){bar.textContent='';if(!isG()||!gview){bar.classList.remove(
  const md=mk('select');md.title='How woken members take turns';for(const [v,t] of [['parallel','Parallel turns'],['sequential','One at a time']]){const o=mk('option',null,t);o.value=v;md.append(o)}md.value=gview.mode||'parallel';md.onchange=async()=>{try{await gapi({op:'update',group:gview.id,mode:md.value});refreshGroup()}catch(e){err(e)}};bar.append(md);
  const bm=mk('button',null,'Members');bm.onclick=()=>openModal(gview);const st=mk('button',null,'Stop all');st.disabled=!(groom&&(groom.running||(groom.queued||[]).length));st.onclick=async()=>{try{apply(await gapi({op:'stop',group:gview.id}))}catch(e){err(e)}};
  const del=mk('button',null,'Delete');del.onclick=async()=>{if(!confirm('Delete the group "'+gview.name+'" and its chat history? Members themselves are not deleted.'))return;try{await gapi({op:'delete',group:gview.id});sel=null;gview=null;groom=null;bar.classList.remove('on');await loadGroups();renderTop();$('msgs').innerHTML='<div class="empty">Group deleted.</div>'}catch(e){err(e)}};
- bar.append(bm,st,del);if(groom&&groom.activity){const a=mk('span',null,groom.activity);a.style.color='#8b93a7';bar.append(a)}}
+ bar.append(bm,st,del);if(groom&&groom.activity){const a=mk('span',null,groom.activity);a.style.color='#8b93a7';bar.append(a)}
+ renderHand()}
+// Shared-agent handoff: give the floor, pause/continue, automatic handoff with a turn limit, delegated tasks.
+function renderHand(){let h=$('hand');if(!h){h=mk('div');h.id='hand';bar.after(h)}h.textContent='';if(!isG()||!gview||!groom){h.style.display='none';return}h.style.display='flex';
+ const busy=!!(groom.running||(groom.working||[]).length);const op=async b=>{try{apply(await gapi({group:gview.id,...b}))}catch(e){err(e)}};
+ const lab=mk('span',null,'Handoff');lab.className='hl';h.append(lab);
+ const who=mk('select');who.id='handto';who.title='Member who speaks next';for(const m of gview.members){const o=mk('option',null,'@'+m.id);o.value=m.id;if(m.id===groom.next)o.selected=true;who.append(o)}
+ who.onchange=()=>op({op:'settings',next:who.value});
+ const give=mk('button',null,'🎤 Give floor');give.id='handgive';give.title=busy?'Wait for the current speaker, or press Stop all':'Ask the selected member to take the next turn now';give.disabled=busy;give.onclick=()=>op({op:'speak',speaker:who.value});
+ const pz=mk('button',null,groom.paused?'▶ Continue':'⏸ Pause');pz.id='handpause';pz.title=groom.paused?'Let members keep handing off to each other':'Members finish the current reply, then wait for you';pz.onclick=()=>op({op:groom.paused?'continue':'pause'});
+ const al=mk('label');const ab=mk('input');ab.type='checkbox';ab.id='handauto';ab.checked=!!groom.auto;ab.onchange=()=>op({op:'settings',auto:ab.checked});al.append(ab,mk('span',null,' Auto handoff'));al.title='Members may pass the floor to each other without you';
+ const mt=mk('select');mt.id='handmax';mt.title='How many agent turns in a row before the room waits for you';for(let i=1;i<=8;i++){const o=mk('option',null,i+' turn'+(i>1?'s':''));o.value=String(i);if(i===(groom.maxTurns||0))o.selected=true;mt.append(o)}mt.onchange=()=>op({op:'settings',maxTurns:Number(mt.value)});
+ h.append(who,give,pz,al,mt);
+ const tasks=(groom.delegations||[]).filter(t=>t.status==='pending'||t.status==='running');
+ if((groom.delegations||[]).length){const d=mk('details');d.id='handtasks';const su=mk('summary',null,'Delegated tasks · '+tasks.length+' active / '+groom.delegations.length);d.append(su);
+  for(const t of groom.delegations.slice().reverse()){const r=mk('div','dt');r.append(mk('span',null,'@'+t.from+' → @'+t.to+' · '+t.status+' — '+t.task.slice(0,160)));if(t.status==='pending'||t.status==='running'){const c=mk('button',null,'Cancel');c.onclick=()=>op({op:'cancel_delegation',task:t.id});r.append(c)}d.append(r)}h.append(d)}}
 // wrap existing app flows for groups
-const _rt=renderTop;renderTop=function(){if(!isG()){bar.classList.remove('on');return _rt()}const g=gcur()||gview;$('title').textContent=g?'👥 '+g.name:'Group';
+const _rt=renderTop;renderTop=function(){if(!isG()){bar.classList.remove('on');if($('hand'))$('hand').style.display='none';return _rt()}const g=gcur()||gview;$('title').textContent=g?'👥 '+g.name:'Group';
  $('st').textContent=groom&&(groom.working||(groom.running?[groom.running]:[])).length?(groom.working||(groom.running?[groom.running]:[])).map(x=>'@'+x).join(', ')+' working…':'';$('stop').hidden=true;$('back').hidden=true;$('in').disabled=false;$('send').disabled=false;$('send').textContent='Send';
- for(const id of ['meter','cost','mode'])if($(id))$(id).style.display='none';$('wk').textContent=''};
+ for(const id of ['meter','cost','mode','ctxbtn','expbtn','toolsTog','wbbtn'])if($(id))$(id).style.display='none';$('wk').textContent=''};
 const _lh=loadHist;loadHist=function(...a){if(isG())return refreshGroup();return _lh(...a)};
 const _pa=pollAct;pollAct=async function(){if(isG()){setTimeout(pollAct,4000);return}return _pa()};
-const _pick=pick;pick=function(...a){bar.classList.remove('on');for(const id of ['meter','cost'])if($(id))$(id).style.display='';if($('mode'))$('mode').style.display='';return _pick(...a)};
+const _pick=pick;pick=function(...a){bar.classList.remove('on');for(const id of ['meter','cost','ctxbtn','expbtn','toolsTog','wbbtn'])if($(id))$(id).style.display='';if($('mode'))$('mode').style.display='';return _pick(...a)};
 const _title=$('title').ondblclick;$('title').ondblclick=async e=>{if(!isG())return _title&&_title(e);const n=prompt('Rename group',gview?gview.name:'');if(n&&n.trim()){try{await gapi({op:'update',group:gview.id,name:n.trim()});await loadGroups();refreshGroup()}catch(x){err(x)}}};
 const prevSend=$('send').onclick;
 async function gsend(){const t=$('in').value.trim();const hasAtt=!!(window.gbPendingAttachments&&gbPendingAttachments().length);if((!t&&!hasAtt)||!gview)return;if(window.gbAttachBusy&&gbAttachBusy()){err('Wait for the uploads to finish.');return}$('in').value='';ac.style.display='none';const att=hasAtt?gbTakeAttachments():null;
