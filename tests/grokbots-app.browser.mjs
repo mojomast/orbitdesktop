@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright-core';
-import { startFixture, AGENT } from './grokbots-browser-fixture.mjs';
+import { startFixture, AGENT, AGENT2 } from './grokbots-browser-fixture.mjs';
 
 import fs from 'node:fs';
 const executablePath = process.env.ORBIT_TEST_CHROMIUM || (fs.existsSync('/usr/bin/google-chrome') ? '/usr/bin/google-chrome' : chromium.executablePath());
@@ -94,6 +94,26 @@ test('sending while the agent works queues; queued messages can be edited, reord
   for (let i = 0; i < 40 && fx.seen.filter(s => s.url === '/api/sendPrompt').length < 2; i++) await page.waitForTimeout(500);
   const prompts = fx.seen.filter(s => s.url === '/api/sendPrompt').map(s => s.body.prompt);
   assert.deepEqual(prompts, ['third queued', 'second (edited)']);
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('attach files with the picker; the sent message carries their host paths', async () => {
+  const { page, app, errors, context } = await open(`&p=grok&a=${AGENT2}`);
+  await page.waitForTimeout(1500);
+  await app.locator('input[type=file]').setInputFiles([{ name: 'todo.txt', mimeType: 'text/plain', buffer: Buffer.from('buy milk') }, { name: 'pic.png', mimeType: 'image/png', buffer: Buffer.alloc(500, 1) }]);
+  await app.locator('#atts .att', { hasText: 'pic.png · 500 B' }).waitFor();
+  await app.locator('#atts .att', { hasText: 'todo.txt · 8 B' }).waitFor();
+  await app.locator('#in').fill('please review');
+  const before = fx.seen.filter(s => s.url === '/api/sendPrompt').length;
+  await app.locator('#send').click();
+  for (let i = 0; i < 20 && fx.seen.filter(s => s.url === '/api/sendPrompt').length === before; i++) await page.waitForTimeout(250);
+  const prompt = fx.seen.filter(s => s.url === '/api/sendPrompt').at(-1).body.prompt;
+  assert.match(prompt, /^please review\n\n\[Attached files/);
+  assert.match(prompt, /grokbots-uploads\/[0-9a-f-]{36}\/todo\.txt/);
+  assert.match(prompt, /--- todo\.txt ---\nbuy milk/);
+  assert.equal(await app.locator('#atts .att').count(), 0);
+  await app.locator('#msgs .matt', { hasText: 'todo.txt, pic.png' }).waitFor();
   assert.deepEqual(errors, []);
   await context.close();
 });

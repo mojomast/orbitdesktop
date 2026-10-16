@@ -23,6 +23,8 @@ import * as piControls from './grokbots-controls-pi.mjs';
 import * as grokControls from './grokbots-controls-grok.mjs';
 import { createGroups } from './grokbots-groups.mjs';
 import { createPrefs } from './grokbots-prefs.mjs';
+import { createUploads } from './grokbots-uploads.mjs';
+import { GROUP_MAX_MESSAGE } from './grokbots-groups.mjs';
 
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const SAFE = /^[A-Za-z0-9_:-]{1,128}$/;
@@ -192,7 +194,7 @@ const adapterFor = provider => adapters.get(provider) || sessionsAdapter; // Orb
 
 export function createGrokBotsApp({ runtimeRoot, catalog, agentStatus, chats }) {
   const keyBuf = Buffer.from(loadGrokBotsKey(runtimeRoot));
-  const cors = { 'Access-Control-Allow-Origin': 'null', 'Access-Control-Allow-Headers': 'Authorization, Content-Type', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Max-Age': '600', Vary: 'Origin', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
+  const cors = { 'Access-Control-Allow-Origin': 'null', 'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-File-Name', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Max-Age': '600', Vary: 'Origin', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
   const send = (res, status, data) => { res.writeHead(status, { ...cors, 'Content-Type': 'application/json' }); res.end(JSON.stringify(data)); };
 
   function profiles() {
@@ -205,6 +207,7 @@ export function createGrokBotsApp({ runtimeRoot, catalog, agentStatus, chats }) 
   const groupsFor = () => groupsApi || (groupsApi = createGroups({ runtimeRoot, catalog, chats: () => (typeof chats === 'function' ? chats() : null) || new Map(), profiles }));
   const rosterFor = async id => { const f = profiles().find(x => x.p.id === id); if (!f || f.adapter.kind !== 'gateway') return []; return f.adapter.agents(f.p, f.label); };
   const prefs = createPrefs({ runtimeRoot });
+  const uploads = createUploads({ runtimeRoot });
   const ctx = { profile: id => profiles().find(x => x.p.id === id)?.p || null, secrets: () => [keyText], agentStatus };
   function resolve(id) { const f = profiles().find(x => x.p.id === id); if (!f) throw fail('Unknown provider profile.', 404); return f; }
 
@@ -215,12 +218,25 @@ export function createGrokBotsApp({ runtimeRoot, catalog, agentStatus, chats }) 
     })) };
   }
 
+  function authorized(req, res) {
+    if (req.headers.origin !== undefined && req.headers.origin !== 'null') { send(res, 403, { error: 'Origin rejected' }); return false; }
+    const given = Buffer.from(String(req.headers.authorization || '').replace(/^Bearer\s+/i, ''));
+    if (given.length !== keyBuf.length || !timingSafeEqual(given, keyBuf)) { send(res, 401, { error: 'Missing or invalid app key. Reopen the pane from Orbit.' }); return false; }
+    return true;
+  }
+  // POST /api/grokbots-app/upload: raw file body, X-File-Name (URI-encoded), Content-Type.
+  async function upload(req, res) {
+    if (req.method === 'OPTIONS') { res.writeHead(204, cors); return res.end(); }
+    if (req.method !== 'POST') return send(res, 405, { error: 'Method not allowed' });
+    if (!authorized(req, res)) return;
+    let name = 'file'; try { name = decodeURIComponent(String(req.headers['x-file-name'] || 'file')); } catch {}
+    try { return send(res, 200, await uploads.receive(req, { name, type: req.headers['content-type'] })); }
+    catch (e) { send(res, e.status || 500, { error: String(e.message || 'Upload failed').slice(0, 300) }); if (!req.complete) req.destroy(); }
+  }
   async function handle(req, res) {
     if (req.method === 'OPTIONS') { res.writeHead(204, cors); return res.end(); }
     if (req.method !== 'POST') return send(res, 405, { error: 'Method not allowed' });
-    if (req.headers.origin !== undefined && req.headers.origin !== 'null') return send(res, 403, { error: 'Origin rejected' });
-    const given = Buffer.from(String(req.headers.authorization || '').replace(/^Bearer\s+/i, ''));
-    if (given.length !== keyBuf.length || !timingSafeEqual(given, keyBuf)) return send(res, 401, { error: 'Missing or invalid app key. Reopen the pane from Orbit.' });
+    if (!authorized(req, res)) return;
     const chunks = []; let size = 0;
     for await (const part of req) { size += part.length; if (size > MAX_BODY_BYTES) { send(res, 413, { error: 'Request too large.' }); return req.destroy(); } chunks.push(part); }
     const raw = Buffer.concat(chunks).toString('utf8');
@@ -228,7 +244,10 @@ export function createGrokBotsApp({ runtimeRoot, catalog, agentStatus, chats }) 
     try {
       if (b.action === 'agents') return send(res, 200, await agents());
       if (b.action === 'prefs') return send(res, 200, prefs.handle(b));
-      if (b.action === 'groups') return send(res, 200, JSON.parse(redactFull(JSON.stringify(await groupsFor().handle(b, rosterFor)), '')));
+      if (b.action === 'groups') {
+        if (b.op === 'post' && b.attachments !== undefined) { const t = typeof b.text === 'string' ? b.text.trim() : ''; if (t.length > GROUP_MAX_MESSAGE) throw fail('Message must be 1–100,000 characters.', 400); b.text = uploads.compose(t, b.attachments, GROUP_MAX_MESSAGE, { inline: false }); } // the room flattens newlines, so paths only
+        return send(res, 200, JSON.parse(redactFull(JSON.stringify(await groupsFor().handle(b, rosterFor)), '')));
+      }
       const x = resolve(b.profile);
       if (b.action === 'describe' || b.action === 'controls') {
         // Provider control modules: Grok gateway, Pi gateway, and Hermes(-compatible) sessions profiles.
@@ -248,7 +267,7 @@ export function createGrokBotsApp({ runtimeRoot, catalog, agentStatus, chats }) 
       }
       const fn = { sessions: x.adapter.sessions, history: x.adapter.history, send: x.adapter.send, run: x.adapter.run, stop: x.adapter.stop, activity: x.adapter.activity }[b.action];
       if (!fn) return send(res, 400, { error: `Action not supported for ${x.providerLabel}.` });
-      if (b.action === 'send') { const t = typeof b.prompt === 'string' ? b.prompt.trim() : ''; if (!t || t.length > MAX_PROMPT) throw fail('Message must be 1–100,000 characters.', 400); b.prompt = t; }
+      if (b.action === 'send') { const t = typeof b.prompt === 'string' ? b.prompt.trim() : ''; const hasFiles = Array.isArray(b.attachments) && b.attachments.length > 0; if ((!t && !hasFiles) || t.length > MAX_PROMPT) throw fail('Message must be 1–100,000 characters.', 400); b.prompt = uploads.compose(t, b.attachments, MAX_PROMPT); }
       const out = await fn(x.p, x.label, b, ctx);
       if (b.action === 'sessions' && Array.isArray(out?.sessions)) { const hid = groupsFor().hidden().sessions; out.sessions = out.sessions.filter(r => !hid.has(r.id)); } // group sessions stay out of 1-on-1 lists
       return send(res, 200, out);
@@ -258,5 +277,5 @@ export function createGrokBotsApp({ runtimeRoot, catalog, agentStatus, chats }) 
   const launchUrl = () => `/apps/grokbots/#k=${encodeURIComponent(keyText)}`;
   // Stops the background activity streams (server shutdown, tests).
   const close = () => { for (const feed of activityFeeds.values()) { try { feed.close(); } catch {} } activityFeeds.clear(); };
-  return { handle, launchUrl, close, groupsApi: () => groupsFor() };
+  return { handle, upload, launchUrl, close, groupsApi: () => groupsFor() };
 }

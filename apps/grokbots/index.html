@@ -1,4 +1,4 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="orbit-builtin-app" content="grokbots@4"><title>Agents</title><meta name="viewport" content="width=device-width,initial-scale=1">
+<!doctype html><html><head><meta charset="utf-8"><meta name="orbit-builtin-app" content="grokbots@5"><title>Agents</title><meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 *{box-sizing:border-box}html,body{margin:0;height:100%;background:#0d0f14;color:#e6e8ee;font:14px/1.45 system-ui,-apple-system,Segoe UI,sans-serif}
 #app{display:flex;height:100%}
@@ -80,7 +80,7 @@ function renderList(){const q=$('q').value.toLowerCase();const L=$('list');L.tex
 function renderMsgs(keep){const M=$('msgs');const atBottom=M.scrollHeight-M.scrollTop-M.clientHeight<60;const prevH=M.scrollHeight;M.textContent='';
  if(older){const b=document.createElement('button');b.id='older';b.textContent='Load older';b.onclick=loadOlder;M.append(b)}
  if(!msgs.length&&!stream)M.innerHTML+='<div class="empty">'+(isSes()&&!session?'New conversation — send a message to start it.':'No messages yet.')+'</div>';
- for(const m of msgs){const d=document.createElement('div');d.className='m '+m.role;d.innerHTML=md(m.content);d._m=m;if(m.ts){const t=document.createElement('div');t.className='ts';t.textContent=new Date(m.ts).toLocaleString()+(m.state==='sending'?' · sending…':m.state==='delivered'?' · ✓ delivered':m.state==='failed'?' · ⚠ not delivered':'');if(m.state==='failed'){t.style.color='#ff8a8a';t.title=m.error||'';const rb=document.createElement('button');rb.textContent='Retry';rb.style.marginLeft='8px';rb.onclick=()=>retry(m);t.append(rb)}d.append(t)}M.append(d)}
+ for(const m of msgs){const d=document.createElement('div');d.className='m '+m.role;d.innerHTML=md(m.content);d._m=m;if(m.attachments&&m.attachments.length){const a=document.createElement('div');a.className='matt';a.textContent='📎 '+m.attachments.map(x=>x.name).join(', ');d.append(a)}if(m.ts){const t=document.createElement('div');t.className='ts';t.textContent=new Date(m.ts).toLocaleString()+(m.state==='sending'?' · sending…':m.state==='delivered'?' · ✓ delivered':m.state==='failed'?' · ⚠ not delivered':'');if(m.state==='failed'){t.style.color='#ff8a8a';t.title=m.error||'';const rb=document.createElement('button');rb.textContent='Retry';rb.style.marginLeft='8px';rb.onclick=()=>retry(m);t.append(rb)}d.append(t)}M.append(d)}
  if(stream){const d=document.createElement('div');d.className='m assistant stream';d.innerHTML=md(stream);M.append(d)}
  if(keep==='top')M.scrollTop=M.scrollHeight-prevH;else if(keep!=='stay'||atBottom)M.scrollTop=M.scrollHeight}
 function showPicker(on){picking=on;$('picker').style.display=on?'block':'none';$('msgs').style.display=on?'none':'flex';$('comp').style.display=on?'none':'flex'}
@@ -106,11 +106,11 @@ function pick(profile,agent){sel={profile,agent};session=null;msgs=[];older=null
  if(isSes()){showPicker(true);renderTop();loadSessions(false)}else{showPicker(false);renderTop();$('msgs').innerHTML='<div class="empty">Loading…</div>';loadHist(true)}}
 function nonce(){return (crypto.randomUUID?crypto.randomUUID():String(Date.now())+Math.random().toString(16).slice(2)).replace(/[^A-Za-z0-9_-]/g,'')}
 async function deliver(m){m.state='sending';renderMsgs();sending=true;renderTop();
- try{const r=await api({action:'send',profile:sel.profile,agent:sel.agent,...(m.session?{session:m.session}:{}),prompt:m.content,nonce:m.nonce});
+ try{const r=await api({action:'send',profile:sel.profile,agent:sel.agent,...(m.session?{session:m.session}:{}),prompt:m.content,nonce:m.nonce,...(m.attachments&&m.attachments.length?{attachments:m.attachments.map(a=>({id:a.id}))}:{}),...(window.gbSendExtras?gbSendExtras():{})});
   m.state='delivered';if(r.session&&r.session!==session){session=r.session;saveHash()}m.session=session;if(r.run){run=r.run;runSince=Date.now();stream='…'}
   fast=Date.now()+180000;err()}catch(e){m.state='failed';m.error=e.message;err(e)}finally{sending=false;renderMsgs();renderTop()}}
-async function doSend(){const t=$('in').value.trim();if(!t||!sel||sending||run)return;$('in').value='';
- const m={id:'local-'+Date.now(),role:'user',content:t,ts:Date.now(),nonce:nonce(),session};msgs.push(m);await deliver(m)}
+async function doSend(){const t=$('in').value.trim();const hasAtt=!!(window.gbPendingAttachments&&gbPendingAttachments().length);if((!t&&!hasAtt)||!sel||sending||run)return;if(window.gbAttachBusy&&gbAttachBusy()){err('Wait for the uploads to finish.');return}$('in').value='';const att=hasAtt?gbTakeAttachments():null;
+ const m={id:'local-'+Date.now(),role:'user',content:t,ts:Date.now(),nonce:nonce(),session,...(att?{attachments:att}:{})};msgs.push(m);await deliver(m)}
 function retry(m){if(sending||run)return;if(m.session===undefined)m.session=session;deliver(m)}
 // After a run ends, every assistant message of the turn comes from session history (not only the run's final output).
 async function settleRun(r,fin){run=null;stream=null;renderTop();
@@ -370,9 +370,9 @@ const _pa=pollAct;pollAct=async function(){if(isG()){setTimeout(pollAct,4000);re
 const _pick=pick;pick=function(...a){bar.classList.remove('on');for(const id of ['meter','cost'])if($(id))$(id).style.display='';if($('mode'))$('mode').style.display='';return _pick(...a)};
 const _title=$('title').ondblclick;$('title').ondblclick=async e=>{if(!isG())return _title&&_title(e);const n=prompt('Rename group',gview?gview.name:'');if(n&&n.trim()){try{await gapi({op:'update',group:gview.id,name:n.trim()});await loadGroups();refreshGroup()}catch(x){err(x)}}};
 const prevSend=$('send').onclick;
-async function gsend(){const t=$('in').value.trim();if(!t||!gview)return;$('in').value='';ac.style.display='none';
- groom.messages.push({id:'local',speaker:'owner',text:t,at:new Date().toISOString()});renderGroup();
- try{apply(await gapi({op:'post',group:gview.id,text:t}))}catch(e){err(e);$('in').value=t}}
+async function gsend(){const t=$('in').value.trim();const hasAtt=!!(window.gbPendingAttachments&&gbPendingAttachments().length);if((!t&&!hasAtt)||!gview)return;if(window.gbAttachBusy&&gbAttachBusy()){err('Wait for the uploads to finish.');return}$('in').value='';ac.style.display='none';const att=hasAtt?gbTakeAttachments():null;
+ groom.messages.push({id:'local',speaker:'owner',text:t+(att?'\n📎 '+att.map(a=>a.name).join(', '):''),at:new Date().toISOString()});renderGroup();
+ try{apply(await gapi({op:'post',group:gview.id,text:t,...(att?{attachments:att.map(a=>({id:a.id}))}:{})}))}catch(e){err(e);$('in').value=t;if(att&&window.gbRestoreAttachments)gbRestoreAttachments(att)}}
 $('send').onclick=e=>isG()?gsend():prevSend&&prevSend(e);
 // @mention autocomplete
 const inp=$('in');const prevKey=inp.onkeydown;
@@ -480,6 +480,39 @@ setInterval(()=>drain(false),1200);
 const prevClick=$('send').onclick;$('send').onclick=e=>{if(busyNow()&&modeSend()&&enqueue())return;return prevClick&&prevClick(e)};
 const prevKey=inp.onkeydown;inp.onkeydown=e=>{const ac=$('acbox');if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing&&busyNow()&&modeSend()&&!(ac&&ac.style.display==='block')){e.preventDefault();enqueue();return}return prevKey&&prevKey(e)};
 const _rt=renderTop;renderTop=function(){_rt();if(sel&&!isGroup()&&!picking&&busyNow()&&modeSend()){$('send').disabled=false;$('send').textContent='Queue';$('in').disabled=false}};
+})();
+</script>
+<script>
+// ---- Attachments: 📎 picker, paste and drag-and-drop; files are stored on the Orbit host and referenced by path ----
+(function(){
+const LIM={files:10,file:25*1024*1024,total:100*1024*1024};const UP=new URL('/api/grokbots-app/upload',location.href).href;
+const st=document.createElement('style');st.textContent=`#atts{display:none;flex-wrap:wrap;gap:6px;padding:6px 10px 0}#atts.on{display:flex}.att{display:inline-flex;gap:6px;align-items:center;font-size:12px;padding:2px 4px 2px 8px;border-radius:10px;background:#1a1e29;border:1px solid #2b3248;max-width:280px}.att span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.att.up{border-style:dashed;color:#ffd666}.att.bad{border-color:#6b2020;color:#ff8a8a}.att button{padding:0 6px;font-size:11px}
+#attbtn{padding:6px 10px}#comp.drop{outline:2px dashed #4f6bf0;outline-offset:-4px}.matt{font-size:11px;color:#a9b4ff;margin-top:4px}`;document.head.append(st);
+const strip=document.createElement('div');strip.id='atts';$('comp').before(strip);
+const pick=document.createElement('input');pick.type='file';pick.multiple=true;pick.hidden=true;document.body.append(pick);
+const b=document.createElement('button');b.id='attbtn';b.type='button';b.textContent='📎';b.title='Attach files (or paste / drop them here). Up to 10 files, 25 MB each, 100 MB per message.';$('comp').insertBefore(b,$('in'));
+let items=[];// {id?,name,size,type,state:'up'|'ok'|'bad',error}
+const human=n=>n>=1048576?(n/1048576).toFixed(1)+' MB':n>=1024?Math.round(n/1024)+' KB':n+' B';
+function key(){return window.convKey?convKey():''}
+function persist(){const k=key();if(!k||!window.gbPrefs)return;const d=gbPrefs.drafts[k]||(gbPrefs.drafts[k]={text:$('in').value,queue:[]});d.attachments=items.filter(i=>i.state==='ok').map(({id,name,size,type})=>({id,name,size,type}));if(window.gbPersistDraft)gbPersistDraft(k)}
+function render(){strip.textContent='';strip.classList.toggle('on',items.length>0);for(const it of items){const c=document.createElement('span');c.className='att'+(it.state==='up'?' up':it.state==='bad'?' bad':'');const n=document.createElement('span');n.textContent='📎 '+it.name+' · '+(it.state==='up'?'uploading…':it.state==='bad'?it.error:human(it.size));n.title=it.name;const x=document.createElement('button');x.textContent='✕';x.title='Remove';x.onclick=()=>{items=items.filter(i=>i!==it);render();persist()};c.append(n,x);strip.append(c)}}
+async function add(files){for(const f of files){const ok=items.filter(i=>i.state!=='bad');
+  if(ok.length>=LIM.files){err('At most 10 attachments per message.');break}
+  if(f.size>LIM.file){err(f.name+' is larger than 25 MB.');continue}
+  if(ok.reduce((n,i)=>n+i.size,0)+f.size>LIM.total){err('Attachments can total at most 100 MB per message.');break}
+  if(!f.size){err(f.name+' is empty.');continue}
+  const it={name:f.name||'pasted-file',size:f.size,type:f.type||'application/octet-stream',state:'up'};items.push(it);render();
+  try{const r=await fetch(UP,{method:'POST',headers:{Authorization:'Bearer '+KEY,'Content-Type':it.type,'X-File-Name':encodeURIComponent(it.name)},body:f});const j=await r.json().catch(()=>({error:'HTTP '+r.status}));if(!r.ok)throw Error(j.error||('HTTP '+r.status));Object.assign(it,j,{state:'ok'})}
+  catch(e){it.state='bad';it.error=e.message}render();persist()}}
+b.onclick=()=>pick.click();pick.onchange=()=>{add([...pick.files]);pick.value=''};
+$('in').addEventListener('paste',e=>{const fs=[...((e.clipboardData&&e.clipboardData.files)||[])];if(fs.length){e.preventDefault();add(fs.map((f,i)=>f.name&&f.name!=='image.png'?f:new File([f],'pasted-'+new Date().toISOString().replace(/[:.]/g,'-')+(i?'-'+i:'')+'.'+((f.type.split('/')[1]||'bin').replace(/[^a-z0-9]/gi,'')),{type:f.type})))}});
+const comp=$('comp');comp.addEventListener('dragover',e=>{if(e.dataTransfer&&[...e.dataTransfer.types].includes('Files')){e.preventDefault();comp.classList.add('drop')}});comp.addEventListener('dragleave',()=>comp.classList.remove('drop'));comp.addEventListener('drop',e=>{comp.classList.remove('drop');if(e.dataTransfer&&e.dataTransfer.files.length){e.preventDefault();add([...e.dataTransfer.files])}});
+window.gbPendingAttachments=()=>items.filter(i=>i.state==='ok');
+window.gbAttachBusy=()=>items.some(i=>i.state==='up');
+window.gbTakeAttachments=()=>{const out=items.filter(i=>i.state==='ok').map(({id,name,size,type})=>({id,name,size,type}));items=items.filter(i=>i.state==='up');render();persist();return out};
+window.gbRestoreAttachments=list=>{items=list.map(a=>({...a,state:'ok'})).concat(items);render();persist()};
+// restore per-conversation attachments with the draft
+addEventListener('gb-conv',()=>{const k=key();const d=k&&window.gbPrefs&&gbPrefs.drafts[k];items=(d&&d.attachments||[]).map(a=>({...a,state:'ok'}));render()});
 })();
 </script>
 </body></html>

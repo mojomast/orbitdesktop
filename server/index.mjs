@@ -353,6 +353,7 @@ async function handleOrbitRequest(req, res) {
     return reply(res, 200, { url: grokBotsApp.launchUrl() });
   }
   if (url.pathname === '/api/grokbots-app') return grokBotsApp.handle(req, res);
+  if (url.pathname === '/api/grokbots-app/upload') return grokBotsApp.upload(req, res);
   if (url.pathname === '/api/agent-status') return agentStatus.handle(req, res);
   if (url.pathname === '/api/collab-board') return collabBoard.handle(req, res);
   if (url.pathname === "/api/health")

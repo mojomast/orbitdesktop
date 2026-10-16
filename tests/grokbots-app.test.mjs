@@ -108,3 +108,42 @@ test('drafts and queued messages persist per conversation, bounded', async () =>
     assert.equal((await h.call({ action: 'prefs', op: 'get' })).body.drafts[key], undefined);
   } finally { await h.close(); }
 });
+
+test('attachments upload to the host and reach the agent as paths (small text inlined), within limits', async () => {
+  const h = await harness();
+  try {
+    const up = async (name, body, type = 'text/plain', key = h.key) => { const r = await fetch(h.base + '/api/grokbots-app/upload', { method: 'POST', headers: { Origin: 'null', Authorization: 'Bearer ' + key, 'Content-Type': type, 'X-File-Name': encodeURIComponent(name) }, body }); return { status: r.status, body: await r.json() }; };
+    assert.equal((await up('a.txt', 'x', 'text/plain', 'wrong-key-wrong-key-wrong-key-wrong-k')).status, 401);
+    const notes = await up('../../notes.md', '# Notes\nremember milk');
+    assert.equal(notes.status, 200);
+    assert.equal(notes.body.name, 'notes.md');
+    const img = await up('shot.png', Buffer.alloc(2048, 7), 'image/png');
+    const dir = path.join(h.runtimeRoot, 'grokbots-uploads', notes.body.id);
+    assert.equal(fs.statSync(path.join(dir, 'notes.md')).mode & 0o777, 0o600);
+    const r = await h.call({ action: 'send', profile: 'grok', agent: AGENT, prompt: 'see attached', attachments: [{ id: notes.body.id }, { id: img.body.id }] });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const prompt = h.gw.seen.find(s => s.url === '/api/sendPrompt').body.prompt;
+    assert.match(prompt, /^see attached\n\n\[Attached files/);
+    assert.ok(prompt.includes(path.join(dir, 'notes.md')));
+    assert.match(prompt, /shot\.png \(image\/png, 2 KB\)/);
+    assert.match(prompt, /--- notes\.md ---\n# Notes\nremember milk/);
+    assert.doesNotMatch(prompt, /\u0007/);
+    // attachments alone (no text) are allowed
+    assert.equal((await h.call({ action: 'send', profile: 'grok', agent: AGENT, prompt: '', attachments: [{ id: img.body.id }] })).status, 200);
+    // limits and bad ids
+    assert.equal((await h.call({ action: 'send', profile: 'grok', agent: AGENT, prompt: 'x', attachments: Array.from({ length: 11 }, () => ({ id: img.body.id })) })).status, 400);
+    assert.equal((await h.call({ action: 'send', profile: 'grok', agent: AGENT, prompt: 'x', attachments: [{ id: '../../etc/passwd' }] })).status, 400);
+    assert.equal((await h.call({ action: 'send', profile: 'grok', agent: AGENT, prompt: 'x', attachments: [{ id: '00000000-0000-4000-8000-000000000000' }] })).status, 410);
+    const { UPLOAD_LIMITS } = await import('../server/grokbots-uploads.mjs');
+    const big = await up('big.bin', Buffer.alloc(UPLOAD_LIMITS.fileBytes + 1), 'application/octet-stream');
+    assert.equal(big.status, 413);
+    assert.deepEqual(fs.readdirSync(path.join(h.runtimeRoot, 'grokbots-uploads')).sort(), [img.body.id, notes.body.id].sort());
+    // a message that fills the cap with the path list is refused; one that leaves no room to inline still sends paths
+    assert.equal((await h.call({ action: 'send', profile: 'grok', agent: AGENT, prompt: 'p'.repeat(MAX_PROMPT - 10), attachments: [{ id: notes.body.id }] })).status, 400);
+    const listLen = prompt.split('\n').find(l => l.includes('notes.md (')).length + 80;
+    const long = await h.call({ action: 'send', profile: 'grok', agent: AGENT, prompt: 'p'.repeat(MAX_PROMPT - listLen - 20), attachments: [{ id: notes.body.id }] });
+    assert.equal(long.status, 200);
+    const last = h.gw.seen.filter(s => s.url === '/api/sendPrompt').at(-1).body.prompt;
+    assert.ok(last.length <= MAX_PROMPT && !last.includes('remember milk') && last.includes('notes.md'));
+  } finally { await h.close(); }
+});
