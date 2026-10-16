@@ -1,4 +1,4 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="orbit-builtin-app" content="grokbots@3"><title>Agents</title><meta name="viewport" content="width=device-width,initial-scale=1">
+<!doctype html><html><head><meta charset="utf-8"><meta name="orbit-builtin-app" content="grokbots@4"><title>Agents</title><meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 *{box-sizing:border-box}html,body{margin:0;height:100%;background:#0d0f14;color:#e6e8ee;font:14px/1.45 system-ui,-apple-system,Segoe UI,sans-serif}
 #app{display:flex;height:100%}
@@ -427,6 +427,59 @@ function decorate(){for(const d of document.querySelectorAll('#msgs .m')){if(!d.
   for(const pre of d.querySelectorAll('pre')){if(pre.querySelector('.cc'))continue;const code=pre.textContent;pre.append(btn('Copy','Copy code',async()=>{toast(await copyText(code)?'Code copied.':'Copy failed.')}));pre.lastChild.className='cc'}}}
 window.gbDecorate=decorate;
 const _rm=renderMsgs;renderMsgs=function(k){_rm(k);decorate()};
+})();
+</script>
+<script>
+// ---- Drafts (per conversation and group, saved on the Orbit host) and the outgoing message queue ----
+(function(){
+const P={drafts:{},themes:{},muted:{},context:{},settings:{}};window.gbPrefs=P;let loaded=false;
+const isGroup=()=>!!(sel&&sel.profile==='__group');
+window.convKey=()=>!sel?'':isGroup()?'__group|'+sel.agent:sel.profile+'|'+sel.agent+(session?'|'+session:'');
+window.gbSavePref=(section,key,value)=>api({action:'prefs',op:'set',section,key,value}).catch(e=>err(e));
+const inp=$('in');let curKey=null,saved='',timer=0,paused=false,draining=false,cool=0;
+const st=document.createElement('style');st.textContent=`#queue{display:none;border-top:1px solid #232733;padding:6px 10px;max-height:34vh;overflow:auto;background:#10131a}#queue.on{display:block}#queue .qh{display:flex;gap:8px;align-items:center;font-size:11px;color:#a9b4ff;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px}#queue .qh span{flex:1}
+.qi{display:flex;gap:6px;align-items:flex-start;padding:4px 0;border-bottom:1px solid #191d27;font-size:12px}.qi .qt{flex:1;white-space:pre-wrap;word-break:break-word;max-height:4.5em;overflow:hidden;color:#cfd3e0}.qi button{padding:1px 7px;font-size:11px}.qi textarea{flex:1;min-height:60px;background:#0b0d12;color:inherit;border:1px solid #4f6bf0;border-radius:6px;font:inherit;padding:4px}
+#qbtns{display:flex;gap:4px;flex:none}`;document.head.append(st);
+const box=document.createElement('div');box.id='queue';$('comp').before(box);
+function entry(k){k=k||convKey();return P.drafts[k]||(P.drafts[k]={text:'',queue:[]})}
+async function persist(k){if(!k)return;const d=P.drafts[k]||{text:'',queue:[]};try{await api({action:'prefs',op:'draft',key:k,text:d.text||'',queue:d.queue||[],...(d.attachments?{attachments:d.attachments}:{})})}catch(e){err(e)}}
+window.gbPersistDraft=persist;
+function schedule(k){clearTimeout(timer);timer=setTimeout(()=>persist(k),500)}
+function sync(){if(!loaded)return;const k=convKey();
+ if(k!==curKey){if(curKey){const d=entry(curKey);if(d.text!==inp.value){d.text=inp.value;clearTimeout(timer);persist(curKey)}}
+  curKey=k;inp.value=k?(entry(k).text||''):'';saved=inp.value;paused=false;if(window.gbComposerChanged)gbComposerChanged();dispatchEvent(new CustomEvent('gb-conv'));renderQueue();return}
+ if(k&&inp.value!==saved){saved=inp.value;entry(k).text=inp.value;schedule(k)}}
+setInterval(sync,400);inp.addEventListener('input',sync);
+api({action:'prefs',op:'get'}).then(r=>{for(const x of Object.keys(P))if(r[x])P[x]=r[x];loaded=true;sync();dispatchEvent(new CustomEvent('gb-prefs'))}).catch(e=>err(e));
+// queue
+const busyNow=()=>!!sel&&!isGroup()&&(sending||!!run||(!!group()&&group().kind==='gateway'&&!!(cur()&&cur().running))||Date.now()<cool);
+window.gbBusy=busyNow;
+const modeSend=()=>{const m=$('mode');return !m||m.style.display==='none'||m.value==='send'};
+function enqueue(){const t=inp.value.trim();const d=entry();const att=window.gbTakeAttachments?gbTakeAttachments():null;if(!t&&!(att&&att.length))return false;if(d.queue.length>=20){err(Error('At most 20 queued messages. Remove one first.'));return true}
+ d.queue.push({id:nonce().slice(0,32),text:t,...(att&&att.length?{attachments:att}:{})});inp.value='';d.text='';saved='';persist(convKey());renderQueue();if(window.gbComposerChanged)gbComposerChanged();toast('Queued — it sends when the agent is idle.');return true}
+window.gbEnqueue=enqueue;
+function renderQueue(){const k=convKey();const q=k&&P.drafts[k]?P.drafts[k].queue||[]:[];box.textContent='';box.classList.toggle('on',!!q.length&&!isGroup());if(!q.length||isGroup())return;
+ const h=document.createElement('div');h.className='qh';const t=document.createElement('span');t.textContent='Queued ('+q.length+')'+(paused?' · paused after a failed send':' · sends in order when the agent is idle');h.append(t);
+ if(paused){const r=document.createElement('button');r.textContent='Resume';r.onclick=()=>{paused=false;renderQueue()};h.append(r)}
+ const clr=document.createElement('button');clr.textContent='Clear';clr.onclick=()=>{if(!confirm('Remove all '+q.length+' queued messages?'))return;entry(k).queue=[];persist(k);renderQueue()};h.append(clr);box.append(h);
+ q.forEach((it,i)=>{const row=document.createElement('div');row.className='qi';const tx=document.createElement('div');tx.className='qt';tx.textContent=(i+1)+'. '+it.text+(it.attachments&&it.attachments.length?'  📎'+it.attachments.length:'');row.append(tx);const bs=document.createElement('div');bs.id='qbtns';
+  const mkb=(l,ti,fn)=>{const b=document.createElement('button');b.textContent=l;b.title=ti;b.onclick=fn;bs.append(b)};
+  mkb('Edit','Edit this queued message',()=>{const ta=document.createElement('textarea');ta.value=it.text;ta.maxLength=100000;row.replaceChild(ta,tx);bs.textContent='';const sv=document.createElement('button');sv.textContent='Save';sv.className='pri';sv.onclick=()=>{const v=ta.value.trim();if(!v&&!(it.attachments||[]).length){err(Error('A queued message cannot be empty — remove it instead.'));return}it.text=v;persist(k);renderQueue()};const cn=document.createElement('button');cn.textContent='Cancel';cn.onclick=renderQueue;bs.append(sv,cn);ta.focus()});
+  if(i>0)mkb('↑','Move up',()=>{q.splice(i-1,0,q.splice(i,1)[0]);persist(k);renderQueue()});
+  if(i===0)mkb('Send now','Send this now without waiting',()=>drain(true));
+  mkb('✕','Remove from the queue',()=>{q.splice(i,1);persist(k);renderQueue()});row.append(bs);box.append(row)})}
+window.gbRenderQueue=renderQueue;
+async function drain(force){if(!loaded||!sel||isGroup()||draining||(!force&&(busyNow()||paused))||sending)return;const k=convKey();const d=P.drafts[k];if(!d||!d.queue||!d.queue.length)return;
+ draining=true;const item=d.queue.shift();renderQueue();
+ const m={id:'local-'+Date.now(),role:'user',content:item.text,ts:Date.now(),nonce:nonce(),session,...(item.attachments?{attachments:item.attachments}:{})};msgs.push(m);
+ try{await deliver(m)}finally{draining=false}
+ if(m.state==='failed'){d.queue.unshift(item);const i=msgs.indexOf(m);if(i>=0)msgs.splice(i,1);paused=true;renderMsgs('stay')}else cool=Date.now()+(group()&&group().kind==='gateway'?8000:1500);
+ persist(convKey());renderQueue();renderTop()}
+setInterval(()=>drain(false),1200);
+// Send while busy queues instead (unless Steer/Follow-up is chosen).
+const prevClick=$('send').onclick;$('send').onclick=e=>{if(busyNow()&&modeSend()&&enqueue())return;return prevClick&&prevClick(e)};
+const prevKey=inp.onkeydown;inp.onkeydown=e=>{const ac=$('acbox');if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing&&busyNow()&&modeSend()&&!(ac&&ac.style.display==='block')){e.preventDefault();enqueue();return}return prevKey&&prevKey(e)};
+const _rt=renderTop;renderTop=function(){_rt();if(sel&&!isGroup()&&!picking&&busyNow()&&modeSend()){$('send').disabled=false;$('send').textContent='Queue';$('in').disabled=false}};
 })();
 </script>
 </body></html>

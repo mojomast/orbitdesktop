@@ -28,12 +28,12 @@ f.src=location.hash.slice(1)||'/apps/grokbots/';
 </script>`;
 
 export async function startFixture({ transcript = [], hermes = [] } = {}) {
-  const seen = [];
+  const seen = []; const state = { running: false };
   const gw = http.createServer(async (req, res) => {
     const parts = []; for await (const c of req) parts.push(c); const raw = Buffer.concat(parts).toString('utf8');
     const body = raw ? JSON.parse(raw) : {}; seen.push({ url: req.url, body });
     const json = d => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(d)); };
-    if (req.url === '/api/listAgents') return json([{ id: AGENT, name: 'Stub Bot', updatedAt: 2, lastMessagePreview: 'Hi' }, { id: AGENT2, name: 'Second Bot', updatedAt: 1 }]);
+    if (req.url === '/api/listAgents') return json([{ id: AGENT, name: 'Stub Bot', updatedAt: 2, lastMessagePreview: 'Hi', isRunning: state.running, isRunningTurn: state.running }, { id: AGENT2, name: 'Second Bot', updatedAt: 1 }]);
     if (req.url === '/api/getAgentTranscriptTail') return json({ entries: body.id === AGENT ? transcript : [] });
     if (req.url === '/api/sendPrompt') return json({ accepted: true });
     if (req.url.startsWith('/api/sessions?')) return json({ data: [{ id: 'sess_1', title: 'Hermes planning chat', preview: 'roadmap', message_count: hermes.length }, { id: 'sess_2', title: 'Old notes', preview: 'misc', message_count: 0 }] });
@@ -61,5 +61,5 @@ export async function startFixture({ transcript = [], hermes = [] } = {}) {
   });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
   const origin = `http://127.0.0.1:${server.address().port}`;
-  return { origin, appUrl: app.launchUrl(), seen, runtimeRoot, app, close: async () => { await new Promise(r => server.close(r)); await new Promise(r => gw.close(r)); } };
+  return { origin, appUrl: app.launchUrl(), seen, state, runtimeRoot, app, close: async () => { app.close(); server.closeAllConnections(); gw.closeAllConnections(); await new Promise(r => server.close(r)); await new Promise(r => gw.close(r)); } };
 }

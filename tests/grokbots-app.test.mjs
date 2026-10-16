@@ -25,7 +25,7 @@ export async function stubGateway() {
   });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
   const url = `http://127.0.0.1:${server.address().port}`;
-  return { url, seen, transcript, close: () => new Promise(r => server.close(r)) };
+  return { url, seen, transcript, close: () => { server.closeAllConnections(); return new Promise(r => server.close(r)); } };
 }
 export async function harness(extra = {}) {
   const gw = await stubGateway();
@@ -38,7 +38,7 @@ export async function harness(extra = {}) {
   const base = `http://127.0.0.1:${server.address().port}`;
   const key = decodeURIComponent(app.launchUrl().split('#k=')[1]);
   const call = async body => { const r = await fetch(base + '/api/grokbots-app', { method: 'POST', headers: { Origin: 'null', Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); return { status: r.status, body: await r.json() }; };
-  return { gw, app, base, key, call, runtimeRoot, close: async () => { await new Promise(r => server.close(r)); await gw.close(); } };
+  return { gw, app, base, key, call, runtimeRoot, close: async () => { app.close(); server.closeAllConnections(); await new Promise(r => server.close(r)); await gw.close(); } };
 }
 
 test('prompts up to 100,000 characters reach the gateway intact; longer ones are refused', async () => {
@@ -84,4 +84,27 @@ test('group posts and Pi/Hermes steering accept 100,000 characters', async () =>
 test('the app composer allows 100,000 characters', () => {
   const html = fs.readFileSync(new URL('../apps/grokbots/index.html', import.meta.url), 'utf8');
   assert.match(html, /<textarea id="in" maxlength="100000"/);
+});
+
+test('drafts and queued messages persist per conversation, bounded', async () => {
+  const h = await harness();
+  try {
+    const key = `grok|${AGENT}`;
+    let r = await h.call({ action: 'prefs', op: 'draft', key, text: 'half-written', queue: [{ id: 'q1', text: 'next one' }] });
+    assert.equal(r.status, 200);
+    r = await h.call({ action: 'prefs', op: 'get' });
+    assert.equal(r.body.drafts[key].text, 'half-written');
+    assert.deepEqual(r.body.drafts[key].queue, [{ id: 'q1', text: 'next one' }]);
+    const file = path.join(h.runtimeRoot, 'grokbots-prefs.json');
+    assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+    // a fresh backend instance reads the same drafts back
+    const { createPrefs } = await import('../server/grokbots-prefs.mjs');
+    assert.equal(createPrefs({ runtimeRoot: h.runtimeRoot }).read().drafts[key].text, 'half-written');
+    assert.equal((await h.call({ action: 'prefs', op: 'draft', key, text: 'x'.repeat(100001) })).status, 400);
+    assert.equal((await h.call({ action: 'prefs', op: 'draft', key, text: '', queue: Array.from({ length: 21 }, (_, i) => ({ id: 'q' + i, text: 't' })) })).status, 400);
+    assert.equal((await h.call({ action: 'prefs', op: 'draft', key: '../../etc', text: 'x' })).status, 400);
+    // clearing text and queue removes the entry
+    await h.call({ action: 'prefs', op: 'draft', key, text: '', queue: [] });
+    assert.equal((await h.call({ action: 'prefs', op: 'get' })).body.drafts[key], undefined);
+  } finally { await h.close(); }
 });

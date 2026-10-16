@@ -43,3 +43,57 @@ test('copy message, copy code and create a document from a reply', async () => {
   assert.deepEqual(errors, []);
   await context.close();
 });
+
+test('drafts survive switching conversations and reloading', async () => {
+  const { page, app, errors, context } = await open(`&p=grok&a=${AGENT}`);
+  await app.locator('#msgs .m').first().waitFor();
+  await app.locator('#in').fill('draft for stub bot');
+  await page.waitForTimeout(1200);
+  await app.locator('.bot', { hasText: 'Second Bot' }).click();
+  await page.waitForTimeout(700);
+  assert.equal(await app.locator('#in').inputValue(), '');
+  await app.locator('#in').fill('draft for second');
+  await page.waitForTimeout(1200);
+  await app.locator('.bot', { hasText: 'Stub Bot' }).click();
+  await page.waitForFunction(() => true);
+  await page.waitForTimeout(700);
+  assert.equal(await app.locator('#in').inputValue(), 'draft for stub bot');
+  await page.reload();
+  await page.frameLocator('#app').locator('#msgs .m').first().waitFor();
+  await page.waitForTimeout(1200);
+  assert.equal(await page.frameLocator('#app').locator('#in').inputValue(), 'draft for stub bot');
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('sending while the agent works queues; queued messages can be edited, reordered and removed, then drain when idle', async () => {
+  fx.state.running = true;
+  const { page, app, errors, context } = await open(`&p=grok&a=${AGENT}`);
+  await app.locator('#msgs .m').first().waitFor();
+  await page.waitForTimeout(1500);
+  for (const t of ['first queued', 'second queued', 'third queued']) { await app.locator('#in').fill(t); await app.locator('#in').press('Enter'); }
+  await app.locator('#queue .qi').nth(2).waitFor();
+  assert.equal(await app.locator('#send').textContent(), 'Queue');
+  // edit the second
+  await app.locator('#queue .qi').nth(1).getByRole('button', { name: 'Edit' }).click();
+  await app.locator('#queue .qi textarea').fill('second (edited)');
+  await app.locator('#queue .qi').getByRole('button', { name: 'Save' }).click();
+  // move the third up, remove the first
+  await app.locator('#queue .qi').nth(2).getByRole('button', { name: '↑' }).click();
+  await app.locator('#queue .qi').nth(0).getByRole('button', { name: '✕' }).click();
+  const texts = await app.locator('#queue .qi .qt').allTextContents();
+  assert.deepEqual(texts, ['1. third queued', '2. second (edited)']);
+  assert.equal(fx.seen.filter(s => s.url === '/api/sendPrompt').length, 0);
+  // reload keeps the queue
+  await page.reload();
+  const app2 = page.frameLocator('#app');
+  await app2.locator('#queue .qi').nth(1).waitFor();
+  // agent goes idle: the queue drains in order
+  fx.state.running = false;
+  await page.waitForFunction(() => true);
+  for (let i = 0; i < 40 && fx.seen.filter(s => s.url === '/api/sendPrompt').length < 2; i++) await page.waitForTimeout(500);
+  const prompts = fx.seen.filter(s => s.url === '/api/sendPrompt').map(s => s.body.prompt);
+  assert.deepEqual(prompts, ['third queued', 'second (edited)']);
+  assert.deepEqual(errors, []);
+  await context.close();
+});

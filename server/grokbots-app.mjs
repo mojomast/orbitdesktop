@@ -22,6 +22,7 @@ import * as hermesControls from './grokbots-controls-hermes.mjs';
 import * as piControls from './grokbots-controls-pi.mjs';
 import * as grokControls from './grokbots-controls-grok.mjs';
 import { createGroups } from './grokbots-groups.mjs';
+import { createPrefs } from './grokbots-prefs.mjs';
 
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const SAFE = /^[A-Za-z0-9_:-]{1,128}$/;
@@ -203,6 +204,7 @@ export function createGrokBotsApp({ runtimeRoot, catalog, agentStatus, chats }) 
   let groupsApi = null;
   const groupsFor = () => groupsApi || (groupsApi = createGroups({ runtimeRoot, catalog, chats: () => (typeof chats === 'function' ? chats() : null) || new Map(), profiles }));
   const rosterFor = async id => { const f = profiles().find(x => x.p.id === id); if (!f || f.adapter.kind !== 'gateway') return []; return f.adapter.agents(f.p, f.label); };
+  const prefs = createPrefs({ runtimeRoot });
   const ctx = { profile: id => profiles().find(x => x.p.id === id)?.p || null, secrets: () => [keyText], agentStatus };
   function resolve(id) { const f = profiles().find(x => x.p.id === id); if (!f) throw fail('Unknown provider profile.', 404); return f; }
 
@@ -225,6 +227,7 @@ export function createGrokBotsApp({ runtimeRoot, catalog, agentStatus, chats }) 
     let b; try { b = JSON.parse(raw || '{}'); } catch { return send(res, 400, { error: 'Invalid JSON' }); }
     try {
       if (b.action === 'agents') return send(res, 200, await agents());
+      if (b.action === 'prefs') return send(res, 200, prefs.handle(b));
       if (b.action === 'groups') return send(res, 200, JSON.parse(redactFull(JSON.stringify(await groupsFor().handle(b, rosterFor)), '')));
       const x = resolve(b.profile);
       if (b.action === 'describe' || b.action === 'controls') {
@@ -253,5 +256,7 @@ export function createGrokBotsApp({ runtimeRoot, catalog, agentStatus, chats }) 
   }
   // Pane URL for the built-in app; the key travels in the fragment and is never sent as a path or query.
   const launchUrl = () => `/apps/grokbots/#k=${encodeURIComponent(keyText)}`;
-  return { handle, launchUrl, groupsApi: () => groupsFor() };
+  // Stops the background activity streams (server shutdown, tests).
+  const close = () => { for (const feed of activityFeeds.values()) { try { feed.close(); } catch {} } activityFeeds.clear(); };
+  return { handle, launchUrl, close, groupsApi: () => groupsFor() };
 }

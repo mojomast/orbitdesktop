@@ -636,6 +636,7 @@ for (const signal of ["SIGTERM", "SIGINT"])
     piGateway?.close?.();
     colab.close();
     kittyDoom.close();
+    grokBotsApp.close?.();
     execution.close();
     sandboxProvider.close();
     contextSharing.close?.();
