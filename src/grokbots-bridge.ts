@@ -8,6 +8,7 @@
 // that exact frame's window. The bridge never hands the Orbit token, workspace
 // state or other conversations to the app; every op is explicit and bounded.
 import { workspaceId } from './workspace-sync';
+import { registerConversationRecipient, type ConversationRecipientHandle } from './conversation-transfer';
 
 export const GROKBOTS_PATH = '/apps/grokbots/';
 const MAX_TEXT = 500_000;
@@ -21,6 +22,9 @@ export type GrokBotsFrameContext = {
 type Handler = (message: GrokBotsMessage, context: GrokBotsFrameContext) => unknown | Promise<unknown>;
 const handlers = new Map<string, Handler>();
 const frames = new Set<GrokBotsFrameContext>();
+const recipients = new Map<GrokBotsFrameContext, ConversationRecipientHandle | null>();
+type InsertResult = { accepted: true } | { accepted: false; reason?: string };
+const pendingInserts = new Map<string, (result: InsertResult) => void>();
 
 /** Register (or replace) the host implementation of one bridge op. */
 export function registerGrokBotsOp(op: string, handler: Handler) { handlers.set(op, handler); }
@@ -48,6 +52,22 @@ export function bindGrokBots(frame: HTMLIFrameElement): () => void {
     post(message) { frame.contentWindow?.postMessage({ type: 'grokbots-host', ...message }, '*'); },
   };
   frames.add(context);
+  // Each Grok Bots window is a "Choose draft…" target for voice transcripts and
+  // other conversation transfers. Text lands in the app's composer draft only;
+  // the app never sends it on its own.
+  let recipient: ConversationRecipientHandle | null = null;
+  try {
+    recipient = registerConversationRecipient({
+      id: `grokbots:${crypto.randomUUID()}`, title: 'Grok Bots', available: false,
+      receive: delivery => new Promise(resolve => {
+        const id = `ins-${crypto.randomUUID()}`;
+        const timer = setTimeout(() => { pendingInserts.delete(id); resolve({ accepted: false, reason: 'Grok Bots did not answer. Reload its window.' }); }, 5000);
+        pendingInserts.set(id, result => { clearTimeout(timer); resolve(result); });
+        context.post({ op: 'insert', id, text: delivery.text, title: delivery.title || '', source: delivery.source || '', truncated: delivery.truncated });
+      }),
+    });
+  } catch { recipient = null; }
+  recipients.set(context, recipient);
   const hello = () => context.post({ op: 'hello', workspaceId, features: features() });
   const onMessage = async (event: MessageEvent) => {
     if (!frame.contentWindow || event.source !== frame.contentWindow) return;
@@ -66,7 +86,7 @@ export function bindGrokBots(frame: HTMLIFrameElement): () => void {
   };
   window.addEventListener('message', onMessage);
   frame.addEventListener('load', hello);
-  return () => { frames.delete(context); window.removeEventListener('message', onMessage); frame.removeEventListener('load', hello); dispatchEvent(new CustomEvent('orbit-grokbots-unbound', { detail: { frame } })); };
+  return () => { recipients.get(context)?.dispose(); recipients.delete(context); frames.delete(context); window.removeEventListener('message', onMessage); frame.removeEventListener('load', hello); dispatchEvent(new CustomEvent('orbit-grokbots-unbound', { detail: { frame } })); };
 }
 
 // ---- built-in ops ---------------------------------------------------------
@@ -128,4 +148,22 @@ registerGrokBotsOp('notify-permission', async () => {
   if (!('Notification' in window)) return { permission: 'unsupported' };
   if (Notification.permission === 'default') { try { await Notification.requestPermission(); } catch {} }
   return { permission: Notification.permission };
+});
+
+// Voice input: open Orbit's local voice capture (Moonshine, on-device). Its
+// "Choose draft…" lists each Grok Bots window as a recipient (above).
+registerGrokBotsOp('voice', async () => {
+  window.dispatchEvent(new CustomEvent('orbit-open-host-surface', { detail: { id: 'voice' } }));
+  return { opened: true };
+});
+// The app reports its current conversation so the recipient list can name it.
+registerGrokBotsOp('conversation', async (message, context) => {
+  const title = clipText(message.title, 80).replace(/[\u0000-\u001f]+/g, ' ').trim();
+  recipients.get(context)?.update({ title: title ? `Grok Bots · ${title}` : 'Grok Bots', available: message.available === true });
+});
+registerGrokBotsOp('insert-ack', async message => {
+  const ref = clipText(message.ref, 80); const done = pendingInserts.get(ref);
+  if (!done) return;
+  pendingInserts.delete(ref);
+  done(message.accepted === true ? { accepted: true } : { accepted: false, reason: clipText(message.reason, 200) || 'Grok Bots did not accept the text.' });
 });

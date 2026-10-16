@@ -1,4 +1,4 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="orbit-builtin-app" content="grokbots@10"><title>Agents</title><meta name="viewport" content="width=device-width,initial-scale=1">
+<!doctype html><html><head><meta charset="utf-8"><meta name="orbit-builtin-app" content="grokbots@11"><title>Agents</title><meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 *{box-sizing:border-box}html,body{margin:0;height:100%;background:#0d0f14;color:#e6e8ee;font:14px/1.45 system-ui,-apple-system,Segoe UI,sans-serif}
 #app{display:flex;height:100%}
@@ -664,6 +664,22 @@ const la=window.loadAgents;window.loadAgents=async function(){for(const g of gro
 let lastRun=null;setInterval(()=>{if(lastRun&&!run&&document.hidden&&sel){const b=cur();notify((b?b.name:'Hermes')+' replied','',window.convKey?convKey():'')}lastRun=run},1000);
 addEventListener('gb-host-notification-click',e=>{const t=e.detail&&e.detail.tag||'';const [p,a,s2]=t.split('|');if(p&&a&&!(sel&&sel.profile===p&&sel.agent===a)){pick(p,a);if(s2)openSession(s2)}});
 setTimeout(applyTheme,0);
+})();
+</script>
+<script>
+// ---- Voice input: Orbit's local voice capture (on-device transcription) delivers into this draft ----
+(function(){
+const b=document.createElement('button');b.id='micbtn';b.type='button';b.textContent='🎤';b.title='Dictate with Orbit voice capture (transcribed locally). Use “Choose draft…” there and pick this Grok Bots window.';$('comp').insertBefore(b,$('in'));
+const inGroup=()=>sel&&sel.profile==='__group';
+function title(){if(!sel)return'';if(inGroup()){const t=$('title').textContent.replace(/^👥\s*/,'');return t}const a=cur();return (a?a.name:sel.agent)+(session?' · '+String((typeof sesList!=='undefined'&&sesList.find(x=>x.id===session)||{}).title||session).slice(0,40):'')}
+let last='';function report(){if(!(window.HOST&&HOST.ready))return;const t=title(),av=!!sel&&!picking;const sig=t+'|'+av;if(sig===last)return;last=sig;hostSend('conversation',{title:t,available:av})}
+setInterval(report,1500);addEventListener('gb-conv',report);addEventListener('gb-host',()=>{last='';report()});
+b.onclick=async()=>{try{await host('voice',{});if(window.toast)toast('Voice capture opened. When the transcript is ready, choose “'+(title()?'Grok Bots · '+title():'Grok Bots')+'” as the draft.')}catch(e){err(e)}};
+addEventListener('gb-host-insert',e=>{const d=e.detail||{};const ack=(accepted,reason)=>hostSend('insert-ack',{ref:d.id,accepted,...(reason?{reason}:{})});
+  const text=typeof d.text==='string'?d.text:'';if(!text.trim())return ack(false,'Nothing to insert.');
+  if(!sel||picking)return ack(false,'Pick a conversation in Grok Bots first.');
+  const inp=$('in');const next=inp.value?inp.value.replace(/\s+$/,'')+'\n\n'+text:text;if(next.length>100000)return ack(false,'Appending would exceed the 100,000-character draft limit. Shorten the draft first.');
+  inp.value=next;inp.dispatchEvent(new Event('input',{bubbles:true}));inp.focus();inp.selectionStart=inp.selectionEnd=inp.value.length;if(window.gbComposerChanged)gbComposerChanged();if(window.toast)toast((d.title||'Text')+' added to your draft — review, then send');ack(true)});
 })();
 </script>
 </body></html>
