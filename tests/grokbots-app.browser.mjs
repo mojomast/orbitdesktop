@@ -17,7 +17,7 @@ const transcript = [
 ];
 let fx, browser;
 async function open(hash = '') {
-  const context = await browser.newContext({ viewport: { width: 1280, height: 820 } });
+  const context = await browser.newContext({ viewport: { width: 1280, height: 820 }, acceptDownloads: true });
   const page = await context.newPage(); const errors = [];
   page.on('pageerror', e => errors.push(e.message));
   await page.goto(`${fx.origin}/#${fx.appUrl}${hash}`);
@@ -141,6 +141,41 @@ test('tool calls render as inline cards between messages, and the activity panel
   await app.locator('#actbtn').click();
   await app.locator('#actq').waitFor();
   await page.screenshot({ path: process.env.GB_SHOTS ? process.env.GB_SHOTS + '/05-tool-cards.png' : '/tmp/gb-05.png' });
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('conversation library searches bots and Hermes sessions, opens here or in a new window, and exports', async () => {
+  const { page, app, errors, context } = await open(`&p=grok&a=${AGENT2}`);
+  await app.locator('#libbtn').click();
+  await app.locator('#librows .lr', { hasText: 'Hermes planning chat' }).waitFor();
+  assert.ok(await app.locator('#librows .lr', { hasText: 'Stub Bot' }).count() >= 1);
+  await app.locator('#libq').fill('planning');
+  assert.equal(await app.locator('#librows .lr').count(), 1);
+  await page.screenshot({ path: process.env.GB_SHOTS ? process.env.GB_SHOTS + '/06-library.png' : '/tmp/gb-06.png' });
+  // new window goes through the host bridge
+  await app.locator('#librows .lr button', { hasText: 'New window' }).click();
+  await page.waitForFunction(() => window.__ops.some(o => o.op === 'open'));
+  const op = await page.evaluate(() => window.__ops.find(o => o.op === 'open'));
+  assert.deepEqual([op.profile, op.agent, op.session, op.newWindow], ['default', 'default', 'sess_1', true]);
+  await app.locator('#lib.on').waitFor({ state: 'detached' }).catch(() => {});
+  assert.equal(await app.locator('#lib.on').count(), 0); // the dialog closes once Orbit opened the window
+  // export markdown of Stub Bot, which has messages and tool calls
+  await app.locator('#libbtn').click();
+  await app.locator('#libq').fill('Stub Bot');
+  const [dl] = await Promise.all([page.waitForEvent('download'), app.locator('#librows .lr', { hasText: 'Stub Bot' }).first().locator('button', { hasText: '.md' }).click()]);
+  const md = fs.readFileSync(await dl.path(), 'utf8');
+  assert.equal(dl.suggestedFilename(), 'Stub-Bot.md');
+  assert.match(md, /^# Stub Bot/);
+  assert.match(md, /## You[^\n]*\n\nWrite a plan/);
+  assert.match(md, /🔧 `run_tests` — error/);
+  const [dj] = await Promise.all([page.waitForEvent('download'), app.locator('#librows .lr', { hasText: 'Stub Bot' }).first().locator('button', { hasText: '.json' }).click()]);
+  const j = JSON.parse(fs.readFileSync(await dj.path(), 'utf8'));
+  assert.equal(j.messages.length, 2); assert.equal(j.tools.length, 2);
+  // open here
+  await app.locator('#librows .lr', { hasText: 'Stub Bot' }).first().locator('button', { hasText: 'Open' }).first().click();
+  await app.locator('#title', { hasText: 'Stub Bot' }).waitFor();
+  assert.equal(await app.locator('#lib.on').count(), 0);
   assert.deepEqual(errors, []);
   await context.close();
 });

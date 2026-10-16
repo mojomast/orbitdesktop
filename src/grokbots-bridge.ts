@@ -93,3 +93,14 @@ registerGrokBotsOp('document', async (message, context) => {
     if (!event.defaultPrevented) resolve({ status: 'rejected', reason: 'Connect the host to create documents.' });
   });
 });
+
+// Open a conversation in its own Grok Bots window (main.ts listens for orbit-grokbots-open).
+const OPEN_ID = /^[A-Za-z0-9_:.@|-]{1,200}$/;
+registerGrokBotsOp('open', async message => {
+  const profile = clipText(message.profile, 80), agent = clipText(message.agent, 200), session = clipText(message.session, 200);
+  if (!OPEN_ID.test(profile) || !OPEN_ID.test(agent) || (session && !OPEN_ID.test(session))) throw Error('Invalid conversation.');
+  const event = new CustomEvent('orbit-grokbots-open', { cancelable: true, detail: { profile, agent, session: session || '', newWindow: message.newWindow !== false } });
+  window.dispatchEvent(event);
+  if (!event.defaultPrevented) throw Error('Orbit cannot open windows here.');
+  return { opened: true };
+});

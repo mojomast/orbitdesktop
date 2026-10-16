@@ -1,4 +1,4 @@
-<!doctype html><html><head><meta charset="utf-8"><meta name="orbit-builtin-app" content="grokbots@6"><title>Agents</title><meta name="viewport" content="width=device-width,initial-scale=1">
+<!doctype html><html><head><meta charset="utf-8"><meta name="orbit-builtin-app" content="grokbots@7"><title>Agents</title><meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 *{box-sizing:border-box}html,body{margin:0;height:100%;background:#0d0f14;color:#e6e8ee;font:14px/1.45 system-ui,-apple-system,Segoe UI,sans-serif}
 #app{display:flex;height:100%}
@@ -400,7 +400,7 @@ inp.addEventListener('paste',e=>{const t=(e.clipboardData&&e.clipboardData.getDa
 </script>
 <script>
 // ---- Orbit host bridge (postMessage to the Orbit page that embeds this app) ----
-const HOST={ready:false,workspaceId:null,features:{}};let hostSeq=0;const hostWait=new Map();
+const HOST={ready:false,workspaceId:null,features:{}};window.HOST=HOST;let hostSeq=0;const hostWait=new Map();
 function host(op,data,timeout){return new Promise((res,rej)=>{if(window.parent===window)return rej(Error('Open Grok Bots inside Orbit to use this.'));const id='h'+(++hostSeq);hostWait.set(id,{res,rej});window.parent.postMessage({type:'grokbots',op,id,...(data||{})},'*');setTimeout(()=>{const w=hostWait.get(id);if(w){hostWait.delete(id);rej(Error('Orbit did not answer. Reload the window from Orbit.'))}},timeout||120000)})}
 function hostSend(op,data){if(window.parent!==window)window.parent.postMessage({type:'grokbots',op,...(data||{})},'*')}
 addEventListener('message',e=>{if(e.source!==window.parent)return;const d=e.data;if(!d||typeof d!=='object'||d.type!=='grokbots-host')return;
@@ -556,6 +556,48 @@ const orig=window.renderAct;window.renderAct=function(){const r=orig.apply(this,
 $('actq').oninput=apply;$('actdone').onchange=apply;
 $('actfail').onclick=()=>{const rows=[...$('actlist').querySelectorAll('.ai')].filter(r=>{const s=r.querySelector('.s');return s&&BAD.test(s.textContent)});const r=rows[rows.length-1];if(!r)return;r.classList.remove('hid');r.scrollIntoView({block:'center'});r.classList.add('flash');setTimeout(()=>r.classList.remove('flash'),1600)};
 $('actid').onclick=()=>{if(!sel)return;const id=session||sel.agent;(window.copyText||(x=>navigator.clipboard.writeText(x)))(id)};
+})();
+</script>
+<script>
+// ---- Conversation library: every bot and Hermes session in one searchable list; open here or in a new window; export ----
+(function(){
+const st=document.createElement('style');st.textContent=`#lib{position:fixed;inset:0;background:#0009;display:none;align-items:center;justify-content:center;z-index:50}#lib.on{display:flex}#libbox{width:min(760px,94vw);height:min(620px,90vh);background:#141822;border:1px solid #2b3248;border-radius:12px;display:flex;flex-direction:column}#libbox header{display:flex;gap:8px;align-items:center;padding:10px 12px;border-bottom:1px solid #232733;font-weight:600}#libbox header span{flex:1}#libq{margin:8px 12px;padding:6px 8px}#librows{flex:1;overflow:auto;padding:0 6px}.lr{display:flex;gap:8px;align-items:center;padding:7px 8px;border-radius:8px}.lr:hover{background:#1a1e29}.lr .lm{flex:1;min-width:0}.lr .lt{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.lr .lp{font-size:11px;color:#8b93a7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.lr button{font-size:11px;padding:3px 7px}#libfoot{padding:8px 12px;border-top:1px solid #232733;font-size:11px;color:#8b93a7;display:flex;gap:8px;align-items:center}#libfoot span{flex:1}`;document.head.append(st);
+const lib=document.createElement('div');lib.id='lib';lib.innerHTML='<div id="libbox" role="dialog" aria-label="Conversation library"><header><span>📚 Conversation library</span><button id="libx">✕</button></header><input id="libq" type="search" placeholder="Search bots, conversations and previews…"><div id="librows"></div><div id="libfoot"><span id="libst"></span><button id="libmore">Search older sessions</button></div></div>';document.body.append(lib);
+const btn=document.createElement('button');btn.id='libbtn';btn.title='Conversation library: search, open in a new window, export';btn.textContent='📚';$('rf').before(btn);
+const ses={};// profile -> {rows,next}
+const label=g=>g.kind==='gateway'?(g.providerLabel||'Gateway'):(g.providerLabel||'Hermes');
+function rows(){const out=[];for(const g of groups){if(g.kind==='sessions'){const a=g.agents[0];if(!a)continue;for(const x of (ses[g.profile]&&ses[g.profile].rows)||[])out.push({profile:g.profile,agent:a.id,session:x.id,title:x.title,preview:x.preview,src:label(g)+' · '+a.name,at:x.updatedAt,n:x.messages})}
+  else for(const a of g.agents)out.push({profile:g.profile,agent:a.id,title:a.name,preview:a.preview||a.description,src:label(g),at:a.updatedAt})}return out.sort((x,y)=>(y.at||0)-(x.at||0))}
+async function loadSes(more){for(const g of groups.filter(g=>g.kind==='sessions')){const c=ses[g.profile]||(ses[g.profile]={rows:[],next:0});if(c.next===null||(!more&&c.rows.length))continue;try{const r=await api({action:'sessions',profile:g.profile,offset:c.next||0});c.rows=c.rows.concat(r.sessions.filter(x=>!c.rows.some(y=>y.id===x.id)));c.next=r.next}catch(e){c.error=e.message;c.next=null}}render()}
+function render(){const q=$('libq').value.trim().toLowerCase();const R=$('librows');R.textContent='';const list=rows().filter(r=>!q||[r.title,r.preview,r.src,r.session||r.agent].join(' ').toLowerCase().includes(q));
+  for(const r of list.slice(0,400)){const d=document.createElement('div');d.className='lr';const m=document.createElement('div');m.className='lm';const t=document.createElement('div');t.className='lt';t.textContent=r.title||r.session||r.agent;const p=document.createElement('div');p.className='lp';p.textContent=[r.src,r.at?new Date(r.at).toLocaleString():'',r.n?r.n+' messages':'',r.preview].filter(Boolean).join(' · ');m.append(t,p);
+    const o=document.createElement('button');o.textContent='Open';o.onclick=()=>openHere(r);const w=document.createElement('button');w.textContent='New window';w.title='Open in its own Orbit window';w.onclick=()=>openWindow(r);w.disabled=!(window.HOST&&HOST.ready);if(w.disabled)w.title='Available when Grok Bots runs inside Orbit';
+    const em=document.createElement('button');em.textContent='⤓ .md';em.title='Export as Markdown';em.onclick=()=>exportConv(r,'md',em);const ej=document.createElement('button');ej.textContent='⤓ .json';ej.title='Export as JSON (messages and tool calls)';ej.onclick=()=>exportConv(r,'json',ej);
+    m.ondblclick=()=>openHere(r);d.append(m,o,w,em,ej);R.append(d)}
+  if(!list.length)R.innerHTML='<div class="sec">No matching conversations'+(more()?' yet — try “Search older sessions”.':'.')+'</div>';
+  const errs=Object.values(ses).filter(c=>c.error).map(c=>c.error);$('libst').textContent=list.length+' conversation'+(list.length===1?'':'s')+(errs.length?' · ⚠ '+errs[0]:'');$('libmore').disabled=!more()}
+const more=()=>Object.values(ses).some(c=>c.next);
+function close(){lib.classList.remove('on')}
+function openHere(r){close();pick(r.profile,r.agent);if(r.session)openSession(r.session)}
+async function openWindow(r){try{await host('open',{profile:r.profile,agent:r.agent,session:r.session||'',newWindow:true});close()}catch(e){err(e)}}
+window.gbOpenWindow=openWindow;
+async function fetchAll(r){const msgs=[],tools=[];let before=undefined;for(let i=0;i<25;i++){const h=await api({action:'history',profile:r.profile,agent:r.agent,...(r.session?{session:r.session}:{}),...(before?{before}:{})});
+  const known=new Set(msgs.map(m=>m.id));msgs.unshift(...h.messages.filter(m=>!known.has(m.id)));for(const t of h.tools||[])if(!tools.some(x=>x.id===t.id))tools.push(t);if(!h.before||h.before===before)break;before=h.before}return {msgs,tools}}
+const slug=s=>String(s||'conversation').replace(/[^A-Za-z0-9 _-]+/g,'').trim().replace(/\s+/g,'-').slice(0,60)||'conversation';
+function download(name,type,text){const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;document.body.append(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},2000)}
+async function exportConv(r,fmt,b){const old=b.textContent;b.textContent='…';b.disabled=true;try{const {msgs,tools}=await fetchAll(r);const stamp=new Date().toISOString();
+  if(fmt==='json')download(slug(r.title)+'.json','application/json',JSON.stringify({exportedAt:stamp,source:r.src,profile:r.profile,agent:r.agent,session:r.session||null,title:r.title,messages:msgs,tools},null,2));
+  else{const lines=[`# ${r.title||r.agent}`,'',`_${r.src} · exported ${new Date(stamp).toLocaleString()} · ${msgs.length} messages_`,''];const byAfter=new Map();for(const t of tools){const k=t.after||'';(byAfter.get(k)||byAfter.set(k,[]).get(k)).push(t)}
+    const toolMd=k=>(byAfter.get(k)||[]).map(t=>`> 🔧 \`${t.name}\` — ${t.status}${t.input?`\n> input: ${t.input.slice(0,300).replace(/\n/g,' ')}`:''}`).join('\n');
+    if(byAfter.get(''))lines.push(toolMd(''),'');
+    for(const m of msgs){lines.push(`## ${m.role==='user'?'You':'Assistant'}${m.ts?` · ${new Date(m.ts).toLocaleString()}`:''}`,'',m.content,'');if(byAfter.get(m.id))lines.push(toolMd(m.id),'')}
+    download(slug(r.title)+'.md','text/markdown',lines.join('\n'))}
+  if(window.toast)toast('Exported '+msgs.length+' messages')}catch(e){err(e)}finally{b.textContent=old;b.disabled=false}}
+const xb=document.createElement('button');xb.id='expbtn';xb.textContent='⤓';xb.title='Export this conversation as Markdown (Shift-click for JSON)';xb.onclick=e=>window.gbExport(e.shiftKey?'json':'md');$('actbtn').before(xb);
+window.gbExport=(fmt)=>{if(!sel)return;const b=cur();exportConv({profile:sel.profile,agent:sel.agent,session:session||undefined,title:b?b.name:sel.agent,src:''},fmt,{textContent:'',disabled:false})};
+btn.onclick=()=>{lib.classList.add('on');render();loadSes(false);$('libq').focus()};
+$('libx').onclick=close;lib.onclick=e=>{if(e.target===lib)close()};$('libq').oninput=render;$('libmore').onclick=()=>loadSes(true);
+addEventListener('keydown',e=>{if(e.key==='Escape'&&lib.classList.contains('on'))close();if((e.ctrlKey||e.metaKey)&&e.shiftKey&&e.key.toLowerCase()==='o'){e.preventDefault();btn.click()}});
 })();
 </script>
 </body></html>
