@@ -54,31 +54,94 @@ def read_secret(cfg, name):
     return p.read_text("utf-8").strip() if p.exists() else ""
 
 # ---------------------------------------------------------------- backends
+# Every real-SDK call the backend makes, checked against the installed package by
+# `launcher.py doctor` / sdk_contract_check() (tests run it against cua==0.5.0).
+#   (class in cua._native, method, must_be_async, required parameter names)
+SDK_CONTRACT = [
+    ("Cua", "sandboxes", False, []),
+    ("Sandboxes", "create", True, ["options"]),
+    ("Sandboxes", "connect", True, ["name"]),     # name -> Sandbox handle (get() returns SandboxInfo: no agents())
+    ("Sandboxes", "delete", True, ["name"]),
+    ("Sandbox", "agents", True, []),
+    ("Sandbox", "name", False, []),
+    ("Sandbox", "guest_sh", True, ["line"]),
+    ("Agents", "run", True, ["harness", "prompt", "options"]),
+    ("Agents", "get", True, ["run_id"]),
+    ("AgentRun", "run_id", False, []),
+    ("AgentRun", "events", True, ["cursor", "max"]),
+    ("AgentRun", "interrupt", True, []),
+    ("AgentRun", "stop", True, []),
+    ("AgentRun", "result", True, []),
+    ("AgentRun", "artifacts", True, []),
+]
+SDK_TYPES = {  # constructor keyword fields the backend passes or reads
+    "SandboxCreateOptions": ["on", "kind", "runtime", "image", "name", "memory_mb", "wait_for"],
+    "ReadinessProbe": ["service"],
+    "AgentRunOptions": ["env", "model", "base_url", "wire", "repo", "branch", "cwd", "exit_when_idle", "label"],
+    "AgentEventPage": ["events", "cursor", "caught_up"],
+    "AgentEvent": ["seq", "kind", "line", "text", "stop_reason"],
+    "AgentRunResult": ["status", "stop_reason", "text", "tool_calls", "usage_json", "error"],
+    "AgentArtifact": ["path", "size"],
+    "ProcessOutput": ["stdout"],
+}
+
+def sdk_contract_check():
+    import inspect
+    import cua
+    from cua import _native as n
+    problems = []
+    for name in ("embedded", "SandboxCreateOptions", "AgentRunOptions", "ReadinessProbe", "cua_sdk_version"):
+        if not hasattr(cua, name): problems.append(f"cua.{name} missing")
+    for cls, meth, is_async, params in SDK_CONTRACT:
+        c = getattr(n, cls, None); f = getattr(c, meth, None) if c else None
+        if f is None: problems.append(f"{cls}.{meth} missing"); continue
+        if inspect.iscoroutinefunction(f) != is_async: problems.append(f"{cls}.{meth} async={not is_async} expected {is_async}")
+        got = [x for x in inspect.signature(f).parameters if x != "self"]
+        for x in params:
+            if x not in got: problems.append(f"{cls}.{meth} lacks parameter {x} (has {got})")
+    for typ, fields in SDK_TYPES.items():
+        c = getattr(n, typ, None)
+        if c is None: problems.append(f"type {typ} missing"); continue
+        got = inspect.signature(c.__init__).parameters
+        for x in fields:
+            if x not in got: problems.append(f"{typ} lacks field {x}")
+    return problems
+
 class CuaBackend:
-    """Real backend: cua 0.5.0 SDK, local Docker Desktop sandboxes (runc)."""
+    """Real backend: cua 0.5.0 SDK, local Docker Desktop sandboxes (runc).
+    Handles: client.sandboxes() (sync) -> Sandboxes; await .create(opts)/.connect(name) -> Sandbox;
+    await Sandbox.agents() -> Agents; await Agents.run(harness, prompt, opts)/.get(run_id) -> AgentRun."""
     def __init__(self, cfg):
-        import cua  # noqa: deferred so tests/doctor work without it
+        import cua  # deferred so tests/doctor work without it
         self.cua, self.cfg = cua, cfg
         self.client = cua.embedded()
+        self._sb = {}
+
+    async def _sandbox(self, name):
+        if name not in self._sb:  # reattach after restart: connect by name, never get() (SandboxInfo)
+            self._sb[name] = await self.client.sandboxes().connect(name)
+        return self._sb[name]
 
     async def start(self, attempt, key):
         cua, cfg, b = self.cua, self.cfg, attempt["brief"]
         name = "orbit-" + attempt["attempt_id"][-12:]
         sb = await self.client.sandboxes().create(cua.SandboxCreateOptions(
-            on="local", kind="container", runtime=cfg["runtime"], image=cfg["image"], name=name, memory_mb=cfg["memory_mb"],
-            wait_for=[cua.ReadinessProbe(service="env")]))
+            on="local", kind="container", runtime=cfg["runtime"], image=cfg["image"], name=name,
+            memory_mb=cfg["memory_mb"], wait_for=[cua.ReadinessProbe(service="env")]))
+        self._sb[name] = sb
         proj = cfg["projects"].get(b.get("project", ""), {})
         opts = cua.AgentRunOptions(
             env={"OPENAI_API_KEY": key, "OPENCODE_CONFIG_CONTENT": json.dumps(WORKER_OPENCODE_CONFIG)},
             model=cfg["model"], base_url=cfg["base_url"], wire=cfg["wire"],
             repo=proj.get("repo"), branch=b.get("branch"), cwd=b.get("workdir"),
             exit_when_idle=True, label=attempt["attempt_id"])
-        run = await (await sb.agents()).run("opencode", render_prompt(b), opts)
+        agents = await sb.agents()
+        run = await agents.run("opencode", render_prompt(b), opts)
         return {"sandbox": name, "run_id": run.run_id()}
 
     async def _run(self, a):
-        sb = await self.client.sandboxes().get(a["sandbox"])
-        return await (await sb.agents()).get(a["run_id"])
+        agents = await (await self._sandbox(a["sandbox"])).agents()
+        return await agents.get(a["run_id"])
 
     async def events(self, a, cursor):
         page = await (await self._run(a)).events(cursor, 200)
@@ -86,22 +149,30 @@ class CuaBackend:
                  "text": redact(e.text) if e.kind in ("message", "error", "turn_ended") else None} for e in page.events], page.cursor
 
     async def interrupt(self, a):
-        r = await self._run(a); await r.interrupt(); await r.stop()
+        r = await self._run(a)
+        await r.interrupt()
+        await r.stop()
 
     async def result(self, a):
-        r = await self._run(a); res = await r.result()
+        r = await self._run(a)
+        res = await r.result()
         arts = [{"path": x.path, "size": x.size} for x in await r.artifacts()]
         return {"status": res.status, "stop_reason": res.stop_reason, "text": redact(res.text),
                 "tool_calls": res.tool_calls, "usage": res.usage_json, "error": redact(res.error), "artifacts": arts}
 
     async def file_sha256(self, a, path):
-        sb = await self.client.sandboxes().get(a["sandbox"])
-        out = await sb.guest_sh(f"sha256sum -- '{path}' 2>/dev/null | cut -d' ' -f1")
-        return (getattr(out, "stdout", None) or str(out)).strip()[:64] or None
+        sb = await self._sandbox(a["sandbox"])
+        safe = path.replace("'", "'\\''")
+        out = await sb.guest_sh(f"sha256sum -- '{safe}' 2>/dev/null | cut -d' ' -f1")
+        raw = out.stdout.decode("utf-8", "replace") if isinstance(out.stdout, (bytes, bytearray)) else str(out.stdout)
+        return raw.strip()[:64] or None
 
     async def cleanup(self, a):
-        try: await (await self.client.sandboxes().get(a["sandbox"])).delete()
+        name = a.get("sandbox")
+        if not name: return
+        try: await self.client.sandboxes().delete(name)
         except Exception: pass
+        self._sb.pop(name, None)
 
 class FakeBackend:
     """Scripted backend for tests: brief.fake = {"events":[...], "fail_start":bool, "rate_limit_first":n}."""
@@ -359,6 +430,7 @@ def doctor(cfg):
     tf = Path(cfg.get("api_token_file") or Path(cfg["data_dir"]) / "orbit-api.token"); line("orbit api token file", tf.exists(), str(tf))
     try:
         import cua; line("cua sdk", True, cua.cua_sdk_version())
+        probs = sdk_contract_check(); line("cua sdk contract", not probs, "; ".join(probs))
     except Exception as e: line("cua sdk", False, type(e).__name__)
     line("max_concurrent", True, str(cfg["max_concurrent"])); line("model", True, cfg["model"] + " via " + cfg["base_url"])
     return 0 if ok else 1
@@ -385,7 +457,7 @@ async def _probe(cfg):
         await be.cleanup(a)
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser(); ap.add_argument("cmd", choices=["serve", "doctor", "probe"]); ap.add_argument("--config", required=True)
+    ap = argparse.ArgumentParser(); ap.add_argument("cmd", choices=["serve", "doctor", "probe", "sdkcheck"]); ap.add_argument("--config")
     ap.add_argument("--backend", default="cua", choices=["cua", "fake"])
-    a = ap.parse_args(); cfg = load_config(a.config)
-    sys.exit(doctor(cfg) if a.cmd == "doctor" else asyncio.run(_probe(cfg)) if a.cmd == "probe" else serve(cfg, a.backend))
+    a = ap.parse_args(); cfg = load_config(a.config) if a.config else None
+    sys.exit((print(json.dumps(sdk_contract_check())) or (1 if sdk_contract_check() else 0)) if a.cmd == "sdkcheck" else doctor(cfg) if a.cmd == "doctor" else asyncio.run(_probe(cfg)) if a.cmd == "probe" else serve(cfg, a.backend))

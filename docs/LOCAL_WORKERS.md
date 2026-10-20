@@ -31,7 +31,7 @@ My PC — PowerShell (in the launcher folder):
 .\pc-launcher\scripts\start.ps1     # starts the launcher hidden; logs in %USERPROFILE%\.orbit-launcher\launcher.log(.err)
 .\pc-launcher\scripts\status.ps1    # health: version, max_concurrent, active, queued, model
 .\pc-launcher\scripts\stop.ps1      # stops the API; journal kept; live sandboxes are reattached on next start
-.\pc-launcher\scripts\doctor.ps1    # docker, tailscale ip, cua, key present (not shown), cua runtime doctor
+.\pc-launcher\scripts\doctor.ps1    # docker, tailscale ip, cua, key present (not shown), cua SDK contract check, cua runtime doctor
 .\pc-launcher\scripts\probe.ps1     # real sandbox + harness + deepseek-v4.1-flash round-trip (run before real tasks)
 ```
 Orbit host:

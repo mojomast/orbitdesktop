@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
-import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { mkdtempSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -188,4 +188,9 @@ test('superseded attempt cannot overwrite the newer one', async () => {
     assert.ok(board.calls.every((c) => !c.note.includes(a.attempt_id) || c.status !== 'blocked'));
     assert.equal(lw.get(b.attempt_id).generation, 2);
   } finally { F.close(); }
+});
+
+test('real cua==0.5.0 SDK contract (no network, no Docker)', { skip: !process.env.PATH.split(':').some((d) => existsSync(path.join(d, 'uv'))) && 'uv not installed' }, async () => {
+  const r = spawnSync('uv', ['run', '-q', '--python', '3.12', '--with', 'cua==0.5.0', 'python', 'pc-launcher/tests/test_sdk_contract.py'], { encoding: 'utf8', timeout: 240000 });
+  assert.equal(r.status, 0, r.stderr.slice(-2000));
 });
