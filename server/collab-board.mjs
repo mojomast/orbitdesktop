@@ -24,6 +24,19 @@ export function createCollabBoard({ runtimeRoot, collab, groups, workspace }) {
 
   const entryView = t => ({ id: t.id, title: t.title, status: t.status, owner: t.owner, summary: t.summary || '', checkins: (t.checkins || []).slice(-3) });
 
+  // get: full detail for one entry. Priority / file scope / deps come from the structured spec lines the
+  // control-plane connector writes ("Priority: P2", "File scope: a, b", "Depends on: x"); dependsOn from the task.
+  // The store flattens newlines, so fields are matched inline up to the next known label.
+  const specField = (spec, label) => (String(spec || '').match(new RegExp(`(?:^|\\s)${label}:\\s*(.+?)(?=\\s+(?:Project|Priority|File scope|Depends on):|$)`, 'is')) || [])[1]?.trim() || '';
+  const list = v => v ? v.split(',').map(x => x.trim()).filter(Boolean) : [];
+  const detailView = (t, events) => {
+    const pr = specField(t.spec, 'Priority').match(/^P?(\d)/i);
+    return { ...entryView(t), spec: t.spec || '', acceptance: t.acceptance || [], reviewer: t.reviewer || '', role: t.role || '',
+      priority: pr ? Number(pr[1]) : null, project: specField(t.spec, 'Project') || null, fileScope: list(specField(t.spec, 'File scope')),
+      dependsOn: [...new Set([...(t.dependsOn || []), ...list(specField(t.spec, 'Depends on'))])],
+      checkins: t.checkins || [], history: events.filter(e => e.taskId === t.id) };
+  };
+
   async function boardFor(g, create) {
     const ws = workspace();
     if (!UUID.test(ws || '')) throw fail('No Orbit workspace is configured for group boards.', 409);
@@ -49,8 +62,14 @@ export function createCollabBoard({ runtimeRoot, collab, groups, workspace }) {
         const { link, st } = await boardFor(g, false);
         return { group: g.id, board: link ? link.projectId : null, entries: st ? st.tasks.map(entryView) : [] };
       }
+      if (b.op === 'get') {
+        const { link, st } = await boardFor(g, false);
+        const t = st?.tasks.find(x => x.id === String(b.entry || b.id || ''));
+        if (!t) throw fail('No such board entry in this group.', 404);
+        return { group: g.id, board: link.projectId, entry: detailView(t, st.events || []) };
+      }
       const action = { new: 'add', add: 'add', update: 'update', checkin: 'checkin' }[b.op];
-      if (!action) throw fail('Use list, new, update, or checkin.', 400);
+      if (!action) throw fail('Use list, get, new, update, or checkin.', 400);
       const { link } = await boardFor(g, action === 'add');
       if (!link) throw fail('This group has no board entries yet. Create one with: collab-board <group> new "<title>" --as <you>.', 404);
       const st = await collab()({ workspace_id: link.workspace, project_id: link.projectId, operation: 'board', title: b.title, spec: b.spec, status: b.status, note: b.note, owner: b.owner, task_id: b.entry, by: by || 'agent', board_action: action });
