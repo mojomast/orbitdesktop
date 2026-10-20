@@ -76,3 +76,19 @@ Edit `%USERPROFILE%\.orbit-launcher\config.json` → `"projects": {"name": {"rep
 ## Rollback / uninstall (scoped)
 My PC — PowerShell: `.\pc-launcher\scripts\stop.ps1`; `Remove-NetFirewallRule -DisplayName "Orbit launcher (Tailscale only)"`; `cua sb ls` then `cua sb rm <orbit-*>`; delete `%USERPROFILE%\.orbit-launcher`. Cua itself: `irm https://cua.ai/uninstall.ps1 | iex`.
 Orbit host: the adapter is not mounted by default; delete `~/.orbit-runtime/local-workers/`; drop branch `feat/local-workers`.
+
+## Verified on brrrrrrrr (2026-10-20, 11:32–11:45 ET)
+Real runs from a separate test Orbit (127.0.0.1:4391, own runtime and board) to the real launcher. Model deepseek-v4.1-flash via OpenCode Go. Inside the sandbox: opencode **1.18.32**, container kernel `6.18.54.1-microsoft-standard-WSL2` (Docker Desktop, runc), workdir `/home/cua/work/<project>`.
+
+| Test | Result | Evidence |
+|---|---|---|
+| A: single worker | pass | run-8ba3961e, sandbox orbit-154ccad0934f, base a3d924f. The patch applied on the PC, sha256 matched for both files, unittest passed 4/4. Board: review → completed after acceptance |
+| B: 2 concurrent | pass | run-6e875705 and run-69b2d37f ran at the same time in separate sandboxes. Both patches integrated cleanly; combined unittest passed 6/6 |
+| C: Orbit restart mid-run | pass | Same run id after restart; only one dispatch in the history |
+| C: connection interruption | pass | Drop → `disconnected` → `running`, same run, no duplicate |
+| C: cancel | pass | `cancel_requested` for about 15s → `cancelled`, confirmed by the launcher |
+| C: failing task | pass | Unauthorized project → `not_started` with the reason, board blocked (shown as `input-required`) |
+| C: uncertain outcome | pass | Dispatch while blocked → `outcome_unknown` → reconciled to `not_started` → retry (generation 2) succeeded |
+
+Board statuses observed on this Orbit: submitted (new), review, completed (done), input-required (blocked). The in-flight `doing` label was not captured.
+Cleanup: `pc-launcher\scripts\cleanup-sandboxes.ps1` (My PC — PowerShell). Removes `orbit-*` sandboxes only.

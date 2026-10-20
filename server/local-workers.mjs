@@ -13,6 +13,7 @@ export const BOARD_COLUMN = {
   disconnected: 'doing', cancel_requested: 'doing', succeeded: 'review', accepted: 'done', rejected: 'blocked',
   failed: 'blocked', cancelled: 'blocked', not_started: 'blocked',
 };
+const why = (e) => e?.cause?.code || e?.cause?.name || e?.name || 'error';
 const LAUNCHER_STATES = new Set(['queued', 'launcher_queued', 'starting', 'running', 'backoff', 'cancel_requested', 'succeeded', 'failed', 'cancelled']);
 
 export function manifestHash(brief) {
@@ -87,7 +88,7 @@ export function createLocalWorkers({
     await setState(a, 'dispatching', 'sending to launcher', { dispatched_at: new Date(now()).toISOString() }); // persisted BEFORE the call
     let r;
     try { r = await call('POST', '/v1/attempts', { attempt_id: a.attempt_id, brief: a.brief }); }
-    catch (e) { return setState(a, 'outcome_unknown', `launcher did not confirm (${e.name}); will reconcile, not re-send blindly`); }
+    catch (e) { return setState(a, 'outcome_unknown', `launcher did not confirm (${why(e)}); will reconcile, not re-send blindly`); }
     if (r.status === 200 || r.status === 201) return applyRemote(a, r.body);
     if (r.status >= 400 && r.status < 500) return setState(a, 'not_started', `launcher rejected: ${r.body.error || r.status}`, { ended_at: new Date(now()).toISOString() });
     return setState(a, 'outcome_unknown', `launcher answered ${r.status}`);
@@ -124,7 +125,7 @@ export function createLocalWorkers({
     try { r = await call('GET', `/v1/attempts/${id}/events?cursor=${a.event_cursor}`); }
     catch (e) {
       if (a.state === 'outcome_unknown' || a.state === 'dispatching') return a;
-      if (a.state !== 'disconnected') await setState(a, 'disconnected', `launcher unreachable (${e.name}); attempt keeps running on the PC`, { before_disconnect: a.state });
+      if (a.state !== 'disconnected') await setState(a, 'disconnected', `launcher unreachable (${why(e)}); attempt keeps running on the PC`, { before_disconnect: a.state });
       return a;
     }
     if (r.status === 404) {
@@ -173,7 +174,7 @@ export function createLocalWorkers({
       if (TERMINAL.has(a.state) || a.state === 'queued') continue;
       let r;
       try { r = await call('GET', `/v1/attempts/${a.attempt_id}`); }
-      catch (e) { if (!['outcome_unknown', 'dispatching', 'disconnected'].includes(a.state)) await setState(a, 'disconnected', `launcher unreachable (${e.name})`); continue; }
+      catch (e) { if (!['outcome_unknown', 'dispatching', 'disconnected'].includes(a.state)) await setState(a, 'disconnected', `launcher unreachable (${why(e)})`); continue; }
       if (r.status === 404) {
         await setState(a, a.state === 'dispatching' || a.state === 'outcome_unknown' ? 'not_started' : 'outcome_unknown',
           'launcher has no record of this attempt', a.state === 'dispatching' || a.state === 'outcome_unknown' ? { ended_at: new Date(now()).toISOString() } : {});

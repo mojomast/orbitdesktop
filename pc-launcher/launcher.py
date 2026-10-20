@@ -148,7 +148,8 @@ class CuaBackend:
         wd = f"{home}/work/{name}"
         await self._sh(sb, f"rm -rf '{wd}' /tmp/orbit-src.tar && mkdir -p '{wd}'")
         await (await self._sd(sb)).upload("/tmp/orbit-src.tar", tar, None)
-        o, e, c = await self._sh(sb, f"cd '{wd}' && tar -xf /tmp/orbit-src.tar && git init -q && git add -A && "
+        o, e, c = await self._sh(sb, f"cd '{wd}' && tar -xf /tmp/orbit-src.tar && git init -q && "
+                                     f"printf '__pycache__/\\n*.pyc\\n.pytest_cache/\\nnode_modules/\\n' >> .git/info/exclude && git add -A && "
                                      f"git -c user.name=orbit -c user.email=orbit@local commit -qm 'base {rev}' && git rev-parse HEAD")
         if c not in (0, None): raise RuntimeError(f"seeding project failed: {e[-300:]}")
         return wd, rev
@@ -174,7 +175,9 @@ class CuaBackend:
             st, _, path = l.partition("\t")
             if not path: continue
             sha = None if st.startswith("D") else ((await self._sh(sb, f"cd '{wd}' && sha256sum -- '{path}' | cut -d' ' -f1"))[0].strip()[:64] or None)
-            files.append({"path": path, "status": st, "sha256": sha, "change": "deleted" if st.startswith("D") else ("added" if st.startswith("A") else "changed")})
+            scope = a["brief"].get("assigned_files") or []
+            files.append({"path": path, "status": st, "sha256": sha, "change": "deleted" if st.startswith("D") else ("added" if st.startswith("A") else "changed"),
+                          "in_assigned_scope": (not scope) or any(path == x or path.startswith(x.rstrip("/") + "/") for x in scope)})
         return {"diff": diff, "files": files}
 
     async def start(self, attempt, key):
