@@ -14,6 +14,8 @@ export const BOARD_COLUMN = {
   failed: 'blocked', cancelled: 'blocked', not_started: 'blocked',
 };
 const why = (e) => e?.cause?.code || e?.cause?.name || e?.name || 'error';
+// Board updates post as the system identity the collab board accepts in any group (see collab-board.mjs).
+export const BOARD_POSTER = 'local-workers';
 const LAUNCHER_STATES = new Set(['queued', 'launcher_queued', 'starting', 'running', 'backoff', 'cancel_requested', 'succeeded', 'failed', 'cancelled']);
 
 export function manifestHash(brief) {
@@ -55,7 +57,7 @@ export function createLocalWorkers({
   async function boardSync(a, note) {
     if (!board || !a.board_entry || a.superseded_by) return;
     const detail = `[local-worker ${a.attempt_id}] ${a.state}${a.detail ? ': ' + a.detail : ''}${note ? ' - ' + note : ''}`;
-    try { await board.update({ group: a.group, entry: a.board_entry, status: BOARD_COLUMN[a.state] || 'doing', note: detail.slice(0, 500), by: a.coordinator }); }
+    try { await board.update({ group: a.group, entry: a.board_entry, status: BOARD_COLUMN[a.state] || 'doing', note: `${a.coordinator}: ${detail}`.slice(0, 500), by: BOARD_POSTER }); }
     catch (e) { log('board sync failed', e?.message); }
   }
   async function setState(a, state, detail, extra = {}) {

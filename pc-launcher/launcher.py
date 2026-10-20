@@ -13,7 +13,7 @@ import argparse, asyncio, platform, hashlib, hmac, ipaddress, json, os, re, sys,
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 TERMINAL = {"succeeded", "failed", "cancelled"}
 GO_BASE_URL = "https://opencode.ai/inference/go/openai/v1"
 # Workers must not fan out: deny the OpenCode `task` (subagent) tool.
@@ -142,8 +142,7 @@ class CuaBackend:
         """Copy an authorized local git repo (HEAD only) into the sandbox; returns (workdir, base_rev)."""
         import base64, subprocess
         src = proj["path"]
-        rev = subprocess.run(["git", "-C", src, "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
-        tar = subprocess.run(["git", "-C", src, "archive", "--format=tar", "HEAD"], capture_output=True, check=True).stdout
+        rev, tar = export_project(src)
         home = (await self._sh(sb, "printf %s \"$HOME\""))[0].strip() or "/root"
         wd = f"{home}/work/{name}"
         await self._sh(sb, f"rm -rf '{wd}' /tmp/orbit-src.tar && mkdir -p '{wd}'")
@@ -481,6 +480,23 @@ def make_handler(L, token):
             self._send(404, {"error": "not found"})
     return H
 
+def export_project(src):
+    """HEAD of an authorized repo as (rev, tar bytes), byte-exact as committed (LF).
+
+    core.autocrlf is forced off: on Windows clones it is usually true, which makes
+    `git archive` emit CRLF, so worker patches and sha256s stop matching the repo."""
+    import subprocess
+    git = ["git", "-C", str(src), "-c", "core.autocrlf=false", "-c", "core.eol=lf"]
+    rev = subprocess.run(git + ["rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+    tar = subprocess.run(git + ["archive", "--format=tar", "HEAD"], capture_output=True, check=True).stdout
+    return rev, tar
+
+def write_pidfile(cfg):
+    """Record the real python pid (uv is only a wrapper) so stop.ps1 can kill it."""
+    pf = Path(cfg["data_dir"]) / "launcher.py.pid"
+    pf.write_text(str(os.getpid()), "utf-8")
+    return pf
+
 def serve(cfg, backend_name="cua"):
     check_bind(cfg["bind"])
     tok_file = Path(cfg.get("api_token_file") or Path(cfg["data_dir"]) / "orbit-api.token")
@@ -488,6 +504,7 @@ def serve(cfg, backend_name="cua"):
     if len(token) < 32: raise SystemExit("api token missing/too short; run scripts/new-token.ps1")
     backend = FakeBackend(cfg) if backend_name == "fake" else CuaBackend(cfg)
     L = Launcher(cfg, backend)
+    write_pidfile(cfg)
     threading.Thread(target=L.loop.run_forever, daemon=True).start(); L.kick()
     srv = ThreadingHTTPServer((cfg["bind"], cfg["port"]), make_handler(L, token))
     print(f"orbit-launcher {VERSION} on http://{cfg['bind']}:{cfg['port']} max_concurrent={cfg['max_concurrent']} model={cfg['model']}", flush=True)

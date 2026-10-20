@@ -41,6 +41,7 @@ test('single attempt: dispatch, run, result manifest, board columns', async () =
     const m = JSON.parse(readFileSync(r.result.ref, 'utf8'));
     assert.equal(m.schema, 'orbit.local-worker.result/v1'); assert.ok(m.observed.files[0].sha256); assert.ok('worker_claims' in m);
     assert.equal(board.calls.at(-1).status, 'review');
+    assert.equal(board.calls.at(-1).by, 'local-workers'); assert.match(board.calls.at(-1).note, /^MR\.INDIA: /);
     assert.ok(!JSON.stringify(r).includes('fake-provider-key') && !readFileSync(r.log_ref, 'utf8').includes('fake-provider-key'));
     await lw.review(a.attempt_id, { accepted: true }); assert.equal(board.calls.at(-1).status, 'done');
     // launcher restart with a result file on disk must still load cleanly (regression: result.json loaded as an attempt)

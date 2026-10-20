@@ -92,3 +92,8 @@ Real runs from a separate test Orbit (127.0.0.1:4391, own runtime and board) to 
 
 Board statuses observed on this Orbit: submitted (new), review, completed (done), input-required (blocked). The in-flight `doing` label was not captured.
 Cleanup: `pc-launcher\scripts\cleanup-sandboxes.ps1` (My PC — PowerShell). Removes `orbit-*` sandboxes only.
+
+## Fixes (Oct 20, 2026, launcher 0.1.1)
+- **LF-exact export**: the project is exported with `git -c core.autocrlf=false -c core.eol=lf archive HEAD`, so patches and sha256s match the committed bytes even on a Windows clone with `core.autocrlf=true` (`pc-launcher/tests/test_export_and_scripts.py`).
+- **stop/start**: the launcher writes `%USERPROFILE%\.orbit-launcher\launcher.py.pid` (the real python pid; `launcher.pid` is only the uv wrapper). `stop.ps1` kills both plus any `launcher.py ... serve` process found by command line and fails if one survives; `start.ps1` cleans up stale launchers and refuses to start if the port is held by something else.
+- **Board identity**: adapter board updates post as the system identity `local-workers` (`SYSTEM_POSTERS` in `server/collab-board.mjs`), with the coordinator prefixed in the note. Every other `--as` must still be a group member (`tests/collab-board-system-poster.test.mjs`).
