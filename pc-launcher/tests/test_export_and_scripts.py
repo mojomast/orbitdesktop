@@ -44,8 +44,10 @@ class SyncBranch(unittest.TestCase):
             self.assertEqual(subprocess.run(["git", "-C", str(pc), "rev-parse", "HEAD"], capture_output=True, text=True).stdout, head_before)
             with self.assertRaises(ValueError): launcher.export_project(pc, sync_branch="../evil")
 
-    def test_cap_is_six(self):
-        self.assertEqual(launcher.MAX_WORKERS, 6)
+    def test_cap_is_ten(self):
+        self.assertEqual(launcher.MAX_WORKERS, 10)
+        self.assertNotIn("jev-1.13-free", launcher.FREE_POOL); self.assertEqual(len(launcher.FREE_POOL), 9)
+        for m in launcher.FREE_POOL: self.assertLessEqual(launcher.MODELS[m]["max_prompt_chars"], 300_000)
 
 class PidFileAndScripts(unittest.TestCase):
     def test_serve_records_python_pid(self):

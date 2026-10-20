@@ -15,9 +15,9 @@ export const BOARD_COLUMN = {
 };
 const why = (e) => e?.cause?.code || e?.cause?.name || e?.name || 'error';
 // Board updates post as the system identity the collab board accepts in any group (see collab-board.mjs).
-export const MAX_WORKERS = 6; // hard ceiling, matches the PC launcher
-// Model tiers: 'simple' -> OpenCode's free DeepSeek (rate-limited, launcher falls back to flash), 'standard' -> flash via OpenCode Go.
-export const MODEL_TIERS = { simple: 'deepseek-v4.1-flash-free', standard: 'deepseek-v4.1-flash' };
+export const MAX_WORKERS = 10; // hard ceiling, matches the PC launcher
+// Model tiers: 'simple' -> the launcher's pool of free OpenCode models (rotates on rate limits, then falls back to flash), 'standard' -> flash via OpenCode Go.
+export const MODEL_TIERS = { simple: 'pool:free', standard: 'deepseek-v4.1-flash' };
 export const BOARD_POSTER = 'local-workers';
 const LAUNCHER_STATES = new Set(['queued', 'launcher_queued', 'starting', 'running', 'backoff', 'cancel_requested', 'succeeded', 'failed', 'cancelled']);
 

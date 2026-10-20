@@ -67,15 +67,15 @@ test('two concurrent attempts run at once with cap 2', async () => {
   } finally { L.stop(); }
 });
 
-test('cap 6 is the ceiling: 7th waits, config above 6 clamps', async () => {
-  const L = await startLauncher(9);
+test('cap 10 is the ceiling: 11th waits, config above 10 clamps', async () => {
+  const L = await startLauncher(14);
   try {
     const h = await (await fetch(L.url + '/v1/health', { headers: { Authorization: 'Bearer ' + TOKEN } })).json();
-    assert.equal(h.max_concurrent, 6);
-    const { lw } = adapter(L.url, { max: 9 }); assert.equal(lw.cap, 6);
+    assert.equal(h.max_concurrent, 10);
+    const { lw } = adapter(L.url, { max: 14 }); assert.equal(lw.cap, 10);
     const ids = [];
-    for (const t of ['1', '2', '3', '4', '5', '6', '7']) ids.push((await lw.create({ taskId: t, group: 'g', brief: brief({ fake: { delay: 1.5 } }) })).attempt_id);
-    assert.equal(lw.get(ids[6]).state, 'queued');
+    for (const t of ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11']) ids.push((await lw.create({ taskId: t, group: 'g', brief: brief({ fake: { delay: 1.5 } }) })).attempt_id);
+    assert.equal(lw.get(ids[10]).state, 'queued');
     for (const id of ids) await done(lw, id);
     assert.ok(ids.every((id) => lw.get(id).state === 'succeeded'));
   } finally { L.stop(); }
@@ -203,30 +203,38 @@ test('real cua==0.5.0 SDK contract (no network, no Docker)', { skip: !process.en
   assert.equal(r.status, 0, r.stderr.slice(-2000));
 });
 
-test('tiers: simple runs the free model; on 429 it backs off, then falls back to flash and records it', async () => {
-  const L = await startLauncher(2, undefined, { models: { 'deepseek-v4.1-flash-free': { backoff_s: [0.2] } } });
+const POOL = ['deepseek-v4.1-flash-free', 'beam-free', 'big-pickle', 'minimax-m3.1-flash-free', 'nemotron-3.5-super-vl-free', 'nemotron-3.5-lightning-free', 'glm-5.3-flash-free', 'mimo-v2.6-flash-free', 'longcat-2.5-preview-free'];
+
+test('simple tier: pool of free models; a 429 rotates to the next free model and is recorded', async () => {
+  const L = await startLauncher(2);
   try {
     const { lw } = adapter(L.url, { max: 2 });
     const ok = await lw.create({ taskId: 'free-ok', group: 'g', tier: 'simple', brief: brief() });
-    const rl = await lw.create({ taskId: 'free-rl', group: 'g', tier: 'simple', brief: brief({ fake: { rate_limit_models: ['deepseek-v4.1-flash-free'] } }) });
-    await done(lw, ok.attempt_id); await done(lw, rl.attempt_id);
-    const a = lw.get(ok.attempt_id), b = lw.get(rl.attempt_id);
-    assert.equal(a.state, 'succeeded'); assert.equal(a.model, 'deepseek-v4.1-flash-free'); assert.equal(a.model_used, 'deepseek-v4.1-flash-free');
-    assert.equal(b.state, 'succeeded'); assert.equal(b.model_used, 'deepseek-v4.1-flash');
-    assert.equal(b.fallback.from, 'deepseek-v4.1-flash-free'); assert.equal(b.fallback.to, 'deepseek-v4.1-flash'); assert.match(b.fallback.reason, /rate limit after 1 retry/);
+    await done(lw, ok.attempt_id);
+    assert.equal(lw.get(ok.attempt_id).state, 'succeeded'); assert.ok(POOL.includes(lw.get(ok.attempt_id).model_used));
+    const rl = await lw.create({ taskId: 'free-rl', group: 'g', tier: 'simple', brief: brief({ fake: { rate_limit_models: ['deepseek-v4.1-flash-free', 'beam-free'] } }) });
+    await done(lw, rl.attempt_id);
+    const b = lw.get(rl.attempt_id);
+    assert.equal(b.state, 'succeeded'); assert.ok(POOL.includes(b.model_used)); assert.ok(!['deepseek-v4.1-flash-free', 'beam-free'].includes(b.model_used));
+    assert.equal(b.fallback, undefined);
     const res = JSON.parse(readFileSync(path.join(L.dataDir, 'attempts', `${rl.attempt_id}.result.json`), 'utf8'));
-    assert.equal(res.source.model, 'deepseek-v4.1-flash'); assert.equal(res.source.fallback.to, 'deepseek-v4.1-flash');
+    assert.equal(res.source.model, b.model_used); assert.equal(res.source.tier_pool, 'free'); assert.ok(res.source.model_history.length >= 2);
   } finally { L.stop(); }
 });
 
-test('free-tier refusal falls back immediately; unknown model and tier are rejected', async () => {
+test('simple tier: rate limits on every free model fall back to flash; refusals too; bad model/tier rejected', async () => {
   const L = await startLauncher(1);
   try {
     const { lw } = adapter(L.url);
-    const d = await lw.create({ taskId: 'deny', group: 'g', tier: 'simple', brief: brief({ fake: { deny_models: ['deepseek-v4.1-flash-free'] } }) });
+    const all = await lw.create({ taskId: 'all-rl', group: 'g', tier: 'simple', brief: brief({ fake: { rate_limit_models: POOL } }) });
+    await done(lw, all.attempt_id, 30000);
+    const a = lw.get(all.attempt_id);
+    assert.equal(a.state, 'succeeded'); assert.equal(a.model_used, 'deepseek-v4.1-flash');
+    assert.equal(a.fallback.from, 'pool:free'); assert.equal(a.fallback.to, 'deepseek-v4.1-flash'); assert.match(a.fallback.reason, /every free model/);
+    const d = await lw.create({ taskId: 'deny', group: 'g', model: 'deepseek-v4.1-flash-free', brief: brief({ fake: { deny_models: ['deepseek-v4.1-flash-free'] } }) });
     await done(lw, d.attempt_id);
     assert.equal(lw.get(d.attempt_id).model_used, 'deepseek-v4.1-flash'); assert.match(lw.get(d.attempt_id).fallback.reason, /free tier refused/);
-    const bad = await lw.create({ taskId: 'bad', group: 'g', model: 'gpt-6-sol', brief: brief() });
+    const bad = await lw.create({ taskId: 'bad', group: 'g', model: 'jev-1.13-free', brief: brief() });
     await done(lw, bad.attempt_id);
     assert.equal(lw.get(bad.attempt_id).state, 'not_started'); assert.match(lw.get(bad.attempt_id).detail, /not allowed/);
     await assert.rejects(lw.create({ taskId: 'x', group: 'g', tier: 'premium', brief: brief() }), /unknown tier/);
