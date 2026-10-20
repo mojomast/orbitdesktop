@@ -38,7 +38,10 @@ class Contract(unittest.TestCase):
         run.artifacts.return_value = [n.AgentArtifact(path="a.txt", size=3, modified_ms=0)]
         agents = spec(n.Agents); agents.run.return_value = run; agents.get.return_value = run
         sb = spec(n.Sandbox); sb.agents.return_value = agents
-        sb.guest_sh.return_value = mock.Mock(spec=n.ProcessOutput, stdout=b"ab" * 32 + b"\n", stderr=b"", pty=b"", exit=mock.Mock(code=0))
+        sd = spec(n.SpacesdClient)
+        sd.sh.return_value = mock.Mock(spec=n.ProcessOutput, stdout=b"ab" * 32 + b"\n", stderr=b"", pty=b"", exit=mock.Mock(code=0))
+        sb.spacesd.return_value = sd
+        sb.guest_sh.side_effect = AssertionError("guest_sh is Lume/agentless only; containers use spacesd().sh")
         sb.id.return_value = "sbx-1"
         sbs = spec(n.Sandboxes); sbs.create.return_value = sb; sbs.connect.return_value = sb
         sbs.get.side_effect = AssertionError("Sandboxes.get returns SandboxInfo; use connect()")
@@ -55,12 +58,20 @@ class Contract(unittest.TestCase):
                 r = await be.result(a); self.assertEqual(r["artifacts"][0]["path"], "a.txt")
                 self.assertEqual(await be.file_sha256(a, "a.txt"), "ab" * 32)
                 a["workdir"] = "/home/cua/work/demo"; await be.patch(a); await be.environment(a)
+                import subprocess, tempfile
+                repo = tempfile.mkdtemp(); open(f"{repo}/m.py", "w").write("x=1\n")
+                for c in (["init", "-q"], ["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "b"]): subprocess.run(["git", "-C", repo] + c, check=True)
+                cfg["projects"] = {"p": {"path": repo}}
+                b = {"attempt_id": "att_fedcba9876543210", "brief": {"objective": "x", "project": "p"}}
+                ids = await be.start(b, "k"); self.assertTrue(ids["workdir"].endswith("/work/p")); self.assertEqual(len(ids["local_base_rev"]), 40)
+                up = sd.upload.await_args.args; self.assertEqual(up[0], "/tmp/orbit-src.tar"); self.assertIsInstance(up[1], bytes)
+                self.assertEqual(agents.run.await_args.args[2].cwd, ids["workdir"])
                 be2 = launcher.CuaBackend(cfg)  # restart: fresh process reattaches by name + run id
                 await be2.events(a, 0); await be2.interrupt(a); await be2.cleanup(a)
             asyncio.run(go())
         check_call(sbs.create, n.Sandboxes.create); check_call(sbs.connect, n.Sandboxes.connect); check_call(sbs.delete, n.Sandboxes.delete)
         check_call(agents.run, n.Agents.run); check_call(agents.get, n.Agents.get); check_call(run.events, n.AgentRun.events)
-        check_call(sb.guest_sh, n.Sandbox.guest_sh)
+        check_call(sd.sh, n.SpacesdClient.sh); check_call(sd.upload, n.SpacesdClient.upload); check_call(sb.spacesd, n.Sandbox.spacesd)
         self.assertEqual(sbs.connect.await_args.args[-1], a["sandbox"]); self.assertEqual(sbs.delete.await_args.args[-1], a["sandbox"])
         run.interrupt.assert_awaited(); run.stop.assert_awaited()
         opts = agents.run.call_args.args[2]

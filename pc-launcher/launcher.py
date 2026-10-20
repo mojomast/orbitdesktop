@@ -25,7 +25,7 @@ def redact(s):
     return SECRETISH.sub("<redacted>", s) if isinstance(s, str) else s
 
 def load_config(path):
-    cfg = json.loads(Path(path).read_text("utf-8"))
+    cfg = json.loads(Path(path).read_text("utf-8-sig"))
     cfg.setdefault("port", 47821)
     cfg["max_concurrent"] = max(1, min(3, int(cfg.get("max_concurrent", 1))))
     cfg.setdefault("model", "deepseek-v4.1-flash")
@@ -64,7 +64,9 @@ SDK_CONTRACT = [
     ("Sandboxes", "delete", True, ["name"]),
     ("Sandbox", "agents", True, []),
     ("Sandbox", "name", False, []),
-    ("Sandbox", "guest_sh", True, ["line", "timeout_ms"]),
+    ("Sandbox", "spacesd", True, ["probe_timeout_ms"]),
+    ("SpacesdClient", "sh", True, ["line", "timeout_ms"]),
+    ("SpacesdClient", "upload", True, ["path", "data", "options"]),
     ("Sandbox", "id", False, []),
     ("Agents", "run", True, ["harness", "prompt", "options"]),
     ("Agents", "get", True, ["run_id"]),
@@ -117,14 +119,21 @@ class CuaBackend:
         self.cua, self.cfg = cua, cfg
         self.client = cua.embedded()
         self._sb = {}
+        self._sdc = {}
 
     async def _sandbox(self, name):
         if name not in self._sb:  # reattach after restart: connect by name, never get() (SandboxInfo)
             self._sb[name] = await self.client.sandboxes().connect(name)
         return self._sb[name]
 
+    async def _sd(self, sb):
+        # Container sandboxes: shell/files go through cua-spacesd (guest_sh is Lume/agentless only).
+        key = sb.name()
+        if key not in self._sdc: self._sdc[key] = await sb.spacesd(None)
+        return self._sdc[key]
+
     async def _sh(self, sb, line, timeout_ms=120000):
-        out = await sb.guest_sh(line, timeout_ms)
+        out = await (await self._sd(sb)).sh(line, timeout_ms)
         dec = lambda v: v.decode("utf-8", "replace") if isinstance(v, (bytes, bytearray)) else str(v or "")
         code = getattr(out.exit, "code", None)
         return dec(out.stdout) + dec(out.pty), dec(out.stderr), code
@@ -137,11 +146,9 @@ class CuaBackend:
         tar = subprocess.run(["git", "-C", src, "archive", "--format=tar", "HEAD"], capture_output=True, check=True).stdout
         home = (await self._sh(sb, "printf %s \"$HOME\""))[0].strip() or "/root"
         wd = f"{home}/work/{name}"
-        await self._sh(sb, f"rm -rf '{wd}' /tmp/orbit-src.b64 && mkdir -p '{wd}'")
-        b64 = base64.b64encode(tar).decode()
-        for i in range(0, len(b64), 48000):
-            await self._sh(sb, f"printf %s '{b64[i:i + 48000]}' >> /tmp/orbit-src.b64")
-        o, e, c = await self._sh(sb, f"cd '{wd}' && base64 -d /tmp/orbit-src.b64 | tar -x && git init -q && git add -A && "
+        await self._sh(sb, f"rm -rf '{wd}' /tmp/orbit-src.tar && mkdir -p '{wd}'")
+        await (await self._sd(sb)).upload("/tmp/orbit-src.tar", tar, None)
+        o, e, c = await self._sh(sb, f"cd '{wd}' && tar -xf /tmp/orbit-src.tar && git init -q && git add -A && "
                                      f"git -c user.name=orbit -c user.email=orbit@local commit -qm 'base {rev}' && git rev-parse HEAD")
         if c not in (0, None): raise RuntimeError(f"seeding project failed: {e[-300:]}")
         return wd, rev
@@ -214,9 +221,8 @@ class CuaBackend:
     async def file_sha256(self, a, path):
         sb = await self._sandbox(a["sandbox"])
         safe = path.replace("'", "'\\''")
-        out = await sb.guest_sh(f"sha256sum -- '{safe}' 2>/dev/null | cut -d' ' -f1")
-        raw = out.stdout.decode("utf-8", "replace") if isinstance(out.stdout, (bytes, bytearray)) else str(out.stdout)
-        return raw.strip()[:64] or None
+        o, _, _ = await self._sh(sb, f"cd '{a.get('workdir') or '.'}' && sha256sum -- '{safe}' 2>/dev/null | cut -d' ' -f1")
+        return o.strip()[:64] or None
 
     async def cleanup(self, a):
         name = a.get("sandbox")
@@ -371,6 +377,9 @@ class Launcher:
                 await asyncio.sleep(1.0)
         except Exception as ex:  # noqa
             self._set(a, "failed", f"controller error: {type(ex).__name__}: {redact(str(ex))[:300]}")
+            if not a.get("sandbox"): a["sandbox"] = "orbit-" + aid[-12:]  # created but not recorded yet
+            try: await self.backend.cleanup(a)
+            except Exception: pass
         finally:
             self.controllers.pop(aid, None); self.kick()
 
