@@ -13,7 +13,7 @@ import argparse, asyncio, platform, hashlib, hmac, ipaddress, json, os, re, sys,
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-VERSION = "0.1.4"
+VERSION = "0.1.5"
 MAX_WORKERS = 10  # hard ceiling for max_concurrent
 TERMINAL = {"succeeded", "failed", "cancelled"}
 GO_BASE_URL = "https://opencode.ai/inference/go/openai/v1"
@@ -551,6 +551,14 @@ def make_handler(L, token):
                 try: a, created = L.submit(aid, b["brief"], b.get("model") or b.get("tier"))
                 except ValueError as ex: return self._send(400, {"error": str(ex)})
                 return self._send(201 if created else 200, L.public(a))
+            if p == ["v1", "config"]:
+                # runtime-only: set max_concurrent (1..MAX_WORKERS); config.json on disk is unchanged, a restart reverts
+                try: n = int(b.get("max_concurrent"))
+                except Exception: return self._send(400, {"error": "max_concurrent must be an integer"})
+                if not 1 <= n <= MAX_WORKERS: return self._send(400, {"error": f"max_concurrent must be 1..{MAX_WORKERS}"})
+                with L.lock: L.cfg["max_concurrent"] = n
+                L.kick()
+                return self._send(200, {"ok": True, "max_concurrent": n})
             if len(p) == 4 and p[:2] == ["v1", "attempts"] and p[3] == "cancel":
                 a = L.cancel(p[2]); return self._send(202, L.public(a)) if a else self._send(404, {"error": "unknown attempt"})
             self._send(404, {"error": "not found"})

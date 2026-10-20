@@ -35,7 +35,7 @@ export function createLocalWorkersRoute({ runtimeRoot, port, env = process.env, 
       b = JSON.parse(b || '{}');
       switch (b.op) {
         case 'create': return send(201, view(await lw.create({ taskId: b.task_id, boardEntry: b.board_entry || b.task_id, group: b.group, coordinator: b.coordinator || 'MR.INDIA', brief: b.brief, model: b.model, tier: b.tier })));
-        case 'list': return send(200, { attempts: lw.list().map(view) });
+        case 'list': return send(200, { attempts: lw.list().map(view), cap: lw.cap, paused: lw.paused });
         case 'get': return send(200, view(lw.get(b.attempt_id)) || { error: 'unknown' });
         case 'cancel': return send(202, view(await lw.cancel(b.attempt_id)));
         case 'review': return send(200, view(await lw.review(b.attempt_id, { accepted: b.accepted, note: b.note, by: b.by })));

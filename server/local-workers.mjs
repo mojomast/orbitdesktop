@@ -33,7 +33,15 @@ export function createLocalWorkers({
   const dir = path.join(runtimeDir, 'local-workers');
   mkdirSync(dir, { recursive: true });
   const ledgerPath = path.join(dir, 'ledger.json');
-  const cap = Math.max(1, Math.min(MAX_WORKERS, Number(maxConcurrent) || 1));
+  const baseCap = Math.max(1, Math.min(MAX_WORKERS, Number(maxConcurrent) || 1));
+  const cpDir = path.join(runtimeDir, 'control-plane');
+  const readCp = (f) => { try { return JSON.parse(readFileSync(path.join(cpDir, f), 'utf8')); } catch { return null; } };
+  // Control-plane hooks (written by the control-plane connector). Re-read on every pump so changes apply without a restart.
+  const paused = () => readCp('dispatch.json')?.paused === true;
+  const effectiveCap = () => {
+    const n = Number(readCp('concurrency.json')?.nodes?.[node]);
+    return Number.isFinite(n) && n > 0 ? Math.max(1, Math.min(MAX_WORKERS, Math.floor(n))) : baseCap;
+  };
   const token = () => launcherToken || readFileSync(tokenFile, 'utf8').trim();
   let ledger = existsSync(ledgerPath) ? JSON.parse(readFileSync(ledgerPath, 'utf8')) : { version: 1, attempts: {} };
 
@@ -172,7 +180,19 @@ export function createLocalWorkers({
     return setState(a, accepted ? 'accepted' : 'rejected', note || (accepted ? 'accepted by coordinator' : 'changes requested'));
   }
 
+  // Push the control-plane cap to the launcher (POST /v1/config, launcher >= 0.1.5) only when it changes.
+  let pushedCap = null;
+  async function syncLauncherCap() {
+    if (!readCp('concurrency.json')) return;
+    const want = effectiveCap(); if (want === pushedCap) return;
+    try { const r = await call('POST', '/v1/config', { max_concurrent: want }); if (r.status === 200) { pushedCap = want; log('launcher cap set', want); } else if (r.status === 404) pushedCap = want; }
+    catch { /* retried next pump */ }
+  }
+
   async function pump() {
+    await syncLauncherCap();
+    if (paused()) return; // running attempts keep polling; only new dispatch stops
+    const cap = effectiveCap();
     const queued = Object.values(ledger.attempts).filter((a) => a.state === 'queued').sort((x, y) => x.created_at.localeCompare(y.created_at));
     for (const a of queued) { if (active().length >= cap) break; await dispatch(a); }
   }
@@ -201,7 +221,8 @@ export function createLocalWorkers({
 
   return {
     create, poll, cancel, review, reconcile, tick, pump,
-    get: (id) => ledger.attempts[id], list: () => Object.values(ledger.attempts), cap,
+    get: (id) => ledger.attempts[id], list: () => Object.values(ledger.attempts),
+    get cap() { return effectiveCap(); }, get paused() { return paused(); },
     reload() { ledger = JSON.parse(readFileSync(ledgerPath, 'utf8')); },
   };
 }

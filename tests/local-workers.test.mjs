@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtempSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -238,5 +238,33 @@ test('simple tier: rate limits on every free model fall back to flash; refusals 
     await done(lw, bad.attempt_id);
     assert.equal(lw.get(bad.attempt_id).state, 'not_started'); assert.match(lw.get(bad.attempt_id).detail, /not allowed/);
     await assert.rejects(lw.create({ taskId: 'x', group: 'g', tier: 'premium', brief: brief() }), /unknown tier/);
+  } finally { L.stop(); }
+});
+
+test('control-plane hooks: dispatch.json pause holds new dispatch, running continues; concurrency.json sets cap and pushes POST /v1/config', async () => {
+  const L = await startLauncher(1);
+  try {
+    const { lw, runtimeDir } = adapter(L.url, { max: 1 });
+    const cp = path.join(runtimeDir, 'control-plane'); mkdirSync(cp, { recursive: true });
+    const a = await lw.create({ taskId: 'p1', group: 'g', brief: brief({ fake: { delay: 1 } }) });
+    writeFileSync(path.join(cp, 'dispatch.json'), JSON.stringify({ paused: true }));
+    assert.equal(lw.paused, true);
+    const b = await lw.create({ taskId: 'p2', group: 'g', brief: brief() });
+    await done(lw, a.attempt_id);
+    assert.equal(lw.get(a.attempt_id).state, 'succeeded', 'running attempt finishes while paused');
+    await lw.tick(); assert.equal(lw.get(b.attempt_id).state, 'queued', 'paused: no new dispatch');
+    writeFileSync(path.join(cp, 'dispatch.json'), JSON.stringify({ paused: false }));
+    await done(lw, b.attempt_id); assert.equal(lw.get(b.attempt_id).state, 'succeeded');
+    writeFileSync(path.join(cp, 'concurrency.json'), JSON.stringify({ nodes: { brrrrrrrr: 14 } }));
+    assert.equal(lw.cap, 10, 'clamped to 10');
+    writeFileSync(path.join(cp, 'concurrency.json'), JSON.stringify({ nodes: { brrrrrrrr: 3 } }));
+    assert.equal(lw.cap, 3);
+    await lw.pump();
+    const h = await (await fetch(L.url + '/v1/health', { headers: { Authorization: 'Bearer ' + TOKEN } })).json();
+    assert.equal(h.max_concurrent, 3, 'launcher cap pushed at runtime');
+    const bad = await fetch(L.url + '/v1/config', { method: 'POST', headers: { Authorization: 'Bearer ' + TOKEN, 'Content-Type': 'application/json' }, body: JSON.stringify({ max_concurrent: 0 }) });
+    assert.equal(bad.status, 400);
+    const noauth = await fetch(L.url + '/v1/config', { method: 'POST', body: '{"max_concurrent":2}' });
+    assert.equal(noauth.status, 401);
   } finally { L.stop(); }
 });
