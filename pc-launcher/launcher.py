@@ -290,7 +290,10 @@ class Launcher:
             for e in evs: f.write(json.dumps(e) + "\n")
     def _load(self):
         for p in (self.dir / "attempts").glob("*.json"):
-            a = json.loads(p.read_text("utf-8")); self.attempts[a["attempt_id"]] = a
+            if p.name.count(".") != 1: continue  # skip <id>.result.json (and any other sidecar)
+            try: a = json.loads(p.read_text("utf-8"))
+            except Exception: continue
+            if isinstance(a, dict) and "attempt_id" in a and "state" in a: self.attempts[a["attempt_id"]] = a
     def events_since(self, aid, cursor):
         p = self.dir / "attempts" / f"{aid}.events.jsonl"
         if not p.exists(): return []

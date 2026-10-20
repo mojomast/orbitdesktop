@@ -43,6 +43,13 @@ test('single attempt: dispatch, run, result manifest, board columns', async () =
     assert.equal(board.calls.at(-1).status, 'review');
     assert.ok(!JSON.stringify(r).includes('fake-provider-key') && !readFileSync(r.log_ref, 'utf8').includes('fake-provider-key'));
     await lw.review(a.attempt_id, { accepted: true }); assert.equal(board.calls.at(-1).status, 'done');
+    // launcher restart with a result file on disk must still load cleanly (regression: result.json loaded as an attempt)
+    L.stop(); await sleep(300);
+    const L2 = await startLauncher(1, L.dataDir, { port: Number(new URL(L.url).port) });
+    try {
+      const h = await (await fetch(L2.url + '/v1/health', { headers: { Authorization: 'Bearer ' + TOKEN } })).json();
+      assert.equal(h.ok, true); assert.equal(h.active, 0);
+    } finally { L2.stop(); }
   } finally { L.stop(); }
 });
 
