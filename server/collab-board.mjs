@@ -7,6 +7,9 @@ import crypto from 'node:crypto';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const fail = (m, s = 400) => Object.assign(new Error(m), { status: s });
+// Trusted server-side posters (not chat handles). Only these exact ids skip the member check;
+// they act through the same loopback board key, and every other --as still has to be a member.
+export const SYSTEM_POSTERS = new Set(['local-workers']);
 const clean = (v, n) => String(v ?? '').replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, n);
 
 export function createCollabBoard({ runtimeRoot, collab, groups, workspace }) {
@@ -40,7 +43,7 @@ export function createCollabBoard({ runtimeRoot, collab, groups, workspace }) {
     const g = groups().find(String(b.group || ''));
     if (!g) throw fail('Unknown group. Use the group id from your group-chat instructions.', 404);
     const by = clean(b.by, 64);
-    if (by && !g.members.some(m => m.id === by)) throw fail('--as must be your @handle in this group.', 400);
+    if (by && !SYSTEM_POSTERS.has(by) && !g.members.some(m => m.id === by)) throw fail('--as must be your @handle in this group.', 400);
     return serial(g.id, async () => {
       if (b.op === 'list') {
         const { link, st } = await boardFor(g, false);
