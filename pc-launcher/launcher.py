@@ -13,8 +13,8 @@ import argparse, asyncio, platform, hashlib, hmac, ipaddress, json, os, re, sys,
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-VERSION = "0.1.3"
-MAX_WORKERS = 6  # hard ceiling for max_concurrent
+VERSION = "0.1.4"
+MAX_WORKERS = 10  # hard ceiling for max_concurrent
 TERMINAL = {"succeeded", "failed", "cancelled"}
 GO_BASE_URL = "https://opencode.ai/inference/go/openai/v1"
 # Workers must not fan out: deny the OpenCode `task` (subagent) tool.
@@ -22,12 +22,31 @@ WORKER_OPENCODE_CONFIG = {"$schema": "https://opencode.ai/config.json", "permiss
 # Allow-listed per-run models. "key": "go" sends the OpenCode Go key; "none" sends no key.
 # The free model only works from inside OpenCode, so it uses OpenCode's built-in provider
 # (opencode/<id>, no base_url) rather than an OpenAI-compatible endpoint.
+def _free(model_id, ctx_tokens):
+    # Prompt cap: leave ~80k tokens for OpenCode's own system prompt/tools (a probe used ~43k) and output;
+    # ~3 chars per token; never above 300k chars (~100k tokens) for the free tier.
+    return {"model": f"opencode/{model_id}", "base_url": None, "wire": None, "key": "none", "free": True,
+            "fallback": "deepseek-v4.1-flash", "context_tokens": ctx_tokens,
+            "max_prompt_chars": max(60_000, min(300_000, (ctx_tokens - 80_000) * 3)), "backoff_s": [20, 60]}
+
+# Allow-listed per-run models. "key": "go" sends the OpenCode Go key; "none" sends no key.
+# Free models only work from inside OpenCode, so they use OpenCode's built-in provider (opencode/<id>, no base_url).
+# Every free id below answered `opencode run -m opencode/<id>` on Oct 20, 2026 (jev-1.13-free and space-bunny-free were "Model unavailable").
+# Context sizes from models.dev (input limit where it is lower).
 MODELS = {
     "deepseek-v4.1-flash": {"model": "deepseek-v4.1-flash", "base_url": "https://opencode.ai/inference/go/openai/v1", "wire": "openai-chat", "key": "go"},
-    "deepseek-v4.1-flash-free": {"model": "opencode/deepseek-v4.1-flash-free", "base_url": None, "wire": None, "key": "none",
-                                 "fallback": "deepseek-v4.1-flash", "max_prompt_chars": 300_000, "backoff_s": [20, 60]},
+    "deepseek-v4.1-flash-free": _free("deepseek-v4.1-flash-free", 128_000),
+    "beam-free": _free("beam-free", 1_048_576),
+    "big-pickle": _free("big-pickle", 160_000),
+    "minimax-m3.1-flash-free": _free("minimax-m3.1-flash-free", 1_000_000),
+    "nemotron-3.5-super-vl-free": _free("nemotron-3.5-super-vl-free", 1_048_576),
+    "nemotron-3.5-lightning-free": _free("nemotron-3.5-lightning-free", 262_144),
+    "glm-5.3-flash-free": _free("glm-5.3-flash-free", 200_000),
+    "mimo-v2.6-flash-free": _free("mimo-v2.6-flash-free", 200_000),
+    "longcat-2.5-preview-free": _free("longcat-2.5-preview-free", 1_000_000),
 }
-TIERS = {"simple": "deepseek-v4.1-flash-free", "standard": "deepseek-v4.1-flash"}
+FREE_POOL = [m for m, v in MODELS.items() if v.get("free")]  # deepseek first: preferred when all are equally fresh
+TIERS = {"simple": "pool:free", "standard": "deepseek-v4.1-flash"}
 FREE_TIER_DENIED = re.compile(r"FreeTierError|free tier can only be used", re.I)
 RATE_LIMIT = re.compile(r"\b429\b|rate.?limit|too many requests|quota", re.I)
 SECRETISH = re.compile(r"(sk-[A-Za-z0-9_\-]{8,}|Bearer\s+\S+|[A-Za-z0-9_\-]{32,})")
@@ -294,6 +313,7 @@ def validate_brief(b):
 class Launcher:
     def __init__(self, cfg, backend):
         self.cfg, self.backend = cfg, backend
+        self.model_health = {m: {"last_limited": 0.0, "last_used": 0.0} for m in FREE_POOL}
         self.dir = Path(cfg["data_dir"]); (self.dir / "attempts").mkdir(parents=True, exist_ok=True)
         self.lock = threading.RLock()
         self.attempts = {}
@@ -321,7 +341,7 @@ class Launcher:
         return [e for e in map(json.loads, p.read_text("utf-8").splitlines()) if e["lseq"] > cursor]
 
     def public(self, a):
-        keys = ("attempt_id", "state", "detail", "run_id", "sandbox", "created_at", "updated_at", "lseq", "queue_position", "retry_at", "rate_limited", "model", "fallback")
+        keys = ("attempt_id", "state", "detail", "run_id", "sandbox", "created_at", "updated_at", "lseq", "queue_position", "retry_at", "rate_limited", "model", "fallback", "pool", "model_history")
         d = {k: a.get(k) for k in keys}
         if d["state"] == "queued": d["queue_position"] = self._queue().index(a["attempt_id"]) + 1 if a["attempt_id"] in self._queue() else None
         return d
@@ -332,10 +352,11 @@ class Launcher:
     def submit(self, aid, brief, model=None):
         with self.lock:
             if aid in self.attempts: return self.attempts[aid], False  # idempotent: never a second controller
-            model = model_spec(self.cfg, model or brief.get("model") or brief.get("tier"))["name"]  # ValueError -> 400
+            spec = model_spec(self.cfg, model or brief.get("model") or brief.get("tier"))  # ValueError -> 400
             now = time.time()
             a = {"attempt_id": aid, "brief": brief, "state": "queued", "detail": "waiting for a worker slot", "created_at": now,
-                 "updated_at": now, "lseq": 0, "cursor": 0, "rate_limited": 0, "model": model}
+                 "updated_at": now, "lseq": 0, "cursor": 0, "rate_limited": 0, "model": None if spec.get("pool") else spec["name"]}
+            if spec.get("pool"): a.update(pool=spec["pool"], tried=[], model_history=[])
             self.attempts[aid] = a; self._save(a)
         self.kick(); return a, True
 
@@ -381,6 +402,8 @@ class Launcher:
             if not a.get("run_id"):
                 key = read_secret(self.cfg, "ORBIT_WORKER_GO_KEY")
                 if not key: self._set(a, "failed", "provider key not configured on this PC"); return
+                if a.get("pool") and not a.get("model"):
+                    a["model"] = self._pick_free(a) or MODELS["deepseek-v4.1-flash-free"]["fallback"]; a["model_history"].append({"model": a["model"], "at": time.time()}); self._save(a)
                 ids = await self.backend.start(a, key); del key
                 a.update(ids); self._set(a, "running", "opencode run started", {"run_id": ids["run_id"]})
             while True:
@@ -411,7 +434,27 @@ class Launcher:
         finally:
             self.controllers.pop(aid, None); self.kick()
 
+    def _pick_free(self, a):
+        """Least-recently-rate-limited free model not yet tried by this attempt (ties: least recently used)."""
+        with self.lock:
+            n = len(render_prompt(a["brief"]))  # respect each model's context: skip models the brief does not fit
+            cand = [m for m in FREE_POOL if m not in a.get("tried", []) and m in self.model_health and MODELS[m]["max_prompt_chars"] >= n]
+            if not cand: return None
+            m = min(cand, key=lambda x: (self.model_health[x]["last_limited"], self.model_health[x]["last_used"], FREE_POOL.index(x)))
+            self.model_health[m]["last_used"] = time.time(); return m
+
     async def _backoff(self, a, exhausted=False, reason="provider rate limit"):
+        if a.get("pool") and a.get("model") in FREE_POOL:
+            await self.backend.cleanup(a)
+            bad = a["model"]; self.model_health[bad]["last_limited"] = time.time(); a["tried"].append(bad)
+            nxt = self._pick_free(a)
+            if not nxt:
+                nxt = MODELS[bad]["fallback"]
+                a["fallback"] = {"from": "pool:free", "to": nxt, "reason": f"{reason} on every free model ({', '.join(a['tried'])})", "at": time.time()}
+            a["model"] = nxt; a["model_history"].append({"model": nxt, "after": f"{reason} on {bad}", "at": time.time()})
+            a["rate_limited"], a["cursor"] = 0, 0
+            for k in ("run_id", "sandbox"): a.pop(k, None)
+            self._set(a, "queued", f"{reason} on {bad}; switching to {nxt}"); return
         spec = model_spec(self.cfg, a.get("model"))
         n = a["rate_limited"]; delays = spec.get("backoff_s") or self.cfg["backoff_s"]
         await self.backend.cleanup(a)
@@ -455,7 +498,7 @@ class Launcher:
             except Exception: claims = {"unparsed": True}
         return {"schema": "orbit.local-worker.result/v1", "attempt_id": a["attempt_id"],
                 "source": {"project": b.get("project"), "repo_rev": b.get("source_rev"), "input_manifest_sha256": b.get("input_manifest_sha256"),
-                           "image": self.cfg["image"], "harness": "opencode", "model": a.get("model") or self.cfg["model"], "fallback": a.get("fallback"), "launcher": VERSION},
+                           "image": self.cfg["image"], "harness": "opencode", "model": a.get("model") or self.cfg["model"], "fallback": a.get("fallback"), "tier_pool": a.get("pool"), "model_history": a.get("model_history"), "launcher": VERSION},
                 "observed": {"node": platform.node(), "run_id": a.get("run_id"), "sandbox_id": a.get("sandbox_id"), "workdir": a.get("workdir"), "local_base_rev": a.get("local_base_rev"),
                              "result_file": str(self.dir / "attempts" / f"{a['attempt_id']}.result.json"), "status": res.get("status"), "stop_reason": res.get("stop_reason"),
                              "tool_calls": res.get("tool_calls"), "usage": res.get("usage"), "files": (patch or {}).get("files") or files, "artifacts": files, "error": res.get("error")},
@@ -516,6 +559,7 @@ def make_handler(L, token):
 def model_spec(cfg, name):
     """Resolve an allow-listed model name (or tier) to its run spec; the config default uses cfg base_url/wire."""
     name = TIERS.get(name, name) if name else cfg["model"]
+    if name == "pool:free": return {"name": "pool:free", "pool": "free"}
     if name not in MODELS and name not in cfg.get("models", {}): raise ValueError(f"model not allowed on this PC: {name}")
     spec = {**MODELS.get(name, {}), **cfg.get("models", {}).get(name, {}), "name": name}
     if name == cfg["model"] and "base_url" not in cfg.get("models", {}).get(name, {}) and spec.get("key") == "go":
@@ -574,6 +618,13 @@ def doctor(cfg):
     line("max_concurrent", True, str(cfg["max_concurrent"])); line("model", True, cfg["model"] + " via " + cfg["base_url"])
     return 0 if ok else 1
 
+async def _probe_all(cfg):
+    """Probe every allow-listed free model, each in its own sandbox, in parallel."""
+    rcs = await asyncio.gather(*[_probe(cfg, m) for m in FREE_POOL], return_exceptions=True)
+    bad = [m for m, rc in zip(FREE_POOL, rcs) if rc != 0]
+    print(f"[{'ok' if not bad else 'FAIL'}] free pool: {len(FREE_POOL) - len(bad)}/{len(FREE_POOL)} answered" + (f"; failed: {', '.join(bad)}" if bad else ""))
+    return 1 if bad else 0
+
 async def _probe(cfg, model=None):
     """Read-only provider check INSIDE a real worker sandbox: same image, harness, endpoint and model as tasks."""
     key = read_secret(cfg, "ORBIT_WORKER_GO_KEY")
@@ -600,4 +651,4 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(); ap.add_argument("cmd", choices=["serve", "doctor", "probe", "sdkcheck"]); ap.add_argument("--config")
     ap.add_argument("--backend", default="cua", choices=["cua", "fake"]); ap.add_argument("--model")
     a = ap.parse_args(); cfg = load_config(a.config) if a.config else None
-    sys.exit((print(json.dumps(sdk_contract_check())) or (1 if sdk_contract_check() else 0)) if a.cmd == "sdkcheck" else doctor(cfg) if a.cmd == "doctor" else asyncio.run(_probe(cfg, a.model)) if a.cmd == "probe" else serve(cfg, a.backend))
+    sys.exit((print(json.dumps(sdk_contract_check())) or (1 if sdk_contract_check() else 0)) if a.cmd == "sdkcheck" else doctor(cfg) if a.cmd == "doctor" else asyncio.run(_probe_all(cfg) if a.model == "free-all" else _probe(cfg, a.model)) if a.cmd == "probe" else serve(cfg, a.backend))
