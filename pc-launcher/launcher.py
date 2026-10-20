@@ -9,7 +9,7 @@ narrow token-scoped HTTP API on the Tailscale IP only.
   uv run --with cua==0.5.0 launcher.py doctor --config config.json
 """
 from __future__ import annotations
-import argparse, asyncio, hashlib, hmac, ipaddress, json, os, re, sys, threading, time, uuid
+import argparse, asyncio, platform, hashlib, hmac, ipaddress, json, os, re, sys, threading, time, uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -64,7 +64,8 @@ SDK_CONTRACT = [
     ("Sandboxes", "delete", True, ["name"]),
     ("Sandbox", "agents", True, []),
     ("Sandbox", "name", False, []),
-    ("Sandbox", "guest_sh", True, ["line"]),
+    ("Sandbox", "guest_sh", True, ["line", "timeout_ms"]),
+    ("Sandbox", "id", False, []),
     ("Agents", "run", True, ["harness", "prompt", "options"]),
     ("Agents", "get", True, ["run_id"]),
     ("AgentRun", "run_id", False, []),
@@ -82,7 +83,7 @@ SDK_TYPES = {  # constructor keyword fields the backend passes or reads
     "AgentEvent": ["seq", "kind", "line", "text", "stop_reason"],
     "AgentRunResult": ["status", "stop_reason", "text", "tool_calls", "usage_json", "error"],
     "AgentArtifact": ["path", "size"],
-    "ProcessOutput": ["stdout"],
+    "ProcessOutput": ["stdout", "stderr", "pty", "exit"],
 }
 
 def sdk_contract_check():
@@ -122,6 +123,53 @@ class CuaBackend:
             self._sb[name] = await self.client.sandboxes().connect(name)
         return self._sb[name]
 
+    async def _sh(self, sb, line, timeout_ms=120000):
+        out = await sb.guest_sh(line, timeout_ms)
+        dec = lambda v: v.decode("utf-8", "replace") if isinstance(v, (bytes, bytearray)) else str(v or "")
+        code = getattr(out.exit, "code", None)
+        return dec(out.stdout) + dec(out.pty), dec(out.stderr), code
+
+    async def _seed_project(self, sb, proj, name):
+        """Copy an authorized local git repo (HEAD only) into the sandbox; returns (workdir, base_rev)."""
+        import base64, subprocess
+        src = proj["path"]
+        rev = subprocess.run(["git", "-C", src, "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+        tar = subprocess.run(["git", "-C", src, "archive", "--format=tar", "HEAD"], capture_output=True, check=True).stdout
+        home = (await self._sh(sb, "printf %s \"$HOME\""))[0].strip() or "/root"
+        wd = f"{home}/work/{name}"
+        await self._sh(sb, f"rm -rf '{wd}' /tmp/orbit-src.b64 && mkdir -p '{wd}'")
+        b64 = base64.b64encode(tar).decode()
+        for i in range(0, len(b64), 48000):
+            await self._sh(sb, f"printf %s '{b64[i:i + 48000]}' >> /tmp/orbit-src.b64")
+        o, e, c = await self._sh(sb, f"cd '{wd}' && base64 -d /tmp/orbit-src.b64 | tar -x && git init -q && git add -A && "
+                                     f"git -c user.name=orbit -c user.email=orbit@local commit -qm 'base {rev}' && git rev-parse HEAD")
+        if c not in (0, None): raise RuntimeError(f"seeding project failed: {e[-300:]}")
+        return wd, rev
+
+    async def environment(self, a):
+        sb = await self._sandbox(a["sandbox"])
+        o, _, _ = await self._sh(sb, "printf 'host=%s\\nkernel=%s\\n' \"$(hostname)\" \"$(uname -sr)\"; "
+                                     "ls -d $HOME/.cua/tools/opencode/* 2>/dev/null | head -1 | sed 's/^/opencode_install=/'; "
+                                     "(command -v opencode >/dev/null && opencode --version || ls $HOME/.cua/tools/opencode 2>/dev/null) | head -1 | sed 's/^/opencode_version=/'")
+        env = dict(l.split("=", 1) for l in o.splitlines() if "=" in l)
+        env.update({"sandbox_name": a["sandbox"], "sandbox_id": a.get("sandbox_id"), "workdir": a.get("workdir"), "cua_run_id": a.get("run_id")})
+        return env
+
+    async def patch(self, a):
+        if not a.get("workdir"): return None
+        sb = await self._sandbox(a["sandbox"])
+        wd = a["workdir"]
+        await self._sh(sb, f"cd '{wd}' && git add -A")
+        diff = (await self._sh(sb, f"cd '{wd}' && git diff --cached --binary HEAD"))[0]
+        names = (await self._sh(sb, f"cd '{wd}' && git diff --cached --name-status HEAD"))[0]
+        files = []
+        for l in names.splitlines():
+            st, _, path = l.partition("\t")
+            if not path: continue
+            sha = None if st.startswith("D") else ((await self._sh(sb, f"cd '{wd}' && sha256sum -- '{path}' | cut -d' ' -f1"))[0].strip()[:64] or None)
+            files.append({"path": path, "status": st, "sha256": sha, "change": "deleted" if st.startswith("D") else ("added" if st.startswith("A") else "changed")})
+        return {"diff": diff, "files": files}
+
     async def start(self, attempt, key):
         cua, cfg, b = self.cua, self.cfg, attempt["brief"]
         name = "orbit-" + attempt["attempt_id"][-12:]
@@ -130,14 +178,17 @@ class CuaBackend:
             memory_mb=cfg["memory_mb"], wait_for=[cua.ReadinessProbe(service="env")]))
         self._sb[name] = sb
         proj = cfg["projects"].get(b.get("project", ""), {})
+        wd, base = (None, None)
+        if proj.get("path"):
+            wd, base = await self._seed_project(sb, proj, b["project"])
         opts = cua.AgentRunOptions(
             env={"OPENAI_API_KEY": key, "OPENCODE_CONFIG_CONTENT": json.dumps(WORKER_OPENCODE_CONFIG)},
             model=cfg["model"], base_url=cfg["base_url"], wire=cfg["wire"],
-            repo=proj.get("repo"), branch=b.get("branch"), cwd=b.get("workdir"),
+            repo=None if wd else proj.get("repo"), branch=None if wd else b.get("branch"), cwd=wd or b.get("workdir"),
             exit_when_idle=True, label=attempt["attempt_id"])
         agents = await sb.agents()
         run = await agents.run("opencode", render_prompt(b), opts)
-        return {"sandbox": name, "run_id": run.run_id()}
+        return {"sandbox": name, "sandbox_id": sb.id(), "run_id": run.run_id(), "workdir": wd, "local_base_rev": base}
 
     async def _run(self, a):
         agents = await (await self._sandbox(a["sandbox"])).agents()
@@ -343,6 +394,11 @@ class Launcher:
 
     async def _manifest(self, a, res):
         b = a["brief"]; files = []
+        env = patch = None
+        if hasattr(self.backend, "patch"):
+            try: env = await self.backend.environment(a)
+            except Exception as ex: env = {"error": type(ex).__name__}
+            patch = await self.backend.patch(a)
         for art in res.get("artifacts", []):
             files.append({"path": art["path"], "size": art["size"], "sha256": await self.backend.file_sha256(a, art["path"]),
                           "change": "deleted" if art.get("size") is None else "changed",
@@ -355,8 +411,10 @@ class Launcher:
         return {"schema": "orbit.local-worker.result/v1", "attempt_id": a["attempt_id"],
                 "source": {"project": b.get("project"), "repo_rev": b.get("source_rev"), "input_manifest_sha256": b.get("input_manifest_sha256"),
                            "image": self.cfg["image"], "harness": "opencode", "model": self.cfg["model"], "launcher": VERSION},
-                "observed": {"run_id": a.get("run_id"), "status": res.get("status"), "stop_reason": res.get("stop_reason"),
-                             "tool_calls": res.get("tool_calls"), "usage": res.get("usage"), "files": files, "error": res.get("error")},
+                "observed": {"node": platform.node(), "run_id": a.get("run_id"), "sandbox_id": a.get("sandbox_id"), "workdir": a.get("workdir"), "local_base_rev": a.get("local_base_rev"),
+                             "result_file": str(self.dir / "attempts" / f"{a['attempt_id']}.result.json"), "status": res.get("status"), "stop_reason": res.get("stop_reason"),
+                             "tool_calls": res.get("tool_calls"), "usage": res.get("usage"), "files": (patch or {}).get("files") or files, "artifacts": files, "error": res.get("error")},
+                "environment": env, "patch": patch,
                 "worker_claims": claims, "checks": claims.get("checks", []) if isinstance(claims, dict) else [],
                 "note": "worker_claims are self-reported by the model; only 'observed' was measured by the launcher"}
 

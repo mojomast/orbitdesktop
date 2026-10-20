@@ -44,6 +44,7 @@ import { createKittyDoomService } from './kitty-doom.mjs';
 import { createGrokBotsApp } from './grokbots-app.mjs';
 import { createAgentStatus } from './agent-status.mjs';
 import { createCollabBoard } from './collab-board.mjs';
+import { createLocalWorkersRoute } from './local-workers-route.mjs';
 const port = Number(process.env.PORT || 4318);
 if (!Number.isInteger(port) || port < 1024 || port > 65535)
   throw Error("PORT must be between 1024 and 65535");
@@ -140,6 +141,8 @@ const collabBoard = createCollabBoard({ runtimeRoot, collab: () => agentHandler.
   if (/^[0-9a-f-]{36}$/i.test(process.env.ORBIT_BOARD_WORKSPACE || '')) return process.env.ORBIT_BOARD_WORKSPACE;
   try { return JSON.parse(readFileSync(path.join(runtimeRoot, 'collab-board.json'), 'utf8')).workspace || ''; } catch { return ''; }
 } });
+// Local workers (Cua/OpenCode on a tailnet PC). Off unless ORBIT_LOCAL_WORKERS=1.
+const localWorkers = process.env.ORBIT_LOCAL_WORKERS === '1' ? createLocalWorkersRoute({ runtimeRoot, port, env: process.env, log: m => console.log(m) }) : null;
 const sandboxProvider=createWorkbenchSandboxProvider({root:path.join(workspaceService.store.root,'workbench-sandbox'),env:process.env});
 const environments=createWorkbenchEnvironments({store:workspaceService.store,records:workbench.records,data:workbenchData,gate:executionGate,sandboxProvider});
 const execution=createWorkbenchExecution({store:workspaceService.store,records:workbench.records,data:workbenchData,gate:executionGate,environments,sandboxProvider});
@@ -356,6 +359,7 @@ async function handleOrbitRequest(req, res) {
   if (url.pathname === '/api/grokbots-app/upload') return grokBotsApp.upload(req, res);
   if (url.pathname === '/api/agent-status') return agentStatus.handle(req, res);
   if (url.pathname === '/api/collab-board') return collabBoard.handle(req, res);
+  if (url.pathname === '/api/local-workers') { if (localWorkers) return localWorkers.handle(req, res); res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end('{"error":"local workers disabled"}'); }
   if (url.pathname === "/api/health")
     return reply(res, 200, {
       service: "orbit",
