@@ -16,6 +16,8 @@ export const BOARD_COLUMN = {
 const why = (e) => e?.cause?.code || e?.cause?.name || e?.name || 'error';
 // Board updates post as the system identity the collab board accepts in any group (see collab-board.mjs).
 export const MAX_WORKERS = 6; // hard ceiling, matches the PC launcher
+// Model tiers: 'simple' -> OpenCode's free DeepSeek (rate-limited, launcher falls back to flash), 'standard' -> flash via OpenCode Go.
+export const MODEL_TIERS = { simple: 'deepseek-v4.1-flash-free', standard: 'deepseek-v4.1-flash' };
 export const BOARD_POSTER = 'local-workers';
 const LAUNCHER_STATES = new Set(['queued', 'launcher_queued', 'starting', 'running', 'backoff', 'cancel_requested', 'succeeded', 'failed', 'cancelled']);
 
@@ -68,14 +70,16 @@ export function createLocalWorkers({
     persist(); await boardSync(a); return a;
   }
 
-  async function create({ taskId, boardEntry, group, coordinator = 'MR.INDIA', brief, provider = 'opencode-go', model = 'deepseek-v4.1-flash' }) {
+  async function create({ taskId, boardEntry, group, coordinator = 'MR.INDIA', brief, provider = 'opencode-go', model, tier }) {
+    if (tier && !MODEL_TIERS[tier]) throw Object.assign(new Error(`unknown tier: ${tier} (simple|standard)`), { status: 400 });
+    model = model || MODEL_TIERS[tier || 'standard'];
     if (!brief?.objective) throw new Error('brief.objective is required');
     const prev = current(taskId);
     const a = {
       attempt_id: 'att_' + randomBytes(8).toString('hex'), task_id: taskId, board_entry: boardEntry || taskId, group, coordinator,
       generation: (prev?.generation || 0) + 1, node, env_id: null, cua_run_id: null, opencode_session_id: null,
       workdir: brief.workdir || null, source_rev: brief.source_rev || null, input_manifest_sha256: manifestHash(brief),
-      provider, model, brief: { ...brief, input_manifest_sha256: manifestHash(brief) }, state: 'queued', detail: 'waiting for a slot',
+      provider, model, tier: tier || null, brief: { ...brief, input_manifest_sha256: manifestHash(brief) }, state: 'queued', detail: 'waiting for a slot',
       created_at: new Date(now()).toISOString(), updated_at: null, dispatched_at: null, ended_at: null,
       event_cursor: 0, log_ref: null, artifact_refs: [], result: null, checks: [], review: null, history: [],
     };
@@ -90,7 +94,7 @@ export function createLocalWorkers({
   async function dispatch(a) {
     await setState(a, 'dispatching', 'sending to launcher', { dispatched_at: new Date(now()).toISOString() }); // persisted BEFORE the call
     let r;
-    try { r = await call('POST', '/v1/attempts', { attempt_id: a.attempt_id, brief: a.brief }); }
+    try { r = await call('POST', '/v1/attempts', { attempt_id: a.attempt_id, brief: a.brief, model: a.model }); }
     catch (e) { return setState(a, 'outcome_unknown', `launcher did not confirm (${why(e)}); will reconcile, not re-send blindly`); }
     if (r.status === 200 || r.status === 201) return applyRemote(a, r.body);
     if (r.status >= 400 && r.status < 500) return setState(a, 'not_started', `launcher rejected: ${r.body.error || r.status}`, { ended_at: new Date(now()).toISOString() });
@@ -101,6 +105,8 @@ export function createLocalWorkers({
     if (!remote || !LAUNCHER_STATES.has(remote.state)) return a;
     if (remote.state === 'queued') remote = { ...remote, state: 'launcher_queued', detail: `${remote.detail}${remote.queue_position ? ` (position ${remote.queue_position})` : ''}` };
     const extra = { cua_run_id: remote.run_id || a.cua_run_id, env_id: remote.sandbox || a.env_id };
+    if (remote.model) extra.model_used = remote.model;
+    if (remote.fallback) extra.fallback = remote.fallback;
     if (a.state === 'cancel_requested' && !['cancelled', 'succeeded', 'failed'].includes(remote.state)) return Object.assign(a, extra);
     if (TERMINAL.has(remote.state)) extra.ended_at = new Date(now()).toISOString();
     if (remote.state !== a.state || remote.detail !== a.detail) await setState(a, remote.state, remote.detail, extra); else Object.assign(a, extra);

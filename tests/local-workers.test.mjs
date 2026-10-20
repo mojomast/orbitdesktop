@@ -202,3 +202,33 @@ test('real cua==0.5.0 SDK contract (no network, no Docker)', { skip: !process.en
   const r = spawnSync('uv', ['run', '-q', '--python', '3.12', '--with', 'cua==0.5.0', 'python', 'pc-launcher/tests/test_sdk_contract.py'], { encoding: 'utf8', timeout: 240000 });
   assert.equal(r.status, 0, r.stderr.slice(-2000));
 });
+
+test('tiers: simple runs the free model; on 429 it backs off, then falls back to flash and records it', async () => {
+  const L = await startLauncher(2, undefined, { models: { 'deepseek-v4.1-flash-free': { backoff_s: [0.2] } } });
+  try {
+    const { lw } = adapter(L.url, { max: 2 });
+    const ok = await lw.create({ taskId: 'free-ok', group: 'g', tier: 'simple', brief: brief() });
+    const rl = await lw.create({ taskId: 'free-rl', group: 'g', tier: 'simple', brief: brief({ fake: { rate_limit_models: ['deepseek-v4.1-flash-free'] } }) });
+    await done(lw, ok.attempt_id); await done(lw, rl.attempt_id);
+    const a = lw.get(ok.attempt_id), b = lw.get(rl.attempt_id);
+    assert.equal(a.state, 'succeeded'); assert.equal(a.model, 'deepseek-v4.1-flash-free'); assert.equal(a.model_used, 'deepseek-v4.1-flash-free');
+    assert.equal(b.state, 'succeeded'); assert.equal(b.model_used, 'deepseek-v4.1-flash');
+    assert.equal(b.fallback.from, 'deepseek-v4.1-flash-free'); assert.equal(b.fallback.to, 'deepseek-v4.1-flash'); assert.match(b.fallback.reason, /rate limit after 1 retry/);
+    const res = JSON.parse(readFileSync(path.join(L.dataDir, 'attempts', `${rl.attempt_id}.result.json`), 'utf8'));
+    assert.equal(res.source.model, 'deepseek-v4.1-flash'); assert.equal(res.source.fallback.to, 'deepseek-v4.1-flash');
+  } finally { L.stop(); }
+});
+
+test('free-tier refusal falls back immediately; unknown model and tier are rejected', async () => {
+  const L = await startLauncher(1);
+  try {
+    const { lw } = adapter(L.url);
+    const d = await lw.create({ taskId: 'deny', group: 'g', tier: 'simple', brief: brief({ fake: { deny_models: ['deepseek-v4.1-flash-free'] } }) });
+    await done(lw, d.attempt_id);
+    assert.equal(lw.get(d.attempt_id).model_used, 'deepseek-v4.1-flash'); assert.match(lw.get(d.attempt_id).fallback.reason, /free tier refused/);
+    const bad = await lw.create({ taskId: 'bad', group: 'g', model: 'gpt-6-sol', brief: brief() });
+    await done(lw, bad.attempt_id);
+    assert.equal(lw.get(bad.attempt_id).state, 'not_started'); assert.match(lw.get(bad.attempt_id).detail, /not allowed/);
+    await assert.rejects(lw.create({ taskId: 'x', group: 'g', tier: 'premium', brief: brief() }), /unknown tier/);
+  } finally { L.stop(); }
+});

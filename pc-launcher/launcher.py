@@ -13,12 +13,22 @@ import argparse, asyncio, platform, hashlib, hmac, ipaddress, json, os, re, sys,
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-VERSION = "0.1.2"
+VERSION = "0.1.3"
 MAX_WORKERS = 6  # hard ceiling for max_concurrent
 TERMINAL = {"succeeded", "failed", "cancelled"}
 GO_BASE_URL = "https://opencode.ai/inference/go/openai/v1"
 # Workers must not fan out: deny the OpenCode `task` (subagent) tool.
 WORKER_OPENCODE_CONFIG = {"$schema": "https://opencode.ai/config.json", "permission": {"task": "deny"}}
+# Allow-listed per-run models. "key": "go" sends the OpenCode Go key; "none" sends no key.
+# The free model only works from inside OpenCode, so it uses OpenCode's built-in provider
+# (opencode/<id>, no base_url) rather than an OpenAI-compatible endpoint.
+MODELS = {
+    "deepseek-v4.1-flash": {"model": "deepseek-v4.1-flash", "base_url": "https://opencode.ai/inference/go/openai/v1", "wire": "openai-chat", "key": "go"},
+    "deepseek-v4.1-flash-free": {"model": "opencode/deepseek-v4.1-flash-free", "base_url": None, "wire": None, "key": "none",
+                                 "fallback": "deepseek-v4.1-flash", "max_prompt_chars": 300_000, "backoff_s": [20, 60]},
+}
+TIERS = {"simple": "deepseek-v4.1-flash-free", "standard": "deepseek-v4.1-flash"}
+FREE_TIER_DENIED = re.compile(r"FreeTierError|free tier can only be used", re.I)
 RATE_LIMIT = re.compile(r"\b429\b|rate.?limit|too many requests|quota", re.I)
 SECRETISH = re.compile(r"(sk-[A-Za-z0-9_\-]{8,}|Bearer\s+\S+|[A-Za-z0-9_\-]{32,})")
 
@@ -191,13 +201,18 @@ class CuaBackend:
         wd, base = (None, None)
         if proj.get("path"):
             wd, base = await self._seed_project(sb, proj, b["project"])
+        spec = model_spec(cfg, attempt.get("model"))
+        env = {"OPENCODE_CONFIG_CONTENT": json.dumps(dict(WORKER_OPENCODE_CONFIG, **({"model": spec["model"]} if spec["key"] == "none" else {})))}
+        if spec["key"] == "go": env["OPENAI_API_KEY"] = key
+        prompt = render_prompt(b)
+        if spec.get("max_prompt_chars") and len(prompt) > spec["max_prompt_chars"]:
+            raise ValueError(f"brief too large for {spec['name']} ({len(prompt)} chars > {spec['max_prompt_chars']})")
         opts = cua.AgentRunOptions(
-            env={"OPENAI_API_KEY": key, "OPENCODE_CONFIG_CONTENT": json.dumps(WORKER_OPENCODE_CONFIG)},
-            model=cfg["model"], base_url=cfg["base_url"], wire=cfg["wire"],
+            env=env, model=spec["model"], base_url=spec["base_url"], wire=spec["wire"],
             repo=None if wd else proj.get("repo"), branch=None if wd else b.get("branch"), cwd=wd or b.get("workdir"),
             exit_when_idle=True, label=attempt["attempt_id"])
         agents = await sb.agents()
-        run = await agents.run("opencode", render_prompt(b), opts)
+        run = await agents.run("opencode", prompt, opts)
         return {"sandbox": name, "sandbox_id": sb.id(), "run_id": run.run_id(), "workdir": wd, "local_base_rev": base}
 
     async def _run(self, a):
@@ -242,8 +257,11 @@ class FakeBackend:
         if f.get("fail_start"): raise RuntimeError("fake start failure")
         rid = "run-" + uuid.uuid4().hex[:8]
         evs = list(f.get("events") or [{"kind": "turn_started"}, {"kind": "message", "text": "done"}, {"kind": "turn_ended", "stop_reason": "end_turn"}])
-        if f.get("rate_limit_first", 0) > a.get("rate_limited", 0):
+        if f.get("rate_limit_first", 0) > a.get("rate_limited", 0) or a.get("model") in f.get("rate_limit_models", []):
             evs = [{"kind": "error", "text": "HTTP 429 Too Many Requests"}]
+        if a.get("model") in f.get("deny_models", []):
+            evs = [{"kind": "error", "text": "FreeTierError: OpenCode's free tier can only be used from within OpenCode."}]
+        self.models = getattr(self, "models", []) + [a.get("model")]
         self.runs[rid] = {"events": [dict(e, seq=i + 1) for i, e in enumerate(evs)], "delay": f.get("delay", 0), "t0": time.time(), "cancelled": False}
         return {"sandbox": "fake", "run_id": rid}
     async def events(self, a, cursor):
@@ -303,7 +321,7 @@ class Launcher:
         return [e for e in map(json.loads, p.read_text("utf-8").splitlines()) if e["lseq"] > cursor]
 
     def public(self, a):
-        keys = ("attempt_id", "state", "detail", "run_id", "sandbox", "created_at", "updated_at", "lseq", "queue_position", "retry_at", "rate_limited", "model")
+        keys = ("attempt_id", "state", "detail", "run_id", "sandbox", "created_at", "updated_at", "lseq", "queue_position", "retry_at", "rate_limited", "model", "fallback")
         d = {k: a.get(k) for k in keys}
         if d["state"] == "queued": d["queue_position"] = self._queue().index(a["attempt_id"]) + 1 if a["attempt_id"] in self._queue() else None
         return d
@@ -311,12 +329,13 @@ class Launcher:
     def _queue(self):
         return sorted([x["attempt_id"] for x in self.attempts.values() if x["state"] in ("queued", "backoff")], key=lambda i: self.attempts[i]["created_at"])
 
-    def submit(self, aid, brief):
+    def submit(self, aid, brief, model=None):
         with self.lock:
             if aid in self.attempts: return self.attempts[aid], False  # idempotent: never a second controller
+            model = model_spec(self.cfg, model or brief.get("model") or brief.get("tier"))["name"]  # ValueError -> 400
             now = time.time()
             a = {"attempt_id": aid, "brief": brief, "state": "queued", "detail": "waiting for a worker slot", "created_at": now,
-                 "updated_at": now, "lseq": 0, "cursor": 0, "rate_limited": 0, "model": self.cfg["model"]}
+                 "updated_at": now, "lseq": 0, "cursor": 0, "rate_limited": 0, "model": model}
             self.attempts[aid] = a; self._save(a)
         self.kick(); return a, True
 
@@ -376,7 +395,10 @@ class Launcher:
                     a["cursor"] = cur
                     if out: self._append_events(a, out); a["updated_at"] = time.time(); self._save(a)
                 for e in evs:
-                    if e["kind"] == "error" and RATE_LIMIT.search(e.get("text") or e.get("line") or ""):
+                    txt = e.get("text") or e.get("line") or ""
+                    if e["kind"] == "error" and FREE_TIER_DENIED.search(txt):
+                        return await self._backoff(a, exhausted=True, reason="free tier refused")
+                    if e["kind"] == "error" and RATE_LIMIT.search(txt):
                         return await self._backoff(a)
                     if e["kind"] in ("turn_ended", "exited"):
                         return await self._finish(a, e)
@@ -389,10 +411,18 @@ class Launcher:
         finally:
             self.controllers.pop(aid, None); self.kick()
 
-    async def _backoff(self, a):
-        n = a["rate_limited"]; delays = self.cfg["backoff_s"]
+    async def _backoff(self, a, exhausted=False, reason="provider rate limit"):
+        spec = model_spec(self.cfg, a.get("model"))
+        n = a["rate_limited"]; delays = spec.get("backoff_s") or self.cfg["backoff_s"]
         await self.backend.cleanup(a)
-        if n >= len(delays): self._set(a, "failed", "provider rate limit persisted after retries"); return
+        if exhausted or n >= len(delays):
+            fb = spec.get("fallback")
+            if fb and not a.get("fallback"):
+                a["fallback"] = {"from": spec["name"], "to": fb, "reason": f"{reason} after {n} retr{'y' if n == 1 else 'ies'}", "at": time.time()}
+                a["model"], a["rate_limited"], a["cursor"] = fb, 0, 0
+                for k in ("run_id", "sandbox"): a.pop(k, None)
+                self._set(a, "queued", f"{reason} on {spec['name']}; falling back to {fb}"); return
+            self._set(a, "failed", f"{reason} persisted after retries"); return
         a["rate_limited"] = n + 1; a["retry_at"] = time.time() + delays[n]
         for k in ("run_id", "sandbox"): a.pop(k, None)
         a["cursor"] = 0
@@ -425,7 +455,7 @@ class Launcher:
             except Exception: claims = {"unparsed": True}
         return {"schema": "orbit.local-worker.result/v1", "attempt_id": a["attempt_id"],
                 "source": {"project": b.get("project"), "repo_rev": b.get("source_rev"), "input_manifest_sha256": b.get("input_manifest_sha256"),
-                           "image": self.cfg["image"], "harness": "opencode", "model": self.cfg["model"], "launcher": VERSION},
+                           "image": self.cfg["image"], "harness": "opencode", "model": a.get("model") or self.cfg["model"], "fallback": a.get("fallback"), "launcher": VERSION},
                 "observed": {"node": platform.node(), "run_id": a.get("run_id"), "sandbox_id": a.get("sandbox_id"), "workdir": a.get("workdir"), "local_base_rev": a.get("local_base_rev"),
                              "result_file": str(self.dir / "attempts" / f"{a['attempt_id']}.result.json"), "status": res.get("status"), "stop_reason": res.get("stop_reason"),
                              "tool_calls": res.get("tool_calls"), "usage": res.get("usage"), "files": (patch or {}).get("files") or files, "artifacts": files, "error": res.get("error")},
@@ -475,11 +505,22 @@ def make_handler(L, token):
                 err = validate_brief(b.get("brief"))
                 if err: return self._send(400, {"error": err})
                 if b["brief"].get("project") and b["brief"]["project"] not in L.cfg["projects"]: return self._send(403, {"error": "project not authorized on this PC"})
-                a, created = L.submit(aid, b["brief"]); return self._send(201 if created else 200, L.public(a))
+                try: a, created = L.submit(aid, b["brief"], b.get("model") or b.get("tier"))
+                except ValueError as ex: return self._send(400, {"error": str(ex)})
+                return self._send(201 if created else 200, L.public(a))
             if len(p) == 4 and p[:2] == ["v1", "attempts"] and p[3] == "cancel":
                 a = L.cancel(p[2]); return self._send(202, L.public(a)) if a else self._send(404, {"error": "unknown attempt"})
             self._send(404, {"error": "not found"})
     return H
+
+def model_spec(cfg, name):
+    """Resolve an allow-listed model name (or tier) to its run spec; the config default uses cfg base_url/wire."""
+    name = TIERS.get(name, name) if name else cfg["model"]
+    if name not in MODELS and name not in cfg.get("models", {}): raise ValueError(f"model not allowed on this PC: {name}")
+    spec = {**MODELS.get(name, {}), **cfg.get("models", {}).get(name, {}), "name": name}
+    if name == cfg["model"] and "base_url" not in cfg.get("models", {}).get(name, {}) and spec.get("key") == "go":
+        spec.update(base_url=cfg["base_url"], wire=cfg["wire"])
+    return spec
 
 def export_project(src, sync_branch=None):
     """HEAD of an authorized repo as (rev, tar bytes), byte-exact as committed (LF).
@@ -533,12 +574,13 @@ def doctor(cfg):
     line("max_concurrent", True, str(cfg["max_concurrent"])); line("model", True, cfg["model"] + " via " + cfg["base_url"])
     return 0 if ok else 1
 
-async def _probe(cfg):
+async def _probe(cfg, model=None):
     """Read-only provider check INSIDE a real worker sandbox: same image, harness, endpoint and model as tasks."""
     key = read_secret(cfg, "ORBIT_WORKER_GO_KEY")
     if not key: print("[FAIL] go key not configured"); return 1
     be = CuaBackend(cfg)
-    a = {"attempt_id": "probe-" + uuid.uuid4().hex[:8], "brief": {"objective": "Reply with exactly the text ORBIT-PROBE-OK and nothing else. Do not use any tools."}}
+    a = {"attempt_id": "probe-" + uuid.uuid4().hex[:8], "model": model_spec(cfg, model)["name"],
+         "brief": {"objective": "Reply with exactly the text ORBIT-PROBE-OK and nothing else. Do not use any tools."}}
     try:
         ids = await be.start(a, key); del key; a.update(ids); cur, t0 = 0, time.time()
         while time.time() - t0 < 300:
@@ -547,7 +589,7 @@ async def _probe(cfg):
                 if e["kind"] == "error": print("[FAIL] provider error:", e["line"][:300]); return 1
                 if e["kind"] in ("turn_ended", "exited"):
                     res = await be.result(a); ok = "ORBIT-PROBE-OK" in (res.get("text") or "")
-                    print(f"[{'ok' if ok else 'FAIL'}] model={cfg['model']} endpoint={cfg['base_url']} stop={res.get('stop_reason')} usage={res.get('usage')}")
+                    spec = model_spec(cfg, a["model"]); print(f"[{'ok' if ok else 'FAIL'}] model={spec['model']} endpoint={spec['base_url'] or 'opencode built-in provider'} stop={res.get('stop_reason')} usage={res.get('usage')}")
                     return 0 if ok else 1
             await asyncio.sleep(1)
         print("[FAIL] no reply within 300s"); return 1
@@ -556,6 +598,6 @@ async def _probe(cfg):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(); ap.add_argument("cmd", choices=["serve", "doctor", "probe", "sdkcheck"]); ap.add_argument("--config")
-    ap.add_argument("--backend", default="cua", choices=["cua", "fake"])
+    ap.add_argument("--backend", default="cua", choices=["cua", "fake"]); ap.add_argument("--model")
     a = ap.parse_args(); cfg = load_config(a.config) if a.config else None
-    sys.exit((print(json.dumps(sdk_contract_check())) or (1 if sdk_contract_check() else 0)) if a.cmd == "sdkcheck" else doctor(cfg) if a.cmd == "doctor" else asyncio.run(_probe(cfg)) if a.cmd == "probe" else serve(cfg, a.backend))
+    sys.exit((print(json.dumps(sdk_contract_check())) or (1 if sdk_contract_check() else 0)) if a.cmd == "sdkcheck" else doctor(cfg) if a.cmd == "doctor" else asyncio.run(_probe(cfg, a.model)) if a.cmd == "probe" else serve(cfg, a.backend))
