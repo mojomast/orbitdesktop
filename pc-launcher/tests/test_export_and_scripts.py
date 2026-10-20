@@ -26,6 +26,27 @@ class ExportProject(unittest.TestCase):
             self.assertEqual(len(rev), 40)
             self.assertEqual(tarfile.open(fileobj=io.BytesIO(tar)).extractfile("a.txt").read(), body)
 
+class SyncBranch(unittest.TestCase):
+    def test_exports_latest_remote_branch_without_touching_checkout(self):
+        with tempfile.TemporaryDirectory() as d:
+            up, pc = Path(d, "up"), Path(d, "pc")
+            run = lambda *a, cwd=None: subprocess.run(list(a), cwd=cwd, check=True, capture_output=True)
+            c = ["git", "-c", "user.name=t", "-c", "user.email=t@t"]
+            run("git", "init", "-q", "-b", "main", str(up)); Path(up, "f.txt").write_text("v1\n"); run("git", "add", "-A", cwd=up); run(*c, "commit", "-qm", "1", cwd=up)
+            run("git", "checkout", "-q", "-b", "feat/x", cwd=up)
+            run("git", "clone", "-q", str(up), str(pc))
+            Path(up, "f.txt").write_text("v2\n"); run(*c, "commit", "-qam", "2", cwd=up)
+            new = subprocess.run(["git", "-C", str(up), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+            head_before = subprocess.run(["git", "-C", str(pc), "rev-parse", "HEAD"], capture_output=True, text=True).stdout
+            rev, tar = launcher.export_project(pc, sync_branch="feat/x")
+            self.assertEqual(rev, new)
+            self.assertEqual(tarfile.open(fileobj=io.BytesIO(tar)).extractfile("f.txt").read(), b"v2\n")
+            self.assertEqual(subprocess.run(["git", "-C", str(pc), "rev-parse", "HEAD"], capture_output=True, text=True).stdout, head_before)
+            with self.assertRaises(ValueError): launcher.export_project(pc, sync_branch="../evil")
+
+    def test_cap_is_six(self):
+        self.assertEqual(launcher.MAX_WORKERS, 6)
+
 class PidFileAndScripts(unittest.TestCase):
     def test_serve_records_python_pid(self):
         with tempfile.TemporaryDirectory() as d:

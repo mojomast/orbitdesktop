@@ -13,7 +13,8 @@ import argparse, asyncio, platform, hashlib, hmac, ipaddress, json, os, re, sys,
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-VERSION = "0.1.1"
+VERSION = "0.1.2"
+MAX_WORKERS = 6  # hard ceiling for max_concurrent
 TERMINAL = {"succeeded", "failed", "cancelled"}
 GO_BASE_URL = "https://opencode.ai/inference/go/openai/v1"
 # Workers must not fan out: deny the OpenCode `task` (subagent) tool.
@@ -27,7 +28,7 @@ def redact(s):
 def load_config(path):
     cfg = json.loads(Path(path).read_text("utf-8-sig"))
     cfg.setdefault("port", 47821)
-    cfg["max_concurrent"] = max(1, min(3, int(cfg.get("max_concurrent", 1))))
+    cfg["max_concurrent"] = max(1, min(MAX_WORKERS, int(cfg.get("max_concurrent", 1))))
     cfg.setdefault("model", "deepseek-v4.1-flash")
     cfg.setdefault("base_url", GO_BASE_URL)
     cfg.setdefault("wire", "openai-chat")
@@ -142,7 +143,7 @@ class CuaBackend:
         """Copy an authorized local git repo (HEAD only) into the sandbox; returns (workdir, base_rev)."""
         import base64, subprocess
         src = proj["path"]
-        rev, tar = export_project(src)
+        rev, tar = export_project(src, sync_branch=proj.get("sync_branch"))
         home = (await self._sh(sb, "printf %s \"$HOME\""))[0].strip() or "/root"
         wd = f"{home}/work/{name}"
         await self._sh(sb, f"rm -rf '{wd}' /tmp/orbit-src.tar && mkdir -p '{wd}'")
@@ -480,15 +481,22 @@ def make_handler(L, token):
             self._send(404, {"error": "not found"})
     return H
 
-def export_project(src):
+def export_project(src, sync_branch=None):
     """HEAD of an authorized repo as (rev, tar bytes), byte-exact as committed (LF).
 
     core.autocrlf is forced off: on Windows clones it is usually true, which makes
     `git archive` emit CRLF, so worker patches and sha256s stop matching the repo."""
     import subprocess
     git = ["git", "-C", str(src), "-c", "core.autocrlf=false", "-c", "core.eol=lf"]
-    rev = subprocess.run(git + ["rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
-    tar = subprocess.run(git + ["archive", "--format=tar", "HEAD"], capture_output=True, check=True).stdout
+    ref = "HEAD"
+    if sync_branch:
+        # Track a remote branch: fetch it fresh before every run and export that ref.
+        # The local checkout is never reset, so nothing on the PC working tree changes.
+        if not re.fullmatch(r"[A-Za-z0-9._/-]+", sync_branch) or ".." in sync_branch: raise ValueError("bad sync_branch")
+        ref = f"refs/remotes/origin/{sync_branch}"
+        subprocess.run(git + ["fetch", "-q", "origin", f"+refs/heads/{sync_branch}:{ref}"], capture_output=True, check=True, timeout=120)
+    rev = subprocess.run(git + ["rev-parse", ref], capture_output=True, text=True, check=True).stdout.strip()
+    tar = subprocess.run(git + ["archive", "--format=tar", rev], capture_output=True, check=True).stdout
     return rev, tar
 
 def write_pidfile(cfg):
