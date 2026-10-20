@@ -67,15 +67,15 @@ test('two concurrent attempts run at once with cap 2', async () => {
   } finally { L.stop(); }
 });
 
-test('cap 3 is the ceiling: 4th waits, config above 3 clamps', async () => {
-  const L = await startLauncher(5);
+test('cap 6 is the ceiling: 7th waits, config above 6 clamps', async () => {
+  const L = await startLauncher(9);
   try {
     const h = await (await fetch(L.url + '/v1/health', { headers: { Authorization: 'Bearer ' + TOKEN } })).json();
-    assert.equal(h.max_concurrent, 3);
-    const { lw } = adapter(L.url, { max: 9 }); assert.equal(lw.cap, 3);
+    assert.equal(h.max_concurrent, 6);
+    const { lw } = adapter(L.url, { max: 9 }); assert.equal(lw.cap, 6);
     const ids = [];
-    for (const t of ['1', '2', '3', '4']) ids.push((await lw.create({ taskId: t, group: 'g', brief: brief({ fake: { delay: 1.5 } }) })).attempt_id);
-    assert.equal(lw.get(ids[3]).state, 'queued');
+    for (const t of ['1', '2', '3', '4', '5', '6', '7']) ids.push((await lw.create({ taskId: t, group: 'g', brief: brief({ fake: { delay: 1.5 } }) })).attempt_id);
+    assert.equal(lw.get(ids[6]).state, 'queued');
     for (const id of ids) await done(lw, id);
     assert.ok(ids.every((id) => lw.get(id).state === 'succeeded'));
   } finally { L.stop(); }

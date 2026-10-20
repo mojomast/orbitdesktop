@@ -15,6 +15,7 @@ export const BOARD_COLUMN = {
 };
 const why = (e) => e?.cause?.code || e?.cause?.name || e?.name || 'error';
 // Board updates post as the system identity the collab board accepts in any group (see collab-board.mjs).
+export const MAX_WORKERS = 6; // hard ceiling, matches the PC launcher
 export const BOARD_POSTER = 'local-workers';
 const LAUNCHER_STATES = new Set(['queued', 'launcher_queued', 'starting', 'running', 'backoff', 'cancel_requested', 'succeeded', 'failed', 'cancelled']);
 
@@ -30,7 +31,7 @@ export function createLocalWorkers({
   const dir = path.join(runtimeDir, 'local-workers');
   mkdirSync(dir, { recursive: true });
   const ledgerPath = path.join(dir, 'ledger.json');
-  const cap = Math.max(1, Math.min(3, Number(maxConcurrent) || 1));
+  const cap = Math.max(1, Math.min(MAX_WORKERS, Number(maxConcurrent) || 1));
   const token = () => launcherToken || readFileSync(tokenFile, 'utf8').trim();
   let ledger = existsSync(ledgerPath) ? JSON.parse(readFileSync(ledgerPath, 'utf8')) : { version: 1, attempts: {} };
 
