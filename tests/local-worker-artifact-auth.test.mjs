@@ -41,10 +41,18 @@ async function fakeLauncher() {
     const a = m && attempts[m[1]]; if (!a) return send(404, { error: 'unknown' });
     if (m[2] === '/events') return send(200, { events: [], cursor: 0 });
     if (m[2] === '/result') {
-      if (a.stream) { // a huge body sent in chunks without Content-Length
+      if (a.stream) { // a huge body sent in chunks without Content-Length, honouring backpressure
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.write('{"schema":"orbit.local-worker.result/v1","pad":"');
-        for (let i = 0; i < a.stream; i++) { res.write('x'.repeat(1024)); resultBytes += 1024; }
+        const chunk = 'x'.repeat(64 * 1024);
+        for (let i = 0; i < a.stream; i++) {
+          if (res.destroyed || res.socket?.destroyed) return;
+          resultBytes += chunk.length;
+          if (!res.write(chunk)) {
+            const go = await new Promise((r) => { res.once('drain', () => r(true)); res.once('close', () => r(false)); });
+            if (!go) return;
+          }
+        }
         return res.end('"}');
       }
       return send(200, typeof a.result === 'function' ? a.result(m[1]) : a.result);
@@ -108,13 +116,18 @@ test('S2-AC-002 a valid shared key plus an impersonated coordinator name cannot 
   assert.equal(nameOnly.status, 403); assert.equal(nameOnly.json.code, 'capability_required');
   const ok = await call({ op: 'artifact', attempt_id: theirs.json.attempt_id, coordinator: 'ANY-LABEL', capability: theirs.json.artifact_capability });
   assert.equal(ok.status, 200, 'the coordinator name is a label, not authority');
+  // Even after the owner's first read (pinned), a name-only request is still refused.
+  const after = await call({ op: 'artifact', attempt_id: theirs.json.attempt_id, coordinator: 'MR.INDIA' });
+  assert.equal(after.status, 403); assert.equal(after.json.code, 'capability_required'); assert.ok(!after.text.includes('VALUE = 2'));
 }));
 
 test('S6-AC-003 an oversized launcher result is refused while streaming and never persisted', () => rig(async ({ L, create, call, finish, dir }) => {
   const c = await create(); const id = c.json.attempt_id;
-  L.attempts[id].stream = 4096; // 4 MiB body, no Content-Length
+  L.attempts[id].stream = 1024; // 64 MiB body, no Content-Length
   await finish();
-  assert.ok(L.sent() < 4096 * 1024, 'Orbit must stop reading once over the limit');
+  await new Promise((r) => setTimeout(r, 200));
+  // Socket buffers may absorb a few MiB; reading the whole 64 MiB means the limit was not enforced while streaming.
+  assert.ok(L.sent() < 32 * 1024 * 1024, `Orbit must stop reading once over the limit (sent ${L.sent()})`);
   assert.ok(!existsSync(path.join(dir, `${id}.result.json`)), 'nothing may be persisted');
   const r = await call({ op: 'artifact', attempt_id: id, capability: c.json.artifact_capability });
   assert.equal(r.status, 413, r.text); assert.equal(r.json.code, 'artifact_oversized');

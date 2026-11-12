@@ -210,7 +210,8 @@ test('AC-008 the first-read hash survives an Orbit restart (idempotent, substitu
     assert.equal(first.status, 200, first.text);
     const route = createLocalWorkersRoute({ runtimeRoot: O.runtimeRoot, port: 1, env: { ORBIT_LOCAL_WORKERS_URL: L.url, ORBIT_LOCAL_WORKERS_TOKEN_FILE: path.join(O.runtimeRoot, 'launcher.token'), ORBIT_LOCAL_WORKERS_POLL_MS: '3600000' } });
     const srv = http.createServer((q, s) => route.handle(q, s)); await new Promise((r) => srv.listen(0, '127.0.0.1', r));
-    const post = async (b) => { const r = await fetch(`http://127.0.0.1:${srv.address().port}`, { method: 'POST', headers: { Authorization: `Bearer ${KEY}` }, body: JSON.stringify(b) }); return { status: r.status, text: await r.text() }; };
+    const cap = O.caps.get(id); // the capability survives a restart only on the coordinator side
+    const post = async (b) => { b = { capability: cap, ...b }; const r = await fetch(`http://127.0.0.1:${srv.address().port}`, { method: 'POST', headers: { Authorization: `Bearer ${KEY}` }, body: JSON.stringify(b) }); return { status: r.status, text: await r.text() }; };
     try {
       const again = await post({ op: 'artifact', attempt_id: id, coordinator: 'MR.INDIA' });
       assert.equal(again.status, 200); assert.equal(again.text, first.text);
