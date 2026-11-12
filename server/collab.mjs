@@ -1765,6 +1765,7 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
 
   // Board-only projects: entries (tasks) that agents create, move and check in on. Status words map to Collab task states.
   const BOARD_STATUS = { todo: 'submitted', doing: 'working', working: 'working', review: 'review', done: 'completed', completed: 'completed', blocked: 'input-required', failed: 'failed', canceled: 'canceled', cancelled: 'canceled' };
+  const BOARD_ACTIVE_MAX = Number(process.env.ORBIT_BOARD_ACTIVE_MAX) || 1000, BOARD_TOTAL_MAX = Number(process.env.ORBIT_BOARD_TOTAL_MAX) || 1500;
   function boardOp(bundle, body) {
     if (!bundle.project.boardOnly) throw fail('Board entries can only be edited on a group tracking board.', 409);
     const by = clean(body.by, 64) || 'agent';
@@ -1773,7 +1774,15 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
     if (action === 'add') {
       const title = clean(body.title, 120);
       if (!title) throw fail('Give the board entry a title.', 400);
-      if (bundle.tasks.length >= 100) throw fail('This board already has 100 entries.', 409);
+      const DONE = ['completed', 'canceled', 'failed'];
+      if (bundle.tasks.filter(task => !DONE.includes(task.status)).length >= BOARD_ACTIVE_MAX) throw fail(`This board already has ${BOARD_ACTIVE_MAX} open entries. Move some to done first.`, 409);
+      if (bundle.tasks.length >= BOARD_TOTAL_MAX) {
+        // Auto-archive the oldest finished entries so open work is never blocked by history.
+        const finished = bundle.tasks.filter(task => DONE.includes(task.status));
+        const drop = new Set(finished.slice(0, bundle.tasks.length - BOARD_TOTAL_MAX + 1 + Math.floor(BOARD_TOTAL_MAX / 10)).map(task => task.id));
+        for (const id of drop) store.archiveTask(bundle.project.id, id);
+        for (let i = bundle.tasks.length - 1; i >= 0; i -= 1) if (drop.has(bundle.tasks[i].id)) bundle.tasks.splice(i, 1);
+      }
       const existing = bundle.tasks.find(task => task.title.toLowerCase() === title.toLowerCase() && !['completed', 'canceled', 'failed'].includes(task.status));
       if (existing) return existing.id;
       const task = { id: mintCollabId('t'), title, spec: clean(body.spec, 2000) || title, acceptance: clean(body.acceptance, 1000), dependsOn: [], owner: clean(body.owner, 64) || by, reviewer: '', role: 'builder', skillsHint: [], risk: '', status: BOARD_STATUS[body.status] || 'submitted', attempts: 0, reviewAttempts: 0, maxAttempts: 0, lease: null, artifacts: [], summary: note, reviewNotes: '', lastError: '', checkins: [], createdAt: now() };

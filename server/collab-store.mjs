@@ -61,6 +61,14 @@ export function createCollabStore(directory) {
     atomicWrite(path.join(projectDir(projectId), 'tasks', `${task.id}.json`), JSON.stringify(task));
   }
 
+  // Move a finished board entry out of the live task set (kept on disk under tasks-archive/).
+  function archiveTask(projectId, taskId) {
+    if (!taskPattern.test(taskId || '')) throw fail('Unknown Collab task.', 404);
+    const dest = path.join(projectDir(projectId), 'tasks-archive');
+    fs.mkdirSync(dest, { recursive: true, mode: 0o700 });
+    try { fs.renameSync(path.join(projectDir(projectId), 'tasks', `${taskId}.json`), path.join(dest, `${taskId}.json`)); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  }
+
   function listTasks(projectId) {
     const dir = path.join(projectDir(projectId), 'tasks');
     let names = [];
@@ -225,5 +233,5 @@ export function createCollabStore(directory) {
     fs.rmSync(projectDir(id), { recursive: true, force: true });
   }
 
-  return { load, save, writeProject, appendEvent, readEvents, putArtifact, readArtifact, listProjects, listArtifactMetas, removeProject, initWorkspace, listWorkspaceFiles };
+  return { load, save, archiveTask, writeProject, appendEvent, readEvents, putArtifact, readArtifact, listProjects, listArtifactMetas, removeProject, initWorkspace, listWorkspaceFiles };
 }

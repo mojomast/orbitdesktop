@@ -22,6 +22,8 @@ export function createCollabBoard({ runtimeRoot, collab, groups, workspace }) {
   const chain = new Map();
   const serial = (id, fn) => { const p = (chain.get(id) || Promise.resolve()).then(fn, fn); chain.set(id, p.catch(() => {})); return p; };
 
+  // list: every open entry plus the 50 most recent finished ones, so output stays usable on long-lived boards.
+  const listView = tasks => { const fin = new Set(tasks.filter(t => ['completed', 'canceled', 'failed'].includes(t.status)).slice(-50).map(t => t.id)); return tasks.filter(t => fin.has(t.id) || !['completed', 'canceled', 'failed'].includes(t.status)).map(entryView); };
   const entryView = t => ({ id: t.id, title: t.title, status: t.status, owner: t.owner, summary: t.summary || '', checkins: (t.checkins || []).slice(-3) });
 
   // get: full detail for one entry. Priority / file scope / deps come from the structured spec lines the
@@ -60,7 +62,7 @@ export function createCollabBoard({ runtimeRoot, collab, groups, workspace }) {
     return serial(g.id, async () => {
       if (b.op === 'list') {
         const { link, st } = await boardFor(g, false);
-        return { group: g.id, board: link ? link.projectId : null, entries: st ? st.tasks.map(entryView) : [] };
+        return { group: g.id, board: link ? link.projectId : null, entries: st ? listView(st.tasks) : [] };
       }
       if (b.op === 'get') {
         const { link, st } = await boardFor(g, false);
