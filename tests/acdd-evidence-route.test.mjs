@@ -149,7 +149,8 @@ test('client helpers: authorized GET request and escaped list', () => {
   assert.match(html, /data-contract="W1-pricing"/);
   assert.match(html, /2 records/);
   assert.match(contractListHtml([]), /No ACDD evidence yet/);
-  assert.ok(!/<script|on[a-z]+=/i.test(html));
+  // Escaped text may still *contain* 'onerror=' as harmless text; what must never appear is a real tag with a handler.
+  assert.ok(!/<script|<[a-z][^>]*\son[a-z]+=/i.test(html));
 });
 
 // AC-009: Orbit's existing navigation reaches the view: a command and a Hermes menu item, plus the server route.
