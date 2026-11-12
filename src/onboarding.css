@@ -1,1 +1,572 @@
-.orbit-onboarding{box-sizing:border-box;width:min(720px,calc(100vw - 24px));max-height:calc(100dvh - 24px);padding:28px;border:1px solid #526176;border-radius:20px;background:#121c2b;color:#edf3fb;box-shadow:0 24px 100px #0009;font:16px/1.6 system-ui,sans-serif;overflow:auto;color-scheme:dark}.orbit-onboarding::backdrop{background:rgba(4,9,17,.8)}.orbit-onboarding .tour-top,.orbit-onboarding .tour-footer{display:flex;align-items:center;justify-content:space-between;gap:12px}.orbit-onboarding .tour-top{font-size:12px;letter-spacing:.08em;color:#b5f268}.orbit-onboarding h1{font-size:30px;line-height:1.2;margin:24px 0 16px;outline:none}.orbit-onboarding p{margin:0 0 16px}.orbit-onboarding button{font:inherit;font-size:14px;min-height:44px;padding:8px 16px;border:1px solid #53647d;border-radius:10px;background:#233147;color:#fff;cursor:pointer}.orbit-onboarding button:focus-visible,.orbit-onboarding textarea:focus-visible{outline:3px solid #b5f268;outline-offset:3px}.orbit-onboarding button:disabled{opacity:.4;cursor:default}.orbit-onboarding .tour-footer{margin-top:16px;border-top:1px solid #39485d;padding-top:18px}.orbit-onboarding .tour-footer button:last-child{background:#b5f268;color:#111c17;border-color:#b5f268}.orbit-onboarding .tour-progress{font-size:13px;white-space:nowrap;color:#b6c6dc}.orbit-onboarding .tour-status{font-size:13px;color:#b5f268;margin:12px 0 0}.orbit-onboarding .tour-prompt{display:block;box-sizing:border-box;width:100%;height:150px;resize:vertical;margin:12px 0;font:14px/1.5 system-ui;padding:14px;background:#0b1320;color:#e4edfa;border:1px solid #526176;border-radius:10px}@media(max-width:500px){.orbit-onboarding{padding:18px;font-size:14px}.orbit-onboarding h1{font-size:24px}.orbit-onboarding .tour-top{letter-spacing:0;font-size:10px}.orbit-onboarding button{padding:8px 12px}}
+/* Orbit onboarding. Dark only: every surface uses the workspace theme tokens. */
+
+.orbit-onboarding,
+.orbit-setup-wizard {
+  box-sizing: border-box;
+  color-scheme: dark;
+  color: #edf3fb;
+  background: #10171b;
+  border: 1px solid var(--line, #293236);
+  box-shadow: 0 24px 100px #0009;
+}
+
+.orbit-onboarding {
+  width: min(720px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  padding: 28px;
+  border-radius: 20px;
+  font: 16px/1.6 system-ui, sans-serif;
+  overflow: auto;
+}
+
+.orbit-onboarding::backdrop {
+  background: rgba(4, 9, 17, 0.82);
+}
+
+.orbit-onboarding .tour-top,
+.orbit-onboarding .tour-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.orbit-onboarding .tour-top {
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--lime, #c2ed90);
+}
+
+.orbit-onboarding h1 {
+  font-size: 30px;
+  line-height: 1.2;
+  margin: 24px 0 16px;
+  outline: none;
+}
+
+.orbit-onboarding p {
+  margin: 0 0 16px;
+}
+
+.orbit-onboarding button {
+  font: inherit;
+  font-size: 14px;
+  min-height: 44px;
+  padding: 8px 16px;
+  border: 1px solid #53647d;
+  border-radius: 10px;
+  background: #233147;
+  color: #edf3fb;
+  cursor: pointer;
+}
+
+.orbit-onboarding button:focus-visible,
+.orbit-onboarding textarea:focus-visible {
+  outline: 3px solid var(--lime, #c2ed90);
+  outline-offset: 3px;
+}
+
+.orbit-onboarding button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.orbit-onboarding .tour-footer {
+  margin-top: 16px;
+  border-top: 1px solid var(--line, #293236);
+  padding-top: 18px;
+}
+
+.orbit-onboarding .tour-footer button:last-child {
+  background: var(--lime, #c2ed90);
+  color: #111c17;
+  border-color: var(--lime, #c2ed90);
+}
+
+.orbit-onboarding .tour-progress {
+  font-size: 13px;
+  white-space: nowrap;
+  color: #b6c6dc;
+}
+
+.orbit-onboarding .tour-status {
+  font-size: 13px;
+  color: var(--lime, #c2ed90);
+  margin: 12px 0 0;
+}
+
+.orbit-onboarding .tour-prompt {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  height: 150px;
+  resize: vertical;
+  margin: 12px 0;
+  font: 14px/1.5 system-ui;
+  padding: 14px;
+  background: #0b1320;
+  color: #e4edfa;
+  border: 1px solid #526176;
+  border-radius: 10px;
+}
+
+.orbit-setup-wizard {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  width: min(860px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  padding: 26px;
+  border-radius: 18px;
+  font: 15px/1.55 system-ui, sans-serif;
+  overflow: auto;
+}
+
+.orbit-setup-wizard h1,
+.orbit-setup-wizard h2,
+.orbit-setup-wizard h3 {
+  margin: 0;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+}
+
+.orbit-setup-wizard h1 {
+  font-size: 28px;
+  outline: none;
+}
+
+.orbit-setup-wizard h2 {
+  font-size: 22px;
+  color: #f0f6ff;
+}
+
+.orbit-setup-wizard h3 {
+  font-size: 15px;
+  color: #dce7f5;
+}
+
+.orbit-setup-wizard p {
+  margin: 0;
+  color: #b8c5d6;
+}
+
+.orbit-setup-wizard .onboarding-top {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line, #293236);
+}
+
+.orbit-setup-wizard .onboarding-progress {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  color: var(--muted, #869497);
+}
+
+.orbit-setup-wizard .onboarding-progress li {
+  padding: 5px 10px;
+  border: 1px solid #2f3b40;
+  border-radius: 999px;
+  background: #0c1317;
+}
+
+.orbit-setup-wizard .onboarding-progress li[data-current="true"] {
+  border-color: var(--lime, #c2ed90);
+  color: #10170f;
+  background: var(--lime, #c2ed90);
+  font-weight: 650;
+}
+
+.orbit-setup-wizard .onboarding-progress li[data-done="true"] {
+  color: #d9e7c9;
+  border-color: #50624a;
+}
+
+.orbit-setup-wizard .onboarding-content {
+  min-height: 320px;
+}
+
+.orbit-setup-wizard .onboarding-step-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.orbit-setup-wizard :is(button, select, input, textarea):focus-visible,
+.orbit-setup-wizard .onboarding-mode-option:focus-within,
+.orbit-setup-wizard .onboarding-toggle:focus-within {
+  outline: 2px solid var(--lime, #c2ed90);
+  outline-offset: 2px;
+}
+
+.orbit-setup-wizard button {
+  min-height: 40px;
+  padding: 8px 14px;
+  border: 1px solid #354044;
+  border-radius: 8px;
+  background: #1a272c;
+  color: #e5edf3;
+}
+
+.orbit-setup-wizard button:hover {
+  background: #223238;
+  border-color: #4b5c53;
+}
+
+.orbit-setup-wizard button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.orbit-setup-wizard .onboarding-primary {
+  background: var(--lime, #c2ed90);
+  color: #111c17;
+  border-color: var(--lime, #c2ed90);
+  font-weight: 650;
+}
+
+.orbit-setup-wizard .onboarding-danger {
+  color: #ffc7c2;
+  border-color: #6b3b38;
+  background: #2a1a19;
+}
+
+.orbit-setup-wizard :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 40px;
+  padding: 9px 10px;
+  border: 1px solid #354044;
+  border-radius: 7px;
+  background: #0c1418;
+  color: #e6eef5;
+}
+
+.orbit-setup-wizard input[type="checkbox"],
+.orbit-setup-wizard input[type="radio"] {
+  accent-color: var(--lime, #c2ed90);
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+}
+
+.orbit-setup-wizard .onboarding-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: #dbe6f2;
+  font-size: 13px;
+}
+
+.orbit-setup-wizard .onboarding-field-label {
+  font-weight: 600;
+}
+
+.orbit-setup-wizard .onboarding-hint,
+.orbit-setup-wizard .onboarding-empty,
+.orbit-setup-wizard .onboarding-detected {
+  color: var(--muted, #869497);
+  font-size: 12px;
+}
+
+.orbit-setup-wizard .onboarding-fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid #2c393e;
+  border-radius: 12px;
+  background: #0d151a;
+}
+
+.orbit-setup-wizard .onboarding-fieldset legend {
+  padding: 0 6px;
+  color: #e7f0f8;
+  font-weight: 650;
+}
+
+.orbit-setup-wizard .onboarding-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 6px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.orbit-setup-wizard .onboarding-toggle:hover {
+  background: #131f24;
+}
+
+.orbit-setup-wizard .onboarding-toggle-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.orbit-setup-wizard .onboarding-toggle-copy small {
+  color: var(--muted, #869497);
+  font-size: 12px;
+}
+
+.orbit-setup-wizard .onboarding-advanced {
+  padding: 10px 12px;
+  border: 1px solid #2c393e;
+  border-radius: 10px;
+  background: #0b1216;
+}
+
+.orbit-setup-wizard .onboarding-advanced summary {
+  cursor: pointer;
+  color: #c9d6e4;
+  font-size: 13px;
+}
+
+.orbit-setup-wizard .onboarding-advanced > * + * {
+  margin-top: 8px;
+}
+
+.orbit-setup-wizard .onboarding-opencode {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px solid #263238;
+}
+
+.orbit-setup-wizard .onboarding-mode-toggle {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.orbit-setup-wizard .onboarding-mode-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 13px;
+  border: 1px solid #2f3b40;
+  border-radius: 12px;
+  background: #0d151a;
+  cursor: pointer;
+}
+
+.orbit-setup-wizard .onboarding-mode-option:has(input:checked) {
+  border-color: var(--lime, #c2ed90);
+  background: #17211a;
+}
+
+.orbit-setup-wizard .onboarding-mode-option:has(input:disabled) {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.orbit-setup-wizard .onboarding-mode-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 13px;
+}
+
+.orbit-setup-wizard .onboarding-mode-copy small {
+  color: var(--muted, #869497);
+}
+
+.orbit-setup-wizard .onboarding-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid #2c393e;
+  border-radius: 14px;
+  background: #0b1216;
+}
+
+.orbit-setup-wizard .onboarding-provider-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.orbit-setup-wizard .onboarding-provider {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 13px;
+  border: 1px solid #2f3b40;
+  border-radius: 11px;
+  background: #101a1f;
+}
+
+.orbit-setup-wizard .onboarding-provider-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.orbit-setup-wizard .onboarding-provider-identity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.orbit-setup-wizard .onboarding-badge {
+  padding: 2px 8px;
+  border: 1px solid #40514a;
+  border-radius: 999px;
+  color: #cbd9c3;
+  background: #17211a;
+  font-size: 11px;
+}
+
+.orbit-setup-wizard .onboarding-key-state {
+  color: #c9d6e4;
+  font: 12px/1.4 ui-monospace, monospace;
+}
+
+.orbit-setup-wizard .onboarding-provider-url {
+  color: var(--muted, #869497);
+  font: 12px/1.4 ui-monospace, monospace;
+  overflow-wrap: anywhere;
+}
+
+.orbit-setup-wizard .onboarding-provider-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.orbit-setup-wizard .onboarding-provider-actions .onboarding-key-input {
+  flex: 1 1 180px;
+  min-width: 140px;
+}
+
+.orbit-setup-wizard .onboarding-inline-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #c8d4e0;
+  font-size: 12px;
+}
+
+.orbit-setup-wizard .onboarding-provider-form {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  padding: 14px;
+  border: 1px dashed #3a4a50;
+  border-radius: 12px;
+  background: #0a1115;
+}
+
+.orbit-setup-wizard .onboarding-provider-form h3,
+.orbit-setup-wizard .onboarding-provider-form button {
+  grid-column: 1 / -1;
+}
+
+.orbit-setup-wizard .onboarding-provider-form button {
+  justify-self: start;
+}
+
+.orbit-setup-wizard .onboarding-role-list,
+.orbit-setup-wizard .onboarding-review-list {
+  display: grid;
+  grid-template-columns: minmax(110px, auto) 1fr;
+  gap: 8px 16px;
+  margin: 0;
+  padding: 14px;
+  border: 1px solid #2c393e;
+  border-radius: 12px;
+  background: #0b1216;
+}
+
+.orbit-setup-wizard .onboarding-role-list dt,
+.orbit-setup-wizard .onboarding-review-list dt {
+  color: #dbe6f2;
+  font-weight: 650;
+}
+
+.orbit-setup-wizard .onboarding-role-list dd,
+.orbit-setup-wizard .onboarding-review-list dd {
+  margin: 0;
+  color: #b8c5d6;
+}
+
+.orbit-setup-wizard .onboarding-note {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border-left: 3px solid var(--lime, #c2ed90);
+  border-radius: 0 10px 10px 0;
+  background: #111b16;
+  color: #c7d4c0;
+  font-size: 13px;
+}
+
+.orbit-setup-wizard .onboarding-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line, #293236);
+}
+
+.orbit-setup-wizard .onboarding-step-label {
+  color: var(--muted, #869497);
+  font-size: 12px;
+}
+
+.orbit-setup-wizard .onboarding-status {
+  min-height: 1.4em;
+  margin: 0;
+  color: var(--lime, #c2ed90);
+  font-size: 13px;
+}
+
+.orbit-setup-wizard .onboarding-status[data-error="true"] {
+  color: #ffb4ab;
+}
+
+@media (max-width: 560px) {
+  .orbit-onboarding {
+    padding: 18px;
+    font-size: 14px;
+  }
+
+  .orbit-onboarding h1 {
+    font-size: 24px;
+  }
+
+  .orbit-onboarding .tour-top {
+    letter-spacing: 0;
+    font-size: 10px;
+  }
+
+  .orbit-onboarding button {
+    padding: 8px 12px;
+  }
+
+  .orbit-setup-wizard {
+    padding: 18px;
+  }
+
+  .orbit-setup-wizard h1 {
+    font-size: 23px;
+  }
+
+  .orbit-setup-wizard .onboarding-footer {
+    flex-wrap: wrap;
+  }
+}

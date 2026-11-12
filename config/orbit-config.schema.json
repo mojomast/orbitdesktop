@@ -1,0 +1,565 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://orbit.invalid/schemas/orbit-config.schema.json",
+  "title": "Orbit configuration",
+  "description": "One owner-facing document for install choices, providers, keys by reference, roles and the optional token router. Secrets never appear in this document.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "components"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "providerMode": {
+      "description": "Compatibility summary derived from router.enabled. router.enabled is authoritative.",
+      "enum": [
+        "direct",
+        "router"
+      ],
+      "default": "direct"
+    },
+    "components": {
+      "$ref": "#/$defs/components"
+    },
+    "providers": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "$ref": "#/$defs/provider"
+      }
+    },
+    "roles": {
+      "$ref": "#/$defs/roles"
+    },
+    "router": {
+      "$ref": "#/$defs/router"
+    },
+    "appliedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "installState": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9-]{0,63}$"
+      },
+      "additionalProperties": {
+        "enum": [
+          "pending",
+          "installed",
+          "failed",
+          "skipped"
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,31}$"
+    },
+    "keyFile": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,96}\\.key$"
+    },
+    "envName": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+    },
+    "keyRef": {
+      "description": "A pointer only. The key value is stored in the runtime keys directory or supplied by the server environment.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "file"
+          ],
+          "properties": {
+            "file": {
+              "$ref": "#/$defs/keyFile"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "env"
+          ],
+          "properties": {
+            "env": {
+              "$ref": "#/$defs/envName"
+            }
+          }
+        }
+      ]
+    },
+    "fileKeyRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "file"
+      ],
+      "properties": {
+        "file": {
+          "$ref": "#/$defs/keyFile"
+        }
+      }
+    },
+    "components": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "core"
+      ],
+      "properties": {
+        "core": {
+          "const": true
+        },
+        "pi": {
+          "type": "boolean",
+          "default": false
+        },
+        "opencode": {
+          "type": "boolean",
+          "default": false
+        },
+        "hermes": {
+          "type": "boolean",
+          "default": false
+        },
+        "bundlebees": {
+          "type": "boolean",
+          "default": false
+        },
+        "workerPairing": {
+          "type": "boolean",
+          "default": false
+        },
+        "colab": {
+          "type": "boolean",
+          "default": false
+        },
+        "router": {
+          "description": "Must equal router.enabled. When false nothing router-related is rendered, configured or started.",
+          "type": "boolean",
+          "default": false
+        },
+        "apps": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+          }
+        }
+      }
+    },
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "label"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "kind": {
+          "enum": [
+            "opencode-free",
+            "openai-compatible",
+            "openrouter",
+            "anthropic",
+            "pi",
+            "router"
+          ]
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "baseUrl": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https?://",
+          "maxLength": 2048
+        },
+        "keyRef": {
+          "$ref": "#/$defs/keyRef"
+        },
+        "privacyNote": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "routerType": {
+          "enum": [
+            "hosted",
+            "self-hosted"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "router"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "baseUrl",
+              "routerType"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "not": {
+                  "const": "router"
+                }
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "routerType": false
+            }
+          }
+        }
+      ]
+    },
+    "role": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider",
+        "model"
+      ],
+      "properties": {
+        "provider": {
+          "type": "string",
+          "pattern": "^$|^[a-z0-9][a-z0-9-]{0,31}$"
+        },
+        "model": {
+          "type": "string",
+          "maxLength": 200
+        }
+      }
+    },
+    "roles": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "setup": {
+          "$ref": "#/$defs/role"
+        },
+        "chat": {
+          "$ref": "#/$defs/role"
+        },
+        "workers": {
+          "$ref": "#/$defs/role"
+        },
+        "summarize": {
+          "$ref": "#/$defs/role"
+        },
+        "compaction": {
+          "$ref": "#/$defs/role"
+        },
+        "vision": {
+          "$ref": "#/$defs/role"
+        }
+      }
+    },
+    "interval": {
+      "type": "string",
+      "pattern": "^[0-9]+(m|h|d|w|mo)$"
+    },
+    "router": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false
+        },
+        "mode": {
+          "enum": [
+            "builtin",
+            "external"
+          ],
+          "default": "builtin"
+        },
+        "engine": {
+          "enum": [
+            "bifrost",
+            "litellm"
+          ],
+          "default": "bifrost"
+        },
+        "image": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300,
+          "not": {
+            "pattern": "(^|[:/])latest(@|$)"
+          }
+        },
+        "bind": {
+          "enum": [
+            "internal",
+            "loopback"
+          ],
+          "default": "internal"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "default": 8080
+        },
+        "contentLogging": {
+          "type": "boolean",
+          "default": false
+        },
+        "allowPrivateNetwork": {
+          "type": "boolean",
+          "default": false
+        },
+        "upstreams": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "providerId"
+            ],
+            "properties": {
+              "providerId": {
+                "$ref": "#/$defs/id"
+              },
+              "weight": {
+                "type": "number",
+                "minimum": 0,
+                "default": 1
+              },
+              "models": {
+                "type": "array",
+                "maxItems": 64,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                }
+              }
+            }
+          }
+        },
+        "fallbacks": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "model",
+              "then"
+            ],
+            "properties": {
+              "model": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "then": {
+                "type": "array",
+                "maxItems": 64,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                }
+              }
+            }
+          }
+        },
+        "virtualKeys": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "role",
+              "keyRef"
+            ],
+            "properties": {
+              "role": {
+                "$ref": "#/$defs/id"
+              },
+              "keyRef": {
+                "$ref": "#/$defs/fileKeyRef"
+              },
+              "allowedModels": {
+                "type": "array",
+                "maxItems": 64,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                }
+              },
+              "budget": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "usd",
+                  "reset"
+                ],
+                "properties": {
+                  "usd": {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  "reset": {
+                    "$ref": "#/$defs/interval"
+                  }
+                }
+              },
+              "rateLimit": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "requests": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "tokens": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "reset": {
+                    "$ref": "#/$defs/interval"
+                  }
+                }
+              },
+              "expiresAt": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              }
+            }
+          }
+        },
+        "external": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "baseUrl": {
+              "type": "string",
+              "maxLength": 2048,
+              "pattern": "^$|^https?://"
+            },
+            "keyRef": {
+              "$ref": "#/$defs/fileKeyRef"
+            }
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "components": {
+            "properties": {
+              "router": {
+                "const": true
+              }
+            },
+            "required": [
+              "router"
+            ]
+          }
+        },
+        "required": [
+          "components"
+        ]
+      },
+      "then": {
+        "properties": {
+          "router": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            },
+            "required": [
+              "enabled"
+            ]
+          }
+        },
+        "required": [
+          "router"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "router": {
+            "properties": {
+              "enabled": {
+                "const": true
+              }
+            },
+            "required": [
+              "enabled"
+            ]
+          }
+        },
+        "required": [
+          "router"
+        ]
+      },
+      "then": {
+        "properties": {
+          "components": {
+            "properties": {
+              "router": {
+                "const": true
+              }
+            },
+            "required": [
+              "router"
+            ]
+          }
+        },
+        "required": [
+          "components"
+        ]
+      }
+    }
+  ]
+}
