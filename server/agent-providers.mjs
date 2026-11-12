@@ -71,9 +71,20 @@ function providerId(provider) {
   return AGENT_PROVIDER_ID.test(id) ? id : 'unknown';
 }
 
+// Gateway providers added at runtime (for example the OpenAI-compatible chat
+// agent configured in orbit-config.json). The static list stays the built-ins.
+const runtimeGatewayProviders = new Set();
+
+/** Mark a configured adapter id as reached through the gateway command set. */
+export function registerGatewayProvider(id) {
+  if (typeof id !== 'string' || !AGENT_PROVIDER_ID.test(id) || id === 'hermes') throw Error('Invalid gateway provider id.');
+  runtimeGatewayProviders.add(id);
+}
+
 /** True for a provider Orbit reaches through an agent gateway rather than Hermes. */
 export function isGatewayProvider(provider) {
-  return GATEWAY_PROVIDERS.includes(providerId(provider));
+  const id = providerId(provider);
+  return GATEWAY_PROVIDERS.includes(id) || runtimeGatewayProviders.has(id);
 }
 
 /** Display name for a provider id. Unknown ids are unconfigured, never Hermes. */

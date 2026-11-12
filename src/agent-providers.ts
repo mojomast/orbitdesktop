@@ -47,6 +47,7 @@ const BUILTINS: AgentProviderDefinition[] = [
   { id: 'hermes', label: 'Hermes', mark: 'H', kind: 'hermes', capabilities: { compact: true, modelSwitch: true, contextMeter: true, approvals: true, streaming: true }, configured: false, configHint: 'Configure a Hermes API connection.' },
   { id: 'grok', label: 'Grok Bot', mark: 'G', kind: 'grok', capabilities: { compact: true, modelSwitch: false, contextMeter: true, approvals: true, streaming: true }, configured: false, configHint: 'Configure a Grok Bot gateway.' },
   { id: 'pi', label: 'Pi', mark: 'P', kind: 'pi', capabilities: { compact: true, modelSwitch: true, contextMeter: true, approvals: false, streaming: true }, configured: false, configHint: 'Configure the Pi harness.' },
+  { id: 'openai-compatible', label: 'OpenAI-compatible', mark: 'O', kind: 'openai-compatible', capabilities: { compact: false, modelSwitch: false, contextMeter: false, approvals: false, streaming: true }, configured: false, configHint: 'Choose an OpenAI-compatible provider for chat in Settings.' },
 ];
 
 let registry = new Map<string, AgentProviderDefinition>(BUILTINS.map(definition => [definition.id, cloneDefinition(definition)]));
@@ -118,7 +119,8 @@ export function profileProvider(profileId: unknown, listedProvider?: unknown): A
 
 /** True when this provider is reached through an agent gateway, not the Hermes run API. */
 export function isGatewayProvider(provider: unknown): boolean {
-  return GATEWAY_PROVIDERS.includes(asProvider(provider));
+  const id = asProvider(provider);
+  return GATEWAY_PROVIDERS.includes(id) || registry.get(id)?.kind === 'openai-compatible';
 }
 
 /** Display name for a provider id. Unknown ids are unconfigured, never Hermes. */

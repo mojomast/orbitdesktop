@@ -1,3 +1,10 @@
+## The opt-in token router lives in compose.router.yml under the `router`
+## profile. A plain `docker compose up` never starts it; Orbit writes
+## COMPOSE_PROFILES=router to the runtime .env only when you choose the router.
+## `include` needs Docker Compose v2.20 or newer.
+include:
+  - compose.router.yml
+
 services:
   orbit:
     build:
@@ -17,6 +24,7 @@ services:
       - "127.0.0.1:4318:4318"
     volumes:
       - orbit-runtime:/home/node/.orbit-runtime
+    networks: [default, orbit-internal]
     restart: unless-stopped
     # The owner token is generated on first start and stored 0600 in the
     # runtime volume, never in this file or the service logs. Retrieve a
