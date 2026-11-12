@@ -189,7 +189,11 @@
 }
 
 .orbit-setup-wizard .onboarding-content {
-  min-height: 320px;
+  /* Scroll inside the capped wizard so long steps never run under the footer. */
+  flex: 1 1 auto;
+  min-height: min(320px, 40dvh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .orbit-setup-wizard .onboarding-step-panel {
@@ -570,3 +574,8 @@
     flex-wrap: wrap;
   }
 }
+
+/* Optional GitHub / Repos card on Review, and the Skip button. */
+.orbit-setup-wizard .onboarding-optional-card { display: grid; gap: 8px; margin-top: 14px; padding: 12px 14px; border: 1px dashed #ffffff33; border-radius: 10px; background: #ffffff06; }
+.orbit-setup-wizard .onboarding-optional-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.orbit-setup-wizard .orbit-github-skip { justify-self: start; margin-top: 4px; }

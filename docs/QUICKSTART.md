@@ -104,7 +104,7 @@ external router is allowed because it starts nothing locally; the built-in
 router is not part of Minimal install. See
 [Setup modes](CONFIG.md#setup-modes-minimal-install-and-custom).
 
-### Custom (the granular four-step path)
+### Custom (the granular path)
 
 Custom is the full wizard:
 
@@ -114,8 +114,17 @@ Custom is the full wizard:
    one endpoint.
 3. **Models** — choose one model per role: `setup`, `chat`, `workers` and
    `summarize`, plus `compaction` and `vision` when present.
-4. **Review and apply** — confirm the components, providers, models and router
+4. **Connect GitHub (optional)** — paste a token or use device sign-in, or
+   choose **Skip GitHub for now**. The token is stored on this machine only
+   (0600) and never shown again.
+5. **Repos to watch** — the `owner/name` repositories whose commits, pull
+   requests and CI Orbit tracks. Empty by default.
+6. **Review and apply** — confirm the components, providers, models and router
    choice.
+
+Minimal install skips steps 3 to 5. Its Review step has a card that opens
+Connect GitHub and Repos to watch, and both are also in Settings. See
+[ONBOARDING-GITHUB.md](ONBOARDING-GITHUB.md).
 
 The review step records `appliedAt` and marks each selected component pending.
 The setup agent then installs only what you selected and reports progress back

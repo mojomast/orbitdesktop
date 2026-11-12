@@ -2,6 +2,7 @@
 // by the first-run wizard, available after setup. Dark theme only.
 
 import './settings.css';
+import { createGithubApi, renderGithubSection, renderReposSection, type GithubApi } from './onboarding-github';
 import {
   createOnboardingApi,
   type OnboardingApi,
@@ -49,7 +50,7 @@ export interface SettingsHandle {
 }
 
 /** Mount the Settings page. Components, providers, roles and mode are editable. */
-export function mountSettings(root: HTMLElement, api: OnboardingApi = createOnboardingApi()): SettingsHandle {
+export function mountSettings(root: HTMLElement, api: OnboardingApi = createOnboardingApi(), github: GithubApi = createGithubApi({ basePath: '/api/settings' })): SettingsHandle {
   const container = node('section', 'orbit-settings');
   container.setAttribute('aria-labelledby', 'orbit-settings-title');
   const title = node('h1', '', 'Orbit settings');
@@ -361,9 +362,33 @@ export function mountSettings(root: HTMLElement, api: OnboardingApi = createOnbo
     return block;
   }
 
+  function githubEditor(): HTMLElement {
+    const block = node('section', 'settings-section settings-github');
+    block.append(renderGithubSection({ api: github, notify, heading: 'h2' }));
+    return block;
+  }
+
+  function reposEditor(): HTMLElement {
+    const block = node('section', 'settings-section settings-repos');
+    const repos = renderReposSection({ api: github, notify, heading: 'h2' });
+    const save = node('button', 'onboarding-primary', 'Save repositories') as HTMLButtonElement;
+    save.type = 'button';
+    save.setAttribute('aria-label', 'Save repositories to watch');
+    save.addEventListener('click', async () => {
+      try {
+        const saved = await repos.save();
+        notify(saved.length ? `Watching ${saved.length} ${saved.length === 1 ? 'repository' : 'repositories'}.` : 'No repositories are watched.');
+      } catch (error) {
+        notify(error instanceof Error ? error.message : 'The repositories could not be saved.', true);
+      }
+    });
+    block.append(repos.element, save);
+    return block;
+  }
+
   function render(): void {
     if (!state) return;
-    content.replaceChildren(componentsEditor(), providerEditor(), modeEditor(), rolesEditor());
+    content.replaceChildren(componentsEditor(), providerEditor(), modeEditor(), rolesEditor(), githubEditor(), reposEditor());
     const review = node('section', 'settings-section');
     review.append(node('h2', '', 'Summary'));
     review.append(renderReviewStep(context() as never));

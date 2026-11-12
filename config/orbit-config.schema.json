@@ -49,6 +49,27 @@
     "router": {
       "$ref": "#/$defs/router"
     },
+    "observability": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "What Orbit's observability views track. Empty for new installs; edit in Settings \u2192 Repos to watch.",
+      "default": {
+        "repos": []
+      },
+      "properties": {
+        "repos": {
+          "type": "array",
+          "default": [],
+          "maxItems": 50,
+          "uniqueItems": true,
+          "description": "GitHub repositories (owner/name) whose commits, pull requests and CI runs are tracked. De-duplicated case-insensitively.",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9-]{0,38}/(?!\\.{1,2}$)[A-Za-z0-9._-]{1,100}$"
+          }
+        }
+      }
+    },
     "appliedAt": {
       "type": "string",
       "format": "date-time"
