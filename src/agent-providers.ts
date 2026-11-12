@@ -103,6 +103,19 @@ export function asProvider(value: unknown): AgentProvider {
   return providerId(value);
 }
 
+/**
+ * Provider for a chat profile. A listed profile names its provider explicitly.
+ * An unlisted profile id (for example a Hermes profile such as "research",
+ * before or without the profile list) is a provider only when that id is a
+ * known adapter; otherwise it is a legacy Hermes profile. This keeps explicit
+ * unknown provider ids unconfigured while profile names stay Hermes.
+ */
+export function profileProvider(profileId: unknown, listedProvider?: unknown): AgentProvider {
+  if (listedProvider !== undefined) return asProvider(listedProvider);
+  const id = providerId(profileId);
+  return registry.has(id) ? id : 'hermes';
+}
+
 /** True when this provider is reached through an agent gateway, not the Hermes run API. */
 export function isGatewayProvider(provider: unknown): boolean {
   return GATEWAY_PROVIDERS.includes(asProvider(provider));
