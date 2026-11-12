@@ -45,6 +45,7 @@ import { createGrokBotsApp } from './grokbots-app.mjs';
 import { createAgentStatus } from './agent-status.mjs';
 import { createCollabBoard } from './collab-board.mjs';
 import { createLocalWorkersRoute } from './local-workers-route.mjs';
+import { createAcddEvidenceRoute } from './acdd-evidence-route.mjs';
 const port = Number(process.env.PORT || 4318);
 if (!Number.isInteger(port) || port < 1024 || port > 65535)
   throw Error("PORT must be between 1024 and 65535");
@@ -131,6 +132,7 @@ const colab = createColabOrchestrator({ token, port, devOrigins, reply, root: pa
 const kittyDoom = createKittyDoomService({ token, port, devOrigins, reply });
 // Grok Bots app: capability-scoped list/history/send for the sandboxed app iframe.
 const agentStatus = createAgentStatus({ runtimeRoot });
+const acddEvidence = createAcddEvidenceRoute({ stateDir: process.env.ORBIT_ACDD_STATE_DIR || '', authorize: req => allowedRequest(req, port, devOrigins) && tokenMatches(String(req.headers.authorization || '').replace(/^Bearer /, ''), token) });
 const grokBotsApp = createGrokBotsApp({ runtimeRoot, catalog: () => agentHandler.profileCatalog?.(), agentStatus, chats: () => agentHandler.gatewayChats?.(), workspaceContext: workspaceService.context });
 const agentHandler = createAgentHandler({ token, port, devOrigins, reply, workspaceContext: workspaceService.context, workspaceRead:workspaceService.read, runtimeDirectory:runtimeRoot,executionGate,onRunEvent:event=>observeTechnologyTrace(event,'observeAgentRunEvent'),onNormalAccepted:record=>normalResources?.normalAccepted(record),
   ...(!explicitHermes && discovered.hermes ? { apiUrl: null, apiKey: null, profiles: [{ id: "default", label: discovered.hermes.label, apiUrl: discovered.hermes.apiUrl, apiKey: discovered.hermes.apiKey }] } : {}),
@@ -358,6 +360,7 @@ async function handleOrbitRequest(req, res) {
   if (url.pathname === '/api/grokbots-app') return grokBotsApp.handle(req, res);
   if (url.pathname === '/api/grokbots-app/upload') return grokBotsApp.upload(req, res);
   if (url.pathname === '/api/agent-status') return agentStatus.handle(req, res);
+  if (url.pathname === '/api/acdd-evidence') return acddEvidence.handle(req, res, url);
   if (url.pathname === '/api/collab-board') return collabBoard.handle(req, res);
   if (url.pathname === '/api/local-workers') { if (localWorkers) return localWorkers.handle(req, res); res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end('{"error":"local workers disabled"}'); }
   if (url.pathname === "/api/health")

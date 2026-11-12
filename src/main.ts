@@ -22,6 +22,7 @@ import './unified-taskbar.css';
 import { xpraApps } from './xpra-apps';
 import { installDesktopIcons } from './desktop-icons';
 import { showConnectionPasswords } from './connection-passwords';
+import { openAcddEvidence } from './acdd-evidence-window';
 import { workspaceId, ensureWorkspaceSynced } from './workspace-sync';
 import { pluginSelector, type PluginInstance } from './plugins';
 import { readPanePrefs, writePanePrefs } from './pane-prefs';
@@ -453,6 +454,7 @@ const commands = createWorkspaceCommands((): WorkspaceCommand[] => [
   { id: 'conversation-library', title: 'Conversation library', detail: 'Find, pin and resume agent conversations', group: 'Hermes', disabledReason: !sessionToken ? 'Connect host first to browse conversations.' : undefined, run: openConversationLibrary },
   { id: 'send-selection', title: 'Send selected text to conversation', detail: 'Review recently selected workspace text and choose a draft; never sends automatically', group: 'Hermes', disabledReason: !selectedWorkspaceText ? 'Select up to 20,000 characters of workspace text first.' : undefined, run: sendSelectedContext },
   { id: 'activity', title: 'Live activity', detail: 'Open host activity window', group: 'Hermes', run: () => openHostSurface('activity') },
+  { id: 'acdd-evidence', title: 'ACDD evidence', detail: 'Read-only contracts, RED/GREEN evidence and acceptance from bundlebees', group: 'Hermes', disabledReason: !sessionToken ? 'Connect host first to view ACDD evidence.' : undefined, run: () => { void openAcddEvidence(sessionToken); } },
   { id: 'collab', title: 'Collab', detail: 'Project board for Hermes and Grok Bot', group: 'Hermes', disabledReason: !sessionToken ? 'Connect host first to use Collab.' : undefined, run: () => openHostSurface('collab') },
   { id: 'irc', title: 'IRC', detail: 'IRC server and channel window', group: 'Apps', disabledReason: !sessionToken ? 'Connect host first to use IRC.' : undefined, run: () => openHostSurface('irc') },
   ...workspaceExtensions.map(extension => ({
@@ -570,6 +572,7 @@ function orbitMenuSections(): OrbitMenuSection[] {
       { id: 'conversation-library', label: 'Conversation library', icon: '☷', button: button('Conversation library', 'Conversation library', () => { void commands.execute('conversation-library'); }) },
       { id: 'send-selection', label: 'Send selected text to conversation', icon: '↗', button: button('Send selected text to conversation', 'Send selected text to conversation', () => { void commands.execute('send-selection'); }) },
       { id: 'activity', label: 'Live activity', icon: '↻', button: button('Live activity', 'Live activity', () => { void commands.execute('activity'); }) },
+      { id: 'acdd-evidence', label: 'ACDD evidence', icon: '✓', button: button('ACDD evidence', 'ACDD evidence', () => { void commands.execute('acdd-evidence'); }) },
       { id: 'collab', label: 'Collab', icon: '▦', button: button('Collab', 'Collab', () => { void commands.execute('collab'); }) },
       { id: 'irc', label: 'IRC', icon: '#', button: button('IRC', 'IRC', () => { void commands.execute('irc'); }) },
       ...hermesMenuItems,
