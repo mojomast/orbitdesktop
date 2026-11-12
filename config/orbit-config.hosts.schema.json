@@ -106,11 +106,14 @@
       "type": "object",
       "properties": {
         "sudo": { "enum": ["none", "scoped", "full"] },
-        "docker": { "enum": ["group", "rootless", "none"] },
+        "docker": { "enum": ["group", "rootless", "none"], "description": "group is root-equivalent on the host and needs dockerGroupRootEquivalent: true." },
+        "dockerGroupRootEquivalent": { "const": true, "description": "Explicit acknowledgement that docker group access is root-equivalent." },
         "forcedCommand": { "type": "boolean" },
         "terminal": { "type": "boolean" }
       },
-      "additionalProperties": false
+      "additionalProperties": false,
+      "if": { "properties": { "docker": { "const": "group" } }, "required": ["docker"] },
+      "then": { "required": ["dockerGroupRootEquivalent"] }
     },
     "permissions": {
       "type": "object",

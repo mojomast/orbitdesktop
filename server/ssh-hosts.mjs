@@ -34,7 +34,8 @@ const TAILCAT_ADDR = /^[A-Za-z0-9._:@/+=-]{1,4096}$/;
 const TRANSPORTS = new Set(['direct', 'proxyJump', 'tailscale', 'tailcat', 'cloudflare']);
 const AUTH_KINDS = new Set(['orbit-key', 'host-key', 'imported', 'certificate', 'tailscale-ssh']);
 const PERMISSION_LEVELS = new Set(['none', 'read', 'deploy', 'admin']);
-const PERMISSION_KEYS = new Set(['setup', 'pi', 'opencode', 'hermes', 'bundlebees']);
+const AGENT_ID = /^[a-z0-9][a-z0-9-]{0,31}$/;
+const MAX_PERMISSION_ENTRIES = 32;
 
 function object(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -293,24 +294,33 @@ export function createSshHosts({ runtimeDir, config, exec, log, saveConfig, now 
       if (!KEY_ID.test(keyId)) throw new Error('Invalid SSH key id.');
     }
     const privilegeInput = host.privilege === undefined ? {} : host.privilege;
-    rejectUnknown(privilegeInput, new Set(['sudo', 'docker', 'forcedCommand', 'terminal']), 'privilege');
+    rejectUnknown(privilegeInput, new Set(['sudo', 'docker', 'forcedCommand', 'terminal', 'dockerGroupRootEquivalent']), 'privilege');
     const sudo = privilegeInput.sudo ?? 'none';
     const docker = privilegeInput.docker ?? 'none';
     if (!['none', 'scoped', 'full'].includes(sudo)) throw new Error('Invalid sudo privilege.');
     if (!['group', 'rootless', 'none'].includes(docker)) throw new Error('Invalid docker privilege.');
+    // Docker group membership is root-equivalent on the host. It is never a
+    // default and is only stored with an explicit acknowledgement.
+    if (docker === 'group' && privilegeInput.dockerGroupRootEquivalent !== true) {
+      throw new Error('Docker group access is root-equivalent; set privilege.dockerGroupRootEquivalent: true to acknowledge it.');
+    }
     if (privilegeInput.forcedCommand !== undefined && typeof privilegeInput.forcedCommand !== 'boolean') throw new Error('Invalid forced-command flag.');
     if (privilegeInput.terminal !== undefined && typeof privilegeInput.terminal !== 'boolean') throw new Error('Invalid terminal flag.');
     const permissions = {
-      setup: 'deploy',
+      setup: 'none',
       pi: 'none',
       opencode: 'none',
       hermes: 'none',
-      bundlebees: 'deploy',
+      bundlebees: 'none',
     };
     if (host.permissions !== undefined) {
-      rejectUnknown(host.permissions, PERMISSION_KEYS, 'permissions');
+      if (!object(host.permissions)) throw new Error('Invalid SSH permissions.');
       for (const [key, value] of Object.entries(host.permissions)) {
+        if (!AGENT_ID.test(key)) throw new Error('Invalid SSH permission agent id.');
         if (!PERMISSION_LEVELS.has(value)) throw new Error('Invalid SSH permission level.');
+        if (!Object.hasOwn(permissions, key) && Object.keys(permissions).length >= MAX_PERMISSION_ENTRIES) {
+          throw new Error(`At most ${MAX_PERMISSION_ENTRIES} SSH permission entries are allowed.`);
+        }
         permissions[key] = value;
       }
     }
@@ -327,6 +337,7 @@ export function createSshHosts({ runtimeDir, config, exec, log, saveConfig, now 
       privilege: {
         sudo,
         docker,
+        ...(docker === 'group' ? { dockerGroupRootEquivalent: true } : {}),
         forcedCommand: privilegeInput.forcedCommand === true,
         terminal: privilegeInput.terminal === true,
       },
