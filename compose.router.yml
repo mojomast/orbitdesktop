@@ -1,0 +1,39 @@
+# Opt-in built-in token router.
+#
+# The `router` profile is inactive unless COMPOSE_PROFILES=router is present in
+# the runtime .env. Orbit's supervisor writes that line only after the owner
+# enables the router, and removes it when the router is turned off.
+#
+# Nothing is published to the host by default. Containers on the compose network
+# reach the router at http://router:8080. Host-run agents need the commented
+# loopback-only publish below, together with router.bind = "loopback".
+#
+# Every image is pinned by digest. There is no runtime package installation and
+# no healthcheck that depends on tools inside the image: the Orbit server polls
+# GET /health itself before marking the router installed.
+
+services:
+  router:
+    profiles: ["router"]
+    # Override only with another reviewed digest (for example the Advanced
+    # LiteLLM image); the supervisor validates the configured value.
+    image: ${ORBIT_ROUTER_IMAGE:-maximhq/bifrost:v2.5.1@sha256:5ec9873acaf1687556b6e4dd854b92b539d9debf87a5a683b66338648b84d3c8}
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    user: "10001:10001"
+    mem_limit: 512m
+    environment:
+      GOMEMLIMIT: 450MiB
+    env_file:
+      - ${ORBIT_RUNTIME_DIR:-./runtime}/router/router.env
+    volumes:
+      - ${ORBIT_RUNTIME_DIR:-./runtime}/router/data:/app/data
+    networks: [orbit-internal]
+    # Host-run agents only; never bind to 0.0.0.0.
+    # ports: ["127.0.0.1:8080:8080"]
+
+networks:
+  orbit-internal:
+    internal: false
