@@ -77,6 +77,32 @@ Because the service carries `profiles: ["router"]`, an ordinary
 as a non-root user, with all capabilities dropped, `no-new-privileges`, a 512 MB
 memory limit and `GOMEMLIMIT=450MiB`.
 
+### Known limitation: the built-in router when Orbit itself runs in Docker
+
+The supervisor's `docker compose --profile router up -d router` is meant to run
+**on the host**, which is the `npm run up` path. When Orbit runs inside the
+`docker compose` deployment, the built-in router does not work end to end yet:
+
+- The Orbit image has no Docker CLI, so the supervisor cannot start the router
+  service from inside the container.
+- The Orbit container keeps its runtime in a named volume. `compose.router.yml`
+  reads `router.env` and the router data from the host bind
+  `${ORBIT_RUNTIME_DIR:-./runtime}`, so files the container writes are not the
+  files the router service reads.
+
+Orbit will **never** mount the Docker socket (`/var/run/docker.sock`) into its
+container to get around this. Socket access is root on the host. Until a
+host-side helper exists, use one of these in Docker mode:
+
+- Use **External router** mode (a hosted router or one you run yourself). It
+  starts nothing locally and works the same in both deployments.
+- Start the router yourself on the host with
+  `COMPOSE_PROFILES=router docker compose up -d router`, after writing
+  `runtime/router/router.env` with the wizard on a host (`npm run up`) install.
+
+The host `npm run up` path is the supported built-in path. It has unit and
+supervisor tests, but no end-to-end run against a real Bifrost container yet.
+
 ### Ports
 
 No host port is published by default. Containers on the compose network use
