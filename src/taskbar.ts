@@ -16,6 +16,7 @@ export function installStart(navigation: HTMLElement, commands: WorkspaceCommand
   search.type = 'search'; search.placeholder = 'Search windows and actions…';
   search.setAttribute('aria-label', 'Search Start');
   const results = el('div', 'start-results');
+  const colab = button('Google Colab', 'Open Google Colab from Start', () => { close(); void commands.execute('colab-runtime'); }, 'start-colab');
   const quick = el('div', 'start-quick');
   quick.setAttribute('aria-label', 'Quick launch');
   for (const [title, label] of [['New agent chat', '✦ Chat'], ['New terminal', '⌘ Terminal'], ['New browser', '◎ Browser']]) {
@@ -66,6 +67,6 @@ export function installStart(navigation: HTMLElement, commands: WorkspaceCommand
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && !panel.hidden) { e.preventDefault(); close(true); } });
   document.addEventListener('pointerdown', e => { if (!launcher.contains(e.target as Node)) close(); });
   launcher.addEventListener('focusout', () => { setTimeout(() => { if (!launcher.contains(document.activeElement)) close(); }, 0); });
-  panel.append(heading, search, quick, results);
+  panel.append(heading, search, colab, quick, results);
   launcher.append(start, panel); navigation.prepend(launcher);
 }

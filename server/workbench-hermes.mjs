@@ -169,7 +169,14 @@ export function createWorkbenchHermes({ configuration, shared, locks, upstreamFo
     } catch (error) {
       // Only an unstarted Orbit-created session can legitimately be absent.
       // An explicitly selected external session must never become a new thread.
-      if (error.status !== 404 || !/^orbit-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(args.session_id) || current.history_unstarted !== true || current.messages?.length) {
+      // A fork Orbit authored itself may send that server-written summary when
+      // the gateway does not have the session yet. Hermes still compresses
+      // later turns; this is the copy Orbit is about to hand over, not a
+      // second compaction of gateway history.
+      const freshOrbit = error.status === 404 && /^orbit-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(args.session_id) && current.history_unstarted === true;
+      if (freshOrbit && current.orbit_owned === true && Array.isArray(current.messages) && current.messages.length) {
+        history = sanitizeHistory({ data: current.messages.filter(message => message && typeof message.text === 'string' && !message.text.startsWith('Switched to ')).map(message => ({ role: message.role, content: message.text })) });
+      } else if (!freshOrbit || current.messages?.length) {
         if (error.status === 404) throw Object.assign(wbError('unavailable'), { status: 409, message: 'Conversation history is unavailable. Select New chat explicitly to start a new conversation.' });
         throw transportError(error);
       }
@@ -177,7 +184,7 @@ export function createWorkbenchHermes({ configuration, shared, locks, upstreamFo
     // Unanswered/pending turns are not conversation context. A new message with
     // identical text is still a new turn, and must appear only as payload.input.
     while (history.length && history.at(-1).role !== 'assistant') history.pop();
-    if (!history.length && current.messages?.some(message => message.role === 'user')) throw wbError('unavailable');
+    if (!history.length && current.orbit_owned !== true && current.messages?.some(message => message.role === 'user')) throw wbError('unavailable');
     payload.conversation_history = history.map(({ role, text }) => ({ role,
       // sanitizeHistory applies the established bounds; repair only a boundary
       // surrogate before serializing the immutable Runs payload as UTF-8.

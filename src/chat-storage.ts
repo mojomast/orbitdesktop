@@ -1,3 +1,5 @@
+import { providerLabel } from './agent-providers.ts';
+
 export type Message = { role: 'user' | 'assistant'; text: string };
 export type ChatState = { session: string; profile_id?: string; binding_revision?: number; messages: Message[]; run?: string; title?: string; color?: string; queue?: string[]; create_new?: true };
 
@@ -27,5 +29,7 @@ export function archiveChat(list: ChatState[], state: ChatState): ChatState[] {
   return [{ ...state, run: undefined }, ...list.filter(x => chatBindingKey(x) !== key)].slice(0, 10);
 }
 export function transcript(state: ChatState): string {
-  return `Hermes profile: ${chatProfileId(state)}\nHermes conversation: ${state.session}\n\n` + state.messages.map(m => `${m.role === 'user' ? 'YOU' : 'HERMES'}\n${m.text}`).join('\n\n');
+  const name = providerLabel(chatProfileId(state));
+  const speaker = name.toUpperCase();
+  return `${name} profile: ${chatProfileId(state)}\n${name} conversation: ${state.session}\n\n` + state.messages.map(m => `${m.role === 'user' ? 'YOU' : speaker}\n${m.text}`).join('\n\n');
 }

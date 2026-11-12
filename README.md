@@ -208,6 +208,10 @@ The apps have separate persistent home directories and a shared Documents volume
 
 Setup and limitations: [per-app launchers](docs/XPRA_APPS.md) and [Xpra deployment](docs/XPRA.md).
 
+### Chat with all your agents in Grok Bots
+
+Grok Bots is a built-in app (desktop icon, command palette or Orbit menu) that lists every Grok Bot, Pi and Hermes agent, with 1-on-1 chat, group rooms, session controls, context meters, approval cards and a live Activity panel. It installs itself on server start. See [Grok Bots](docs/GROKBOTS.md).
+
 ### Work with Hermes where the work happens
 
 Use separate conversations in separate panes. Inspect tool activity, guide an active run, respond to approvals, and use supported scheduling controls. Available features depend on the configured Hermes gateway. Chat messages, guidance, and saved drafts support up to 100,000 characters. Optional browser desktop notifications announce agent replies without including conversation content; permission is required, Orbit must remain open, and browser/OS restrictions apply.
@@ -398,7 +402,31 @@ in [deployment documentation](docs/DEPLOYMENT.md).
 
 Host access grants a real shell as the server's operating-system user. Do not run Orbit as root or expose it directly to the public Internet.
 
-Start the Hermes API server separately and configure its base URL and API key on the Orbit server. See docs/HERMES.md. The agent's tools need access to the repository and runtime for local workspace control.
+## Agent providers
+
+Hermes remains the default chat provider. When `HERMES_API_URL`, `HERMES_API_KEY`, and `HERMES_PROFILES_JSON` are unset, Orbit reads `~/.hermes` (or `HERMES_HOME`) and uses that deployment's API server. A current example is `http://100.101.102.104:8642`, with `API_SERVER_KEY` in `~/.hermes/.env` and model `deepseek-v4.1-flash` via `opencode-go` in `config.yaml`. Orbit calls the Hermes gateway. It does not copy the model vendor key. Explicit Hermes URL, key, or profile JSON still wins. See [docs/HERMES.md](docs/HERMES.md).
+
+Grok Bot is a second profile. It appears when this computer has a Grok Bot gateway (`gateway.json` under the agent data directory, including `/home/box/agent-data`) or when `GROK_BOT_API_URL` and `GROK_BOT_API_KEY` are set. In the agent pane, choose **Grok Bot**, then New conversation or an existing bot. The host already selected the model; `GROK_BOT_MODEL` is only a label. See [docs/GROK.md](docs/GROK.md).
+
+Pi is a third profile: the Pi agent harness. It appears when `PI_GATEWAY_URL` and `PI_GATEWAY_TOKEN` are set, or when Orbit finds a `pi` binary on this computer (`PI_BIN`, `PATH`, `~/.local/bin/pi`), in which case Orbit hosts the gateway on loopback itself. Pi gets the same workspace operator block as the other agents and can build and publish apps. See [docs/PI.md](docs/PI.md).
+
+In an agent chat pane, **Shared agents** opens one group transcript for Kyle and every configured agent: Hermes, Grok Bot, and Pi when it is present. Address someone with `@hermes`, `@grok`, `@pi`, or `@all`; the pane lists the participants that are actually in the room. Either agent can delegate a task to the other with a fenced `delegate` block or hand them the floor with an @mention. Grok Bot speaks there as a separate Orbit shared chat, not the main Grok Bot conversation. **Collab**, in Start and the Orbit menu, is the project board for a goal: one orchestrator (Hermes or Grok Bot) decomposes the work, Orbit assigns roles per task, keeps a git workspace plus the budget, and asks you to approve the plan, a multi-subagent fan-out, and the result. `/collab` in the shared room opens that app. See [docs/GROK.md](docs/GROK.md) and [docs/COLLAB.md](docs/COLLAB.md).
+
+Jobs, the skills and tool catalog, tool approvals, follow-up guidance, tool activity, and the live event stream use the Grok Bot gateway when that profile is selected. They do not fall through to Hermes. Collab shell commands that the gateway cannot run are executed by Orbit after the same approval inbox. The build queue, Project Workbench, and non-local automation delivery have no Grok Bot API. The full matrix is [docs/GROK_PARITY.md](docs/GROK_PARITY.md).
+
+## Serve Orbit on a Linux tailnet
+
+```sh
+ORBIT_HOST=0.0.0.0 \
+PORT=4318 \
+ORBIT_PUBLIC_ORIGIN=http://100.101.102.104:4318 \
+ORBIT_TOKEN='replace-with-32-plus-private-characters' \
+npm start
+```
+
+Open `http://100.101.102.104:4318` from a browser on the tailnet. Use this machine's tailnet address in both the URL and `ORBIT_PUBLIC_ORIGIN`. The default bind is `127.0.0.1`. A wildcard bind rejects other Host headers until `ORBIT_PUBLIC_ORIGIN` is the exact browser origin. Optional Tailscale Serve HTTPS uses that https origin as `ORBIT_PUBLIC_ORIGIN`. Do not expose Orbit to the public Internet. Details are in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
+The agent's tools need access to the repository and runtime for local workspace control.
 
 The base setup does not automatically provision Xpra, OpenOffice, Shared Chromium, or the shared Linux desktop. Follow their deployment guides separately. The current Xpra app deployment requires Docker and uses private Tailscale HTTPS endpoints; adapt installation-specific paths and settings rather than copying credentials or private hostnames.
 

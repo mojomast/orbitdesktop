@@ -1,0 +1,353 @@
+// Scoped backend for the sandboxed "Agents" (Grok Bots) Orbit app.
+//
+// Provider registry: the agent list is driven by the same profile catalog that
+// Orbit's agent-chat provider dropdown uses (`/api/agent` action `profiles`,
+// i.e. createAgentHandler's `configuration`). Every catalog profile is mapped to
+// an adapter by provider id:
+//   - gateway providers (grok, pi, … see agent-providers.mjs) → "gateway" adapter
+//     (listAgents / getAgentTranscriptTail / sendPrompt / interruptAgentRun)
+//   - hermes and unknown providers → "sessions" adapter (Hermes API server:
+//     /api/sessions, /api/sessions/:id/messages, /v1/runs)
+// A new provider added to Orbit's catalog appears automatically; a provider with a
+// different wire protocol only needs registerProviderAdapter(provider, adapter).
+//
+// Auth: random capability in the runtime dir, handed to the app through the pane
+// URL fragment (never in published files). Requests must come from the opaque app
+// origin ("null"). Credentials never leave the server; errors are redacted.
+import fs from 'node:fs';
+import path from 'node:path';
+import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createGatewayActivity, makeRedactor } from './grokbots-activity.mjs';
+import * as hermesControls from './grokbots-controls-hermes.mjs';
+import * as piControls from './grokbots-controls-pi.mjs';
+import * as grokControls from './grokbots-controls-grok.mjs';
+import { createGroups } from './grokbots-groups.mjs';
+import { createPrefs } from './grokbots-prefs.mjs';
+import { createUploads } from './grokbots-uploads.mjs';
+import { GROUP_MAX_MESSAGE } from './grokbots-groups.mjs';
+
+const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
+const SAFE = /^[A-Za-z0-9_:-]{1,128}$/;
+const RUN = /^[A-Za-z0-9_.:-]{1,128}$/;
+let gatewayProviders = ['grok', 'pi'];
+try { const m = await import('./agent-providers.mjs'); if (Array.isArray(m.GATEWAY_PROVIDERS)) gatewayProviders = [...m.GATEWAY_PROVIDERS]; } catch {}
+const LABELS = { hermes: 'Hermes', grok: 'Grok Bot', pi: 'Pi' };
+// Same prompt ceiling as Orbit's agent chat (server/agent.mjs, src/agent-chat.ts).
+export const MAX_PROMPT = 100000;
+// Request body ceiling: a 100,000-character prompt JSON-encoded at up to 4 bytes per char, plus envelope.
+const MAX_BODY_BYTES = 1_600_000;
+
+const fail = (message, status = 502) => Object.assign(Error(message), { status });
+// Full-length redaction for JSON payloads (redact() below also trims to 300 chars for error text).
+function redactFull(s, secret) { let t = String(s ?? ''); if (secret && secret.length >= 8) t = t.split(secret).join('[redacted]'); return t.replace(/Bearer\s+[A-Za-z0-9._~+\/=-]+/gi, 'Bearer [redacted]'); }
+function redact(s, secret) { let t = String(s || ''); if (secret) t = t.split(secret).join('[redacted]'); return t.replace(/Bearer\s+\S+/gi, 'Bearer [redacted]').replace(/[\x00-\x08\x0b-\x1f\x7f]/g, ' ').trim().slice(0, 300); }
+function reason(text, secret) {
+  let d = '';
+  try { const j = JSON.parse(text); const e = j?.error ?? j?.message ?? j?.detail ?? j?.reason; d = typeof e === 'string' ? e : typeof e?.message === 'string' ? e.message : e ? JSON.stringify(e) : ''; if (j?.code && typeof j.code === 'string' && !d.includes(j.code)) d = `${d} (${j.code})`.trim(); }
+  catch { d = /<html/i.test(text) ? '' : text; }
+  return redact(d, secret);
+}
+
+export function loadGrokBotsKey(runtimeRoot) {
+  const file = path.join(runtimeRoot, 'grokbots-app.key');
+  try { const k = fs.readFileSync(file, 'utf8').trim(); if (k.length >= 32) return k; } catch {}
+  const k = randomBytes(32).toString('base64url');
+  fs.writeFileSync(file, k + '\n', { mode: 0o600 });
+  return k;
+}
+
+async function http(profile, route, { method, body, label, headers }) {
+  let r;
+  try {
+    r = await fetch(`${profile.apiUrl.replace(/\/$/, '')}${route}`, { method: method || (body === undefined ? 'GET' : 'POST'), redirect: 'error', signal: AbortSignal.timeout(20000),
+      headers: { Authorization: `Bearer ${profile.apiKey}`, 'Content-Type': 'application/json', 'x-sand-request-id': randomUUID(), ...(headers || {}) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+  } catch { throw fail(`Cannot reach ${label}.`); }
+  const text = (await r.text()).slice(0, 4 * 1024 * 1024);
+  if (!r.ok) { const d = reason(text, profile.apiKey); throw fail(`${label} refused the request (HTTP ${r.status})${d ? `: ${d}` : '.'}`, [400, 404, 409, 429].includes(r.status) ? r.status : 502); }
+  try { return text ? JSON.parse(text) : null; } catch { throw fail(`${label} returned invalid JSON.`); }
+}
+
+// ---- gateway adapter (Grok Bot, Pi, future gateway providers) -------------
+function entryText(e) {
+  if (e.kind === 'send-message' && e.message?.type === 'text' && typeof e.message.content === 'string') return { role: 'assistant', content: e.message.content };
+  if ((e.kind === 'message' || e.kind == null) && (e.role === 'user' || e.role === 'assistant') && typeof e.content === 'string') return { role: e.role, content: e.content };
+  return null;
+}
+// Tool calls/results for inline cards. Each tool is anchored to the chat message before it (`after`).
+const TOOL_TEXT = 4000;
+const toolStr = v => (typeof v === 'string' ? v : v == null ? '' : JSON.stringify(v)).slice(0, TOOL_TEXT);
+function toolTracker(secret) {
+  const list = [], byId = new Map();
+  const clean = v => redactFull(toolStr(v), secret);
+  return {
+    call({ id, name, input, status, ts, end, after }) {
+      const key = String(id || `t${list.length}`).slice(0, 150);
+      let t = byId.get(key);
+      if (!t) { t = { id: key, name: String(name || 'tool').slice(0, 80), status: 'running', input: '', output: '', ts: Number(ts) || 0, after: after || '' }; byId.set(key, t); list.push(t); }
+      if (name) t.name = String(name).slice(0, 80);
+      if (input != null && input !== '') t.input = clean(input);
+      if (status) t.status = /error|fail/i.test(status) ? 'error' : /pending|running|progress|started/i.test(status) ? 'running' : 'done';
+      if (Number(end) && t.ts) t.durationMs = Math.max(0, Number(end) - t.ts);
+      return t;
+    },
+    result({ id, name, output, isError, ts, after }) {
+      const t = byId.get(String(id || '')) || this.call({ id, name, ts, after });
+      t.output = clean(output); t.status = isError ? 'error' : 'done';
+      if (Number(ts) && t.ts) t.durationMs = Math.max(0, Number(ts) - t.ts);
+    },
+    list: () => list.slice(-200),
+  };
+}
+// Gateway agent ids: Grok Bot uses UUIDs, the Pi gateway uses pi_<16 hex> (server/pi-gateway.mjs AGENT_ID).
+const GW_ID = { test: v => UUID.test(v) || /^pi_[a-f0-9]{16}$/.test(v) };
+const gatewayAdapter = {
+  kind: 'gateway',
+  async agents(p, label) {
+    const rows = await http(p, '/api/listAgents', { body: {}, label });
+    return (Array.isArray(rows) ? rows : []).filter(a => a && GW_ID.test(a.id)).map(a => ({
+      id: a.id, name: String(a.name || a.title || 'Untitled').slice(0, 120), description: String(a.description || '').slice(0, 300),
+      avatar: typeof a.avatarDataUrl === 'string' && a.avatarDataUrl.length < 200000 && a.avatarDataUrl.startsWith('data:image/') ? a.avatarDataUrl : null,
+      color: typeof a.avatarColor === 'string' ? a.avatarColor.slice(0, 32) : null, updatedAt: Number(a.lastActivityAt || a.updatedAt) || 0,
+      running: !!(a.isRunning || a.isRunningTurn || a.isComposingMessage), awaiting: !!a.awaitingUserResponse, unread: Number(a.unreadCount) || 0,
+      preview: String(a.lastMessagePreview || '').slice(0, 200), sessions: false,
+    }));
+  },
+  async history(p, label, { agent, before }) {
+    if (!GW_ID.test(agent || '')) throw fail('Invalid agent id.', 400);
+    // Pi's tail has no paging and tool entries dominate it, so ask for a larger window there.
+    const req = { id: agent, limit: /^pi_/.test(agent) ? 400 : 60 }; if (Number.isSafeInteger(before) && before > 0) req.beforeSeq = before;
+    const tail = await http(p, '/api/getAgentTranscriptTail', { body: req, label });
+    const messages = []; let streaming = null; const tools = toolTracker(p.apiKey);
+    for (const raw of Array.isArray(tail?.entries) ? tail.entries : []) {
+      const e = raw?.entry && raw.kind == null ? raw.entry : raw; if (!e || typeof e !== 'object') continue;
+      const kind = String(e.kind || ''), after = messages.at(-1)?.id || '', tts = Number(e.timestampMs) || Date.parse(e.at || '') || 0;
+      if (kind === 'tool-call' || kind === 'tool_call' || e.toolCall) { const c = e.toolCall || e; tools.call({ id: e.toolCallId || c.id || e.id, name: c.name || c.toolName, input: e.summary || c.input || c.arguments, status: e.status || (kind ? 'running' : ''), ts: tts, end: e.completedAt, after }); continue; }
+      if (kind === 'tool-result' || kind === 'tool_result') { tools.result({ id: e.toolCallId || e.tool_call_id || e.id, name: e.name, output: e.output ?? e.content ?? '', isError: e.isError === true || e.error === true, ts: tts, after }); continue; }
+      if (e.isStreaming === true || e.streaming === true) { const c = e.kind === 'send-message' ? e.message?.content : e.content; if (typeof c === 'string' && c.trim()) streaming = c.slice(0, MAX_PROMPT); continue; }
+      const m = entryText(e); if (!m || !m.content.trim()) continue;
+      messages.push({ id: String(e.id || e.seq || ''), ts: Number(e.timestampMs) || Date.parse(e.at || '') || 0, role: m.role, content: m.content.slice(0, MAX_PROMPT) });
+    }
+    let cards = [];
+    if (p.provider === 'grok') { try { cards = grokControls.extractPendingCards(tail?.entries).map(c => JSON.parse(redactFull(JSON.stringify(c), p.apiKey))); } catch { cards = []; } }
+    return { messages, streaming, cards, tools: tools.list(), before: Number.isSafeInteger(tail?.nextBeforeSeq) ? tail.nextBeforeSeq : null };
+  },
+  async send(p, label, { agent, prompt }) {
+    if (!GW_ID.test(agent || '')) throw fail('Invalid agent id.', 400);
+    const r = await http(p, '/api/sendPrompt', { body: { prompt, agentId: agent, clientNonce: randomUUID() }, label });
+    if (!r || r.accepted !== true) throw fail(`${label} did not accept the message${r?.reason ? `: ${redact(r.reason, p.apiKey)}` : '.'}`);
+    return { accepted: true };
+  },
+  async stop(p, label, { agent }) { if (!GW_ID.test(agent || '')) throw fail('Invalid agent id.', 400); await http(p, '/api/interruptAgentRun', { body: { id: agent }, label }); return { ok: true }; },
+  async activity(p, label, { agent, since }, ctx) {
+    if (!GW_ID.test(agent || '')) throw fail('Invalid agent id.', 400);
+    let feed = activityFeeds.get(p.id);
+    if (!feed) { feed = createGatewayActivity({ profile: () => ctx.profile(p.id), label, extraSecrets: ctx.secrets }); activityFeeds.set(p.id, feed); }
+    // Seed state from the roster (read-only listAgents, cached) so a run already in progress shows up.
+    const cache = rosterCache.get(p.id);
+    let rows = cache && Date.now() - cache.at < 1800 ? cache.rows : null;
+    if (!rows) { try { rows = await http(p, '/api/listAgents', { body: {}, label }); rosterCache.set(p.id, { at: Date.now(), rows }); } catch { rows = []; } }
+    const row = (Array.isArray(rows) ? rows : []).find(a => a?.id === agent) || null;
+    const out = await feed.read(agent, since, row);
+    out.subagents = ctx.agentStatus ? ctx.agentStatus.read(agent) : { agents: [], history: [] };
+    return out;
+  },
+};
+const activityFeeds = new Map();
+const rosterCache = new Map();
+
+// ---- sessions adapter (Hermes API server and Hermes-compatible providers) --
+const ts = v => { const n = Number(v); return Number.isFinite(n) ? (n < 1e11 ? n * 1000 : n) : (Date.parse(v) || 0); };
+async function hermesMessages(p, label, session, limit, offset) {
+  const page = await http(p, `/api/sessions/${encodeURIComponent(session)}/messages?limit=${limit}&offset=${offset}&order=latest`, { label });
+  const rows = Array.isArray(page?.data) ? page.data : [];
+  return { rows, has_more: page?.has_more === true || rows.length >= limit };
+}
+const sessionsAdapter = {
+  kind: 'sessions',
+  async agents(p, label) { return [{ id: p.id, name: label, description: 'Profile · pick or start a conversation', avatar: null, color: null, updatedAt: 0, running: false, awaiting: false, unread: 0, preview: '', sessions: true }]; },
+  async sessions(p, label, { offset }) {
+    const off = Number.isSafeInteger(offset) && offset > 0 ? offset : 0;
+    const page = await http(p, `/api/sessions?limit=50&offset=${off}`, { label });
+    const rows = Array.isArray(page?.data) ? page.data : [];
+    return { sessions: rows.filter(s => s && SAFE.test(s.id) && !s.archived && !s.hidden).map(s => ({ id: s.id, title: String(s.title || s.preview || s.id).slice(0, 200), preview: String(s.preview || '').slice(0, 200), source: String(s.source || '').slice(0, 40), messages: Number(s.message_count) || 0, updatedAt: ts(s.last_active ?? s.updated_at ?? s.started_at) })),
+      next: page?.has_more === true || rows.length >= 50 ? off + rows.length : null };
+  },
+  async history(p, label, { session, before }) {
+    if (!SAFE.test(session || '')) throw fail('Invalid session id.', 400);
+    let off = Number.isSafeInteger(before) && before > 0 ? before : 0;
+    // Hermes interim replies are assistant rows that ALSO carry tool_calls; dropping those hid all but the final reply.
+    const keep = m => m && ['user', 'assistant'].includes(m.role) && m.display_kind !== 'hidden' && typeof (m.content ?? m.text) === 'string' && String(m.content ?? m.text).trim();
+    // Tool-heavy sessions: keep paging (bounded) until enough chat text is found.
+    let rows = [], more = false;
+    for (let i = 0; i < 6; i++) {
+      let page;
+      try { page = await hermesMessages(p, label, session, 100, off); } catch (e) { if (e.status === 404 && !rows.length) return { messages: [], streaming: null, before: null }; throw e; }
+      rows = rows.concat(page.rows); off += page.rows.length; more = page.has_more && page.rows.length > 0;
+      if (!more || rows.filter(keep).length >= 30) break;
+    }
+    const messages = rows.filter(keep)
+      .map(m => ({ id: String(m.id ?? ''), ts: ts(m.timestamp ?? m.created_at), role: m.role, content: String(m.content ?? m.text).slice(0, MAX_PROMPT), _n: Number(m.id) || 0 }))
+      .sort((a, b) => a._n - b._n || a.ts - b.ts).map(({ _n, ...m }) => m);
+    // Tool cards: assistant tool_calls + role:'tool' results, anchored to the preceding kept message.
+    const tools = toolTracker(p.apiKey); let after = '';
+    for (const m of [...rows].sort((a, b) => (Number(a.id) || 0) - (Number(b.id) || 0))) {
+      if (!m) continue;
+      if (keep(m)) after = String(m.id ?? '');
+      const t0 = ts(m.timestamp ?? m.created_at);
+      for (const c of Array.isArray(m.tool_calls) ? m.tool_calls : []) tools.call({ id: c?.id, name: c?.function?.name || c?.name, input: c?.function?.arguments ?? c?.arguments, ts: t0, after });
+      if (m.role === 'tool') tools.result({ id: m.tool_call_id, name: m.name || m.tool_name, output: m.content ?? m.text ?? '', isError: /^(error|failed)\b/i.test(String(m.content || '')), ts: t0, after });
+    }
+    return { messages, streaming: null, tools: tools.list(), before: more ? off : null };
+  },
+  async send(p, label, { session, prompt, nonce }) {
+    const creating = !session;
+    const sid = creating ? `orbit-${randomUUID()}` : session;
+    if (!SAFE.test(sid)) throw fail('Invalid session id.', 400);
+    // No conversation_history: with a session_id Hermes loads the session itself, including tool turns and
+    // compression rotation. Idempotency-Key (client nonce) makes a retry after a lost response safe.
+    const key = typeof nonce === 'string' && /^[A-Za-z0-9_-]{8,100}$/.test(nonce) ? nonce : randomUUID();
+    const data = await http(p, '/v1/runs', { body: { input: prompt, session_id: sid }, label, headers: { 'Idempotency-Key': `orbit-${key}` } });
+    if (!RUN.test(String(data?.run_id || ''))) throw fail(`${label} did not return a run id.`);
+    return { accepted: true, session: sid, run: data.run_id, created: creating, replayed: data.replayed === true };
+  },
+  async run(p, label, { run, session }) {
+    if (!RUN.test(run || '')) throw fail('Invalid run id.', 400);
+    const r = await http(p, `/v1/runs/${encodeURIComponent(run)}`, { label });
+    // Hermes may rotate a long session to a compression continuation id; follow it rather than failing.
+    const runSession = typeof r?.session_id === 'string' && SAFE.test(r.session_id) ? r.session_id : null;
+    const le = r?.last_event; const lastEvent = le ? redact(typeof le === 'string' ? le : (le.event || le.type || le.name || '') + (le.tool ? ` ${le.tool}` : le.tool_name ? ` ${le.tool_name}` : ''), p.apiKey).slice(0, 120) : '';
+    return { lastEvent, session: runSession, status: String(r?.status || 'unknown'), output: typeof r?.output === 'string' ? r.output.slice(0, MAX_PROMPT) : '', error: r?.error ? redact(typeof r.error === 'string' ? r.error : r.error.message || JSON.stringify(r.error), p.apiKey) : '' };
+  },
+  async stop(p, label, { run }) { if (!RUN.test(run || '')) throw fail('Invalid run id.', 400); await http(p, `/v1/runs/${encodeURIComponent(run)}/stop`, { body: {}, label }); return { ok: true }; },
+};
+
+const adapters = new Map();
+for (const id of gatewayProviders) adapters.set(id, gatewayAdapter);
+adapters.set('hermes', sessionsAdapter);
+/** Extension point: map a provider id (catalog profile.provider) to an adapter. */
+export function registerProviderAdapter(provider, adapter) { adapters.set(provider, adapter); }
+const adapterFor = provider => adapters.get(provider) || sessionsAdapter; // Orbit treats unknown providers as Hermes-compatible
+
+// Orbit workspace context (same text the agent chat attaches for gateway agents): the operator
+// block plus a pointer to the on-disk guide, appended once per conversation when enabled.
+const CONTEXT_MARK = 'Orbit workspace operator block';
+const CONTEXT_SEP = '\n\nWorkspace context:\n';
+export function workspaceContextText(workspaceContext, workspaceId) {
+  const raw = typeof workspaceContext?.parts === 'function' ? workspaceContext.parts(workspaceId) : null;
+  if (!raw || typeof raw.operator !== 'string') return '';
+  const guidePath = typeof raw.guidePath === 'string' && raw.guidePath ? raw.guidePath : 'docs/AGENT_GUIDE.md';
+  return `${raw.operator}Read ${guidePath} from disk for the full workspace operator guide before changing the workspace. That guide is not inlined in this prompt.\n`;
+}
+export function createGrokBotsApp({ runtimeRoot, catalog, agentStatus, chats, workspaceContext }) {
+  const contextDelivered = new Set();
+  // Returns {prompt, context} where context is 'attached' | 'already' | 'too-long' | 'unavailable'.
+  async function withContext(x, b) {
+    if (!workspaceContext) return { prompt: b.prompt, context: 'unavailable' };
+    if (!UUID.test(String(b.workspace || ''))) throw fail('Workspace context needs the Orbit workspace. Reopen Grok Bots from Orbit.', 409);
+    const key = `${x.p.id}|${b.agent || ''}|${b.session || ''}|${b.workspace}`; // matches the add after send
+    const fresh = x.adapter.kind === 'sessions' ? !b.session : false;
+    if (!fresh && contextDelivered.has(key)) return { prompt: b.prompt, context: 'already' };
+    if (!fresh) {
+      let seen = false;
+      try {
+        if (x.adapter.kind === 'gateway') { const tail = await http(x.p, '/api/getAgentTranscriptTail', { body: { id: b.agent, limit: 60 }, label: x.label }); seen = JSON.stringify(tail?.entries || []).includes(CONTEXT_MARK); }
+        else { const page = await hermesMessages(x.p, x.label, b.session, 100, 0); seen = page.rows.some(m => String(m?.content ?? m?.text ?? '').includes(CONTEXT_MARK)); }
+      } catch {}
+      if (seen) { contextDelivered.add(key); return { prompt: b.prompt, context: 'already' }; }
+    }
+    let text; try { text = workspaceContextText(workspaceContext, b.workspace); } catch { throw fail('Workspace has not synced yet. Wait for the workspace connection and retry.', 409); }
+    if (!text) return { prompt: b.prompt, context: 'unavailable' };
+    const prompt = `${b.prompt}${CONTEXT_SEP}${text}`;
+    if (prompt.length > MAX_PROMPT) return { prompt: b.prompt, context: 'too-long' };
+    return { prompt, context: 'attached' };
+  }
+  const keyBuf = Buffer.from(loadGrokBotsKey(runtimeRoot));
+  const cors = { 'Access-Control-Allow-Origin': 'null', 'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-File-Name', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Max-Age': '600', Vary: 'Origin', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
+  const send = (res, status, data) => { res.writeHead(status, { ...cors, 'Content-Type': 'application/json' }); res.end(JSON.stringify(data)); };
+
+  function profiles() {
+    const c = catalog(); const list = Array.isArray(c?.list) ? c.list : [];
+    return list.map(item => { const p = c.get(item.id); const provider = typeof p?.provider === 'string' ? p.provider : 'hermes';
+      return p?.apiUrl && p?.apiKey ? { p, provider, adapter: adapterFor(provider), label: String(item.label || LABELS[provider] || provider).slice(0, 120), providerLabel: LABELS[provider] || provider } : null; }).filter(Boolean);
+  }
+  const keyText = keyBuf.toString();
+  let groupsApi = null;
+  const groupsFor = () => groupsApi || (groupsApi = createGroups({ runtimeRoot, catalog, chats: () => (typeof chats === 'function' ? chats() : null) || new Map(), profiles }));
+  const rosterFor = async id => { const f = profiles().find(x => x.p.id === id); if (!f || f.adapter.kind !== 'gateway') return []; return f.adapter.agents(f.p, f.label); };
+  const prefs = createPrefs({ runtimeRoot });
+  const uploads = createUploads({ runtimeRoot });
+  const ctx = { profile: id => profiles().find(x => x.p.id === id)?.p || null, secrets: () => [keyText], agentStatus };
+  function resolve(id) { const f = profiles().find(x => x.p.id === id); if (!f) throw fail('Unknown provider profile.', 404); return f; }
+
+  async function agents() {
+    return { groups: await Promise.all(profiles().map(async x => {
+      const base = { profile: x.p.id, provider: x.provider, providerLabel: x.providerLabel, label: x.label, kind: x.adapter.kind };
+      try { const hid = groupsFor().hidden().agents; return { ...base, agents: (await x.adapter.agents(x.p, x.label)).filter(a => !hid.has(a.id)) }; } catch (e) { return { ...base, agents: [], error: e.message }; }
+    })) };
+  }
+
+  function authorized(req, res) {
+    if (req.headers.origin !== undefined && req.headers.origin !== 'null') { send(res, 403, { error: 'Origin rejected' }); return false; }
+    const given = Buffer.from(String(req.headers.authorization || '').replace(/^Bearer\s+/i, ''));
+    if (given.length !== keyBuf.length || !timingSafeEqual(given, keyBuf)) { send(res, 401, { error: 'Missing or invalid app key. Reopen the pane from Orbit.' }); return false; }
+    return true;
+  }
+  // POST /api/grokbots-app/upload: raw file body, X-File-Name (URI-encoded), Content-Type.
+  async function upload(req, res) {
+    if (req.method === 'OPTIONS') { res.writeHead(204, cors); return res.end(); }
+    if (req.method !== 'POST') return send(res, 405, { error: 'Method not allowed' });
+    if (!authorized(req, res)) return;
+    let name = 'file'; try { name = decodeURIComponent(String(req.headers['x-file-name'] || 'file')); } catch {}
+    try { return send(res, 200, await uploads.receive(req, { name, type: req.headers['content-type'] })); }
+    catch (e) { send(res, e.status || 500, { error: String(e.message || 'Upload failed').slice(0, 300) }); if (!req.complete) req.destroy(); }
+  }
+  async function handle(req, res) {
+    if (req.method === 'OPTIONS') { res.writeHead(204, cors); return res.end(); }
+    if (req.method !== 'POST') return send(res, 405, { error: 'Method not allowed' });
+    if (!authorized(req, res)) return;
+    const chunks = []; let size = 0;
+    for await (const part of req) { size += part.length; if (size > MAX_BODY_BYTES) { send(res, 413, { error: 'Request too large.' }); return req.destroy(); } chunks.push(part); }
+    const raw = Buffer.concat(chunks).toString('utf8');
+    let b; try { b = JSON.parse(raw || '{}'); } catch { return send(res, 400, { error: 'Invalid JSON' }); }
+    try {
+      if (b.action === 'agents') return send(res, 200, await agents());
+      if (b.action === 'prefs') return send(res, 200, prefs.handle(b));
+      if (b.action === 'groups') {
+        if (b.op === 'post' && b.attachments !== undefined) { const t = typeof b.text === 'string' ? b.text.trim() : ''; if (t.length > GROUP_MAX_MESSAGE) throw fail('Message must be 1–100,000 characters.', 400); b.text = uploads.compose(t, b.attachments, GROUP_MAX_MESSAGE, { inline: false }); } // the room flattens newlines, so paths only
+        return send(res, 200, JSON.parse(redactFull(JSON.stringify(await groupsFor().handle(b, rosterFor)), '')));
+      }
+      const x = resolve(b.profile);
+      if (b.action === 'describe' || b.action === 'controls') {
+        // Provider control modules: Grok gateway, Pi gateway, and Hermes(-compatible) sessions profiles.
+        const mod = x.provider === 'grok' ? grokControls : x.provider === 'pi' ? piControls : x.adapter.kind === 'sessions' ? hermesControls : null;
+        if (!mod) return send(res, 200, b.action === 'describe' ? { provider: x.provider, controls: [] } : { error: 'No controls for this provider.' });
+        const pp = { ...x.p, provider: x.provider };
+        if (b.action === 'describe') return send(res, 200, { provider: x.provider, controls: mod.describe(pp), ...(mod === piControls ? { activityEvents: piControls.ACTIVITY_EVENTS } : {}) });
+        const action = typeof b.control === 'string' ? b.control.slice(0, 60) : '';
+        const args = b.args && typeof b.args === 'object' && !Array.isArray(b.args) ? b.args : {};
+        const red = v => redact(String(v ?? ''), x.p.apiKey);
+        const cctx = mod === grokControls ? { gateway: (cmd, body) => http(x.p, `/api/${cmd}`, { body: body || {}, label: x.label }) }
+          : mod === hermesControls ? { fetchHermes: (path, o = {}) => http(x.p, path, { method: o.method, body: o.body, label: x.label }), redact: red }
+          : {};
+        const target = mod === grokControls ? { agent: b.agent } : mod === piControls ? { session: b.agent } : { session: b.session, run: b.run };
+        const out = await mod.control(pp, { action, ...target, args }, cctx);
+        return send(res, 200, JSON.parse(redactFull(JSON.stringify(out ?? {}), x.p.apiKey)));
+      }
+      const fn = { sessions: x.adapter.sessions, history: x.adapter.history, send: x.adapter.send, run: x.adapter.run, stop: x.adapter.stop, activity: x.adapter.activity }[b.action];
+      if (!fn) return send(res, 400, { error: `Action not supported for ${x.providerLabel}.` });
+      if (b.action === 'send') { const t = typeof b.prompt === 'string' ? b.prompt.trim() : ''; const hasFiles = Array.isArray(b.attachments) && b.attachments.length > 0; if ((!t && !hasFiles) || t.length > MAX_PROMPT) throw fail('Message must be 1–100,000 characters.', 400); b.prompt = uploads.compose(t, b.attachments, MAX_PROMPT); }
+      let ctxInfo = null;
+      if (b.action === 'send' && b.context === true) { ctxInfo = await withContext(x, b); b.prompt = ctxInfo.prompt; }
+      const out = await fn(x.p, x.label, b, ctx);
+      if (ctxInfo) { if (ctxInfo.context === 'attached') contextDelivered.add(`${x.p.id}|${b.agent || ''}|${b.session || out?.session || ''}|${b.workspace}`); out.context = ctxInfo.context; }
+      if (b.action === 'history' && Array.isArray(out?.messages)) for (const m of out.messages) { if (m.role === 'user' && m.content.includes(CONTEXT_SEP)) { m.content = m.content.split(CONTEXT_SEP)[0]; m.context = true; } }
+      if (b.action === 'sessions' && Array.isArray(out?.sessions)) { const hid = groupsFor().hidden().sessions; out.sessions = out.sessions.filter(r => !hid.has(r.id)); } // group sessions stay out of 1-on-1 lists
+      return send(res, 200, out);
+    } catch (e) { return send(res, e.status || 502, { error: String(e.message || 'Failed').slice(0, 400) }); }
+  }
+  // Pane URL for the built-in app; the key travels in the fragment and is never sent as a path or query.
+  const launchUrl = () => `/apps/grokbots/#k=${encodeURIComponent(keyText)}`;
+  // Stops the background activity streams (server shutdown, tests).
+  const close = () => { for (const feed of activityFeeds.values()) { try { feed.close(); } catch {} } activityFeeds.clear(); };
+  return { handle, upload, launchUrl, close, groupsApi: () => groupsFor() };
+}

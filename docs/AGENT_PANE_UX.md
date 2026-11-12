@@ -128,6 +128,11 @@ scope clearing, project revocation, result review/placement and reload. The
 separate trusted Review window is covered there; the visual fixture's “review”
 state represents Workbench Result, not that independent window.
 
+The pane header’s provider menu, the **Sessions** history sidecar, the context
+meter, and Compact are specified in [AGENT_CONTEXT.md](AGENT_CONTEXT.md). History
+in the conversation action row still opens the tools dialog. Sessions is the
+searchable sidecar. Those controls do not start a run by themselves.
+
 Binding invalidation releases the superseded Workbench load's busy ownership
 before launching its replacement. The accepted chat binding is installed first.
 A deterministic delayed-import regression covers this reload interleaving: the

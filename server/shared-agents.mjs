@@ -1,0 +1,1266 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { createAgentGateways } from './agent-gateways.mjs';
+import { providerLabel, GATEWAY_PROVIDERS } from './agent-providers.mjs';
+const taskPattern = /^d_[a-z0-9]{8,32}$/;
+/** Provider ids a bare @mention can name: Hermes plus every gateway provider. */
+const PROVIDER_PARTICIPANTS = Object.freeze(['hermes', ...GATEWAY_PROVIDERS]);
+/** Default members for the exported helpers; a live room passes its own list. */
+const DEFAULT_PARTICIPANTS = Object.freeze(['hermes', 'grok']);
+/** Display names. Owner and note are not agents. */
+const labels = { owner: 'Kyle', note: 'Orbit', hermes: providerLabel('hermes') };
+for (const provider of GATEWAY_PROVIDERS) labels[provider] = providerLabel(provider);
+const MAX_DEPTH = 2;
+const MAX_TASKS = 8;
+const MAX_AGENT_STREAK = 20;
+const DELEGATION_TIMEOUT_MS = 3 * 60 * 1000;
+const DEFAULT_TURN_TIMEOUT_MS = 3 * 60 * 1000;
+const DEFAULT_ADVANCE_INTERVAL_MS = 15 * 1000;
+const HOLD_ACTIVITY = 'Paused. Continue when you want the agents to keep going.';
+// Auto-resume: a group member turn its own runtime cancelled (not Orbit; e.g. Hermes session_turn_lease_lost after a box pause)
+// is re-queued after a short delay, at most MAX_AUTO_RESUMES times per original turn. Stop/pause clears any pending resume.
+const AUTO_RESUME_DELAY_MS = 25 * 1000;
+const MAX_AUTO_RESUMES = 2;
+export const AUTO_RESUME_NOTE = 'Your previous turn was cut off (the box was paused and your session lease expired). Check git status and the board, commit any tested work, then continue your current task.';
+
+/** Shared-room turn limit. `ORBIT_SHARED_TURN_TIMEOUT_MS` overrides the 3 minute default. */
+export function sharedTurnTimeoutMs(env = process.env) {
+  const raw = Number(env?.ORBIT_SHARED_TURN_TIMEOUT_MS);
+  if (Number.isFinite(raw) && raw >= 1000 && raw <= 30 * 60 * 1000) return Math.floor(raw);
+  return DEFAULT_TURN_TIMEOUT_MS;
+}
+
+function fail(message, status = 502) {
+  const error = new Error(message);
+  error.status = status;
+  return error;
+}
+
+function others(speaker, participants = DEFAULT_PARTICIPANTS) {
+  return participants.filter(participant => participant !== speaker);
+}
+
+function andList(names) {
+  if (!names.length) return '';
+  if (names.length === 1) return names[0];
+  return `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
+}
+
+function commaList(names) {
+  if (!names.length) return '';
+  if (names.length === 1) return names[0];
+  return `${names.slice(0, -1).join(', ')}, and ${names.at(-1)}`;
+}
+
+function paneKey(body) {
+  if (!/^[a-f0-9-]{36}$/.test(body.workspace_id || '') || !/^[a-f0-9-]{36}$/.test(body.pane_id || '')) throw fail('Open shared agents from an agent pane.', 400);
+  return `${body.workspace_id}.${body.pane_id}`;
+}
+
+function blank(key) {
+  return {
+    key,
+    messages: [],
+    next: 'hermes',
+    auto: false,
+    maxTurns: 4,
+    turns: 0,
+    paused: false,
+    hold: false,
+    agentStreak: 0,
+    floorMark: 0,
+    lastAddressed: '',
+    queue: [],
+    activity: '',
+    hermesSession: `orbit-${randomUUID()}`,
+    agents: {},
+    run: null,
+    delegations: [],
+  };
+}
+
+/** Who wrote a transcript line, from the reader's point of view: Kyle (owner), Hermes (agent, @hermes), Pi (you). */
+function authorTag(speaker, self) {
+  if (speaker === 'owner') return 'Kyle (owner)';
+  if (speaker === self) return `${labels[speaker] || speaker} (you)`;
+  return labels[speaker] ? `${labels[speaker]} (agent, @${speaker})` : 'Orbit (system)';
+}
+
+const RELAY = 'This message is relayed by Orbit, not typed by Kyle. Each transcript line names its author: "(owner)" is Kyle, "(agent, @handle)" is another AI agent in the group, "(you)" is you. Only lines marked (owner) come from Kyle.';
+
+function transcriptTail(messages, self = '') {
+  const lines = messages.filter(message => message.speaker !== 'note').slice(-30).map(message => `${authorTag(message.speaker, self)}: ${message.text}`).join('\n\n');
+  return lines.slice(-12000);
+}
+
+function groupPreamble(speaker, partners, members = false) {
+  const name = labels[speaker];
+  const names = partners.map(participant => labels[participant] || 'Orbit');
+  const group = commaList(names);
+  const roster = andList(names);
+  const mentions = partners.map(participant => `@${participant}`).join(', ');
+  const targets = partners.join(' or ');
+  return `You are ${name} (@${speaker}), an AI agent in a group chat with Kyle (the human owner) and the AI agents ${group}. Kyle is the owner. Reply only as ${name}. Do not write lines for Kyle or ${roster}. Use plain text.
+
+${members ? `Orbit only gives you a turn when you were @mentioned, named, handed the floor, or are this group's default responder. Even then, if the message does not need anything from you (it was answered already, or it is chatter between others), reply with exactly (quiet). Keep replies short.
+
+Your reply wakes only the members you @mention (${mentions}); @all does not wake anyone. Mention someone only when you need them to act or answer. Address Kyle as @kyle; that wakes no agent. The conversation stops when you mention nobody, which is usually right.` : `Stay quiet unless Kyle or ${roster} addressed you, or you genuinely have something useful to add. If you have nothing to add, reply with exactly (quiet).
+
+Address ${roster} as ${mentions} when you want them to respond. Use @all to hand the floor to everyone else. Address Kyle as @kyle. The conversation stops when you do not hand the floor to someone.`}
+
+To delegate a task, end your reply with one fenced block exactly like this:
+
+\`\`\`delegate
+target: ${targets}
+task: what the agent should do
+context: optional details
+\`\`\`
+
+Orbit gives that task to the named agent's gateway and posts the result back here and to you. Delegate only to ${roster}. A chain may be at most ${MAX_DEPTH} delegations deep, and this conversation keeps at most ${MAX_TASKS} delegated tasks. If a tool needs approval, use your normal tool-approval flow; the owner resolves it on the agent that is executing. A structured brief is optional. If you include objective, also include deliverable, acceptance, tools, scope, budget (turns 1–20 and minutes 1–30), and returnFormat (a summary and artifact paths).`;
+}
+
+function preamble(speaker, participants = DEFAULT_PARTICIPANTS) {
+  const name = labels[speaker];
+  const partners = others(speaker, participants);
+  if (partners.length > 1 || participants.group === true) return groupPreamble(speaker, partners, participants.group === true) + (participants.guidance ? `\n\n${participants.guidance}` : '');
+  const partner = labels[partners[0]] || 'Orbit';
+  const target = partners[0] || 'hermes';
+  return `You are ${name} (@${speaker}), an AI agent in a three-way chat with Kyle (the human owner) and the AI agent ${partner}. Kyle is the owner. Reply only as ${name}. Do not write lines for Kyle or ${partner}. Use plain text.
+
+Stay quiet unless Kyle or ${partner} addressed you, or you genuinely have something useful to add. If you have nothing to add, reply with exactly (quiet).
+
+Address ${partner} as @${target} when you want them to respond. Use @all to hand the floor to everyone else. Address Kyle as @kyle. The conversation stops when you do not hand the floor to someone.
+
+To delegate a task to ${partner}, end your reply with one fenced block exactly like this:
+
+\`\`\`delegate
+target: ${target}
+task: what ${partner} should do
+context: optional details
+\`\`\`
+
+Orbit gives that task to ${partner} through that agent's gateway and posts the result back here and to you. Delegate only to ${partner}. A chain may be at most ${MAX_DEPTH} delegations deep, and this conversation keeps at most ${MAX_TASKS} delegated tasks. If a tool needs approval, use your normal tool-approval flow; the owner resolves it on the agent that is executing. A structured brief is optional. If you include objective, also include deliverable, acceptance, tools, scope, budget (turns 1–20 and minutes 1–30), and returnFormat (a summary and artifact paths).`;
+}
+
+/** @hermes, @grok, @pi, and @all by default. An email local-part does not count. */
+/** A handle with case and punctuation removed: mr_india, mr.india, mr-india and MrIndia all squash to mrindia. */
+export function squashHandle(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+/** The participant a typed handle names (case- and punctuation-insensitive), or ''. */
+export function resolveHandle(value, participants = PROVIDER_PARTICIPANTS) {
+  const key = squashHandle(String(value || '').replace(/^@/, ''));
+  if (!key) return '';
+  return (Array.isArray(participants) ? participants : []).find(participant => squashHandle(participant) === key) || '';
+}
+
+export function mentionedAgents(text, participants = PROVIDER_PARTICIPANTS) {
+  const list = Array.isArray(participants) && participants.length ? participants : PROVIDER_PARTICIPANTS;
+  const found = { all: false };
+  for (const participant of list) found[participant] = false;
+  for (const match of String(text || '').matchAll(/(^|[^A-Za-z0-9_])@([A-Za-z0-9_](?:[A-Za-z0-9_.\-]*[A-Za-z0-9_])?)/g)) {
+    const raw = match[2].toLowerCase();
+    if (raw === 'all') { found.all = true; continue; }
+    const hit = resolveHandle(raw, list);
+    if (hit) found[hit] = true;
+  }
+  return found;
+}
+
+/** Members named in plain words ("Hermes, can you…", "pipi do X"), matched by label or handle as whole words. */
+export function namedAgents(text, participants, labelOf = id => labels[id]) {
+  const body = ` ${String(text || '').toLowerCase().replace(/@[a-z0-9_.\-]+/g, ' ')} `;
+  return participants.filter(id => {
+    const names = [String(labelOf(id) || ''), id, id.replace(/_/g, ' ')].map(n => n.toLowerCase().trim()).filter(n => n.length >= 2);
+    return names.some(n => new RegExp(`(^|[^a-z0-9])${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^a-z0-9]|$)`).test(body));
+  });
+}
+
+/** Who should answer a message from Kyle. */
+export function routeAddressees(text, lastAddressed = '', participants = DEFAULT_PARTICIPANTS) {
+  const list = Array.isArray(participants) && participants.length ? participants : DEFAULT_PARTICIPANTS;
+  const found = mentionedAgents(text, list);
+  const mentioned = list.filter(participant => found[participant]);
+  if (found.all) return list.slice();
+  if (mentioned.length) return mentioned;
+  if (String(text || '').includes('?')) return list.slice();
+  if (list.includes(lastAddressed)) return [lastAddressed];
+  if (lastAddressed === 'all') return list.slice();
+  return list.includes('hermes') ? ['hermes'] : [list[0]];
+}
+
+function handoffTargets(speaker, text, participants = DEFAULT_PARTICIPANTS) {
+  const found = mentionedAgents(text, participants);
+  if (found.all) return others(speaker, participants);
+  return participants.filter(participant => found[participant] && participant !== speaker);
+}
+
+function isQuiet(text) {
+  return /^\(?quiet\)?[.!]?\s*$/i.test(String(text || '').trim());
+}
+
+function normalizeUtterance(text) {
+  return String(text || '').toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 240);
+}
+
+function agentTurnsSinceOwner(messages, floorMark = 0, participants = DEFAULT_PARTICIPANTS) {
+  const visible = messages.slice(Math.max(0, floorMark) || 0);
+  let start = 0;
+  for (let index = visible.length - 1; index >= 0; index -= 1) {
+    if (visible[index].speaker === 'owner') { start = index + 1; break; }
+  }
+  return visible.slice(start).filter(message => participants.includes(message.speaker));
+}
+
+function agentFloorBlocked(state, participants = DEFAULT_PARTICIPANTS) {
+  if (state.agentStreak >= MAX_AGENT_STREAK) return true;
+  const recent = agentTurnsSinceOwner(state.messages, state.floorMark || 0, participants);
+  const speakersNow = recent.slice(-4).map(message => message.speaker);
+  if (speakersNow.length === 4 && speakersNow[0] !== speakersNow[1] && speakersNow[0] === speakersNow[2] && speakersNow[1] === speakersNow[3]) return true;
+  const norms = recent.map(message => normalizeUtterance(message.text)).filter(text => text.length >= 24);
+  return new Set(norms).size !== norms.length;
+}
+
+function latestLine(messages, self) {
+  const last = [...messages].reverse().find(message => message.speaker !== 'note');
+  if (!last) return '';
+  return `The latest message is from ${authorTag(last.speaker, self)}${last.speaker !== 'owner' && last.speaker !== self ? ', an agent, not Kyle' : ''}.\n`;
+}
+
+/** Persistent group sessions already hold the rules and earlier transcript: send a short header and only what is new. */
+function deltaPrompt(speaker, fresh, participants, ownerAddressed = false) {
+  const name = labels[speaker] || speaker;
+  const mentions = others(speaker, participants).map(id => `@${id}`).join(', ');
+  const last = fresh[fresh.length - 1];
+  const tail = ownerAddressed && last && last.speaker !== 'owner'
+    ? "Kyle's latest message was addressed to you too (others may have answered first). Reply to Kyle; do not answer (quiet)."
+    : (ownerAddressed ? 'Kyle addressed this message to you. Reply to it; do not answer (quiet).' : 'Reply to the latest message, or with exactly (quiet) if it needs nothing from you.');
+  return `[Orbit group chat update: relayed by Orbit, not typed by Kyle. You are ${name} (@${speaker}). Same rules as before: lines marked (owner) are Kyle, (agent, @handle) are other AI agents, (you) is you. Your reply wakes only members you @mention (${mentions}).${participants.guidance ? ' Track build work on the Collab board with ~/bin/collab-board as described in your first group message.' : ''}]
+
+New messages since your last turn:
+${transcriptTail(fresh, speaker) || '(none)'}
+
+${latestLine(fresh, speaker)}${tail}`;
+}
+
+function promptFor(speaker, messages, participants = DEFAULT_PARTICIPANTS, ownerAddressed = false) {
+  const last = messages[messages.length - 1];
+  const tail = ownerAddressed && last && last.speaker !== 'owner'
+    ? "Kyle's latest message was addressed to you too (others may have answered first). Reply to Kyle; do not answer (quiet)."
+    : (ownerAddressed ? 'Kyle addressed this message to you. Reply to it; do not answer (quiet).' : 'Reply to the latest message.');
+  return `${preamble(speaker, participants)}
+
+${RELAY}
+
+Recent transcript:
+${transcriptTail(messages, speaker) || '(no messages yet)'}
+
+${latestLine(messages, speaker)}${tail}`;
+}
+
+function briefBlock(brief) {
+  if (!brief) return '';
+  return `
+Objective: ${brief.objective}
+Deliverable: ${brief.deliverable}
+Acceptance: ${brief.acceptance.join('; ')}
+Allowed tools: ${brief.tools.join(', ') || '(none named)'}
+Scope: ${brief.scope}
+Budget: ${brief.budget.turns} turns, ${brief.budget.minutes} minutes.
+Return format: ${brief.returnFormat}
+`;
+}
+
+function delegationPrompt(task, messages, participants = DEFAULT_PARTICIPANTS) {
+  const onward = participants.filter(participant => participant !== task.to);
+  const onwardNames = onward.map(participant => labels[participant] || 'Orbit');
+  const partner = onward.length === 1 ? onwardNames[0] : (andList(onwardNames) || 'another agent');
+  return `${preamble(task.to, participants)}
+
+${authorTag(task.from, task.to)} delegated this task to you. Do the task and reply with the result. You may delegate onward to ${partner} only if the chain is still within ${MAX_DEPTH} steps.
+
+Task:
+${task.task}
+${task.context ? `\nContext:\n${task.context}\n` : ''}${briefBlock(task.brief)}
+${RELAY}
+
+Recent transcript:
+${transcriptTail(messages, task.to) || '(no messages yet)'}`;
+}
+
+function returnPrompt(task, messages, participants = DEFAULT_PARTICIPANTS) {
+  return `${preamble(task.from, participants)}
+
+${authorTag(task.to, task.from)} finished a task you delegated.
+Task: ${task.task}
+Result: ${task.result || '(no text)'}
+
+Continue the shared conversation. The result is already in the transcript. Do not repeat a delegate block unless you are delegating a new task within the depth limit.
+
+${RELAY}
+
+Recent transcript:
+${transcriptTail(messages, task.from) || '(no messages yet)'}`;
+}
+
+function normalizeTarget(value) {
+  const text = String(value || '').trim().toLowerCase().replace(/^@/, '');
+  if (text === 'hermes') return 'hermes';
+  if (text === 'grok' || text === 'grok bot') return 'grok';
+  if (text === 'pi' || text === 'pi agent') return 'pi';
+  // Group rooms name members by handle; the room checks membership.
+  const handle = text.replace(/[.\-\s]+/g, '_');
+  return /^[a-z0-9_]{1,32}$/.test(handle) && !['owner', 'kyle', 'all', 'note', 'orbit'].includes(handle) ? handle : '';
+}
+
+function cleanField(value, max) {
+  return String(value || '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, max);
+}
+
+const BRIEF_KEYS = ['objective', 'deliverable', 'acceptance', 'tools', 'scope', 'budget', 'returnformat', 'return'];
+
+function asList(value) {
+  if (Array.isArray(value)) return value.map(item => cleanField(item, 500)).filter(Boolean);
+  return cleanField(value, 2000).split(',').map(item => item.trim()).filter(Boolean);
+}
+
+function parseBudget(value) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return { turns: Number(value.turns), minutes: Number(value.minutes) };
+  const text = String(value || '');
+  // Accept "2 turns, 10 minutes" and the "turns 1-10, minutes 1-25" form agents copy from the prompt (upper bound wins).
+  const N = '(\\d+)(?:\\s*[-–]\\s*(\\d+))?';
+  const pick = (re1, re2) => { const m = re1.exec(text) || re2.exec(text); return m ? Number(m[2] || m[1]) : Number.NaN; };
+  return {
+    turns: pick(new RegExp(`${N}\\s*turns?`, 'i'), new RegExp(`turns?\\s*:?\\s*${N}`, 'i')),
+    minutes: pick(new RegExp(`${N}\\s*(?:minutes?|mins?)\\b`, 'i'), new RegExp(`(?:minutes?|mins?)\\s*:?\\s*${N}`, 'i')),
+  };
+}
+
+/** Null when the block is a plain target/task. An error when a brief was started but is incomplete. */
+function briefFrom(source) {
+  if (!source || typeof source !== 'object') return null;
+  const started = BRIEF_KEYS.some(key => {
+    const value = source[key] ?? (key === 'returnformat' ? source.returnFormat : undefined);
+    return value != null && value !== '';
+  });
+  if (!started) return null;
+  for (const key of ['objective', 'deliverable', 'scope', 'returnFormat', 'return', 'returnformat']) {
+    if (source[key] != null && typeof source[key] !== 'string') return { error: 'Delegate brief fields must be text.' };
+  }
+  const objective = cleanField(source.objective, 1000);
+  const deliverable = cleanField(source.deliverable, 1000);
+  const scope = cleanField(source.scope, 1000);
+  const returnFormat = cleanField(source.returnFormat || source.return || source.returnformat, 500);
+  const acceptance = asList(source.acceptance).slice(0, 8);
+  const toolsProvided = Object.prototype.hasOwnProperty.call(source, 'tools');
+  const tools = asList(source.tools).slice(0, 12);
+  const budget = parseBudget(source.budget);
+  if (!objective || !deliverable || !scope || !returnFormat || !acceptance.length || !toolsProvided) {
+    return { error: 'A delegate brief needs objective, deliverable, acceptance, tools, scope, budget, and returnFormat.' };
+  }
+  if (!/summary/i.test(returnFormat) || !/path/i.test(returnFormat)) return { error: 'returnFormat must ask for a summary and artifact paths.' };
+  if (!Number.isInteger(budget.turns) || budget.turns < 1 || budget.turns > 20 || !Number.isInteger(budget.minutes) || budget.minutes < 1 || budget.minutes > 30) {
+    return { error: 'Delegate budget turns must be 1–20 and minutes 1–30.' };
+  }
+  return { brief: { objective, deliverable, acceptance, tools, scope, budget: { turns: budget.turns, minutes: budget.minutes }, returnFormat } };
+}
+
+/** First fenced delegate block in an agent reply. Null when the reply does not delegate. */
+export function parseDelegate(text) {
+  const match = String(text || '').match(/```delegate[^\n]*\n([\s\S]*?)```/i);
+  if (!match) return null;
+  const body = match[1].trim();
+  let target = '';
+  let task = '';
+  let context = '';
+  let briefSource = null;
+  if (body.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(body);
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { error: 'The delegate block must be a JSON object with target and task.' };
+      if (parsed.task != null && typeof parsed.task !== 'string') return { error: 'The delegated task must be text.' };
+      if (parsed.context != null && typeof parsed.context !== 'string') return { error: 'Delegation context must be text.' };
+      target = parsed.target;
+      task = parsed.task || '';
+      context = parsed.context || '';
+      briefSource = parsed;
+    } catch {
+      return { error: 'The delegate block is not valid JSON.' };
+    }
+  } else {
+    const fields = {};
+    let current = '';
+    for (const line of body.split('\n')) {
+      const headed = /^(target|task|context|objective|deliverable|acceptance|tools|scope|budget|returnFormat|return)\s*:\s*(.*)$/i.exec(line);
+      if (headed) {
+        current = headed[1].toLowerCase() === 'return' ? 'returnformat' : headed[1].toLowerCase();
+        if ((current === 'acceptance' || current === 'tools') && fields[current]) fields[current] = `${fields[current]}, ${headed[2]}`;
+        else fields[current] = headed[2];
+      } else if (current) fields[current] += `\n${line}`;
+    }
+    target = fields.target || '';
+    task = fields.task || '';
+    context = fields.context || '';
+    briefSource = fields;
+  }
+  const to = normalizeTarget(target);
+  // A structured brief may carry its ask in objective: only; use it as the task rather than rejecting the block.
+  if (!String(task || '').trim() && briefSource && typeof briefSource.objective === 'string') task = briefSource.objective;
+  task = cleanField(task, 4000);
+  context = cleanField(context, 4000);
+  if (!to) return { error: 'Name the target agent by its @handle (for example hermes, grok, or pi).' };
+  if (!task) return { error: 'A delegated task needs a task: (or objective:) line. Nothing was delegated.' };
+  const brief = briefFrom(briefSource);
+  if (brief?.error) return brief;
+  return brief?.brief ? { to, task, context, brief: brief.brief } : { to, task, context };
+}
+
+function publicState(state, participants = DEFAULT_PARTICIPANTS) {
+  return {
+    participants: participants.slice(),
+    messages: state.messages.map(message => ({ id: message.id, speaker: message.speaker, text: message.text, at: message.at, ...(message.error ? { error: true } : {}) })),
+    paused: state.paused,
+    hold: state.hold === true,
+    auto: state.auto === true,
+    next: state.next || '',
+    maxTurns: state.maxTurns,
+    running: state.run?.speaker || Object.keys(state.side || {})[0] || '',
+    working: [...new Set([...(state.run?.speaker ? [state.run.speaker] : []), ...Object.keys(state.side || {})])],
+    queued: (state.queue || []).map(item => item.speaker),
+    activity: state.activity || '',
+    ...(state.collabProject?.id ? { collabProject: { id: state.collabProject.id } } : {}),
+    delegations: state.delegations.map(task => ({
+      id: task.id,
+      from: task.from,
+      to: task.to,
+      task: task.task,
+      depth: task.depth,
+      status: task.status,
+    })),
+  };
+}
+
+function cleanDelegations(list, participants = DEFAULT_PARTICIPANTS) {
+  if (!Array.isArray(list)) return [];
+  const tasks = [];
+  for (const raw of list) {
+    if (!raw || typeof raw !== 'object' || !taskPattern.test(raw.id || '')) continue;
+    if (!participants.includes(raw.from) || !participants.includes(raw.to)) continue;
+    if (!['pending', 'running', 'done', 'failed'].includes(raw.status)) continue;
+    const depth = Number.isInteger(raw.depth) && raw.depth >= 1 && raw.depth <= MAX_DEPTH ? raw.depth : 1;
+    tasks.push({
+      id: raw.id,
+      from: raw.from,
+      to: raw.to,
+      task: cleanField(raw.task, 4000),
+      context: cleanField(raw.context, 4000),
+      depth,
+      chain: typeof raw.chain === 'string' && taskPattern.test(raw.chain) ? raw.chain : raw.id,
+      status: raw.status,
+      result: cleanField(raw.result, 4000),
+      waitingOn: taskPattern.test(raw.waitingOn || '') ? raw.waitingOn : '',
+      needsReturn: raw.needsReturn === true,
+      deadline: Number.isFinite(raw.deadline) ? raw.deadline : 0,
+    });
+    const keptBrief = briefFrom(raw.brief);
+    if (keptBrief?.brief) tasks.at(-1).brief = keptBrief.brief;
+  }
+  return tasks.slice(-MAX_TASKS);
+}
+
+/**
+ * `members` (optional): a group room with arbitrary members, each {id: @handle, label}. The handle is the
+ * speaker id; `gateways` must then map handles to providers. `defaultResponder` ('all' or a handle) answers
+ * Kyle's un-mentioned messages instead of the provider-room heuristic.
+ */
+export function createSharedAgents({ directory, fetchImpl = fetch, chats, grok, hermesProfile, gatewayProfile, grokProfile, now = () => Date.now(), turnTimeoutMs, advanceIntervalMs, gateways: providedGateways, openCollab, members, defaultResponder, delegationTimeoutMs, guidance, parallel: parallelOption, hardCapMs, maxMessage = 16000, autoResumeDelayMs, maxAutoResumes } = {}) {
+  const resumeDelay = Number.isFinite(autoResumeDelayMs) && autoResumeDelayMs >= 0 ? Math.floor(autoResumeDelayMs) : AUTO_RESUME_DELAY_MS;
+  const resumeCap = Number.isInteger(maxAutoResumes) && maxAutoResumes >= 0 ? maxAutoResumes : MAX_AUTO_RESUMES;
+  const turnTimeout = Number.isFinite(turnTimeoutMs) && turnTimeoutMs >= 1000 ? Math.floor(turnTimeoutMs) : sharedTurnTimeoutMs();
+  const turnTimeoutMinutes = Math.max(1, Math.round(turnTimeout / 60000));
+  const advanceEvery = Number.isFinite(advanceIntervalMs) && advanceIntervalMs >= 15 ? Math.floor(advanceIntervalMs) : DEFAULT_ADVANCE_INTERVAL_MS;
+  // The room is Hermes plus every configured gateway provider. An older caller that
+  // still passes a single `grok` chat keeps the original two-member room.
+  const roomChats = chats instanceof Map ? chats : (grok ? new Map([['grok', grok]]) : null);
+  const memberList = Array.isArray(members) ? members.filter(m => m && /^[a-z0-9_]{1,32}$/.test(m.id) && !['owner', 'note', 'all', 'kyle'].includes(m.id)) : null;
+  if (memberList) for (const m of memberList) labels[m.id] = String(m.label || m.id).replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 80);
+  const speakers = memberList && memberList.length
+    ? memberList.map(m => m.id)
+    : ['hermes', ...((roomChats ? [...roomChats.keys()] : ['grok']).filter(id => id !== 'hermes'))];
+  if (memberList && memberList.length) speakers.group = true; // group prompts: strict reply gating
+  const parallel = Boolean(memberList && memberList.length) && parallelOption !== false; // groups default to parallel turns
+  if (memberList && typeof guidance === 'string' && guidance.trim()) speakers.guidance = guidance.trim().slice(0, 4000);
+  // Member rooms (groups): @mentions win, then members named in plain words, then the default responder.
+  // Everyone answers an un-mentioned message only when the group explicitly chose 'all'.
+  const routeOwner = text => {
+    if (!memberList) return null;
+    const found = mentionedAgents(text, speakers);
+    if (found.all) return speakers.slice();
+    const mentioned = speakers.filter(id => found[id]);
+    if (mentioned.length) return mentioned;
+    const named = namedAgents(text, speakers);
+    if (named.length) return named;
+    if (defaultResponder === 'all') return speakers.slice();
+    return [speakers.includes(defaultResponder) ? defaultResponder : speakers[0]];
+  };
+  const agentHandoff = (speaker, output) => {
+    if (!memberList) return handoffTargets(speaker, output, speakers);
+    const found = mentionedAgents(output, speakers); // an agent wakes only the members it @mentions; @all from an agent wakes no one
+    return speakers.filter(id => found[id] && id !== speaker);
+  };
+  const hardCap = Number.isFinite(hardCapMs) && hardCapMs >= 1000 ? Math.floor(hardCapMs) : 0;
+  const hardCapLabel = hardCap >= 3600000 && hardCap % 3600000 === 0 ? `${hardCap / 3600000}-hour` : `${Math.round(hardCap / 60000)}-minute`;
+  /** Group turns: the turn limit is an inactivity limit (new output or transcript activity resets it), under an optional hard cap. */
+  const noteRunActivity = (run, view) => {
+    const key = `${Array.isArray(view?.interim) ? view.interim.length : 0}:${view?.activityKey || ''}`;
+    if (run.activityKey !== key) { run.activityKey = key; run.lastActivity = now(); }
+  };
+  const turnExpired = run => {
+    const started = Number(run.started) || 0;
+    if (!started) return '';
+    if (hardCap && now() - started > hardCap) return `${labels[run.speaker]} reached the ${hardCapLabel} turn cap, so Orbit stopped that turn.`;
+    const since = hardCap ? Math.max(started, Number(run.lastActivity) || 0) : started;
+    return now() - since > turnTimeout ? `${labels[run.speaker]} ${hardCap ? 'showed no new activity for' : 'did not reply within'} ${turnTimeoutMinutes} minute${turnTimeoutMinutes === 1 ? '' : 's'}, so Orbit stopped that turn.` : '';
+  };
+  const delegationTimeout = Number.isFinite(delegationTimeoutMs) && delegationTimeoutMs >= 1000 ? Math.floor(delegationTimeoutMs) : DELEGATION_TIMEOUT_MS;
+  const gateways = providedGateways || createAgentGateways({ fetchImpl, chats: roomChats, hermesProfile, gatewayProfile: gatewayProfile || grokProfile, now });
+  fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const chains = new Map();
+
+  function fileFor(key) {
+    return path.join(directory, `${key}.json`);
+  }
+
+  function load(key) {
+    try {
+      const record = JSON.parse(fs.readFileSync(fileFor(key), 'utf8'));
+      if (!record || !Array.isArray(record.messages)) return { ...blank(key), next: speakers[0] };
+      if (!speakers.includes(record.next)) { if (!memberList) return blank(key); record.next = speakers[0]; }
+      record.key = key;
+      record.messages = record.messages.filter(message => message && labels[message.speaker] && typeof message.text === 'string').slice(-200);
+      record.auto = record.auto === true;
+      record.maxTurns = Number.isInteger(record.maxTurns) && record.maxTurns >= 1 && record.maxTurns <= 8 ? record.maxTurns : 4;
+      record.turns = Number.isInteger(record.turns) && record.turns >= 0 ? record.turns : 0;
+      record.paused = record.paused === true;
+      record.hold = record.hold === true;
+      record.agentStreak = Number.isInteger(record.agentStreak) && record.agentStreak >= 0 && record.agentStreak <= 100 ? record.agentStreak : 0;
+      record.floorMark = Number.isInteger(record.floorMark) && record.floorMark >= 0 ? record.floorMark : 0;
+      record.lastAddressed = [...speakers, 'all'].includes(record.lastAddressed) ? record.lastAddressed : '';
+      record.queue = cleanQueue(record.queue, speakers);
+      record.activity = typeof record.activity === 'string' ? record.activity.slice(0, 300) : '';
+      record.hermesSession = /^orbit-[0-9a-f-]{36}$/.test(record.hermesSession || '') ? record.hermesSession : `orbit-${randomUUID()}`;
+      const rawAgents = record.agents && typeof record.agents === 'object' && !Array.isArray(record.agents) ? record.agents : {};
+      record.agents = {};
+      for (const participant of speakers) {
+        const agentId = typeof rawAgents[participant] === 'string' ? rawAgents[participant] : (participant === 'grok' && typeof record.grokAgentId === 'string' ? record.grokAgentId : '');
+        if (agentId) record.agents[participant] = agentId;
+      }
+      record.run = record.run && speakers.includes(record.run.speaker) && typeof record.run.runId === 'string' ? record.run : null;
+      record.side = record.side && typeof record.side === 'object' ? Object.fromEntries(Object.entries(record.side).filter(([id, run]) => speakers.includes(id) && run && run.speaker === id && typeof run.runId === 'string')) : {};
+      if (record.run) {
+        record.run.purpose = ['turn', 'delegation', 'return'].includes(record.run.purpose) ? record.run.purpose : 'turn';
+        record.run.depth = Number.isInteger(record.run.depth) ? record.run.depth : 0;
+        record.run.taskId = typeof record.run.taskId === 'string' ? record.run.taskId : '';
+        record.run.chain = typeof record.run.chain === 'string' ? record.run.chain : '';
+      }
+      record.delegations = cleanDelegations(record.delegations, speakers);
+      const rawResume = record.resume && typeof record.resume === 'object' && !Array.isArray(record.resume) ? record.resume : {};
+      record.resume = {};
+      for (const [id, entry] of Object.entries(rawResume)) {
+        if (speakers.includes(id) && entry && Number.isFinite(entry.at) && Number.isInteger(entry.count) && entry.count >= 1 && entry.count <= 10) record.resume[id] = { at: entry.at, count: entry.count };
+      }
+      return record;
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw fail('The shared transcript could not be read.');
+      return { ...blank(key), next: speakers[0] };
+    }
+  }
+
+  function save(state) {
+    const dest = fileFor(state.key);
+    const temp = `${dest}.${process.pid}.tmp`;
+    const record = {
+      messages: state.messages.slice(-200),
+      next: state.next,
+      auto: state.auto,
+      maxTurns: state.maxTurns,
+      turns: state.turns,
+      paused: state.paused,
+      hold: state.hold === true,
+      agentStreak: state.agentStreak || 0,
+      floorMark: state.floorMark || 0,
+      lastAddressed: state.lastAddressed || '',
+      queue: state.queue || [],
+      activity: state.activity || '',
+      hermesSession: state.hermesSession,
+      agents: state.agents,
+      grokAgentId: (state.agents && state.agents.grok) || '',
+      run: state.run,
+      ...(state.side && Object.keys(state.side).length ? { side: state.side } : {}),
+      delegations: state.delegations.slice(-MAX_TASKS),
+      ...(state.seen && typeof state.seen === 'object' ? { seen: state.seen } : {}),
+      ...(state.resume && Object.keys(state.resume).length ? { resume: state.resume } : {}),
+    };
+    fs.writeFileSync(temp, JSON.stringify(record), { mode: 0o600 });
+    fs.renameSync(temp, dest);
+  }
+
+  function append(state, speaker, text, error = false) {
+    const clean = String(text || '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, maxMessage);
+    if (!clean) return;
+    state.messages.push({ id: `m_${randomUUID().replaceAll('-', '')}`, speaker, text: clean, at: new Date(now()).toISOString(), ...(error ? { error: true } : {}) });
+    state.messages = state.messages.slice(-200);
+  }
+
+  function cleanQueue(list, participants = DEFAULT_PARTICIPANTS) {
+  if (!Array.isArray(list)) return [];
+  const queue = [];
+  for (const item of list) {
+    const speaker = typeof item === 'string' ? item : item?.speaker;
+    if (!participants.includes(speaker) || queue.some(entry => entry.speaker === speaker)) continue;
+    queue.push({ speaker, fromOwner: item?.fromOwner === true });
+  }
+  return queue.slice(0, Math.max(2, participants.length));
+}
+
+function enqueue(state, targets, fromOwner, participants = DEFAULT_PARTICIPANTS) {
+  for (const speaker of targets) {
+    if (!participants.includes(speaker) || state.queue.some(entry => entry.speaker === speaker)) continue;
+    state.queue.push({ speaker, fromOwner: fromOwner === true });
+  }
+}
+
+function rememberAddress(state, text, participants = DEFAULT_PARTICIPANTS) {
+  const found = mentionedAgents(text, participants);
+  const mentioned = participants.filter(participant => found[participant]);
+  if (found.all || mentioned.length > 1) state.lastAddressed = 'all';
+  else if (mentioned.length === 1) state.lastAddressed = mentioned[0];
+}
+
+function findTask(state, id) {
+    return state.delegations.find(task => task.id === id) || null;
+  }
+
+  function openTasks(state) {
+    return state.delegations.filter(task => task.status === 'pending' || task.status === 'running');
+  }
+
+  async function begin(state, speaker, meta = {}) {
+    const purpose = meta.purpose || 'turn';
+    const seenAt = memberList && !meta.prompt && state.seen && state.seen[speaker] ? state.messages.findIndex(message => message.id === state.seen[speaker]) : -1;
+    const fresh = seenAt >= 0 ? state.messages.slice(seenAt + 1).filter(message => message.speaker !== 'note') : null;
+    const basePrompt = meta.prompt || (fresh && fresh.length ? deltaPrompt(speaker, fresh, speakers, meta.ownerAddressed === true) : promptFor(speaker, state.messages, speakers, meta.ownerAddressed === true));
+    const prompt = meta.resumeNote ? `${meta.resumeNote}\n\n${basePrompt}` : basePrompt;
+    const instructions = `${preamble(speaker, speakers)} Delegate only with the \`\`\`delegate fence.`;
+    const concurrent = Array.isArray(meta.concurrent) ? meta.concurrent.filter(id => id !== speaker && labels[id]) : [];
+    const fullPrompt = concurrent.length
+      ? `${prompt}\n\nWorking in parallel: ${andList(concurrent.map(id => `${labels[id]} (@${id})`))} ${concurrent.length === 1 ? 'is' : 'are'} taking a turn at the same time as you and cannot see your reply yet. Do not duplicate their work: claim your part on the Collab board entry (check in with what you are taking) and read the board before starting.`
+      : prompt;
+    try {
+      const started = await gateways.startSpeaker({ speaker, prompt: fullPrompt, instructions, hermesSession: state.hermesSession, grokAgentId: state.agents[speaker] || '' });
+      if (started.agentId) state.agents[speaker] = started.agentId;
+      if (memberList && state.messages.length) state.seen = { ...(state.seen || {}), [speaker]: state.messages.at(-1).id };
+      const run = {
+        speaker,
+        purpose,
+        taskId: meta.taskId || '',
+        depth: meta.depth || 0,
+        chain: meta.chain || '',
+        runId: started.runId,
+        started: started.started,
+        ...(started.nonce ? { nonce: started.nonce, baseline: started.baseline, agentId: started.agentId } : {}),
+        ...(Number.isInteger(started.msgBase) ? { msgBase: started.msgBase, session: started.session || '' } : {}),
+        ...(Number.isInteger(meta.autoResumes) && meta.autoResumes > 0 ? { autoResumes: meta.autoResumes } : {}),
+      };
+      if (meta.side) {
+        state.side = { ...(state.side || {}), [speaker]: run };
+        state.activity = sideActivity(state);
+        return;
+      }
+      state.run = run;
+      if (purpose === 'turn') state.next = others(speaker, speakers)[0] || speaker;
+      state.activity = purpose === 'delegation'
+        ? `${labels[speaker]} is working on a delegated task.`
+        : purpose === 'return'
+          ? `${labels[speaker]} is continuing after a delegated result.`
+          : `${labels[speaker]} is replying.`;
+    } catch (error) {
+      if (meta.side) { append(state, speaker, error?.message || `${labels[speaker]} could not take a turn.`, true); return; }
+      state.run = null;
+      state.activity = '';
+      const message = error?.message || `${labels[speaker]} could not take a turn.`;
+      if (purpose === 'delegation' && meta.task && (meta.task.status === 'pending' || meta.task.status === 'running')) {
+        meta.task.status = 'failed';
+        meta.task.result = cleanField(message, 4000);
+        meta.task.needsReturn = !state.paused;
+      } else state.paused = true;
+      append(state, speaker, message, true);
+    }
+  }
+
+  /** Interim assistant texts a run produced so far (Hermes session messages): one bubble each, never twice. */
+  function postInterim(state, view, run = state.run) {
+    if (!run || (run.purpose || 'turn') !== 'turn' || !Array.isArray(view?.interim)) return;
+    run.interim = Array.isArray(run.interim) ? run.interim : [];
+    const finalText = view.status === 'completed' ? normalizeUtterance(view.output) : '';
+    for (const text of view.interim.slice(0, 40)) {
+      const norm = normalizeUtterance(text);
+      if (!norm || run.interim.includes(norm) || isQuiet(text)) continue;
+      if (finalText && norm === finalText) continue; // the final reply is posted by the normal path
+      run.interim.push(norm);
+      append(state, run.speaker, text);
+    }
+  }
+
+  async function poll(state) {
+    if (!state.run) return { status: 'idle' };
+    return gateways.pollSpeaker(state.run);
+  }
+
+  async function stopProvider(state) {
+    if (!state.run) return;
+    const run = state.run;
+    try { await gateways.stopSpeaker(run); }
+    catch (error) {
+      append(state, run.speaker, error?.message || 'Stop request failed.', true);
+    }
+  }
+
+  function failTask(task, result, state) {
+    task.status = 'failed';
+    task.waitingOn = '';
+    task.result = cleanField(result, 4000);
+    task.needsReturn = !state.paused;
+  }
+
+  async function expireRunning(state) {
+    const run = state.run;
+    if (!run) return false;
+    if (run.purpose === 'delegation') {
+      const task = findTask(state, run.taskId);
+      if (!task || task.status !== 'running' || !task.deadline || now() <= task.deadline) return false;
+      await stopProvider(state);
+      state.run = null;
+      state.activity = '';
+      failTask(task, 'This delegated task timed out.', state);
+      append(state, task.to, 'This delegated task timed out.', true);
+      return true;
+    }
+    const expired = turnExpired(run);
+    if (!expired) return false;
+    await stopProvider(state);
+    state.run = null;
+    state.activity = '';
+    append(state, run.speaker, expired, true);
+    return true;
+  }
+
+  function expirePending(state) {
+    for (const task of state.delegations) {
+      if (task.status !== 'pending' || !task.deadline || now() <= task.deadline) continue;
+      failTask(task, 'This delegated task timed out before it started.', state);
+      append(state, 'note', `${labels[task.from]} delegated to ${labels[task.to]}, but it timed out before it started.`, true);
+    }
+  }
+
+  async function startTask(state, task) {
+    task.status = 'running';
+    await begin(state, task.to, {
+      purpose: 'delegation',
+      taskId: task.id,
+      depth: task.depth,
+      chain: task.chain,
+      task,
+      prompt: delegationPrompt(task, state.messages, speakers),
+    });
+  }
+
+  async function startNextSpeaker(state) {
+    if (parallel) return false; // advanceSide starts queued members
+    if (state.run || state.paused || state.hold) return false;
+    while (state.queue.length) {
+      const next = state.queue[0];
+      if (!next.fromOwner && agentFloorBlocked(state, speakers)) {
+        state.hold = true;
+        state.activity = HOLD_ACTIVITY;
+        return false;
+      }
+      state.queue.shift();
+      await begin(state, next.speaker, { ownerAddressed: next.fromOwner === true });
+      return Boolean(state.run);
+    }
+    return false;
+  }
+
+  async function startQueued(state) {
+    if (state.run) return false;
+    expirePending(state);
+    if (state.paused || state.hold) return false;
+    const pending = state.delegations.find(task => task.status === 'pending' && !(state.side && state.side[task.to]));
+    if (pending) {
+      await startTask(state, pending);
+      return true;
+    }
+    const returning = state.delegations.find(task => task.needsReturn && (task.status === 'done' || task.status === 'failed'));
+    if (returning) {
+      returning.needsReturn = false;
+      await begin(state, returning.from, {
+        purpose: 'return',
+        taskId: returning.id,
+        depth: returning.depth,
+        chain: returning.chain,
+        prompt: returnPrompt(returning, state.messages, speakers),
+      });
+      return true;
+    }
+    return startNextSpeaker(state);
+  }
+
+  async function acceptDelegate(state, speaker, output, run) {
+    const parsed = parseDelegate(output);
+    if (!parsed) return false;
+    if (parsed.error) {
+      append(state, 'note', parsed.error);
+      return false;
+    }
+    if (parsed.to === speaker) {
+      append(state, 'note', 'Delegation must target a different agent.');
+      return false;
+    }
+    if (!speakers.includes(parsed.to)) parsed.to = resolveHandle(parsed.to, speakers) || parsed.to;
+    if (parsed.to === speaker) {
+      append(state, 'note', 'Delegation must target a different agent.');
+      return false;
+    }
+    if (!speakers.includes(parsed.to)) {
+      append(state, 'note', 'Delegation must target another agent in this room.');
+      return false;
+    }
+    const depth = (run.depth || 0) + 1;
+    if (depth > MAX_DEPTH) {
+      append(state, 'note', `Delegation stopped at a depth of ${MAX_DEPTH} so the agents do not ping-pong.`);
+      return false;
+    }
+    if (state.delegations.length >= MAX_TASKS) {
+      append(state, 'note', `Delegation stopped because this conversation already has ${MAX_TASKS} delegated tasks.`);
+      return false;
+    }
+    const open = openTasks(state);
+    const chain = run.chain || '';
+    if (open.length && !(chain && open.every(task => task.chain === chain))) {
+      append(state, 'note', 'A delegated task is already open. Wait for it, or cancel it, before starting another.');
+      return false;
+    }
+    const id = `d_${randomUUID().replaceAll('-', '').slice(0, 16)}`;
+    const task = {
+      id,
+      from: speaker,
+      to: parsed.to,
+      task: parsed.task,
+      context: parsed.context,
+      ...(parsed.brief ? { brief: parsed.brief } : {}),
+      depth,
+      chain: chain || id,
+      status: 'pending',
+      result: '',
+      waitingOn: '',
+      needsReturn: false,
+      deadline: now() + delegationTimeout,
+    };
+    state.delegations.push(task);
+    if (!state.paused && !state.run) await startTask(state, task);
+    return true;
+  }
+
+  function settleParent(state, childId, output) {
+    const parent = state.delegations.find(task => task.waitingOn === childId && task.status === 'running');
+    if (!parent) return;
+    parent.status = 'done';
+    parent.waitingOn = '';
+    parent.result = cleanField(output, 4000);
+    parent.needsReturn = !state.paused;
+  }
+
+  // ---- parallel group turns: every woken member gets its own in-flight turn (state.side), one per member.
+  function sideActivity(state) {
+    const names = Object.keys(state.side || {}).map(id => labels[id] || id);
+    return names.length ? `${andList(names)} ${names.length === 1 ? 'is' : 'are'} working.` : '';
+  }
+
+  /** The same bookkeeping a sequential turn gets: post, (quiet), streak, delegate block, @mention wakes. */
+  async function finishSideTurn(state, run, view) {
+    const speaker = run.speaker;
+    const failed = view.status !== 'completed';
+    const output = failed ? (view.error || `${labels[speaker]} could not finish this turn.`) : (view.output || `${labels[speaker]} finished without a text reply.`);
+    if (!failed) postInterim(state, view, run);
+    const shownAlready = !failed && (run.interim || []).includes(normalizeUtterance(output));
+    if (failed) { append(state, speaker, output, true); return; }
+    if (isQuiet(output)) return;
+    if (!shownAlready) append(state, speaker, output);
+    state.agentStreak += 1;
+    if (await acceptDelegate(state, speaker, output, run)) return;
+    const handoff = agentHandoff(speaker, output);
+    if (handoff.length) {
+      rememberAddress(state, output, speakers);
+      enqueue(state, handoff, false, speakers);
+    }
+  }
+
+  const resumeLog = state => `room=${String(state.key || '').split('.').pop().slice(0, 36)}`;
+  /** A turn its own runtime cancelled (Orbit never polls a run it stopped or expired) gets re-queued, capped per original turn. */
+  function scheduleAutoResume(state, run, view) {
+    if (!view || view.status !== 'failed' || view.runtimeCancelled !== true) return;
+    if ((run.purpose || 'turn') !== 'turn') return;
+    const speaker = run.speaker;
+    const reason = typeof view.cancelReason === 'string' ? view.cancelReason : '';
+    if (/user|owner|manual/i.test(reason)) { console.log(`[shared-agents] auto-resume ${resumeLog(state)} ${speaker}: not resuming, cancel reason looks manual (${reason})`); return; }
+    if (state.paused || state.hold) { console.log(`[shared-agents] auto-resume ${resumeLog(state)} ${speaker}: not resuming, room is paused`); return; }
+    const done = Number.isInteger(run.autoResumes) ? run.autoResumes : 0;
+    if (done >= resumeCap) {
+      console.log(`[shared-agents] auto-resume ${resumeLog(state)} ${speaker}: cap of ${resumeCap} reached, not resuming${reason ? ` (${reason})` : ''}`);
+      append(state, 'note', `${labels[speaker]}'s turn was cut off again; Orbit already resumed it ${resumeCap} time${resumeCap === 1 ? '' : 's'}, so it is not resuming automatically.`);
+      return;
+    }
+    state.resume = state.resume || {};
+    state.resume[speaker] = { at: now() + resumeDelay, count: done + 1 };
+    console.log(`[shared-agents] auto-resume ${resumeLog(state)} ${speaker}: runtime cancelled the turn${reason ? ` (${reason})` : ''}; resume ${done + 1}/${resumeCap} in ${Math.round(resumeDelay / 1000)}s`);
+    append(state, 'note', `${labels[speaker]}'s turn was cut off by its runtime${reason ? ` (${reason})` : ''}. Orbit will resume it in about ${Math.round(resumeDelay / 1000)} seconds (auto-resume ${done + 1} of ${resumeCap}).`);
+  }
+
+  async function advanceSide(state) {
+    state.side = state.side && typeof state.side === 'object' ? state.side : {};
+    for (let pass = 0; pass < 3; pass += 1) {
+      // Start: every queued member that has no turn in flight (a member already working keeps its wake queued).
+      if (!state.paused && !state.hold) {
+        const busy = id => Boolean(state.side[id]) || state.run?.speaker === id;
+        for (const [id, entry] of Object.entries(state.resume || {})) {
+          if (busy(id) || now() < entry.at) continue;
+          delete state.resume[id];
+          state.queue = state.queue.filter(item => item.speaker !== id); // the resumed turn also reads anything posted meanwhile
+          console.log(`[shared-agents] auto-resume ${resumeLog(state)} ${id}: starting resume ${entry.count}/${resumeCap}`);
+          await begin(state, id, { side: true, resumeNote: AUTO_RESUME_NOTE, autoResumes: entry.count });
+        }
+        const batch = [...new Set([...Object.keys(state.side), ...state.queue.map(item => item.speaker)])];
+        for (let index = 0; index < state.queue.length;) {
+          const next = state.queue[index];
+          if (busy(next.speaker)) { index += 1; continue; }
+          if (!next.fromOwner && agentFloorBlocked(state, speakers)) { state.hold = true; state.activity = HOLD_ACTIVITY; break; }
+          state.queue.splice(index, 1);
+          const pendingResume = state.resume && state.resume[next.speaker];
+          if (pendingResume) { // a new wake arrived before the resume delay ran out: this turn carries the resume
+            delete state.resume[next.speaker];
+            console.log(`[shared-agents] auto-resume ${resumeLog(state)} ${next.speaker}: folded into a new wake, resume ${pendingResume.count}/${resumeCap}`);
+          }
+          await begin(state, next.speaker, { side: true, ownerAddressed: next.fromOwner === true, concurrent: batch, ...(pendingResume ? { resumeNote: AUTO_RESUME_NOTE, autoResumes: pendingResume.count } : {}) });
+        }
+      }
+      // Poll every in-flight member; each reply posts as soon as it is ready.
+      let finished = 0;
+      for (const [speaker, run] of Object.entries(state.side)) {
+        const expired = turnExpired(run);
+        if (expired) {
+          try { await gateways.stopSpeaker(run); } catch {}
+          delete state.side[speaker];
+          append(state, speaker, expired, true);
+          finished += 1;
+          continue;
+        }
+        let view;
+        try { view = await gateways.pollSpeaker(run); }
+        catch (error) { delete state.side[speaker]; append(state, speaker, error?.message || 'That speaker could not be reached.', true); finished += 1; continue; }
+        noteRunActivity(run, view);
+        if (view.status === 'running') { postInterim(state, view, run); continue; }
+        if (view.status === 'waiting_for_approval') { run.awaiting = view.error || `${labels[speaker]} is waiting for a tool approval.`; continue; }
+        delete state.side[speaker];
+        await finishSideTurn(state, run, view);
+        scheduleAutoResume(state, run, view);
+        finished += 1;
+      }
+      state.activity = state.hold ? HOLD_ACTIVITY : (sideActivity(state) || (state.run ? state.activity : ''));
+      if (!finished) return;
+    }
+  }
+
+  async function advance(state) {
+    if (parallel) await advanceSide(state);
+    for (let step = 0; step < 4; step += 1) {
+      if (!state.run) {
+        const started = await startQueued(state);
+        if (!state.run) {
+          if (!started) return;
+          continue;
+        }
+      }
+      if (await expireRunning(state)) continue;
+      if (!state.run) continue;
+      let view;
+      try { view = await poll(state); }
+      catch (error) {
+        const run = state.run;
+        state.run = null;
+        state.activity = '';
+        const message = error?.message || 'That speaker could not be reached.';
+        append(state, run.speaker, message, true);
+        if (run.purpose === 'delegation') {
+          const task = findTask(state, run.taskId);
+          if (task && task.status === 'running') failTask(task, message, state);
+          continue;
+        }
+        state.paused = true;
+        return;
+      }
+      if (state.run) noteRunActivity(state.run, view);
+      if (view.status === 'running') {
+        postInterim(state, view);
+        return;
+      }
+      if (view.status === 'waiting_for_approval') {
+        state.activity = view.error || `${labels[state.run.speaker]} is waiting for a tool approval. Resolve it on that agent, or cancel the delegated task.`;
+        if ((state.run.purpose || 'turn') !== 'delegation') state.paused = true;
+        return;
+      }
+      const run = state.run;
+      const speaker = run.speaker;
+      const purpose = run.purpose || 'turn';
+      state.run = null;
+      const failed = view.status !== 'completed';
+      const output = failed
+        ? (view.error || `${labels[speaker]} could not finish this turn.`)
+        : (view.output || `${labels[speaker]} finished without a text reply.`);
+      if (!failed) postInterim(state, view, run);
+      const shownAlready = !failed && (run.interim || []).includes(normalizeUtterance(output));
+      if (!shownAlready) append(state, speaker, output, failed);
+      state.activity = '';
+      if (failed) {
+        if (purpose === 'delegation') {
+          const task = findTask(state, run.taskId);
+          if (task && task.status === 'running') failTask(task, output, state);
+          continue;
+        }
+        state.paused = true;
+        return;
+      }
+      const delegated = await acceptDelegate(state, speaker, output, run);
+      if (purpose === 'delegation') {
+        const task = findTask(state, run.taskId);
+        const child = state.delegations.at(-1);
+        if (delegated && task && child && child.id !== task.id && (child.status === 'pending' || child.status === 'running')) task.waitingOn = child.id;
+        else if (task && task.status === 'running') {
+          task.status = 'done';
+          task.result = cleanField(output, 4000);
+          task.needsReturn = !state.paused;
+        }
+        continue;
+      }
+      if (purpose === 'return') {
+        if (!delegated) settleParent(state, run.taskId, output);
+        continue;
+      }
+      if (isQuiet(output)) {
+        if (!shownAlready) state.messages.pop();
+        continue;
+      }
+      state.agentStreak += 1;
+      if (delegated) continue;
+      const handoff = agentHandoff(speaker, output);
+      if (handoff.length) {
+        rememberAddress(state, output, speakers);
+        enqueue(state, handoff, false, speakers);
+        if (agentFloorBlocked(state, speakers)) {
+          state.hold = true;
+          state.activity = HOLD_ACTIVITY;
+        }
+      }
+      continue;
+    }
+  }
+
+  async function stopRun(state) {
+    for (const [speaker, sideRun] of Object.entries(state.side || {})) {
+      try { await gateways.stopSpeaker(sideRun); } catch (error) { append(state, speaker, error?.message || 'Stop request failed.', true); }
+    }
+    state.side = {};
+    const run = state.run;
+    if (!run) { state.activity = ''; return; }
+    if (run.purpose === 'delegation') {
+      const task = findTask(state, run.taskId);
+      if (task && task.status === 'running') {
+        task.status = 'failed';
+        task.needsReturn = false;
+        task.waitingOn = '';
+        task.result = 'Cancelled.';
+      }
+    }
+    await stopProvider(state);
+    state.run = null;
+    state.activity = '';
+  }
+
+  async function cancelDelegation(state, id, seen = new Set()) {
+    if (seen.has(id)) return;
+    seen.add(id);
+    const task = findTask(state, id);
+    if (!task) throw fail('That delegated task was not found.', 400);
+    if (task.status !== 'pending' && task.status !== 'running') throw fail('That delegated task is already finished.', 409);
+    if (task.waitingOn) {
+      const child = findTask(state, task.waitingOn);
+      if (child && (child.status === 'pending' || child.status === 'running')) await cancelDelegation(state, child.id, seen);
+    }
+    if (state.run && state.run.taskId === task.id) {
+      await stopProvider(state);
+      state.run = null;
+      state.activity = '';
+    }
+    task.status = 'failed';
+    task.needsReturn = false;
+    task.waitingOn = '';
+    task.result = 'Cancelled by the owner.';
+  }
+
+  function delegationBusy(state) {
+    return state.delegations.some(task => task.status === 'pending' || task.status === 'running' || task.needsReturn);
+  }
+
+  async function operate(body) {
+    const key = paneKey(body);
+    const state = load(key);
+    const operation = body.operation || 'state';
+    if (operation === 'state') {
+      await advance(state);
+    } else if (operation === 'post') {
+      if (typeof body.text !== 'string' || !body.text.trim() || body.text.length > maxMessage) throw fail(`Enter a message of 1–${maxMessage.toLocaleString('en-US')} characters.`, 400);
+      const text = body.text.trim();
+      const collabGoal = text.match(/^\/collab\s+(\S[\s\S]*)$/);
+      if (text === '/collab' || text.startsWith('/collab ')) {
+        let collabProject;
+        append(state, 'owner', text);
+        if (!collabGoal) append(state, 'note', 'Add a goal after /collab.', true);
+        else if (!openCollab) append(state, 'note', 'Collab is not available on this Orbit server.', true);
+        else {
+          try {
+            const project = await openCollab({ goal: collabGoal[1].trim().slice(0, 4000), workspaceId: body.workspace_id, paneId: body.pane_id });
+            append(state, 'note', `Opened Collab project ${project.id}. The Collab app has the board.`);
+            collabProject = { id: project.id };
+          } catch (error) {
+            append(state, 'note', error?.message || 'Collab did not open.', true);
+          }
+        }
+        save(state);
+        noteActivity(state);
+        return collabProject ? { ...state, collabProject } : state;
+      }
+      append(state, 'owner', text);
+      state.agentStreak = 0;
+      state.floorMark = state.messages.length;
+      state.hold = false;
+      if (state.activity === HOLD_ACTIVITY) state.activity = '';
+      rememberAddress(state, text, speakers);
+      enqueue(state, routeOwner(text) || routeAddressees(text, state.lastAddressed, speakers), true, speakers);
+      if (!state.run && !state.paused && !delegationBusy(state)) await startNextSpeaker(state);
+      await advance(state);
+    } else if (operation === 'speak') {
+      if (!speakers.includes(body.speaker)) throw fail('Choose an agent in this room.', 400);
+      if (state.run || delegationBusy(state)) throw fail('Wait for the current speaker, or press Stop.', 409);
+      state.next = body.speaker;
+      await begin(state, body.speaker);
+      await advance(state);
+    } else if (operation === 'settings') {
+      if (body.auto !== undefined) state.auto = body.auto === true;
+      if (body.next !== undefined) {
+        if (!speakers.includes(body.next)) throw fail('Choose an agent in this room.', 400);
+        state.next = body.next;
+      }
+      if (body.max_turns !== undefined) {
+        if (!Number.isInteger(body.max_turns) || body.max_turns < 1 || body.max_turns > 8) throw fail('The turn limit must be from 1 to 8.', 400);
+        state.maxTurns = body.max_turns;
+      }
+    } else if (operation === 'pause') {
+      state.paused = true;
+      state.resume = {};
+      state.activity = state.run ? `${labels[state.run.speaker]} will finish this reply, then the exchange stays paused.` : 'Paused.';
+    } else if (operation === 'resume' || operation === 'continue') {
+      state.paused = false;
+      state.hold = false;
+      state.agentStreak = 0;
+      state.floorMark = state.messages.length;
+      if (state.activity === HOLD_ACTIVITY) state.activity = '';
+      await advance(state);
+    } else if (operation === 'stop') {
+      state.resume = {};
+      await stopRun(state);
+      state.paused = true;
+      state.hold = false;
+      state.queue = [];
+      append(state, 'note', 'Stopped.');
+    } else if (operation === 'cancel_delegation') {
+      if (typeof body.task_id !== 'string' || !taskPattern.test(body.task_id)) throw fail('Choose a delegated task to cancel.', 400);
+      await cancelDelegation(state, body.task_id);
+      append(state, 'note', 'Cancelled a delegated task.');
+    } else throw fail('Unknown shared-agents operation.', 400);
+    save(state);
+    noteActivity(state);
+    return state;
+  }
+
+  function noteActivity(state) {
+    if (state?.run || (state?.side && Object.keys(state.side).length) || (state?.resume && Object.keys(state.resume).length)) active.add(state.key);
+    else if (state?.key) active.delete(state.key);
+  }
+
+  function chain(key, work) {
+    const previous = chains.get(key) || Promise.resolve();
+    const result = previous.catch(() => {}).then(work);
+    chains.set(key, result);
+    return result;
+  }
+
+  function scanActive() {
+    let names;
+    try { names = fs.readdirSync(directory); }
+    catch { return; }
+    for (const name of names) {
+      if (!name.endsWith('.json')) continue;
+      try {
+        const record = JSON.parse(fs.readFileSync(path.join(directory, name), 'utf8'));
+        if (record?.run || (record?.side && Object.keys(record.side).length) || (record?.resume && Object.keys(record.resume).length)) active.add(name.slice(0, -'.json'.length));
+      } catch {}
+    }
+  }
+
+  async function tickOne(key) {
+    if (!fs.existsSync(fileFor(key))) {
+      active.delete(key);
+      return;
+    }
+    const state = load(key);
+    await advance(state);
+    save(state);
+    noteActivity(state);
+  }
+
+  const active = new Set();
+  scanActive();
+  const timer = setInterval(() => {
+    try { fs.readdirSync(directory); }
+    catch { clearInterval(timer); return; }
+    for (const key of [...active]) chain(key, () => tickOne(key)).catch(() => {});
+  }, advanceEvery);
+  timer.unref();
+  const dispose = () => clearInterval(timer);
+
+  function handle(reply, res, body) {
+    const key = `${body.workspace_id || ''}.${body.pane_id || ''}`;
+    return chain(key, () => operate(body)).then(state => reply(res, 200, publicState(state, speakers))).catch(error => {
+      const status = Number.isInteger(error?.status) ? error.status : 502;
+      let message = typeof error?.message === 'string' ? error.message : '';
+      if (!message.trim() || message.length > 500) message = 'The shared conversation could not complete that request.';
+      if (res.headersSent || res.writableEnded) { try { res.end(); } catch {} return; }
+      try { return reply(res, status, { error: message }); }
+      catch { try { res.end(); } catch {} }
+    });
+  }
+
+  return { handle, dispose, speakers: () => speakers.slice() };
+}

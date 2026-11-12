@@ -10,6 +10,7 @@ import { installStart } from './taskbar';
 import { showOrbitSettings, setOrbitSettingsNavigation } from './orbit-settings';
 import { createWorkspaceCommands, type WorkspaceCommand } from './workspace-commands';
 import { HOST_SURFACE_URLS, HOST_SURFACE_LABELS, type HostSurfaceId } from './host-surfaces';
+import { isGatewayProvider, providerLabel } from './agent-providers';
 import { TECHNOLOGY_SURFACES } from './technology-surfaces';
 import {createTechnologyReadiness} from './technology-readiness';
 import { installCommandPalette } from './command-palette';
@@ -167,6 +168,9 @@ Object.assign(paneParking.style, { position: 'absolute', left: '-100000px', top:
 const desktopHost = el('div', 'desktop-host');
 desktopHost.setAttribute('aria-label', 'Movable workspace windows');
 const desktopIcons = installDesktopIcons(desktopHost, () => [
+  {id:'colab-runtime',title:'Google Colab',icon:'▣',pinned:true,run:()=>{void commands.execute('colab-runtime');}},
+  {id:'grokbots',title:'Grok Bots',icon:'🤖',pinned:true,run:()=>{void commands.execute('grokbots');}},
+  {id:'kitty-doom',title:'Kitty DOOM',icon:'👾',run:()=>{void commands.execute('kitty-doom');}},
   ...xpraApps.map(a=>({id:`xpra-${a.id}`,title:a.title,icon:a.icon,run:()=>{
     if(focused)unfocus();
     const existing=state.monitors.find(m=>leaves(m.layout).some(p=>p.kind==='browser'&&p.url===a.url));
@@ -268,15 +272,28 @@ applyAppearance(state);
 const viewportToggle = installViewport(app, state.appearance?.fullViewport, value => { state.appearance = {...state.appearance, fullViewport:value}; save(); }).button;
 // Hermes runtime tools surfaced from the orbit menu instead of the chat pane only.
 const menuSession = `orbit-${workspaceId}`;
+function focusedAgentChat(): { profileId: string; agentName: string } {
+  const target = state.monitors.find(m => m.id === (focused ?? state.selected));
+  const agent = target ? leaves(target.layout).find(p => p.kind === 'agent') : undefined;
+  let profileId = '';
+  if (agent) {
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(`orbit-hermes-chat:${agent.id}`) || 'null');
+      if (saved && typeof saved.profile_id === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(saved.profile_id)) profileId = saved.profile_id;
+    } catch { /* A missing chat record stays on the default Hermes profile. */ }
+  }
+  return { profileId, agentName: providerLabel(profileId) };
+}
 function menuAgentApi(payload: Record<string, unknown>): Promise<any> {
   if (!sessionToken) return Promise.reject(Error('Connect host first: use the host button in the top bar.'));
+  const focusedProfile = typeof payload.profile_id === 'string' ? '' : focusedAgentChat().profileId;
   return fetch('/api/agent', {
     method: 'POST',
     headers: { Authorization: `Bearer ${sessionToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...payload, session_id: menuSession, workspace_id: workspaceId }),
+    body: JSON.stringify({ ...payload, session_id: menuSession, workspace_id: workspaceId, ...(focusedProfile ? { profile_id: focusedProfile } : {}) }),
   }).then(async response => {
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw Error(data.error || 'Hermes request failed');
+    if (!response.ok) throw Error(data.error || 'Agent request failed');
     return data;
   });
 }
@@ -418,6 +435,9 @@ const commands = createWorkspaceCommands((): WorkspaceCommand[] => [
   { id: 'new-workbench', title: 'New Workbench window', detail: 'Separate Workbench beside Hermes', group: 'Create', hidden: !experimentalEnabled('workbench'), run: () => openWorkbenchWindow() },
   { id: 'new-terminal', title: 'New terminal', detail: 'Open a host terminal pane', group: 'Create', run: () => addMonitor('terminal') },
   { id: 'new-browser', title: 'New browser', detail: 'Open an app or website', group: 'Create', run: () => addMonitor('browser') },
+  { id: 'colab-runtime', title: 'Google Colab', detail: 'GPU and TPU runtimes on colab.research.google.com', group: 'Apps', keywords: ['colab', 'gpu', 'tpu', 'notebook'], disabledReason: !sessionToken ? 'Connect host first to use Google Colab.' : undefined, run: () => openHostSurface('colab-runtime') },
+  { id: 'grokbots', title: 'Grok Bots', detail: 'Chat with Grok Bot, Pi and Hermes agents, alone or in group rooms', group: 'Apps', keywords: ['grok', 'bots', 'agents', 'chat', 'group', 'pi', 'hermes'], disabledReason: !sessionToken ? 'Connect host first to use Grok Bots.' : undefined, run: () => { void openGrokBots(); } },
+  { id: 'kitty-doom', title: 'Kitty DOOM', detail: 'Play kitty-doom (Freedoom) in a Kitty-graphics window', group: 'Apps', keywords: ['doom', 'game', 'kitty', 'freedoom', 'play'], disabledReason: !sessionToken ? 'Connect host first to use Kitty DOOM.' : undefined, run: () => openHostSurface('kitty-doom') },
   { id: 'windows', title: 'Windows view', detail: 'Movable desktop windows', group: 'Layout', run: () => windowsButton.click() },
   { id: 'spatial', title: 'Spatial view', detail: 'Explore your 3D workspace', group: 'Layout', run: () => sceneButton.click() },
   { id: 'focus', title: 'Focus selected window', detail: 'Expand the selected display', group: 'Layout', run: () => flatButton.click() },
@@ -429,15 +449,25 @@ const commands = createWorkspaceCommands((): WorkspaceCommand[] => [
   { id: 'wallpaper', title: 'Toggle wallpaper', detail: 'Show or hide wallpaper', group: 'Appearance', run: () => wallpaperToggle.click() },
   { id: 'transparency', title: 'Global transparency', detail: 'Adjust current windows opacity', group: 'Appearance', run: showGlobalTransparency },
   { id: 'window-settings', title: 'Selected window settings', detail: 'Name, text size and opacity', group: 'Windows', run: () => openWindowOptions(state.selected) },
-  { id: 'hermes-tools', title: 'Tools & conversations', detail: 'Tools for selected Hermes chat', group: 'Hermes', run: openHermesTools },
-  { id: 'conversation-library', title: 'Conversation library', detail: 'Find, pin and resume Hermes conversations', group: 'Hermes', disabledReason: !sessionToken ? 'Connect host first to browse conversations.' : undefined, run: openConversationLibrary },
+  { id: 'hermes-tools', title: 'Tools & conversations', detail: 'Tools for the selected agent chat', group: 'Hermes', run: openHermesTools },
+  { id: 'conversation-library', title: 'Conversation library', detail: 'Find, pin and resume agent conversations', group: 'Hermes', disabledReason: !sessionToken ? 'Connect host first to browse conversations.' : undefined, run: openConversationLibrary },
   { id: 'send-selection', title: 'Send selected text to conversation', detail: 'Review recently selected workspace text and choose a draft; never sends automatically', group: 'Hermes', disabledReason: !selectedWorkspaceText ? 'Select up to 20,000 characters of workspace text first.' : undefined, run: sendSelectedContext },
   { id: 'activity', title: 'Live activity', detail: 'Open host activity window', group: 'Hermes', run: () => openHostSurface('activity') },
+  { id: 'collab', title: 'Collab', detail: 'Project board for Hermes and Grok Bot', group: 'Hermes', disabledReason: !sessionToken ? 'Connect host first to use Collab.' : undefined, run: () => openHostSurface('collab') },
+  { id: 'irc', title: 'IRC', detail: 'IRC server and channel window', group: 'Apps', disabledReason: !sessionToken ? 'Connect host first to use IRC.' : undefined, run: () => openHostSurface('irc') },
   ...workspaceExtensions.map(extension => ({
     id: `hermes-${extension.id}`, title: extension.title, detail: extension.label, group: 'Hermes',
     hidden: extension.id === 'project-workbench' && !experimentalEnabled('workbench'),
     disabledReason: !sessionToken && extension.id !== 'outputs' ? 'Connect host first to use this tool.' : undefined,
-    run: () => extension.id === 'outputs' ? openHostSurface('outputs') : extension.activate({ token: () => sessionToken, api: menuAgentApi }),
+    run: () => {
+      if (extension.id === 'outputs') { openHostSurface('outputs'); return; }
+      const focusedChat = focusedAgentChat();
+      if (isGatewayProvider(focusedChat.profileId) && (extension.id === 'build-queue' || extension.id === 'project-workbench')) {
+        notify(`The build queue and Project Workbench use Hermes workers. ${focusedChat.agentName} does not have those APIs. Switch this chat to Hermes, or use Collab for a shared workspace and approved shell commands.`);
+        return;
+      }
+      void extension.activate({ token: () => sessionToken, api: menuAgentApi, agentName: focusedChat.agentName, provider: focusedChat.profileId });
+    },
   })),
 ], notify);
 installStart(navigation, commands);
@@ -464,7 +494,7 @@ function syncExperimentalMenuItems() {
 function openHermesTools() {
   const target = state.monitors.find(m => m.id === (focused ?? state.selected));
   const agent = target ? leaves(target.layout).find(p => p.kind === 'agent') : undefined;
-  if (!target || !agent) { notify('Open a Hermes chat window to see its tools and conversations.'); addMonitor('agent'); return; }
+  if (!target || !agent) { notify('Open an agent chat window to see its tools and conversations.'); addMonitor('agent'); return; }
   if (focused !== target.id) focus(target.id);
   window.dispatchEvent(new CustomEvent('orbit-open-hermes-tools', { detail: { paneId: agent.id } }));
 }
@@ -510,6 +540,15 @@ window.addEventListener('orbit-open-conversation', event => {
 });
 function orbitMenuSections(): OrbitMenuSection[] {
   return [
+    { id: 'google-colab', title: 'Google Colab', detail: 'Runtimes on colab.research.google.com.', items: [
+      { id: 'colab-runtime', label: 'Google Colab', icon: '▣', button: button('Google Colab', 'Google Colab runtimes', () => { void commands.execute('colab-runtime'); }) },
+    ] },
+    { id: 'grokbots', title: 'Grok Bots', detail: 'Multi-agent chat with your bots.', items: [
+      { id: 'grokbots', label: 'Grok Bots', icon: '🤖', button: button('Grok Bots', 'Chat with your agents and group rooms', () => { void commands.execute('grokbots'); }) },
+    ] },
+    { id: 'games', title: 'Games', detail: 'Play a game inside your workspace.', items: [
+      { id: 'kitty-doom', label: 'Kitty DOOM', icon: '👾', button: button('Kitty DOOM', 'Play kitty-doom with Freedoom', () => { void commands.execute('kitty-doom'); }) },
+    ] },
     { id: 'view', title: 'Workspace view', detail: 'Choose how your windows are arranged.', items: [
       { id: 'windows', label: 'Windows', icon: '▤', button: windowsButton },
       { id: 'spatial', label: 'Spatial', icon: '◈', button: sceneButton },
@@ -531,6 +570,8 @@ function orbitMenuSections(): OrbitMenuSection[] {
       { id: 'conversation-library', label: 'Conversation library', icon: '☷', button: button('Conversation library', 'Conversation library', () => { void commands.execute('conversation-library'); }) },
       { id: 'send-selection', label: 'Send selected text to conversation', icon: '↗', button: button('Send selected text to conversation', 'Send selected text to conversation', () => { void commands.execute('send-selection'); }) },
       { id: 'activity', label: 'Live activity', icon: '↻', button: button('Live activity', 'Live activity', () => { void commands.execute('activity'); }) },
+      { id: 'collab', label: 'Collab', icon: '▦', button: button('Collab', 'Collab', () => { void commands.execute('collab'); }) },
+      { id: 'irc', label: 'IRC', icon: '#', button: button('IRC', 'IRC', () => { void commands.execute('irc'); }) },
       ...hermesMenuItems,
     ] },
     { id: 'settings', title: 'Settings', detail: 'Preferences saved in this browser.', items: [
@@ -1286,6 +1327,43 @@ async function launchDesktopPlugin(plugin:PluginInstance) {
     notify('App enabled; workspace is synchronizing.');
   } catch(e) { notify(String(e)); } finally { desktopLaunchBusy = false; }
 }
+// Built-in Grok Bots app: a browser pane on the sandboxed /apps/grokbots/ bundle.
+// The host asks the server for the capability URL (key in the fragment), then
+// reuses an existing Grok Bots window when one is open.
+type GrokBotsTarget = { profile: string; agent: string; session?: string; newWindow?: boolean };
+async function openGrokBots(target?: GrokBotsTarget) {
+  if (!sessionToken) { notify('Connect host first to use Grok Bots.'); return; }
+  try {
+    const response = await fetch('/api/grokbots-app/launch', { method: 'POST', headers: { Authorization: `Bearer ${sessionToken}`, 'Content-Type': 'application/json' }, body: '{}' });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || typeof data.url !== 'string' || !data.url.startsWith('/apps/grokbots/')) throw Error(data.error || 'Grok Bots is unavailable on this host.');
+    if (focused) unfocus();
+    const url = target ? `${data.url}&p=${encodeURIComponent(target.profile)}&a=${encodeURIComponent(target.agent)}${target.session ? `&s=${encodeURIComponent(target.session)}` : ''}` : data.url;
+    if (target?.newWindow) {
+      const m = monitor(state.monitors.length + 1, 'browser'); m.name = 'Grok Bots';
+      leaves(m.layout)[0].url = url;
+      state.monitors.push(m); state.selected = m.id; state.view = 'windows';
+      work.classList.add('windows-mode'); renderAll(); choose(m.id); save(); return;
+    }
+    const existing = state.monitors.find(m => leaves(m.layout).some(p => p.kind === 'browser' && typeof p.url === 'string' && p.url.startsWith('/apps/grokbots/')));
+    if (existing) {
+      const pane = leaves(existing.layout).find(p => p.kind === 'browser' && typeof p.url === 'string' && p.url.startsWith('/apps/grokbots/'));
+      if (pane && pane.url !== data.url) { pane.url = data.url; renderAll(); save(); }
+      choose(existing.id); return;
+    }
+    const m = monitor(state.monitors.length + 1, 'browser'); m.name = 'Grok Bots';
+    leaves(m.layout)[0].url = data.url;
+    state.monitors.push(m); state.selected = m.id; state.view = 'windows';
+    work.classList.add('windows-mode'); renderAll(); choose(m.id); save();
+  } catch (error) { notify(String(error instanceof Error ? error.message : error)); }
+}
+// Grok Bots app → "Open in new window" (src/grokbots-bridge.ts 'open' op).
+window.addEventListener('orbit-grokbots-open', event => {
+  const detail = (event as CustomEvent<GrokBotsTarget>).detail;
+  if (!detail || !sessionToken) return;
+  event.preventDefault();
+  void openGrokBots({ profile: detail.profile, agent: detail.agent, session: detail.session || undefined, newWindow: detail.newWindow !== false });
+});
 function addMonitor(kind: PaneKind = 'terminal') {
 
   const m = monitor(state.monitors.length + 1, kind);

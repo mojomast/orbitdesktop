@@ -83,9 +83,16 @@ export function createChatMessageRenderer(container: HTMLElement) {
         const key = JSON.stringify([message.role, message.text]), existing = available.get(key)?.shift();
         if (existing) return existing;
         changed = true;
-        const element = node('div', `chat-message ${message.role}`), header = node('div', 'chat-message-header');
-        header.append(node('small', '', message.role === 'user' ? 'YOU' : 'HERMES'), copyButton('Copy message', message.text));
-        element.append(header, renderChatText(message.text)); return { key, element };
+        const marker = message.text.startsWith('Switched to ');
+        const summary = message.text.startsWith('Summary of ');
+        const element = node('div', `chat-message ${message.role}${marker ? ' chat-marker' : ''}${summary ? ' chat-summary' : ''}`), header = node('div', 'chat-message-header');
+        header.append(node('small', '', marker || summary ? 'NOTE' : message.role === 'user' ? 'YOU' : 'HERMES'), copyButton('Copy message', message.text));
+        if (summary) {
+          const details = node('details', 'chat-summary-body');
+          details.append(node('summary', '', message.text.split('\n')[0] || 'Summary'), renderChatText(message.text));
+          element.append(header, details);
+        } else element.append(header, renderChatText(message.text));
+        return { key, element };
       });
       const retained = new Set(next.map(row => row.element));
       for (const row of rows) if (!retained.has(row.element)) { row.element.remove(); changed = true; }

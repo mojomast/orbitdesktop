@@ -14,6 +14,8 @@ test('invalid stored chats are rejected and exports remain literal plain text',(
  assert.equal(validChat({...s,session:'../foreign-session'}),false);
  assert.equal(validChat({...s,messages:[{role:'system',text:'bad'}]}),false);
  assert.ok(transcript(s).includes('YOU\n<script>not HTML</script>'));
+ assert.ok(transcript({...s, messages:[...s.messages, {role:'assistant', text:'ok'}]}).includes('HERMES\nok'));
+ assert.ok(transcript({...s, profile_id:'grok', messages:[...s.messages, {role:'assistant', text:'ok'}]}).includes('GROK BOT\nok'));
 });
 test('server session IDs may contain colons without admitting paths',()=>{
  assert.equal(validChat({...chat('hi'),session:'conversation:one_2'}),true);

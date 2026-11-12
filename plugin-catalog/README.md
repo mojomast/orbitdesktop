@@ -4,7 +4,7 @@ A GitHub-backed, maintainer-reviewed catalog of desktop apps. Inspired by the [H
 
 ## Submit an app
 
-1. Commit a ready-to-serve static app to your public GitHub repository. Its folder must contain `index.html`, use relative assets, and stay within 20 MB / 500 files. No build or install scripts run on a user's host. Vendor executable dependencies; remote scripts/modules, self-updaters, hidden files, symlinks and special files are not accepted.
+1. Commit a ready-to-serve static app to your public GitHub repository. Its folder must contain `index.html`, use relative assets, and stay within 100 MB / 500 files. No build or install scripts run on a user's host. Vendor executable dependencies; remote scripts/modules, self-updaters, hidden files, symlinks and special files are not accepted.
 2. Fork Orbit and copy `examples/catalog/notes.json` to `plugin-catalog/<your-id>.json`. Replace every field with real metadata. `sha` is a full lowercase 40-character commit SHA, never a branch/tag. `path` is the committed static bundle directory (`.` for root). IDs use `[a-z][a-z0-9-]{0,25}`, versions use `x.y.z`. No local paths, credentials, private reports or local integrations belong in the public catalog.
 3. Run `python3 scripts/orbit_catalog.py validate --sources`. No dependencies are needed beyond Python 3.11+. CI validates JSON, pins and static bundle safety. It downloads but never executes plugin code.
 4. Open a PR using the catalog template: `https://github.com/mojomast/orbitdesktop/compare?template=catalog.md`. Supply authorship, license, capability declarations, screenshots and actual sandbox test evidence.

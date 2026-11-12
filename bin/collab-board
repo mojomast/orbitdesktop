@@ -1,0 +1,37 @@
+#!/usr/bin/env python3
+"""collab-board: track group-chat build work on the Orbit Collab board (loopback only).
+  collab-board <group-id> list
+  collab-board <group-id> new "<title>" --as <handle> [--spec "..."] [--status todo|doing]
+  collab-board <group-id> checkin <entry-id> "<what you are doing>" --as <handle>
+  collab-board <group-id> update <entry-id> todo|doing|review|done|blocked ["<note>"] --as <handle>
+"""
+import json, os, sys, urllib.request, urllib.error
+a = sys.argv[1:]
+def opt(name):
+    if name in a:
+        i = a.index(name); v = a[i + 1] if i + 1 < len(a) else ''; del a[i:i + 2]; return v
+    return None
+by, spec, status = opt('--as'), opt('--spec'), opt('--status')
+if len(a) < 2 or a[1] not in ('list', 'new', 'checkin', 'update'):
+    print(__doc__.strip(), file=sys.stderr); sys.exit(2)
+group, op, rest = a[0], a[1], a[2:]
+body = {'group': group, 'op': op, 'by': (by or '').lstrip('@')}
+if op == 'new': body.update(title=' '.join(rest)[:120], spec=spec or '', status=status or 'doing')
+elif op == 'checkin': body.update(entry=rest[0] if rest else '', note=' '.join(rest[1:]))
+elif op == 'update': body.update(entry=rest[0] if rest else '', status=rest[1] if len(rest) > 1 else '', note=' '.join(rest[2:]))
+try: key = open(os.path.join(os.environ.get('ORBIT_RUNTIME_DIR') or os.path.expanduser('~/.orbit-runtime'), 'collab-board.key')).read().strip()
+except OSError: print('collab-board: Orbit board key not found', file=sys.stderr); sys.exit(1)
+req = urllib.request.Request('http://127.0.0.1:%s/api/collab-board' % (os.environ.get('ORBIT_PORT') or os.environ.get('PORT') or '4318'), json.dumps(body).encode(), {'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json'})
+try:
+    out = json.load(urllib.request.urlopen(req, timeout=15))
+except urllib.error.HTTPError as e:
+    try: msg = json.load(e).get('error', '')
+    except Exception: msg = ''
+    print(f'collab-board: {msg or e.code}', file=sys.stderr); sys.exit(1)
+except Exception as e:
+    print(f'collab-board: Orbit is not reachable ({type(e).__name__})', file=sys.stderr); sys.exit(1)
+if op == 'list':
+    if not out['entries']: print('No board entries for this group yet.')
+    for t in out['entries']: print(f"{t['id']}  [{t['status']}]  {t['title']}  (owner {t['owner']})" + (f" - {t['summary']}" if t['summary'] else ''))
+else:
+    t = out['entry']; print(f"{t['id']}  [{t.get('status','')}]  {t.get('title','')}")

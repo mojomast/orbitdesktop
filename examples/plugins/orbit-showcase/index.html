@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Orbit Feature Showcase</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <div class="wrap">
+    <header class="hero">
+      <h1 id="title">Orbit Feature Showcase</h1>
+      <p class="sub" id="subtitle">A spatial, agent-customizable workspace. This panel is a sandboxed plugin.</p>
+      <div class="pillrow">
+        <span class="pill accent" id="config-pill">config: (none)</span>
+        <span class="pill">sandboxed iframe</span>
+        <span class="pill">content-addressed bundle</span>
+        <span class="pill">revisioned state</span>
+      </div>
+    </header>
+
+    <div class="grid cols-2">
+      <section class="card">
+        <h2>What Orbit is</h2>
+        <p>Orbit (\"Comet\" to its owner) is a single-owner desktop workspace built around a Hermes agent runtime. Native windows hold terminals, agents, browsers and reviewed built-in surfaces. Generated widgets like this one run in a sandboxed browser pane with no host token.</p>
+        <ul>
+          <li><b>Spatial layout:</b> windows have frames, monitors, pitch/yaw and an arc view.</li>
+          <li><b>Revisioned operations:</b> every layout/appearance/plugin change is validated, checkpointed and acknowledged by the browser.</li>
+          <li><b>Agent-native:</b> Hermes proposes changes; you approve. Checkpoints make rollbacks first-class.</li>
+        </ul>
+      </section>
+
+      <section class="card">
+        <h2>Plugin lifecycle (this widget)</h2>
+        <ul>
+          <li><b>Publish:</b> <code>plugin_publish.py</code> writes a content-addressed bundle under <code>.runtime/apps</code>.</li>
+          <li><b>Install (disabled):</b> <code>plugin_install</code> with the emitted manifest.</li>
+          <li><b>Enable:</b> <code>plugin_enable</code> opens/creates its window + browser pane.</li>
+          <li><b>Configure:</b> primitive config map flows in via the URL fragment (<code>#orbit-config=</code>).</li>
+          <li><b>Update:</b> republish, then <code>plugin_update</code> keeps identity/config; rollback via checkpoint.</li>
+          <li><b>Duplicate:</b> stateless instances with fresh window/pane IDs.</li>
+        </ul>
+      </section>
+    </div>
+
+    <div class="grid cols-1" style="margin-top:16px">
+      <section class="card">
+        <h2>Built-in surfaces (reviewed, not plugins)</h2>
+        <p>These are ordinary browser panes at <code>orbit://surface/...</code> URLs. Reuse them before generating replacements.</p>
+        <table class="surface-table">
+          <thead><tr><th>Surface</th><th>URL</th><th>Purpose</th></tr></thead>
+          <tbody id="surfaces"></tbody>
+        </table>
+      </section>
+    </div>
+
+    <div class="grid cols-3" style="margin-top:16px">
+      <section class="card">
+        <h2>Appearance & themes</h2>
+        <ul>
+          <li><b>Themes:</b> midnight, xp, classic, paper, cyberpunk.</li>
+          <li><b>Tokens:</b> background, textColor, cornerRadius, wallpaper, wallpaperFit.</li>
+          <li><b>Viewport:</b> headerHeight, sidebarWidth, workspaceGap, accentColor, navigationPosition, fullViewport.</li>
+          <li><b>Ops:</b> <code>patch_appearance</code>, <code>set_appearance</code>, <code>reset_appearance</code>.</li>
+        </ul>
+        <div class="interactive card" style="padding:12px">
+          <b>Local theme preview</b>
+          <div class="row">
+            <button class="btn secondary" data-accent="#b5f268">Lime</button>
+            <button class="btn secondary" data-accent="#6ee7ff">Cyan</button>
+            <button class="btn secondary" data-accent="#ffbf69">Amber</button>
+            <button class="btn secondary" data-accent="#ff6b6b">Red</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>State, checkpoints, recovery</h2>
+        <ul>
+          <li>Optimistic revision checks; 409 on conflict → read & adapt.</li>
+          <li>Every apply creates a checkpoint; <code>history</code>, <code>checkpoint --label</code>, <code>restore</code>.</li>
+          <li>Preview before large changes: <code>preview</code> then commit with its base revision.</li>
+          <li><b>Recovery console</b> (<code>/recovery</code>) with registered-plugin activation hold.</li>
+          <li>Bulk ops: arrange_windows, reorder_windows, swap_panes, layout_panes, set_arc.</li>
+        </ul>
+      </section>
+
+      <section class="card">
+        <h2>Execution & collaboration</h2>
+        <ul>
+          <li><b>Workbench:</b> project tasks, checks, result artifacts (experimental, opt-in).</li>
+          <li><b>IRC:</b> loopback ircd behind Orbit auth.</li>
+          <li><b>Colab:</b> GPU/TPU runtimes via colab CLI.</li>
+          <li><b>Shared Chromium:</b> co-browsing window at <code>orbit://shared-browser</code>.</li>
+          <li><b>Shared desktop:</b> XFCE/X11 container (Tailscale 4346).</li>
+          <li><b>Xpra apps:</b> Chromium, OpenOffice, Files, Terminal windows.</li>
+        </ul>
+      </section>
+    </div>
+
+    <div class="grid cols-2" style="margin-top:16px">
+      <section class="card">
+        <h2>Data, documents & results</h2>
+        <ul>
+          <li><b>Document library:</b> rich text + Excalidraw canvases with revisioned proposals.</li>
+          <li><b>Outputs:</b> published files, aliases, pins, tags, draft refs.</li>
+          <li><b>Knowledge search:</b> explicit source snapshots + exact citations.</li>
+          <li><b>Interactive results:</b> A2UI v0.9 JSON/NDJSON import & edit.</li>
+          <li><b>Data workbench:</b> CSV/JSON/Parquet SELECT via DuckDB, recipes.</li>
+          <li><b>Voice transcript:</b> local mic transcription.</li>
+          <li><b>Run traces:</b> redacted timing.</li>
+          <li><b>Browser copilot:</b> disposable Chromium with staged actions.</li>
+          <li><b>MCP Apps:</b> imported self-contained snapshots.</li>
+        </ul>
+      </section>
+
+      <section class="card">
+        <h2>Sandbox & safety boundaries</h2>
+        <ul>
+          <li>This frame is sandboxed: no parent DOM, no Orbit tokens, no localStorage bridge.</li>
+          <li>Config arrives only via the URL fragment; never put secrets in config.</li>
+          <li>Network is allowed under the app CSP (no arbitrary localhost proxy).</li>
+          <li>Host-side changes require trusted source edits + tests + deploy.</li>
+          <li>Checkpoints restore layout/plugin registration, not private app state.</li>
+        </ul>
+        <div class="interactive card" style="padding:12px; margin-top:10px">
+          <b>Spatial window demo</b>
+          <p style="font-size:13px;color:var(--muted);margin:6px 0">Click tiles to mark "windows" on a virtual monitor.</p>
+          <div class="mini-grid" id="minigrid"></div>
+          <div id="gridstatus" style="margin-top:8px;font-size:13px;color:var(--muted)"></div>
+        </div>
+      </section>
+    </div>
+
+    <section class="card" style="margin-top:16px">
+      <h2>Live config</h2>
+      <p style="color:var(--muted);font-size:13px">Configured via <code>plugin_patch_config</code>. Defaults fill in for missing keys without writing them.</p>
+      <pre class="code" id="configjson">{}</pre>
+      <div class="row">
+        <button class="btn secondary" id="reloadcfg">Re-read config</button>
+      </div>
+    </section>
+
+    <footer>Orbit Feature Showcase · sandboxed plugin · built with relative assets</footer>
+  </div>
+
+  <script src="./app.js"></script>
+</body>
+</html>

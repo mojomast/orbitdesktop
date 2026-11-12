@@ -105,7 +105,7 @@ export class ManagedTerminalProvider {
       // Attach mode builds an explicit credential-free environment; reject any
       // allowlist entry that could reintroduce an owner/agent credential.
       for (const key of Object.keys(config.envAllowlist)) {
-        if (['TMUX', 'ORBIT_TOKEN', 'HERMES_API_KEY', 'HERMES_PROFILES_JSON'].includes(key)) fail('invalid_request');
+        if (['TMUX', 'ORBIT_TOKEN', 'HERMES_API_KEY', 'HERMES_PROFILES_JSON', 'API_SERVER_KEY', 'SAND_GATEWAY_TOKEN', 'GROK_BOT_API_KEY', 'GROKBOT_GATEWAY_TOKEN'].includes(key)) fail('invalid_request');
       }
     }
     config.envAllowlist = Object.freeze(config.envAllowlist);
@@ -142,7 +142,7 @@ export class ManagedTerminalProvider {
       const env = { PATH: process.env.PATH || '/usr/bin:/bin', HOME: process.env.HOME, LC_ALL: 'C', TERM: 'xterm-256color' };
       const tmp = this.#config.tmuxTmpDir ?? process.env.TMUX_TMPDIR;
       if (tmp !== undefined) env.TMUX_TMPDIR = tmp;
-      for (const key of ['TMUX', 'ORBIT_TOKEN', 'HERMES_API_KEY', 'HERMES_PROFILES_JSON']) delete env[key];
+      for (const key of ['TMUX', 'ORBIT_TOKEN', 'HERMES_API_KEY', 'HERMES_PROFILES_JSON', 'API_SERVER_KEY', 'SAND_GATEWAY_TOKEN', 'GROK_BOT_API_KEY', 'GROKBOT_GATEWAY_TOKEN']) delete env[key];
       return env;
     }
     return { PATH: process.env.PATH || '/usr/bin:/bin', HOME: this.#config.directory,

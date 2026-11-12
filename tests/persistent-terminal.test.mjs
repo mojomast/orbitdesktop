@@ -93,7 +93,9 @@ test('spawned host shell never inherits owner/agent secrets (HERMES_PROFILES_JSO
     tmuxSocket: `orbit-env-${randomUUID()}`,
     tmuxConfig: '/dev/null',
     env: { PATH: process.env.PATH, HOME: root, SHELL: '/bin/bash',
-      HERMES_PROFILES_JSON: secret, HERMES_API_KEY: 'hermes-key-secret', ORBIT_TOKEN: 'orbit-token-secret' },
+      HERMES_PROFILES_JSON: secret, HERMES_API_KEY: 'hermes-key-secret', ORBIT_TOKEN: 'orbit-token-secret',
+      API_SERVER_KEY: 'api-server-key-secret', SAND_GATEWAY_TOKEN: 'sand-gateway-token-secret',
+      GROK_BOT_API_KEY: 'grok-bot-key-secret', GROKBOT_GATEWAY_TOKEN: 'grokbot-gateway-token-secret' },
   });
   const shell = provider.spawn({ cols: 80, rows: 24 });
   t.after(() => { try { shell.kill(); } catch {} });
@@ -117,6 +119,10 @@ test('spawned host shell never inherits owner/agent secrets (HERMES_PROFILES_JSO
     assert.equal(output.includes(secret), false, 'HERMES_PROFILES_JSON must not reach the spawned shell');
     assert.equal(output.includes('hermes-key-secret'), false, 'HERMES_API_KEY must not reach the spawned shell');
     assert.equal(output.includes('orbit-token-secret'), false, 'ORBIT_TOKEN must not reach the spawned shell');
+    assert.equal(output.includes('api-server-key-secret'), false, 'API_SERVER_KEY must not reach the spawned shell');
+    assert.equal(output.includes('sand-gateway-token-secret'), false, 'SAND_GATEWAY_TOKEN must not reach the spawned shell');
+    assert.equal(output.includes('grok-bot-key-secret'), false, 'GROK_BOT_API_KEY must not reach the spawned shell');
+    assert.equal(output.includes('grokbot-gateway-token-secret'), false, 'GROKBOT_GATEWAY_TOKEN must not reach the spawned shell');
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -1,0 +1,327 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { spawn, spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import http from 'node:http';
+import os from 'node:os';
+import path from 'node:path';
+import { createLocalWorkers, BOARD_COLUMN } from '../server/local-workers.mjs';
+
+const TOKEN = 'a'.repeat(64);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const fakeBoard = () => { const calls = []; return { calls, update: async (b) => { calls.push(b); } }; };
+async function until(fn, ms = 15000) { const t = Date.now(); while (Date.now() - t < ms) { if (await fn()) return; await sleep(100); } throw new Error('timeout'); }
+
+async function startLauncher(max = 1, dataDir = mkdtempSync(path.join(os.tmpdir(), 'lw-pc-')), extra = {}) {
+  const port = extra.port || 20000 + Math.floor(Math.random() * 20000);
+  writeFileSync(path.join(dataDir, 'orbit-api.token'), TOKEN);
+  writeFileSync(path.join(dataDir, 'go.key'), 'fake-provider-key');
+  const cfg = path.join(dataDir, 'config.json');
+  writeFileSync(cfg, JSON.stringify({ bind: '127.0.0.1', port, max_concurrent: max, data_dir: dataDir, backoff_s: [0.3], projects: { demo: {} }, ...extra }));
+  const p = spawn('python3', ['pc-launcher/launcher.py', 'serve', '--config', cfg, '--backend', 'fake'], { stdio: ['ignore', 'pipe', 'inherit'] });
+  await new Promise((res) => p.stdout.once('data', res));
+  return { url: `http://127.0.0.1:${port}`, dataDir, proc: p, stop: () => p.kill() };
+}
+function adapter(url, extra = {}) {
+  const runtimeDir = extra.runtimeDir || mkdtempSync(path.join(os.tmpdir(), 'lw-orbit-'));
+  const board = extra.board || fakeBoard();
+  return { lw: createLocalWorkers({ runtimeDir, launcherUrl: url, launcherToken: TOKEN, board, maxConcurrent: extra.max || 1, timeoutMs: extra.timeoutMs || 3000,
+    // legacy tests expect an immediate flip; hysteresis/retry have their own tests below
+    retries: extra.retries ?? 0, disconnectFails: extra.disconnectFails ?? 1, disconnectMs: extra.disconnectMs ?? 0, now: extra.now, retryBaseMs: 20 }), board, runtimeDir };
+}
+const done = (lw, id) => until(async () => { await lw.tick(); return ['succeeded', 'failed', 'cancelled', 'not_started'].includes(lw.get(id).state); });
+const brief = (o = {}) => ({ objective: 'write out.txt', deliverables: ['out.txt'], acceptance: ['file exists'], ...o });
+
+test('single attempt: dispatch, run, result manifest, board columns', async () => {
+  const L = await startLauncher(1);
+  try {
+    const { lw, board } = adapter(L.url);
+    const a = await lw.create({ taskId: 't1', group: 'g', brief: brief() });
+    await done(lw, a.attempt_id);
+    const r = lw.get(a.attempt_id);
+    assert.equal(r.state, 'succeeded'); assert.ok(r.cua_run_id); assert.ok(r.result.ref); assert.equal(r.artifact_refs[0].path, 'out.txt');
+    const m = JSON.parse(readFileSync(r.result.ref, 'utf8'));
+    assert.equal(m.schema, 'orbit.local-worker.result/v1'); assert.ok(m.observed.files[0].sha256); assert.ok('worker_claims' in m);
+    assert.equal(board.calls.at(-1).status, 'review');
+    assert.equal(board.calls.at(-1).by, 'local-workers'); assert.match(board.calls.at(-1).note, /^MR\.INDIA: /);
+    assert.ok(!JSON.stringify(r).includes('fake-provider-key') && !readFileSync(r.log_ref, 'utf8').includes('fake-provider-key'));
+    await lw.review(a.attempt_id, { accepted: true }); assert.equal(board.calls.at(-1).status, 'done');
+    // launcher restart with a result file on disk must still load cleanly (regression: result.json loaded as an attempt)
+    L.stop(); await sleep(300);
+    const L2 = await startLauncher(1, L.dataDir, { port: Number(new URL(L.url).port) });
+    try {
+      const h = await (await fetch(L2.url + '/v1/health', { headers: { Authorization: 'Bearer ' + TOKEN } })).json();
+      assert.equal(h.ok, true); assert.equal(h.active, 0);
+    } finally { L2.stop(); }
+  } finally { L.stop(); }
+});
+
+test('two concurrent attempts run at once with cap 2', async () => {
+  const L = await startLauncher(2);
+  try {
+    const { lw } = adapter(L.url, { max: 2 });
+    const f = { fake: { delay: 1.5 } };
+    const a = await lw.create({ taskId: 'a', group: 'g', brief: brief(f) });
+    const b = await lw.create({ taskId: 'b', group: 'g', brief: brief(f) });
+    await until(async () => { await lw.tick(); return ['running'].includes(lw.get(a.attempt_id).state) && lw.get(b.attempt_id).state === 'running'; });
+    await done(lw, a.attempt_id); await done(lw, b.attempt_id);
+    assert.equal(lw.get(b.attempt_id).state, 'succeeded');
+  } finally { L.stop(); }
+});
+
+test('cap 10 is the ceiling: 11th waits, config above 10 clamps', async () => {
+  const L = await startLauncher(14);
+  try {
+    const h = await (await fetch(L.url + '/v1/health', { headers: { Authorization: 'Bearer ' + TOKEN } })).json();
+    assert.equal(h.max_concurrent, 10);
+    const { lw } = adapter(L.url, { max: 14 }); assert.equal(lw.cap, 10);
+    const ids = [];
+    for (const t of ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11']) ids.push((await lw.create({ taskId: t, group: 'g', brief: brief({ fake: { delay: 1.5 } }) })).attempt_id);
+    assert.equal(lw.get(ids[10]).state, 'queued');
+    for (const id of ids) await done(lw, id);
+    assert.ok(ids.every((id) => lw.get(id).state === 'succeeded'));
+  } finally { L.stop(); }
+});
+
+test('reload/reattach: adapter restart and launcher restart do not re-dispatch', async () => {
+  let L = await startLauncher(1);
+  const dataDir = L.dataDir;
+  const { lw, runtimeDir } = adapter(L.url);
+  const a = await lw.create({ taskId: 'r', group: 'g', brief: brief({ fake: { delay: 2 } }) });
+  await until(async () => { await lw.tick(); return lw.get(a.attempt_id).state === 'running'; });
+  L.stop(); await sleep(300);
+  const port = new URL(L.url).port;
+  L = await startLauncher(1, dataDir, { port: Number(port) });
+  try {
+    const { lw: lw2 } = adapter(L.url, { runtimeDir }); // fresh adapter from persisted ledger
+    await lw2.reconcile();
+    const st = await (await fetch(`${L.url}/v1/attempts/${a.attempt_id}`, { headers: { Authorization: 'Bearer ' + TOKEN } })).json();
+    assert.equal(st.run_id, lw.get(a.attempt_id).cua_run_id); // same run id, not a new dispatch
+    await done(lw2, a.attempt_id);
+    assert.ok(['succeeded', 'failed'].includes(lw2.get(a.attempt_id).state));
+  } finally { L.stop(); }
+});
+
+test('cancel stays cancel_requested until the launcher confirms', async () => {
+  const L = await startLauncher(1);
+  try {
+    const { lw, board } = adapter(L.url);
+    const a = await lw.create({ taskId: 'c', group: 'g', brief: brief({ fake: { delay: 30 } }) });
+    await until(async () => { await lw.tick(); return lw.get(a.attempt_id).state === 'running'; });
+    await lw.cancel(a.attempt_id);
+    assert.ok(lw.get(a.attempt_id).history.some((h) => h.state === 'cancel_requested'));
+    await until(async () => { await lw.tick(); return lw.get(a.attempt_id).state === 'cancelled'; });
+    assert.equal(board.calls.at(-1).status, BOARD_COLUMN.cancelled);
+  } finally { L.stop(); }
+});
+
+test('failure: start error and 429 backoff are visible and terminal', async () => {
+  const L = await startLauncher(1);
+  try {
+    const { lw } = adapter(L.url);
+    const a = await lw.create({ taskId: 'f', group: 'g', brief: brief({ fake: { fail_start: true } }) });
+    await done(lw, a.attempt_id); assert.equal(lw.get(a.attempt_id).state, 'failed');
+    const b = await lw.create({ taskId: 'rl', group: 'g', brief: brief({ fake: { rate_limit_first: 1 } }) });
+    await done(lw, b.attempt_id);
+    assert.equal(lw.get(b.attempt_id).state, 'succeeded');
+    const ev = readFileSync(path.join(L.dataDir, 'attempts', `${b.attempt_id}.events.jsonl`), 'utf8');
+    assert.match(ev, /"state": "backoff"/);
+    const bad = await lw.create({ taskId: 'p', group: 'g', brief: brief({ project: 'not-authorized' }) });
+    assert.equal(lw.get(bad.attempt_id).state, 'not_started');
+  } finally { L.stop(); }
+});
+
+// ---- fake launcher for transport edge cases
+function fakeLauncher() {
+  const s = { attempts: {}, posts: 0, dropNextPostResponse: false, down: false, dropGets: 0, gets: 0, events: [] };
+  const srv = http.createServer((req, res) => {
+    let body = ''; req.on('data', (c) => (body += c)); req.on('end', () => {
+      if (s.down) return req.socket.destroy();
+      if (req.method === 'GET') { s.gets++; if (s.dropGets > 0) { s.dropGets--; return req.socket.destroy(); } }
+      const send = (c, o) => { res.writeHead(c, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(o)); };
+      const m = req.url.match(/^\/v1\/attempts\/?([^/?]*)\/?([a-z]*)/);
+      if (req.method === 'POST' && req.url === '/v1/attempts') {
+        const b = JSON.parse(body); s.posts++;
+        s.attempts[b.attempt_id] ??= { attempt_id: b.attempt_id, state: 'running', run_id: 'run-x', detail: 'running' };
+        if (s.dropNextPostResponse) { s.dropNextPostResponse = false; return req.socket.destroy(); }
+        return send(201, s.attempts[b.attempt_id]);
+      }
+      const a = m && s.attempts[m[1]]; if (!a) return send(404, { error: 'unknown' });
+      if (m[2] === 'events') { const ev = s.events.splice(0); return send(200, { events: ev, cursor: ev.length, state: a.state }); }
+      if (m[2] === 'result') return send(409, {});
+      if (m[2] === 'cancel') { a.state = 'cancel_requested'; return send(202, a); }
+      return send(200, a);
+    });
+  });
+  return new Promise((r) => srv.listen(0, '127.0.0.1', () => r({ s, url: `http://127.0.0.1:${srv.address().port}`, close: () => srv.close() })));
+}
+
+test('connection interruption: disconnected != failed, no duplicate dispatch on reconnect', async () => {
+  const F = await fakeLauncher();
+  try {
+    const { lw } = adapter(F.url, { timeoutMs: 500 });
+    const a = await lw.create({ taskId: 'n', group: 'g', brief: brief() });
+    assert.equal(lw.get(a.attempt_id).state, 'running');
+    F.s.down = true; await lw.tick();
+    assert.equal(lw.get(a.attempt_id).state, 'disconnected');
+    F.s.down = false; await lw.tick();
+    assert.equal(lw.get(a.attempt_id).state, 'running'); assert.equal(F.s.posts, 1);
+    F.s.attempts[a.attempt_id].state = 'succeeded'; await lw.tick();
+    assert.equal(lw.get(a.attempt_id).state, 'succeeded');
+  } finally { F.close(); }
+});
+
+test('uncertain outcome: lost POST response becomes outcome_unknown, then reconciles without re-sending', async () => {
+  const F = await fakeLauncher();
+  try {
+    const { lw } = adapter(F.url, { timeoutMs: 500, max: 3 });
+    F.s.dropNextPostResponse = true;
+    const a = await lw.create({ taskId: 'u', group: 'g', brief: brief() });
+    assert.equal(lw.get(a.attempt_id).state, 'outcome_unknown');
+    await lw.reconcile();
+    assert.equal(lw.get(a.attempt_id).state, 'running'); assert.equal(F.s.posts, 1);
+    // and a never-received attempt reconciles to not_started
+    F.s.down = true; const b = await lw.create({ taskId: 'u2', group: 'g', brief: brief() }); F.s.down = false;
+    assert.equal(lw.get(b.attempt_id).state, 'outcome_unknown');
+    await lw.reconcile(); assert.equal(lw.get(b.attempt_id).state, 'not_started');
+  } finally { F.close(); }
+});
+
+test('superseded attempt cannot overwrite the newer one', async () => {
+  const F = await fakeLauncher();
+  try {
+    const { lw, board } = adapter(F.url, { max: 3 });
+    const a = await lw.create({ taskId: 's', group: 'g', brief: brief() });
+    const b = await lw.create({ taskId: 's', group: 'g', brief: brief({ objective: 'v2' }) });
+    assert.equal(lw.get(a.attempt_id).state, 'superseded');
+    F.s.attempts[a.attempt_id].state = 'failed'; await lw.poll(a.attempt_id);
+    assert.equal(lw.get(a.attempt_id).state, 'superseded');
+    assert.ok(board.calls.every((c) => !c.note.includes(a.attempt_id) || c.status !== 'blocked'));
+    assert.equal(lw.get(b.attempt_id).generation, 2);
+  } finally { F.close(); }
+});
+
+test('real cua==0.5.0 SDK contract (no network, no Docker)', { skip: !process.env.PATH.split(':').some((d) => existsSync(path.join(d, 'uv'))) && 'uv not installed' }, async () => {
+  const r = spawnSync('uv', ['run', '-q', '--python', '3.12', '--with', 'cua==0.5.0', 'python', 'pc-launcher/tests/test_sdk_contract.py'], { encoding: 'utf8', timeout: 240000 });
+  assert.equal(r.status, 0, r.stderr.slice(-2000));
+});
+
+const POOL = ['deepseek-v4.1-flash-free', 'beam-free', 'big-pickle', 'minimax-m3.1-flash-free', 'nemotron-3.5-super-vl-free', 'nemotron-3.5-lightning-free', 'glm-5.3-flash-free', 'mimo-v2.6-flash-free', 'longcat-2.5-preview-free'];
+
+test('simple tier: pool of free models; a 429 rotates to the next free model and is recorded', async () => {
+  const L = await startLauncher(2);
+  try {
+    const { lw } = adapter(L.url, { max: 2 });
+    const ok = await lw.create({ taskId: 'free-ok', group: 'g', tier: 'simple', brief: brief() });
+    await done(lw, ok.attempt_id);
+    assert.equal(lw.get(ok.attempt_id).state, 'succeeded'); assert.ok(POOL.includes(lw.get(ok.attempt_id).model_used));
+    const rl = await lw.create({ taskId: 'free-rl', group: 'g', tier: 'simple', brief: brief({ fake: { rate_limit_models: ['deepseek-v4.1-flash-free', 'beam-free'] } }) });
+    await done(lw, rl.attempt_id);
+    const b = lw.get(rl.attempt_id);
+    assert.equal(b.state, 'succeeded'); assert.ok(POOL.includes(b.model_used)); assert.ok(!['deepseek-v4.1-flash-free', 'beam-free'].includes(b.model_used));
+    assert.equal(b.fallback, undefined);
+    const res = JSON.parse(readFileSync(path.join(L.dataDir, 'attempts', `${rl.attempt_id}.result.json`), 'utf8'));
+    assert.equal(res.source.model, b.model_used); assert.equal(res.source.tier_pool, 'free'); assert.ok(res.source.model_history.length >= 2);
+  } finally { L.stop(); }
+});
+
+test('simple tier: rate limits on every free model fall back to flash; refusals too; bad model/tier rejected', async () => {
+  const L = await startLauncher(1);
+  try {
+    const { lw } = adapter(L.url);
+    const all = await lw.create({ taskId: 'all-rl', group: 'g', tier: 'simple', brief: brief({ fake: { rate_limit_models: POOL } }) });
+    await done(lw, all.attempt_id, 30000);
+    const a = lw.get(all.attempt_id);
+    assert.equal(a.state, 'succeeded'); assert.equal(a.model_used, 'deepseek-v4.1-flash');
+    assert.equal(a.fallback.from, 'pool:free'); assert.equal(a.fallback.to, 'deepseek-v4.1-flash'); assert.match(a.fallback.reason, /every free model/);
+    const d = await lw.create({ taskId: 'deny', group: 'g', model: 'deepseek-v4.1-flash-free', brief: brief({ fake: { deny_models: ['deepseek-v4.1-flash-free'] } }) });
+    await done(lw, d.attempt_id);
+    assert.equal(lw.get(d.attempt_id).model_used, 'deepseek-v4.1-flash'); assert.match(lw.get(d.attempt_id).fallback.reason, /free tier refused/);
+    const bad = await lw.create({ taskId: 'bad', group: 'g', model: 'jev-1.13-free', brief: brief() });
+    await done(lw, bad.attempt_id);
+    assert.equal(lw.get(bad.attempt_id).state, 'not_started'); assert.match(lw.get(bad.attempt_id).detail, /not allowed/);
+    await assert.rejects(lw.create({ taskId: 'x', group: 'g', tier: 'premium', brief: brief() }), /unknown tier/);
+  } finally { L.stop(); }
+});
+
+test('control-plane hooks: dispatch.json pause holds new dispatch, running continues; concurrency.json sets cap and pushes POST /v1/config', async () => {
+  const L = await startLauncher(1);
+  try {
+    const { lw, runtimeDir } = adapter(L.url, { max: 1 });
+    const cp = path.join(runtimeDir, 'control-plane'); mkdirSync(cp, { recursive: true });
+    const a = await lw.create({ taskId: 'p1', group: 'g', brief: brief({ fake: { delay: 1 } }) });
+    writeFileSync(path.join(cp, 'dispatch.json'), JSON.stringify({ paused: true }));
+    assert.equal(lw.paused, true);
+    const b = await lw.create({ taskId: 'p2', group: 'g', brief: brief() });
+    await done(lw, a.attempt_id);
+    assert.equal(lw.get(a.attempt_id).state, 'succeeded', 'running attempt finishes while paused');
+    await lw.tick(); assert.equal(lw.get(b.attempt_id).state, 'queued', 'paused: no new dispatch');
+    writeFileSync(path.join(cp, 'dispatch.json'), JSON.stringify({ paused: false }));
+    await done(lw, b.attempt_id); assert.equal(lw.get(b.attempt_id).state, 'succeeded');
+    writeFileSync(path.join(cp, 'concurrency.json'), JSON.stringify({ nodes: { brrrrrrrr: 14 } }));
+    assert.equal(lw.cap, 10, 'clamped to 10');
+    writeFileSync(path.join(cp, 'concurrency.json'), JSON.stringify({ nodes: { brrrrrrrr: 3 } }));
+    assert.equal(lw.cap, 3);
+    await lw.pump();
+    const h = await (await fetch(L.url + '/v1/health', { headers: { Authorization: 'Bearer ' + TOKEN } })).json();
+    assert.equal(h.max_concurrent, 3, 'launcher cap pushed at runtime');
+    const bad = await fetch(L.url + '/v1/config', { method: 'POST', headers: { Authorization: 'Bearer ' + TOKEN, 'Content-Type': 'application/json' }, body: JSON.stringify({ max_concurrent: 0 }) });
+    assert.equal(bad.status, 400);
+    const noauth = await fetch(L.url + '/v1/config', { method: 'POST', body: '{"max_concurrent":2}' });
+    assert.equal(noauth.status, 401);
+  } finally { L.stop(); }
+});
+
+// ---- plan B (LAUNCHER-DROPOUTS.md): retry, hysteresis, rx stamp, keep-alive
+test('GET transport errors are retried; a single blip never surfaces', async () => {
+  const F = await fakeLauncher();
+  try {
+    const { lw } = adapter(F.url, { retries: 2, disconnectFails: 3, disconnectMs: 45000 });
+    const a = await lw.create({ taskId: 'r', group: 'g', brief: brief() });
+    F.s.dropGets = 2; await lw.poll(a.attempt_id);
+    assert.equal(lw.get(a.attempt_id).state, 'running'); assert.equal(lw.get(a.attempt_id).fail_streak, 0);
+    assert.ok(lw.get(a.attempt_id).last_ok_at); assert.equal(F.s.posts, 1);
+  } finally { F.close(); }
+});
+
+test('hysteresis: disconnected only after 3 failures spanning 45 s, and it recovers', async () => {
+  const F = await fakeLauncher();
+  let t = 1_000_000; const now = () => t;
+  try {
+    const { lw } = adapter(F.url, { timeoutMs: 500, disconnectFails: 3, disconnectMs: 45000, now });
+    const a = await lw.create({ taskId: 'h', group: 'g', brief: brief() });
+    F.s.down = true;
+    await lw.poll(a.attempt_id); t += 20000; await lw.poll(a.attempt_id); t += 20000; await lw.poll(a.attempt_id);
+    assert.equal(lw.get(a.attempt_id).state, 'running', '3 fails in 40 s is still a blip');
+    assert.equal(lw.get(a.attempt_id).fail_streak, 3);
+    t += 6000; await lw.poll(a.attempt_id);
+    assert.equal(lw.get(a.attempt_id).state, 'disconnected');
+    F.s.down = false; await lw.tick();
+    assert.equal(lw.get(a.attempt_id).state, 'running'); assert.equal(lw.get(a.attempt_id).fail_streak, 0); assert.equal(F.s.posts, 1);
+  } finally { F.close(); }
+});
+
+test('received events get an rx stamp; worker ts is preserved', async () => {
+  const F = await fakeLauncher();
+  try {
+    const { lw } = adapter(F.url);
+    const a = await lw.create({ taskId: 'e', group: 'g', brief: brief() });
+    F.s.events.push({ kind: 'worker:text', text: 'hi' }, { kind: 'state', ts: '2026-01-01T00:00:00Z', state: 'running' });
+    await lw.poll(a.attempt_id);
+    const lines = readFileSync(lw.get(a.attempt_id).log_ref, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+    assert.equal(lines.length, 2); assert.ok(lines.every((e) => e.rx)); assert.equal(lines[1].ts, '2026-01-01T00:00:00Z');
+  } finally { F.close(); }
+});
+
+test('keep-alive client reuses one socket across calls', async () => {
+  const { keepAliveFetch } = await import('../server/local-workers.mjs');
+  const socks = new Set();
+  const srv = http.createServer((req, res) => { socks.add(req.socket); res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{"ok":true}'); });
+  srv.keepAliveTimeout = 5000;
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  try {
+    const f = keepAliveFetch({ connectTimeoutMs: 2000 });
+    for (let i = 0; i < 3; i++) { const r = await f(`http://127.0.0.1:${srv.address().port}/x`); assert.equal(r.status, 200); assert.deepEqual(await r.json(), { ok: true }); }
+    assert.equal(socks.size, 1);
+  } finally { srv.closeAllConnections?.(); srv.close(); }
+});

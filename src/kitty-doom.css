@@ -1,0 +1,24 @@
+.kitty-doom-surface{box-sizing:border-box;height:100%;min-height:0;display:flex;flex-direction:column;gap:8px;padding:10px;color:inherit;font:12px/1.5 system-ui;overflow:auto}
+.kitty-doom-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.kitty-doom-head h2{font-size:15px;margin:0;letter-spacing:.04em;text-transform:uppercase;opacity:.85}
+.kitty-doom-head button,.kitty-doom-head select{font:inherit;color:inherit;background:rgba(127,127,127,.12);border:1px solid #7776;border-radius:4px;padding:4px 8px}
+.kitty-doom-head button:disabled,.kitty-doom-head select:disabled{opacity:.45}
+.kitty-doom-status{margin:0;opacity:.85}
+.kitty-doom-ready{margin:0;opacity:.6}
+.kitty-doom-stage{flex:1;min-height:200px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;overflow:auto}
+/* Keep the 320x200 screen crisp; the bridge owns the pixels, not the browser. */
+.kitty-doom-canvas{background:#000;image-rendering:pixelated;image-rendering:crisp-edges;border:1px solid #7776;border-radius:3px;outline:none}
+.kitty-doom-canvas:focus-visible{border-color:#ffb347;box-shadow:0 0 0 2px #ffb34755}
+.kitty-doom-hint{margin:0;max-width:60ch;text-align:center;opacity:.7}
+.kitty-doom-meter{margin:0;opacity:.6;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.kitty-doom-output{margin:0;opacity:.55;max-height:4.5em;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}
+/* "How this works": an explanation that travels with the app, not a separate doc. */
+.kitty-doom-info{border:1px solid #7776;border-radius:4px;padding:6px 10px;background:rgba(127,127,127,.07)}
+.kitty-doom-info summary{cursor:pointer;font-weight:600;opacity:.9}
+.kitty-doom-info-section{margin:8px 0 0;max-width:78ch}
+.kitty-doom-info-section h4{margin:0 0 2px;font-size:12px;opacity:.85}
+.kitty-doom-info-section p{margin:0;opacity:.75}
+.kitty-doom-log-head{margin:2px 0 0;font-size:11px;text-transform:uppercase;letter-spacing:.06em;opacity:.6}
+.kitty-doom-log{flex:0 0 auto;max-height:11em;overflow:auto;border:1px solid #7776;border-radius:4px;padding:6px 8px;background:rgba(0,0,0,.18);font:11px/1.5 ui-monospace,monospace;font-variant-numeric:tabular-nums}
+.kitty-doom-log-line{white-space:pre-wrap;overflow-wrap:anywhere;opacity:.8}
+.kitty-doom-log-line:last-child{opacity:1}

@@ -143,9 +143,9 @@ test('symlink files, directories, bundle roots and apps root fail closed',t=>{
   registry.refresh();assert.equal(registry.list()[0].status,'corrupt');
 });
 
-test('20 MB / 500 file limits and hidden files are rejected without skipping native DB tests',t=>{
+test('100 MB / 500 file limits and hidden files are rejected without skipping native DB tests',t=>{
   const {registry,write}=fixture(t);
-  write('large','index.html',Buffer.alloc(20_000_001));
+  write('large','index.html',Buffer.alloc(100_000_001));
   for(let i=0;i<501;i++)write('many',`${i}.txt`,'x');
   write('hidden','.secret','x');registry.refresh();
   assert.deepEqual(registry.list().map(row=>row.status),['corrupt','corrupt','corrupt']);

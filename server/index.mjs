@@ -1,15 +1,18 @@
 import http from "node:http";
 import os from 'node:os';
-import { existsSync, mkdirSync, writeFileSync, renameSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync, renameSync, readFileSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
-import { tokenMatches, geometry, allowedRequest, publicHost } from "./security.mjs";
+import { tokenMatches, geometry, allowedRequest, resolveListenHost, acceptedHosts } from "./security.mjs";
+import { discoverAgentBackends, publicBackendSummary } from "./agent-discovery.mjs";
 import { LocalHostProvider } from "./local-host.mjs";
 import { createAgentHandler } from "./agent.mjs";
+import { startPiGateway } from "./pi-gateway.mjs";
 import { createWorkspaceService, runtimeRoot } from "./workspace.mjs";
+import { installBuiltinApps } from "./builtin-apps.mjs";
 import {observeFeatureReadiness} from './feature-readiness.mjs';
 import {featureCapabilities} from '../contracts/feature-capabilities.mjs';
 import { createWorkspaceLayouts } from './workspace-layouts.mjs';
@@ -35,9 +38,21 @@ import {createWorkbenchLiveHandler} from './workbench-live-route.mjs';
 import {createWorkbenchNativeRuntime,nativeRuntimeEnvironmentOptions,nativeRuntimeMetadata} from './workbench-native-runtime.mjs';
 import {technologyOwnerRoute,lazyTechnologyService} from './technology-owner-route.mjs';
 import {createWorkbenchSandboxProvider} from './workbench-sandbox-provider.mjs';
+import { createIrcService } from './irc.mjs';
+import { createColabOrchestrator } from './colab-orchestrator.mjs';
+import { createKittyDoomService } from './kitty-doom.mjs';
+import { createGrokBotsApp } from './grokbots-app.mjs';
+import { createAgentStatus } from './agent-status.mjs';
+import { createCollabBoard } from './collab-board.mjs';
+import { createLocalWorkersRoute } from './local-workers-route.mjs';
 const port = Number(process.env.PORT || 4318);
 if (!Number.isInteger(port) || port < 1024 || port > 65535)
   throw Error("PORT must be between 1024 and 65535");
+const listenHost = resolveListenHost();
+const explicitHermes = Boolean(process.env.HERMES_API_URL || process.env.HERMES_API_KEY || process.env.HERMES_PROFILES_JSON);
+let discovered = { hermes: null, grok: null, pi: null };
+try { discovered = discoverAgentBackends(); }
+catch (error) { console.error("Agent backend discovery failed; explicit configuration still applies.", error instanceof Error ? error.message : ""); }
 const token = process.env.ORBIT_TOKEN || randomBytes(32).toString("base64url");
 if (token.length < 32)
   throw Error("ORBIT_TOKEN must have at least 32 characters");
@@ -68,6 +83,8 @@ function reply(res, status, data) {
   res.end(JSON.stringify(data));
 }
 const capabilityDescription=audience=>featureCapabilities({audience,observation:observeFeatureReadiness({root:fileURLToPath(new URL('../',import.meta.url)),runtimeRoot,mcpConfigured:!!mcpSandbox})});
+// Built-in apps (Grok Bots) ship in apps/ and are installed before the bundle index refresh.
+installBuiltinApps({ runtimeRoot, log: message => console.log(message) });
 const workspaceService = createWorkspaceService({ token, port, devOrigins, reply, capabilityDescription });
 const workspaceLayouts = createWorkspaceLayouts({ store: workspaceService.store, token, port, devOrigins, reply, root: runtimeRoot });
 const outputLibrary = createOutputLibrary({ store: workspaceService.store, workspaceRead: workspaceService.read, token, port, devOrigins, reply, root: runtimeRoot });
@@ -85,7 +102,47 @@ const workbench = createWorkbench({store:workspaceService.store,token,port,devOr
 const workbenchData=new WorkbenchData(workspaceService.store);
 const executionGate=createWorkbenchGate({legacySnapshot:legacyQueueSnapshot(runtimeRoot)});
 let normalResources;
-const agentHandler = createAgentHandler({ token, port, devOrigins, reply, workspaceContext: workspaceService.context, workspaceRead:workspaceService.read, runtimeDirectory:runtimeRoot,executionGate,onRunEvent:event=>observeTechnologyTrace(event,'observeAgentRunEvent'),onNormalAccepted:record=>normalResources?.normalAccepted(record) });
+const repoRoot = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
+// Pi is hosted by this process when the harness binary exists: one loopback
+// gateway with a token generated in memory, so the Pi profile reaches the same
+// agent command surface the Grok Bot host gateway serves. Nothing here reads a
+// model-vendor key; Pi authenticates through its own configuration.
+let piGateway = null;
+let piProfile = null;
+if (discovered.pi) {
+  if (discovered.pi.apiUrl) piProfile = discovered.pi;
+  else {
+    try {
+      piGateway = await startPiGateway({
+        directory: path.join(runtimeRoot, 'pi-gateway'),
+        token: randomBytes(32).toString('base64url'),
+        binary: discovered.pi.binary,
+        cwd: repoRoot,
+      });
+      piProfile = { id: 'pi', label: discovered.pi.label, provider: 'pi', apiUrl: piGateway.url, apiKey: piGateway.token, source: discovered.pi.source };
+    } catch (error) {
+      console.error('Pi gateway did not start; the Pi profile stays out of the agent menu.', error instanceof Error ? error.message : '');
+    }
+  }
+}
+const irc = createIrcService({ token, orbitPort: port, devOrigins, reply, repoRoot });
+const colab = createColabOrchestrator({ token, port, devOrigins, reply, root: path.join(runtimeRoot, 'colab-orchestrator') });
+// Kitty DOOM: one kitty-graphics PTY session per websocket window on this origin.
+const kittyDoom = createKittyDoomService({ token, port, devOrigins, reply });
+// Grok Bots app: capability-scoped list/history/send for the sandboxed app iframe.
+const agentStatus = createAgentStatus({ runtimeRoot });
+const grokBotsApp = createGrokBotsApp({ runtimeRoot, catalog: () => agentHandler.profileCatalog?.(), agentStatus, chats: () => agentHandler.gatewayChats?.(), workspaceContext: workspaceService.context });
+const agentHandler = createAgentHandler({ token, port, devOrigins, reply, workspaceContext: workspaceService.context, workspaceRead:workspaceService.read, runtimeDirectory:runtimeRoot,executionGate,onRunEvent:event=>observeTechnologyTrace(event,'observeAgentRunEvent'),onNormalAccepted:record=>normalResources?.normalAccepted(record),
+  ...(!explicitHermes && discovered.hermes ? { apiUrl: null, apiKey: null, profiles: [{ id: "default", label: discovered.hermes.label, apiUrl: discovered.hermes.apiUrl, apiKey: discovered.hermes.apiKey }] } : {}),
+  ...(discovered.grok || piProfile ? { additionalProfiles: [...(discovered.grok ? [discovered.grok] : []), ...(piProfile ? [piProfile] : [])] } : {}),
+});
+// Group-chat build tracking on the Collab board (loopback CLI ~/bin/collab-board).
+const collabBoard = createCollabBoard({ runtimeRoot, collab: () => agentHandler.collabOperate, groups: () => grokBotsApp.groupsApi(), workspace: () => {
+  if (/^[0-9a-f-]{36}$/i.test(process.env.ORBIT_BOARD_WORKSPACE || '')) return process.env.ORBIT_BOARD_WORKSPACE;
+  try { return JSON.parse(readFileSync(path.join(runtimeRoot, 'collab-board.json'), 'utf8')).workspace || ''; } catch { return ''; }
+} });
+// Local workers (Cua/OpenCode on a tailnet PC). Off unless ORBIT_LOCAL_WORKERS=1.
+const localWorkers = process.env.ORBIT_LOCAL_WORKERS === '1' ? createLocalWorkersRoute({ runtimeRoot, port, env: process.env, log: m => console.log(m) }) : null;
 const sandboxProvider=createWorkbenchSandboxProvider({root:path.join(workspaceService.store.root,'workbench-sandbox'),env:process.env});
 const environments=createWorkbenchEnvironments({store:workspaceService.store,records:workbench.records,data:workbenchData,gate:executionGate,sandboxProvider});
 const execution=createWorkbenchExecution({store:workspaceService.store,records:workbench.records,data:workbenchData,gate:executionGate,environments,sandboxProvider});
@@ -249,13 +306,8 @@ const technologyCapabilities=technologyOwnerRoute({token,port,devOrigins,reply,m
   if(!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).length!==1||body.action!=='capabilities')throw {code:'invalid_request'};
   return {browser_copilot:!!process.env.ORBIT_BROWSER_EXECUTABLE&&!!process.env.ORBIT_BROWSER_ALLOWED_ORIGINS,mcp_apps:!!mcpSandbox,descriptors:capabilityDescription('owner')};
 }});
-const server = http.createServer(async (req, res) => {
-  const allowedHosts = new Set([
-    `127.0.0.1:${port}`,
-    `localhost:${port}`,
-    `[::1]:${port}`,
-    ...(publicHost ? [publicHost] : []),
-  ]);
+async function handleOrbitRequest(req, res) {
+  const allowedHosts = acceptedHosts(port, devOrigins, listenHost).hosts;
   if (!allowedHosts.has(req.headers.host))
     return reply(res, 403, { error: "Host rejected" });
   const url = new URL(req.url, "http://localhost");
@@ -295,6 +347,19 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === "/api/workspace/control") return workspaceService.handle(req, res, true);
   if (url.pathname.startsWith("/apps/")) return workspaceService.serveApp(req, res, url.pathname);
   if (url.pathname === "/api/agent") return agentHandler(req, res);
+  if (url.pathname === "/api/irc") return irc.handle(req, res);
+  if (url.pathname === '/api/colab-runtime' || url.pathname.startsWith('/api/colab-runtime/')) return colab.handle(req, res, url);
+  if (url.pathname === '/api/kitty-doom') return kittyDoom.handle(req, res);
+  if (url.pathname === '/api/grokbots-app/launch') {
+    // Host-only: hands the Orbit page the capability URL for the sandboxed Grok Bots pane.
+    if (req.method !== 'POST' || !allowedRequest(req, port, devOrigins) || !tokenMatches(String(req.headers.authorization || '').replace(/^Bearer /, ''), token)) return reply(res, 403, { error: 'Orbit authentication required' });
+    return reply(res, 200, { url: grokBotsApp.launchUrl() });
+  }
+  if (url.pathname === '/api/grokbots-app') return grokBotsApp.handle(req, res);
+  if (url.pathname === '/api/grokbots-app/upload') return grokBotsApp.upload(req, res);
+  if (url.pathname === '/api/agent-status') return agentStatus.handle(req, res);
+  if (url.pathname === '/api/collab-board') return collabBoard.handle(req, res);
+  if (url.pathname === '/api/local-workers') { if (localWorkers) return localWorkers.handle(req, res); res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end('{"error":"local workers disabled"}'); }
   if (url.pathname === "/api/health")
     return reply(res, 200, {
       service: "orbit",
@@ -360,6 +425,15 @@ const server = http.createServer(async (req, res) => {
   } catch {
     reply(res, 404, { error: "Build the client with npm run build first." });
   }
+}
+const server = http.createServer((req, res) => {
+  // A provider rejection must not become an unhandled rejection and stop the process.
+  void handleOrbitRequest(req, res).catch(error => {
+    console.error("Orbit request failed.", error instanceof Error ? error.message : "");
+    if (res.headersSent || res.writableEnded) { try { res.end(); } catch {} return; }
+    try { reply(res, 500, { error: "Orbit could not complete the request." }); }
+    catch { try { res.end(); } catch {} }
+  });
 });
 const wss = new WebSocketServer({
   noServer: true,
@@ -367,6 +441,15 @@ const wss = new WebSocketServer({
   perMessageDeflate: false,
 });
 server.on("upgrade", (req, socket, head) => {
+  const upgradePath = String(req.url || '').split('?')[0];
+  if (upgradePath === '/api/irc') {
+    irc.upgrade(req, socket, head);
+    return;
+  }
+  if (upgradePath === '/api/kitty-doom') {
+    kittyDoom.upgrade(req, socket, head);
+    return;
+  }
   if (
     req.url !== "/api/terminal" ||
     !allowedRequest(req, port, devOrigins) ||
@@ -526,13 +609,39 @@ wss.on("connection", (ws) => {
   ws.on("close", close);
   ws.on("error", close);
 });
-server.listen(port, "127.0.0.1", () => {
-  console.log(
-    `\nOrbit Desktop\nOpen: http://127.0.0.1:${port}\nOwner authentication: ${process.env.ORBIT_TOKEN?'configured token (not logged)':'generated token in the private runtime session-token file'}\n\nBound to loopback. Shells run as your current user.\n`,
-  );
+server.listen(port, listenHost, () => {
+  const wildcard = listenHost === "0.0.0.0" || listenHost === "::" || listenHost === "[::]";
+  const loopback = ["127.0.0.1", "localhost", "::1", "[::1]"].includes(listenHost);
+  const openHost = wildcard || loopback ? "127.0.0.1" : (listenHost.includes(":") ? `[${listenHost}]` : listenHost);
+  const lines = [
+    "",
+    "Orbit Desktop",
+    `Open: http://${openHost}:${port}`,
+    `Owner authentication: ${process.env.ORBIT_TOKEN ? "configured token (not logged)" : "generated token in the private runtime session-token file"}`,
+    "",
+    loopback ? "Bound to loopback. Shells run as your current user." : `Listening on ${listenHost}:${port}. Shells run as your current user.`,
+  ];
+  if (wildcard && !process.env.ORBIT_PUBLIC_ORIGIN) lines.push("Browsers that open a tailnet address are rejected until ORBIT_PUBLIC_ORIGIN is that exact origin, for example http://100.101.102.104:4318.");
+  if (explicitHermes) lines.push("Hermes profiles: explicit server environment.");
+  else if (discovered.hermes) {
+    const hermes = publicBackendSummary(discovered.hermes);
+    lines.push(`Hermes API server: ${hermes.apiUrl}${hermes.model ? ` model ${hermes.model}` : ""}${hermes.modelProvider ? ` via ${hermes.modelProvider}` : ""} (${hermes.source}).`);
+  }
+  if (discovered.grok) {
+    const grok = publicBackendSummary(discovered.grok);
+    lines.push(`Grok Bot gateway: ${grok.apiUrl}${grok.model ? ` model ${grok.model}` : ""} (${grok.source}).`);
+  }
+  if (piProfile) lines.push(`Pi agent: ${publicBackendSummary(piProfile).apiUrl} (${discovered.pi?.source || 'gateway'}).`);
+  else if (discovered.pi && !discovered.pi.apiUrl) lines.push("Pi harness was found but its gateway did not start; the Pi profile stays out of the agent menu.");
+  console.log(lines.join("\n") + "\n");
 });
 for (const signal of ["SIGTERM", "SIGINT"])
   process.on(signal, () => {
+    irc.close();
+    piGateway?.close?.();
+    colab.close();
+    kittyDoom.close();
+    grokBotsApp.close?.();
     execution.close();
     sandboxProvider.close();
     contextSharing.close?.();

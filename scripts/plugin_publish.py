@@ -10,8 +10,12 @@ import re
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from node_cli import resolve_node  # noqa: E402  (sibling helper, resolved by path)
 
 # Author-declared finite config metadata mirrored from src/plugin-config-schema.ts.
 # Keep every bound in sync; tests/plugin-config-schema.test.py and the JS suite
@@ -264,12 +268,12 @@ def collect(root, parser):
                 fd = os.open(item, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_NONBLOCK', 0))
                 with os.fdopen(fd, 'rb') as stream:
                     info = os.fstat(stream.fileno())
-                    if not stat.S_ISREG(info.st_mode) or size + info.st_size > 20_000_000:
+                    if not stat.S_ISREG(info.st_mode) or size + info.st_size > 100_000_000:
                         parser.error('Bundle limit or non-regular file')
-                    content = stream.read(20_000_000 - size + 1)
+                    content = stream.read(100_000_000 - size + 1)
                 size += len(content)
-                if size > 20_000_000 or len(files) >= 500:
-                    parser.error('Bundle limit: 20 MB / 500 files')
+                if size > 100_000_000 or len(files) >= 500:
+                    parser.error('Bundle limit: 100 MB / 500 files')
                 files.append((relative, content))
             else:
                 parser.error('Only regular files and directories are allowed')
@@ -334,7 +338,7 @@ def main():
     if os.path.lexists(args.runtime / 'workspace.sqlite'):
         cli = Path(__file__).resolve().with_name('workspace_bundles.mjs')
         try:
-            subprocess.run(['node', '--experimental-strip-types', str(cli), 'refresh', '--root',
+            subprocess.run([resolve_node(), '--experimental-strip-types', str(cli), 'refresh', '--root',
                             str(args.runtime.resolve())], check=True, stdout=subprocess.PIPE, timeout=120)
         except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
             parser.error(f'Bundle published but workspace registration failed: {error}')

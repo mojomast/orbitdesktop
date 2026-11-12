@@ -84,7 +84,7 @@ Hermes tools → Workspace plugins, or Ctrl+Alt+P while the parent workspace has
 ## Agent workflow
 
 1. Build static HTML/CSS/JS using relative paths. Do not include secrets. `examples/plugins/notes` is a working example.
-2. Publish: `python3 scripts/plugin_publish.py /absolute/build --id notes --version 1.0.0 --title 'Workspace notes'`. This emits a manifest, writes a new content-addressed folder under `.runtime/apps/`, rejects symlinks/hidden files, and limits bundles to 20 MB / 500 files. Identical files reuse the folder. Existing files are checked before reuse. Retain old folders for rollback. Atomic directory rename is publication, not proof that the app is safe or correct.
+2. Publish: `python3 scripts/plugin_publish.py /absolute/build --id notes --version 1.0.0 --title 'Workspace notes'`. This emits a manifest, writes a new content-addressed folder under `.runtime/apps/`, rejects symlinks/hidden files, and limits bundles to 100 MB / 500 files. Identical files reuse the folder. Existing files are checked before reuse. Retain old folders for rollback. Atomic directory rename is publication, not proof that the app is safe or correct.
 3. Use `scripts/workspace_control.py --workspace ID apply` with `{"action":"plugin_install","manifest":<emitted manifest>,"config":{"title":"My notes","message":"Hello"}}`. Install is disabled by default.
 4. Enable with `{"action":"plugin_enable","plugin_id":"notes"}`. Read and verify observed_revision; inspect the actual iframe in browser tests before claiming it works.
 5. Configure with `plugin_configure`, `plugin_id`, `config`. Config replaces the prior object. It allows up to 32 primitive-valued fields / 4096 serialized characters. No secrets: config is visible in the iframe URL fragment.
