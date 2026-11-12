@@ -22,9 +22,10 @@ const why = (e) => e?.cause?.code || e?.code || e?.cause?.name || e?.name || 'er
 // explicit connect timeout (20 s) replaces the built-in 10 s one. Returns a fetch-like { status, ok, json() }.
 const KA = { keepAlive: true, keepAliveMsecs: 30000, maxSockets: 16, maxFreeSockets: 4, timeout: 60000 };
 const httpAgent = new http.Agent(KA); const httpsAgent = new https.Agent(KA);
-export function keepAliveFetch({ connectTimeoutMs = 20000 } = {}) {
-  return (url, { method = 'GET', headers = {}, body, signal } = {}) => new Promise((resolve, reject) => {
+export function keepAliveFetch({ connectTimeoutMs = 20000, maxBytes = Infinity } = {}) {
+  return (url, { method = 'GET', headers = {}, body, signal, maxBytes: callMaxBytes } = {}) => new Promise((resolve, reject) => {
     const u = new URL(url); const tls = u.protocol === 'https:';
+    const limit = Number(callMaxBytes ?? maxBytes);
     const h = body != null ? { ...headers, 'Content-Length': Buffer.byteLength(body) } : headers;
     const req = (tls ? https : http).request(u, { method, headers: h, agent: tls ? httpsAgent : httpAgent });
     let ct = null; let settled = false;
@@ -38,8 +39,17 @@ export function keepAliveFetch({ connectTimeoutMs = 20000 } = {}) {
     });
     req.on('error', (e) => finish(reject, e));
     req.on('response', (res) => {
-      const chunks = []; res.on('data', (c) => chunks.push(c)); res.on('error', (e) => finish(reject, e));
-      res.on('end', () => { const text = Buffer.concat(chunks).toString('utf8');
+      const chunks = []; let total = 0;
+      res.on('data', (c) => {
+        total += c.length;
+        if (total > limit) {
+          const err = Object.assign(new Error(`the launcher body exceeds ${limit} bytes`), { code: 'ERR_RESULT_TOO_LARGE' });
+          res.destroy(); req.destroy(err); finish(reject, err); return;
+        }
+        chunks.push(c);
+      });
+      res.on('error', (e) => finish(reject, e));
+      res.on('end', () => { if (settled) return; const text = Buffer.concat(chunks).toString('utf8');
         finish(resolve, { status: res.statusCode, ok: res.statusCode >= 200 && res.statusCode < 300, text: async () => text, json: async () => JSON.parse(text) }); });
     });
     req.end(body ?? undefined);
@@ -61,8 +71,10 @@ export function createLocalWorkers({
   runtimeDir, launcherUrl, launcherToken, tokenFile, board, fetchImpl,
   maxConcurrent = 1, node = 'brrrrrrrr', timeoutMs = 30000, connectTimeoutMs = 20000, now = () => Date.now(), log = () => {},
   retries = 2, retryBaseMs = 400, disconnectFails = 3, disconnectMs = 45000, sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
+  artifactMaxBytes = 8 * 1024 * 1024,
 } = {}) {
   fetchImpl = fetchImpl || keepAliveFetch({ connectTimeoutMs });
+  const resultFetchMaxBytes = (Number(artifactMaxBytes) > 0 ? Number(artifactMaxBytes) : 8 * 1024 * 1024) + 64 * 1024;
   const dir = path.join(runtimeDir, 'local-workers');
   mkdirSync(dir, { recursive: true });
   const ledgerPath = path.join(dir, 'ledger.json');
@@ -85,23 +97,24 @@ export function createLocalWorkers({
   }
   // GETs are idempotent: retry transport errors (not HTTP statuses) up to `retries` times with jittered
   // backoff, but never start a retry once `timeoutMs` has passed since the first try.
-  async function call(method, p, body) {
+  async function call(method, p, body, opts) {
     const t0 = now();
     for (let i = 0; ; i++) {
-      try { return await call1(method, p, body); }
+      try { return await call1(method, p, body, opts); }
       catch (e) {
-        if (method !== 'GET' || i >= retries || now() - t0 >= timeoutMs) throw e;
+        if (e?.code === 'ERR_RESULT_TOO_LARGE' || method !== 'GET' || i >= retries || now() - t0 >= timeoutMs) throw e;
         await sleep(Math.round(retryBaseMs * 2 ** i * (0.5 + Math.random())));
       }
     }
   }
-  async function call1(method, p, body) {
+  async function call1(method, p, body, opts) {
     const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), timeoutMs);
     try {
       const r = await fetchImpl(launcherUrl.replace(/\/$/, '') + p, {
         method, signal: ctl.signal,
         headers: { Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json' },
         body: body ? JSON.stringify(body) : undefined,
+        maxBytes: opts?.maxBytes,
       });
       const j = await r.json().catch(() => ({}));
       return { status: r.status, body: j };
@@ -140,8 +153,10 @@ export function createLocalWorkers({
     model = model || MODEL_TIERS[tier || 'standard'];
     if (!brief?.objective) throw new Error('brief.objective is required');
     const prev = current(taskId);
+    const artifactCapability = randomBytes(32).toString('base64url');
     const a = {
       attempt_id: 'att_' + randomBytes(8).toString('hex'), task_id: taskId, board_entry: boardEntry || taskId, group, coordinator,
+      capability_sha256: createHash('sha256').update(artifactCapability).digest('hex'),
       generation: (prev?.generation || 0) + 1, node, env_id: null, cua_run_id: null, opencode_session_id: null,
       workdir: brief.workdir || null, source_rev: brief.source_rev || null, input_manifest_sha256: manifestHash(brief),
       provider, model, tier: tier || null, brief: { ...brief, input_manifest_sha256: manifestHash(brief) }, state: 'queued', detail: 'waiting for a slot',
@@ -153,6 +168,7 @@ export function createLocalWorkers({
       call('POST', `/v1/attempts/${prev.attempt_id}/cancel`).catch(() => {});
     }
     ledger.attempts[a.attempt_id] = a; await setState(a, 'queued', 'waiting for a slot');
+    Object.defineProperty(a, 'artifact_capability', { value: artifactCapability, enumerable: false, configurable: true });
     await pump(); return a;
   }
 
@@ -188,19 +204,26 @@ export function createLocalWorkers({
     a.result = { ref: file, observed_files: (body.observed?.files || []).length, stop_reason: body.observed?.stop_reason };
     a.artifact_refs = (body.observed?.files || []).map((f) => ({ path: f.path, sha256: f.sha256, change: f.change, in_scope: f.in_assigned_scope }));
     a.checks = (body.checks || []).map((c) => ({ ...c, source: 'worker_claim' }));
+    delete a.result_error;
     persist();
   }
   async function fetchResult(a) {
     try {
-      const r = await call('GET', `/v1/attempts/${a.attempt_id}/result`);
+      const r = await call('GET', `/v1/attempts/${a.attempt_id}/result`, undefined, { maxBytes: resultFetchMaxBytes });
       if (r.status === 200) saveResult(a, r.body);
-    } catch { /* retried on next poll */ }
+    } catch (e) {
+      if (e?.code === 'ERR_RESULT_TOO_LARGE') { a.result_error = 'oversized'; persist(); }
+    }
   }
   // Explicit refetch for the artifact API (e.g. Orbit restarted before the result was saved).
   async function refetchResult(id) {
     const a = ledger.attempts[id]; if (!a) return 'missing';
     let r;
-    try { r = await call('GET', `/v1/attempts/${id}/result`); } catch { return 'unreachable'; }
+    try { r = await call('GET', `/v1/attempts/${id}/result`, undefined, { maxBytes: resultFetchMaxBytes }); }
+    catch (e) {
+      if (e?.code === 'ERR_RESULT_TOO_LARGE') { a.result_error = 'oversized'; persist(); return 'oversized'; }
+      return 'unreachable';
+    }
     if (r.status !== 200 || !r.body || typeof r.body !== 'object') return 'missing';
     saveResult(a, r.body); return 'ok';
   }

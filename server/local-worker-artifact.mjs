@@ -7,7 +7,7 @@
 // coordinator's source_rev from the ledger, and pins the first-read sha256 in the ledger so a later
 // substitution is refused. Raw patches are returned only in this response and never logged.
 import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, realpathSync } from 'node:fs';
-import { createHash } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import path from 'node:path';
 
 export const ARTIFACT_VERSION = 'orbit.worker-artifact/1';
@@ -67,8 +67,10 @@ export function buildArtifact(attempt, buf) {
   try { m = JSON.parse(buf.toString('utf8')); } catch { throw new ArtifactError(502, 'artifact_malformed', 'the result is not valid JSON'); }
   if (!m || typeof m !== 'object' || Array.isArray(m) || m.schema !== 'orbit.local-worker.result/v1') throw new ArtifactError(502, 'artifact_malformed', 'the result is not an orbit.local-worker.result/v1 manifest');
   if (m.attempt_id !== attempt.attempt_id) throw new ArtifactError(409, 'artifact_mismatch', 'the result names a different attempt');
-  const declared = m.source && typeof m.source.repo_rev === 'string' ? m.source.repo_rev.toLowerCase() : null;
-  if (attempt.source_rev && declared && declared !== String(attempt.source_rev).toLowerCase()) throw new ArtifactError(409, 'artifact_mismatch', 'the result was made from a different source_rev than the coordinator dispatched');
+  const declaredRaw = m.source && m.source.repo_rev;
+  if (typeof declaredRaw !== 'string' || !declaredRaw || !attempt.source_rev) throw new ArtifactError(409, 'revision_missing', 'the result and the dispatch must both name a source_rev');
+  const declared = declaredRaw.toLowerCase();
+  if (declared !== String(attempt.source_rev).toLowerCase()) throw new ArtifactError(409, 'artifact_mismatch', 'the result was made from a different source_rev than the coordinator dispatched');
   let diff = null;
   if (m.patch != null) {
     diff = typeof m.patch === 'string' ? m.patch : (m.patch && typeof m.patch.diff === 'string' ? m.patch.diff : undefined);
@@ -88,17 +90,24 @@ export function buildArtifact(attempt, buf) {
 export async function workerArtifact(lw, dir, body, { maxBytes = DEFAULT_MAX_BYTES, log = () => {} } = {}) {
   const id = body && body.attempt_id;
   if (typeof id !== 'string' || !ATTEMPT_ID.test(id)) throw new ArtifactError(400, 'invalid_attempt_id', 'attempt_id must look like att_ followed by 16 hex digits');
-  const coordinator = body.coordinator;
-  if (typeof coordinator !== 'string' || !coordinator.trim()) throw new ArtifactError(400, 'coordinator_required', 'name the coordinator that dispatched the attempt');
   const a = lw.get(id);
   if (!a) throw new ArtifactError(404, 'unknown_attempt', 'Orbit has no attempt with this id');
-  if (a.coordinator !== coordinator) throw new ArtifactError(403, 'not_owner', 'this attempt belongs to another coordinator');
+  const storedSha = typeof a.capability_sha256 === 'string' ? a.capability_sha256 : null;
+  if (!storedSha) throw new ArtifactError(403, 'capability_required', 'this attempt has no artifact capability; recreate it');
+  const capability = body && body.capability;
+  // Ownership is the per-attempt capability only; the coordinator name in the body is a label, never authority.
+  if (typeof capability !== 'string' || !capability) throw new ArtifactError(403, 'capability_required', 'send the attempt artifact_capability from create');
+  const got = Buffer.from(sha256(capability), 'hex');
+  const want = Buffer.from(storedSha, 'hex');
+  if (got.length !== want.length || !timingSafeEqual(got, want)) throw new ArtifactError(403, 'not_owner', 'this attempt capability does not own the attempt');
   if (a.state === 'disconnected') throw new ArtifactError(503, 'worker_disconnected', 'the launcher is unreachable; retry when it reconnects', { state: a.state });
   if (PENDING_STATES.has(a.state)) throw new ArtifactError(409, 'result_pending', 'the attempt has not finished yet', { state: a.state });
   if (!RESULT_STATES.has(a.state)) throw new ArtifactError(409, 'no_result_for_state', `a ${a.state} attempt has no result`, { state: a.state });
+  if (a.result_error === 'oversized') throw new ArtifactError(413, 'artifact_oversized', 'the launcher result exceeded the artifact size limit while streaming');
   let buf = readResultFile(dir, id, maxBytes);
   if (buf === null) {
     const got = await lw.refetchResult(id);
+    if (got === 'oversized') throw new ArtifactError(413, 'artifact_oversized', 'the launcher result exceeded the artifact size limit while streaming');
     if (got === 'unreachable') throw new ArtifactError(503, 'launcher_unreachable', 'the result is not on disk and the launcher is unreachable');
     buf = got === 'ok' ? readResultFile(dir, id, maxBytes) : null;
     if (buf === null) throw new ArtifactError(404, 'result_missing', 'the launcher has no result for this attempt');
