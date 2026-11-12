@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { ROUTER_IMAGES } from './orbit-config.mjs';
+import { ROUTER_IMAGES, resolveRoles, switchToCustom } from './orbit-config.mjs';
 import { detectOpencode, OPENCODE_INSTALL_COMMAND } from './opencode-detect.mjs';
 
 /**
@@ -156,6 +156,19 @@ async function parseResponseJson(response) {
   return {};
 }
 
+function stripKeyViews(document) {
+  if (!isPlainObject(document) || !Array.isArray(document.providers)) return document;
+  return {
+    ...document,
+    providers: document.providers.map(provider => {
+      if (!isPlainObject(provider)) return provider;
+      const { key, ...rest } = provider;
+      void key;
+      return rest;
+    }),
+  };
+}
+
 export function createOnboarding({
   config,
   fetchImpl = fetch,
@@ -164,6 +177,7 @@ export function createOnboarding({
   exists,
   log = () => {},
   routerSupervisor,
+  startSetupAgent,
   env = process.env,
   home = typeof env?.HOME === 'string' ? env.HOME : undefined,
 } = {}) {
@@ -198,7 +212,8 @@ export function createOnboarding({
     const fn = functionNames.map(name => routerSupervisor[name]).find(candidate => typeof candidate === 'function');
     if (!fn) return { applied: false };
     try {
-      await fn.call(routerSupervisor, current);
+      if (method === 'disable') await fn.call(routerSupervisor, { confirm: true });
+      else await fn.call(routerSupervisor, current);
       return { applied: true };
     } catch {
       safeLog(`Token router supervisor ${method} was unavailable.`);
@@ -226,6 +241,14 @@ export function createOnboarding({
     else if (typeof explicitRouter.enabled === 'boolean') router.enabled = explicitRouter.enabled;
     components.router = router.enabled;
     if (typeof explicitRouter.engine === 'string' && explicitRouter.image === undefined) router.image = ROUTER_IMAGES[explicitRouter.engine] ?? router.image;
+    if (router.enabled && router.mode === 'builtin' && !(router.upstreams?.length)) {
+      router = {
+        ...router,
+        upstreams: current.providers
+          .filter(provider => !['router', 'opencode-free', 'pi'].includes(provider.kind))
+          .map(provider => ({ providerId: provider.id, weight: 1, models: ['*'] })),
+      };
+    }
     const next = config.save({ ...current, components, router });
     let supervisor = { applied: false };
     if (!before && next.router.enabled) supervisor = await callSupervisor('enable', next);
@@ -253,6 +276,9 @@ export function createOnboarding({
     let router = current.router;
     let components = current.components;
     const before = current.router.enabled;
+    if (provider.kind !== 'router' && isPlainObject(body.router)) {
+      router = mergeRouter(current.router, body.router);
+    }
     if (provider.kind === 'router') {
       if (!isPlainObject(body.router)) {
         router = {
@@ -482,15 +508,120 @@ export function createOnboarding({
     };
   }
 
-  async function apply() {
-    const current = config.load();
+  function mergeApplyPatch(current, body) {
+    if (isPlainObject(body.config)) return config.save(stripKeyViews(body.config));
+    let next = { ...current };
+    if (body.mode !== undefined) {
+      if (body.mode !== 'minimal' && body.mode !== 'custom') throw statusError('mode must be minimal or custom.', 400);
+      if (body.mode === 'custom' && current.mode === 'minimal') next = switchToCustom(current);
+      else next = { ...next, mode: body.mode };
+    }
+    if (body.defaultModel !== undefined) next = { ...next, defaultModel: body.defaultModel };
+    if (body.mode === 'minimal' && !next.defaultModel) throw statusError('Minimal install needs one provider and one model.', 400);
+    if (isPlainObject(body.components)) {
+      next = { ...next, components: { ...next.components, ...body.components } };
+      if (typeof body.components.router === 'boolean') next.router = { ...next.router, enabled: body.components.router };
+    }
+    return config.save(next);
+  }
+
+  async function apply(body = {}) {
+    let current = config.load();
+    if (isPlainObject(body.config) || body.mode !== undefined || body.defaultModel !== undefined || isPlainObject(body.components)) {
+      current = mergeApplyPatch(current, body);
+    }
     const installState = { ...(current.installState || {}) };
     for (const key of COMPONENT_KEYS) installState[key] = current.components[key] ? 'pending' : 'skipped';
     installState.apps = Array.isArray(current.components.apps) && current.components.apps.length ? 'pending' : 'skipped';
     const next = config.save({ ...current, appliedAt: new Date().toISOString(), installState });
     const supervisor = next.router.enabled ? await callSupervisor('apply', next) : { applied: false };
     const view = config.view();
-    return { ok: true, applied: true, config: view, providers: providersView(view), routerSupervisor: supervisor };
+    const roles = resolveRoles(next);
+    if (typeof startSetupAgent === 'function') {
+      try {
+        await startSetupAgent({ ...view, roles });
+      } catch {
+        safeLog('The setup agent could not be started.');
+      }
+    }
+    return { ok: true, applied: true, config: view, providers: providersView(view), roles, routerSupervisor: supervisor };
+  }
+
+  function rolesPayload(current) {
+    const view = config.view();
+    return {
+      ok: true,
+      mode: current.mode ?? 'custom',
+      defaultModel: current.defaultModel ?? null,
+      roles: resolveRoles(current),
+      stored: current.roles,
+      providers: providersView(view),
+      config: view,
+    };
+  }
+
+  async function putRoles(body) {
+    const current = config.load();
+    let next = current;
+    if (body.mode !== undefined || body.defaultModel !== undefined) {
+      next = mergeApplyPatch(next, {
+        ...(body.mode !== undefined ? { mode: body.mode } : {}),
+        ...(body.defaultModel !== undefined ? { defaultModel: body.defaultModel } : {}),
+      });
+    }
+    const patch = isPlainObject(body.roles) ? body.roles : null;
+    if (patch) {
+      const providers = new Map((next.providers ?? []).map(provider => [provider.id, provider]));
+      const roles = { ...next.roles };
+      for (const [role, raw] of Object.entries(patch)) {
+        if (!['setup', 'chat', 'workers', 'summarize', 'compaction', 'vision'].includes(role)) throw statusError('Unknown role.', 400);
+        if (!isPlainObject(raw)) throw statusError('Each role must be an object.', 400);
+        const provider = typeof raw.provider === 'string' ? raw.provider.trim() : '';
+        const model = typeof raw.model === 'string' ? raw.model.trim() : '';
+        if (!provider && !model) { roles[role] = { provider: '', model: '' }; continue; }
+        if (!provider || !model) throw statusError('A role needs both a provider and a model.', 400);
+        const known = providers.get(provider);
+        if (!known || (known.kind === 'router' && !next.router.enabled)) throw statusError('Unknown provider for a role.', 400);
+        roles[role] = { provider, model };
+      }
+      next = config.save({ ...next, roles });
+    }
+    if (isPlainObject(body.budgets)) {
+      const virtualKeys = (next.router.virtualKeys ?? []).map(entry => ({ ...entry, budget: entry.budget ? { ...entry.budget } : undefined, rateLimit: entry.rateLimit ? { ...entry.rateLimit } : undefined }));
+      const byRole = new Map(virtualKeys.map(entry => [entry.role, entry]));
+      for (const [role, raw] of Object.entries(body.budgets)) {
+        if (!['setup', 'chat', 'workers', 'summarize', 'compaction', 'vision'].includes(role)) throw statusError('Unknown router role.', 400);
+        if (!isPlainObject(raw)) throw statusError('A role budget must be an object.', 400);
+        const entry = byRole.get(role);
+        if (!entry) continue;
+        if (raw.usd !== undefined) {
+          if (typeof raw.usd !== 'number' || !Number.isFinite(raw.usd) || raw.usd < 0) throw statusError('A budget must be a non-negative number.', 400);
+          entry.budget = { ...(entry.budget ?? { reset: '1mo' }), usd: raw.usd };
+        }
+        if (raw.reset !== undefined) {
+          if (typeof raw.reset !== 'string' || !/^\d+(m|h|d|w|mo)$/.test(raw.reset)) throw statusError('A budget reset interval is invalid.', 400);
+          entry.budget = { ...(entry.budget ?? { usd: 0 }), reset: raw.reset };
+        }
+        if (isPlainObject(raw.rateLimit)) {
+          const limit = { ...(entry.rateLimit ?? { requests: 600, tokens: 2_000_000, reset: '1h' }) };
+          for (const key of ['requests', 'tokens']) {
+            if (raw.rateLimit[key] !== undefined) {
+              if (!Number.isInteger(raw.rateLimit[key]) || raw.rateLimit[key] < 0) throw statusError(`A rate limit ${key} value is invalid.`, 400);
+              limit[key] = raw.rateLimit[key];
+            }
+          }
+          if (raw.rateLimit.reset !== undefined) {
+            if (typeof raw.rateLimit.reset !== 'string' || !/^\d+(m|h|d|w|mo)$/.test(raw.rateLimit.reset)) throw statusError('A rate limit reset interval is invalid.', 400);
+            limit.reset = raw.rateLimit.reset;
+          }
+          entry.rateLimit = limit;
+        }
+      }
+      next = config.save({ ...next, router: { ...next.router, virtualKeys } });
+    }
+    if (!patch && body.mode === undefined && body.defaultModel === undefined && body.budgets === undefined) throw statusError('No role changes were supplied.', 400);
+    safeLog('Saved role mapping.');
+    return rolesPayload(next);
   }
 
   async function dispatch(req, res, url) {
@@ -527,7 +658,24 @@ export function createOnboarding({
       return json(res, result.status, result.data);
     }
     if (parts.length === 1 && parts[0] === 'apply' && method === 'POST') {
-      return json(res, 200, await apply());
+      return json(res, 200, await apply(body));
+    }
+    if (parts.length === 1 && parts[0] === 'roles') {
+      if (method === 'GET') return json(res, 200, rolesPayload(config.load()));
+      if (method === 'PUT' || method === 'POST') return json(res, 200, await putRoles(body));
+    }
+    if (parts.length === 2 && parts[0] === 'router' && parts[1] === 'rotate' && method === 'POST') {
+      const current = config.load();
+      if (!current.router.enabled) throw statusError('The token router is not enabled.', 400);
+      if (!routerSupervisor || typeof routerSupervisor.rotateKey !== 'function') throw statusError('Router key rotation is unavailable.', 400);
+      const roles = typeof body.role === 'string' ? [body.role] : ['setup', 'chat', 'workers', 'summarize'];
+      const rotated = [];
+      for (const role of roles) {
+        routerSupervisor.rotateKey(role);
+        rotated.push(role);
+      }
+      safeLog('Rotated router virtual keys.');
+      return json(res, 200, { ok: true, rotated });
     }
     if (['GET', 'POST', 'PUT', 'DELETE'].includes(method) && parts.length === 0) return json(res, 405, { ok: false, error: 'Method not allowed.' });
     return json(res, 404, { ok: false, error: 'Not found.' });
@@ -543,5 +691,5 @@ export function createOnboarding({
     }
   }
 
-  return { handle, state: () => statePayload(), providers: () => listProviders(), providerModels };
+  return { handle, state: () => statePayload(), providers: () => listProviders(), providerModels, roles: () => rolesPayload(config.load()), putRoles };
 }

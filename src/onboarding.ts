@@ -1,5 +1,18 @@
 import { el, button } from './dom';
 import './onboarding.css';
+import {
+  defaultSetupMode,
+  minimalComponents,
+  providerOptions,
+  readRoleDraft,
+  roleRows,
+  validateRoles,
+  renderRolesStep as renderRolesStepView,
+  type ProviderLike,
+  type RoleChoice,
+  type RolesStepContextLike,
+} from './onboarding-roles';
+import { renderReviewStep as renderReviewStepView } from './onboarding-review';
 
 const key = 'orbit.onboarding.v1';
 const steps = [
@@ -128,6 +141,8 @@ export interface OnboardingRouterView {
   contentLogging?: boolean;
   allowPrivateNetwork?: boolean;
   virtualKeys?: Array<{ role: string; keyRef?: { file?: string } }>;
+  upstreams?: Array<{ providerId: string; weight?: number; models?: string[] }>;
+  fallbacks?: Array<{ model: string; then: string[] }>;
   external?: { baseUrl?: string; keyRef?: { file?: string } };
 }
 
@@ -146,6 +161,8 @@ export interface OnboardingComponents {
 
 export interface OnboardingConfig {
   schemaVersion: number;
+  mode?: 'minimal' | 'custom';
+  defaultModel?: OnboardingRoleChoice | null;
   providerMode?: 'direct' | 'router';
   components: OnboardingComponents;
   providers: OnboardingProvider[];
@@ -193,7 +210,11 @@ export interface OnboardingApi {
   detectOpencode(): Promise<OnboardingOpenCodeState>;
   installOpencode(confirm: boolean): Promise<OnboardingOpenCodeState & { installed?: boolean }>;
   listModels(id: string): Promise<OnboardingModelList>;
-  apply(): Promise<OnboardingStateResponse & { applied?: boolean }>;
+  getRoles(): Promise<OnboardingStateResponse & { mode?: 'minimal' | 'custom'; roles?: Record<string, OnboardingRoleChoice>; stored?: Record<string, OnboardingRoleChoice> }>;
+  saveRoles(payload: Record<string, unknown>): Promise<OnboardingStateResponse & { mode?: 'minimal' | 'custom'; roles?: Record<string, OnboardingRoleChoice>; stored?: Record<string, OnboardingRoleChoice> }>;
+  disableRouter(): Promise<OnboardingStateResponse>;
+  rotateRouterKeys(role?: string): Promise<{ ok: boolean; rotated: string[] }>;
+  apply(payload?: unknown): Promise<OnboardingStateResponse & { applied?: boolean }>;
 }
 
 export interface OnboardingStepContext {
@@ -239,7 +260,11 @@ export function createOnboardingApi(options: {
     detectOpencode: () => request<OnboardingOpenCodeState>('GET', '/opencode'),
     installOpencode: confirm => request<OnboardingOpenCodeState & { installed?: boolean }>('POST', '/opencode/install', { confirm }),
     listModels: id => request<OnboardingModelList>('GET', `${idPath(id)}/models`),
-    apply: () => request<OnboardingStateResponse & { applied?: boolean }>('POST', '/apply', {}),
+    getRoles: () => request('GET', '/roles'),
+    saveRoles: payload => request('PUT', '/roles', payload),
+    disableRouter: () => request<OnboardingStateResponse>('PUT', '/components', { components: { router: false }, confirm: true }),
+    rotateRouterKeys: role => request<{ ok: boolean; rotated: string[] }>('POST', '/router/rotate', role ? { role } : {}),
+    apply: payload => request<OnboardingStateResponse & { applied?: boolean }>('POST', '/apply', payload ?? {}),
   };
 }
 
@@ -362,14 +387,14 @@ function reviewPlaceholder(context: OnboardingStepContext): HTMLElement {
   return section;
 }
 
-/** Slice OF2 replaces this hook with editable role/provider/model and budget controls. */
+/** Step 3: editable provider/model and router-budget rows per role. */
 export function renderRolesStep(context: OnboardingStepContext): HTMLElement {
-  return rolePlaceholder(context);
+  return renderRolesStepView(context as RolesStepContextLike);
 }
 
-/** Slice OF2 replaces this hook with the final editable review and apply summary. */
+/** Step 4: editable review of components, masked providers, roles and what runs. */
 export function renderReviewStep(context: OnboardingStepContext): HTMLElement {
-  return reviewPlaceholder(context);
+  return renderReviewStepView(context as never);
 }
 
 export interface OnboardingWizardHandle {
@@ -411,7 +436,13 @@ export function mountOnboarding(root: HTMLElement, api: OnboardingApi = createOn
   let busy = false;
   let applied = false;
   let mode: ProviderMode = 'direct';
+  let setupPath: 'minimal' | 'custom' = defaultSetupMode();
+  let pathInitialized = false;
+  let minimalProvider = '';
+  let minimalModel = '';
   let commitStepOne: (() => Promise<void>) | null = null;
+  let commitStepTwo: (() => Promise<void>) | null = null;
+  let commitStepThree: (() => Promise<void>) | null = null;
 
   function notify(message: string, error = false): void {
     status.textContent = message;
@@ -444,6 +475,14 @@ export function mountOnboarding(root: HTMLElement, api: OnboardingApi = createOn
       mode = state.config.router.enabled
         ? (state.config.router.mode === 'external' ? 'external' : 'builtin')
         : 'direct';
+      if (!pathInitialized) {
+        const configured = (state.config.providers?.length ?? 0) > 0
+          || Object.values(state.config.roles ?? {}).some(role => Boolean(role?.provider));
+        setupPath = state.config.mode === 'minimal' ? 'minimal'
+          : state.config.mode === 'custom' ? 'custom'
+          : configured ? 'custom' : defaultSetupMode();
+        pathInitialized = true;
+      }
       render();
     } catch (error) {
       notify(error instanceof Error ? error.message : 'Orbit setup is unavailable.', true);
@@ -574,7 +613,7 @@ export function mountOnboarding(root: HTMLElement, api: OnboardingApi = createOn
     return list;
   }
 
-  function addProviderForm(options: { excludeKinds?: string[]; title?: string } = {}): HTMLElement {
+  function addProviderForm(options: { excludeKinds?: string[]; title?: string; asUpstream?: boolean } = {}): HTMLElement {
     const form = element('form', 'onboarding-provider-form');
     form.append(element('h3', '', options.title ?? 'Add a provider'));
     const allDirectKinds: Array<[string, string]> = [
@@ -640,7 +679,11 @@ export function mountOnboarding(root: HTMLElement, api: OnboardingApi = createOn
       };
       setBusy(true, 'Adding provider…');
       try {
-        state = await api.addProvider(provider);
+        const existingUpstreams = state!.config.router.upstreams ?? [];
+        const routerPatch = options.asUpstream
+          ? { upstreams: [...existingUpstreams.filter(entry => entry.providerId !== providerId), { providerId, weight: 1, models: ['*'] }] }
+          : undefined;
+        state = await api.addProvider(provider, routerPatch);
         if (key.value) state = await api.setProviderKey(providerId, key.value);
         key.value = '';
         notify(`${provider.label} added.`);
@@ -676,7 +719,7 @@ export function mountOnboarding(root: HTMLElement, api: OnboardingApi = createOn
       element('p', '', `One local OpenAI-compatible endpoint (${endpoint}) routes to the upstream providers below. ${router.engine === 'litellm' ? 'LiteLLM' : 'Bifrost'} is pinned by image digest; content logging stays off.`),
       element('p', 'onboarding-hint', 'OpenCode free models cannot be routed. Keep them as a direct opencode-free provider for the OpenCode adapter.'),
       renderProviderRows({ showPrivate: true, allowDelete: true, excludeKinds: ['opencode-free', 'pi'] }),
-      addProviderForm({ excludeKinds: ['opencode-free', 'pi'], title: 'Add an upstream provider' }),
+      addProviderForm({ excludeKinds: ['opencode-free', 'pi'], title: 'Add an upstream provider', asUpstream: true }),
     );
     if (!state!.providers.some(provider => !['router', 'opencode-free', 'pi'].includes(provider.kind))) {
       panel.append(element('p', 'onboarding-note', 'Add at least one upstream provider before models can be listed from the router.'));
@@ -688,8 +731,8 @@ export function mountOnboarding(root: HTMLElement, api: OnboardingApi = createOn
     const panel = element('section', 'onboarding-panel');
     const router = state!.providers.find(provider => provider.id === 'router');
     const baseUrl = element('input', 'onboarding-input') as HTMLInputElement;
-    baseUrl.value = state!.config.router.external?.baseUrl ?? '';
-    baseUrl.placeholder = 'https://router.example/v1';
+    baseUrl.value = state!.config.router.external?.baseUrl || 'http://127.0.0.1:4000';
+    baseUrl.placeholder = 'http://127.0.0.1:4000';
     baseUrl.autocomplete = 'off';
     baseUrl.setAttribute('aria-label', 'External router base URL');
     const key = element('input', 'onboarding-input') as HTMLInputElement;
@@ -742,53 +785,95 @@ export function mountOnboarding(root: HTMLElement, api: OnboardingApi = createOn
 
   function renderStepOne(): HTMLElement {
     const section = element('section', 'onboarding-step-panel');
-    section.append(element('h2', '', 'Choose what to install'), element('p', '', 'Only core is required. Everything here can be changed later in Settings.'));
-    const choices = element('fieldset', 'onboarding-fieldset');
-    choices.append(element('legend', '', 'Components'));
-    choices.append(toggleRow('core', 'Orbit core', 'Required: the local workspace and host server.', true, true, () => {}));
-    for (const [key, title, detail] of COMPONENT_CHOICES) choices.append(toggleRow(key, title, detail, Boolean(state!.config.components[key]), false, () => {}));
-    section.append(choices);
+    section.append(element('h2', '', 'Choose what to install'), element('p', '', 'Pick Minimal install for the quickest path, or Custom to choose every component. Both can be changed later in Settings.'));
 
-    const appsField = element('input', 'onboarding-input') as HTMLInputElement;
-    appsField.value = (state!.config.components.apps ?? []).join(', ');
-    appsField.placeholder = 'Optional app ids, comma separated';
-    appsField.setAttribute('aria-label', 'Optional app ids');
-    section.append(labelled('Extra app ids', appsField, 'Installed apps are still sandboxed; this only records the selection.'));
+    const paths = element('fieldset', 'onboarding-fieldset onboarding-path-choice');
+    paths.append(element('legend', '', 'Setup path'));
+    const pathChoices: Array<['minimal' | 'custom', string, string, string]> = [
+      ['minimal', 'Minimal install (recommended)', 'One provider and one model for every role. Core plus one first agent; nothing else runs.', 'minimal-path'],
+      ['custom', 'Custom', 'Choose components, direct providers or the optional token router, and a model for each role.', 'custom-path'],
+    ];
+    for (const [value, heading, detail, id] of pathChoices) {
+      const label = element('label', 'onboarding-mode-option onboarding-path-option');
+      const input = element('input') as HTMLInputElement;
+      input.type = 'radio';
+      input.name = 'setup-path';
+      input.value = value;
+      input.id = id;
+      input.checked = setupPath === value;
+      input.addEventListener('change', () => {
+        if (!input.checked) return;
+        setupPath = value;
+        notify(value === 'minimal' ? 'Minimal install selected.' : 'Custom install selected.');
+        render();
+      });
+      const copy = element('span', 'onboarding-mode-copy');
+      copy.append(element('strong', '', heading), element('small', '', detail));
+      label.append(input, copy);
+      paths.append(label);
+    }
+    section.append(paths);
 
-    const routerBox = element('fieldset', 'onboarding-fieldset onboarding-router-choice');
-    routerBox.append(element('legend', '', 'Token router'));
     let routerEnabled = Boolean(state!.config.components.router && state!.config.router.enabled);
     let engine: RouterEngine = state!.config.router.engine;
-    const engineOptions: Array<[string, string]> = [['bifrost', 'Bifrost (recommended)']];
-    if (engine === 'litellm') engineOptions.push(['litellm', 'LiteLLM (advanced)']);
-    const engineSelect = choiceField(engineOptions, engine, value => { engine = value as RouterEngine; }, 'Token router engine');
-    engineSelect.disabled = !routerEnabled;
-    const advanced = element('details', 'onboarding-advanced');
-    advanced.append(element('summary', '', 'Advanced engine options'));
-    advanced.append(element('p', 'onboarding-hint', 'LiteLLM has wider provider coverage but a larger image and slower startup. It is installed only when selected, by pinned image digest.'));
-    const showLitellm = element('button', 'onboarding-secondary', 'Offer LiteLLM') as HTMLButtonElement;
-    showLitellm.type = 'button';
-    if (engine === 'litellm') showLitellm.disabled = true;
-    showLitellm.addEventListener('click', () => {
-      if (!Array.from(engineSelect.options).some(option => option.value === 'litellm')) {
-        const option = element('option', '', 'LiteLLM (advanced)');
-        option.value = 'litellm';
-        engineSelect.append(option);
-      }
-      engineSelect.value = 'litellm';
-      engine = 'litellm';
-      showLitellm.disabled = true;
-    });
-    advanced.append(showLitellm);
-    routerBox.append(
-      toggleRow('router', 'Token router (optional, off)', 'Runs a local gateway so every agent uses one URL with its own budget. Not needed for OpenCode free models. Nothing router-related starts unless this is on.', routerEnabled, false, checked => {
-        routerEnabled = checked;
-        engineSelect.disabled = !checked;
-      }),
-      labelled('Engine', engineSelect),
-      advanced,
-    );
-    section.append(routerBox);
+    let appsField: HTMLInputElement | null = null;
+    let choices: HTMLFieldSetElement | null = null;
+    let routerBox: HTMLFieldSetElement | null = null;
+
+    if (setupPath === 'minimal') {
+      const summary = element('dl', 'onboarding-review-list onboarding-minimal-summary');
+      summary.append(
+        element('dt', '', 'Components'), element('dd', '', 'Orbit core plus one first agent that matches your provider'),
+        element('dt', '', 'Token router'), element('dd', '', 'Off. No router container or process runs.'),
+        element('dt', '', 'Bundlebees, worker pairing, Colab, apps'), element('dd', '', 'Not installed'),
+      );
+      section.append(element('p', 'onboarding-note', 'You will choose the one provider and one model in the next step, then go straight to Review.'), summary);
+    } else {
+      choices = element('fieldset', 'onboarding-fieldset');
+      choices.append(element('legend', '', 'Components'));
+      choices.append(toggleRow('core', 'Orbit core', 'Required: the local workspace and host server.', true, true, () => {}));
+      for (const [key, title, detail] of COMPONENT_CHOICES) choices.append(toggleRow(key, title, detail, Boolean(state!.config.components[key]), false, () => {}));
+      section.append(choices);
+
+      appsField = element('input', 'onboarding-input') as HTMLInputElement;
+      appsField.value = (state!.config.components.apps ?? []).join(', ');
+      appsField.placeholder = 'Optional app ids, comma separated';
+      appsField.setAttribute('aria-label', 'Optional app ids');
+      section.append(labelled('Extra app ids', appsField, 'Installed apps are still sandboxed; this only records the selection.'));
+
+      routerBox = element('fieldset', 'onboarding-fieldset onboarding-router-choice');
+      routerBox.append(element('legend', '', 'Token router'));
+      const engineOptions: Array<[string, string]> = [['bifrost', 'Bifrost (recommended)']];
+      if (engine === 'litellm') engineOptions.push(['litellm', 'LiteLLM (advanced)']);
+      const engineSelect = choiceField(engineOptions, engine, value => { engine = value as RouterEngine; }, 'Token router engine');
+      engineSelect.disabled = !routerEnabled;
+      const advanced = element('details', 'onboarding-advanced');
+      advanced.append(element('summary', '', 'Advanced engine options'));
+      advanced.append(element('p', 'onboarding-hint', 'LiteLLM has wider provider coverage but a larger image and slower startup. It is installed only when selected, by pinned image digest.'));
+      const showLitellm = element('button', 'onboarding-secondary', 'Offer LiteLLM') as HTMLButtonElement;
+      showLitellm.type = 'button';
+      if (engine === 'litellm') showLitellm.disabled = true;
+      showLitellm.addEventListener('click', () => {
+        if (!Array.from(engineSelect.options).some(option => option.value === 'litellm')) {
+          const option = element('option', '', 'LiteLLM (advanced)');
+          option.value = 'litellm';
+          engineSelect.append(option);
+        }
+        engineSelect.value = 'litellm';
+        engine = 'litellm';
+        showLitellm.disabled = true;
+      });
+      advanced.append(showLitellm);
+      routerBox.append(
+        toggleRow('router', 'Token router (optional, off)', 'Runs a local gateway so every agent uses one URL with its own budget. Not needed for OpenCode free models. Nothing router-related starts unless this is on.', routerEnabled, false, checked => {
+          routerEnabled = checked;
+          engineSelect.disabled = !checked;
+        }),
+        labelled('Engine', engineSelect),
+        advanced,
+      );
+      section.append(routerBox);
+    }
 
     const opencode = element('section', 'onboarding-opencode');
     opencode.append(element('h3', '', 'OpenCode detection'), element('p', 'onboarding-hint', 'Detection is read-only. Installation shows the exact command and requires confirmation.'));
@@ -831,6 +916,11 @@ export function mountOnboarding(root: HTMLElement, api: OnboardingApi = createOn
     section.append(opencode);
 
     commitStepOne = async () => {
+      if (setupPath === 'minimal') {
+        state = await api.saveComponents(minimalComponents(null) as never);
+        notify('Minimal install selected. Only core is enabled until you choose a provider.');
+        return;
+      }
       const components = { ...state!.config.components };
       for (const [, key] of COMPONENT_CHOICES) {
         const input = section.querySelector<HTMLInputElement>(`input[data-setting="${key}"]`);
@@ -838,17 +928,133 @@ export function mountOnboarding(root: HTMLElement, api: OnboardingApi = createOn
       }
       components.core = true;
       components.router = routerEnabled;
-      components.apps = appsField.value.split(',').map(value => value.trim()).filter(Boolean);
+      components.apps = (appsField?.value ?? '').split(',').map(value => value.trim()).filter(Boolean);
       const router = { enabled: routerEnabled, engine, ...(routerEnabled ? { mode: state!.config.router.mode } : {}) };
       state = await api.saveComponents(components, router);
       if (routerEnabled && !state.config.router.enabled) throw new Error('The router selection was not saved.');
+      if (state!.config.mode === 'minimal') {
+        // Leaving Minimal materializes the effective roles, so nothing changes
+        // until the person edits them in the next steps.
+        state = await api.saveRoles({ mode: 'custom' }) as OnboardingStateResponse;
+      }
       if (routerEnabled && mode === 'direct') mode = 'builtin';
       notify(routerEnabled ? 'Install choices saved with the token router on.' : 'Install choices saved. No router will run.');
     };
     return section;
   }
 
+  function renderMinimalStepTwo(): HTMLElement {
+    const section = element('section', 'onboarding-step-panel onboarding-minimal-step');
+    section.append(
+      element('h2', '', 'Providers and keys'),
+      element('p', '', 'Minimal install: pick one provider and one model. That model is used for setup, chat, workers and summaries, and is editable later in Settings.'),
+    );
+    const available = providerOptions({ providers: state!.providers as ProviderLike[], router: state!.config.router });
+    if (!available.length) section.append(element('p', 'onboarding-empty', 'No providers yet. Add the one you want to use below.'));
+    if (!minimalProvider && available.length) minimalProvider = available[0].id;
+    const providerSelect = choiceField(
+      [['', 'Choose a provider'], ...available.map(provider => [provider.id, `${provider.label} (${providerKindLabel(provider.kind)})`] as [string, string])],
+      minimalProvider,
+      value => {
+        minimalProvider = value;
+        minimalModel = '';
+        render();
+      },
+      'Minimal install provider',
+    );
+    section.append(labelled('Provider', providerSelect, 'Only this provider is used by every role in minimal mode.'));
+    const selected = state!.providers.find(provider => provider.id === minimalProvider);
+
+    if (selected) {
+      const keyInput = element('input', 'onboarding-input') as HTMLInputElement;
+      keyInput.type = 'password';
+      keyInput.autocomplete = 'off';
+      keyInput.spellcheck = false;
+      keyInput.placeholder = selected.key?.set ? `Replace key (${maskedKey(selected)})` : 'Paste key if this provider needs one';
+      keyInput.setAttribute('aria-label', `API key for ${selected.label}`);
+      const saveKey = element('button', 'onboarding-secondary', 'Save key') as HTMLButtonElement;
+      saveKey.type = 'button';
+      saveKey.addEventListener('click', async () => {
+        if (!keyInput.value) { notify('Enter a key before saving.', true); keyInput.focus(); return; }
+        setBusy(true, 'Saving key…');
+        try {
+          state = await api.setProviderKey(selected.id, keyInput.value);
+          keyInput.value = '';
+          notify(`Key saved for ${selected.label}.`);
+          render();
+        } catch (error) {
+          keyInput.value = '';
+          notify(error instanceof Error ? error.message : 'The key could not be saved.', true);
+        } finally { setBusy(false); }
+      });
+      const keyRow = element('div', 'onboarding-provider-actions');
+      keyRow.append(keyInput, saveKey);
+      section.append(labelled('API key', keyRow, `Current key: ${maskedKey(selected)}. Keys are stored in 0600 files and never returned in full.`));
+
+      const modelSelect = element('select', 'onboarding-select') as HTMLSelectElement;
+      modelSelect.setAttribute('aria-label', 'Minimal install model');
+      modelSelect.append(element('option', '', 'Loading models…'));
+      const manual = element('input', 'onboarding-input onboarding-model-fallback') as HTMLInputElement;
+      manual.type = 'text';
+      manual.autocomplete = 'off';
+      manual.placeholder = 'Model id (manual fallback)';
+      manual.value = minimalModel;
+      manual.setAttribute('aria-label', 'Model id');
+      manual.addEventListener('input', () => { minimalModel = manual.value.trim(); });
+      modelSelect.addEventListener('change', () => { minimalModel = modelSelect.value; manual.value = modelSelect.value; });
+      section.append(labelled('Model', modelSelect, 'Models load from the provider at runtime. If the list is unavailable, type the model id.'), labelled('Or type a model id', manual));
+      void api.listModels(selected.id).then(result => {
+        const entries = result.models.map(model => [model.id, model.label && model.label !== model.id ? `${model.label} (${model.id})` : model.id] as [string, string]);
+        if (!entries.length) {
+          modelSelect.replaceChildren(element('option', '', 'No model list; type one below'));
+          return;
+        }
+        modelSelect.replaceChildren(...entries.map(([value, text]) => {
+          const option = element('option', '', text);
+          option.value = value;
+          return option;
+        }));
+        if (!minimalModel) minimalModel = (result.default && entries.some(([value]) => value === result.default)) ? result.default : entries[0][0];
+        modelSelect.value = minimalModel;
+        manual.value = minimalModel;
+      }).catch(() => {
+        modelSelect.replaceChildren(element('option', '', 'Model list unavailable; type one below'));
+        notify('The model list was unavailable. Type a model id instead.', true);
+      });
+    }
+
+    section.append(addProviderForm({ title: 'Add the provider you want to use' }));
+    section.append(element('p', 'onboarding-hint', 'Next goes straight to Review. Only core and one first agent are installed; the built-in router stays off.'));
+
+    commitStepTwo = async () => {
+      if (!minimalProvider) throw new Error('Choose the one provider to use.');
+      if (!minimalModel.trim()) throw new Error('Choose or type the one model to use.');
+      const provider = state!.providers.find(entry => entry.id === minimalProvider);
+      if (!provider) throw new Error('The chosen provider is no longer available.');
+      const components = minimalComponents(provider.kind);
+      if (provider.kind === 'router') {
+        state = await api.saveComponents(components as never, {
+          enabled: true,
+          mode: 'external',
+          engine: state!.config.router.engine,
+          external: { baseUrl: provider.baseUrl ?? state!.config.router.external?.baseUrl ?? '' },
+        });
+      } else {
+        state = await api.saveComponents(components as never, { enabled: false });
+      }
+      const clearRoles = Object.fromEntries(
+        [...new Set(['setup', 'chat', 'workers', 'summarize', ...Object.keys(state!.config.roles ?? {})])]
+          .map(role => [role, { provider: '', model: '' }]),
+      );
+      const saved = await api.saveRoles({ mode: 'minimal', defaultModel: { provider: minimalProvider, model: minimalModel.trim() }, roles: clearRoles });
+      state = saved as OnboardingStateResponse;
+      notify('Minimal install ready to review. No router will run.');
+    };
+    return section;
+  }
+
   function renderStepTwo(): HTMLElement {
+    if (setupPath === 'minimal') return renderMinimalStepTwo();
     const section = element('section', 'onboarding-step-panel');
     section.append(element('h2', '', 'Providers and keys'), element('p', '', 'Choose one path. Keys are written server-side to 0600 files and never returned in full.'));
     const routerAvailable = Boolean(state!.config.router.enabled);
@@ -912,10 +1118,20 @@ export function mountOnboarding(root: HTMLElement, api: OnboardingApi = createOn
   function render(): void {
     if (!state) return;
     content.replaceChildren();
+    commitStepThree = null;
     if (step === 0) content.append(renderStepOne());
     else if (step === 1) content.append(renderStepTwo());
-    else if (step === 2) content.append(renderRolesStep(context()));
-    else content.append(renderReviewStep(context()));
+    else if (step === 2) {
+      const rolesElement = renderRolesStep(context());
+      content.append(rolesElement);
+      commitStepThree = async () => {
+        const draft = readRoleDraft(rolesElement);
+        const validation = validateRoles(state!.config as never, draft);
+        if (!validation.ok) throw new Error(validation.errors[0] ?? 'Choose a provider and model for each required role.');
+        const saved = await api.saveRoles({ roles: validation.roles });
+        state = saved as OnboardingStateResponse;
+      };
+    } else content.append(renderReviewStep(context()));
     updateProgress();
     back.disabled = busy || step === 0;
     next.disabled = busy || applied;
@@ -924,7 +1140,8 @@ export function mountOnboarding(root: HTMLElement, api: OnboardingApi = createOn
 
   back.addEventListener('click', () => {
     if (busy || step === 0) return;
-    step -= 1;
+    if (step === 3 && setupPath === 'minimal') step = 1;
+    else step -= 1;
     notify('');
     render();
   });
@@ -957,6 +1174,44 @@ export function mountOnboarding(root: HTMLElement, api: OnboardingApi = createOn
         render();
       } catch (error) {
         notify(error instanceof Error ? error.message : 'The install choices could not be saved.', true);
+      } finally {
+        setBusy(false);
+        render();
+      }
+      return;
+    }
+    if (step === 1) {
+      if (setupPath === 'minimal') {
+        if (!commitStepTwo) { step = 1; render(); return; }
+        setBusy(true, 'Saving the provider and model…');
+        try {
+          await commitStepTwo();
+          step = 3;
+          notify('Provider, key and model saved. Review and apply.');
+          render();
+        } catch (error) {
+          notify(error instanceof Error ? error.message : 'The minimal install choices could not be saved.', true);
+        } finally {
+          setBusy(false);
+          render();
+        }
+        return;
+      }
+      step = 2;
+      notify('');
+      render();
+      return;
+    }
+    if (step === 2) {
+      if (!commitStepThree) { step = 3; render(); return; }
+      setBusy(true, 'Saving role mapping…');
+      try {
+        await commitStepThree();
+        step = 3;
+        notify('Role mapping saved. Review and apply.');
+        render();
+      } catch (error) {
+        notify(error instanceof Error ? error.message : 'The role mapping could not be saved.', true);
       } finally {
         setBusy(false);
         render();
