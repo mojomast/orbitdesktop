@@ -374,18 +374,15 @@ export function buildEvidenceView(contract, records = [], report = null, options
     && text(report.contract_id) === parsedContract.id
     && parsedContract.sha256 !== null
     && text(report.contract_sha256) === parsedContract.sha256) {
-    if (verificationAvailable) {
-      if (safeVerify(report)) trustedReport = report;
-    } else {
-      trustedReport = report;
-    }
+    // Fail closed: without a working verifier no report is ever trusted.
+    if (verificationAvailable && safeVerify(report)) trustedReport = report;
   }
   if (hasReport && !trustedReport) {
     notes.push(redact('Acceptance report ignored: its signature or contract identity did not match the frozen contract.'));
   }
 
   if (!verificationAvailable) {
-    notes.push(redact('Signature verification is unavailable; no evidence was counted.'));
+    notes.push(redact('Signature verification is unavailable; no evidence or acceptance report was counted.'));
   }
 
   const counted = [];
