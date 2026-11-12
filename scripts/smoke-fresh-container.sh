@@ -91,10 +91,9 @@ OVERRIDE="$TMP_DIR/compose.override.yml"
 export ORBIT_RUNTIME_DIR="$TMP_DIR/runtime"
 mkdir -p "$ORBIT_RUNTIME_DIR/router/data"
 : > "$ORBIT_RUNTIME_DIR/router/router.env"
+# docker-compose.yml includes compose.router.yml itself; passing it again with
+# -f would declare the router service twice.
 COMPOSE_FILES=(-f "$REPO_ROOT/docker-compose.yml")
-if [ -f "$REPO_ROOT/compose.router.yml" ]; then
-  COMPOSE_FILES+=(-f "$REPO_ROOT/compose.router.yml")
-fi
 
 STATE="none"
 COMPOSE_MODE=false
@@ -162,8 +161,9 @@ fi
 
 if [ "$COMPOSE_MODE" = true ]; then
   log "starting Compose project $PROJECT on 127.0.0.1:$PORT (COMPOSE_PROFILES unset)"
-  if ! env -u COMPOSE_PROFILES "${COMPOSE[@]}" up -d --no-build >/dev/null 2>&1; then
+  if ! compose_error="$(env -u COMPOSE_PROFILES "${COMPOSE[@]}" up -d --no-build 2>&1 >/dev/null)"; then
     log "Compose path failed; falling back to a direct container run"
+    printf '%s\n' "$compose_error" | tail -n 5 | sed 's/^/SMOKE: compose: /' >&2
     env -u COMPOSE_PROFILES "${COMPOSE[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
     COMPOSE_MODE=false
     STATE="none"
@@ -244,7 +244,7 @@ PLAYWRIGHT_STATUS=0
 if [ -d "$REPO_ROOT/node_modules/playwright-core" ] || [ -d "$REPO_ROOT/node_modules/playwright" ]; then
   log "checking the onboarding screen with Playwright"
   set +e
-  node --input-type=module - "$LOGIN_URL" "$SCREENSHOT" <<'NODE'
+  ORBIT_SMOKE_TOKEN="$LOGIN_TOKEN" node --input-type=module - "$LOGIN_URL" "$SCREENSHOT" <<'NODE'
 import {existsSync} from 'node:fs';
 import {createRequire} from 'node:module';
 import path from 'node:path';
@@ -295,7 +295,17 @@ try {
 }
 const page = await browser.newPage({viewport: {width: 1440, height: 1000}});
 try {
-  await page.goto(url, {waitUntil: 'load', timeout: 60_000});
+  // A person sees the welcome tour, unlocks the host with the token, then the
+  // setup wizard opens on its own. Automation skips the tour and asks for the
+  // wizard explicitly (?setup=1), because it never auto-opens for webdriver.
+  await page.addInitScript(() => { localStorage.setItem('orbit.onboarding.v1', 'done'); });
+  await page.goto(`${url}/?setup=1`, {waitUntil: 'load', timeout: 60_000});
+  const token = process.env.ORBIT_SMOKE_TOKEN || '';
+  if (token) {
+    await page.getByRole('button', {name: 'Connect local host', exact: true}).click({timeout: 30_000});
+    await page.getByRole('textbox', {name: 'Host session token'}).fill(token);
+    await page.getByRole('button', {name: 'Unlock local host', exact: true}).click();
+  }
   const found = await page.waitForFunction(() => {
     const text = document.body?.innerText ?? '';
     return /Choose what to install|Minimal install/.test(text);
