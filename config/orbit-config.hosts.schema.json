@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://orbit.local/schemas/orbit-config.hosts.schema.json",
+  "title": "Orbit SSH hosts configuration fragment",
+  "description": "Public host references only. Private keys, key contents, tailcat bearer addresses and all other secrets live in 0600 runtime files and must never appear in orbit-config.json.",
+  "type": "object",
+  "properties": {
+    "components": {
+      "type": "object",
+      "properties": {
+        "hosts": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    },
+    "ssh": { "$ref": "#/$defs/ssh" },
+    "hosts": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/host" },
+      "maxItems": 512
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "fileRef": {
+      "type": "object",
+      "properties": {
+        "file": {
+          "type": "string",
+          "pattern": "^(?!.*\\.\\.)ssh/[A-Za-z0-9._/-]+$"
+        }
+      },
+      "required": ["file"],
+      "additionalProperties": false
+    },
+    "ssh": {
+      "type": "object",
+      "properties": {
+        "defaultKey": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" },
+            "type": { "const": "ed25519" },
+            "keyRef": { "$ref": "#/$defs/fileRef" },
+            "publicKey": { "type": "string", "pattern": "^(ssh-ed25519|ssh-rsa|ecdsa-sha2-[a-z0-9-]+) [A-Za-z0-9+/=]+(?: [^\\r\\n]*)?$" },
+            "fingerprint": { "type": "string", "pattern": "^SHA256:[A-Za-z0-9+/=]+$" },
+            "createdAt": { "type": "string", "format": "date-time" }
+          },
+          "required": ["id", "type", "keyRef", "publicKey", "createdAt"],
+          "additionalProperties": false
+        },
+        "rotationDays": { "type": "integer", "minimum": 1, "maximum": 3650 },
+        "ca": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "keyRef": { "$ref": "#/$defs/fileRef" },
+            "certTtl": { "type": "string", "maxLength": 32 }
+          },
+          "required": ["enabled"],
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "transport": {
+      "type": "object",
+      "properties": {
+        "kind": { "enum": ["direct", "proxyJump", "tailscale", "tailcat", "cloudflare"] },
+        "jumpHostId": { "type": ["string", "null"], "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" },
+        "tailcatAddrRef": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/fileRef" }
+          ]
+        },
+        "cloudflareHostname": { "type": ["string", "null"], "maxLength": 253 }
+      },
+      "required": ["kind"],
+      "additionalProperties": false
+    },
+    "auth": {
+      "type": "object",
+      "properties": {
+        "kind": { "enum": ["orbit-key", "host-key", "imported", "certificate", "tailscale-ssh"] },
+        "keyId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" }
+      },
+      "required": ["kind"],
+      "additionalProperties": false
+    },
+    "hostKey": {
+      "type": ["object", "null"],
+      "properties": {
+        "fingerprints": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^SHA256:[A-Za-z0-9+/=]+$" },
+          "minItems": 1,
+          "maxItems": 8
+        },
+        "pinnedAt": { "type": "string", "format": "date-time" },
+        "verifiedBy": { "enum": ["bootstrap-fingerprint", "manual", "host-ca"] }
+      },
+      "required": ["fingerprints"],
+      "additionalProperties": false
+    },
+    "privilege": {
+      "type": "object",
+      "properties": {
+        "sudo": { "enum": ["none", "scoped", "full"] },
+        "docker": { "enum": ["group", "rootless", "none"] },
+        "forcedCommand": { "type": "boolean" },
+        "terminal": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "permissions": {
+      "type": "object",
+      "properties": {
+        "setup": { "enum": ["none", "read", "deploy", "admin"] },
+        "pi": { "enum": ["none", "read", "deploy", "admin"] },
+        "opencode": { "enum": ["none", "read", "deploy", "admin"] },
+        "hermes": { "enum": ["none", "read", "deploy", "admin"] },
+        "bundlebees": { "enum": ["none", "read", "deploy", "admin"] }
+      },
+      "additionalProperties": false
+    },
+    "status": {
+      "type": "object",
+      "properties": {
+        "state": { "enum": ["unverified", "verified", "key-changed", "unreachable", "revoked"] },
+        "lastSeen": { "type": ["string", "null"] },
+        "lastError": { "type": ["string", "null"] }
+      },
+      "required": ["state"],
+      "additionalProperties": false
+    },
+    "host": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" },
+        "label": { "type": "string", "maxLength": 80 },
+        "address": { "type": "string", "minLength": 1, "maxLength": 300, "pattern": "^[^\\r\\n\\u0000]+$" },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "user": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9._-]{0,31}$" },
+        "tags": { "type": "array", "items": { "type": "string", "maxLength": 32 }, "maxItems": 16 },
+        "roles": { "type": "array", "items": { "type": "string", "maxLength": 32 }, "maxItems": 16 },
+        "transport": { "$ref": "#/$defs/transport" },
+        "auth": { "$ref": "#/$defs/auth" },
+        "hostKey": { "$ref": "#/$defs/hostKey" },
+        "privilege": { "$ref": "#/$defs/privilege" },
+        "permissions": { "$ref": "#/$defs/permissions" },
+        "docker": {
+          "type": "object",
+          "properties": {
+            "context": { "type": "string", "pattern": "^orbit-[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" }
+          },
+          "additionalProperties": false
+        },
+        "status": { "$ref": "#/$defs/status" }
+      },
+      "required": ["id", "address", "port", "user", "transport", "auth"],
+      "additionalProperties": false
+    }
+  }
+}

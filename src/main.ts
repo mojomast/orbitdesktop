@@ -42,6 +42,7 @@ import {
   type PaneKind,
 } from "./model";
 import { createPane, setToken, sessionToken, type PaneView } from "./panes";
+import { initFirstRun, openSetupSettings, openSetupWizard, openSshHosts } from "./first-run";
 import { moveConnected } from './connected-dom';
 import { dockingRequested, installDockingRenderer, type DockingController } from './docking-renderer';
 import { createDockingSync } from './docking-sync';
@@ -420,11 +421,15 @@ async function sendSelectedContext() {
   const { requestConversationContext } = await import('./conversation-transfer');
   await requestConversationContext({ text, title: 'Selected workspace text' });
 }
+initFirstRun(() => sessionToken);
 const onboardingActions = {connected:()=>!!sessionToken,run:(id:string)=>{void commands.execute(id);}};
 const commands = createWorkspaceCommands((): WorkspaceCommand[] => [
   ...Object.entries(TECHNOLOGY_SURFACES).map(([id,entry])=>({id:`technology-${id}`,title:entry.title,detail:technologyReadiness.detail(HOST_SURFACE_URLS[id as HostSurfaceId],entry.detail),group:'Tools',disabledReason:entry.auth&&!sessionToken?'Connect host first to use this tool.':undefined,run:async()=>{const token=sessionToken,workspace=workspaceId;await technologyReadiness.refresh(true);if(token===sessionToken&&workspace===workspaceId)openHostSurface(id as HostSurfaceId);}})),
   { id: 'getting-started', title: 'Getting started', detail: 'Choose a task, check readiness or tour Orbit', group: 'Help', run: () => showOnboarding(onboardingActions) },
   { id: 'settings', title: 'Orbit settings', detail: 'Appearance, layout and browser-local experiments', group: 'Settings', run: openSettings },
+  { id: 'orbit-setup', title: 'Setup: components, providers and models', detail: 'Minimal or custom install; providers, keys, a model per role and the optional router', group: 'Settings', disabledReason: !sessionToken ? 'Connect host first to change setup.' : undefined, run: () => { void openSetupSettings(() => sessionToken); } },
+  { id: 'orbit-setup-wizard', title: 'Run the setup wizard again', detail: 'Choose what to install, providers and models', group: 'Settings', disabledReason: !sessionToken ? 'Connect host first to run setup.' : undefined, run: () => { void openSetupWizard(() => sessionToken); } },
+  { id: 'ssh-hosts', title: 'SSH hosts', detail: 'Add, verify, permit and revoke remote hosts', group: 'Settings', disabledReason: !sessionToken ? 'Connect host first to manage SSH hosts.' : undefined, run: () => { void openSshHosts(() => sessionToken); } },
   { id: 'connect-host', title: 'Connect host', detail: 'Unlock this browser session with a host token', group: 'Settings', run: connectHost },
   { id: 'connection-passwords', title: 'Connection passwords', detail: 'View host connection details', group: 'Settings', disabledReason: !sessionToken ? 'Connect host first to view connection details.' : undefined, run: () => showConnectionPasswords(() => sessionToken) },
   { id: 'export-layout', title: 'Export workspace layout', detail: 'Download the current workspace layout', group: 'Layout', run: exportLayout },

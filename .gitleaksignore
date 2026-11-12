@@ -1,0 +1,2 @@
+# Test fixtures that assert redaction of private-key-shaped strings; not key material.
+0431a5d168db2c682b863133af198e4e9bc44596:tests/host-audit.test.mjs:private-key:98

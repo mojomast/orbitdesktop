@@ -14,7 +14,7 @@ env:
 # manual dispatch. A failed diff resolves to the full gate, never a silent skip.
 # See the `changes` job.
 #
-# Runner: GitHub-hosted ubuntu-latest. Each fixture run builds and serves its own
+# Runner: GitHub-hosted ubuntu-24.04 (pinned: Playwright does not support ubuntu-latest = 26.04 yet). Each fixture run builds and serves its own
 # disposable temp root under /tmp/opencode; the checkout is not an owner runtime.
 # The fixture emits a synthetic failure screenshot at a fixed /tmp/opencode path
 # with any host session token masked and readiness errors redacted. No server
@@ -34,7 +34,7 @@ concurrency:
 jobs:
   changes:
     name: Detect Workbench scope
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       workbench: ${{ steps.scope.outputs.workbench }}
@@ -77,7 +77,7 @@ jobs:
   checks:
     name: Workbench / ${{ matrix.suite }}
     needs: changes
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -342,7 +342,7 @@ jobs:
     name: Workbench / deferred execution and results
     needs: changes
     if: needs.changes.outputs.workbench == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
@@ -477,7 +477,7 @@ jobs:
     name: workbench
     if: always()
     needs: [changes, checks, workbench-heavy]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Require every enabled isolated suite to pass
         env:

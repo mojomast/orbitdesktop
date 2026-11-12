@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "agents": [
+    {
+      "id": "ollama-local",
+      "label": "Ollama - local",
+      "provider": "openai-compat",
+      "baseUrl": "http://127.0.0.1:11434/v1",
+      "model": "llama3.2",
+      "notes": "A local endpoint with no key. Model listing is read from GET /models; the model here is optional."
+    },
+    {
+      "id": "openrouter",
+      "label": "OpenRouter",
+      "provider": "openai-compat",
+      "baseUrl": "https://openrouter.example/v1",
+      "model": "your-model-id",
+      "apiKeyEnv": "OPENROUTER_API_KEY",
+      "notes": "Replace the reserved example origin with the origin the provider documents. Put the key in the named environment variable, not in this file."
+    },
+    {
+      "id": "opencode-go",
+      "label": "OpenCode Go",
+      "provider": "openai-compat",
+      "baseUrl": "https://opencode.example/v1",
+      "model": "your-model-id",
+      "apiKeyEnv": "OPENCODE_GO_API_KEY",
+      "notes": "Replace the reserved example origin and model id. The key is read at request time, so rotating the environment variable takes effect on the next turn."
+    }
+  ],
+  "security": [
+    "Never commit a real key to this file.",
+    "Alternatively set apiKeyFile to an absolute path of a regular 0600 file under the runtime directory.",
+    "A key is never returned by the gateway API and is replaced with [redacted] in error text."
+  ]
+}

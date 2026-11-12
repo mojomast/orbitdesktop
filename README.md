@@ -2,7 +2,7 @@
 
 Your workspace. Shaped by your agent. Built around you.
 
-Orbit is an agent-customizable browser desktop powered by Hermes. Instead of adapting your work to a fixed dashboard, describe what you need: a research station, a project cockpit, an interactive asset viewer, or a tool that does not exist yet. Your agent can build the interface, place it beside your work, and refine it with you.
+Orbit is an agent-customizable browser desktop powered by the agent you choose: Hermes, Grok Bot, Pi, OpenCode or any OpenAI-compatible endpoint. Instead of adapting your work to a fixed dashboard, describe what you need: a research station, a project cockpit, an interactive asset viewer, or a tool that does not exist yet. Your agent can build the interface, place it beside your work, and refine it with you.
 
 Conversations, persistent host terminals, web apps, and optional Linux applications share one workspace. Start with the tools you have. Ask for the tools you wish you had. Keep changing the desktop as your needs change.
 
@@ -10,7 +10,10 @@ Conversations, persistent host terminals, web apps, and optional Linux applicati
 
 ![Orbit desktop with Linux application launchers](docs/images/desktop-launchers.png)
 
-[Quick start](#quick-start) · [Agent technology guide](#agent-technology-guide) · [Example workflows](#example-requests-that-combine-the-technologies) · [Linux apps](docs/XPRA_APPS.md) · [Agent guide](docs/AGENT_GUIDE.md) · [Security](docs/SECURITY.md)
+[Quick start](docs/QUICKSTART.md) · [Agent technology guide](#agent-technology-guide) · [Example workflows](#example-requests-that-combine-the-technologies) · [Linux apps](docs/XPRA_APPS.md) · [Agent guide](docs/AGENT_GUIDE.md) · [Security](docs/SECURITY.md)
+
+**New here?** Follow the stranger-friendly [quick start](docs/QUICKSTART.md): one
+command, then the onboarding screen. No agent runtime is assumed.
 
 **Package version 0.3.1:** see the [release notes](docs/RELEASE_0.3.1.md) and
 [Hermes plugin installation guide](hermes-plugin/README.md). Project Workbench is
@@ -379,6 +382,11 @@ Read the [submission guide and admission policy](plugin-catalog/README.md). Refr
 
 ## Quick start
 
+For a one-command first run on a fresh machine, including the Docker and
+`npm run up` paths, the login URL and the onboarding wizard, use
+[docs/QUICKSTART.md](docs/QUICKSTART.md). The development flow below assumes a
+checkout and a working Node.js toolchain.
+
 The verified target is Linux with an ordinary user account, Node.js 22.12 or newer, npm, Python 3, and tmux at /usr/bin/tmux. Native node-pty builds may also require make and a C++ compiler.
 
 For a development instance, clone https://github.com/mojomast/orbitdesktop.git,
@@ -404,27 +412,37 @@ Host access grants a real shell as the server's operating-system user. Do not ru
 
 ## Agent providers
 
-Hermes remains the default chat provider. When `HERMES_API_URL`, `HERMES_API_KEY`, and `HERMES_PROFILES_JSON` are unset, Orbit reads `~/.hermes` (or `HERMES_HOME`) and uses that deployment's API server. A current example is `http://100.101.102.104:8642`, with `API_SERVER_KEY` in `~/.hermes/.env` and model `deepseek-v4.1-flash` via `opencode-go` in `config.yaml`. Orbit calls the Hermes gateway. It does not copy the model vendor key. Explicit Hermes URL, key, or profile JSON still wins. See [docs/HERMES.md](docs/HERMES.md).
+Hermes remains the default chat provider when it is configured. When `HERMES_API_URL`, `HERMES_API_KEY`, and `HERMES_PROFILES_JSON` are unset, Orbit reads `~/.hermes` (or `HERMES_HOME`) and uses that deployment's API server, if one exists. Supply the URL and model your own Hermes deployment prints; do not copy an address from documentation. Orbit calls the Hermes gateway. It does not copy the model vendor key. Explicit Hermes URL, key, or profile JSON still wins. See [docs/HERMES.md](docs/HERMES.md).
 
-Grok Bot is a second profile. It appears when this computer has a Grok Bot gateway (`gateway.json` under the agent data directory, including `/home/box/agent-data`) or when `GROK_BOT_API_URL` and `GROK_BOT_API_KEY` are set. In the agent pane, choose **Grok Bot**, then New conversation or an existing bot. The host already selected the model; `GROK_BOT_MODEL` is only a label. See [docs/GROK.md](docs/GROK.md).
+Grok Bot is a second profile. It appears when this computer has a Grok Bot gateway (`gateway.json` under the agent data directory) or when `GROK_BOT_API_URL` and `GROK_BOT_API_KEY` are set. In the agent pane, choose **Grok Bot**, then New conversation or an existing bot. The host already selected the model; `GROK_BOT_MODEL` is only a label. See [docs/GROK.md](docs/GROK.md).
 
 Pi is a third profile: the Pi agent harness. It appears when `PI_GATEWAY_URL` and `PI_GATEWAY_TOKEN` are set, or when Orbit finds a `pi` binary on this computer (`PI_BIN`, `PATH`, `~/.local/bin/pi`), in which case Orbit hosts the gateway on loopback itself. Pi gets the same workspace operator block as the other agents and can build and publish apps. See [docs/PI.md](docs/PI.md).
 
-In an agent chat pane, **Shared agents** opens one group transcript for Kyle and every configured agent: Hermes, Grok Bot, and Pi when it is present. Address someone with `@hermes`, `@grok`, `@pi`, or `@all`; the pane lists the participants that are actually in the room. Either agent can delegate a task to the other with a fenced `delegate` block or hand them the floor with an @mention. Grok Bot speaks there as a separate Orbit shared chat, not the main Grok Bot conversation. **Collab**, in Start and the Orbit menu, is the project board for a goal: one orchestrator (Hermes or Grok Bot) decomposes the work, Orbit assigns roles per task, keeps a git workspace plus the budget, and asks you to approve the plan, a multi-subagent fan-out, and the result. `/collab` in the shared room opens that app. See [docs/GROK.md](docs/GROK.md) and [docs/COLLAB.md](docs/COLLAB.md).
+In an agent chat pane, **Shared agents** opens one group transcript for you and every configured agent: Hermes, Grok Bot, and Pi when it is present. Address someone with `@hermes`, `@grok`, `@pi`, or `@all`; the pane lists the participants that are actually in the room. Either agent can delegate a task to the other with a fenced `delegate` block or hand them the floor with an @mention. Grok Bot speaks there as a separate Orbit shared chat, not the main Grok Bot conversation. **Collab**, in Start and the Orbit menu, is the project board for a goal: one orchestrator (Hermes or Grok Bot) decomposes the work, Orbit assigns roles per task, keeps a git workspace plus the budget, and asks you to approve the plan, a multi-subagent fan-out, and the result. `/collab` in the shared room opens that app. See [docs/GROK.md](docs/GROK.md) and [docs/COLLAB.md](docs/COLLAB.md).
 
 Jobs, the skills and tool catalog, tool approvals, follow-up guidance, tool activity, and the live event stream use the Grok Bot gateway when that profile is selected. They do not fall through to Hermes. Collab shell commands that the gateway cannot run are executed by Orbit after the same approval inbox. The build queue, Project Workbench, and non-local automation delivery have no Grok Bot API. The full matrix is [docs/GROK_PARITY.md](docs/GROK_PARITY.md).
 
-## Serve Orbit on a Linux tailnet
+## Optional: remote access
+
+Local loopback operation does not require an overlay network. Remote access is
+optional and should use a private connection you control. The default bind is
+`127.0.0.1`; a wildcard bind rejects other Host headers until
+`ORBIT_PUBLIC_ORIGIN` is the exact browser origin. Set both to the placeholder
+values that match your deployment:
 
 ```sh
 ORBIT_HOST=0.0.0.0 \
 PORT=4318 \
-ORBIT_PUBLIC_ORIGIN=http://100.101.102.104:4318 \
+ORBIT_PUBLIC_ORIGIN=http://<private-host>:4318 \
 ORBIT_TOKEN='replace-with-32-plus-private-characters' \
 npm start
 ```
 
-Open `http://100.101.102.104:4318` from a browser on the tailnet. Use this machine's tailnet address in both the URL and `ORBIT_PUBLIC_ORIGIN`. The default bind is `127.0.0.1`. A wildcard bind rejects other Host headers until `ORBIT_PUBLIC_ORIGIN` is the exact browser origin. Optional Tailscale Serve HTTPS uses that https origin as `ORBIT_PUBLIC_ORIGIN`. Do not expose Orbit to the public Internet. Details are in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+Open the same `http://<private-host>:4318` origin from the browser that can reach
+the private network. Do not copy a hostname from documentation. Optional
+Tailscale Serve HTTPS uses that HTTPS origin as `ORBIT_PUBLIC_ORIGIN`. Do not
+expose Orbit to the public Internet. Details are in
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 The agent's tools need access to the repository and runtime for local workspace control.
 
