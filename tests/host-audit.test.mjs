@@ -95,7 +95,7 @@ test('audit redacts secrets in argv and output tails before writing', () => {
     const audit = createHostAudit({ runtimeDir: box.root });
     audit.append(entry({
       argv: ['deploy', '--token=super-secret-token', 'PASSWORD=hunter2', 'Authorization: Bearer abcdef123456'],
-      outputTail: 'ORBIT_PAIRING_CODE=PAIR-SECRET -----BEGIN OPENSSH PRIVATE KEY-----\nAAAA\n-----END OPENSSH PRIVATE KEY----- tcABCDEFGHIJKLMNOP',
+      outputTail: 'ORBIT_PAIRING_CODE=PAIR-SECRET -----BEGIN OPENSSH PRIVATE KEY-----\nAAAA\n-----END OPENSSH PRIVATE KEY----- tcABCDEFGHIJKLMNOP', // gitleaks:allow (redaction fixture, not a real key)
     }));
     const raw = fs.readFileSync(audit.fileFor('build-01'), 'utf8');
     assert.equal(raw.includes('super-secret-token'), false);
