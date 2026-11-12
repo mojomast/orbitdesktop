@@ -25,11 +25,19 @@ function parsePublicKey(value) {
   return `${match[1]} ${match[2]}`;
 }
 
-/** Full bootstrap script, safe to show and paste as root once. */
-export function bootstrapScript({ publicKey, installId, docker = 'none', sudo = 'none' } = {}) {
+/**
+ * Full bootstrap script, safe to show and paste as root once.
+ *
+ * Docker group access is never a default. It is root-equivalent, so selecting
+ * it requires the caller to pass `dockerGroupRootEquivalent: true` explicitly.
+ */
+export function bootstrapScript({ publicKey, installId, docker = 'none', sudo = 'none', dockerGroupRootEquivalent = false } = {}) {
   const id = safeInstallId(installId);
   const key = parsePublicKey(publicKey);
   if (!['group', 'rootless', 'none'].includes(docker)) throw new Error('Invalid docker mode.');
+  if (docker === 'group' && dockerGroupRootEquivalent !== true) {
+    throw new Error('Docker group access is root-equivalent and must be explicitly acknowledged.');
+  }
   if (!['none', 'scoped'].includes(sudo)) throw new Error('Invalid sudo mode.');
   if (MARKER_SAFE.test(id)) throw new Error('Invalid Orbit install id.');
   const comment = `orbit-${id}`;

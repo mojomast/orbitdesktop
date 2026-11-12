@@ -271,14 +271,25 @@ function openRemoveDialog(host: HostView, request: HostsRequest, done: () => voi
 function permissionsBlock(host: HostView, request: HostsRequest, refresh: () => void): HTMLElement {
   const details = el('details', 'hosts-permissions');
   details.append(el('summary', '', 'Agent permissions'));
+  details.append(el('p', 'hosts-hint', 'Every agent starts at none. Raising an agent to deploy or admin is an explicit choice; deploy is never enabled by default.'));
   const grid = el('div', 'hosts-permission-grid');
   for (const [id, label] of AGENTS) {
-    const current = host.permissions[id] ?? (id === 'setup' ? 'deploy' : 'none');
+    const current = host.permissions[id] ?? 'none';
     const control = select(PERMISSIONS.map(level => [level, level] as [string, string]), current, async value => {
+      if (value === 'deploy' || value === 'admin') {
+        const allows = value === 'deploy'
+          ? 'Deploy allows named recipes and an allow-list of provisioning commands.'
+          : 'Admin allows raw commands; destructive commands still need owner approval.';
+        if (!confirm(`Give ${label} ${value} access on ${host.label}? ${allows}`)) {
+          control.value = current;
+          return;
+        }
+      }
       try {
-        await request({ action: 'permissions', hostId: host.id, permissions: { ...host.permissions, [id]: value } });
+        await request({ action: 'permissions', hostId: host.id, permissions: { ...host.permissions, [id]: value }, ...(value === 'deploy' || value === 'admin' ? { confirm: true } : {}) });
         refresh();
       } catch (error) {
+        control.value = current;
         details.append(el('p', 'hosts-error', errorText(error)));
       }
     });

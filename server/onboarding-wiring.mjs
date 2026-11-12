@@ -168,9 +168,26 @@ export function createOrbitSetup({
         const record = hostsConfig.hosts.find(item => item.id === body.hostId);
         if (!record) throw Object.assign(Error('Unknown SSH host.'), { status: 404 });
         const next = {};
-        for (const [agent, level] of Object.entries(body.permissions ?? {})) {
+        const entries = Object.entries(body.permissions ?? {});
+        if (entries.length > 32) throw Object.assign(Error('Too many agent permissions.'), { status: 400 });
+        for (const [agent, level] of entries) {
           if (!/^[a-z0-9][a-z0-9-]{0,31}$/.test(agent) || !HOST_LEVELS.has(level)) throw Object.assign(Error('Invalid host permission.'), { status: 400 });
           next[agent] = level;
+        }
+        // Every agent starts at none. Raising any agent to deploy or admin is an
+        // explicit owner decision: the request must carry confirm: true, and
+        // each change is appended to the host's hash-chained audit log.
+        const previous = record.permissions ?? {};
+        const rank = { none: 0, read: 1, deploy: 2, admin: 3 };
+        const changes = [...new Set([...Object.keys(previous), ...Object.keys(next)])]
+          .map(agent => ({ agent, from: previous[agent] ?? 'none', to: next[agent] ?? 'none' }))
+          .filter(change => change.from !== change.to);
+        const elevates = changes.some(change => rank[change.to] >= rank.deploy && rank[change.to] > rank[change.from]);
+        if (elevates && body.confirm !== true) {
+          throw Object.assign(Error('Granting deploy or admin needs explicit confirmation (confirm: true).'), { status: 409 });
+        }
+        for (const change of changes) {
+          hostAudit().append({ host: record.id, agent: 'owner', argv: ['orbit-permission', change.agent, change.from, change.to], status: 'permission' });
         }
         record.permissions = next;
         saveHosts(hostsConfig);
