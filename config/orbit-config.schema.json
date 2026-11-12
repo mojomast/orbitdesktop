@@ -13,6 +13,18 @@
     "schemaVersion": {
       "const": 1
     },
+    "mode": {
+      "description": "Setup path chosen on wizard step 1. 'minimal' (recommended) uses one provider and one model for every role; 'custom' maps each role separately. Absent means custom.",
+      "enum": [
+        "minimal",
+        "custom"
+      ],
+      "default": "custom"
+    },
+    "defaultModel": {
+      "description": "The single provider and model every role inherits when its own roles entry is empty. Required in minimal mode; a role entry in roles overrides it.",
+      "$ref": "#/$defs/role"
+    },
     "providerMode": {
       "description": "Compatibility summary derived from router.enabled. router.enabled is authoritative.",
       "enum": [
@@ -559,6 +571,44 @@
         "required": [
           "components"
         ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "mode": {
+            "const": "minimal"
+          }
+        },
+        "required": [
+          "mode"
+        ]
+      },
+      "then": {
+        "required": [
+          "defaultModel"
+        ],
+        "properties": {
+          "router": {
+            "if": {
+              "properties": {
+                "enabled": {
+                  "const": true
+                }
+              },
+              "required": [
+                "enabled"
+              ]
+            },
+            "then": {
+              "properties": {
+                "mode": {
+                  "const": "external"
+                }
+              }
+            }
+          }
+        }
       }
     }
   ]

@@ -27,6 +27,8 @@ export const DEFAULT_ROLE_BUDGETS = Object.freeze({
   summarize: Object.freeze({ usd: 2, reset: '1mo' }),
 });
 
+export const MINIMAL_ROLES = Object.freeze(['setup', 'chat', 'workers', 'summarize']);
+const SETUP_MODES = Object.freeze(['minimal', 'custom']);
 const ROUTER_ROLES = Object.freeze(['setup', 'chat', 'workers', 'summarize', 'compaction', 'vision']);
 const REQUIRED_ROLES = Object.freeze(['setup', 'chat', 'workers', 'summarize']);
 const COMPONENTS = Object.freeze(['core', 'pi', 'opencode', 'hermes', 'bundlebees', 'workerPairing', 'colab', 'router']);
@@ -35,7 +37,7 @@ const INSTALL_STATES = Object.freeze(['pending', 'installed', 'failed', 'skipped
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/;
 const ENV_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const KEY_FILE_PATTERN = /^[a-z0-9][a-z0-9._-]{0,96}\.key$/;
-const TOP_LEVEL = new Set(['schemaVersion', 'providerMode', 'components', 'providers', 'roles', 'router', 'appliedAt', 'installState']);
+const TOP_LEVEL = new Set(['schemaVersion', 'mode', 'defaultModel', 'providerMode', 'components', 'providers', 'roles', 'router', 'appliedAt', 'installState']);
 const PROVIDER_FIELDS = new Set(['id', 'kind', 'label', 'baseUrl', 'keyRef', 'privacyNote', 'routerType']);
 const ROLE_FIELDS = new Set(['provider', 'model']);
 const ROUTER_FIELDS = new Set(['enabled', 'mode', 'engine', 'image', 'bind', 'port', 'contentLogging', 'allowPrivateNetwork', 'upstreams', 'fallbacks', 'virtualKeys', 'external']);
@@ -404,6 +406,21 @@ export function validateOrbitConfig(value) {
   }
 
   const providerIds = new Set(normalizedProviders.map(provider => provider.id));
+  if (value.mode !== undefined && !SETUP_MODES.includes(value.mode)) throw invalid('mode must be minimal or custom.');
+  let defaultModel;
+  if (value.defaultModel !== undefined) {
+    const entry = value.defaultModel;
+    if (!isPlainObject(entry)) throw invalid('defaultModel must be an object.');
+    rejectUnknown(entry, ROLE_FIELDS, 'defaultModel');
+    if (typeof entry.provider !== 'string' || !ID_PATTERN.test(entry.provider)) throw invalid('defaultModel.provider is not a valid provider id.');
+    if (typeof entry.model !== 'string' || !entry.model.trim() || entry.model.length > 200) throw invalid('defaultModel.model must be a non-empty short string.');
+    if (!providerIds.has(entry.provider)) throw invalid('defaultModel.provider does not reference a configured provider.');
+    defaultModel = { provider: entry.provider, model: entry.model };
+  }
+  if (value.mode === 'minimal') {
+    if (!defaultModel) throw invalid('Minimal install requires defaultModel (one provider and one model for every role).');
+    if (router.enabled && router.mode !== 'external') throw invalid('Minimal install never runs the built-in router; choose Custom to install it.');
+  }
   for (const role of Object.keys(roles)) {
     const entry = roles[role];
     if (entry.provider && !providerIds.has(entry.provider)) throw invalid(`roles.${role}.provider does not reference a configured provider.`);
@@ -419,6 +436,8 @@ export function validateOrbitConfig(value) {
 
   const result = {
     schemaVersion: ORBIT_CONFIG_SCHEMA_VERSION,
+    ...(value.mode !== undefined ? { mode: value.mode } : {}),
+    ...(defaultModel ? { defaultModel } : {}),
     providerMode: router.enabled ? 'router' : 'direct',
     components,
     providers: normalizedProviders,
@@ -428,6 +447,64 @@ export function validateOrbitConfig(value) {
   if (installState !== undefined) result.installState = installState;
   if (value.appliedAt !== undefined) result.appliedAt = value.appliedAt;
   return result;
+}
+
+/**
+ * Effective { provider, model } for every role. A role with its own provider
+ * and model wins; an empty role inherits defaultModel when one is set (always
+ * in minimal mode). The four core roles are always returned; compaction and
+ * vision only when present in roles. Custom configs without defaultModel
+ * resolve exactly as stored.
+ */
+export function resolveRoles(config) {
+  const roles = config?.roles ?? {};
+  const fallback = config?.defaultModel?.provider && config?.defaultModel?.model ? config.defaultModel : null;
+  const result = {};
+  for (const role of [...MINIMAL_ROLES, 'compaction', 'vision']) {
+    const entry = roles[role];
+    if (entry === undefined && !MINIMAL_ROLES.includes(role)) continue;
+    if (entry?.provider && entry?.model) result[role] = { provider: entry.provider, model: entry.model };
+    else if (fallback) result[role] = { provider: fallback.provider, model: fallback.model };
+    else result[role] = { provider: entry?.provider ?? '', model: entry?.model ?? '' };
+  }
+  return result;
+}
+
+const MINIMAL_AGENT_COMPONENT = Object.freeze({ 'opencode-free': 'opencode', pi: 'pi' });
+
+/**
+ * One-click Minimal install: one provider (direct, or an external router) and
+ * one model shared by every role. Components are core plus at most the one
+ * first-agent adapter that matches the provider; never the built-in router,
+ * bundlebees, worker pairing, Colab or optional apps.
+ */
+export function buildMinimalConfig({ provider, model, keyRef } = {}) {
+  if (!isPlainObject(provider)) throw invalid('Minimal install needs one provider.');
+  if (typeof model !== 'string' || !model.trim()) throw invalid('Minimal install needs one model.');
+  const base = defaultOrbitConfig();
+  const entry = { ...provider };
+  if (keyRef !== undefined) entry.keyRef = keyRef;
+  const doc = {
+    ...base,
+    mode: 'minimal',
+    defaultModel: { provider: entry.id, model: model.trim() },
+    providers: [entry],
+  };
+  const component = MINIMAL_AGENT_COMPONENT[entry.kind];
+  if (component) doc.components = { ...doc.components, [component]: true };
+  if (entry.kind === 'router') {
+    const external = { baseUrl: entry.baseUrl ?? '', keyRef: entry.keyRef?.file ? { file: entry.keyRef.file } : { file: 'external-router.key' } };
+    doc.components = { ...doc.components, router: true };
+    doc.router = { ...doc.router, enabled: true, mode: 'external', external };
+  }
+  return validateOrbitConfig(doc);
+}
+
+/** Leave minimal mode, writing the effective roles out so nothing changes. */
+export function switchToCustom(config) {
+  const roles = resolveRoles(config);
+  const next = { ...clone(config), mode: 'custom', roles };
+  return validateOrbitConfig(next);
 }
 
 function maskKey(value) {
@@ -614,8 +691,9 @@ export function createOrbitConfig({ runtimeDir, env = process.env, fs = defaultF
     const config = load();
     const byId = new Map(config.providers.map(provider => [provider.id, provider]));
     const agents = [];
+    const effective = resolveRoles(config);
     for (const role of [...REQUIRED_ROLES, 'compaction', 'vision']) {
-      const mapping = config.roles[role];
+      const mapping = effective[role];
       if (!mapping?.provider || !mapping.model) continue;
       const provider = byId.get(mapping.provider);
       if (!provider) continue;

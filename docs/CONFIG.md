@@ -23,6 +23,8 @@ token, password or secret value. Keys are stored separately, by reference (see
 | Field | Required | Meaning |
 | --- | --- | --- |
 | `schemaVersion` | yes | `1`. Older writers refuse a different version. |
+| `mode` | no | Setup path from wizard step 1: `minimal` (recommended) or `custom`. Absent means `custom`, so older files are unchanged. |
+| `defaultModel` | minimal: yes | `{ "provider", "model" }` that every role inherits when its own `roles` entry is empty. |
 | `components` | yes | What Orbit may install. Only `core` is required and always `true`. |
 | `providers` | no | Provider definitions. Each contains only a key *reference*. |
 | `roles` | no | Which provider and model each part of Orbit uses. |
@@ -79,6 +81,56 @@ without a router and let the OpenCode adapter run it with
 When the router is enabled there is exactly one provider of kind `router`, and its
 id is `router`. The wizard creates it. A distinct upstream provider is not a
 router provider.
+
+## Setup modes: Minimal install and Custom
+
+Step 1 of the wizard offers two paths.
+
+**Minimal install** (recommended, preselected). Pick one provider (a direct
+provider, or an external router) and one model. That model is used for every
+role: setup agent, chat, bee workers and summarizing (and compaction or vision
+when those roles are present). Only the minimal components are installed: core
+Orbit plus the one first-agent adapter that matches the provider (`opencode` for
+OpenCode free, `pi` for Pi, none extra for OpenAI-compatible, OpenRouter,
+Anthropic or an external router). The built-in router, bundlebees, worker
+pairing, Colab and optional apps stay off. The wizard then skips the model step
+and goes straight to Review and apply.
+
+```json
+{
+  "schemaVersion": 1,
+  "mode": "minimal",
+  "defaultModel": { "provider": "opencode", "model": "deepseek-v4.1-flash-free" },
+  "components": { "core": true, "pi": false, "opencode": true, "hermes": false, "bundlebees": false, "workerPairing": false, "colab": false, "apps": [], "router": false },
+  "providers": [ { "id": "opencode", "kind": "opencode-free", "label": "OpenCode free" } ],
+  "roles": {
+    "setup": { "provider": "", "model": "" },
+    "chat": { "provider": "", "model": "" },
+    "workers": { "provider": "", "model": "" },
+    "summarize": { "provider": "", "model": "" }
+  }
+}
+```
+
+Rules: minimal mode requires `defaultModel`, whose provider must exist in
+`providers`; minimal mode rejects an enabled built-in router (an external router
+is allowed because it starts nothing locally). Choose Custom to install the
+built-in router.
+
+**Overrides.** Any role can be overridden later in Settings by giving it its own
+provider and model; the other roles keep inheriting `defaultModel`. Clearing the
+override (empty provider and model) falls back to `defaultModel` again.
+Switching from Minimal to Custom writes the effective model of every role into
+`roles`, so nothing changes until you edit them.
+
+**Custom** is the granular path: choose components, configure providers or a
+router, then pick a model for each role. Files without `mode` behave as Custom
+exactly as before.
+
+Code reads the effective mapping with `resolveRoles(config)` from
+`server/orbit-config.mjs`; `buildMinimalConfig({ provider, model, keyRef? })`
+builds a validated minimal document and `switchToCustom(config)` materializes
+roles.
 
 ## Roles
 
