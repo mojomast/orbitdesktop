@@ -343,3 +343,23 @@ test('secrets are redacted and the panel escapes HTML', () => {
   assert.match(html, /acdd-status-not-run/);
   assert.match(html, /bundlebees verifier/);
 });
+
+test('buildEvidenceView fails closed when no verifier is available: no report or record is trusted', () => {
+  const unsignedReport = unsigned(report());
+  const signedReport = report();
+  const cases = [
+    ['no options, unsigned report', buildEvidenceView(contract(), [RED, GREEN], unsignedReport)],
+    ['no options, signed report', buildEvidenceView(contract(), [RED, GREEN], signedReport)],
+    ['empty options', buildEvidenceView(contract(), [RED, GREEN], signedReport, {})],
+    ['verificationAvailable false with a permissive verify', buildEvidenceView(contract(), [RED, GREEN], unsignedReport, { verify: () => true, verificationAvailable: false })],
+    ['null options', buildEvidenceView(contract(), [RED, GREEN], signedReport, null)],
+  ];
+  for (const [name, result] of cases) {
+    assert.equal(result.accepted, false, `${name} must not be accepted`);
+    assert.equal(result.verified ?? 0, 0, `${name} must not count verified records`);
+  }
+  const forged = buildEvidenceView(contract(), [RED, GREEN], { ...unsignedReport, signature: 'f'.repeat(64) }, { key: KEY });
+  assert.equal(forged.accepted, false);
+  const realKey = buildEvidenceView(contract(), [RED, GREEN], signedReport, { key: KEY });
+  assert.equal(realKey.accepted, true, 'a report signed with the lease key is still accepted');
+});
