@@ -9,7 +9,7 @@ export function createLocalWorkersRoute({ runtimeRoot, port, env = process.env, 
   const node = env.ORBIT_LOCAL_WORKERS_NODE || 'brrrrrrrr';
   const lw = createLocalWorkers({
     runtimeDir: runtimeRoot, node,
-    launcherUrl: env.ORBIT_LOCAL_WORKERS_URL || 'http://100.120.158.68:47821',
+    launcherUrl: env.ORBIT_LOCAL_WORKERS_URL || 'http://127.0.0.1:47821',
     tokenFile: env.ORBIT_LOCAL_WORKERS_TOKEN_FILE || path.join(runtimeRoot, 'local-workers', `${node}.token`),
     board: collabBoardClient({ runtimeDir: runtimeRoot, port }),
     maxConcurrent: Number(env.ORBIT_LOCAL_WORKERS_MAX || 1), log,

@@ -621,7 +621,7 @@ server.listen(port, listenHost, () => {
     "",
     loopback ? "Bound to loopback. Shells run as your current user." : `Listening on ${listenHost}:${port}. Shells run as your current user.`,
   ];
-  if (wildcard && !process.env.ORBIT_PUBLIC_ORIGIN) lines.push("Browsers that open a tailnet address are rejected until ORBIT_PUBLIC_ORIGIN is that exact origin, for example http://100.120.57.35:4318.");
+  if (wildcard && !process.env.ORBIT_PUBLIC_ORIGIN) lines.push("Browsers that open a tailnet address are rejected until ORBIT_PUBLIC_ORIGIN is that exact origin, for example http://100.101.102.104:4318.");
   if (explicitHermes) lines.push("Hermes profiles: explicit server environment.");
   else if (discovered.hermes) {
     const hermes = publicBackendSummary(discovered.hermes);

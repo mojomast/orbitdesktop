@@ -113,7 +113,7 @@ Orbit talks to that API server only. The server already holds the model. A deplo
 
 ```sh
 API_SERVER_ENABLED=true
-API_SERVER_HOST=100.120.57.35
+API_SERVER_HOST=100.101.102.104
 API_SERVER_PORT=8642
 API_SERVER_KEY=replace-with-the-gateway-key
 ```

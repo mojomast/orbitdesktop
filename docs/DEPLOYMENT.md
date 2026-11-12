@@ -323,12 +323,12 @@ From a checkout that already has `npm ci` and a built `dist/`:
 ```sh
 ORBIT_HOST=0.0.0.0 \
 PORT=4318 \
-ORBIT_PUBLIC_ORIGIN=http://100.120.57.35:4318 \
+ORBIT_PUBLIC_ORIGIN=http://100.101.102.104:4318 \
 ORBIT_TOKEN='replace-with-32-plus-private-characters' \
 npm start
 ```
 
-Replace `100.120.57.35` with this machine's tailnet address. Open that same origin in a browser that is on the tailnet. `ORBIT_PUBLIC_ORIGIN` must match the browser's origin, including scheme and port. The default `ORBIT_HOST` remains `127.0.0.1`; keep that when only this machine's browser should connect. Do not publish Orbit on the public Internet.
+Replace `100.101.102.104` with this machine's tailnet address. Open that same origin in a browser that is on the tailnet. `ORBIT_PUBLIC_ORIGIN` must match the browser's origin, including scheme and port. The default `ORBIT_HOST` remains `127.0.0.1`; keep that when only this machine's browser should connect. Do not publish Orbit on the public Internet.
 
 Hermes chat uses the API server in `~/.hermes` when `HERMES_API_URL`, `HERMES_API_KEY`, and `HERMES_PROFILES_JSON` are unset. See [Hermes](HERMES.md) and [Grok Bot](GROK.md). The Hermes plugin start command accepts `--host 0.0.0.0` for the same bind.
 

@@ -10,14 +10,14 @@ test.after(() => {
 });
 
 test('a specific bind address is accepted and a wildcard bind is not an origin', () => {
-  process.env.ORBIT_HOST = '100.120.57.35';
-  assert.equal(resolveListenHost(), '100.120.57.35');
-  assert.equal(allowedRequest({ headers: { host: '100.120.57.35:4318', origin: 'http://100.120.57.35:4318' } }, 4318), true);
+  process.env.ORBIT_HOST = '100.101.102.104';
+  assert.equal(resolveListenHost(), '100.101.102.104');
+  assert.equal(allowedRequest({ headers: { host: '100.101.102.104:4318', origin: 'http://100.101.102.104:4318' } }, 4318), true);
   assert.equal(allowedRequest({ headers: { host: 'evil.example:4318', origin: 'http://evil.example:4318' } }, 4318), false);
   assert.equal(allowedRequest({ headers: { host: '127.0.0.1:4318', origin: 'http://127.0.0.1:4318' } }, 4318), true);
 
   process.env.ORBIT_HOST = '0.0.0.0';
-  assert.equal(allowedRequest({ headers: { host: '100.120.57.35:4318', origin: 'http://100.120.57.35:4318' } }, 4318), false);
+  assert.equal(allowedRequest({ headers: { host: '100.101.102.104:4318', origin: 'http://100.101.102.104:4318' } }, 4318), false);
   assert.equal(allowedRequest({ headers: { host: '127.0.0.1:4318', origin: 'http://127.0.0.1:4318' } }, 4318), true);
 });
 

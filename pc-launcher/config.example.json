@@ -1,5 +1,5 @@
 {
-  "bind": "100.120.158.68",
+  "bind": "100.101.102.103",
   "port": 47821,
   "max_concurrent": 1,
   "model": "deepseek-v4.1-flash",

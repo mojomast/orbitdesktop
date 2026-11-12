@@ -65,7 +65,7 @@ def main():
         shown = '127.0.0.1' if host in ('0.0.0.0', '::') else (f'[{host}]' if ':' in host else host)
         print(f'Opening Orbit server on http://{shown}:{args.port}. Ctrl+C stops this server, not other Orbit deployments.', flush=True)
         if host in ('0.0.0.0', '::', '[::]'):
-            print('Set ORBIT_PUBLIC_ORIGIN to the exact browser origin, for example http://100.120.57.35:4318, before browsers on another address can connect.', flush=True)
+            print('Set ORBIT_PUBLIC_ORIGIN to the exact browser origin, for example http://100.101.102.104:4318, before browsers on another address can connect.', flush=True)
         os.chdir(destination)
         os.environ['ORBIT_HOST'] = host
         os.environ['PORT'] = str(args.port)

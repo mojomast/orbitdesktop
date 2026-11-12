@@ -14,7 +14,7 @@ test('Hermes discovery uses the API server bind, key, and model without copying 
   const home = tempHome();
   fs.writeFileSync(path.join(home, '.env'), [
     'API_SERVER_ENABLED=true',
-    'API_SERVER_HOST=100.120.57.35',
+    'API_SERVER_HOST=100.101.102.104',
     'API_SERVER_PORT=8642',
     'API_SERVER_KEY=gateway-key-not-for-logs',
     'OPENAI_API_KEY=vendor-secret',
@@ -25,7 +25,7 @@ test('Hermes discovery uses the API server bind, key, and model without copying 
     '  provider: opencode-go',
   ].join('\n'));
   const found = discoverHermesGateway({ env: {}, home });
-  assert.equal(found.apiUrl, 'http://100.120.57.35:8642');
+  assert.equal(found.apiUrl, 'http://100.101.102.104:8642');
   assert.equal(found.apiKey, 'gateway-key-not-for-logs');
   assert.equal(found.model, 'deepseek-v4.1-flash');
   assert.equal(found.modelProvider, 'opencode-go');
@@ -51,7 +51,7 @@ test('disabled Hermes API server and wildcard bind are handled', () => {
 
 test('explicit Hermes environment skips discovery and still looks for Grok Bot', () => {
   const home = tempHome();
-  fs.writeFileSync(path.join(home, '.env'), 'API_SERVER_KEY=secret\nAPI_SERVER_HOST=100.120.57.35\nAPI_SERVER_PORT=8642\n');
+  fs.writeFileSync(path.join(home, '.env'), 'API_SERVER_KEY=secret\nAPI_SERVER_HOST=100.101.102.104\nAPI_SERVER_PORT=8642\n');
   const found = discoverAgentBackends({ env: { HERMES_API_URL: 'http://127.0.0.1:8642' }, home });
   assert.equal(found.hermes, null);
   assert.equal(found.grok, null);

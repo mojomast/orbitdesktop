@@ -6,7 +6,7 @@ The OpenCode Go key lives only on the PC. Orbit holds a per-launcher API token o
 ## Topology
 ```
 Orbit (box, 127.0.0.1:4318) ─ server/local-workers.mjs (ledger, board sync via collab-board API, key stays on box)
-      │  Tailscale only  →  http://100.120.158.68:47821  (Bearer: per-launcher token)
+      │  Tailscale only  →  http://100.101.102.103:47821  (Bearer: per-launcher token)
       ▼
 PC: pc-launcher/launcher.py (uv, cua 0.5.0 SDK) → Docker Desktop → Cua sandbox (ghcr.io/trycua/linux@sha256:fd00735c…)
       └─ Cua built-in `opencode` harness (ACP) → OpenCode Go → deepseek-v4.1-flash
@@ -36,7 +36,7 @@ My PC — PowerShell (in the launcher folder):
 ```
 Orbit host:
 ```
-curl -s -H "Authorization: Bearer $(cat ~/.orbit-runtime/local-workers/launcher.token)" http://100.120.158.68:47821/v1/health
+curl -s -H "Authorization: Bearer $(cat ~/.orbit-runtime/local-workers/launcher.token)" http://100.101.102.103:47821/v1/health
 cat ~/.orbit-runtime/local-workers/ledger.json | python3 -m json.tool | less
 ```
 
