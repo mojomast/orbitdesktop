@@ -1,6 +1,6 @@
 # ACDD evidence view (integration contract and plan)
 
-Status: **slice 1 built (read-only model + panel renderer, not wired into the UI)**. Wiring is planned and waits for the runnable-by-anyone work (`feat/runnable-by-anyone`), which currently owns `server/index.mjs`, `src/main.ts` and the settings/onboarding surfaces.
+Status: **slice 1 (read-only model + panel renderer) and slice 2 (wiring) built**, on `feat/acdd-evidence-view`, under review (not merged). Slice 2 adds three lines to `server/index.mjs` and three to `src/main.ts`. The runnable-by-anyone branch (`feat/runnable-by-anyone`) also edits those two files; `git merge-tree` against its head `cd2e8eb` merges cleanly, and nothing on that branch was touched.
 
 The protocol is defined in the workflow repo: [ACDD + TDD](https://github.com/mojomast/workflow/blob/main/docs/16-acdd-tdd.md). Execution and verification belong to [bundlebees](https://github.com/mojomast/bundlebees/blob/main/docs/ACDD.md). Orbit is the coordination interface: it **displays** contracts and verifier evidence and asks humans for the gates. It never decides acceptance, never re-classifies a test result and never runs its own orchestrator.
 
@@ -40,15 +40,16 @@ Inputs, all produced by bundlebees (`bundlebees contract freeze`, `bundlebees td
 
 Output of `buildEvidenceView`: `{contractId, title, shortSha, frozen, authority, timeline[], criteria[], phases{}, accepted, failures[{code,text}], notes[]}`. `toActivityItems(view)` turns it into activity-feed items.
 
-## Wiring plan (planned, not built)
+## Wiring (slice 2, built)
 
-1. **Server route** (planned): `GET /api/acdd/:runId` returns `buildEvidenceView` for a bundlebees run directory under the existing runtime root. Read-only. Lives in `server/index.mjs`, so it waits for the runnable-by-anyone branch to land.
-2. **Board card** (planned): a card linked to a contract shows the short contract hash, frozen or not, and the phase chips (RED, GREEN, REFACTOR, integration) from `view.phases`.
-3. **Panel** (planned): `renderEvidencePanel` mounted from `src/main.ts` when a card is opened.
-4. **Activity feed** (planned): `toActivityItems` feeds the existing activity stream, so a RED or GREEN record appears like any other worker event.
-5. **Human gates** (planned): contract approval and merge/release/deploy/publish stay human buttons. Orbit records who approved; bundlebees freezes the contract hash. No auto-merge.
-6. **Local workers** (planned): when a brief carries a contract, the local-worker card shows the contract id and links the evidence view; the launcher protocol does not change.
+- **Server route:** `GET /api/acdd-evidence` (`server/acdd-evidence-route.mjs`). It needs the Orbit session token and the same origin checks as other host APIs, and it answers only GET/HEAD (anything else gets 405). Set `ORBIT_ACDD_STATE_DIR` to the bundlebees plugin data directory. Without it, the route returns `{configured: false}` and the window says so. With it:
+  - no query: lists `evidence/<contract_id>/` directories (real directories with valid ids; symlinks and dotfiles are skipped), each with its record count and the contract title from the lease;
+  - `?contract=<id>`: finds the frozen contract in `leases/*.json` (`brief.contract`) and returns `buildEvidenceView` plus `toActivityItems`. An unknown id, or evidence with no lease contract, is a 404; Orbit never invents a contract.
+  
+  The route never writes, and errors never include paths.
+- **Window:** a dark, read-only dialog (`src/acdd-evidence-window.ts`, `src/acdd-evidence.css`). Open it with **ACDD evidence** in the command palette (group Hermes) or the Hermes menu. It lists contracts, then shows `renderEvidencePanel` for the one you pick. It makes GET requests only, and there are no approve/merge buttons.
+- **Not built yet:** board-card phase chips, feeding `toActivityItems` into the live activity stream, and showing the contract on local-worker cards. Human gates stay human, as above.
 
 ## Compatibility
 
-Briefs without a contract keep working exactly as today and show "no ACDD contract; TDD evidence not required". Nothing in slice 1 is imported by existing code, so it changes no current behaviour.
+Briefs without a contract keep working exactly as today and show "no ACDD contract; TDD evidence not required". Slice 2 only adds a route and a menu entry; when `ORBIT_ACDD_STATE_DIR` is unset the view says it is not configured.
