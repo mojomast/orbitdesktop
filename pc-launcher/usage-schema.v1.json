@@ -1,0 +1,411 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "bee.usage/v1",
+ "title": "Bee usage record v1 (FROZEN)",
+ "description": "One JSONL line per bee attempt (work or verify) or per coordinator session and model. Every key is always present; unknown values are null, never 0. input_tokens includes cached reads; output_tokens includes reasoning. Mirrors OpenTelemetry GenAI semantic conventions (Development status) under gen_ai.*. No prompt, completion, tool argument, file content, host, URL, IP, absolute path, key or token may appear. Additive changes require bee.usage/v2.",
+ "x-frozen": true,
+ "type": "object",
+ "required": [
+  "schema_version",
+  "key",
+  "attempt_id",
+  "card_id",
+  "run_id",
+  "project",
+  "role",
+  "join_complete",
+  "verify_of",
+  "retry_of",
+  "ts_start",
+  "ts_end",
+  "duration_s",
+  "queue_s",
+  "trace_id",
+  "requested_model",
+  "served_model",
+  "served_model_source",
+  "provider",
+  "route",
+  "route_source",
+  "fallback",
+  "fallback_reason",
+  "http_429_count",
+  "retry_count",
+  "error_type",
+  "stop_reason",
+  "tool_calls",
+  "usage_status",
+  "input_tokens",
+  "cache_read_tokens",
+  "cache_write_tokens",
+  "output_tokens",
+  "reasoning_tokens",
+  "usage_raw",
+  "cost_usd_list",
+  "cost_status",
+  "billing_mode",
+  "price_table_version",
+  "price_period",
+  "go_allowance",
+  "gen_ai.operation.name",
+  "gen_ai.agent.name",
+  "gen_ai.provider.name",
+  "gen_ai.request.model",
+  "gen_ai.response.model",
+  "gen_ai.usage.input_tokens",
+  "gen_ai.usage.cache_read.input_tokens",
+  "gen_ai.usage.cache_write.input_tokens",
+  "gen_ai.usage.output_tokens",
+  "gen_ai.usage.reasoning.output_tokens",
+  "launcher",
+  "harness"
+ ],
+ "additionalProperties": false,
+ "properties": {
+  "schema_version": {
+   "const": "bee.usage/v1"
+  },
+  "key": {
+   "type": "string"
+  },
+  "attempt_id": {
+   "type": "string"
+  },
+  "card_id": {
+   "type": "string"
+  },
+  "run_id": {
+   "type": "string"
+  },
+  "project": {
+   "type": "string"
+  },
+  "role": {
+   "enum": [
+    "work",
+    "verify",
+    "coordinator"
+   ]
+  },
+  "join_complete": {
+   "type": "boolean"
+  },
+  "verify_of": {
+   "type": [
+    "string",
+    "null"
+   ]
+  },
+  "retry_of": {
+   "type": [
+    "string",
+    "null"
+   ]
+  },
+  "ts_start": {
+   "type": [
+    "string",
+    "null"
+   ]
+  },
+  "ts_end": {
+   "type": [
+    "string",
+    "null"
+   ]
+  },
+  "duration_s": {
+   "type": [
+    "number",
+    "null"
+   ]
+  },
+  "queue_s": {
+   "type": [
+    "number",
+    "null"
+   ]
+  },
+  "trace_id": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "pattern": "^[0-9a-f]{32}$"
+  },
+  "requested_model": {
+   "type": [
+    "string",
+    "null"
+   ]
+  },
+  "served_model": {
+   "type": [
+    "string",
+    "null"
+   ]
+  },
+  "served_model_source": {
+   "enum": [
+    "explicit",
+    "inferred",
+    null
+   ]
+  },
+  "provider": {
+   "enum": [
+    "opencode",
+    "deepseek",
+    "unknown"
+   ]
+  },
+  "route": {
+   "enum": [
+    "go",
+    "deepseek",
+    "unknown"
+   ]
+  },
+  "route_source": {
+   "enum": [
+    "explicit",
+    "inferred"
+   ]
+  },
+  "fallback": {
+   "enum": [
+    null,
+    "deepseek"
+   ]
+  },
+  "fallback_reason": {
+   "type": [
+    "string",
+    "null"
+   ]
+  },
+  "http_429_count": {
+   "type": [
+    "integer",
+    "null"
+   ]
+  },
+  "retry_count": {
+   "type": [
+    "integer",
+    "null"
+   ]
+  },
+  "error_type": {
+   "type": [
+    "string",
+    "null"
+   ]
+  },
+  "stop_reason": {
+   "type": [
+    "string",
+    "null"
+   ]
+  },
+  "tool_calls": {
+   "type": [
+    "integer",
+    "null"
+   ]
+  },
+  "usage_status": {
+   "enum": [
+    "known",
+    "partial",
+    "unknown"
+   ]
+  },
+  "input_tokens": {
+   "type": [
+    "integer",
+    "null"
+   ]
+  },
+  "cache_read_tokens": {
+   "type": [
+    "integer",
+    "null"
+   ]
+  },
+  "cache_write_tokens": {
+   "type": [
+    "integer",
+    "null"
+   ]
+  },
+  "output_tokens": {
+   "type": [
+    "integer",
+    "null"
+   ]
+  },
+  "reasoning_tokens": {
+   "type": [
+    "integer",
+    "null"
+   ]
+  },
+  "usage_raw": {
+   "type": [
+    "object",
+    "null"
+   ],
+   "additionalProperties": {
+    "type": "number"
+   }
+  },
+  "cost_usd_list": {
+   "type": [
+    "number",
+    "null"
+   ]
+  },
+  "cost_status": {
+   "enum": [
+    "estimated",
+    "actual",
+    "unknown"
+   ]
+  },
+  "billing_mode": {
+   "enum": [
+    "metered",
+    "subscription_allowance",
+    "unknown"
+   ]
+  },
+  "price_table_version": {
+   "type": [
+    "string",
+    "null"
+   ]
+  },
+  "price_period": {
+   "enum": [
+    "peak",
+    "off_peak",
+    null
+   ]
+  },
+  "go_allowance": {
+   "oneOf": [
+    {
+     "type": "null"
+    },
+    {
+     "type": "object",
+     "required": [
+      "raw",
+      "pct_used",
+      "pct_source",
+      "allowance_usd"
+     ],
+     "additionalProperties": false,
+     "properties": {
+      "raw": {
+       "type": [
+        "object",
+        "null"
+       ]
+      },
+      "pct_used": {
+       "type": [
+        "number",
+        "null"
+       ]
+      },
+      "pct_source": {
+       "enum": [
+        "opencode.allowance",
+        "derived_list_price",
+        null
+       ]
+      },
+      "allowance_usd": {
+       "type": [
+        "number",
+        "null"
+       ]
+      }
+     }
+    }
+   ]
+  },
+  "gen_ai.operation.name": {
+   "const": "invoke_agent"
+  },
+  "gen_ai.agent.name": {
+   "enum": [
+    "bee-work",
+    "bee-verify",
+    "beekeeper"
+   ]
+  },
+  "gen_ai.provider.name": {
+   "type": [
+    "string",
+    "null"
+   ]
+  },
+  "gen_ai.request.model": {
+   "type": [
+    "string",
+    "null"
+   ]
+  },
+  "gen_ai.response.model": {
+   "type": [
+    "string",
+    "null"
+   ]
+  },
+  "gen_ai.usage.input_tokens": {
+   "type": [
+    "integer",
+    "null"
+   ]
+  },
+  "gen_ai.usage.cache_read.input_tokens": {
+   "type": [
+    "integer",
+    "null"
+   ]
+  },
+  "gen_ai.usage.cache_write.input_tokens": {
+   "type": [
+    "integer",
+    "null"
+   ]
+  },
+  "gen_ai.usage.output_tokens": {
+   "type": [
+    "integer",
+    "null"
+   ]
+  },
+  "gen_ai.usage.reasoning.output_tokens": {
+   "type": [
+    "integer",
+    "null"
+   ]
+  },
+  "launcher": {
+   "type": [
+    "string",
+    "null"
+   ]
+  },
+  "harness": {
+   "type": [
+    "string",
+    "null"
+   ]
+  }
+ }
+}
