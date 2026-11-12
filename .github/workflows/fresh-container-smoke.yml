@@ -1,0 +1,41 @@
+name: Fresh container smoke
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  fresh-container:
+    name: Fresh container onboarding
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out the pull request
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies and a headless browser
+        run: |
+          npm ci --no-audit --no-fund
+          npx --yes playwright-core install chromium
+
+      - name: Build and smoke a fresh container
+        env:
+          ENGINE: docker
+          SMOKE_ARTIFACT_DIR: smoke-artifacts
+        run: ./scripts/smoke-fresh-container.sh
+
+      - name: Upload the onboarding screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: onboarding-screenshot
+          path: smoke-artifacts/
+          if-no-files-found: warn
+          retention-days: 7
