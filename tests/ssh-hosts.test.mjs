@@ -322,8 +322,74 @@ test('config schema fragment rejects embedded secrets and unknown private fields
   assert.equal(Object.hasOwn(schema.$defs.transport.properties, 'tailcatAddress'), false);
 });
 
+test('docker group privilege is refused unless it is acknowledged as root-equivalent', async () => {
+  const box = sandbox();
+  try {
+    const tools = fakeTools();
+    const { hosts } = makeHosts(box, tools);
+    await assert.rejects(
+      () => hosts.add(hostInput({ id: 'docker-01', address: '203.0.113.40', privilege: { sudo: 'none', docker: 'group', forcedCommand: false, terminal: false } })),
+      /root-equivalent/,
+    );
+    const acknowledged = await hosts.add(hostInput({ id: 'docker-02', address: '203.0.113.41', privilege: { sudo: 'none', docker: 'group', dockerGroupRootEquivalent: true, forcedCommand: false, terminal: false } }));
+    assert.equal(acknowledged.privilege.docker, 'group');
+    assert.equal(acknowledged.privilege.dockerGroupRootEquivalent, true);
+    const rootless = await hosts.add(hostInput({ id: 'docker-03', address: '203.0.113.42', privilege: { sudo: 'none', docker: 'rootless', forcedCommand: false, terminal: false } }));
+    assert.equal(Object.hasOwn(rootless.privilege, 'dockerGroupRootEquivalent'), false);
+  } finally {
+    box.cleanup();
+  }
+});
+
+test('host permissions default to none for every agent and accept validated dynamic agent ids', async () => {
+  const box = sandbox();
+  try {
+    const tools = fakeTools();
+    const { hosts } = makeHosts(box, tools);
+    const defaults = await hosts.add(hostInput({ id: 'defaults-01', address: '203.0.113.30', permissions: undefined }));
+    assert.deepEqual(defaults.permissions, {
+      setup: 'none',
+      pi: 'none',
+      opencode: 'none',
+      hermes: 'none',
+      bundlebees: 'none',
+    });
+
+    const dynamic = await hosts.add(hostInput({
+      id: 'dynamic-01',
+      address: '203.0.113.31',
+      permissions: { 'openai-compatible': 'read', 'my-agent-2': 'deploy' },
+    }));
+    assert.equal(dynamic.permissions['openai-compatible'], 'read');
+    assert.equal(dynamic.permissions['my-agent-2'], 'deploy');
+    assert.equal(dynamic.permissions.setup, 'none');
+    assert.equal(dynamic.permissions.bundlebees, 'none');
+
+    const invalidIds = ['Bad', '_bad', 'a'.repeat(33), 'bad_id', 'bad agent', ''];
+    for (const [index, agent] of invalidIds.entries()) {
+      await assert.rejects(
+        () => hosts.add(hostInput({ id: `invalid-${index}`, address: '203.0.113.32', permissions: { [agent]: 'read' } })),
+        /agent|permission/i,
+      );
+    }
+
+    const tooMany = {};
+    for (let index = 0; index < 33; index += 1) tooMany[`agent-${index}`] = 'read';
+    await assert.rejects(
+      () => hosts.add(hostInput({ id: 'many-01', address: '203.0.113.33', permissions: tooMany })),
+      /32|too many|permission/i,
+    );
+  } finally {
+    box.cleanup();
+  }
+});
+
 test('bootstrapScript is inlined, idempotent and prints the host fingerprint', () => {
-  const script = bootstrapScript({ publicKey: `${TEST_PUB} orbit-${INSTALL_ID}`, installId: INSTALL_ID, docker: 'group', sudo: 'scoped' });
+  assert.throws(
+    () => bootstrapScript({ publicKey: `${TEST_PUB} orbit-${INSTALL_ID}`, installId: INSTALL_ID, docker: 'group', sudo: 'none' }),
+    /root-equivalent|acknowledge/i,
+  );
+  const script = bootstrapScript({ publicKey: `${TEST_PUB} orbit-${INSTALL_ID}`, installId: INSTALL_ID, docker: 'group', sudo: 'scoped', dockerGroupRootEquivalent: true });
   assert.match(script, /#!\/bin\/sh/);
   assert.match(script, /set -eu/);
   assert.match(script, /useradd/);
