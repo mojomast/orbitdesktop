@@ -596,6 +596,13 @@ class AppendAndCliTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn("build", result.stdout)
 
+class RoutePrefixPricingTests(unittest.TestCase):
+    def test_strip_route_prefix(self):
+        self.assertEqual(ledger._strip_route_prefix("deepseek:deepseek-flash"), "deepseek-flash")
+        self.assertEqual(ledger._strip_route_prefix("go:deepseek-v4.1-flash"), "deepseek-v4.1-flash")
+        self.assertEqual(ledger._strip_route_prefix("deepseek-v4.1-flash"), "deepseek-v4.1-flash")
+        self.assertIsNone(ledger._strip_route_prefix(None))
+
 
 if __name__ == "__main__":
     unittest.main()

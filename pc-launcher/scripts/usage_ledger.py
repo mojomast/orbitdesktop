@@ -230,10 +230,9 @@ def infer_route(model, fallback, brief, launcher):
 def _strip_route_prefix(model):
     if not isinstance(model, str):
         return None
-    if model.startswith("go:"):
-        return model[3:]
-    if model.startswith("deepseek:"):
-        return model[8:]
+    for prefix in ("go:", "deepseek:"):
+        if model.startswith(prefix):
+            return model[len(prefix):]
     return model
 
 
@@ -728,10 +727,10 @@ def _version_for(prices, route):
     else:
         preferred = [name for name in versions if name.startswith("deepseek-pricing")]
     if preferred:
-        name = sorted(preferred)[0]
+        name = sorted(preferred)[-1]  # newest dated snapshot
         return name, versions[name]
     if versions:
-        name = sorted(versions)[0]
+        name = sorted(versions)[-1]
         return name, versions[name]
     return None, None
 
