@@ -179,17 +179,34 @@ export function createLocalWorkers({
     return a;
   }
 
+  // Result manifests are private (0600) and replaced atomically; the artifact API pins their first-read hash.
+  function saveResult(a, body) {
+    const file = path.join(dir, `${a.attempt_id}.result.json`);
+    const tmp = `${file}.${process.pid}.tmp`;
+    writeFileSync(tmp, JSON.stringify(body, null, 1), { mode: 0o600 });
+    renameSync(tmp, file);
+    a.result = { ref: file, observed_files: (body.observed?.files || []).length, stop_reason: body.observed?.stop_reason };
+    a.artifact_refs = (body.observed?.files || []).map((f) => ({ path: f.path, sha256: f.sha256, change: f.change, in_scope: f.in_assigned_scope }));
+    a.checks = (body.checks || []).map((c) => ({ ...c, source: 'worker_claim' }));
+    persist();
+  }
   async function fetchResult(a) {
     try {
       const r = await call('GET', `/v1/attempts/${a.attempt_id}/result`);
-      if (r.status !== 200) return;
-      const file = path.join(dir, `${a.attempt_id}.result.json`);
-      writeFileSync(file, JSON.stringify(r.body, null, 1));
-      a.result = { ref: file, observed_files: (r.body.observed?.files || []).length, stop_reason: r.body.observed?.stop_reason };
-      a.artifact_refs = (r.body.observed?.files || []).map((f) => ({ path: f.path, sha256: f.sha256, change: f.change, in_scope: f.in_assigned_scope }));
-      a.checks = (r.body.checks || []).map((c) => ({ ...c, source: 'worker_claim' }));
-      persist();
+      if (r.status === 200) saveResult(a, r.body);
     } catch { /* retried on next poll */ }
+  }
+  // Explicit refetch for the artifact API (e.g. Orbit restarted before the result was saved).
+  async function refetchResult(id) {
+    const a = ledger.attempts[id]; if (!a) return 'missing';
+    let r;
+    try { r = await call('GET', `/v1/attempts/${id}/result`); } catch { return 'unreachable'; }
+    if (r.status !== 200 || !r.body || typeof r.body !== 'object') return 'missing';
+    saveResult(a, r.body); return 'ok';
+  }
+  function pinArtifact(id, pin) {
+    const a = ledger.attempts[id]; if (!a || a.artifact) return;
+    a.artifact = { ...pin, first_read_at: new Date(now()).toISOString() }; persist();
   }
 
   async function poll(id) {
@@ -298,7 +315,7 @@ export function createLocalWorkers({
   }
 
   return {
-    create, poll, cancel, review, reconcile, tick, pump, archive,
+    create, poll, cancel, review, reconcile, tick, pump, archive, refetchResult, pinArtifact,
     get: (id) => ledger.attempts[id], list: () => Object.values(ledger.attempts),
     get cap() { return effectiveCap(); }, get paused() { return paused(); },
     reload() { ledger = JSON.parse(readFileSync(ledgerPath, 'utf8')); },
