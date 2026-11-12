@@ -1,0 +1,27 @@
+services:
+  orbit:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: orbit-desktop:local
+    container_name: orbit
+    user: node
+    environment:
+      PORT: "4318"
+      # The container listens on its own interface; only the host publish below
+      # is restricted to loopback.
+      ORBIT_HOST: "0.0.0.0"
+      ORBIT_PUBLIC_ORIGIN: "http://127.0.0.1:4318"
+      ORBIT_RUNTIME_DIR: "/home/node/.orbit-runtime"
+    ports:
+      - "127.0.0.1:4318:4318"
+    volumes:
+      - orbit-runtime:/home/node/.orbit-runtime
+    restart: unless-stopped
+    # The owner token is generated on first start and stored 0600 in the
+    # runtime volume, never in this file or the service logs. Retrieve a
+    # one-time login token explicitly with:
+    #   docker compose exec orbit node scripts/orbit-up.mjs --print-login-url
+
+volumes:
+  orbit-runtime:

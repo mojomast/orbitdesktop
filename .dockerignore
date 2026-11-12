@@ -1,9 +1,15 @@
 .git
 .runtime
-*-verification.json
-*-verified.png
+games/
+.env
 .env*
 node_modules
+dist
+dist*
+dist_*/
+*.bak-*
 *.log
+*-verification.json
+*-verified.png
 verify-deploy.mjs
 verify-agent-live.mjs
