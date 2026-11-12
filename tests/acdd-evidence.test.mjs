@@ -62,6 +62,11 @@ const report = (over = {}) => sign({
   },
   ...over,
 });
+const INTEGRATION = sign(rec('integration', 'passed', { 'AC-001': 'passed', 'AC-002': 'passed', 'AC-003': 'review_required' }, { at: '2026-11-12T18:03:00Z' }));
+const completeReport = (over = {}) => report({
+  phases: { red: 'valid', green: 'valid', integration: 'valid' },
+  ...over,
+});
 
 // AC-001: every protocol failure code and status has a plain-language label.
 test('failure codes and status labels cover the protocol', () => {
@@ -220,8 +225,9 @@ test('a fake 64-character signature is not evidence', () => {
 
 // AC-005: report acceptance requires a contract-matching signed report.
 test('a valid signed acceptance report with matching sha yields accepted:true', () => {
-  const v = view([RED, GREEN], report());
+  const v = view([RED, GREEN, INTEGRATION], completeReport());
   assert.equal(v.accepted, true);
+  assert.equal(v.verificationState, 'verified');
   assert.equal(v.phases.green, 'valid');
   assert.equal(v.criteria.find(c => c.id === 'AC-001').status, 'passed');
   assert.equal(v.criteria.find(c => c.id === 'AC-001').evidence, 'evidence/0002-green.json');
@@ -253,6 +259,161 @@ test('signed stale records are flagged and ignored for status', () => {
   assert.equal(v.criteria.find(c => c.id === 'AC-001').status, 'failed');
   assert.equal(v.phases.green, 'unrun');
   assert.ok(v.failures.some(f => f.code === 'stale_revision'));
+});
+
+// AC-011: explicit overall verification states are mutually exclusive.
+test('verificationState is verified only for a verified report and every required phase', () => {
+  const v = view([RED, GREEN, INTEGRATION], completeReport());
+  assert.equal(v.verificationState, 'verified');
+  assert.equal(v.accepted, true);
+});
+
+test('verificationState is rejected when any record or the report is rejected', () => {
+  const modified = { ...GREEN, at: '2026-11-12T18:04:00Z' };
+  const tampered = view([RED, GREEN, INTEGRATION], completeReport());
+  assert.equal(tampered.verificationState, 'verified');
+  const recordRejected = view([RED, modified, INTEGRATION], completeReport());
+  assert.equal(recordRejected.verificationState, 'rejected');
+  assert.equal(recordRejected.accepted, false);
+  const reportRejected = view([RED, GREEN, INTEGRATION], sign(completeReport(), OTHER_KEY));
+  assert.equal(reportRejected.verificationState, 'rejected');
+  assert.equal(reportRejected.accepted, false);
+});
+
+test('verificationState is invalid when the contract or every record is invalid', () => {
+  const v = view([
+    { evidence_version: 'tdd-evidence/1', phase: 'green' },
+    { evidence_version: 'tdd-evidence/2', phase: 'green' },
+    '{not json',
+  ]);
+  assert.equal(v.verificationState, 'invalid');
+  assert.equal(v.accepted, false);
+  assert.ok(v.records.every(record => record.status === 'invalid'));
+});
+
+test('verificationState is unverified without a usable key or without records', () => {
+  const noKey = buildEvidenceView(contract(), [RED, GREEN, INTEGRATION], completeReport(), { verificationAvailable: false });
+  assert.equal(noKey.verificationState, 'unverified');
+  assert.equal(noKey.accepted, false);
+  const empty = view([]);
+  assert.equal(empty.verificationState, 'unverified');
+  assert.equal(empty.accepted, false);
+});
+
+test('verificationState is incomplete without a verified report or a required phase record', () => {
+  const noReport = view([RED, GREEN, INTEGRATION]);
+  assert.equal(noReport.verificationState, 'incomplete');
+  assert.equal(noReport.accepted, false);
+  const missingPhase = view([RED, GREEN], completeReport());
+  assert.equal(missingPhase.verificationState, 'incomplete');
+  assert.equal(missingPhase.accepted, false);
+  const refusedReport = view([RED, GREEN, INTEGRATION], completeReport({ accepted: false }));
+  assert.equal(refusedReport.verificationState, 'incomplete');
+  assert.equal(refusedReport.accepted, false);
+});
+
+// AC-012: every record gets exactly one explicit status with a fixed reason code.
+test('record status verified needs a valid signature, verifier role and matching sha', () => {
+  const v = view([RED, GREEN, INTEGRATION]);
+  assert.deepEqual(v.records.map(r => r.index), [0, 1, 2]);
+  assert.deepEqual(v.records.map(r => r.phase), ['red', 'green', 'integration']);
+  for (const record of v.records) {
+    assert.equal(record.status, 'verified');
+    assert.match(record.reason, /^[a-z_]+$/);
+  }
+});
+
+test('record status rejected covers modified, stolen-label and stale records', () => {
+  const modified = { ...GREEN, at: '2026-11-12T18:05:00Z' };
+  const stolen = unsigned(rec('green', 'passed', { 'AC-001': 'passed' }));
+  const wrongKey = sign(rec('green', 'passed', { 'AC-001': 'passed' }), OTHER_KEY);
+  const stale = sign(rec('green', 'passed', { 'AC-001': 'passed' }, { contract_sha256: '9'.repeat(64) }));
+  for (const candidate of [modified, stolen, wrongKey, stale]) {
+    const v = view([RED, candidate]);
+    const record = v.records.find(item => item.index === 1);
+    assert.equal(record.status, 'rejected');
+    assert.match(record.reason, /^[a-z_]+$/);
+  }
+});
+
+test('record status invalid covers wrong versions, missing fields and unreadable records', () => {
+  const cases = [
+    { evidence_version: 'tdd-evidence/2', phase: 'green' },
+    { evidence_version: 'tdd-evidence/1', phase: 'green' },
+    '{not json',
+  ];
+  for (const raw of cases) {
+    const v = view([raw]);
+    assert.equal(v.records.length, 1);
+    assert.equal(v.records[0].status, 'invalid');
+    assert.match(v.records[0].reason, /^[a-z_]+$/);
+    assert.ok(!v.records[0].reason.includes(KEY.toString('hex')));
+    assert.ok(!v.records[0].reason.includes('/'));
+  }
+});
+
+test('record status unverified covers missing keys and worker self-reports', () => {
+  const signedWorker = sign(rec('green', 'passed', { 'AC-001': 'passed' }, { produced_by: { role: 'worker', name: 'bee' } }));
+  const withWorker = view([signedWorker]);
+  assert.equal(withWorker.records[0].status, 'unverified');
+  assert.match(withWorker.records[0].reason, /^[a-z_]+$/);
+  const noKey = buildEvidenceView(contract(), [GREEN], null, { verificationAvailable: false });
+  assert.equal(noKey.records[0].status, 'unverified');
+  assert.match(noKey.records[0].reason, /^[a-z_]+$/);
+});
+
+// AC-013: worker-claimed success in every shape can never produce acceptance.
+test('worker-claimed success can never produce acceptance', () => {
+  const worker = { produced_by: { role: 'worker', name: 'bee' } };
+  const workerSigned = sign(rec('green', 'passed', { 'AC-001': 'passed' }, worker));
+  const workerUnsigned = unsigned(rec('green', 'passed', { 'AC-001': 'passed' }, worker));
+  const reportShapedWorker = sign({
+    evidence_version: 'tdd-evidence/1', contract_id: 'W1-pricing', contract_sha256: CSHA,
+    phase: 'integration', classification: 'passed', produced_by: { role: 'worker', name: 'bee' },
+    accepted: true, phases: { red: 'valid', green: 'valid', integration: 'valid' },
+    criteria: { 'AC-001': 'passed' },
+  });
+  const workerReport = sign({ ...unsigned(report()), produced_by: { role: 'worker', name: 'bee' } });
+  const candidates = [
+    view([RED, workerSigned]),
+    view([RED, workerUnsigned]),
+    view([RED, GREEN, INTEGRATION, reportShapedWorker]),
+    view([RED, GREEN, INTEGRATION], workerReport),
+    view([RED, GREEN, INTEGRATION], unsigned(report())),
+    view([RED, GREEN, INTEGRATION], sign(report(), OTHER_KEY)),
+  ];
+  for (const v of candidates) {
+    assert.equal(v.accepted, false);
+    assert.notEqual(v.verificationState, 'verified');
+  }
+  const good = view([RED, GREEN, INTEGRATION], completeReport());
+  assert.equal(good.accepted, true);
+  assert.equal(good.verificationState, 'verified');
+});
+
+test('the panel shows a dark badge with plain-language text for every state', () => {
+  const variants = {
+    verified: view([RED, GREEN, INTEGRATION], completeReport()),
+    rejected: view([RED, { ...GREEN, at: '2026-11-12T18:06:00Z' }, INTEGRATION], completeReport()),
+    invalid: view([{ evidence_version: 'tdd-evidence/2', phase: 'green' }]),
+    unverified: view([]),
+    incomplete: view([RED, GREEN]),
+  };
+  const labels = {
+    verified: /Verified/,
+    rejected: /Rejected/,
+    invalid: /Invalid/,
+    unverified: /Unverified/,
+    incomplete: /Incomplete/,
+  };
+  for (const [state, candidate] of Object.entries(variants)) {
+    assert.equal(candidate.verificationState, state);
+    const html = renderEvidencePanel(candidate);
+    assert.match(html, new RegExp(`data-verification-state="${state}"`));
+    assert.match(html, labels[state]);
+    assert.match(html, new RegExp(`acdd-verification-state-${state}`));
+    assert.doesNotMatch(html, /<script|on[a-z]+\s*=/i);
+  }
 });
 
 // AC-007: activity items for the Activity panel.
@@ -360,6 +521,10 @@ test('buildEvidenceView fails closed when no verifier is available: no report or
   }
   const forged = buildEvidenceView(contract(), [RED, GREEN], { ...unsignedReport, signature: 'f'.repeat(64) }, { key: KEY });
   assert.equal(forged.accepted, false);
-  const realKey = buildEvidenceView(contract(), [RED, GREEN], signedReport, { key: KEY });
-  assert.equal(realKey.accepted, true, 'a report signed with the lease key is still accepted');
+  const nullOptions = buildEvidenceView(contract(), [RED, GREEN, INTEGRATION], completeReport(), null);
+  assert.equal(nullOptions.accepted, false);
+  assert.notEqual(nullOptions.verificationState, 'verified');
+  const realKey = buildEvidenceView(contract(), [RED, GREEN, INTEGRATION], completeReport(), { key: KEY });
+  assert.equal(realKey.accepted, true, 'complete evidence and a report signed with the lease key is still accepted');
+  assert.equal(realKey.verificationState, 'verified');
 });

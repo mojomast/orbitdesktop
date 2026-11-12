@@ -130,8 +130,25 @@ test('contract view comes from the lease contract and verified evidence records'
   assert.deepEqual(out.json.view.timeline.map(r => r.phase), ['red', 'green']);
   assert.equal(out.json.view.phases.green, 'valid');
   assert.equal(out.json.view.accepted, false);
+  assert.equal(out.json.view.verificationState, 'incomplete');
+  assert.deepEqual(out.json.view.records.map(r => [r.index, r.phase, r.status]), [
+    [0, 'red', 'verified'], [1, 'green', 'verified'],
+  ]);
   assert.deepEqual(out.json.verification, { available: true, verified: 2, rejected: 0 });
   assert.ok(Array.isArray(out.json.items) && out.json.items.some(i => i.id === 'W1-pricing:summary'));
+});
+
+test('an all-invalid evidence directory reports invalid, not accepted', async () => {
+  const root = stateDir({ records: [] });
+  writeFileSync(join(root, 'evidence', 'W1-pricing', '0001-bad.json'), '{not json');
+  const out = await call(createAcddEvidenceRoute({ stateDir: root, authorize }), { path: '/api/acdd-evidence?contract=W1-pricing' });
+  assert.equal(out.status, 200);
+  assert.equal(out.json.view.verificationState, 'invalid');
+  assert.equal(out.json.view.accepted, false);
+  assert.ok(out.json.view.records.some(record => record.status === 'invalid'));
+  assert.ok(!out.body.includes(root));
+  assert.ok(!out.body.includes(KEY.toString('hex')));
+  assert.ok(!out.body.includes(KEY.toString('base64')));
 });
 
 // AC-005: only a verified, contract-matching report can accept.
@@ -141,6 +158,7 @@ test('a valid signed report with matching contract sha yields accepted:true', as
   const out = await call(createAcddEvidenceRoute({ stateDir: root, authorize }), { path: '/api/acdd-evidence?contract=W1-pricing' });
   assert.equal(out.status, 200);
   assert.equal(out.json.view.accepted, true);
+  assert.equal(out.json.view.verificationState, 'verified');
   assert.equal(out.json.view.criteria.find(c => c.id === 'AC-001').status, 'passed');
   assert.equal(out.json.verification.available, true);
 });
@@ -151,6 +169,7 @@ test('a report with a bad signature or mismatched sha yields accepted:false', as
   const bad = await call(createAcddEvidenceRoute({ stateDir: badSignature, authorize }), { path: '/api/acdd-evidence?contract=W1-pricing' });
   assert.equal(bad.status, 200);
   assert.equal(bad.json.view.accepted, false);
+  assert.equal(bad.json.view.verificationState, 'rejected');
   assert.equal(bad.json.view.phases.green, 'valid');
 
   const wrongSha = stateDir();
@@ -158,6 +177,7 @@ test('a report with a bad signature or mismatched sha yields accepted:false', as
   const mismatch = await call(createAcddEvidenceRoute({ stateDir: wrongSha, authorize }), { path: '/api/acdd-evidence?contract=W1-pricing' });
   assert.equal(mismatch.status, 200);
   assert.equal(mismatch.json.view.accepted, false);
+  assert.equal(mismatch.json.view.verificationState, 'rejected');
   assert.ok(mismatch.json.view.notes.some(note => /report/i.test(note)));
 });
 
@@ -166,6 +186,7 @@ test('a modified or stolen-label record is rejected by the route', async () => {
   writeFileSync(join(root, 'evidence', 'W1-pricing', '0002-green.json'), JSON.stringify({ ...GREEN, at: '2026-11-12T18:09:00Z' }));
   const modified = await call(createAcddEvidenceRoute({ stateDir: root, authorize }), { path: '/api/acdd-evidence?contract=W1-pricing' });
   assert.equal(modified.json.view.phases.green, 'unrun');
+  assert.equal(modified.json.view.verificationState, 'rejected');
   assert.ok(modified.json.view.failures.some(f => f.code === 'evidence_tampered'));
   assert.equal(modified.json.verification.rejected, 1);
 
@@ -173,6 +194,7 @@ test('a modified or stolen-label record is rejected by the route', async () => {
   writeFileSync(join(stolenRoot, 'evidence', 'W1-pricing', '0002-green.json'), JSON.stringify(unsigned(rec('green', 'passed', { 'AC-001': 'passed' }))));
   const stolen = await call(createAcddEvidenceRoute({ stateDir: stolenRoot, authorize }), { path: '/api/acdd-evidence?contract=W1-pricing' });
   assert.equal(stolen.json.view.phases.green, 'unrun');
+  assert.equal(stolen.json.view.verificationState, 'rejected');
   assert.ok(stolen.json.view.failures.some(f => f.code === 'evidence_tampered'));
   assert.equal(stolen.json.view.accepted, false);
 });
@@ -187,6 +209,7 @@ test('missing, group-readable and symlinked lease keys disable verification', as
     assert.equal(out.status, 200);
     assert.deepEqual(out.json.verification, { available: false, verified: 0, rejected: 2 });
     assert.equal(out.json.view.accepted, false);
+    assert.equal(out.json.view.verificationState, 'unverified');
     assert.equal(out.json.view.phases.green, 'unrun');
     assert.ok(out.json.view.notes.some(note => /verification.*unavailable/i.test(note)));
   }
@@ -200,6 +223,7 @@ test('missing, group-readable and symlinked lease keys disable verification', as
   const out = await call(createAcddEvidenceRoute({ stateDir: linked, authorize }), { path: '/api/acdd-evidence?contract=W1-pricing' });
   assert.equal(out.json.verification.available, false);
   assert.equal(out.json.view.accepted, false);
+  assert.equal(out.json.view.verificationState, 'unverified');
 });
 
 // AC-007: key material and host paths never appear in any response.
