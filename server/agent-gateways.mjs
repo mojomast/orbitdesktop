@@ -57,7 +57,12 @@ export function createAgentGateways({ fetchImpl = fetch, chats, grok, hermesProf
     const status = run?.status;
     if (status === 'waiting_for_approval') return { status, error: 'Hermes is waiting for a tool approval. Resolve it in the Hermes chat, or cancel the delegated task.' };
     if (status === 'completed') return { status, output: String(run.output || 'Hermes finished without a text reply.').slice(0, 16000) };
-    if (['failed', 'cancelled', 'interrupted'].includes(status)) return { status: 'failed', error: status === 'failed' ? 'Hermes reported a failure.' : `Hermes ${status} this turn.` };
+    if (status === 'cancelled' || status === 'interrupted') {
+      // runtimeCancelled: Hermes ended the turn itself (e.g. session_turn_lease_lost after a box pause); Orbit's own stops never poll a run again.
+      const reason = typeof run?.turn_exit_reason === 'string' ? run.turn_exit_reason.slice(0, 200) : '';
+      return { status: 'failed', error: `Hermes ${status} this turn.`, runtimeCancelled: true, ...(reason ? { cancelReason: reason } : {}) };
+    }
+    if (status === 'failed') return { status: 'failed', error: 'Hermes reported a failure.' };
     return { status: 'running' };
   }
 

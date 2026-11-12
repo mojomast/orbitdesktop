@@ -18,6 +18,11 @@ const DELEGATION_TIMEOUT_MS = 3 * 60 * 1000;
 const DEFAULT_TURN_TIMEOUT_MS = 3 * 60 * 1000;
 const DEFAULT_ADVANCE_INTERVAL_MS = 15 * 1000;
 const HOLD_ACTIVITY = 'Paused. Continue when you want the agents to keep going.';
+// Auto-resume: a group member turn its own runtime cancelled (not Orbit; e.g. Hermes session_turn_lease_lost after a box pause)
+// is re-queued after a short delay, at most MAX_AUTO_RESUMES times per original turn. Stop/pause clears any pending resume.
+const AUTO_RESUME_DELAY_MS = 25 * 1000;
+const MAX_AUTO_RESUMES = 2;
+export const AUTO_RESUME_NOTE = 'Your previous turn was cut off (the box was paused and your session lease expired). Check git status and the board, commit any tested work, then continue your current task.';
 
 /** Shared-room turn limit. `ORBIT_SHARED_TURN_TIMEOUT_MS` overrides the 3 minute default. */
 export function sharedTurnTimeoutMs(env = process.env) {
@@ -470,7 +475,9 @@ function cleanDelegations(list, participants = DEFAULT_PARTICIPANTS) {
  * speaker id; `gateways` must then map handles to providers. `defaultResponder` ('all' or a handle) answers
  * Kyle's un-mentioned messages instead of the provider-room heuristic.
  */
-export function createSharedAgents({ directory, fetchImpl = fetch, chats, grok, hermesProfile, gatewayProfile, grokProfile, now = () => Date.now(), turnTimeoutMs, advanceIntervalMs, gateways: providedGateways, openCollab, members, defaultResponder, delegationTimeoutMs, guidance, parallel: parallelOption, hardCapMs, maxMessage = 16000 } = {}) {
+export function createSharedAgents({ directory, fetchImpl = fetch, chats, grok, hermesProfile, gatewayProfile, grokProfile, now = () => Date.now(), turnTimeoutMs, advanceIntervalMs, gateways: providedGateways, openCollab, members, defaultResponder, delegationTimeoutMs, guidance, parallel: parallelOption, hardCapMs, maxMessage = 16000, autoResumeDelayMs, maxAutoResumes } = {}) {
+  const resumeDelay = Number.isFinite(autoResumeDelayMs) && autoResumeDelayMs >= 0 ? Math.floor(autoResumeDelayMs) : AUTO_RESUME_DELAY_MS;
+  const resumeCap = Number.isInteger(maxAutoResumes) && maxAutoResumes >= 0 ? maxAutoResumes : MAX_AUTO_RESUMES;
   const turnTimeout = Number.isFinite(turnTimeoutMs) && turnTimeoutMs >= 1000 ? Math.floor(turnTimeoutMs) : sharedTurnTimeoutMs();
   const turnTimeoutMinutes = Math.max(1, Math.round(turnTimeout / 60000));
   const advanceEvery = Number.isFinite(advanceIntervalMs) && advanceIntervalMs >= 15 ? Math.floor(advanceIntervalMs) : DEFAULT_ADVANCE_INTERVAL_MS;
@@ -559,6 +566,11 @@ export function createSharedAgents({ directory, fetchImpl = fetch, chats, grok, 
         record.run.chain = typeof record.run.chain === 'string' ? record.run.chain : '';
       }
       record.delegations = cleanDelegations(record.delegations, speakers);
+      const rawResume = record.resume && typeof record.resume === 'object' && !Array.isArray(record.resume) ? record.resume : {};
+      record.resume = {};
+      for (const [id, entry] of Object.entries(rawResume)) {
+        if (speakers.includes(id) && entry && Number.isFinite(entry.at) && Number.isInteger(entry.count) && entry.count >= 1 && entry.count <= 10) record.resume[id] = { at: entry.at, count: entry.count };
+      }
       return record;
     } catch (error) {
       if (error.code !== 'ENOENT') throw fail('The shared transcript could not be read.');
@@ -589,6 +601,7 @@ export function createSharedAgents({ directory, fetchImpl = fetch, chats, grok, 
       ...(state.side && Object.keys(state.side).length ? { side: state.side } : {}),
       delegations: state.delegations.slice(-MAX_TASKS),
       ...(state.seen && typeof state.seen === 'object' ? { seen: state.seen } : {}),
+      ...(state.resume && Object.keys(state.resume).length ? { resume: state.resume } : {}),
     };
     fs.writeFileSync(temp, JSON.stringify(record), { mode: 0o600 });
     fs.renameSync(temp, dest);
@@ -638,7 +651,8 @@ function findTask(state, id) {
     const purpose = meta.purpose || 'turn';
     const seenAt = memberList && !meta.prompt && state.seen && state.seen[speaker] ? state.messages.findIndex(message => message.id === state.seen[speaker]) : -1;
     const fresh = seenAt >= 0 ? state.messages.slice(seenAt + 1).filter(message => message.speaker !== 'note') : null;
-    const prompt = meta.prompt || (fresh && fresh.length ? deltaPrompt(speaker, fresh, speakers, meta.ownerAddressed === true) : promptFor(speaker, state.messages, speakers, meta.ownerAddressed === true));
+    const basePrompt = meta.prompt || (fresh && fresh.length ? deltaPrompt(speaker, fresh, speakers, meta.ownerAddressed === true) : promptFor(speaker, state.messages, speakers, meta.ownerAddressed === true));
+    const prompt = meta.resumeNote ? `${meta.resumeNote}\n\n${basePrompt}` : basePrompt;
     const instructions = `${preamble(speaker, speakers)} Delegate only with the \`\`\`delegate fence.`;
     const concurrent = Array.isArray(meta.concurrent) ? meta.concurrent.filter(id => id !== speaker && labels[id]) : [];
     const fullPrompt = concurrent.length
@@ -658,6 +672,7 @@ function findTask(state, id) {
         started: started.started,
         ...(started.nonce ? { nonce: started.nonce, baseline: started.baseline, agentId: started.agentId } : {}),
         ...(Number.isInteger(started.msgBase) ? { msgBase: started.msgBase, session: started.session || '' } : {}),
+        ...(Number.isInteger(meta.autoResumes) && meta.autoResumes > 0 ? { autoResumes: meta.autoResumes } : {}),
       };
       if (meta.side) {
         state.side = { ...(state.side || {}), [speaker]: run };
@@ -893,19 +908,52 @@ function findTask(state, id) {
     }
   }
 
+  const resumeLog = state => `room=${String(state.key || '').split('.').pop().slice(0, 36)}`;
+  /** A turn its own runtime cancelled (Orbit never polls a run it stopped or expired) gets re-queued, capped per original turn. */
+  function scheduleAutoResume(state, run, view) {
+    if (!view || view.status !== 'failed' || view.runtimeCancelled !== true) return;
+    if ((run.purpose || 'turn') !== 'turn') return;
+    const speaker = run.speaker;
+    const reason = typeof view.cancelReason === 'string' ? view.cancelReason : '';
+    if (/user|owner|manual/i.test(reason)) { console.log(`[shared-agents] auto-resume ${resumeLog(state)} ${speaker}: not resuming, cancel reason looks manual (${reason})`); return; }
+    if (state.paused || state.hold) { console.log(`[shared-agents] auto-resume ${resumeLog(state)} ${speaker}: not resuming, room is paused`); return; }
+    const done = Number.isInteger(run.autoResumes) ? run.autoResumes : 0;
+    if (done >= resumeCap) {
+      console.log(`[shared-agents] auto-resume ${resumeLog(state)} ${speaker}: cap of ${resumeCap} reached, not resuming${reason ? ` (${reason})` : ''}`);
+      append(state, 'note', `${labels[speaker]}'s turn was cut off again; Orbit already resumed it ${resumeCap} time${resumeCap === 1 ? '' : 's'}, so it is not resuming automatically.`);
+      return;
+    }
+    state.resume = state.resume || {};
+    state.resume[speaker] = { at: now() + resumeDelay, count: done + 1 };
+    console.log(`[shared-agents] auto-resume ${resumeLog(state)} ${speaker}: runtime cancelled the turn${reason ? ` (${reason})` : ''}; resume ${done + 1}/${resumeCap} in ${Math.round(resumeDelay / 1000)}s`);
+    append(state, 'note', `${labels[speaker]}'s turn was cut off by its runtime${reason ? ` (${reason})` : ''}. Orbit will resume it in about ${Math.round(resumeDelay / 1000)} seconds (auto-resume ${done + 1} of ${resumeCap}).`);
+  }
+
   async function advanceSide(state) {
     state.side = state.side && typeof state.side === 'object' ? state.side : {};
     for (let pass = 0; pass < 3; pass += 1) {
       // Start: every queued member that has no turn in flight (a member already working keeps its wake queued).
       if (!state.paused && !state.hold) {
         const busy = id => Boolean(state.side[id]) || state.run?.speaker === id;
+        for (const [id, entry] of Object.entries(state.resume || {})) {
+          if (busy(id) || now() < entry.at) continue;
+          delete state.resume[id];
+          state.queue = state.queue.filter(item => item.speaker !== id); // the resumed turn also reads anything posted meanwhile
+          console.log(`[shared-agents] auto-resume ${resumeLog(state)} ${id}: starting resume ${entry.count}/${resumeCap}`);
+          await begin(state, id, { side: true, resumeNote: AUTO_RESUME_NOTE, autoResumes: entry.count });
+        }
         const batch = [...new Set([...Object.keys(state.side), ...state.queue.map(item => item.speaker)])];
         for (let index = 0; index < state.queue.length;) {
           const next = state.queue[index];
           if (busy(next.speaker)) { index += 1; continue; }
           if (!next.fromOwner && agentFloorBlocked(state, speakers)) { state.hold = true; state.activity = HOLD_ACTIVITY; break; }
           state.queue.splice(index, 1);
-          await begin(state, next.speaker, { side: true, ownerAddressed: next.fromOwner === true, concurrent: batch });
+          const pendingResume = state.resume && state.resume[next.speaker];
+          if (pendingResume) { // a new wake arrived before the resume delay ran out: this turn carries the resume
+            delete state.resume[next.speaker];
+            console.log(`[shared-agents] auto-resume ${resumeLog(state)} ${next.speaker}: folded into a new wake, resume ${pendingResume.count}/${resumeCap}`);
+          }
+          await begin(state, next.speaker, { side: true, ownerAddressed: next.fromOwner === true, concurrent: batch, ...(pendingResume ? { resumeNote: AUTO_RESUME_NOTE, autoResumes: pendingResume.count } : {}) });
         }
       }
       // Poll every in-flight member; each reply posts as soon as it is ready.
@@ -927,6 +975,7 @@ function findTask(state, id) {
         if (view.status === 'waiting_for_approval') { run.awaiting = view.error || `${labels[speaker]} is waiting for a tool approval.`; continue; }
         delete state.side[speaker];
         await finishSideTurn(state, run, view);
+        scheduleAutoResume(state, run, view);
         finished += 1;
       }
       state.activity = state.hold ? HOLD_ACTIVITY : (sideActivity(state) || (state.run ? state.activity : ''));
@@ -1129,6 +1178,7 @@ function findTask(state, id) {
       }
     } else if (operation === 'pause') {
       state.paused = true;
+      state.resume = {};
       state.activity = state.run ? `${labels[state.run.speaker]} will finish this reply, then the exchange stays paused.` : 'Paused.';
     } else if (operation === 'resume' || operation === 'continue') {
       state.paused = false;
@@ -1138,6 +1188,7 @@ function findTask(state, id) {
       if (state.activity === HOLD_ACTIVITY) state.activity = '';
       await advance(state);
     } else if (operation === 'stop') {
+      state.resume = {};
       await stopRun(state);
       state.paused = true;
       state.hold = false;
@@ -1154,7 +1205,7 @@ function findTask(state, id) {
   }
 
   function noteActivity(state) {
-    if (state?.run || (state?.side && Object.keys(state.side).length)) active.add(state.key);
+    if (state?.run || (state?.side && Object.keys(state.side).length) || (state?.resume && Object.keys(state.resume).length)) active.add(state.key);
     else if (state?.key) active.delete(state.key);
   }
 
@@ -1173,7 +1224,7 @@ function findTask(state, id) {
       if (!name.endsWith('.json')) continue;
       try {
         const record = JSON.parse(fs.readFileSync(path.join(directory, name), 'utf8'));
-        if (record?.run || (record?.side && Object.keys(record.side).length)) active.add(name.slice(0, -'.json'.length));
+        if (record?.run || (record?.side && Object.keys(record.side).length) || (record?.resume && Object.keys(record.resume).length)) active.add(name.slice(0, -'.json'.length));
       } catch {}
     }
   }
