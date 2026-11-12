@@ -1,4 +1,6 @@
 // Approved acceptance tests for the coordinator-only worker artifact API (contract OA1-artifact, written first: RED).
+// Amended by OA2-artifact-auth: ownership is a per-attempt capability returned once by `create`; the rig sends
+// the attempt's capability on artifact reads unless a test sets `capability` itself.
 // POST /api/local-workers {op:'artifact', attempt_id, coordinator} returns the completed worker patch with its
 // sha256, the coordinator's source_rev and launcher-observed metadata. Orbit computes the result path itself,
 // refuses symlinks, oversized or malformed files and substituted artifacts, and never logs or lists raw patches.
@@ -64,12 +66,14 @@ async function orbit(launcherUrl, envExtra = {}) {
   const srv = http.createServer((req, res) => route.handle(req, res));
   await new Promise((r) => srv.listen(0, '127.0.0.1', r));
   const base = `http://127.0.0.1:${srv.address().port}`;
+  const caps = new Map();
   const call = async (body, key = KEY) => {
+    if (body && body.op === 'artifact' && !('capability' in body) && caps.has(body.attempt_id)) body = { ...body, capability: caps.get(body.attempt_id) };
     const r = await fetch(base, { method: 'POST', headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const text = await r.text(); return { status: r.status, text, json: JSON.parse(text) };
   };
   const dir = path.join(runtimeRoot, 'local-workers');
-  return { route, call, logs, dir, runtimeRoot, close: () => new Promise((r) => { srv.closeAllConnections?.(); srv.close(r); }) };
+  return { route, call, caps, logs, dir, runtimeRoot, close: () => new Promise((r) => { srv.closeAllConnections?.(); srv.close(r); }) };
 }
 
 // Create an attempt through the real Orbit API and drive it to `state` on the fake launcher.
@@ -77,6 +81,7 @@ async function attempt(O, L, { state = 'succeeded', result, coordinator = 'MR.IN
   const c = await O.call({ op: 'create', task_id: 't_' + Math.random().toString(16).slice(2), group: 'g', coordinator, brief: { objective: 'x', source_rev: SRC, assigned_files: ['x.py'] } });
   assert.equal(c.status, 201, c.text);
   const id = c.json.attempt_id;
+  if (c.json.artifact_capability) O.caps.set(id, c.json.artifact_capability);
   L.attempts[id].state = state;
   if (result !== null) { L.attempts[id].result = typeof result === 'function' ? result(id) : (result || manifest(id)); L.attempts[id].resultStatus = 200; }
   await O.call({ op: 'tick' }); await O.call({ op: 'tick' });
@@ -109,13 +114,14 @@ test('AC-001 succeeded attempt: patch, its sha256, coordinator source_rev and ob
   for (const leak of ['private-node-name', '/home/cua', 'C:/Users', 'result_file', 'workdir']) assert.ok(!r.text.includes(leak), leak);
 }));
 
-test('AC-002 only the coordinator key on loopback, and only the owning coordinator, may read an artifact', () => withRig(async (O, L) => {
+test('AC-002 only the coordinator key on loopback, and only the holder of the attempt capability, may read an artifact', () => withRig(async (O, L) => {
   const id = await attempt(O, L, { coordinator: 'MR.INDIA' });
   assert.equal((await O.call({ op: 'artifact', attempt_id: id, coordinator: 'MR.INDIA' }, 'wrong'.repeat(10))).status, 401);
-  const other = await O.call({ op: 'artifact', attempt_id: id, coordinator: 'SOMEONE-ELSE' });
-  assert.equal(other.status, 403); assert.equal(other.json.code, 'not_owner'); assert.ok(!other.text.includes('VALUE = 2'));
-  const none = await O.call({ op: 'artifact', attempt_id: id });
-  assert.equal(none.status, 400); assert.equal(none.json.code, 'coordinator_required');
+  // Impersonation: the valid shared key plus the owner's coordinator NAME, but not its capability, must fail.
+  const forged = await O.call({ op: 'artifact', attempt_id: id, coordinator: 'MR.INDIA', capability: 'x'.repeat(43) });
+  assert.equal(forged.status, 403); assert.equal(forged.json.code, 'not_owner'); assert.ok(!forged.text.includes('VALUE = 2'));
+  const none = await O.call({ op: 'artifact', attempt_id: id, coordinator: 'MR.INDIA', capability: undefined });
+  assert.equal(none.status, 403); assert.equal(none.json.code, 'capability_required');
 }));
 
 test('AC-003 attempt ids are validated: traversal, unknown and malformed ids are refused', () => withRig(async (O) => {
