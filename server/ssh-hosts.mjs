@@ -370,8 +370,10 @@ export function createSshHosts({ runtimeDir, config, exec, log, saveConfig, now 
     try { fs.rmSync(pendingFile(hostId), { force: true }); } catch {}
   }
 
-  function knownHostsName(alias, port) {
-    return port === 22 ? alias : `[${alias}]:${port}`;
+  // The Orbit ssh config sets HostKeyAlias, and OpenSSH looks the alias up
+  // verbatim (no [alias]:port form), whatever the port.
+  function knownHostsName(alias) {
+    return alias;
   }
 
   function aliasMatches(first, alias) {

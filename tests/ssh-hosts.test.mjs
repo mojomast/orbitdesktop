@@ -395,7 +395,7 @@ test('add, scan, confirm and test keep private keys out of every result, log and
   }
 });
 
-test('non-default ports pin a bracketed known_hosts alias and revoke removes it', async () => {
+test('non-default ports pin the bare HostKeyAlias (OpenSSH ignores the port with an alias) and revoke removes it', async () => {
   const box = sandbox();
   try {
     const tools = fakeTools();
@@ -404,7 +404,8 @@ test('non-default ports pin a bracketed known_hosts alias and revoke removes it'
     const scanned = await hosts.scanHostKey('port-01');
     await hosts.confirmPin('port-01', scanned.fingerprint);
     const known = fs.readFileSync(path.join(box.root, 'ssh', 'known_hosts'), 'utf8').split('\n');
-    assert.ok(known.includes(`[orbit-port-01]:2222 ssh-ed25519 ${TEST_B64}`));
+    assert.ok(known.includes(`orbit-port-01 ssh-ed25519 ${TEST_B64}`));
+    assert.ok(!known.some(line => line.startsWith('[orbit-port-01]')));
     await hosts.revoke('port-01');
     assert.doesNotMatch(fs.readFileSync(path.join(box.root, 'ssh', 'known_hosts'), 'utf8'), /orbit-port-01/);
   } finally {
