@@ -91,7 +91,7 @@ window.openDoc=id=>mountDocumentHost(document.querySelector('#doc'),id,()=>{json
                 expect(grant.get_by_label('Resource recipient conversation')).to_have_value(normal_pane)
             else:
                 grant.get_by_label('Delegated disclosure destination').fill('Synthetic local adapter fixture; no provider')
-            grant.get_by_label('Allow creating new editable briefs',exact=False).check()
+            grant.get_by_label('Allow creating new editable documents',exact=False).check()
             grant.get_by_role('button',name='Grant selected sources to selected recipient',exact=True).click()
             expect(grant.get_by_role('status')).to_contain_text('1 resource recipients')
             if NORMAL:
