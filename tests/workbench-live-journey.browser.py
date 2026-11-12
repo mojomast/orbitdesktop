@@ -714,6 +714,11 @@ def main(renderer):
                         if workbench.is_visible():
                             workbench.get_by_role("button", name="Close project workbench", exact=True).click()
                             expect(workbench).not_to_be_visible()
+                        # The orbit menu stays open while a modal is up; close it so it
+                        # does not cover the pane toolbar.
+                        if page.locator("#orbit-menu").is_visible():
+                            page.get_by_role("button", name="Close orbit menu").click()
+                            expect(page.locator("#orbit-menu")).to_be_hidden()
                         agent_pane = page.locator('[data-pane-id="%s"]' % helper.PANE)
                         normal_mode = agent_pane.get_by_role("button", name="Normal Hermes mode", exact=True)
                         workbench_mode = agent_pane.get_by_role("button", name="Workbench Hermes mode", exact=True)
