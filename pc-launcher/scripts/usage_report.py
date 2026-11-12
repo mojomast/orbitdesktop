@@ -23,7 +23,14 @@ DIMENSIONS = {
     "route": ("route", False),
 }
 MODEL_FALLBACKS = ("requested_model", "gen_ai.request.model")
-DEFAULT_DAILY_CAP = 5.0
+# Alert thresholds come from the workflow repo's observability/alerts.defaults.json
+# (schema alert.thresholds/v1), passed with --alerts or env BEE_USAGE_ALERTS.
+# The constants below are only the fallback when no thresholds file is given.
+ALERTS_SCHEMAS = ("alert.thresholds/v1", "alert.thresholds.override/v1")
+DAILY_SPEND_KEY = "daily_model_spend_above_usd"
+GO_PCT_KEY = "go_allowance_pct_used"
+DEFAULT_DAILY_CAP = 10.0
+DEFAULT_GO_NEAR_PCT = 80.0
 DEFAULT_GO_ALLOWANCE = 100.0
 GO_WINDOWS = (
     ("5h", timedelta(hours=5), 0.2, False),
@@ -208,15 +215,17 @@ def compact_alert(alert):
     return item
 
 
-def alert_level(pct):
+def alert_level(pct, near_pct=80.0):
     if pct >= 100.0:
         return "over"
-    if pct >= 80.0:
+    if pct >= near_pct:
         return "near"
     return None
 
 
-def build_alerts(day_records, all_records, now, tzinfo, daily_cap, go_allowance):
+def build_alerts(
+    day_records, all_records, now, tzinfo, daily_cap, go_allowance, go_near_pct=DEFAULT_GO_NEAR_PCT
+):
     alerts = []
     day_totals = stats_for(day_records)
     day_usd = day_totals["usd_total"]
@@ -257,7 +266,7 @@ def build_alerts(day_records, all_records, now, tzinfo, daily_cap, go_allowance)
         if budget <= 0:
             continue
         pct = window_usd / budget * 100.0
-        level = alert_level(pct)
+        level = alert_level(pct, go_near_pct)
         if level:
             alert = {
                 "kind": "go_allowance",
@@ -364,7 +373,17 @@ def summarize_day(day_records):
     return totals, groups
 
 
-def build_report(records, bad_lines, selected_day, now, tzinfo, by, daily_cap, go_allowance):
+def build_report(
+    records,
+    bad_lines,
+    selected_day,
+    now,
+    tzinfo,
+    by,
+    daily_cap,
+    go_allowance,
+    go_near_pct=DEFAULT_GO_NEAR_PCT,
+):
     by_day = {}
     for record in records:
         key = local_date(record, tzinfo)
@@ -373,7 +392,9 @@ def build_report(records, bad_lines, selected_day, now, tzinfo, by, daily_cap, g
 
     day_records = by_day.get(selected_day, [])
     totals, groups = summarize_day(day_records)
-    alerts = build_alerts(day_records, records, now, tzinfo, daily_cap, go_allowance)
+    alerts = build_alerts(
+        day_records, records, now, tzinfo, daily_cap, go_allowance, go_near_pct
+    )
 
     days = []
     for key in sorted(by_day):
@@ -437,13 +458,24 @@ def build_parser():
         "--daily-cap-usd",
         type=positive_float,
         default=None,
-        help="daily spend cap in USD (default: env BEE_USAGE_DAILY_CAP_USD or 5.00)",
+        help=(
+            "daily spend warn level in USD (default: env BEE_USAGE_DAILY_CAP_USD, then "
+            "thresholds.daily_model_spend_above_usd from --alerts, then the built-in fallback)"
+        ),
     )
     parser.add_argument(
         "--go-allowance-usd",
         type=positive_float,
         default=DEFAULT_GO_ALLOWANCE,
         help="monthly Go allowance in USD (default: 100)",
+    )
+    parser.add_argument(
+        "--alerts",
+        default=None,
+        help=(
+            "alert.thresholds/v1 JSON (workflow observability/alerts.defaults.json or an "
+            "override); default: env BEE_USAGE_ALERTS"
+        ),
     )
     parser.add_argument("--now", help="reference time for windows (ISO-8601)")
     parser.add_argument(
@@ -455,7 +487,35 @@ def build_parser():
     return parser
 
 
-def resolve_daily_cap(parser, value):
+def load_thresholds(path):
+    """Return the thresholds object from an alert.thresholds/v1 file, or {}.
+
+    A missing, unreadable or foreign file falls back to the built-in defaults;
+    alerts are warn-only, so a bad thresholds file never fails the report.
+    """
+    if not path:
+        return {}
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, UnicodeError, ValueError):
+        print("usage_report: cannot read alerts file; using fallback thresholds", file=sys.stderr)
+        return {}
+    if not isinstance(data, dict) or data.get("schema") not in ALERTS_SCHEMAS:
+        print("usage_report: alerts file is not alert.thresholds/v1; using fallback", file=sys.stderr)
+        return {}
+    thresholds = data.get("thresholds")
+    return thresholds if isinstance(thresholds, dict) else {}
+
+
+def _positive(value):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    value = float(value)
+    return value if math.isfinite(value) and value > 0 else None
+
+
+def resolve_daily_cap(parser, value, thresholds=None):
     if value is not None:
         return value
     env_value = os.environ.get("BEE_USAGE_DAILY_CAP_USD")
@@ -463,10 +523,20 @@ def resolve_daily_cap(parser, value):
         try:
             parsed = float(env_value)
         except ValueError:
-            return DEFAULT_DAILY_CAP
-        if parsed > 0:
+            parsed = None
+        if parsed is not None and math.isfinite(parsed) and parsed > 0:
             return parsed
+    from_file = _positive((thresholds or {}).get(DAILY_SPEND_KEY))
+    if from_file is not None:
+        return from_file
     return DEFAULT_DAILY_CAP
+
+
+def resolve_go_near_pct(thresholds=None):
+    value = _positive((thresholds or {}).get(GO_PCT_KEY))
+    if value is not None and value <= 100.0:
+        return value
+    return DEFAULT_GO_NEAR_PCT
 
 
 def main(argv=None):
@@ -492,7 +562,9 @@ def main(argv=None):
     else:
         selected_day = now.astimezone(tzinfo).date()
 
-    daily_cap = resolve_daily_cap(parser, args.daily_cap_usd)
+    thresholds = load_thresholds(args.alerts or os.environ.get("BEE_USAGE_ALERTS"))
+    daily_cap = resolve_daily_cap(parser, args.daily_cap_usd, thresholds)
+    go_near_pct = resolve_go_near_pct(thresholds)
 
     try:
         records, bad_lines = load_ledger(args.ledger)
@@ -512,6 +584,7 @@ def main(argv=None):
         args.by,
         daily_cap,
         args.go_allowance_usd,
+        go_near_pct,
     )
 
     output = report if args.full else report["compact"]

@@ -160,8 +160,10 @@ class UsageReportTests(unittest.TestCase):
             "0",
             *args,
         ]
+        env = {k: v for k, v in os.environ.items()
+               if k not in ("BEE_USAGE_ALERTS", "BEE_USAGE_DAILY_CAP_USD")}
         return subprocess.run(
-            command, capture_output=True, text=True, timeout=30, check=False
+            command, capture_output=True, text=True, timeout=30, check=False, env=env
         )
 
     def report(self, *args, records=None):
@@ -291,7 +293,7 @@ class UsageReportTests(unittest.TestCase):
         self.assertEqual(full["totals"]["duration_p95"], 38.5)
 
     def test_daily_cap_boundaries(self):
-        cases = ((3.95, None), (4.0, "near"), (5.0, "over"))
+        cases = ((7.95, None), (8.0, "near"), (10.0, "over"))
         for usd, expected in cases:
             with self.subTest(usd=usd):
                 result = self.run_cli(
@@ -424,6 +426,79 @@ class UsageReportTests(unittest.TestCase):
             check=False,
         )
         self.assertEqual(result.returncode, 2)
+
+
+
+
+class AlertsFileTests(unittest.TestCase):
+    """Thresholds are read from an alert.thresholds/v1 file, not hard-coded."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+        self.ledger = self.dir / "ledger.jsonl"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def alerts_file(self, thresholds, schema="alert.thresholds/v1"):
+        path = self.dir / "alerts.json"
+        path.write_text(json.dumps({"schema": schema, "schema_version": "v1",
+                                    "thresholds": thresholds}), encoding="utf-8")
+        return path
+
+    def go(self, records, *args, env_extra=None):
+        self.ledger.write_text("".join(json.dumps(r) + "\n" for r in records), encoding="utf-8")
+        env = {k: v for k, v in os.environ.items()
+               if k not in ("BEE_USAGE_ALERTS", "BEE_USAGE_DAILY_CAP_USD")}
+        env.update(env_extra or {})
+        res = subprocess.run([sys.executable, str(SCRIPT), "--ledger", str(self.ledger),
+                              "--tz-offset-hours", "0", "--day", "2026-01-06", *args],
+                             capture_output=True, text=True, timeout=30, check=False, env=env)
+        self.assertEqual(res.returncode, 0, res.stderr)
+        return json.loads(res.stdout)
+
+    def daily(self, report):
+        return [a for a in report["alerts"] if a["kind"] == "daily_cap"]
+
+    def test_daily_spend_from_file(self):
+        path = self.alerts_file({"daily_model_spend_above_usd": 20})
+        rec = [make_record(usd=10.0, duration_s=1.0)]
+        self.assertEqual(self.daily(self.go(rec, "--alerts", str(path))), [])
+        rec = [make_record(usd=20.0, duration_s=1.0)]
+        self.assertEqual(self.daily(self.go(rec, "--alerts", str(path)))[0]["level"], "over")
+
+    def test_env_alerts_path(self):
+        path = self.alerts_file({"daily_model_spend_above_usd": 2})
+        rec = [make_record(usd=2.0, duration_s=1.0)]
+        got = self.daily(self.go(rec, env_extra={"BEE_USAGE_ALERTS": str(path)}))
+        self.assertEqual(got[0]["level"], "over")
+        self.assertEqual(got[0]["action"], "warn")
+
+    def test_cli_flag_beats_file(self):
+        path = self.alerts_file({"daily_model_spend_above_usd": 2})
+        rec = [make_record(usd=2.0, duration_s=1.0)]
+        self.assertEqual(self.daily(self.go(rec, "--alerts", str(path), "--daily-cap-usd", "50")), [])
+
+    def test_bad_or_foreign_file_falls_back(self):
+        bad = self.dir / "bad.json"
+        bad.write_text("{not json", encoding="utf-8")
+        foreign = self.alerts_file({"daily_model_spend_above_usd": 1}, schema="something/v9")
+        rec = [make_record(usd=10.0, duration_s=1.0)]
+        for path in (bad, foreign, self.dir / "missing.json"):
+            with self.subTest(path=path.name):
+                self.assertEqual(self.daily(self.go(rec, "--alerts", str(path)))[0]["level"], "over")
+
+    def test_go_near_pct_from_file(self):
+        path = self.alerts_file({"go_allowance_pct_used": 50})
+        now = "2026-01-06T12:00:00Z"
+        rec = [make_record(usd=11.0, route="go", hour=11)]
+        rep = self.go(rec, "--alerts", str(path), "--now", now)
+        five = [a for a in rep["alerts"] if a["kind"] == "go_allowance" and a.get("window") == "5h"]
+        self.assertEqual(five[0]["level"], "near")
+        rep = self.go(rec, "--now", now)
+        five = [a for a in rep["alerts"] if a["kind"] == "go_allowance" and a.get("window") == "5h"]
+        self.assertEqual(five, [])
 
 
 if __name__ == "__main__":
