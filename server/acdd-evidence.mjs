@@ -1,6 +1,8 @@
 // Read-only ACDD evidence view. Orbit only displays contracts and the
 // bundlebees verifier's records; it never decides acceptance itself.
-import { lstat, readdir, readFile } from 'node:fs/promises';
+import { createHmac, timingSafeEqual } from 'node:crypto';
+import { constants } from 'node:fs';
+import { lstat, open, readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { makeRedactor } from './grokbots-activity.mjs';
 
@@ -32,6 +34,166 @@ export const STATUS_LABEL = Object.freeze({
 });
 
 const CONTRACT_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+const SIGNATURE_RE = /^[0-9a-f]{64}$/;
+const EVIDENCE_KEY_LABEL = 'bundlebees/tdd-evidence/1';
+
+function hex4(codePoint) {
+  return codePoint.toString(16).padStart(4, '0');
+}
+
+function escapeString(value) {
+  let out = '"';
+  for (const character of value) {
+    const codePoint = character.codePointAt(0);
+    if (codePoint === 0x22) out += '\\"';
+    else if (codePoint === 0x5c) out += '\\\\';
+    else if (codePoint === 0x08) out += '\\b';
+    else if (codePoint === 0x0c) out += '\\f';
+    else if (codePoint === 0x0a) out += '\\n';
+    else if (codePoint === 0x0d) out += '\\r';
+    else if (codePoint === 0x09) out += '\\t';
+    else if (codePoint >= 0x20 && codePoint <= 0x7e) out += character;
+    else if (codePoint <= 0xffff) out += `\\u${hex4(codePoint)}`;
+    else {
+      const astral = codePoint - 0x10000;
+      out += `\\u${hex4(0xd800 + (astral >> 10))}\\u${hex4(0xdc00 + (astral & 0x3ff))}`;
+    }
+  }
+  return `${out}"`;
+}
+
+function codePointsOf(value) {
+  return Array.from(value, character => character.codePointAt(0));
+}
+
+function compareCodePoints(left, right) {
+  const a = codePointsOf(left);
+  const b = codePointsOf(right);
+  const length = Math.min(a.length, b.length);
+  for (let index = 0; index < length; index += 1) {
+    if (a[index] !== b[index]) return a[index] - b[index];
+  }
+  return a.length - b.length;
+}
+
+function normalizeExponent(value) {
+  const match = /^(-?)(\d+(?:\.\d+)?)e([+-]?)(\d+)$/.exec(value);
+  if (!match) return value;
+  const digits = match[4].padStart(2, '0');
+  return `${match[1]}${match[2]}e${match[3] === '-' ? '-' : '+'}${digits}`;
+}
+
+function numberJson(value) {
+  if (!Number.isFinite(value)) return 'null';
+  if (Object.is(value, -0)) return '0';
+  if (Number.isInteger(value)) {
+    if (Math.abs(value) >= 1e21) return normalizeExponent(value.toExponential());
+    return String(value);
+  }
+  const magnitude = Math.abs(value);
+  if (magnitude < 1e-4 || magnitude >= 1e16) {
+    return normalizeExponent(value.toExponential());
+  }
+  const literal = value.toString();
+  return /e/i.test(literal) ? normalizeExponent(value.toExponential()) : literal;
+}
+
+// Canonical JSON matching Python json.dumps(obj, sort_keys=True,
+// separators=(",", ":"), ensure_ascii=True), which bundlebees signs.
+export function canonicalJson(value) {
+  if (value === null || value === undefined) return 'null';
+  const type = typeof value;
+  if (type === 'boolean') return value ? 'true' : 'false';
+  if (type === 'number') return numberJson(value);
+  if (type === 'string') return escapeString(value);
+  if (Array.isArray(value)) {
+    return `[${value.map(item => canonicalJson(item === undefined ? null : item)).join(',')}]`;
+  }
+  if (type === 'object') {
+    const keys = Object.keys(value)
+      .filter(key => value[key] !== undefined)
+      .sort(compareCodePoints);
+    return `{${keys.map(key => `${escapeString(key)}:${canonicalJson(value[key])}`).join(',')}}`;
+  }
+  return 'null';
+}
+
+function signablePayload(record) {
+  const payload = {};
+  for (const key of Object.keys(record)) {
+    if (key === 'signature' || key.startsWith('_')) continue;
+    payload[key] = record[key];
+  }
+  return payload;
+}
+
+function keyBuffer(key) {
+  if (Buffer.isBuffer(key)) return key;
+  if (key instanceof Uint8Array) return Buffer.from(key);
+  if (key instanceof ArrayBuffer) return Buffer.from(key);
+  return null;
+}
+
+export function verifyRecordSignature(record, key) {
+  if (!record || typeof record !== 'object' || Array.isArray(record)) return false;
+  const signature = record.signature;
+  if (typeof signature !== 'string' || !SIGNATURE_RE.test(signature)) return false;
+  const secret = keyBuffer(key);
+  if (!secret) return false;
+  const expected = createHmac('sha256', secret)
+    .update(canonicalJson(signablePayload(record)), 'utf8')
+    .digest();
+  const actual = Buffer.from(signature, 'hex');
+  if (actual.length !== expected.length) return false;
+  try {
+    return timingSafeEqual(actual, expected);
+  } catch {
+    return false;
+  }
+}
+
+export function bundlebeesEvidenceKey(leaseKey) {
+  const secret = keyBuffer(leaseKey);
+  if (!secret) return null;
+  return createHmac('sha256', secret).update(EVIDENCE_KEY_LABEL, 'utf8').digest();
+}
+
+// The lease key is private to the coordinator. It is never logged, returned
+// or placed in a view; unsafe keys simply disable verification.
+export async function loadLeaseKey(stateDir) {
+  const unavailable = reason => ({ available: false, key: null, reason });
+  if (typeof stateDir !== 'string' || !stateDir) return unavailable('missing');
+  const path = join(stateDir, 'lease.key');
+  let handle;
+  try {
+    handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+  } catch (error) {
+    return unavailable(error && error.code === 'ENOENT' ? 'missing' : 'unreadable');
+  }
+  try {
+    const info = await handle.stat();
+    if (!info.isFile()) return unavailable('unsafe');
+    if ((info.mode & 0o077) !== 0) return unavailable('unsafe');
+    if (typeof process.getuid === 'function' && info.uid !== process.getuid()) {
+      return unavailable('unsafe');
+    }
+    if (info.size !== 32) return unavailable('unsafe');
+    const buffer = Buffer.alloc(33);
+    const { bytesRead } = await handle.read(buffer, 0, 33, 0);
+    if (bytesRead !== 32) return unavailable('unsafe');
+    return { available: true, key: buffer.subarray(0, 32), reason: null };
+  } catch {
+    return unavailable('unreadable');
+  } finally {
+    try {
+      await handle.close();
+    } catch {
+      // Closing a read-only handle cannot change the verification result.
+    }
+  }
+}
+
+export const readLeaseKey = loadLeaseKey;
 
 function fail(code, message) {
   const error = new Error(message);
@@ -135,7 +297,8 @@ export function parseEvidence(obj) {
       ? obj.criteria
       : {},
     contractSha256: text(obj.contract_sha256) || null,
-    signed: typeof obj.signature === 'string' && obj.signature.length === 64,
+    hasSignature: typeof obj.signature === 'string' && SIGNATURE_RE.test(obj.signature),
+    signed: false,
     raw: obj,
   };
 }
@@ -156,7 +319,34 @@ function phaseResult(phase, record) {
   return FAILURE_TEXT[code] ? code : 'unrun';
 }
 
-export function buildEvidenceView(contract, records = [], report = null) {
+function resolveVerifier(options) {
+  if (typeof options === 'function') return { verify: options, available: true };
+  if (!options || typeof options !== 'object') return { verify: null, available: false };
+  let verify = typeof options.verify === 'function'
+    ? options.verify
+    : typeof options.verifyRecord === 'function'
+      ? options.verifyRecord
+      : null;
+  if (!verify && options.key) verify = record => verifyRecordSignature(record, options.key);
+  if (!verify && Array.isArray(options.keys)) {
+    verify = record => options.keys.some(key => verifyRecordSignature(record, key));
+  }
+  return {
+    verify,
+    available: options.verificationAvailable !== false && typeof verify === 'function',
+  };
+}
+
+function evidenceReference(value, redact) {
+  const reference = text(value);
+  if (!reference) return null;
+  const safe = reference.startsWith('/') || /^[A-Za-z]:[\\/]/.test(reference)
+    ? reference.split(/[\\/]/).pop()
+    : reference;
+  return redact(safe);
+}
+
+export function buildEvidenceView(contract, records = [], report = null, options = {}) {
   const parsedContract = parseContract(contract);
   const redact = makeRedactor();
   const notes = [];
@@ -168,7 +358,39 @@ export function buildEvidenceView(contract, records = [], report = null) {
     failures.push({ code, text: failureText(code) });
   };
 
+  const { verify, available: verificationAvailable } = resolveVerifier(options);
+  const safeVerify = value => {
+    if (!verificationAvailable || typeof verify !== 'function') return false;
+    try {
+      return Boolean(verify(value));
+    } catch {
+      return false;
+    }
+  };
+
+  const hasReport = report !== null && report !== undefined;
+  let trustedReport = null;
+  if (hasReport && typeof report === 'object' && !Array.isArray(report)
+    && text(report.contract_id) === parsedContract.id
+    && parsedContract.sha256 !== null
+    && text(report.contract_sha256) === parsedContract.sha256) {
+    if (verificationAvailable) {
+      if (safeVerify(report)) trustedReport = report;
+    } else {
+      trustedReport = report;
+    }
+  }
+  if (hasReport && !trustedReport) {
+    notes.push(redact('Acceptance report ignored: its signature or contract identity did not match the frozen contract.'));
+  }
+
+  if (!verificationAvailable) {
+    notes.push(redact('Signature verification is unavailable; no evidence was counted.'));
+  }
+
   const counted = [];
+  let verifiedCount = 0;
+  let rejectedCount = 0;
   const input = Array.isArray(records) ? records : [];
   input.forEach((raw, index) => {
     let record;
@@ -181,12 +403,35 @@ export function buildEvidenceView(contract, records = [], report = null) {
       notes.push(redact(`Skipped evidence record ${index + 1}: ${reason}`));
       return;
     }
-    if (parsedContract.sha256 !== null && record.contractSha256 !== parsedContract.sha256) {
-      addFailure('stale_revision');
+
+    if (!safeVerify(raw)) {
+      rejectedCount += 1;
+      if (verificationAvailable && record.by === 'verifier') {
+        addFailure('evidence_tampered');
+        notes.push(redact(`Evidence record ${index + 1} claims verifier output but its signature did not verify; ignored.`));
+        return;
+      }
+      if (record.by === 'worker') {
+        notes.push(redact(`Worker self-reports are not authority; ignored the ${record.phase} record ${index + 1}.`));
+        return;
+      }
+      if (verificationAvailable) {
+        notes.push(redact(`Evidence record ${index + 1} is unsigned or has an invalid signature; ignored.`));
+      }
       return;
     }
+
+    verifiedCount += 1;
     if (record.by === 'worker') {
       notes.push(redact(`Worker self-reports are not authority; ignored the ${record.phase} record ${index + 1}.`));
+      return;
+    }
+    if (record.by !== 'verifier') {
+      notes.push(redact(`Only verifier output is authoritative; ignored the ${record.phase} record ${index + 1}.`));
+      return;
+    }
+    if (parsedContract.sha256 !== null && record.contractSha256 !== parsedContract.sha256) {
+      addFailure('stale_revision');
       return;
     }
     counted.push(record);
@@ -201,8 +446,11 @@ export function buildEvidenceView(contract, records = [], report = null) {
     ok: recordOk(record),
   }));
 
-  const reportPhases = report && report.phases && typeof report.phases === 'object' && !Array.isArray(report.phases)
-    ? report.phases
+  const reportPhases = trustedReport
+    && trustedReport.phases
+    && typeof trustedReport.phases === 'object'
+    && !Array.isArray(trustedReport.phases)
+    ? trustedReport.phases
     : null;
   const phases = {};
   if (reportPhases) {
@@ -220,8 +468,11 @@ export function buildEvidenceView(contract, records = [], report = null) {
     if (code !== 'valid' && code !== 'unrun') addFailure(code);
   }
 
-  const reportCriteria = report && report.criteria && typeof report.criteria === 'object' && !Array.isArray(report.criteria)
-    ? report.criteria
+  const reportCriteria = trustedReport
+    && trustedReport.criteria
+    && typeof trustedReport.criteria === 'object'
+    && !Array.isArray(trustedReport.criteria)
+    ? trustedReport.criteria
     : null;
   const criteria = parsedContract.criteria.map(criterion => {
     let status = 'not_run';
@@ -230,7 +481,7 @@ export function buildEvidenceView(contract, records = [], report = null) {
       const entry = reportCriteria[criterion.id];
       if (entry && typeof entry === 'object') {
         status = typeof entry.status === 'string' ? entry.status : 'not_run';
-        evidence = typeof entry.evidence === 'string' ? redact(entry.evidence) : null;
+        evidence = evidenceReference(entry.evidence, redact);
       }
     } else {
       const last = [...counted].reverse().find(record => Object.prototype.hasOwnProperty.call(record.criteria, criterion.id));
@@ -249,6 +500,12 @@ export function buildEvidenceView(contract, records = [], report = null) {
     };
   });
 
+  const verification = {
+    available: verificationAvailable,
+    verified: verifiedCount,
+    rejected: rejectedCount,
+  };
+
   return {
     contractId: parsedContract.id,
     title: parsedContract.title,
@@ -258,7 +515,8 @@ export function buildEvidenceView(contract, records = [], report = null) {
     timeline,
     criteria,
     phases,
-    accepted: Boolean(report && report.accepted === true),
+    accepted: Boolean(trustedReport && trustedReport.accepted === true),
+    verification,
     failures,
     notes,
   };

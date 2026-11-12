@@ -4,11 +4,14 @@
 import { lstat, readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { makeRedactor } from './grokbots-activity.mjs';
-import { buildEvidenceView, readEvidenceDir, toActivityItems } from './acdd-evidence.mjs';
+import {
+  buildEvidenceView, bundlebeesEvidenceKey, loadLeaseKey, readEvidenceDir, toActivityItems, verifyRecordSignature,
+} from './acdd-evidence.mjs';
 
 const CONTRACT_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const MAX_EVIDENCE_DIRS = 200;
 const MAX_LEASE_BYTES = 256 * 1024;
+const MAX_REPORT_BYTES = 256 * 1024;
 const HEADERS = {
   'Content-Type': 'application/json; charset=utf-8',
   'Cache-Control': 'no-store',
@@ -185,6 +188,39 @@ async function listContracts(stateDir) {
   return contracts;
 }
 
+function verificationKeys(keyState) {
+  if (!keyState || !keyState.available || !keyState.key) return [];
+  const keys = [keyState.key];
+  const derived = bundlebeesEvidenceKey(keyState.key);
+  if (derived) keys.push(derived);
+  return keys;
+}
+
+function verifiesWithKeys(record, keys) {
+  return keys.some(key => verifyRecordSignature(record, key));
+}
+
+async function readAcceptanceReport(stateDir, contractId, keys) {
+  if (keys.length === 0) return null;
+  const path = join(stateDir, 'reports', `${contractId}.json`);
+  let reportStat;
+  try {
+    reportStat = await lstat(path);
+  } catch {
+    return null;
+  }
+  if (!reportStat.isFile() || reportStat.size > MAX_REPORT_BYTES) return null;
+
+  let parsed;
+  try {
+    parsed = JSON.parse(await readFile(path, 'utf8'));
+  } catch {
+    return null;
+  }
+  if (!isObject(parsed) || !verifiesWithKeys(parsed, keys)) return null;
+  return parsed;
+}
+
 async function readContractView(stateDir, contractId) {
   const evidenceExists = await evidenceDirState(stateDir, contractId);
   let records = [];
@@ -206,12 +242,19 @@ async function readContractView(stateDir, contractId) {
     return { status: 404, payload: { error: 'contract not found in bundlebees leases' } };
   }
 
-  const view = buildEvidenceView(contract, records);
+  const keyState = await loadLeaseKey(stateDir);
+  const keys = verificationKeys(keyState);
+  const report = await readAcceptanceReport(stateDir, contractId, keys);
+  const view = buildEvidenceView(contract, records, report, {
+    verify: record => verifiesWithKeys(record, keys),
+    verificationAvailable: keys.length > 0,
+  });
   return {
     status: 200,
     payload: {
       configured: true,
       view,
+      verification: view.verification,
       items: toActivityItems(view),
       skipped: skipped.length,
     },

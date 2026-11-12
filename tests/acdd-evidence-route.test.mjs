@@ -1,16 +1,31 @@
-// Approved acceptance tests for wiring the read-only ACDD evidence view into Orbit (contract OR2).
-// Written by the coordinator before implementation; the implementer must not edit this file.
-// Orbit only DISPLAYS bundlebees contracts and evidence. Nothing here may write, sign or decide.
+// Acceptance tests for wiring the read-only ACDD evidence view into Orbit.
+// The route verifies every record and the acceptance report with the
+// coordinator's private lease key. Orbit only displays the verified result.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, statSync, symlinkSync } from 'node:fs';
+import { createHmac, randomBytes } from 'node:crypto';
+import {
+  mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, statSync, symlinkSync, chmodSync, unlinkSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createAcddEvidenceRoute } from '../server/acdd-evidence-route.mjs';
+import { canonicalJson, verifyRecordSignature } from '../server/acdd-evidence.mjs';
 import { contractListHtml, evidenceRequest, ACDD_EVIDENCE_COMMAND } from '../src/acdd-evidence-window.ts';
 
 const SHA = 'a'.repeat(40);
 const CSHA = 'c'.repeat(64);
+const KEY = randomBytes(32);
+const OTHER_KEY = randomBytes(32);
+
+const unsigned = value => Object.fromEntries(
+  Object.entries(value).filter(([key]) => key !== 'signature' && !key.startsWith('_')),
+);
+const sign = (value, key = KEY) => ({
+  ...unsigned(value),
+  signature: createHmac('sha256', key).update(canonicalJson(unsigned(value)), 'utf8').digest('hex'),
+});
+
 const contract = (over = {}) => ({
   contract_version: 'acdd/1', id: 'W1-pricing', title: 'Add apply_tax',
   outcome: { summary: 'tax', observable_behavior: ['x'] },
@@ -29,20 +44,35 @@ const rec = (phase, classification, criteria) => ({
   revision: (phase === 'red' ? 'e' : 'b').repeat(40), base_rev: SHA, test_fingerprints: { 'tests/test_pricing.py': 'd'.repeat(64) },
   command: ['pytest'], result: { exit_code: classification === 'passed' ? 0 : 1, tests: 1, failures: classification === 'passed' ? 0 : 1, errors: 0, skipped: 0, timed_out: false },
   classification, criteria, produced_by: { role: 'verifier', name: 'bundlebees' }, test_first: true, at: '2026-11-12T18:01:00Z',
-  signature: 'f'.repeat(64),
+});
+const RED = sign(rec('red', 'behavioral_failure', { 'AC-001': 'failed' }));
+const GREEN = sign(rec('green', 'passed', { 'AC-001': 'passed' }));
+const acceptance = (over = {}) => sign({
+  contract_id: 'W1-pricing', contract_sha256: CSHA, accepted: true,
+  phases: { red: 'valid', green: 'valid' },
+  criteria: { 'AC-001': { status: 'passed', evidence: 'evidence/0002-green.json' } },
+  ...over,
 });
 
 // A bundlebees plugin data directory: leases/<attempt>.json carry the brief (with its contract);
-// evidence/<contract_id>/NNNN-phase.json are the signed records.
-function stateDir() {
+// evidence/<contract_id>/NNNN-phase.json are the signed records; reports/<id>.json is the signed report.
+function stateDir({ records = [RED, GREEN] } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'acdd-route-'));
   mkdirSync(join(root, 'leases'));
   mkdirSync(join(root, 'evidence', 'W1-pricing'), { recursive: true });
+  writeFileSync(join(root, 'lease.key'), KEY, { mode: 0o600 });
+  chmodSync(join(root, 'lease.key'), 0o600);
   writeFileSync(join(root, 'leases', 'att-1.json'), JSON.stringify({ attempt_id: 'att-1', brief: { objective: 'x', contract: contract() } }));
   writeFileSync(join(root, 'leases', 'att-0.json'), JSON.stringify({ attempt_id: 'att-0', brief: { objective: 'legacy brief without a contract' } }));
-  writeFileSync(join(root, 'evidence', 'W1-pricing', '0001-red.json'), JSON.stringify(rec('red', 'behavioral_failure', { 'AC-001': 'failed' })));
-  writeFileSync(join(root, 'evidence', 'W1-pricing', '0002-green.json'), JSON.stringify(rec('green', 'passed', { 'AC-001': 'passed' })));
+  records.forEach((record, index) => {
+    writeFileSync(join(root, 'evidence', 'W1-pricing', `000${index + 1}-${record.phase}.json`), JSON.stringify(record));
+  });
   return root;
+}
+
+function writeReport(root, report) {
+  mkdirSync(join(root, 'reports'), { recursive: true });
+  writeFileSync(join(root, 'reports', 'W1-pricing.json'), JSON.stringify(report));
 }
 
 function snapshot(root) {
@@ -91,19 +121,109 @@ test('lists contracts with evidence and skips unsafe entries', async () => {
   assert.match(out.headers['cache-control'] || out.headers['Cache-Control'] || '', /no-store/);
 });
 
-// AC-004: one contract's view is built from its lease contract and its evidence, as bundlebees wrote it.
-test('contract view comes from the lease contract and the evidence records', async () => {
+// AC-004: one contract's view is built from verified records, not labels.
+test('contract view comes from the lease contract and verified evidence records', async () => {
   const out = await call(createAcddEvidenceRoute({ stateDir: stateDir(), authorize }), { path: '/api/acdd-evidence?contract=W1-pricing' });
   assert.equal(out.status, 200);
   assert.equal(out.json.view.contractId, 'W1-pricing');
   assert.equal(out.json.view.authority, 'bundlebees verifier');
   assert.deepEqual(out.json.view.timeline.map(r => r.phase), ['red', 'green']);
   assert.equal(out.json.view.phases.green, 'valid');
-  assert.equal(out.json.view.accepted, false); // Orbit never derives acceptance without a bundlebees report
+  assert.equal(out.json.view.accepted, false);
+  assert.deepEqual(out.json.verification, { available: true, verified: 2, rejected: 0 });
   assert.ok(Array.isArray(out.json.items) && out.json.items.some(i => i.id === 'W1-pricing:summary'));
 });
 
-// AC-005: bad ids are refused; unknown contracts are 404; a missing lease contract is not invented.
+// AC-005: only a verified, contract-matching report can accept.
+test('a valid signed report with matching contract sha yields accepted:true', async () => {
+  const root = stateDir();
+  writeReport(root, acceptance());
+  const out = await call(createAcddEvidenceRoute({ stateDir: root, authorize }), { path: '/api/acdd-evidence?contract=W1-pricing' });
+  assert.equal(out.status, 200);
+  assert.equal(out.json.view.accepted, true);
+  assert.equal(out.json.view.criteria.find(c => c.id === 'AC-001').status, 'passed');
+  assert.equal(out.json.verification.available, true);
+});
+
+test('a report with a bad signature or mismatched sha yields accepted:false', async () => {
+  const badSignature = stateDir();
+  writeReport(badSignature, sign(acceptance(), OTHER_KEY));
+  const bad = await call(createAcddEvidenceRoute({ stateDir: badSignature, authorize }), { path: '/api/acdd-evidence?contract=W1-pricing' });
+  assert.equal(bad.status, 200);
+  assert.equal(bad.json.view.accepted, false);
+  assert.equal(bad.json.view.phases.green, 'valid');
+
+  const wrongSha = stateDir();
+  writeReport(wrongSha, acceptance({ contract_sha256: '9'.repeat(64) }));
+  const mismatch = await call(createAcddEvidenceRoute({ stateDir: wrongSha, authorize }), { path: '/api/acdd-evidence?contract=W1-pricing' });
+  assert.equal(mismatch.status, 200);
+  assert.equal(mismatch.json.view.accepted, false);
+  assert.ok(mismatch.json.view.notes.some(note => /report/i.test(note)));
+});
+
+test('a modified or stolen-label record is rejected by the route', async () => {
+  const root = stateDir();
+  writeFileSync(join(root, 'evidence', 'W1-pricing', '0002-green.json'), JSON.stringify({ ...GREEN, at: '2026-11-12T18:09:00Z' }));
+  const modified = await call(createAcddEvidenceRoute({ stateDir: root, authorize }), { path: '/api/acdd-evidence?contract=W1-pricing' });
+  assert.equal(modified.json.view.phases.green, 'unrun');
+  assert.ok(modified.json.view.failures.some(f => f.code === 'evidence_tampered'));
+  assert.equal(modified.json.verification.rejected, 1);
+
+  const stolenRoot = stateDir();
+  writeFileSync(join(stolenRoot, 'evidence', 'W1-pricing', '0002-green.json'), JSON.stringify(unsigned(rec('green', 'passed', { 'AC-001': 'passed' }))));
+  const stolen = await call(createAcddEvidenceRoute({ stateDir: stolenRoot, authorize }), { path: '/api/acdd-evidence?contract=W1-pricing' });
+  assert.equal(stolen.json.view.phases.green, 'unrun');
+  assert.ok(stolen.json.view.failures.some(f => f.code === 'evidence_tampered'));
+  assert.equal(stolen.json.view.accepted, false);
+});
+
+// AC-006: missing or unsafe keys disable verification without inventing acceptance.
+test('missing, group-readable and symlinked lease keys disable verification', async () => {
+  const missing = stateDir();
+  unlinkSync(join(missing, 'lease.key'));
+  for (const root of [missing, stateDir()]) {
+    if (root !== missing) chmodSync(join(root, 'lease.key'), 0o640);
+    const out = await call(createAcddEvidenceRoute({ stateDir: root, authorize }), { path: '/api/acdd-evidence?contract=W1-pricing' });
+    assert.equal(out.status, 200);
+    assert.deepEqual(out.json.verification, { available: false, verified: 0, rejected: 2 });
+    assert.equal(out.json.view.accepted, false);
+    assert.equal(out.json.view.phases.green, 'unrun');
+    assert.ok(out.json.view.notes.some(note => /verification.*unavailable/i.test(note)));
+  }
+
+  const linked = stateDir();
+  const target = join(linked, 'real-key');
+  writeFileSync(target, KEY, { mode: 0o600 });
+  chmodSync(target, 0o600);
+  unlinkSync(join(linked, 'lease.key'));
+  symlinkSync(target, join(linked, 'lease.key'));
+  const out = await call(createAcddEvidenceRoute({ stateDir: linked, authorize }), { path: '/api/acdd-evidence?contract=W1-pricing' });
+  assert.equal(out.json.verification.available, false);
+  assert.equal(out.json.view.accepted, false);
+});
+
+// AC-007: key material and host paths never appear in any response.
+test('the lease key never appears in any route response', async () => {
+  const root = stateDir();
+  writeReport(root, acceptance({ contract_sha256: '9'.repeat(64) }));
+  const route = createAcddEvidenceRoute({ stateDir: root, authorize });
+  const responses = [
+    await call(route),
+    await call(route, { path: '/api/acdd-evidence?contract=W1-pricing' }),
+    await call(route, { path: '/api/acdd-evidence?contract=nope' }),
+    await call(route, { path: '/api/acdd-evidence?contract=bad/../id' }),
+    await call(route, { authorized: false }),
+    await call(route, { method: 'POST' }),
+  ];
+  for (const out of responses) {
+    assert.ok(!out.body.includes(KEY.toString('hex')));
+    assert.ok(!out.body.includes(KEY.toString('base64')));
+    assert.ok(!out.body.includes(root));
+    assert.ok(!out.body.includes(join(root, 'lease.key')));
+  }
+});
+
+// AC-008: bad ids are refused; unknown contracts are 404; a missing lease contract is not invented.
 test('bad, unknown and contract-less ids are refused', async () => {
   const root = stateDir();
   mkdirSync(join(root, 'evidence', 'W9-orphan'));
@@ -115,9 +235,10 @@ test('bad, unknown and contract-less ids are refused', async () => {
   assert.match(orphan.json.error, /contract/i);
 });
 
-// AC-006: the route is read-only: nothing in the state directory changes.
+// AC-009: the route is read-only: nothing in the state directory changes.
 test('reading never writes to the bundlebees state dir', async () => {
   const root = stateDir();
+  writeReport(root, acceptance({ contract_sha256: '9'.repeat(64) }));
   const before = snapshot(root);
   const route = createAcddEvidenceRoute({ stateDir: root, authorize });
   await call(route);
@@ -126,7 +247,7 @@ test('reading never writes to the bundlebees state dir', async () => {
   assert.deepEqual(snapshot(root), before);
 });
 
-// AC-007: secrets in titles are redacted and errors do not leak absolute paths.
+// AC-010: secrets in titles are redacted and errors do not leak absolute paths.
 test('secrets and host paths do not leak', async () => {
   const root = stateDir();
   writeFileSync(join(root, 'leases', 'att-1.json'), JSON.stringify({ attempt_id: 'att-1', brief: { contract: contract({ title: 'token sk-abcdefghijklmnopqrstuvwxyz0123456789 here' }) } }));
@@ -137,7 +258,7 @@ test('secrets and host paths do not leak', async () => {
   assert.ok(!missing.body.includes(root));
 });
 
-// AC-008: the client helpers build an authorized GET and escape the contract list.
+// AC-011: the client helpers build an authorized GET and escape the contract list.
 test('client helpers: authorized GET request and escaped list', () => {
   const r = evidenceRequest('tok', 'W1-pricing');
   assert.equal(r.url, '/api/acdd-evidence?contract=W1-pricing');
@@ -149,11 +270,10 @@ test('client helpers: authorized GET request and escaped list', () => {
   assert.match(html, /data-contract="W1-pricing"/);
   assert.match(html, /2 records/);
   assert.match(contractListHtml([]), /No ACDD evidence yet/);
-  // Escaped text may still *contain* 'onerror=' as harmless text; what must never appear is a real tag with a handler.
   assert.ok(!/<script|<[a-z][^>]*\son[a-z]+=/i.test(html));
 });
 
-// AC-009: Orbit's existing navigation reaches the view: a command and a Hermes menu item, plus the server route.
+// AC-012: Orbit's existing navigation reaches the view: a command and a Hermes menu item, plus the server route.
 test('the view is wired into the command palette, the Hermes menu and the server', () => {
   assert.equal(ACDD_EVIDENCE_COMMAND, 'acdd-evidence');
   const main = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
@@ -165,7 +285,7 @@ test('the view is wired into the command palette, the Hermes menu and the server
   assert.match(server, /ORBIT_ACDD_STATE_DIR/);
 });
 
-// AC-010: the window styles are dark-only and the window offers no write controls.
+// AC-013: the window styles are dark-only and the window offers no write controls.
 test('styles are dark-only and the window is read-only', () => {
   const css = readFileSync(new URL('../src/acdd-evidence.css', import.meta.url), 'utf8');
   assert.doesNotMatch(css, /prefers-color-scheme:\s*light/);

@@ -23,6 +23,12 @@ export interface AcddFailure {
   text: string;
 }
 
+export interface AcddVerification {
+  available: boolean;
+  verified: number;
+  rejected: number;
+}
+
 export interface AcddEvidenceView {
   contractId: string;
   title: string;
@@ -33,6 +39,7 @@ export interface AcddEvidenceView {
   criteria: AcddCriterionRow[];
   phases: Record<string, string>;
   accepted: boolean;
+  verification?: AcddVerification;
   failures: AcddFailure[];
   notes: string[];
 }
@@ -91,12 +98,21 @@ export function renderEvidencePanel(view: AcddEvidenceView): string {
       + '</ul></section>'
     : '';
 
+  const verification = view.verification
+    ? `<p class="acdd-verification${view.verification.available ? '' : ' acdd-verification-unavailable'}">`
+      + (view.verification.available
+        ? `Signature verification: ${escapeHtml(view.verification.verified)} verified, ${escapeHtml(view.verification.rejected)} rejected`
+        : 'Signature verification unavailable; evidence is not counted')
+      + '</p>'
+    : '';
+
   return `<section class="acdd-evidence">`
     + '<header class="acdd-header">'
     + `<h2>${escapeHtml(view.title)}</h2>`
     + `<p class="acdd-meta">Contract ${escapeHtml(view.contractId)} · revision ${escapeHtml(view.shortSha ?? 'unknown')}`
     + `${view.frozen ? ' · frozen' : ' · not frozen'}</p>`
     + '<p class="acdd-authority">Decided by bundlebees verifier; Orbit only displays</p>'
+    + verification
     + '</header>'
     + '<table class="acdd-criteria">'
     + '<thead><tr><th>ID</th><th>Criterion</th><th>Status</th></tr></thead>'
