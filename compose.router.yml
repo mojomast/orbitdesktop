@@ -26,8 +26,12 @@ services:
     mem_limit: 512m
     environment:
       GOMEMLIMIT: 450MiB
+    # Generated (0600) by the supervisor when the router is enabled. Optional so
+    # `docker compose config` and a plain `up` work on a fresh checkout.
+    # Long-form env_file needs Docker Compose v2.24 or newer.
     env_file:
-      - ${ORBIT_RUNTIME_DIR:-./runtime}/router/router.env
+      - path: ${ORBIT_RUNTIME_DIR:-./runtime}/router/router.env
+        required: false
     volumes:
       - ${ORBIT_RUNTIME_DIR:-./runtime}/router/data:/app/data
     networks: [orbit-internal]
