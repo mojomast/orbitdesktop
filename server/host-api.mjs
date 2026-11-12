@@ -15,8 +15,15 @@ import { createHostRecipes, BUNDLEBEES_WORKER_IMAGE } from './host-recipes.mjs';
  *   admin   raw argv, with an approval for destructive commands
  *
  * Every executed command is appended to the per-host hash-chained audit log.
- * Destructive commands are never run until the injected approval channel says
- * the owner approved the exact host, agent and argv.
+ * Destructive commands are never run until the injected approval channel
+ * returns an authenticated owner decision for the exact host, agent and argv:
+ * an object `{ approved: true, id: <non-empty string>, authenticated: true }`.
+ * Every other outcome is a refusal, including a bare id string, `true`,
+ * `{ status: 'approved' }`, `{ decision: 'approve' }`, an approval object
+ * without `authenticated: true` or an id, malformed objects, null/undefined,
+ * thrown errors and timeouts. Refusals are audited with a reason code
+ * (`not_approved`, `approval_timeout`, `approval_unavailable` or
+ * `approval_malformed`) and are never executed.
  *
  * UNTESTED: the tailcat ProxyCommand transport is owned by the SSH host module
  * and is not exercised here.
@@ -25,8 +32,8 @@ import { createHostRecipes, BUNDLEBEES_WORKER_IMAGE } from './host-recipes.mjs';
  */
 
 const HOST_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+const AGENT_ID = /^[a-z0-9][a-z0-9-]{0,31}$/;
 const LEVELS = new Set(['none', 'read', 'deploy', 'admin']);
-const DEFAULT_PERMISSIONS = Object.freeze({ setup: 'deploy' });
 const MAX_ARGV = 64;
 const MAX_ARG_BYTES = 8192;
 const MAX_CONTENT_BYTES = 1024 * 1024;
@@ -57,7 +64,7 @@ function assertHostId(hostId) {
 
 function agentOf(value) {
   const agent = typeof value === 'string' ? value.trim() : '';
-  return (agent || 'agent').slice(0, 64);
+  return AGENT_ID.test(agent) ? agent : '';
 }
 
 function binaryOf(argv) {
@@ -409,6 +416,7 @@ export function createHostApi({
   }
 
   async function permissionFor(agent, hostId, host) {
+    if (typeof agent !== 'string' || !AGENT_ID.test(agent)) return 'none';
     let level = null;
     try {
       if (typeof resolver === 'function') {
@@ -430,7 +438,7 @@ export function createHostApi({
     const hostLevel = typeof rawHostLevel === 'string' ? rawHostLevel.toLowerCase() : rawHostLevel;
     if (LEVELS.has(normalized)) level = normalized;
     else if (LEVELS.has(hostLevel)) level = hostLevel;
-    else level = DEFAULT_PERMISSIONS[agent] || 'none';
+    else level = 'none';
     return level;
   }
 
@@ -446,10 +454,15 @@ export function createHostApi({
 
   async function askApproval({ hostId, host, agent, argv, reason, cwd, timeoutMs }) {
     const request = typeof approvals === 'function' ? approvals : approvals?.request || approvals?.ask || approvals?.requestApproval;
-    if (typeof request !== 'function') return { approved: false, id: null, unavailable: true };
+    if (typeof request !== 'function') return { approved: false, id: null, unavailable: true, reason: 'approval_unavailable' };
+    const waitMs = Math.min(
+      MAX_TIMEOUT_MS,
+      Number.isFinite(Number(timeoutMs)) && Number(timeoutMs) > 0 ? Math.trunc(Number(timeoutMs)) : DEFAULT_TIMEOUT_MS,
+    );
     let result;
+    let timer;
     try {
-      result = await request.call(approvals, {
+      const pending = Promise.resolve().then(() => request.call(approvals, {
         kind: 'host-command',
         hostId,
         host: String(host?.label || hostId),
@@ -458,18 +471,61 @@ export function createHostApi({
         exactCommand: argv.join(' '),
         reason,
         cwd: cwd ?? null,
-        timeoutMs,
+        timeoutMs: waitMs,
+      }));
+      const expired = new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          const error = new Error('The approval request timed out.');
+          error.code = 'approval_timeout';
+          reject(error);
+        }, waitMs);
       });
+      result = await Promise.race([pending, expired]);
     } catch (error) {
-      return { approved: false, id: null, unavailable: true, error };
+      const timedOut = error?.code === 'approval_timeout';
+      return {
+        approved: false,
+        id: null,
+        unavailable: !timedOut,
+        timedOut,
+        reason: timedOut ? 'approval_timeout' : 'approval_unavailable',
+        error,
+      };
+    } finally {
+      clearTimeout(timer);
     }
-    const approved = result === true
-      || typeof result === 'string'
-      || result?.approved === true
-      || result?.status === 'approved'
-      || ['approve', 'approved', 'allow'].includes(result?.decision);
-    const id = typeof result === 'string' ? result : result?.id ?? result?.approvalId ?? result?.approval_id ?? null;
-    return { approved, id: id === null || id === undefined ? null : String(id), unavailable: false };
+    let id = null;
+    if (typeof result === 'string') {
+      id = result || null;
+    } else if (result && typeof result === 'object' && !Array.isArray(result)) {
+      try {
+        const candidate = result.id ?? result.approvalId ?? result.approval_id;
+        if (typeof candidate === 'string' && candidate.length > 0) id = candidate;
+      } catch {
+        return { approved: false, id: null, unavailable: false, reason: 'approval_malformed' };
+      }
+    }
+    if (!result || typeof result !== 'object' || Array.isArray(result)) {
+      return { approved: false, id, unavailable: false, reason: 'not_approved' };
+    }
+    let approved = false;
+    let malformed = false;
+    try {
+      if (result.approved !== true || result.authenticated !== true) {
+        approved = false;
+      } else if (result.id === null || result.id === undefined) {
+        approved = false;
+      } else if (typeof result.id !== 'string' || result.id.trim() === '') {
+        malformed = true;
+      } else {
+        approved = true;
+        id = result.id;
+      }
+    } catch {
+      malformed = true;
+    }
+    if (approved) return { approved: true, id, unavailable: false, reason: null };
+    return { approved: false, id, unavailable: false, reason: malformed ? 'approval_malformed' : 'not_approved' };
   }
 
   async function resolveExec() {
@@ -514,6 +570,7 @@ export function createHostApi({
       const approval = await askApproval({ hostId: id, host, agent, argv: args, reason: 'destructive', cwd, timeoutMs });
       approvalId = approval.id;
       if (!approval.approved) {
+        const denialReason = approval.reason || (approval.unavailable ? 'approval_unavailable' : 'not_approved');
         await appendAudit({
           time: new Date(now()).toISOString(),
           agent,
@@ -523,7 +580,8 @@ export function createHostApi({
           exitCode: null,
           durationMs: 0,
           outputBytes: 0,
-          outputTail: '',
+          outputTail: denialReason,
+          reason: denialReason,
           status: 'refused',
         });
         throw hostError(approval.unavailable ? 'approval_required' : 'approval_refused', approval.unavailable ? 'No approval channel is available for this destructive command.' : 'The owner did not approve this command.', 403);
@@ -628,6 +686,7 @@ export function createHostApi({
       const approval = await askApproval({ hostId: id, host, agent, argv: ['put', target], reason: 'outside-orbit-write', cwd: null, timeoutMs: 30000 });
       approvalId = approval.id;
       if (!approval.approved) {
+        const denialReason = approval.reason || (approval.unavailable ? 'approval_unavailable' : 'not_approved');
         await appendAudit({
           time: new Date(now()).toISOString(),
           agent,
@@ -637,7 +696,8 @@ export function createHostApi({
           exitCode: null,
           durationMs: 0,
           outputBytes: 0,
-          outputTail: '',
+          outputTail: denialReason,
+          reason: denialReason,
           status: 'refused',
         });
         throw hostError(approval.unavailable ? 'approval_required' : 'approval_refused', 'Writing outside /opt/orbit needs owner approval.', 403);

@@ -160,7 +160,7 @@ same script for a `sudo sh -c` invocation; show the readable script first.
         "verifiedBy": "bootstrap-fingerprint"
       },
       "privilege": { "sudo": "scoped", "docker": "group", "forcedCommand": false, "terminal": true },
-      "permissions": { "setup": "deploy", "pi": "none", "opencode": "none", "hermes": "none", "bundlebees": "deploy" },
+      "permissions": { "setup": "none", "pi": "none", "opencode": "none", "hermes": "none", "bundlebees": "none" },
       "docker": { "context": "orbit-build-01" },
       "status": { "state": "verified", "lastSeen": "2026-11-12T00:00:00Z" }
     }
@@ -176,7 +176,22 @@ module remains responsible for the complete file.
 ## Permissions and audit
 
 The host object carries per-agent permission levels (`none`, `read`, `deploy`,
-`admin`) for `setup`, `pi`, `opencode`, `hermes` and `bundlebees`. Agents never
+`admin`) for `setup`, `pi`, `opencode`, `hermes` and `bundlebees`, plus up to 32
+validated agent ids (`^[a-z0-9][a-z0-9-]{0,31}$`). Every agent, including setup,
+starts at `none`; an unknown or invalid agent id always gets `none`. Raising an
+agent to `deploy` or `admin` is an explicit owner choice: the UI asks for
+confirmation, the API refuses the change without `confirm: true` (409), and each
+permission change is appended to the host audit log as
+`orbit-permission <agent> <from> <to>`.
+
+Destructive commands run only when the approval channel returns
+`{ approved: true, id: <non-empty string>, authenticated: true }`. A bare id
+string, `true`, status or decision strings, a missing id or `authenticated`,
+malformed objects, errors and timeouts are refusals and are audited as such.
+
+Docker group membership is root-equivalent on the host, so `privilege.docker:
+"group"` is refused unless `privilege.dockerGroupRootEquivalent: true` is set,
+and `bootstrapScript` refuses it without the same acknowledgement. Agents never
 receive key material; they call Orbit's host API. Every action appends a bounded
 JSON line to `<runtime>/audit/hosts/<hostId>.jsonl` (0600) with the action,
 outcome, exit code, duration and error reason. Private keys and tailcat addresses

@@ -78,7 +78,7 @@ function setup({ hosts = [host()], approve = true, exec = makeExec(), ...options
     approve,
     async request(input) {
       this.calls.push(input);
-      return { id: `approval-${this.calls.length}`, approved: this.approve };
+      return { id: `approval-${this.calls.length}`, approved: this.approve, authenticated: true };
     },
   };
   const sshHosts = options.sshHosts || makeHosts(hosts);
@@ -121,15 +121,20 @@ test('permission matrix: none, read, deploy and admin are enforced per agent and
   }
 });
 
-test('defaults give the setup agent deploy and every other agent none', async () => {
+test('every agent defaults to none until deploy is explicitly granted', async () => {
   const ctx = setup({ hosts: [host({ permissions: undefined })] });
   try {
-    const listed = await ctx.api.hosts.list({ agent: 'setup' });
-    assert.equal(listed.hosts[0].permission, 'deploy');
-    const other = await ctx.api.hosts.list({ agent: 'hermes' });
-    assert.equal(other.hosts[0].permission, 'none');
-    await assert.rejects(ctx.api.hosts.run('build-01', ['uptime'], { agent: 'hermes' }), error => error.code === 'permission_denied');
+    for (const agent of ['setup', 'pi', 'opencode', 'hermes', 'bundlebees']) {
+      const listed = await ctx.api.hosts.list({ agent });
+      assert.equal(listed.hosts[0].permission, 'none', `${agent} must default to none`);
+      await assert.rejects(ctx.api.hosts.run('build-01', ['uptime'], { agent }), error => error.code === 'permission_denied');
+    }
+    assert.equal(ctx.exec.calls.length, 0);
+
+    ctx.sshHosts.map.get('build-01').permissions = { setup: 'deploy' };
     await ctx.api.hosts.run('build-01', ['uptime'], { agent: 'setup' });
+    assert.equal(ctx.exec.calls.length, 1);
+    await assert.rejects(ctx.api.hosts.run('build-01', ['uptime'], { agent: 'hermes' }), error => error.code === 'permission_denied');
   } finally {
     ctx.cleanup();
   }
@@ -142,6 +147,29 @@ test('an injected permissions resolver can override host permissions', async () 
   try {
     await ctx.api.hosts.run('build-01', ['uptime'], { agent: 'pi' });
     await assert.rejects(ctx.api.hosts.run('build-01', ['df'], { agent: 'hermes' }), error => error.code === 'permission_denied');
+  } finally {
+    ctx.cleanup();
+  }
+});
+
+test('dynamic agent ids can be granted permissions while unknown and invalid ids get none', async () => {
+  const ctx = setup({
+    hosts: [host({ permissions: { 'openai-compatible': 'read', 'my-agent-2': 'deploy', Bad_Agent: 'admin' } })],
+  });
+  try {
+    const read = await ctx.api.hosts.run('build-01', ['uptime'], { agent: 'openai-compatible' });
+    assert.equal(read.code, 0);
+    const deploy = await ctx.api.hosts.run('build-01', ['docker', 'compose', '-p', 'orbit-worker', 'up', '-d'], { agent: 'my-agent-2' });
+    assert.equal(deploy.code, 0);
+
+    await assert.rejects(ctx.api.hosts.run('build-01', ['uptime'], { agent: 'unregistered-agent' }), error => error.code === 'permission_denied');
+    await assert.rejects(ctx.api.hosts.run('build-01', ['uptime'], { agent: 'Bad_Agent' }), error => error.code === 'permission_denied');
+    await assert.rejects(ctx.api.hosts.run('build-01', ['uptime'], { agent: '' }), error => error.code === 'permission_denied');
+    await assert.rejects(ctx.api.hosts.run('build-01', ['uptime'], { agent: 'UPPER' }), error => error.code === 'permission_denied');
+
+    const unknown = await ctx.api.hosts.list({ agent: 'unregistered-agent' });
+    assert.equal(unknown.hosts[0].permission, 'none');
+    assert.equal(ctx.exec.calls.length, 2);
   } finally {
     ctx.cleanup();
   }
@@ -180,6 +208,83 @@ test('approved destructive argv runs and the approval id reaches the audit log',
     assert.equal(read.valid, true);
     assert.equal(read.entries.at(-1).approvalId, 'approval-1');
     assert.deepEqual(read.entries.at(-1).argv, ['docker', 'system', 'prune', '-af']);
+  } finally {
+    ctx.cleanup();
+  }
+});
+
+async function assertDestructiveNotApproved(outcome, reason, { timeout } = {}) {
+  const ctx = setup({
+    approvals: {
+      async request() {
+        if (typeof outcome === 'function') return outcome();
+        return outcome;
+      },
+    },
+  });
+  try {
+    await assert.rejects(
+      ctx.api.hosts.run('build-01', ['rm', '-rf', '/opt/orbit/worker'], { agent: 'hermes', ...(timeout === undefined ? {} : { timeout }) }),
+      error => error.code === 'approval_refused' || error.code === 'approval_required',
+    );
+    assert.equal(ctx.exec.calls.length, 0, `${reason} must never execute`);
+    const audited = ctx.audit.read('build-01');
+    assert.equal(audited.valid, true);
+    assert.equal(audited.entries.at(-1).status, 'refused');
+    assert.equal(audited.entries.at(-1).outputTail, reason);
+  } finally {
+    ctx.cleanup();
+  }
+}
+
+test('a pending approval id string is not approval', async () => {
+  await assertDestructiveNotApproved('approval-pending-1', 'not_approved');
+});
+
+test('a boolean true result is not approval', async () => {
+  await assertDestructiveNotApproved(true, 'not_approved');
+});
+
+test('a status approved string is not approval', async () => {
+  await assertDestructiveNotApproved({ status: 'approved' }, 'not_approved');
+});
+
+test('a decision approve string is not approval', async () => {
+  await assertDestructiveNotApproved({ decision: 'approve' }, 'not_approved');
+});
+
+test('an approval without the authenticated marker is not approval', async () => {
+  await assertDestructiveNotApproved({ approved: true, id: 'approval-1' }, 'not_approved');
+});
+
+test('an approval without an id is not approval', async () => {
+  await assertDestructiveNotApproved({ approved: true, authenticated: true }, 'not_approved');
+});
+
+test('a null outcome is not approval', async () => {
+  await assertDestructiveNotApproved(null, 'not_approved');
+});
+
+test('an approval channel error means no approval', async () => {
+  await assertDestructiveNotApproved(() => { throw new Error('approval channel down'); }, 'approval_unavailable');
+});
+
+test('an approval timeout means no approval', async () => {
+  await assertDestructiveNotApproved(() => new Promise(() => {}), 'approval_timeout', { timeout: 10 });
+});
+
+test('a malformed approval object is not approval', async () => {
+  await assertDestructiveNotApproved({ approved: true, authenticated: true, id: 42 }, 'approval_malformed');
+});
+
+test('the only approval is an authenticated owner decision with a non-empty id', async () => {
+  const ctx = setup({
+    approvals: { async request() { return { approved: true, authenticated: true, id: 'owner-decision-1' }; } },
+  });
+  try {
+    const result = await ctx.api.hosts.run('build-01', ['rm', '-rf', '/opt/orbit/worker'], { agent: 'hermes' });
+    assert.equal(result.approvalId, 'owner-decision-1');
+    assert.equal(ctx.exec.calls.length, 1);
   } finally {
     ctx.cleanup();
   }

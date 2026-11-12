@@ -154,3 +154,36 @@ test('OpenCode free chat is not wrapped in the OpenAI-compatible gateway', async
   assert.deepEqual(await setup.agentProfiles(), []);
   assert.equal(calls, 0);
 });
+
+function fakeReq(method, body) {
+  const text = body === undefined ? '' : JSON.stringify(body);
+  return { method, headers: {}, async *[Symbol.asyncIterator]() { if (text) yield text; } };
+}
+function fakeRes() {
+  return { status: 0, body: '', writeHead(status) { this.status = status; }, end(text) { this.body = String(text ?? ''); } };
+}
+async function hostCall(setup, body) {
+  const res = fakeRes();
+  await setup.handle(fakeReq('POST', body), res, new URL('http://127.0.0.1/api/hosts'));
+  return { status: res.status, data: JSON.parse(res.body || '{}') };
+}
+
+test('host permissions: every agent starts at none, deploy needs explicit confirmation, every change is audited', async t => {
+  const runtimeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'orbit-wiring-perm-'));
+  t.after(() => fs.rmSync(runtimeDir, { recursive: true, force: true }));
+  // A host record as the SSH host module stores it (no network is touched here).
+  fs.writeFileSync(path.join(runtimeDir, 'orbit-hosts.json'), JSON.stringify({ hosts: [{ id: 'build-01', label: 'Build', address: 'build.example.test', port: 22, user: 'orbit' }] }), { mode: 0o600 });
+  const setup = createOrbitSetup({ runtimeDir, env: {}, startGateway: async () => ({ url: 'x', token: 'y' }) });
+
+  const refused = await hostCall(setup, { action: 'permissions', hostId: 'build-01', permissions: { setup: 'deploy' } });
+  assert.equal(refused.status, 409, JSON.stringify(refused.data));
+  const read = await hostCall(setup, { action: 'permissions', hostId: 'build-01', permissions: { 'my-agent-2': 'read' } });
+  assert.equal(read.status, 200, JSON.stringify(read.data));
+  const granted = await hostCall(setup, { action: 'permissions', hostId: 'build-01', permissions: { 'my-agent-2': 'read', setup: 'deploy' }, confirm: true });
+  assert.equal(granted.status, 200, JSON.stringify(granted.data));
+  assert.equal((await hostCall(setup, { action: 'permissions', hostId: 'build-01', permissions: { 'Bad Agent': 'read' } })).status, 400);
+
+  const audit = await hostCall(setup, { action: 'audit', hostId: 'build-01' });
+  const changes = (audit.data.records ?? audit.data.entries ?? []).filter(entry => entry.status === 'permission').map(entry => entry.argv.slice(1).join(' '));
+  assert.deepEqual(changes, ['my-agent-2 none read', 'setup none deploy']);
+});

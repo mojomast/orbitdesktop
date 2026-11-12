@@ -33,7 +33,7 @@ Research only; no Orbit code changed. Kyle: "i want to be able to add hosts to o
    - the restricted line: `restrict,pty ssh-ed25519 AAAA… orbit-<installId>` (drop `pty` for hosts without a terminal; add `from="<orbit egress>"` when known), or
    - a bootstrap one-liner the user pastes as root once: creates user `orbit`, installs that line, optionally adds `orbit` to the `docker` group (warn: root-equivalent) and writes a scoped `/etc/sudoers.d/orbit`, then prints the host's ed25519 fingerprint. The script is shown in full, inlined (no remote download), and is idempotent.
 4. **Test connection** — Orbit runs `ssh -o BatchMode=yes … true`, shows the host key fingerprint it saw next to "compare with the fingerprint the bootstrap printed", pins on confirm, then preflights: OS/arch, disk, Docker/Compose versions, sudo scope, clock skew. Friendly errors (auth refused vs unreachable vs host key changed).
-5. **Permissions** — per agent (setup, Pi, OpenCode, Hermes, bundlebees deployer): `none | read | deploy | admin`. Default: setup agent `deploy`, others `none`.
+5. **Permissions** — per agent (setup, Pi, OpenCode, Hermes, bundlebees deployer): `none | read | deploy | admin`. Default: `none` for every agent, including setup; deploy or admin is an explicit owner choice with confirmation, and each change is written to the host audit log. Other validated agent ids (`^[a-z0-9][a-z0-9-]{0,31}$`, at most 32) can be registered; unknown agents get `none`.
 6. **Done** — host card with status, last seen, roles, transport, key in use, Remove/Rotate buttons.
 
 ## Key handling compared
