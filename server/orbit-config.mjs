@@ -37,7 +37,40 @@ const INSTALL_STATES = Object.freeze(['pending', 'installed', 'failed', 'skipped
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/;
 const ENV_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const KEY_FILE_PATTERN = /^[a-z0-9][a-z0-9._-]{0,96}\.key$/;
-const TOP_LEVEL = new Set(['schemaVersion', 'mode', 'defaultModel', 'providerMode', 'components', 'providers', 'roles', 'router', 'appliedAt', 'installState']);
+const TOP_LEVEL = new Set(['schemaVersion', 'mode', 'defaultModel', 'providerMode', 'components', 'providers', 'roles', 'router', 'observability', 'appliedAt', 'installState']);
+const OBSERVABILITY_FIELDS = new Set(['repos']);
+export const MAX_WATCHED_REPOS = 50;
+const REPO_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}$/;
+
+/**
+ * Normalise the observability watch list: trimmed `owner/name` entries,
+ * de-duplicated case-insensitively (first spelling wins), at most 50.
+ */
+export function normalizeRepoList(list) {
+  if (!Array.isArray(list)) throw invalid('observability.repos must be a list of owner/name repositories.');
+  const out = [];
+  const seen = new Set();
+  for (const raw of list) {
+    const name = typeof raw === 'string' ? raw.trim() : '';
+    const repoName = name.split('/')[1];
+    if (!REPO_PATTERN.test(name) || repoName === '.' || repoName === '..') {
+      throw invalid(`Each watched repository must be owner/name (for example octo/hello-world); got ${JSON.stringify(String(raw).slice(0, 80))}.`);
+    }
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(name);
+  }
+  if (out.length > MAX_WATCHED_REPOS) throw invalid(`At most ${MAX_WATCHED_REPOS} repositories can be watched.`);
+  return out;
+}
+
+function normalizeObservability(value) {
+  if (value === undefined) return { repos: [] };
+  if (!isPlainObject(value)) throw invalid('observability must be an object.');
+  rejectUnknown(value, OBSERVABILITY_FIELDS, 'observability');
+  return { repos: value.repos === undefined ? [] : normalizeRepoList(value.repos) };
+}
 const PROVIDER_FIELDS = new Set(['id', 'kind', 'label', 'baseUrl', 'keyRef', 'privacyNote', 'routerType']);
 const ROLE_FIELDS = new Set(['provider', 'model']);
 const ROUTER_FIELDS = new Set(['enabled', 'mode', 'engine', 'image', 'bind', 'port', 'contentLogging', 'allowPrivateNetwork', 'upstreams', 'fallbacks', 'virtualKeys', 'external']);
@@ -116,6 +149,7 @@ export function defaultOrbitConfig() {
       router: false,
     },
     providers: [],
+    observability: { repos: [] },
     roles: {
       setup: { provider: '', model: '' },
       chat: { provider: '', model: '' },
@@ -443,6 +477,7 @@ export function validateOrbitConfig(value) {
     providers: normalizedProviders,
     roles,
     router,
+    observability: normalizeObservability(value.observability),
   };
   if (installState !== undefined) result.installState = installState;
   if (value.appliedAt !== undefined) result.appliedAt = value.appliedAt;

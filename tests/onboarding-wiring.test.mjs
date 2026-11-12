@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
+import http from 'node:http';
 import { createOrbitSetup, OPENAI_COMPAT_PROVIDER } from '../server/onboarding-wiring.mjs';
 import { buildMinimalConfig } from '../server/orbit-config.mjs';
 import { isGatewayProvider, providerLabel } from '../server/agent-providers.mjs';
@@ -22,7 +23,7 @@ function freePort() {
   });
 }
 
-async function boot(t) {
+async function boot(t, extraEnv = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'orbit-wiring-'));
   const home = path.join(root, 'home');
   const runtime = path.join(root, 'runtime');
@@ -35,7 +36,7 @@ async function boot(t) {
   const token = `orbit-wiring-${process.pid}-${'y'.repeat(28)}`;
   const child = spawn(process.execPath, ['--experimental-strip-types', 'server/index.mjs'], {
     cwd: repo,
-    env: { PATH: `${bin}:/usr/bin:/bin`, HOME: home, TMPDIR: os.tmpdir(), PORT: String(port), ORBIT_TOKEN: token, ORBIT_RUNTIME_DIR: runtime, ORBIT_AGENT_DISCOVERY: 'off', PI_HARNESS_DISABLED: '1' },
+    env: { PATH: `${bin}:/usr/bin:/bin`, HOME: home, TMPDIR: os.tmpdir(), PORT: String(port), ORBIT_TOKEN: token, ORBIT_RUNTIME_DIR: runtime, ORBIT_AGENT_DISCOVERY: 'off', PI_HARNESS_DISABLED: '1', ...extraEnv },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let logs = '';
@@ -153,6 +154,63 @@ test('OpenCode free chat is not wrapped in the OpenAI-compatible gateway', async
   setup.store.save(buildMinimalConfig({ provider: { id: 'opencode', kind: 'opencode-free', label: 'OpenCode free' }, model: 'deepseek-v4.1-flash-free' }));
   assert.deepEqual(await setup.agentProfiles(), []);
   assert.equal(calls, 0);
+});
+
+test('GitHub connect and repos to watch over the real routes: optional, owner-only, token never echoed', { timeout: 60000 }, async t => {
+  const GH_TOKEN = 'ghp_WIRINGsentinelWIRING0123456789abcd';
+  const seen = [];
+  const fake = http.createServer((req, res) => {
+    seen.push(`${req.method} ${req.url}`);
+    const ok = req.headers.authorization === `Bearer ${GH_TOKEN}`;
+    res.setHeader('Content-Type', 'application/json');
+    if (req.url === '/user') { res.statusCode = ok ? 200 : 401; if (ok) res.setHeader('x-oauth-scopes', 'repo'); return res.end(JSON.stringify(ok ? { login: 'octocat' } : { message: 'Bad credentials' })); }
+    if (req.url.startsWith('/user/repos')) { res.statusCode = ok ? 200 : 401; return res.end(JSON.stringify(ok ? [{ full_name: 'octo/one', private: false }] : {})); }
+    res.statusCode = 404; res.end('{}');
+  });
+  await new Promise(resolve => fake.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => fake.close(resolve)));
+  const app = await boot(t, { ORBIT_GITHUB_API: `http://127.0.0.1:${fake.address().port}` });
+
+  // Empty by default and skippable: nothing reached GitHub.
+  const repos = await app.call('GET', '/api/onboarding/repos');
+  assert.equal(repos.status, 200);
+  assert.deepEqual(repos.data.repos, []);
+  assert.equal(repos.data.githubConnected, false);
+  const status = await app.call('GET', '/api/onboarding/github');
+  assert.equal(status.data.connected, false);
+  assert.equal(status.data.deviceFlow, false);
+  assert.equal(seen.length, 0);
+  assert.equal((await app.call('POST', '/api/onboarding/github/device/start', {})).status, 409);
+
+  // Owner-only and same-origin.
+  assert.equal((await fetch(`${app.base}/api/onboarding/github`)).status, 401);
+  assert.equal((await fetch(`${app.base}/api/settings/repos`)).status, 401);
+  assert.equal((await app.call('POST', '/api/onboarding/github/token', { token: GH_TOKEN }, { Origin: 'http://evil.example' })).status, 403);
+
+  // A bad token is rejected; a good one connects. Neither is echoed.
+  assert.equal((await app.call('POST', '/api/onboarding/github/token', { token: 'ghp_wrongwrongwrongwrongwrong' })).status, 400);
+  const connected = await app.call('POST', '/api/onboarding/github/token', { token: GH_TOKEN });
+  assert.equal(connected.status, 200, JSON.stringify(connected.data));
+  assert.equal(connected.data.login, 'octocat');
+  const listed = await app.call('GET', '/api/settings/github/repos');
+  assert.deepEqual(listed.data.repos, [{ fullName: 'octo/one', private: false }]);
+
+  // Watch list: validated, editable from Settings, persisted in the config.
+  assert.equal((await app.call('PUT', '/api/onboarding/repos', { repos: ['not-a-repo'] })).status, 400);
+  const saved = await app.call('PUT', '/api/settings/repos', { repos: ['octo/one', 'OCTO/one', 'octo/two'] });
+  assert.deepEqual(saved.data.repos, ['octo/one', 'octo/two']);
+  assert.deepEqual((await app.call('GET', '/api/onboarding/repos')).data.repos, ['octo/one', 'octo/two']);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(app.runtime, 'orbit-config.json'), 'utf8')).observability.repos, ['octo/one', 'octo/two']);
+  assert.deepEqual((await app.call('PUT', '/api/settings/repos', { repos: [] })).data.repos, []);
+
+  // Disconnect from Settings removes the token.
+  const off = await app.call('POST', '/api/settings/github/disconnect', {});
+  assert.equal(off.data.connected, false);
+  assert.equal(fs.existsSync(path.join(app.runtime, 'github', 'token')), false);
+
+  for (const text of app.bodies) assert.equal(text.includes(GH_TOKEN), false);
+  assert.equal(app.logs().includes(GH_TOKEN), false);
+  assert.equal(fs.readFileSync(path.join(app.runtime, 'orbit-config.json'), 'utf8').includes(GH_TOKEN), false);
 });
 
 function fakeReq(method, body) {

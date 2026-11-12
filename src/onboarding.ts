@@ -13,6 +13,8 @@ import {
   type RolesStepContextLike,
 } from './onboarding-roles';
 import { renderReviewStep as renderReviewStepView } from './onboarding-review';
+import { STEP, STEP_LABELS, nextStep, previousStep } from './onboarding-steps';
+import { createGithubApi, renderGithubSection, renderReposSection, type GithubApi, type ReposSectionHandle } from './onboarding-github';
 
 const key = 'orbit.onboarding.v1';
 const steps = [
@@ -403,7 +405,7 @@ export interface OnboardingWizardHandle {
   close(): void;
 }
 
-export function mountOnboarding(root: HTMLElement, api: OnboardingApi = createOnboardingApi()): OnboardingWizardHandle {
+export function mountOnboarding(root: HTMLElement, api: OnboardingApi = createOnboardingApi(), github: GithubApi = createGithubApi()): OnboardingWizardHandle {
   const wizard = element('section', 'orbit-setup-wizard');
   wizard.setAttribute('aria-labelledby', 'orbit-setup-title');
   const top = element('div', 'onboarding-top');
@@ -411,7 +413,7 @@ export function mountOnboarding(root: HTMLElement, api: OnboardingApi = createOn
   title.id = 'orbit-setup-title';
   title.tabIndex = -1;
   const progress = element('ol', 'onboarding-progress');
-  const progressItems = ['Install', 'Providers & keys', 'Models', 'Review'].map((label, index) => {
+  const progressItems = [...STEP_LABELS].map((label, index) => {
     const item = element('li', '', `${index + 1}. ${label}`);
     item.dataset.step = String(index);
     progress.append(item);
@@ -443,6 +445,7 @@ export function mountOnboarding(root: HTMLElement, api: OnboardingApi = createOn
   let commitStepOne: (() => Promise<void>) | null = null;
   let commitStepTwo: (() => Promise<void>) | null = null;
   let commitStepThree: (() => Promise<void>) | null = null;
+  let reposHandle: ReposSectionHandle | null = null;
 
   function notify(message: string, error = false): void {
     status.textContent = message;
@@ -1115,10 +1118,26 @@ export function mountOnboarding(root: HTMLElement, api: OnboardingApi = createOn
     return section;
   }
 
+  function optionalStepsCard(): HTMLElement {
+    const card = element('aside', 'onboarding-optional-card');
+    card.append(element('strong', '', 'Optional: Connect GitHub · Repos to watch'),
+      element('p', 'onboarding-hint', 'Both are optional and can be changed later in Settings.'));
+    const row = element('div', 'onboarding-optional-actions');
+    for (const [label, target] of [['Connect GitHub', STEP.github], ['Choose repos to watch', STEP.repos]] as const) {
+      const open = element('button', 'onboarding-secondary', label) as HTMLButtonElement;
+      open.type = 'button';
+      open.addEventListener('click', () => { if (busy || applied) return; step = target; notify(''); render(); });
+      row.append(open);
+    }
+    card.append(row);
+    return card;
+  }
+
   function render(): void {
     if (!state) return;
     content.replaceChildren();
     commitStepThree = null;
+    reposHandle = null;
     if (step === 0) content.append(renderStepOne());
     else if (step === 1) content.append(renderStepTwo());
     else if (step === 2) {
@@ -1131,7 +1150,19 @@ export function mountOnboarding(root: HTMLElement, api: OnboardingApi = createOn
         const saved = await api.saveRoles({ roles: validation.roles });
         state = saved as OnboardingStateResponse;
       };
-    } else content.append(renderReviewStep(context()));
+    } else if (step === STEP.github) {
+      content.append(renderGithubSection({ api: github, notify }));
+      const skip = element('button', 'onboarding-secondary orbit-github-skip', 'Skip GitHub for now') as HTMLButtonElement;
+      skip.type = 'button';
+      skip.addEventListener('click', () => { if (busy) return; step = STEP.repos; notify('GitHub skipped. You can connect it later in Settings.'); render(); });
+      content.append(skip);
+    } else if (step === STEP.repos) {
+      reposHandle = renderReposSection({ api: github, notify });
+      content.append(reposHandle.element);
+    } else {
+      content.append(renderReviewStep(context()));
+      content.append(optionalStepsCard());
+    }
     updateProgress();
     back.disabled = busy || step === 0;
     next.disabled = busy || applied;
@@ -1140,8 +1171,7 @@ export function mountOnboarding(root: HTMLElement, api: OnboardingApi = createOn
 
   back.addEventListener('click', () => {
     if (busy || step === 0) return;
-    if (step === 3 && setupPath === 'minimal') step = 1;
-    else step -= 1;
+    step = previousStep(step, setupPath);
     notify('');
     render();
   });
@@ -1186,7 +1216,7 @@ export function mountOnboarding(root: HTMLElement, api: OnboardingApi = createOn
         setBusy(true, 'Saving the provider and model…');
         try {
           await commitStepTwo();
-          step = 3;
+          step = nextStep(STEP.providers, 'minimal');
           notify('Provider, key and model saved. Review and apply.');
           render();
         } catch (error) {
@@ -1197,18 +1227,18 @@ export function mountOnboarding(root: HTMLElement, api: OnboardingApi = createOn
         }
         return;
       }
-      step = 2;
+      step = STEP.models;
       notify('');
       render();
       return;
     }
-    if (step === 2) {
-      if (!commitStepThree) { step = 3; render(); return; }
+    if (step === STEP.models) {
+      if (!commitStepThree) { step = STEP.github; render(); return; }
       setBusy(true, 'Saving role mapping…');
       try {
         await commitStepThree();
-        step = 3;
-        notify('Role mapping saved. Review and apply.');
+        step = STEP.github;
+        notify('Role mapping saved. Connect GitHub, or skip it.');
         render();
       } catch (error) {
         notify(error instanceof Error ? error.message : 'The role mapping could not be saved.', true);
@@ -1218,7 +1248,22 @@ export function mountOnboarding(root: HTMLElement, api: OnboardingApi = createOn
       }
       return;
     }
-    step += 1;
+    if (step === STEP.repos && reposHandle) {
+      setBusy(true, 'Saving repositories to watch…');
+      try {
+        const saved = await reposHandle.save();
+        step = STEP.review;
+        setBusy(false);
+        notify(saved.length ? `Watching ${saved.length} ${saved.length === 1 ? 'repository' : 'repositories'}. Review and apply.` : 'No repositories watched. Review and apply.');
+        render();
+      } catch (error) {
+        // Keep the typed list on screen so it can be corrected.
+        setBusy(false);
+        notify(error instanceof Error ? error.message : 'The repositories could not be saved.', true);
+      }
+      return;
+    }
+    step = nextStep(step, setupPath);
     notify('');
     render();
   });

@@ -14,7 +14,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { createOrbitConfig, resolveRoles } from './orbit-config.mjs';
+import { createOrbitConfig, normalizeRepoList, resolveRoles } from './orbit-config.mjs';
+import { createGithubConnection } from './onboarding-github.mjs';
 import { createOnboarding } from './onboarding.mjs';
 import { createOnboardingApply } from './onboarding-apply.mjs';
 import { createRouterSupervisor } from './router-supervisor.mjs';
@@ -71,6 +72,7 @@ export function createOrbitSetup({
   routerExec,
   sshExec,
   startGateway = startOpenAICompatGateway,
+  githubFetch = fetch,
   hasAgents = () => false,
 } = {}) {
   const safeLog = message => { try { log(String(message).slice(0, 300)); } catch { /* logging never changes an outcome */ } };
@@ -112,6 +114,41 @@ export function createOrbitSetup({
 
   const onboarding = createOnboarding({ config: store, routerSupervisor, startSetupAgent, log: safeLog, env });
   const settings = createOnboardingApply({ config: store, startSetupAgent, log: safeLog, routerSupervisor });
+  let github;
+  try {
+    github = createGithubConnection({ runtimeDir, env, log: safeLog, fetchImpl: githubFetch });
+  } catch {
+    safeLog('Ignoring an invalid ORBIT_GITHUB_API or ORBIT_GITHUB_WEB; using github.com.');
+    github = createGithubConnection({ runtimeDir, env: { ORBIT_GITHUB_CLIENT_ID: env?.ORBIT_GITHUB_CLIENT_ID }, log: safeLog, fetchImpl: githubFetch });
+  }
+
+  function reposView() {
+    return { ok: true, repos: store.load().observability?.repos ?? [], githubConnected: github.connected() };
+  }
+
+  async function putRepos(body) {
+    const repos = normalizeRepoList(body?.repos);
+    const current = store.load();
+    store.save({ ...current, observability: { ...(current.observability ?? {}), repos } });
+    safeLog(`Saved ${repos.length} watched repositories.`);
+    return reposView();
+  }
+
+  /** GitHub and repo routes, shared by /api/onboarding/* and /api/settings/*. */
+  async function githubAndRepos(req, res, rest) {
+    const method = String(req.method || 'GET').toUpperCase();
+    const parts = rest.split('/').filter(Boolean);
+    if (parts[0] === 'repos' && parts.length === 1) {
+      if (method === 'GET') return json(res, 200, reposView()), true;
+      if (method === 'PUT' || method === 'POST') return json(res, 200, await putRepos(await readJson(req))), true;
+      return json(res, 405, { ok: false, error: 'Method not allowed.' }), true;
+    }
+    if (parts[0] === 'github') {
+      const body = ['POST', 'PUT'].includes(method) ? await readJson(req) : {};
+      return json(res, 200, await github.route(method, parts.slice(1), body)), true;
+    }
+    return false;
+  }
 
   // Hosts live in their own private document: orbit-config.json has a closed
   // schema and never carries host material.
@@ -224,6 +261,8 @@ export function createOrbitSetup({
         try { request = JSON.parse(fs.readFileSync(setupFile, 'utf8')); } catch { request = null; }
         return json(res, 200, { ok: true, request });
       }
+      const scoped = /^\/api\/(?:onboarding|settings)(\/.*)?$/.exec(pathname);
+      if (scoped && /^\/(?:repos|github)(?:\/|$)/.test(scoped[1] ?? '') && await githubAndRepos(req, res, scoped[1])) return;
       if (pathname === '/api/onboarding' || pathname.startsWith('/api/onboarding/')) return await onboarding.handle(req, res, url);
       if (pathname === '/api/settings' || pathname.startsWith('/api/settings/')) {
         const inner = new URL(pathname.replace(/^\/api\/settings/, '/api/onboarding') || '/', 'http://localhost');
@@ -288,5 +327,5 @@ export function createOrbitSetup({
     }
   }
 
-  return { store, handle, firstRun, agentProfiles, startSetupAgent, routerSupervisor };
+  return { store, handle, firstRun, agentProfiles, startSetupAgent, routerSupervisor, github };
 }
