@@ -125,7 +125,7 @@ window.openDoc=id=>mountDocumentHost(document.querySelector('#doc'),id,()=>{json
                 assert completed.returncode==0,completed.stderr+completed.stdout
                 saved=json.loads(completed.stdout)['saved']
             else:
-                saved=call({'action':'create_document','op_id':str(uuid.uuid4()),'title':'Editable cited brief','text':'Mars has two moons.','citations':[{k:citation[k] for k in ('source_id','content_sha256','char_start','char_end')}]})
+                saved=call({'action':'create_document','op_id':str(uuid.uuid4()),'title':'Editable cited brief','kind':'richtext','text':'Mars has two moons.','citations':[{k:citation[k] for k in ('source_id','content_sha256','char_start','char_end')}]})
             assert saved['saved'] and not saved['opened'] and not saved['browser_acknowledged'],saved
             response=context.request.post(api+'/api/fixture-open',headers={'Authorization':'Bearer '+TOKEN,'Origin':origin},data={'document_id':saved['document_id']});assert response.ok
             page.evaluate('id=>window.openDoc(id)',saved['document_id'])
