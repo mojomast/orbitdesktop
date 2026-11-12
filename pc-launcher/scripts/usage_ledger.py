@@ -9,6 +9,7 @@ import argparse
 import hashlib
 import json
 import math
+import re
 import sqlite3
 import sys
 from datetime import datetime, time, timezone
@@ -18,6 +19,7 @@ from urllib.parse import quote
 
 SCHEMA = "bee.usage/v1"
 DEFAULT_PRICES = Path(__file__).resolve().parent.parent / "prices.json"
+DEFAULT_SCHEMA = Path(__file__).resolve().parent.parent / "usage-schema.v1.json"
 DEEPSEEK_VERSION = "deepseek-pricing-2026-09-10"
 DEFAULT_PEAK_WINDOWS = [
     {"days": ["Mon", "Tue", "Wed", "Thu", "Fri"], "start": "01:00", "end": "04:00"},
@@ -74,7 +76,8 @@ def _parse_usage(raw):
     return raw if isinstance(raw, dict) else {}
 
 
-def _numeric_only(value):
+def _numeric_flat(value):
+    """Return only finite numeric top-level entries (schema usage_raw shape)."""
     if isinstance(value, str):
         value = _parse_usage(value)
     if not isinstance(value, dict):
@@ -85,10 +88,6 @@ def _numeric_only(value):
             continue
         if isinstance(item, (int, float)) and math.isfinite(float(item)):
             out[key] = item
-        elif isinstance(item, dict):
-            nested = _numeric_only(item)
-            if nested:
-                out[key] = nested
     return out
 
 
@@ -177,6 +176,15 @@ def normalize_usage(raw):
     return empty
 
 
+def _usage_status(usage):
+    core = (usage["input_tokens"], usage["cache_read_input_tokens"], usage["output_tokens"])
+    if all(value is not None for value in core):
+        return "known"
+    if any(value is not None for value in core):
+        return "partial"
+    return "unknown"
+
+
 def _version_tuple(value):
     if value is None:
         return None
@@ -198,22 +206,22 @@ def infer_route(model, fallback, brief, launcher):
     if text.startswith("go:"):
         return "go", "explicit"
     if text.startswith("deepseek:"):
-        return "deepseek_direct", "explicit"
+        return "deepseek", "explicit"
     if isinstance(fallback, str):
         if fallback == "deepseek" or fallback.startswith("deepseek:"):
-            return "deepseek_direct", "explicit"
+            return "deepseek", "explicit"
     elif isinstance(fallback, dict):
         target = fallback.get("to") or fallback.get("model")
         if isinstance(target, str) and (target == "deepseek" or target.startswith("deepseek:")):
-            return "deepseek_direct", "explicit"
+            return "deepseek", "explicit"
     if isinstance(brief, dict) and brief.get("priority") == "high":
-        return "deepseek_direct", "explicit"
+        return "deepseek", "explicit"
     base = text[3:] if text.startswith("go:") else text[8:] if text.startswith("deepseek:") else text
     if base == "deepseek-v4.1-flash":
         version = _version_tuple(launcher)
         if version is not None:
             if (0, 1, 12) <= version <= (0, 1, 14):
-                return "deepseek_direct", "inferred"
+                return "deepseek", "inferred"
             if version >= (0, 1, 15):
                 return "go", "inferred"
     return "unknown", "inferred"
@@ -232,9 +240,9 @@ def _strip_route_prefix(model):
 def _provider_for(route):
     if route == "go":
         return "opencode"
-    if route == "deepseek_direct":
+    if route == "deepseek":
         return "deepseek"
-    return None
+    return "unknown"
 
 
 def _agent_for(role):
@@ -259,11 +267,46 @@ def _safe_text(value):
     return text
 
 
-def _fallback_text(fallback):
+def _join_text(value):
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return str(value)
+    return _safe_text(value)
+
+
+def _first_join(*values):
+    for value in values:
+        text = _join_text(value)
+        if text is not None:
+            return text
+    return None
+
+
+def _fallback_target(fallback):
     if isinstance(fallback, str):
-        return _safe_text(fallback)
+        text = fallback.strip()
+        if text == "deepseek" or text.startswith("deepseek:"):
+            return "deepseek"
+    elif isinstance(fallback, dict):
+        target = fallback.get("to") or fallback.get("model")
+        if isinstance(target, str) and (target == "deepseek" or target.startswith("deepseek:")):
+            return "deepseek"
+    return None
+
+
+def _fallback_reason(fallback, history):
     if isinstance(fallback, dict):
-        return _safe_text(fallback.get("to") or fallback.get("model"))
+        reason = _safe_text(fallback.get("reason"))
+        if reason:
+            return reason
+    if isinstance(history, list):
+        for entry in reversed(history):
+            if not isinstance(entry, dict):
+                continue
+            reason = _safe_text(entry.get("after")) or _safe_text(entry.get("reason"))
+            if reason:
+                return reason
     return None
 
 
@@ -331,6 +374,11 @@ def _trace_id(*candidates):
 
 def _usage_fields(usage):
     return {
+        "input_tokens": usage["input_tokens"],
+        "cache_read_tokens": usage["cache_read_input_tokens"],
+        "cache_write_tokens": usage["cache_write_input_tokens"],
+        "output_tokens": usage["output_tokens"],
+        "reasoning_tokens": usage["reasoning_output_tokens"],
         "gen_ai.usage.input_tokens": usage["input_tokens"],
         "gen_ai.usage.cache_read.input_tokens": usage["cache_read_input_tokens"],
         "gen_ai.usage.cache_write.input_tokens": usage["cache_write_input_tokens"],
@@ -339,57 +387,76 @@ def _usage_fields(usage):
     }
 
 
-def _record_base(*, key, ts_start, ts_end, duration_s, queue_s, trace_id, project, card_id,
-                 run_id, role, attempt_id, verify_of, retry_of, model, response_model,
-                 route, route_source, usage, usage_raw, reliability, runtime):
+def _record_base(*, key, attempt_id, card_id, run_id, project, role, join_complete,
+                 verify_of, retry_of, ts_start, ts_end, duration_s, queue_s, trace_id,
+                 requested_model, served_model, served_model_source, route, route_source,
+                 fallback, fallback_reason, http_429_count, retry_count, error_type,
+                 stop_reason, tool_calls, usage, usage_raw, launcher, harness):
+    status = _usage_status(usage)
+    if status == "unknown":
+        usage = {name: None for name in usage}
+    provider = _provider_for(route)
     record = {
-        "schema": SCHEMA,
+        "schema_version": SCHEMA,
         "key": key,
+        "attempt_id": attempt_id,
+        "card_id": card_id,
+        "run_id": run_id,
+        "project": project,
+        "role": role,
+        "join_complete": join_complete,
+        "verify_of": verify_of,
+        "retry_of": retry_of,
         "ts_start": ts_start,
         "ts_end": ts_end,
         "duration_s": duration_s,
         "queue_s": queue_s,
         "trace_id": trace_id,
-        "project": project,
-        "card_id": card_id,
-        "run_id": run_id,
-        "role": role,
-        "attempt_id": attempt_id,
-        "verify_of": verify_of,
-        "retry_of": retry_of,
+        "requested_model": requested_model,
+        "served_model": served_model,
+        "served_model_source": served_model_source,
+        "provider": provider,
+        "route": route,
+        "route_source": route_source,
+        "fallback": fallback,
+        "fallback_reason": fallback_reason,
+        "http_429_count": http_429_count,
+        "retry_count": retry_count,
+        "error_type": error_type,
+        "stop_reason": stop_reason,
+        "tool_calls": tool_calls,
+        "usage_status": status,
+        "usage_raw": usage_raw,
+        "cost_usd_list": None,
+        "cost_status": "unknown",
+        "billing_mode": "unknown",
+        "price_table_version": None,
+        "price_period": None,
+        "go_allowance": None,
         "gen_ai.operation.name": "invoke_agent",
         "gen_ai.agent.name": _agent_for(role),
-        "gen_ai.provider.name": _provider_for(route),
-        "bee.route": route,
-        "bee.route_source": route_source,
-        "gen_ai.request.model": model,
-        "gen_ai.response.model": response_model,
+        "gen_ai.provider.name": provider if provider != "unknown" else None,
+        "gen_ai.request.model": requested_model,
+        "gen_ai.response.model": served_model,
+        "launcher": launcher,
+        "harness": harness,
     }
     record.update(_usage_fields(usage))
-    record["usage_raw"] = usage_raw
-    record["cost"] = {
-        "usd": None,
-        "status": "unknown",
-        "billing_mode": "subscription_allowance" if route == "go" else "metered",
-        "price_version": None,
-        "price_period": None,
-        "allowance_usd": None,
-        "allowance_pct": None,
-    }
-    record["reliability"] = reliability
-    record["runtime"] = runtime
     return record
 
 
-def _attempt_record(attempt_id, state, result):
+def _attempt_record(attempt_id, state, result, prices=None):
+    if prices is None:
+        prices = _load_prices()
     brief = state.get("brief") if isinstance(state.get("brief"), dict) else {}
     source = result.get("source") if isinstance(result.get("source"), dict) else {}
     observed = result.get("observed") if isinstance(result.get("observed"), dict) else {}
 
     model = source.get("model") or state.get("model")
-    fallback = source.get("fallback", state.get("fallback"))
+    fallback_raw = source.get("fallback", state.get("fallback"))
+    fallback = _fallback_target(fallback_raw)
     launcher = source.get("launcher")
-    route, route_source = infer_route(model, fallback, brief, launcher)
+    route, route_source = infer_route(model, fallback_raw, brief, launcher)
 
     created = _float_or_none(state.get("created_at"))
     updated = _float_or_none(state.get("updated_at"))
@@ -400,48 +467,77 @@ def _attempt_record(attempt_id, state, result):
     if role not in ("work", "verify", "coordinator"):
         role = "verify" if brief.get("verify_of") else "work"
 
-    card_raw = brief.get("card_id") or brief.get("work_task_id") or brief.get("label")
+    card_id = _first_join(
+        brief.get("card_id"), brief.get("work_task_id"), brief.get("label"), brief.get("task_id")
+    ) or "unknown"
+    run_id = _first_join(brief.get("run_id")) or card_id
+    project = _first_join(brief.get("project"), source.get("project")) or "unknown"
+    attempt_text = _join_text(attempt_id) or "unknown"
+    join_complete = all(
+        value not in (None, "unknown") for value in (attempt_text, card_id, run_id, project, role)
+    )
+
     trace_raw = brief.get("card_id") or brief.get("work_task_id")
     trace_id = _trace_id(trace_raw)
 
     usage = normalize_usage(observed.get("usage"))
     history = state.get("model_history")
-    retries = max(0, len(history) - 1) if isinstance(history, list) else 0
-    reliability = {
-        "http_429": int(_int_or_none(state.get("rate_limited")) or 0),
-        "retries": retries,
-        "fallback": _fallback_text(fallback),
-        "error_type": _error_type(observed.get("error")),
-        "stop_reason": _safe_text(observed.get("stop_reason")),
-        "tool_calls": _int_or_none(observed.get("tool_calls")),
-    }
+    rate_limited = _int_or_none(state.get("rate_limited"))
+    retry_count = (rate_limited or 0) + (1 if fallback else 0)
+    fallback_reason = _fallback_reason(fallback_raw, history) if fallback else None
 
-    return _record_base(
-        key=f"attempt:{attempt_id}",
+    served = (
+        observed.get("response_model")
+        or source.get("response_model")
+        or observed.get("served_model")
+        or source.get("served_model")
+    )
+    if isinstance(served, str):
+        served_model = served
+        served_model_source = "explicit"
+    else:
+        served_model = model if isinstance(model, str) else None
+        served_model_source = "inferred" if served_model is not None else None
+
+    record = _record_base(
+        key=f"attempt:{attempt_text}",
+        attempt_id=attempt_text,
+        card_id=card_id,
+        run_id=run_id,
+        project=project,
+        role=role,
+        join_complete=join_complete,
+        verify_of=_safe_text(brief.get("verify_of")),
+        retry_of=_safe_text(brief.get("retry_of")),
         ts_start=_iso_utc(created),
         ts_end=_iso_utc(updated),
         duration_s=_duration(created, updated),
         queue_s=queue_s,
         trace_id=trace_id,
-        project=_safe_text(brief.get("project") or source.get("project")),
-        card_id=_safe_text(card_raw),
-        run_id=state.get("run_id") or observed.get("run_id"),
-        role=role,
-        attempt_id=attempt_id,
-        verify_of=_safe_text(brief.get("verify_of")),
-        retry_of=_safe_text(brief.get("retry_of")),
-        model=model,
-        response_model=model,
+        requested_model=model if isinstance(model, str) else None,
+        served_model=served_model,
+        served_model_source=served_model_source,
         route=route,
         route_source=route_source,
+        fallback=fallback,
+        fallback_reason=fallback_reason,
+        http_429_count=rate_limited if rate_limited is not None else 0,
+        retry_count=retry_count,
+        error_type=_error_type(observed.get("error")),
+        stop_reason=_safe_text(observed.get("stop_reason")),
+        tool_calls=_int_or_none(observed.get("tool_calls")),
         usage=usage,
-        usage_raw=_numeric_only(observed.get("usage")),
-        reliability=reliability,
-        runtime={
-            "launcher": str(launcher) if launcher is not None else None,
-            "harness": source.get("harness") or source.get("kind"),
-        },
+        usage_raw=_numeric_flat(observed.get("usage")),
+        launcher=str(launcher) if launcher is not None else None,
+        harness=source.get("harness") or source.get("kind"),
     )
+    allowance_raw = observed.get("allowance")
+    if not isinstance(allowance_raw, dict):
+        allowance_raw = observed.get("opencode_allowance")
+    if not isinstance(allowance_raw, dict):
+        allowance_raw = None
+    record.update(price(record, prices, allowance_raw=allowance_raw))
+    return record
 
 
 def records_from_attempts(attempts_dir, prices=None):
@@ -466,8 +562,7 @@ def records_from_attempts(attempts_dir, prices=None):
             continue
         if not isinstance(state, dict) or not isinstance(result, dict):
             continue
-        record = _attempt_record(attempt_id, state, result)
-        record["cost"] = price(record, prices)
+        record = _attempt_record(attempt_id, state, result, prices)
         records.append(record)
     return records
 
@@ -495,12 +590,14 @@ def _hermes_usage(row):
     }
 
 
-def _hermes_record(row):
-    session_id = row.get("session_id")
+def _hermes_record(row, prices=None):
+    if prices is None:
+        prices = _load_prices()
+    session_id = _join_text(row.get("session_id"))
     model = row.get("model")
     billing_provider = str(row.get("billing_provider") or "").lower()
     if billing_provider == "deepseek":
-        route, route_source = "deepseek_direct", "explicit"
+        route, route_source = "deepseek", "explicit"
     elif billing_provider in ("opencode", "go", "opencode-go"):
         route, route_source = "go", "explicit"
     else:
@@ -509,46 +606,59 @@ def _hermes_record(row):
     first_seen = _float_or_none(row.get("first_seen"))
     last_seen = _float_or_none(row.get("last_seen"))
     usage = _hermes_usage(row)
-    usage_raw = {
+    usage_raw = _numeric_flat({
         "input_tokens": _int_or_none(row.get("input_tokens")),
         "output_tokens": _int_or_none(row.get("output_tokens")),
         "cache_read_tokens": _int_or_none(row.get("cache_read_tokens")),
         "cache_write_tokens": _int_or_none(row.get("cache_write_tokens")),
         "reasoning_tokens": _int_or_none(row.get("reasoning_tokens")),
         "hermes_estimated_cost_usd": _float_or_none(row.get("estimated_cost_usd")),
-    }
-    usage_raw = {key: value for key, value in usage_raw.items() if value is not None}
+    })
 
-    return _record_base(
-        key=f"coord:{session_id}:{model}",
+    attempt_id = f"coord:{session_id}" if session_id else "unknown"
+    card_id = _join_text(row.get("task")) or "coordinator"
+    run_id = session_id or "unknown"
+    project = "beekeeper"
+    role = "coordinator"
+    join_complete = all(
+        value not in (None, "unknown") for value in (attempt_id, card_id, run_id, project, role)
+    )
+    requested_model = model if isinstance(model, str) else None
+
+    record = _record_base(
+        key=f"coord:{session_id or 'unknown'}:{requested_model}",
+        attempt_id=attempt_id,
+        card_id=card_id,
+        run_id=run_id,
+        project=project,
+        role=role,
+        join_complete=join_complete,
+        verify_of=None,
+        retry_of=None,
         ts_start=_iso_utc(first_seen),
         ts_end=_iso_utc(last_seen),
         duration_s=_duration(first_seen, last_seen),
         queue_s=None,
         trace_id=None,
-        project=None,
-        card_id=None,
-        run_id=None,
-        role="coordinator",
-        attempt_id=None,
-        verify_of=None,
-        retry_of=None,
-        model=model,
-        response_model=model,
+        requested_model=requested_model,
+        served_model=requested_model,
+        served_model_source="explicit" if requested_model is not None else None,
         route=route,
         route_source=route_source,
+        fallback=None,
+        fallback_reason=None,
+        http_429_count=None,
+        retry_count=None,
+        error_type=None,
+        stop_reason=None,
+        tool_calls=None,
         usage=usage,
         usage_raw=usage_raw,
-        reliability={
-            "http_429": 0,
-            "retries": 0,
-            "fallback": None,
-            "error_type": None,
-            "stop_reason": None,
-            "tool_calls": None,
-        },
-        runtime={"launcher": None, "harness": "hermes"},
+        launcher=None,
+        harness="hermes",
     )
+    record.update(price(record, prices))
+    return record
 
 
 def records_from_hermes(db_path, since_epoch=None, prices=None):
@@ -582,8 +692,7 @@ def records_from_hermes(db_path, since_epoch=None, prices=None):
         last_seen = _float_or_none(row["last_seen"])
         if since_epoch is not None and last_seen is not None and last_seen < since_epoch:
             continue
-        record = _hermes_record(dict(row))
-        record["cost"] = price(record, prices)
+        record = _hermes_record(dict(row), prices)
         records.append(record)
     return records
 
@@ -673,11 +782,30 @@ def _period_for(record, version):
     return "off_peak"
 
 
-def price(record, prices=None):
-    """Compute a list-price cost block for one canonical record."""
+def _allowance_pct(raw, usd, allowance):
+    if isinstance(raw, dict):
+        for key, factor in (("used_fraction", 100), ("fraction", 100), ("pct", 1), ("percent", 1)):
+            if key in raw:
+                value = _float_or_none(raw.get(key))
+                if value is not None:
+                    return _round6(value * factor), "opencode.allowance"
+    if usd is not None and allowance:
+        return _round6(usd / allowance * 100), "derived_list_price"
+    return None, None
+
+
+def _token_field(record, plain, mirrored):
+    value = record.get(mirrored)
+    if value is None and plain in record:
+        value = record.get(plain)
+    return value
+
+
+def price(record, prices=None, allowance_raw=None):
+    """Compute flat list-price cost fields for one canonical record."""
     if prices is None:
         prices = _load_prices()
-    route = record.get("bee.route")
+    route = record.get("route")
     version_name, version = _version_for(prices, route)
     version = version if isinstance(version, dict) else {}
     period = _period_for(record, version)
@@ -694,9 +822,9 @@ def price(record, prices=None):
     models = version.get("models") if isinstance(version.get("models"), dict) else {}
     rates = models.get(model, {}).get(period) if isinstance(model, str) and period else None
 
-    input_tokens = record.get("gen_ai.usage.input_tokens")
-    cache_read = record.get("gen_ai.usage.cache_read.input_tokens")
-    output_tokens = record.get("gen_ai.usage.output_tokens")
+    input_tokens = _token_field(record, "input_tokens", "gen_ai.usage.input_tokens")
+    cache_read = _token_field(record, "cache_read_tokens", "gen_ai.usage.cache_read.input_tokens")
+    output_tokens = _token_field(record, "output_tokens", "gen_ai.usage.output_tokens")
     usd = None
     status = "unknown"
     if isinstance(rates, dict) and all(isinstance(v, int) and not isinstance(v, bool) for v in (input_tokens, cache_read, output_tokens)):
@@ -709,18 +837,24 @@ def price(record, prices=None):
         usd = _round6(amount)
         status = "estimated"
 
-    allowance_pct = None
-    if go and usd is not None and allowance:
-        allowance_pct = _round6(usd / allowance * 100)
+    go_allowance = None
+    if go:
+        raw = allowance_raw if isinstance(allowance_raw, dict) else None
+        pct_used, pct_source = _allowance_pct(raw, usd, allowance)
+        go_allowance = {
+            "raw": raw,
+            "pct_used": pct_used,
+            "pct_source": pct_source,
+            "allowance_usd": allowance,
+        }
 
     return {
-        "usd": usd,
-        "status": status,
+        "cost_usd_list": usd,
+        "cost_status": status,
         "billing_mode": billing_mode,
-        "price_version": version_name,
+        "price_table_version": version_name,
         "price_period": period,
-        "allowance_usd": allowance,
-        "allowance_pct": allowance_pct,
+        "go_allowance": go_allowance,
     }
 
 
@@ -731,6 +865,85 @@ def _load_prices(path=None):
     except (OSError, ValueError):
         return {"versions": {}}
     return data if isinstance(data, dict) else {"versions": {}}
+
+
+def _load_schema(path=None):
+    target = Path(path) if path is not None else DEFAULT_SCHEMA
+    try:
+        data = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _type_matches(value, name):
+    if name == "null":
+        return value is None
+    if name == "object":
+        return isinstance(value, dict)
+    if name == "array":
+        return isinstance(value, list)
+    if name == "string":
+        return isinstance(value, str)
+    if name == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if name == "number":
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if name == "boolean":
+        return isinstance(value, bool)
+    return True
+
+
+def _validate_value(value, spec, path=""):
+    errors = []
+    if not isinstance(spec, dict):
+        return errors
+    if "oneOf" in spec:
+        alternatives = spec.get("oneOf") or []
+        if not any(not _validate_value(value, alternative, path) for alternative in alternatives):
+            errors.append(f"{path or '<root>'}: no oneOf alternative matched")
+        return errors
+    if "const" in spec and value != spec["const"]:
+        errors.append(f"{path or '<root>'}: expected const {spec['const']!r}")
+    if "enum" in spec and value not in spec["enum"]:
+        errors.append(f"{path or '<root>'}: not in enum")
+    types = spec.get("type")
+    if types is not None:
+        if isinstance(types, str):
+            types = [types]
+        if not any(_type_matches(value, name) for name in types):
+            errors.append(f"{path or '<root>'}: wrong type")
+            return errors
+    if isinstance(value, str) and "pattern" in spec:
+        try:
+            if re.fullmatch(spec["pattern"], value) is None:
+                errors.append(f"{path or '<root>'}: pattern mismatch")
+        except re.error:
+            pass
+    if isinstance(value, dict):
+        properties = spec.get("properties") or {}
+        for required in spec.get("required", []):
+            if required not in value:
+                errors.append(f"{path or '<root>'}: missing required key {required!r}")
+        additional = spec.get("additionalProperties", True)
+        for key, item in value.items():
+            child = f"{path}.{key}" if path else key
+            if key in properties:
+                errors.extend(_validate_value(item, properties[key], child))
+            elif additional is False:
+                errors.append(f"{path or '<root>'}: extra key {key!r}")
+            elif isinstance(additional, dict):
+                errors.extend(_validate_value(item, additional, child))
+    return errors
+
+
+def validate_record(record, schema):
+    """Return True when a record satisfies the frozen bee.usage/v1 schema."""
+    if isinstance(schema, (str, Path)):
+        schema = _load_schema(schema)
+    if not isinstance(record, dict) or not isinstance(schema, dict) or not schema:
+        return False
+    return not _validate_value(record, schema)
 
 
 def _ledger_keys(path):
@@ -755,13 +968,16 @@ def _ledger_keys(path):
 
 
 def append_new(records, ledger_path):
-    """Append records with unseen keys; return the number actually written."""
+    """Append schema-valid records with unseen keys; return the number written."""
     path = Path(ledger_path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    schema = _load_schema()
     seen = _ledger_keys(path)
     added = 0
     with path.open("a", encoding="utf-8") as handle:
         for record in records:
+            if not validate_record(record, schema):
+                continue
             key = record.get("key")
             if not isinstance(key, str) or key in seen:
                 continue
@@ -789,11 +1005,20 @@ def _build(args):
     records = records_from_attempts(args.attempts, prices=prices)
     if args.hermes_db:
         records.extend(records_from_hermes(args.hermes_db, since_epoch=_since_epoch(args.since), prices=prices))
-    added = append_new(records, args.ledger)
+    schema = _load_schema()
+    valid = []
+    invalid = 0
+    for record in records:
+        if validate_record(record, schema):
+            valid.append(record)
+        else:
+            invalid += 1
+    added = append_new(valid, args.ledger)
     print(json.dumps({
         "ok": True,
         "added": added,
-        "skipped": len(records) - added,
+        "skipped": len(valid) - added,
+        "invalid": invalid,
         "ledger_records": _count_ledger(args.ledger),
     }))
     return 0

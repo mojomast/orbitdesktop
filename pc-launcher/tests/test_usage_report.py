@@ -22,7 +22,7 @@ def make_record(
     *,
     usd=1.0,
     allowance_pct=None,
-    route="deepseek_direct",
+    route="deepseek",
     key=None,
     duration_s=30.0,
     input_tokens=1000,
@@ -35,12 +35,16 @@ def make_record(
     card_id="card-1",
     project="orbit",
     model="deepseek-v4",
+    served_model=None,
+    requested_model=None,
+    usage_status="known",
+    cost_status=None,
     ts_start=None,
     ts_end=None,
 ):
     number = next(SERIAL)
     attempt = f"attempt-{number}"
-    provider = "opencode" if route == "go" else "deepseek"
+    provider = "opencode" if route == "go" else ("unknown" if route == "unknown" else "deepseek")
     agent = {"work": "bee-work", "verify": "bee-verify", "coordinator": "beekeeper"}.get(
         role, "bee-work"
     )
@@ -49,57 +53,82 @@ def make_record(
             key = f"coord:session-{number}:{model}"
         else:
             key = f"attempt:{attempt}"
+    served = served_model if served_model is not None else model
+    requested = requested_model if requested_model is not None else model
     started = ts_start or f"{day}T{hour:02d}:00:00Z"
+    usage_raw = {
+        name: value
+        for name, value in (
+            ("input_tokens", input_tokens),
+            ("output_tokens", output_tokens),
+            ("cache_read", cache_read),
+        )
+        if value is not None
+    }
+    go_allowance = None
+    if route == "go":
+        go_allowance = {
+            "raw": {"allowance_usd": 100.0, "pct_used": allowance_pct},
+            "pct_used": allowance_pct,
+            "pct_source": "opencode.allowance" if allowance_pct is not None else None,
+            "allowance_usd": 100.0,
+        }
+    if cost_status is None:
+        cost_status = "estimated" if usd is not None else "unknown"
     return {
-        "schema": "bee.usage/v1",
+        "schema_version": "bee.usage/v1",
         "key": key,
+        "attempt_id": attempt,
+        "card_id": card_id,
+        "run_id": f"run-{number}",
+        "project": project,
+        "role": role,
+        "join_complete": True,
+        "verify_of": None,
+        "retry_of": None,
         "ts_start": started,
         "ts_end": ts_end,
         "duration_s": duration_s,
         "queue_s": 1.0,
         "trace_id": f"{number:032x}"[-32:],
-        "project": project,
-        "card_id": card_id,
-        "run_id": f"run-{number}",
-        "role": role,
-        "attempt_id": attempt,
-        "verify_of": None,
-        "retry_of": None,
+        "requested_model": requested,
+        "served_model": served,
+        "served_model_source": "explicit",
+        "provider": provider,
+        "route": route,
+        "route_source": "explicit" if route == "go" else "inferred",
+        "fallback": fallback,
+        "fallback_reason": None,
+        "http_429_count": http_429,
+        "retry_count": 0,
+        "error_type": None,
+        "stop_reason": "end_turn",
+        "tool_calls": 0,
+        "usage_status": usage_status,
+        "input_tokens": input_tokens,
+        "cache_read_tokens": cache_read,
+        "cache_write_tokens": cache_write,
+        "output_tokens": output_tokens,
+        "reasoning_tokens": reasoning_tokens,
+        "usage_raw": usage_raw,
+        "cost_usd_list": usd,
+        "cost_status": cost_status,
+        "billing_mode": "subscription_allowance" if route == "go" else "metered",
+        "price_table_version": "test",
+        "price_period": "off_peak",
+        "go_allowance": go_allowance,
         "gen_ai.operation.name": "invoke_agent",
         "gen_ai.agent.name": agent,
         "gen_ai.provider.name": provider,
-        "bee.route": route,
-        "bee.route_source": "explicit" if route == "go" else "inferred",
-        "gen_ai.request.model": model,
-        "gen_ai.response.model": model,
+        "gen_ai.request.model": requested,
+        "gen_ai.response.model": served,
         "gen_ai.usage.input_tokens": input_tokens,
         "gen_ai.usage.cache_read.input_tokens": cache_read,
         "gen_ai.usage.cache_write.input_tokens": cache_write,
         "gen_ai.usage.output_tokens": output_tokens,
         "gen_ai.usage.reasoning.output_tokens": reasoning_tokens,
-        "usage_raw": {
-            "input_tokens": input_tokens,
-            "output_tokens": output_tokens,
-            "cache_read": cache_read,
-        },
-        "cost": {
-            "usd": usd,
-            "status": "estimated" if usd is not None else "unknown",
-            "billing_mode": "subscription_allowance" if route == "go" else "metered",
-            "price_version": "test",
-            "price_period": "off_peak",
-            "allowance_usd": 100.0 if route == "go" else None,
-            "allowance_pct": allowance_pct,
-        },
-        "reliability": {
-            "http_429": http_429,
-            "retries": 0,
-            "fallback": fallback,
-            "error_type": None,
-            "stop_reason": "end_turn",
-            "tool_calls": 0,
-        },
-        "runtime": {"launcher": "test", "harness": "test"},
+        "launcher": "test",
+        "harness": "test",
     }
 
 
@@ -175,12 +204,80 @@ class UsageReportTests(unittest.TestCase):
         )
         self.assertEqual({item["group"] for item in groups["project"]}, {"orbit", "other"})
         self.assertEqual({item["group"] for item in groups["model"]}, {"m-one", "m-two"})
-        self.assertEqual({item["group"] for item in groups["route"]}, {"go", "deepseek_direct"})
+        self.assertEqual({item["group"] for item in groups["route"]}, {"go", "deepseek"})
 
     def test_cache_hit_percentage(self):
         records = [make_record(input_tokens=100, cache_read=40, output_tokens=10)]
         report = self.report("--day", "2026-01-06", records=records)
         self.assertEqual(report["totals"]["cache_hit_pct"], 40.0)
+
+    def test_cache_hit_pct_is_null_when_tokens_are_unknown(self):
+        unknown = make_record(
+            usage_status="unknown",
+            input_tokens=None,
+            cache_read=None,
+            cache_write=None,
+            output_tokens=None,
+            reasoning_tokens=None,
+        )
+        report = self.report("--day", "2026-01-06", records=[unknown])
+        self.assertIsNone(report["totals"]["cache_hit_pct"])
+
+        mixed = self.report(
+            "--day",
+            "2026-01-06",
+            records=[make_record(input_tokens=100, cache_read=40), unknown],
+        )
+        self.assertIsNone(mixed["totals"]["cache_hit_pct"])
+
+    def test_unknown_usage_counted_in_totals_and_groups(self):
+        records = [
+            make_record(card_id="card-1"),
+            make_record(
+                card_id="card-1",
+                usage_status="unknown",
+                input_tokens=None,
+                cache_read=None,
+                cache_write=None,
+                output_tokens=None,
+                reasoning_tokens=None,
+                usd=None,
+            ),
+            make_record(card_id="card-2", usage_status="partial"),
+        ]
+        full = self.report("--day", "2026-01-06", "--full", "--by", "card", records=records)
+        self.assertEqual(full["totals"]["unknown_usage"], 1)
+        by_card = {item["group"]: item for item in full["groups"]["card"]}
+        self.assertEqual(by_card["card-1"]["unknown_usage"], 1)
+        self.assertEqual(by_card["card-1"]["records"], 2)
+        self.assertEqual(by_card["card-2"]["unknown_usage"], 0)
+
+        compact = self.report("--day", "2026-01-06", "--by", "card")
+        self.assertEqual(compact["totals"]["unknown_usage"], 1)
+
+    def test_flat_v1_fields_drive_metrics(self):
+        records = [
+            make_record(
+                route="go",
+                usd=2.5,
+                allowance_pct=2.5,
+                http_429=2,
+                fallback="deepseek",
+                served_model="served-a",
+            ),
+            make_record(route="deepseek", usd=None, served_model="served-b"),
+        ]
+        full = self.report("--day", "2026-01-06", "--full", records=records)
+        totals = full["totals"]
+        self.assertAlmostEqual(totals["usd_total"], 2.5, places=2)
+        self.assertAlmostEqual(totals["go_usd"], 2.5, places=2)
+        self.assertAlmostEqual(totals["go_allowance_pct"], 2.5, places=2)
+        self.assertEqual(totals["http_429"], 2)
+        self.assertEqual(totals["fallbacks"], 1)
+        self.assertEqual(totals["usd_unknown_records"], 1)
+        self.assertEqual(
+            {item["group"] for item in full["groups"]["model"]}, {"served-a", "served-b"}
+        )
 
     def test_duration_percentiles(self):
         records = [
@@ -278,9 +375,9 @@ class UsageReportTests(unittest.TestCase):
                 json.dumps(make_record()),
                 "not json at all",
                 "[1, 2, 3]",
-                json.dumps({"schema": "bee.usage/v0"}),
+                json.dumps({"schema_version": "bee.usage/v0"}),
                 "",
-                '{"schema": "bee.usage/v1", broken',
+                '{"schema_version": "bee.usage/v1", broken',
             ]
         )
         result = self.run_cli("--day", "2026-01-06")

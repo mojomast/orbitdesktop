@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import importlib.util
+import importlib
 import json
 import os
 import re
@@ -33,6 +33,37 @@ PROJECT_NAME = "bees"
 SCOPE_NAME = "orbit-bees.usage_otlp"
 _HEX32 = re.compile(r"^[0-9a-f]{32}$")
 _LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
+_FLAT_ATTRIBUTES = {
+    "bee.schema_version": "schema_version",
+    "bee.route": "route",
+    "bee.role": "role",
+    "bee.project": "project",
+    "bee.card_id": "card_id",
+    "bee.run_id": "run_id",
+    "bee.attempt_id": "attempt_id",
+    "bee.verify_of": "verify_of",
+    "bee.requested_model": "requested_model",
+    "bee.served_model": "served_model",
+    "bee.usage_status": "usage_status",
+    "bee.cost_usd_list": "cost_usd_list",
+    "bee.cost_status": "cost_status",
+    "bee.billing_mode": "billing_mode",
+    "bee.price_table_version": "price_table_version",
+    "bee.http_429_count": "http_429_count",
+    "bee.retry_count": "retry_count",
+    "bee.fallback": "fallback",
+    "bee.fallback_reason": "fallback_reason",
+    "bee.launcher": "launcher",
+}
+
+_SDK_MODULES = (
+    "opentelemetry.sdk.resources",
+    "opentelemetry.sdk.trace",
+    "opentelemetry.sdk.trace.export",
+    "opentelemetry.exporter.otlp.proto.http.trace_exporter",
+    "opentelemetry.trace",
+)
 
 
 def _sha256(text: str) -> str:
@@ -58,32 +89,12 @@ def _parse_ts(value) -> int | None:
     return (delta.days * 86400 + delta.seconds) * 1_000_000_000 + delta.microseconds * 1000
 
 
-def _is_number(value) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
-
-
-def _cost_attributes(cost: dict) -> dict:
-    allowance_pct = cost.get("allowance_pct")
-    if allowance_pct is None:
-        usd = cost.get("usd")
-        allowance = cost.get("allowance_usd")
-        if _is_number(usd) and _is_number(allowance) and allowance:
-            allowance_pct = float(usd) / float(allowance) * 100.0
-    return {
-        "bee.cost.usd": cost.get("usd"),
-        "bee.cost.status": cost.get("status"),
-        "bee.cost.billing_mode": cost.get("billing_mode"),
-        "bee.cost.price_version": cost.get("price_version"),
-        "bee.cost.allowance_pct": allowance_pct,
-    }
-
-
 def record_to_span(record: dict) -> dict | None:
-    """Project one canonical usage record to the internal span representation.
+    """Project one canonical flat ``bee.usage/v1`` record to a span dictionary.
 
     Returns None when the record has no usable key or no timestamp at all.
-    Only whitelisted attributes are copied; ``usage_raw`` and arbitrary record
-    keys are intentionally ignored.
+    Only whitelisted attributes are copied; ``usage_raw``, ``go_allowance.raw``
+    and arbitrary record keys are intentionally ignored.
     """
     if not isinstance(record, dict):
         return None
@@ -111,29 +122,19 @@ def record_to_span(record: dict) -> dict | None:
         if name.startswith("gen_ai.") and value is not None:
             attributes[name] = value
 
-    cost = record.get("cost") if isinstance(record.get("cost"), dict) else {}
-    reliability = record.get("reliability") if isinstance(record.get("reliability"), dict) else {}
-    runtime = record.get("runtime") if isinstance(record.get("runtime"), dict) else {}
+    for attribute, field in _FLAT_ATTRIBUTES.items():
+        value = record.get(field)
+        if value is not None:
+            attributes[attribute] = value
 
-    attributes.update(
-        {
-            "bee.route": record.get("bee.route"),
-            "bee.role": record.get("role"),
-            "bee.project": record.get("project"),
-            "bee.card_id": record.get("card_id"),
-            "bee.attempt_id": record.get("attempt_id"),
-            "bee.verify_of": record.get("verify_of"),
-            **(_cost_attributes(cost)),
-            "bee.http_429": reliability.get("http_429"),
-            "bee.retries": reliability.get("retries"),
-            "bee.fallback": reliability.get("fallback"),
-            "bee.launcher": runtime.get("launcher"),
-        }
-    )
-    attributes = {k: v for k, v in attributes.items() if v is not None}
+    go_allowance = record.get("go_allowance")
+    if isinstance(go_allowance, dict):
+        pct_used = go_allowance.get("pct_used")
+        if pct_used is not None:
+            attributes["bee.go_allowance.pct_used"] = pct_used
 
-    error_type = reliability.get("error_type")
-    status_code = "ERROR" if error_type else "UNSET"
+    error_type = record.get("error_type")
+    status_code = "ERROR" if error_type is not None else "UNSET"
 
     agent_name = record.get("gen_ai.agent.name") or ""
     return {
@@ -274,7 +275,7 @@ def read_ledger(path) -> list[dict]:
                 continue
             if not isinstance(record, dict):
                 continue
-            schema = record.get("schema")
+            schema = record.get("schema_version")
             if schema is not None and schema != SCHEMA:
                 continue
             records.append(record)
@@ -282,14 +283,13 @@ def read_ledger(path) -> list[dict]:
 
 
 def _sdk_available() -> bool:
+    """True when the OpenTelemetry SDK and protobuf OTLP exporter import."""
     try:
-        return (
-            importlib.util.find_spec("opentelemetry.sdk.trace") is not None
-            and importlib.util.find_spec("opentelemetry.exporter.otlp.proto.http.trace_exporter")
-            is not None
-        )
+        for name in _SDK_MODULES:
+            importlib.import_module(name)
     except (ImportError, AttributeError, ValueError):
         return False
+    return True
 
 
 def _send_sdk(spans, endpoint: str, timeout: float) -> None:

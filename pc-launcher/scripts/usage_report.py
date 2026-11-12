@@ -19,9 +19,10 @@ DIMENSIONS = {
     "role": ("role", True),
     "card": ("card_id", False),
     "project": ("project", False),
-    "model": ("gen_ai.request.model", False),
-    "route": ("bee.route", False),
+    "model": ("served_model", False),
+    "route": ("route", False),
 }
+MODEL_FALLBACKS = ("requested_model", "gen_ai.request.model")
 DEFAULT_DAILY_CAP = 5.0
 DEFAULT_GO_ALLOWANCE = 100.0
 GO_WINDOWS = (
@@ -68,22 +69,27 @@ def record_time(record):
     return parse_timestamp(record.get("ts_start")) or parse_timestamp(record.get("ts_end"))
 
 
-def cost_of(record):
-    value = record.get("cost")
-    return value if isinstance(value, dict) else {}
-
-
-def reliability_of(record):
-    value = record.get("reliability")
-    return value if isinstance(value, dict) else {}
-
-
 def record_usd(record):
-    return number(cost_of(record).get("usd"))
+    return number(record.get("cost_usd_list"))
 
 
 def record_allowance_pct(record):
-    return number(cost_of(record).get("allowance_pct"))
+    allowance = record.get("go_allowance")
+    if not isinstance(allowance, dict):
+        return None
+    return number(allowance.get("pct_used"))
+
+
+def token_totals(records, field):
+    total = 0
+    unknown = 0
+    for record in records:
+        value = integer(record.get(field))
+        if value is None:
+            unknown += 1
+        else:
+            total += value
+    return total, unknown
 
 
 def percentile(values, fraction):
@@ -103,13 +109,13 @@ def percentile(values, fraction):
 
 def stats_for(records):
     records = list(records)
-    input_tokens = sum(integer(r.get("gen_ai.usage.input_tokens")) or 0 for r in records)
-    cache_read = sum(integer(r.get("gen_ai.usage.cache_read.input_tokens")) or 0 for r in records)
-    cache_write = sum(integer(r.get("gen_ai.usage.cache_write.input_tokens")) or 0 for r in records)
-    output_tokens = sum(integer(r.get("gen_ai.usage.output_tokens")) or 0 for r in records)
-    reasoning = sum(integer(r.get("gen_ai.usage.reasoning.output_tokens")) or 0 for r in records)
+    input_tokens, input_unknown = token_totals(records, "input_tokens")
+    cache_read, cache_read_unknown = token_totals(records, "cache_read_tokens")
+    cache_write, _ = token_totals(records, "cache_write_tokens")
+    output_tokens, _ = token_totals(records, "output_tokens")
+    reasoning, _ = token_totals(records, "reasoning_tokens")
     known_usd = [value for value in (record_usd(r) for r in records) if value is not None]
-    go_records = [r for r in records if r.get("bee.route") == "go"]
+    go_records = [r for r in records if r.get("route") == "go"]
     go_usd = sum(value for value in (record_usd(r) for r in go_records) if value is not None)
     go_pct = sum(
         value for value in (record_allowance_pct(r) for r in go_records) if value is not None
@@ -117,10 +123,16 @@ def stats_for(records):
     durations = [
         value for value in (number(r.get("duration_s")) for r in records) if value is not None
     ]
-    http_429 = sum(integer(reliability_of(r).get("http_429")) or 0 for r in records)
-    fallbacks = sum(toggle(reliability_of(r).get("fallback")) for r in records)
+    http_429 = sum(integer(r.get("http_429_count")) or 0 for r in records)
+    fallbacks = sum(toggle(r.get("fallback")) for r in records)
+    unknown_usage = sum(1 for r in records if r.get("usage_status") == "unknown")
     usd_total = sum(known_usd)
-    cache_hit = (cache_read / input_tokens * 100.0) if input_tokens else 0.0
+    if input_unknown or cache_read_unknown:
+        cache_hit = None
+    elif input_tokens:
+        cache_hit = cache_read / input_tokens * 100.0
+    else:
+        cache_hit = 0.0
     return {
         "records": len(records),
         "input": input_tokens,
@@ -130,7 +142,8 @@ def stats_for(records):
         "reasoning": reasoning,
         "usd_total": round(usd_total, 6),
         "usd_unknown_records": len(records) - len(known_usd),
-        "cache_hit_pct": round(cache_hit, 2),
+        "unknown_usage": unknown_usage,
+        "cache_hit_pct": round(cache_hit, 2) if cache_hit is not None else None,
         "http_429": http_429,
         "fallbacks": fallbacks,
         "duration_p50": percentile(durations, 0.50),
@@ -141,12 +154,16 @@ def stats_for(records):
 
 
 def dimension_value(record, dimension):
-    key, is_role = DIMENSIONS[dimension]
+    key, _ = DIMENSIONS[dimension]
     value = record.get(key)
+    if dimension == "model" and (not isinstance(value, str) or not value):
+        for fallback in MODEL_FALLBACKS:
+            candidate = record.get(fallback)
+            if isinstance(candidate, str) and candidate:
+                value = candidate
+                break
     if not isinstance(value, str) or not value:
         return "unknown"
-    if is_role and value not in ROLES:
-        return value
     return value
 
 
@@ -219,7 +236,7 @@ def build_alerts(day_records, all_records, now, tzinfo, daily_cap, go_allowance)
                 }
             )
 
-    go_records = [r for r in all_records if r.get("bee.route") == "go"]
+    go_records = [r for r in all_records if r.get("route") == "go"]
     month_start_local = now.astimezone(tzinfo).replace(
         day=1, hour=0, minute=0, second=0, microsecond=0
     )
@@ -261,7 +278,7 @@ def build_alerts(day_records, all_records, now, tzinfo, daily_cap, go_allowance)
         moment = record_time(record)
         if moment is None or moment < hour_start or moment > now:
             continue
-        recent_429 += integer(reliability_of(record).get("http_429")) or 0
+        recent_429 += integer(record.get("http_429_count")) or 0
     if recent_429 >= 3:
         alerts.append(
             {
@@ -302,6 +319,7 @@ def compact_totals(totals):
         "go_allowance_pct": compact_usd(totals["go_allowance_pct"]),
         "coordinator_usd": compact_usd(totals["coordinator_usd"]),
         "bee_usd": compact_usd(totals["bee_usd"]),
+        "unknown_usage": totals["unknown_usage"],
         "cache_hit_pct": totals["cache_hit_pct"],
         "http_429": totals["http_429"],
     }
@@ -320,7 +338,7 @@ def load_ledger(path):
             except (ValueError, TypeError):
                 bad_lines += 1
                 continue
-            if not isinstance(record, dict) or record.get("schema") != SCHEMA:
+            if not isinstance(record, dict) or record.get("schema_version") != SCHEMA:
                 bad_lines += 1
                 continue
             records.append(record)

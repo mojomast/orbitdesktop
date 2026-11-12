@@ -12,6 +12,7 @@ from pathlib import Path
 PC_LAUNCHER = Path(__file__).resolve().parents[1]
 SCRIPT = PC_LAUNCHER / "scripts" / "usage_ledger.py"
 PRICES = PC_LAUNCHER / "prices.json"
+USAGE_SCHEMA = json.loads((PC_LAUNCHER / "usage-schema.v1.json").read_text(encoding="utf-8"))
 sys.path.insert(0, str(PC_LAUNCHER / "scripts"))
 import usage_ledger as ledger  # noqa: E402
 
@@ -26,7 +27,8 @@ PEAK = epoch(2026, 9, 14, 2, 0)
 
 def write_attempt(directory, attempt_id, usage, *, created=OFF_PEAK, updated=None, model="deepseek-v4.1-flash",
                   launcher="0.1.14", fallback=None, brief=None, rate_limited=0, model_history=None,
-                  tool_calls=2, stop_reason="end_turn", error=None, project="demo", result_usage=True):
+                  tool_calls=2, stop_reason="end_turn", error=None, project="demo", result_usage=True,
+                  allowance=None, opencode_allowance=None):
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     updated = created + 60 if updated is None else updated
@@ -45,11 +47,16 @@ def write_attempt(directory, attempt_id, usage, *, created=OFF_PEAK, updated=Non
     (directory / f"{attempt_id}.json").write_text(json.dumps(state), encoding="utf-8")
     if not result_usage:
         return
+    observed = {"usage": usage, "tool_calls": tool_calls, "stop_reason": stop_reason, "error": error}
+    if allowance is not None:
+        observed["allowance"] = allowance
+    if opencode_allowance is not None:
+        observed["opencode_allowance"] = opencode_allowance
     result = {
         "schema": "orbit.local-worker.result/v1",
         "attempt_id": attempt_id,
         "source": {"project": project, "kind": "opencode", "model": model, "fallback": fallback, "launcher": launcher},
-        "observed": {"usage": usage, "tool_calls": tool_calls, "stop_reason": stop_reason, "error": error},
+        "observed": observed,
     }
     (directory / f"{attempt_id}.result.json").write_text(json.dumps(result), encoding="utf-8")
 
@@ -60,7 +67,7 @@ def load_prices():
 
 def sample_record(**overrides):
     record = {
-        "bee.route": "deepseek_direct",
+        "route": "deepseek",
         "gen_ai.request.model": "deepseek-v4.1-flash",
         "gen_ai.response.model": "deepseek-v4.1-flash",
         "gen_ai.usage.input_tokens": 1_000_000,
@@ -142,18 +149,29 @@ class AttemptRecordTests(unittest.TestCase):
         records = ledger.records_from_attempts(self.dir, prices=self.prices)
         self.assertEqual(len(records), 1)
         record = records[0]
-        self.assertEqual(record["schema"], "bee.usage/v1")
+        self.assertEqual(record["schema_version"], "bee.usage/v1")
         self.assertEqual(record["key"], "attempt:att-0001")
+        self.assertEqual(record["input_tokens"], 49676)
+        self.assertEqual(record["cache_read_tokens"], 49536)
+        self.assertEqual(record["output_tokens"], 1029)
+        self.assertEqual(record["reasoning_tokens"], 163)
         self.assertEqual(record["gen_ai.usage.input_tokens"], 49676)
         self.assertEqual(record["gen_ai.usage.cache_read.input_tokens"], 49536)
         self.assertEqual(record["gen_ai.usage.output_tokens"], 1029)
         self.assertEqual(record["gen_ai.usage.reasoning.output_tokens"], 163)
-        self.assertEqual(record["cost"]["price_period"], "off_peak")
-        self.assertEqual(record["cost"]["status"], "estimated")
-        self.assertEqual(round(record["cost"]["usd"], 6), 0.000787)
+        self.assertEqual(record["price_period"], "off_peak")
+        self.assertEqual(record["cost_status"], "estimated")
+        self.assertEqual(record["cost_usd_list"], 0.000787)
         self.assertEqual(record["trace_id"], hashlib.sha256(b"card-123").hexdigest()[:32])
         self.assertEqual(record["role"], "work")
         self.assertEqual(record["gen_ai.agent.name"], "bee-work")
+        self.assertEqual(record["route"], "deepseek")
+        self.assertEqual(record["provider"], "deepseek")
+        self.assertEqual(record["requested_model"], "deepseek-v4.1-flash")
+        self.assertEqual(record["served_model"], "deepseek-v4.1-flash")
+        self.assertEqual(record["served_model_source"], "inferred")
+        self.assertIsNone(record["go_allowance"])
+        self.assertTrue(ledger.validate_record(record, USAGE_SCHEMA))
 
     def test_raw_deepseek_usage_and_numeric_raw(self):
         raw = {
@@ -168,20 +186,22 @@ class AttemptRecordTests(unittest.TestCase):
         self.assertEqual(record["gen_ai.usage.input_tokens"], 1000)
         self.assertEqual(record["gen_ai.usage.cache_read.input_tokens"], 400)
         self.assertEqual(record["gen_ai.usage.output_tokens"], 200)
-        self.assertEqual(record["usage_raw"]["completion_tokens_details"]["reasoning_tokens"], 50)
+        self.assertEqual(record["usage_raw"]["prompt_cache_hit_tokens"], 400)
+        self.assertNotIn("completion_tokens_details", record["usage_raw"])
+        self.assertTrue(ledger.validate_record(record, USAGE_SCHEMA))
 
     def test_peak_costs_more_than_off_peak(self):
         usage = {"inputTokens": 1000, "cachedReadTokens": 0, "outputTokens": 500}
         write_attempt(self.dir, "att-off", usage, created=OFF_PEAK)
         write_attempt(self.dir, "att-peak", usage, created=PEAK)
         records = {record["key"]: record for record in ledger.records_from_attempts(self.dir, prices=self.prices)}
-        off = records["attempt:att-off"]["cost"]
-        peak = records["attempt:att-peak"]["cost"]
+        off = records["attempt:att-off"]
+        peak = records["attempt:att-peak"]
         self.assertEqual(off["price_period"], "off_peak")
         self.assertEqual(peak["price_period"], "peak")
-        self.assertEqual(off["usd"], 0.00045)
-        self.assertEqual(peak["usd"], 0.0009)
-        self.assertGreater(peak["usd"], off["usd"])
+        self.assertEqual(off["cost_usd_list"], 0.00045)
+        self.assertEqual(peak["cost_usd_list"], 0.0009)
+        self.assertGreater(peak["cost_usd_list"], off["cost_usd_list"])
 
     def test_attempt_without_result_is_skipped(self):
         write_attempt(self.dir, "att-state", {"inputTokens": 1}, result_usage=False)
@@ -196,6 +216,104 @@ class AttemptRecordTests(unittest.TestCase):
         self.assertEqual(record["role"], "verify")
         self.assertEqual(record["gen_ai.agent.name"], "bee-verify")
         self.assertEqual(record["verify_of"], "att-work-0001")
+
+    def test_missing_usage_is_unknown_with_nulls_not_zeros(self):
+        write_attempt(self.dir, "att-nousage", None)
+        record = ledger.records_from_attempts(self.dir, prices=self.prices)[0]
+        self.assertEqual(record["usage_status"], "unknown")
+        for name in ("input_tokens", "cache_read_tokens", "cache_write_tokens", "output_tokens", "reasoning_tokens"):
+            self.assertIsNone(record[name], name)
+            self.assertIsNotNone(name)
+        for name in (
+            "gen_ai.usage.input_tokens",
+            "gen_ai.usage.cache_read.input_tokens",
+            "gen_ai.usage.cache_write.input_tokens",
+            "gen_ai.usage.output_tokens",
+            "gen_ai.usage.reasoning.output_tokens",
+        ):
+            self.assertIsNone(record[name], name)
+        self.assertIsNone(record["cost_usd_list"])
+        self.assertEqual(record["cost_status"], "unknown")
+        self.assertTrue(ledger.validate_record(record, USAGE_SCHEMA))
+
+    def test_go_allowance_from_raw_object(self):
+        write_attempt(self.dir, "att-go-raw", {"inputTokens": 1000, "cachedReadTokens": 0, "outputTokens": 100},
+                      model="go:deepseek-v4.1-flash", allowance={"used_fraction": 0.25})
+        record = ledger.records_from_attempts(self.dir, prices=self.prices)[0]
+        self.assertEqual(record["route"], "go")
+        self.assertEqual(record["provider"], "opencode")
+        self.assertEqual(record["go_allowance"]["raw"], {"used_fraction": 0.25})
+        self.assertEqual(record["go_allowance"]["pct_used"], 25.0)
+        self.assertEqual(record["go_allowance"]["pct_source"], "opencode.allowance")
+        self.assertEqual(record["go_allowance"]["allowance_usd"], 100)
+        self.assertTrue(ledger.validate_record(record, USAGE_SCHEMA))
+
+    def test_go_allowance_from_opencode_allowance_percent(self):
+        write_attempt(self.dir, "att-go-pct", {"inputTokens": 1000, "outputTokens": 100},
+                      model="go:deepseek-v4.1-flash", opencode_allowance={"percent": 12.5})
+        record = ledger.records_from_attempts(self.dir, prices=self.prices)[0]
+        self.assertEqual(record["go_allowance"]["raw"], {"percent": 12.5})
+        self.assertEqual(record["go_allowance"]["pct_used"], 12.5)
+        self.assertEqual(record["go_allowance"]["pct_source"], "opencode.allowance")
+
+    def test_go_allowance_from_list_price(self):
+        write_attempt(self.dir, "att-go-list", {"inputTokens": 1_000_000, "cachedReadTokens": 0, "outputTokens": 0},
+                      model="go:deepseek-v4.1-flash")
+        record = ledger.records_from_attempts(self.dir, prices=self.prices)[0]
+        self.assertEqual(record["cost_usd_list"], 0.15)
+        self.assertIsNone(record["go_allowance"]["raw"])
+        self.assertEqual(record["go_allowance"]["pct_used"], 0.15)
+        self.assertEqual(record["go_allowance"]["pct_source"], "derived_list_price")
+        self.assertEqual(record["go_allowance"]["allowance_usd"], 100)
+
+    def test_fallback_and_reason_from_model_history(self):
+        history = [
+            {"model": "deepseek-v4.1-flash", "at": OFF_PEAK},
+            {"model": "deepseek-v4.1-flash", "reason": "rate_limited_429"},
+        ]
+        write_attempt(self.dir, "att-fallback", {"inputTokens": 10, "outputTokens": 5},
+                      fallback="deepseek", rate_limited=1, model_history=history)
+        record = ledger.records_from_attempts(self.dir, prices=self.prices)[0]
+        self.assertEqual(record["route"], "deepseek")
+        self.assertEqual(record["fallback"], "deepseek")
+        self.assertEqual(record["fallback_reason"], "rate_limited_429")
+        self.assertEqual(record["http_429_count"], 1)
+        self.assertEqual(record["retry_count"], 2)
+        self.assertTrue(ledger.validate_record(record, USAGE_SCHEMA))
+
+    def test_fallback_and_reason_from_dict(self):
+        write_attempt(self.dir, "att-fallback-dict", {"inputTokens": 10, "outputTokens": 5},
+                      fallback={"to": "deepseek", "reason": "quota"})
+        record = ledger.records_from_attempts(self.dir, prices=self.prices)[0]
+        self.assertEqual(record["fallback"], "deepseek")
+        self.assertEqual(record["fallback_reason"], "quota")
+        self.assertEqual(record["retry_count"], 1)
+
+    def test_retry_count_without_fallback(self):
+        write_attempt(self.dir, "att-retry", {"inputTokens": 10, "outputTokens": 5}, rate_limited=3)
+        record = ledger.records_from_attempts(self.dir, prices=self.prices)[0]
+        self.assertIsNone(record["fallback"])
+        self.assertEqual(record["retry_count"], 3)
+
+    def test_join_keys_present_for_attempt_rows(self):
+        write_attempt(self.dir, "att-join", {"inputTokens": 1, "outputTokens": 1},
+                      brief={"project": "demo", "role": "work", "card_id": "card-9", "run_id": "run-9"})
+        record = ledger.records_from_attempts(self.dir, prices=self.prices)[0]
+        for name in ("attempt_id", "card_id", "run_id", "project", "role"):
+            self.assertIsInstance(record[name], str)
+            self.assertNotEqual(record[name], "unknown")
+        self.assertEqual(record["attempt_id"], "att-join")
+        self.assertEqual(record["card_id"], "card-9")
+        self.assertEqual(record["run_id"], "run-9")
+        self.assertEqual(record["project"], "demo")
+        self.assertTrue(record["join_complete"])
+
+    def test_undeliverable_join_keys_use_unknown_and_flag(self):
+        write_attempt(self.dir, "att-nojoin", {"inputTokens": 1, "outputTokens": 1}, brief={})
+        record = ledger.records_from_attempts(self.dir, prices=self.prices)[0]
+        self.assertEqual(record["card_id"], "unknown")
+        self.assertEqual(record["run_id"], "unknown")
+        self.assertFalse(record["join_complete"])
 
     def test_no_objective_http_or_path_leak(self):
         brief = {
@@ -214,7 +332,7 @@ class AttemptRecordTests(unittest.TestCase):
         def collect(value):
             if isinstance(value, dict):
                 for key, item in value.items():
-                    if key != "http_429":
+                    if key != "http_429_count":
                         parts.append(key)
                     collect(item)
             elif isinstance(value, list):
@@ -231,22 +349,67 @@ class AttemptRecordTests(unittest.TestCase):
         self.assertEqual(records[0]["project"], "demo")
 
 
+class SchemaValidationTests(unittest.TestCase):
+    def test_every_produced_record_validates(self):
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            write_attempt(directory, "att-ok", {"inputTokens": 10, "outputTokens": 5})
+            write_attempt(directory, "att-none", None)
+            write_attempt(directory, "att-go", {"inputTokens": 10, "outputTokens": 5},
+                          model="go:deepseek-v4.1-flash", allowance={"fraction": 0.5})
+            write_attempt(directory, "att-fallback", {"inputTokens": 10, "outputTokens": 5},
+                          fallback="deepseek", rate_limited=2)
+            records = ledger.records_from_attempts(directory, prices=load_prices())
+            self.assertTrue(records)
+            for record in records:
+                self.assertTrue(ledger.validate_record(record, USAGE_SCHEMA), record["key"])
+                for nested in ("cost", "reliability", "runtime"):
+                    self.assertNotIn(nested, record)
+
+    def test_validate_rejects_missing_extra_and_bad_values(self):
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            write_attempt(directory, "att-ok", {"inputTokens": 10, "outputTokens": 5})
+            record = ledger.records_from_attempts(directory, prices=load_prices())[0]
+        self.assertTrue(ledger.validate_record(record, USAGE_SCHEMA))
+
+        missing = dict(record)
+        del missing["schema_version"]
+        self.assertFalse(ledger.validate_record(missing, USAGE_SCHEMA))
+
+        extra = dict(record)
+        extra["unexpected"] = True
+        self.assertFalse(ledger.validate_record(extra, USAGE_SCHEMA))
+
+        bad_enum = dict(record)
+        bad_enum["route"] = "deepseek_direct"
+        self.assertFalse(ledger.validate_record(bad_enum, USAGE_SCHEMA))
+
+        bad_const = dict(record)
+        bad_const["schema_version"] = "bee.usage/v0"
+        self.assertFalse(ledger.validate_record(bad_const, USAGE_SCHEMA))
+
+        bad_type = dict(record)
+        bad_type["input_tokens"] = "10"
+        self.assertFalse(ledger.validate_record(bad_type, USAGE_SCHEMA))
+
+
 class RouteTests(unittest.TestCase):
     def test_explicit_route_markers(self):
         self.assertEqual(ledger.infer_route("go:deepseek-v4.1-flash", None, {}, "0.1.14"), ("go", "explicit"))
         self.assertEqual(ledger.infer_route("deepseek:deepseek-v4.1-flash", None, {}, "0.1.14"),
-                         ("deepseek_direct", "explicit"))
+                         ("deepseek", "explicit"))
         self.assertEqual(ledger.infer_route("other-model", "deepseek", {}, "0.1.14"),
-                         ("deepseek_direct", "explicit"))
+                         ("deepseek", "explicit"))
         self.assertEqual(ledger.infer_route("other-model", {"to": "deepseek:foo"}, {}, "0.1.14"),
-                         ("deepseek_direct", "explicit"))
+                         ("deepseek", "explicit"))
         self.assertEqual(ledger.infer_route("other-model", None, {"priority": "high"}, "0.1.14"),
-                         ("deepseek_direct", "explicit"))
+                         ("deepseek", "explicit"))
 
     def test_launcher_version_inference(self):
         for version in ("0.1.12", "0.1.13", "0.1.14"):
             self.assertEqual(ledger.infer_route("deepseek-v4.1-flash", None, {}, version),
-                             ("deepseek_direct", "inferred"))
+                             ("deepseek", "inferred"))
         for version in ("0.1.15", "0.1.16", "0.2.0"):
             self.assertEqual(ledger.infer_route("deepseek-v4.1-flash", None, {}, version),
                              ("go", "inferred"))
@@ -286,7 +449,7 @@ class PriceTests(unittest.TestCase):
 
     def test_go_record_gets_allowance(self):
         record = sample_record(**{
-            "bee.route": "go",
+            "route": "go",
             "gen_ai.request.model": "go:deepseek-v4.1-flash",
             "gen_ai.usage.input_tokens": 1_000_000,
             "gen_ai.usage.cache_read.input_tokens": 0,
@@ -294,23 +457,24 @@ class PriceTests(unittest.TestCase):
         })
         cost = ledger.price(record, self.prices)
         self.assertEqual(cost["billing_mode"], "subscription_allowance")
-        self.assertEqual(cost["price_version"], "opencode-go-2026-11-12")
-        self.assertEqual(cost["usd"], 0.15)
-        self.assertEqual(cost["allowance_usd"], 100)
-        self.assertEqual(cost["allowance_pct"], 0.15)
-        self.assertEqual(cost["status"], "estimated")
+        self.assertEqual(cost["price_table_version"], "opencode-go-2026-11-12")
+        self.assertEqual(cost["cost_usd_list"], 0.15)
+        self.assertEqual(cost["go_allowance"]["allowance_usd"], 100)
+        self.assertEqual(cost["go_allowance"]["pct_used"], 0.15)
+        self.assertEqual(cost["go_allowance"]["pct_source"], "derived_list_price")
+        self.assertEqual(cost["cost_status"], "estimated")
 
     def test_unknown_model_has_null_usd(self):
         record = sample_record(**{"gen_ai.request.model": "mystery-model"})
         cost = ledger.price(record, self.prices)
-        self.assertIsNone(cost["usd"])
-        self.assertEqual(cost["status"], "unknown")
+        self.assertIsNone(cost["cost_usd_list"])
+        self.assertEqual(cost["cost_status"], "unknown")
 
     def test_missing_tokens_has_null_usd(self):
         record = sample_record(**{"gen_ai.usage.input_tokens": None})
         cost = ledger.price(record, self.prices)
-        self.assertIsNone(cost["usd"])
-        self.assertEqual(cost["status"], "unknown")
+        self.assertIsNone(cost["cost_usd_list"])
+        self.assertEqual(cost["cost_status"], "unknown")
 
     def test_pro_rates(self):
         record = sample_record(**{
@@ -320,10 +484,10 @@ class PriceTests(unittest.TestCase):
             "gen_ai.usage.output_tokens": 1_000_000,
         })
         off = ledger.price(record, self.prices)
-        self.assertEqual(off["usd"], 2.64)
+        self.assertEqual(off["cost_usd_list"], 2.64)
         peak_record = dict(record, ts_start="2026-09-14T02:00:00Z")
         peak = ledger.price(peak_record, self.prices)
-        self.assertEqual(peak["usd"], 5.28)
+        self.assertEqual(peak["cost_usd_list"], 5.28)
 
 
 class HermesTests(unittest.TestCase):
@@ -353,19 +517,36 @@ class HermesTests(unittest.TestCase):
         records = ledger.records_from_hermes(self.db, prices=self.prices)
         self.assertEqual(len(records), 1)
         record = records[0]
+        self.assertEqual(record["schema_version"], "bee.usage/v1")
         self.assertEqual(record["key"], "coord:sess-1:deepseek-v4.1-flash")
         self.assertEqual(record["role"], "coordinator")
         self.assertEqual(record["gen_ai.agent.name"], "beekeeper")
-        self.assertEqual(record["bee.route"], "deepseek_direct")
+        self.assertEqual(record["route"], "deepseek")
+        self.assertEqual(record["provider"], "deepseek")
         self.assertEqual(record["gen_ai.provider.name"], "deepseek")
+        self.assertEqual(record["input_tokens"], 1500)
+        self.assertEqual(record["cache_read_tokens"], 500)
+        self.assertEqual(record["output_tokens"], 200)
+        self.assertEqual(record["reasoning_tokens"], 50)
         self.assertEqual(record["gen_ai.usage.input_tokens"], 1500)
         self.assertEqual(record["gen_ai.usage.cache_read.input_tokens"], 500)
         self.assertEqual(record["gen_ai.usage.output_tokens"], 200)
         self.assertEqual(record["gen_ai.usage.reasoning.output_tokens"], 50)
-        self.assertEqual(record["runtime"], {"launcher": None, "harness": "hermes"})
+        self.assertEqual(record["launcher"], None)
+        self.assertEqual(record["harness"], "hermes")
         self.assertEqual(record["usage_raw"]["hermes_estimated_cost_usd"], 999.0)
-        self.assertEqual(record["cost"]["usd"], 0.000272)
-        self.assertNotEqual(record["cost"]["usd"], 999.0)
+        self.assertEqual(record["cost_usd_list"], 0.000272)
+        self.assertEqual(record["cost_status"], "estimated")
+        self.assertNotEqual(record["cost_usd_list"], 999.0)
+        self.assertTrue(ledger.validate_record(record, USAGE_SCHEMA))
+
+    def test_coordinator_join_keys(self):
+        record = ledger.records_from_hermes(self.db, prices=self.prices)[0]
+        self.assertEqual(record["attempt_id"], "coord:sess-1")
+        self.assertEqual(record["card_id"], "coord")
+        self.assertEqual(record["run_id"], "sess-1")
+        self.assertEqual(record["project"], "beekeeper")
+        self.assertTrue(record["join_complete"])
 
     def test_since_filter(self):
         records = ledger.records_from_hermes(self.db, since_epoch=OFF_PEAK + 120, prices=self.prices)
@@ -394,6 +575,10 @@ class AppendAndCliTests(unittest.TestCase):
         self.assertEqual(ledger.append_new(records + records, self.ledger), 0)
         self.assertEqual(len(self.ledger.read_text(encoding="utf-8").splitlines()), 1)
 
+    def test_append_refuses_invalid_record(self):
+        self.assertEqual(ledger.append_new([{"key": "bad"}], self.ledger), 0)
+        self.assertEqual(self.ledger.read_text(encoding="utf-8"), "")
+
     def test_cli_build_twice_is_idempotent(self):
         attempts = self.dir / "attempts"
         write_attempt(attempts, "att-2001", {"inputTokens": 20, "outputTokens": 10})
@@ -403,8 +588,8 @@ class AppendAndCliTests(unittest.TestCase):
         second = subprocess.run(command, capture_output=True, text=True, check=True)
         first_line = json.loads(first.stdout.strip().splitlines()[-1])
         second_line = json.loads(second.stdout.strip().splitlines()[-1])
-        self.assertEqual(first_line, {"ok": True, "added": 1, "skipped": 0, "ledger_records": 1})
-        self.assertEqual(second_line, {"ok": True, "added": 0, "skipped": 1, "ledger_records": 1})
+        self.assertEqual(first_line, {"ok": True, "added": 1, "skipped": 0, "invalid": 0, "ledger_records": 1})
+        self.assertEqual(second_line, {"ok": True, "added": 0, "skipped": 1, "invalid": 0, "ledger_records": 1})
 
     def test_help_exits_zero(self):
         result = subprocess.run([sys.executable, str(SCRIPT), "--help"], capture_output=True, text=True)
