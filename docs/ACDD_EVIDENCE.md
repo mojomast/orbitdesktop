@@ -43,6 +43,20 @@ This matches `bundlebees_plugin/tdd.py` on `feat/acdd-tdd`:
 - `lease.key` must be a regular, non-symlink file of exactly 32 bytes, owned by the current uid, with no group or world permission bits. If it is missing or unsafe, the route still answers but the view reports verification as unavailable and counts nothing (`accepted: false`).
 - Reports use the same scheme and are additionally required to match the frozen contract's `contract_id` and `contract_sha256`.
 
+## Verification states
+
+The view exposes exactly one overall `verificationState`, and `accepted` is true only when it is `verified`. No record label, report field, phase string or client input can set acceptance independently.
+
+| State | Plain-language meaning | What produces it |
+|---|---|---|
+| `verified` | The evidence is verified and accepted. | A verified acceptance report with matching `contract_id` and `contract_sha256` and `accepted: true`, every phase in `contract.evidence_required` has a verified record, and nothing is rejected. |
+| `rejected` | Something failed verification. | Any rejected record (modified signature, stolen verifier label, stale contract sha) or a rejected report (bad/unsigned signature, `contract_id` or `contract_sha256` mismatch). |
+| `invalid` | The contract or records cannot be read. | The contract is invalid, or every supplied record is invalid (unreadable JSON, wrong `evidence_version`, missing required fields). |
+| `unverified` | Verification could not be performed. | No usable lease key, or there are no evidence records at all. |
+| `incomplete` | Verification has not finished. | Nothing is rejected, but a required phase lacks a verified record, there is no verified report, or the verified report says `accepted: false`. |
+
+Each record is also reported as `{index, phase, status, reason}` where `status` is one of `verified`, `rejected`, `invalid` or `unverified`. Reasons are fixed codes; file paths and key material are never included.
+
 ## Data contract
 
 Inputs, all produced by bundlebees (`bundlebees contract freeze`, `bundlebees tdd red|green|refactor|report`, contract-aware `verify` and `integrate`):
@@ -51,7 +65,7 @@ Inputs, all produced by bundlebees (`bundlebees contract freeze`, `bundlebees td
 - evidence records (`tdd-evidence/1`), one per phase, in the run's evidence directory;
 - optionally the acceptance report (`acceptance_report/1`), which maps each AC id to `passed`, `failed`, `unrun` or `review_required` and names the evidence file.
 
-Output of `buildEvidenceView`: `{contractId, title, shortSha, frozen, authority, timeline[], criteria[], phases{}, accepted, verification{available,verified,rejected}, failures[{code,text}], notes[]}`. The route returns the same `verification` summary at the top level. `toActivityItems(view)` turns it into activity-feed items.
+Output of `buildEvidenceView`: `{contractId, title, shortSha, frozen, authority, timeline[], criteria[], phases{}, accepted, verificationState, records[{index,phase,status,reason}], verification{available,verified,rejected}, failures[{code,text}], notes[]}`. `accepted` is exactly `verificationState === "verified"`. The route returns the same `verification` summary at the top level. `toActivityItems(view)` turns it into activity-feed items.
 
 ## Wiring (slice 2, built)
 

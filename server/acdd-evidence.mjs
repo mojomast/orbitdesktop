@@ -195,9 +195,10 @@ export async function loadLeaseKey(stateDir) {
 
 export const readLeaseKey = loadLeaseKey;
 
-function fail(code, message) {
+function fail(code, message, reason = null) {
   const error = new Error(message);
   error.code = code;
+  if (reason) error.reason = reason;
   return error;
 }
 
@@ -275,28 +276,39 @@ export function parseContract(obj) {
 
 export function parseEvidence(obj) {
   if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
-    throw fail('evidence_invalid', 'Evidence record must be an object.');
+    throw fail('evidence_invalid', 'Evidence record must be an object.', 'unreadable');
   }
   if (obj.evidence_version !== 'tdd-evidence/1') {
-    throw fail('evidence_invalid', 'Evidence must use evidence_version tdd-evidence/1.');
+    throw fail('evidence_invalid', 'Evidence must use evidence_version tdd-evidence/1.', 'wrong_version');
   }
+  const contractId = text(obj.contract_id).trim();
+  if (!contractId) throw fail('evidence_invalid', 'Evidence record needs a contract_id.', 'missing_fields');
   const phase = text(obj.phase).trim();
-  if (!phase) throw fail('evidence_invalid', 'Evidence record needs a phase.');
+  if (!phase) throw fail('evidence_invalid', 'Evidence record needs a phase.', 'missing_fields');
+  const classification = text(obj.classification).trim();
+  if (!classification) throw fail('evidence_invalid', 'Evidence record needs a classification.', 'missing_fields');
+  const contractSha256 = text(obj.contract_sha256).trim();
+  if (!contractSha256) throw fail('evidence_invalid', 'Evidence record needs a contract_sha256.', 'missing_fields');
+
+  const producedBy = obj.produced_by && typeof obj.produced_by === 'object' && !Array.isArray(obj.produced_by)
+    ? obj.produced_by
+    : {};
+  const producedByRole = text(producedBy.role).trim();
+  if (!producedByRole) throw fail('evidence_invalid', 'Evidence record needs a produced_by.role.', 'missing_fields');
 
   const revision = text(obj.revision);
-  const producedBy = obj.produced_by && typeof obj.produced_by === 'object' ? obj.produced_by : {};
   return {
     phase,
-    classification: text(obj.classification, 'unknown'),
+    classification,
     revision,
     shortRev: revision ? revision.slice(0, 12) : null,
     at: text(obj.at),
-    by: text(producedBy.role),
+    by: producedByRole,
     testFirst: obj.test_first === true,
     criteria: obj.criteria && typeof obj.criteria === 'object' && !Array.isArray(obj.criteria)
       ? obj.criteria
       : {},
-    contractSha256: text(obj.contract_sha256) || null,
+    contractSha256,
     hasSignature: typeof obj.signature === 'string' && SIGNATURE_RE.test(obj.signature),
     signed: false,
     raw: obj,
@@ -347,17 +359,7 @@ function evidenceReference(value, redact) {
 }
 
 export function buildEvidenceView(contract, records = [], report = null, options = {}) {
-  const parsedContract = parseContract(contract);
   const redact = makeRedactor();
-  const notes = [];
-  const failures = [];
-  const seenFailures = new Set();
-  const addFailure = code => {
-    if (!code || seenFailures.has(code)) return;
-    seenFailures.add(code);
-    failures.push({ code, text: failureText(code) });
-  };
-
   const { verify, available: verificationAvailable } = resolveVerifier(options);
   const safeVerify = value => {
     if (!verificationAvailable || typeof verify !== 'function') return false;
@@ -368,51 +370,107 @@ export function buildEvidenceView(contract, records = [], report = null, options
     }
   };
 
-  const hasReport = report !== null && report !== undefined;
-  let trustedReport = null;
-  if (hasReport && typeof report === 'object' && !Array.isArray(report)
-    && text(report.contract_id) === parsedContract.id
-    && parsedContract.sha256 !== null
-    && text(report.contract_sha256) === parsedContract.sha256) {
-    // Fail closed: without a working verifier no report is ever trusted.
-    if (verificationAvailable && safeVerify(report)) trustedReport = report;
+  let parsedContract;
+  try {
+    parsedContract = parseContract(contract);
+  } catch {
+    const source = contract && typeof contract === 'object' && !Array.isArray(contract) ? contract : {};
+    return {
+      contractId: redact(text(source.id)),
+      title: redact(text(source.title, text(source.id))),
+      shortSha: null,
+      frozen: false,
+      authority: 'bundlebees verifier',
+      timeline: [],
+      criteria: [],
+      phases: {},
+      accepted: false,
+      verificationState: 'invalid',
+      records: [],
+      verification: { available: verificationAvailable, verified: 0, rejected: 0 },
+      failures: [{ code: 'contract_invalid', text: FAILURE_TEXT.contract_invalid }],
+      notes: [redact('The contract is invalid; evidence cannot be verified.')],
+    };
   }
-  if (hasReport && !trustedReport) {
-    notes.push(redact('Acceptance report ignored: its signature or contract identity did not match the frozen contract.'));
+
+  const notes = [];
+  const failures = [];
+  const seenFailures = new Set();
+  const addFailure = code => {
+    if (!code || seenFailures.has(code)) return;
+    seenFailures.add(code);
+    failures.push({ code, text: failureText(code) });
+  };
+
+  const reportPresent = options?.reportPresent === true || (report !== null && report !== undefined);
+  let trustedReport = null;
+  let reportRejected = Boolean(options?.reportUnreadable);
+  if (reportPresent) {
+    if (verificationAvailable) {
+      if (!report || typeof report !== 'object' || Array.isArray(report)) {
+        reportRejected = true;
+      } else if (!safeVerify(report)) {
+        reportRejected = true;
+      } else {
+        const contractMatches = text(report.contract_id) === parsedContract.id
+          && parsedContract.sha256 !== null
+          && text(report.contract_sha256) === parsedContract.sha256;
+        const producer = report.produced_by && typeof report.produced_by === 'object'
+          && !Array.isArray(report.produced_by) ? report.produced_by : null;
+        const reportRole = producer && typeof producer.role === 'string' ? producer.role : null;
+        const roleMatches = reportRole === null || reportRole === 'verifier';
+        if (contractMatches && roleMatches) trustedReport = report;
+        else reportRejected = true;
+      }
+    }
+    if (!trustedReport) {
+      notes.push(redact('Acceptance report ignored: its signature or contract identity did not match the frozen contract.'));
+    }
   }
 
   if (!verificationAvailable) {
     notes.push(redact('Signature verification is unavailable; no evidence or acceptance report was counted.'));
   }
 
+  const recordResults = [];
   const counted = [];
   let verifiedCount = 0;
   let rejectedCount = 0;
-  const input = Array.isArray(records) ? records : [];
-  input.forEach((raw, index) => {
+
+  const classify = (raw, index) => {
     let record;
     try {
       record = parseEvidence(raw);
     } catch (error) {
-      const reason = error && error.code === 'evidence_invalid'
-        ? error.message
-        : 'the record could not be read';
-      notes.push(redact(`Skipped evidence record ${index + 1}: ${reason}`));
+      const reason = error && typeof error.reason === 'string'
+        ? error.reason
+        : error && error.code === 'evidence_invalid' ? 'missing_fields' : 'unreadable';
+      const phase = raw && typeof raw === 'object' && !Array.isArray(raw) && typeof raw.phase === 'string'
+        ? raw.phase
+        : null;
+      recordResults.push({ index, phase, status: 'invalid', reason });
+      notes.push(redact(`Skipped evidence record ${index + 1}: it is not a readable tdd-evidence/1 record.`));
+      return;
+    }
+
+    if (!verificationAvailable) {
+      rejectedCount += 1;
+      recordResults.push({ index, phase: record.phase, status: 'unverified', reason: 'verification_unavailable' });
       return;
     }
 
     if (!safeVerify(raw)) {
       rejectedCount += 1;
-      if (verificationAvailable && record.by === 'verifier') {
+      if (record.by === 'verifier') {
+        const reason = record.hasSignature ? 'modified' : 'stolen_label';
+        recordResults.push({ index, phase: record.phase, status: 'rejected', reason });
         addFailure('evidence_tampered');
         notes.push(redact(`Evidence record ${index + 1} claims verifier output but its signature did not verify; ignored.`));
-        return;
-      }
-      if (record.by === 'worker') {
+      } else if (record.by === 'worker') {
+        recordResults.push({ index, phase: record.phase, status: 'unverified', reason: 'worker_self_report' });
         notes.push(redact(`Worker self-reports are not authority; ignored the ${record.phase} record ${index + 1}.`));
-        return;
-      }
-      if (verificationAvailable) {
+      } else {
+        recordResults.push({ index, phase: record.phase, status: 'unverified', reason: 'not_verifier' });
         notes.push(redact(`Evidence record ${index + 1} is unsigned or has an invalid signature; ignored.`));
       }
       return;
@@ -420,19 +478,34 @@ export function buildEvidenceView(contract, records = [], report = null, options
 
     verifiedCount += 1;
     if (record.by === 'worker') {
+      recordResults.push({ index, phase: record.phase, status: 'unverified', reason: 'worker_self_report' });
       notes.push(redact(`Worker self-reports are not authority; ignored the ${record.phase} record ${index + 1}.`));
       return;
     }
     if (record.by !== 'verifier') {
+      recordResults.push({ index, phase: record.phase, status: 'unverified', reason: 'not_verifier' });
       notes.push(redact(`Only verifier output is authoritative; ignored the ${record.phase} record ${index + 1}.`));
       return;
     }
-    if (parsedContract.sha256 !== null && record.contractSha256 !== parsedContract.sha256) {
+    if (parsedContract.sha256 === null || record.contractSha256 !== parsedContract.sha256) {
+      recordResults.push({ index, phase: record.phase, status: 'rejected', reason: 'stale_contract' });
       addFailure('stale_revision');
       return;
     }
+    recordResults.push({ index, phase: record.phase, status: 'verified', reason: 'signature_verified' });
     counted.push(record);
-  });
+  };
+
+  const input = Array.isArray(records) ? records : [];
+  input.forEach((raw, index) => classify(raw, index));
+
+  const invalidRecords = Array.isArray(options?.invalidRecords) ? options.invalidRecords : [];
+  for (const item of invalidRecords) {
+    const reason = item && typeof item.reason === 'string' ? item.reason : 'unreadable';
+    const phase = item && typeof item.phase === 'string' ? item.phase : null;
+    recordResults.push({ index: recordResults.length, phase, status: 'invalid', reason });
+    notes.push(redact(`Skipped unreadable evidence record ${recordResults.length}.`));
+  }
 
   const timeline = counted.map(record => ({
     phase: record.phase,
@@ -497,6 +570,21 @@ export function buildEvidenceView(contract, records = [], report = null, options
     };
   });
 
+  const hasRejectedRecord = recordResults.some(record => record.status === 'rejected');
+  const allRecordsInvalid = recordResults.length > 0
+    && recordResults.every(record => record.status === 'invalid');
+  const requiredPhasesVerified = parsedContract.evidenceRequired.every(phase => (
+    recordResults.some(record => record.status === 'verified' && record.phase === phase)
+  ));
+
+  let verificationState;
+  if (allRecordsInvalid) verificationState = 'invalid';
+  else if (!verificationAvailable) verificationState = 'unverified';
+  else if (recordResults.length === 0) verificationState = 'unverified';
+  else if (hasRejectedRecord || reportRejected) verificationState = 'rejected';
+  else if (!trustedReport || trustedReport.accepted !== true || !requiredPhasesVerified) verificationState = 'incomplete';
+  else verificationState = 'verified';
+
   const verification = {
     available: verificationAvailable,
     verified: verifiedCount,
@@ -512,7 +600,9 @@ export function buildEvidenceView(contract, records = [], report = null, options
     timeline,
     criteria,
     phases,
-    accepted: Boolean(trustedReport && trustedReport.accepted === true),
+    accepted: verificationState === 'verified',
+    verificationState,
+    records: recordResults,
     verification,
     failures,
     notes,

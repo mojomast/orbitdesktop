@@ -200,25 +200,33 @@ function verifiesWithKeys(record, keys) {
   return keys.some(key => verifyRecordSignature(record, key));
 }
 
-async function readAcceptanceReport(stateDir, contractId, keys) {
-  if (keys.length === 0) return null;
+async function readAcceptanceReport(stateDir, contractId) {
   const path = join(stateDir, 'reports', `${contractId}.json`);
   let reportStat;
   try {
     reportStat = await lstat(path);
   } catch {
-    return null;
+    return { present: false, report: null, unreadable: false };
   }
-  if (!reportStat.isFile() || reportStat.size > MAX_REPORT_BYTES) return null;
+  if (!reportStat.isFile() || reportStat.size > MAX_REPORT_BYTES) {
+    return { present: false, report: null, unreadable: false };
+  }
 
   let parsed;
   try {
     parsed = JSON.parse(await readFile(path, 'utf8'));
   } catch {
-    return null;
+    return { present: true, report: null, unreadable: true };
   }
-  if (!isObject(parsed) || !verifiesWithKeys(parsed, keys)) return null;
-  return parsed;
+  if (!isObject(parsed)) return { present: true, report: null, unreadable: true };
+  return { present: true, report: parsed, unreadable: false };
+}
+
+function skippedRecordReasons(skipped) {
+  const invalid = new Set(['invalid_json', 'wrong_version', 'unreadable', 'too_large']);
+  return (Array.isArray(skipped) ? skipped : [])
+    .filter(entry => entry && invalid.has(entry.reason))
+    .map(entry => ({ reason: entry.reason === 'invalid_json' ? 'unreadable' : entry.reason }));
 }
 
 async function readContractView(stateDir, contractId) {
@@ -244,10 +252,13 @@ async function readContractView(stateDir, contractId) {
 
   const keyState = await loadLeaseKey(stateDir);
   const keys = verificationKeys(keyState);
-  const report = await readAcceptanceReport(stateDir, contractId, keys);
-  const view = buildEvidenceView(contract, records, report, {
+  const reportInfo = await readAcceptanceReport(stateDir, contractId);
+  const view = buildEvidenceView(contract, records, reportInfo.report, {
     verify: record => verifiesWithKeys(record, keys),
     verificationAvailable: keys.length > 0,
+    reportPresent: reportInfo.present,
+    reportUnreadable: reportInfo.unreadable,
+    invalidRecords: skippedRecordReasons(skipped),
   });
   return {
     status: 200,
