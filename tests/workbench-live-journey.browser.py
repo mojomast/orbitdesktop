@@ -714,8 +714,8 @@ def main(renderer):
                         if workbench.is_visible():
                             workbench.get_by_role("button", name="Close project workbench", exact=True).click()
                             expect(workbench).not_to_be_visible()
-                        # The orbit menu stays open while a modal is up; close it so it
-                        # does not cover the pane toolbar.
+                        # The orbit menu stays open while a modal is up; close it so it does
+                        # not cover the pane toolbar.
                         if page.locator("#orbit-menu").is_visible():
                             page.get_by_role("button", name="Close orbit menu").click()
                             expect(page.locator("#orbit-menu")).to_be_hidden()
@@ -1021,6 +1021,11 @@ def main(renderer):
                         if workbench.is_visible():
                             workbench.get_by_role("button", name="Close project workbench", exact=True).click()
                             expect(workbench).not_to_be_visible()
+                        # The orbit menu stays open while a modal is up; close it so it does
+                        # not cover the pane toolbar.
+                        if page.locator("#orbit-menu").is_visible():
+                            page.get_by_role("button", name="Close orbit menu").click()
+                            expect(page.locator("#orbit-menu")).to_be_hidden()
                         normal_mode.click()
                         expect(normal_mode).to_have_attribute("aria-pressed", "true")
                         if not normal_timeline.count():
