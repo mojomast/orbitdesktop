@@ -5,6 +5,8 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync, existsSync } from 'node:fs';
 import { randomBytes, createHash } from 'node:crypto';
 import path from 'node:path';
+import http from 'node:http';
+import https from 'node:https';
 
 export const TERMINAL = new Set(['succeeded', 'failed', 'cancelled', 'superseded', 'not_started', 'accepted', 'rejected']);
 // detailed state -> board column (todo|doing|review|done|blocked)
@@ -13,7 +15,36 @@ export const BOARD_COLUMN = {
   disconnected: 'doing', cancel_requested: 'doing', succeeded: 'review', accepted: 'done', rejected: 'blocked',
   failed: 'blocked', cancelled: 'blocked', not_started: 'blocked',
 };
-const why = (e) => e?.cause?.code || e?.cause?.name || e?.name || 'error';
+const why = (e) => e?.cause?.code || e?.code || e?.cause?.name || e?.name || 'error';
+
+// Keep-alive HTTP client for the launcher (plan B, LAUNCHER-DROPOUTS.md). The box reaches the PC over a
+// relayed tailnet path (~90 ms RTT), so reusing one warm socket avoids a fresh connect every poll, and an
+// explicit connect timeout (20 s) replaces the built-in 10 s one. Returns a fetch-like { status, ok, json() }.
+const KA = { keepAlive: true, keepAliveMsecs: 30000, maxSockets: 16, maxFreeSockets: 4, timeout: 60000 };
+const httpAgent = new http.Agent(KA); const httpsAgent = new https.Agent(KA);
+export function keepAliveFetch({ connectTimeoutMs = 20000 } = {}) {
+  return (url, { method = 'GET', headers = {}, body, signal } = {}) => new Promise((resolve, reject) => {
+    const u = new URL(url); const tls = u.protocol === 'https:';
+    const h = body != null ? { ...headers, 'Content-Length': Buffer.byteLength(body) } : headers;
+    const req = (tls ? https : http).request(u, { method, headers: h, agent: tls ? httpsAgent : httpAgent });
+    let ct = null; let settled = false;
+    const onAbort = () => req.destroy(Object.assign(new Error('This operation was aborted'), { name: 'AbortError' }));
+    const finish = (fn, v) => { if (settled) return; settled = true; clearTimeout(ct); signal?.removeEventListener('abort', onAbort); fn(v); };
+    if (signal) { if (signal.aborted) { onAbort(); } else signal.addEventListener('abort', onAbort, { once: true }); }
+    req.on('socket', (sock) => {
+      if (!sock.connecting) return; // reused keep-alive socket
+      ct = setTimeout(() => req.destroy(Object.assign(new Error('connect timeout'), { code: 'UND_ERR_CONNECT_TIMEOUT' })), connectTimeoutMs);
+      sock.once('connect', () => clearTimeout(ct));
+    });
+    req.on('error', (e) => finish(reject, e));
+    req.on('response', (res) => {
+      const chunks = []; res.on('data', (c) => chunks.push(c)); res.on('error', (e) => finish(reject, e));
+      res.on('end', () => { const text = Buffer.concat(chunks).toString('utf8');
+        finish(resolve, { status: res.statusCode, ok: res.statusCode >= 200 && res.statusCode < 300, text: async () => text, json: async () => JSON.parse(text) }); });
+    });
+    req.end(body ?? undefined);
+  });
+}
 // Board updates post as the system identity the collab board accepts in any group (see collab-board.mjs).
 export const MAX_WORKERS = 10; // hard ceiling, matches the PC launcher
 // Model tiers: 'simple' -> the launcher's pool of free OpenCode models (rotates on rate limits, then falls back to flash), 'standard' -> flash via OpenCode Go.
@@ -27,9 +58,11 @@ export function manifestHash(brief) {
 }
 
 export function createLocalWorkers({
-  runtimeDir, launcherUrl, launcherToken, tokenFile, board, fetchImpl = globalThis.fetch,
-  maxConcurrent = 1, node = 'brrrrrrrr', timeoutMs = 15000, now = () => Date.now(), log = () => {},
+  runtimeDir, launcherUrl, launcherToken, tokenFile, board, fetchImpl,
+  maxConcurrent = 1, node = 'brrrrrrrr', timeoutMs = 30000, connectTimeoutMs = 20000, now = () => Date.now(), log = () => {},
+  retries = 2, retryBaseMs = 400, disconnectFails = 3, disconnectMs = 45000, sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
 } = {}) {
+  fetchImpl = fetchImpl || keepAliveFetch({ connectTimeoutMs });
   const dir = path.join(runtimeDir, 'local-workers');
   mkdirSync(dir, { recursive: true });
   const ledgerPath = path.join(dir, 'ledger.json');
@@ -50,7 +83,19 @@ export function createLocalWorkers({
     writeFileSync(tmp, JSON.stringify(ledger, null, 1), { mode: 0o600 });
     renameSync(tmp, ledgerPath);
   }
+  // GETs are idempotent: retry transport errors (not HTTP statuses) up to `retries` times with jittered
+  // backoff, but never start a retry once `timeoutMs` has passed since the first try.
   async function call(method, p, body) {
+    const t0 = now();
+    for (let i = 0; ; i++) {
+      try { return await call1(method, p, body); }
+      catch (e) {
+        if (method !== 'GET' || i >= retries || now() - t0 >= timeoutMs) throw e;
+        await sleep(Math.round(retryBaseMs * 2 ** i * (0.5 + Math.random())));
+      }
+    }
+  }
+  async function call1(method, p, body) {
     const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), timeoutMs);
     try {
       const r = await fetchImpl(launcherUrl.replace(/\/$/, '') + p, {
@@ -70,6 +115,18 @@ export function createLocalWorkers({
     const detail = `[local-worker ${a.attempt_id}] ${a.state}${a.detail ? ': ' + a.detail : ''}${note ? ' - ' + note : ''}`;
     try { await board.update({ group: a.group, entry: a.board_entry, status: BOARD_COLUMN[a.state] || 'doing', note: `${a.coordinator}: ${detail}`.slice(0, 500), by: BOARD_POSTER }); }
     catch (e) { log('board sync failed', e?.message); }
+  }
+  // Hysteresis: one failed poll is a blip, not a disconnect. Flip to `disconnected` only after
+  // `disconnectFails` consecutive failures spanning at least `disconnectMs`.
+  function noteFail(a, e) {
+    a.fail_streak = (a.fail_streak || 0) + 1; a.first_fail_at = a.first_fail_at || now(); a.last_error = why(e);
+    const down = a.fail_streak >= disconnectFails && now() - a.first_fail_at >= disconnectMs;
+    if (!down) persist();
+    return down;
+  }
+  function noteOk(a) {
+    const had = a.fail_streak; a.fail_streak = 0; a.first_fail_at = null; a.last_ok_at = new Date(now()).toISOString();
+    if (had) persist();
   }
   async function setState(a, state, detail, extra = {}) {
     if (ledger.attempts[a.attempt_id].superseded_by && state !== 'superseded') return a; // superseded attempts can't overwrite
@@ -142,9 +199,11 @@ export function createLocalWorkers({
     try { r = await call('GET', `/v1/attempts/${id}/events?cursor=${a.event_cursor}`); }
     catch (e) {
       if (a.state === 'outcome_unknown' || a.state === 'dispatching') return a;
+      if (!noteFail(a, e)) return a;
       if (a.state !== 'disconnected') await setState(a, 'disconnected', `launcher unreachable (${why(e)}); attempt keeps running on the PC`, { before_disconnect: a.state });
       return a;
     }
+    noteOk(a);
     if (r.status === 404) {
       if (a.state === 'outcome_unknown' || a.state === 'dispatching') return setState(a, 'not_started', 'launcher has no record: never started (safe to retry)', { ended_at: new Date(now()).toISOString() });
       return setState(a, 'outcome_unknown', 'launcher lost the attempt record');
@@ -154,7 +213,8 @@ export function createLocalWorkers({
     if (evs.length) {
       a.event_cursor = r.body.cursor;
       a.log_ref = path.join(dir, `${id}.events.jsonl`);
-      writeFileSync(a.log_ref, evs.map((e) => JSON.stringify(e)).join('\n') + '\n', { flag: 'a' });
+      const rx = new Date(now()).toISOString(); // when the box received it (worker events may lack ts)
+      writeFileSync(a.log_ref, evs.map((e) => JSON.stringify({ ...e, rx })).join('\n') + '\n', { flag: 'a' });
       const sess = evs.find((e) => e.kind === 'worker:session'); if (sess?.text) a.opencode_session_id = sess.text;
       persist();
     }
@@ -203,7 +263,8 @@ export function createLocalWorkers({
       if (TERMINAL.has(a.state) || a.state === 'queued') continue;
       let r;
       try { r = await call('GET', `/v1/attempts/${a.attempt_id}`); }
-      catch (e) { if (!['outcome_unknown', 'dispatching', 'disconnected'].includes(a.state)) await setState(a, 'disconnected', `launcher unreachable (${why(e)})`); continue; }
+      catch (e) { if (noteFail(a, e) && !['outcome_unknown', 'dispatching', 'disconnected'].includes(a.state)) await setState(a, 'disconnected', `launcher unreachable (${why(e)})`); continue; }
+      noteOk(a);
       if (r.status === 404) {
         await setState(a, a.state === 'dispatching' || a.state === 'outcome_unknown' ? 'not_started' : 'outcome_unknown',
           'launcher has no record of this attempt', a.state === 'dispatching' || a.state === 'outcome_unknown' ? { ended_at: new Date(now()).toISOString() } : {});
@@ -219,8 +280,25 @@ export function createLocalWorkers({
 
   async function tick() { for (const a of active()) await poll(a.attempt_id); await reconcile(); }
 
+  // Move old terminal attempts out of the live ledger into archive-<time>.json (per-attempt files stay).
+  function archive({ olderThanMs = 86400000, target = 400, exclude = [] } = {}) {
+    const ex = new Set(exclude); const cut = now() - olderThanMs;
+    const all = Object.values(ledger.attempts);
+    const ts = (a) => Date.parse(a.ended_at || a.created_at) || 0;
+    const cand = all.filter((a) => TERMINAL.has(a.state) && !ex.has(a.attempt_id) && ts(a) < cut).sort((x, y) => ts(x) - ts(y));
+    const moved = cand.slice(0, Math.max(0, all.length - target));
+    if (!moved.length) return { archived: 0, total: all.length, file: null };
+    const stamp = new Date(now()).toISOString().replace(/[:.]/g, '-');
+    const file = path.join(dir, `archive-${stamp}.json`);
+    writeFileSync(file + '.tmp', JSON.stringify({ version: 1, archived_at: new Date(now()).toISOString(), attempts: Object.fromEntries(moved.map((a) => [a.attempt_id, a])) }, null, 1), { mode: 0o600 });
+    renameSync(file + '.tmp', file);
+    for (const a of moved) delete ledger.attempts[a.attempt_id];
+    persist();
+    return { archived: moved.length, total: Object.keys(ledger.attempts).length, file };
+  }
+
   return {
-    create, poll, cancel, review, reconcile, tick, pump,
+    create, poll, cancel, review, reconcile, tick, pump, archive,
     get: (id) => ledger.attempts[id], list: () => Object.values(ledger.attempts),
     get cap() { return effectiveCap(); }, get paused() { return paused(); },
     reload() { ledger = JSON.parse(readFileSync(ledgerPath, 'utf8')); },
