@@ -577,13 +577,14 @@ export function mountOnboarding(root: HTMLElement, api: OnboardingApi = createOn
   function addProviderForm(options: { excludeKinds?: string[]; title?: string } = {}): HTMLElement {
     const form = element('form', 'onboarding-provider-form');
     form.append(element('h3', '', options.title ?? 'Add a provider'));
-    const directKinds: Array<[string, string]> = [
+    const allDirectKinds: Array<[string, string]> = [
       ['openai-compatible', 'OpenAI-compatible'],
       ['openrouter', 'OpenRouter'],
       ['anthropic', 'Anthropic'],
       ['opencode-free', 'OpenCode free'],
       ['pi', 'Pi harness'],
-    ].filter(([kind]) => !options.excludeKinds?.includes(kind));
+    ];
+    const directKinds = allDirectKinds.filter(([kind]) => !options.excludeKinds?.includes(kind));
     let kind = directKinds[0]?.[0] ?? 'openai-compatible';
     const kindSelect = choiceField(directKinds, kind, value => { kind = value; }, 'Provider kind');
     const id = element('input', 'onboarding-input') as HTMLInputElement;
