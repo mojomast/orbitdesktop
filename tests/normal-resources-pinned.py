@@ -68,7 +68,7 @@ def journey():
         assert exact['result']['text'] == 'Mars has two moons.'
         with delegated_child_context(config['other_session']):
             assert workers.submit(call, {'action':'describe'}).result()['code'] == 'normal_grant_unavailable'
-        saved = workers.submit(call, {'action':'create_document','op_id':config['op_id'],'title':'Pinned Normal cited brief','text':'Mars has two moons.',
+        saved = workers.submit(call, {'action':'create_document','op_id':config['op_id'],'title':'Pinned Normal cited brief','kind':'richtext','text':'Mars has two moons.',
             'citations':[{key:source[key] for key in ('source_id','content_sha256','char_start','char_end')}]}).result()
         assert saved.get('saved'), saved
         return saved

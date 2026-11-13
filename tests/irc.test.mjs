@@ -256,11 +256,15 @@ test('the bundled ircd starts, the websocket bridge relays a channel, and stop s
   const after = await stopped.json();
   assert.equal(stopped.status, 200);
   assert.equal(after.status, 'stopped');
-  await new Promise((resolve, reject) => {
+  // The listener closes asynchronously after stop; allow a short grace period.
+  const accepting = () => new Promise(resolve => {
     const socket = net.connect({ host: '127.0.0.1', port: ircPort });
-    socket.once('connect', () => { socket.destroy(); reject(Error('ircd still accepting')); });
-    socket.once('error', () => resolve());
+    socket.once('connect', () => { socket.destroy(); resolve(true); });
+    socket.once('error', () => resolve(false));
   });
+  let open = true;
+  for (let attempt = 0; attempt < 30 && (open = await accepting()); attempt += 1) await new Promise(resolve => setTimeout(resolve, 100));
+  assert.equal(open, false, 'ircd still accepting');
 });
 
 test('the vendored suite is the default ircd and the bridge can join it', async t => {

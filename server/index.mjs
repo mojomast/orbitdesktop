@@ -8,6 +8,7 @@ import { randomBytes } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
 import { tokenMatches, geometry, allowedRequest, resolveListenHost, acceptedHosts } from "./security.mjs";
 import { discoverAgentBackends, publicBackendSummary } from "./agent-discovery.mjs";
+import { createOrbitSetup } from "./onboarding-wiring.mjs";
 import { LocalHostProvider } from "./local-host.mjs";
 import { createAgentHandler } from "./agent.mjs";
 import { startPiGateway } from "./pi-gateway.mjs";
@@ -45,13 +46,15 @@ import { createGrokBotsApp } from './grokbots-app.mjs';
 import { createAgentStatus } from './agent-status.mjs';
 import { createCollabBoard } from './collab-board.mjs';
 import { createLocalWorkersRoute } from './local-workers-route.mjs';
+import { createAcddEvidenceRoute } from './acdd-evidence-route.mjs';
 const port = Number(process.env.PORT || 4318);
 if (!Number.isInteger(port) || port < 1024 || port > 65535)
   throw Error("PORT must be between 1024 and 65535");
 const listenHost = resolveListenHost();
 const explicitHermes = Boolean(process.env.HERMES_API_URL || process.env.HERMES_API_KEY || process.env.HERMES_PROFILES_JSON);
 let discovered = { hermes: null, grok: null, pi: null };
-try { discovered = discoverAgentBackends(); }
+// ORBIT_AGENT_DISCOVERY=off boots with only explicitly configured agents (fresh-install tests).
+try { if (process.env.ORBIT_AGENT_DISCOVERY !== 'off') discovered = discoverAgentBackends(); }
 catch (error) { console.error("Agent backend discovery failed; explicit configuration still applies.", error instanceof Error ? error.message : ""); }
 const token = process.env.ORBIT_TOKEN || randomBytes(32).toString("base64url");
 if (token.length < 32)
@@ -125,16 +128,24 @@ if (discovered.pi) {
     }
   }
 }
+// Onboarding, Settings, the opt-in router and SSH hosts (orbit-config.json).
+// A chat role mapped to an OpenAI-compatible endpoint becomes one more agent
+// profile; with nothing configured Orbit boots with zero agents.
+const orbitSetup = createOrbitSetup({ runtimeDir: runtimeRoot, env: process.env, discovered, log: message => console.log(message), hasAgents: () => (agentHandler.profileCatalog?.()?.list?.length ?? 0) > 0 });
+let configuredProfiles = [];
+try { configuredProfiles = await orbitSetup.agentProfiles(); }
+catch { console.error('Configured agents from orbit-config.json did not start.'); }
 const irc = createIrcService({ token, orbitPort: port, devOrigins, reply, repoRoot });
 const colab = createColabOrchestrator({ token, port, devOrigins, reply, root: path.join(runtimeRoot, 'colab-orchestrator') });
 // Kitty DOOM: one kitty-graphics PTY session per websocket window on this origin.
 const kittyDoom = createKittyDoomService({ token, port, devOrigins, reply });
 // Grok Bots app: capability-scoped list/history/send for the sandboxed app iframe.
 const agentStatus = createAgentStatus({ runtimeRoot });
+const acddEvidence = createAcddEvidenceRoute({ stateDir: process.env.ORBIT_ACDD_STATE_DIR || '', authorize: req => allowedRequest(req, port, devOrigins) && tokenMatches(String(req.headers.authorization || '').replace(/^Bearer /, ''), token) });
 const grokBotsApp = createGrokBotsApp({ runtimeRoot, catalog: () => agentHandler.profileCatalog?.(), agentStatus, chats: () => agentHandler.gatewayChats?.(), workspaceContext: workspaceService.context });
 const agentHandler = createAgentHandler({ token, port, devOrigins, reply, workspaceContext: workspaceService.context, workspaceRead:workspaceService.read, runtimeDirectory:runtimeRoot,executionGate,onRunEvent:event=>observeTechnologyTrace(event,'observeAgentRunEvent'),onNormalAccepted:record=>normalResources?.normalAccepted(record),
   ...(!explicitHermes && discovered.hermes ? { apiUrl: null, apiKey: null, profiles: [{ id: "default", label: discovered.hermes.label, apiUrl: discovered.hermes.apiUrl, apiKey: discovered.hermes.apiKey }] } : {}),
-  ...(discovered.grok || piProfile ? { additionalProfiles: [...(discovered.grok ? [discovered.grok] : []), ...(piProfile ? [piProfile] : [])] } : {}),
+  ...(discovered.grok || piProfile || configuredProfiles.length ? { additionalProfiles: [...(discovered.grok ? [discovered.grok] : []), ...(piProfile ? [piProfile] : []), ...configuredProfiles] } : {}),
 });
 // Group-chat build tracking on the Collab board (loopback CLI ~/bin/collab-board).
 const collabBoard = createCollabBoard({ runtimeRoot, collab: () => agentHandler.collabOperate, groups: () => grokBotsApp.groupsApi(), workspace: () => {
@@ -358,6 +369,7 @@ async function handleOrbitRequest(req, res) {
   if (url.pathname === '/api/grokbots-app') return grokBotsApp.handle(req, res);
   if (url.pathname === '/api/grokbots-app/upload') return grokBotsApp.upload(req, res);
   if (url.pathname === '/api/agent-status') return agentStatus.handle(req, res);
+  if (url.pathname === '/api/acdd-evidence') return acddEvidence.handle(req, res, url);
   if (url.pathname === '/api/collab-board') return collabBoard.handle(req, res);
   if (url.pathname === '/api/local-workers') { if (localWorkers) return localWorkers.handle(req, res); res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end('{"error":"local workers disabled"}'); }
   if (url.pathname === "/api/health")
@@ -388,6 +400,14 @@ async function handleOrbitRequest(req, res) {
     } catch {
       return reply(res, 400, { error: "Invalid JSON" });
     }
+  }
+  if (url.pathname === '/api/onboarding' || url.pathname.startsWith('/api/onboarding/') || url.pathname === '/api/settings' || url.pathname.startsWith('/api/settings/') || url.pathname === '/api/hosts') {
+    // Owner bearer token always; a cross-origin Origin is always refused. Same-origin
+    // GETs carry no Origin header in browsers, so its absence is accepted here.
+    const origin = req.headers.origin;
+    if (origin !== undefined && !allowedRequest(req, port, devOrigins)) return reply(res, 403, { error: 'Origin rejected' });
+    if (!tokenMatches(String(req.headers.authorization || '').replace(/^Bearer /, ''), token)) return reply(res, 401, { error: 'Orbit authentication required' });
+    return orbitSetup.handle(req, res, url);
   }
   if (url.pathname.startsWith("/api/"))
     return reply(res, 404, { error: "Not found" });

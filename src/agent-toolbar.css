@@ -46,6 +46,9 @@
 .agent-overflow-menu button { text-align: left; font-size: 12px; white-space: normal; }
 @container (max-width: 390px) {
   #app .agent-pane-head .agent-status { max-width:56px;font-size:9px; }
+  /* Narrow heads (any renderer): provider details stay reachable from the
+     overflow menu and the inspector instead of overflowing the pane head. */
+  #app .agent-pane-head .agent-toolbar-meta .agent-provider { display: none; }
   #app .agent-pane-head .agent-mode-button { padding: 4px 3px; }
 }
 
@@ -105,3 +108,7 @@
 #app .agent-chat-normal .chat-message{box-sizing:border-box;min-width:0;max-width:100%;overflow-wrap:anywhere}
 #app .agent-chat-normal .chat-message:not(.user){border:0;border-radius:0;background:transparent!important;box-shadow:none;padding:12px 8px}
 #app .agent-chat-normal .chat-message.user{max-width:min(85%,720px);margin-left:auto}
+@container (max-width: 340px) {
+  /* At phone widths the profile selector already names the conversation. */
+  #app .agent-pane-head .agent-pane-title { display: none; }
+}

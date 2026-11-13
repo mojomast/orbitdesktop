@@ -18,7 +18,7 @@ import { experimentalEnabled, subscribeExperimental } from './experimental';
 import { showOrbitSettings } from './orbit-settings';
 import { showConversationLibrary } from './conversation-library';
 import type { ConversationSelection } from './conversation-selection';
-import { asProvider, isGatewayProvider, providerLabel, type AgentProvider } from './agent-providers';
+import { asProvider, isGatewayProvider, profileProvider, providerLabel, type AgentProvider } from './agent-providers';
 import { createConversationDraft } from './conversation-draft';
 import { conversationRequest } from './conversation-client';
 import { registerConversationRecipient, type ConversationRecipientHandle } from './conversation-transfer';
@@ -281,7 +281,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
   const currentProvider = (): AgentProvider => {
     const id = chatProfileId(state);
     const known = profiles.find(profile => profile.id === id);
-    return asProvider(known ? known.provider : id);
+    return profileProvider(id, known ? known.provider : undefined);
   };
   const agentName = () => providerLabel(currentProvider());
   const providerIsGateway = () => isGatewayProvider(currentProvider());
@@ -1233,7 +1233,7 @@ export function createAgentChat(body: HTMLElement, paneId: string, getToken: () 
     if (!Number.isSafeInteger(state.binding_revision)) { reject('Session switching is unsupported until the backend supplies an authoritative binding revision. Refresh the connection first.'); return; }
     const requested = scope();
     const listedTarget = profiles.find(profile => profile.id === targetProfile);
-    const targetProvider = asProvider(listedTarget?.provider ?? targetProfile);
+    const targetProvider = profileProvider(targetProfile, listedTarget ? listedTarget.provider : undefined);
     const gatewayProfile = listedTarget ? isGatewayProvider(listedTarget.provider) : isGatewayProvider(targetProfile);
     let conversationName = '';
     if (!targetSession && gatewayProfile) {

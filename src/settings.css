@@ -1,0 +1,191 @@
+/* Orbit Settings. Dark only: colors come from the workspace theme tokens. */
+
+.orbit-settings {
+  box-sizing: border-box;
+  color-scheme: dark;
+  color: #edf3fb;
+  background: #10171b;
+  border: 1px solid var(--line, #293236);
+  border-radius: 18px;
+  padding: 26px;
+  width: min(900px, calc(100vw - 24px));
+  max-height: calc(100dvh - 24px);
+  overflow: auto;
+  font: 15px/1.55 system-ui, sans-serif;
+}
+
+.orbit-settings h1,
+.orbit-settings h2,
+.orbit-settings h3 {
+  margin: 0 0 8px;
+  line-height: 1.25;
+  color: #f0f6ff;
+}
+
+.orbit-settings h1 {
+  font-size: 26px;
+  outline: none;
+}
+
+.orbit-settings h2 {
+  font-size: 19px;
+}
+
+.orbit-settings h3 {
+  font-size: 15px;
+  color: #dce7f5;
+}
+
+.orbit-settings p {
+  margin: 0 0 10px;
+  color: #b8c5d6;
+}
+
+.settings-content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--line, #293236);
+  border-radius: 14px;
+  background: #141d23;
+}
+
+.settings-hint,
+.settings-default-model {
+  color: var(--lime, #c2ed90);
+  font-size: 13px;
+}
+
+.settings-provider {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #2b3a44;
+  border-radius: 12px;
+  background: #0f171c;
+}
+
+.settings-provider-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-key-state {
+  color: #9fb0c4;
+  font-size: 13px;
+}
+
+.settings-provider-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.settings-key-input {
+  flex: 1 1 220px;
+}
+
+.settings-provider-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #24313a;
+}
+
+.settings-provider-form button {
+  grid-column: 1 / -1;
+}
+
+.settings-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #0f171c;
+  border: 1px solid #24313a;
+}
+
+.settings-toggle-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-toggle-copy strong {
+  color: #e8f0f9;
+  font-weight: 600;
+}
+
+.orbit-settings :is(button, select, input, textarea):focus-visible,
+.settings-toggle:focus-within {
+  outline: 3px solid var(--lime, #c2ed90);
+  outline-offset: 2px;
+}
+
+.orbit-settings :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+  box-sizing: border-box;
+  min-height: 40px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  border: 1px solid #3c4d5c;
+  background: #0b1320;
+  color: #e4edfa;
+  font: inherit;
+}
+
+.orbit-settings button {
+  min-height: 40px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  border: 1px solid #53647d;
+  background: #233147;
+  color: #edf3fb;
+  font: inherit;
+  cursor: pointer;
+}
+
+.orbit-settings button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.orbit-settings .onboarding-primary {
+  border-color: var(--lime, #c2ed90);
+  background: var(--lime, #c2ed90);
+  color: #111c17;
+}
+
+.settings-status {
+  margin-top: 12px;
+  color: var(--lime, #c2ed90);
+  font-size: 13px;
+}
+
+.settings-status[data-error="true"] {
+  color: #ff9b9b;
+}
+
+.orbit-settings .onboarding-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid #3c4d5c;
+  color: #c9d7e6;
+}
+
+.orbit-settings .onboarding-badge.onboarding-inherits {
+  border-color: #3c5c47;
+  color: var(--lime, #c2ed90);
+}

@@ -90,6 +90,7 @@ class Publication(unittest.TestCase):
             scripts.mkdir()
             publisher = scripts / 'plugin_publish.py'
             publisher.write_bytes(SCRIPT.read_bytes())
+            (scripts / 'node_cli.py').write_bytes((SCRIPT.parent / 'node_cli.py').read_bytes())
             marker = root / 'registered.json'
             cli = scripts / 'workspace_bundles.mjs'
             source, runtime, command = self.setup_bundle(root, publisher)
@@ -115,6 +116,7 @@ class Publication(unittest.TestCase):
             scripts.mkdir()
             publisher = scripts / 'plugin_publish.py'
             publisher.write_bytes(SCRIPT.read_bytes())
+            (scripts / 'node_cli.py').write_bytes((SCRIPT.parent / 'node_cli.py').read_bytes())
             (scripts / 'workspace_bundles.mjs').write_text('process.exit(7);\n')
             _, runtime, command = self.setup_bundle(root, publisher)
             runtime.mkdir()

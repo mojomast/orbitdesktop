@@ -1,0 +1,129 @@
+.acdd-evidence-dialog {
+  width: min(760px, 94vw);
+  max-height: 86vh;
+  overflow: auto;
+  padding: 18px;
+  background: #152126;
+  color: #d6e3de;
+  border: 1px solid #7c9b63;
+  border-radius: 10px;
+}
+
+.acdd-evidence-dialog::backdrop {
+  background: #0008;
+}
+
+.acdd-evidence-dialog h2 {
+  margin: 0 0 6px;
+  font-size: 18px;
+  color: #e4efe9;
+}
+
+.acdd-evidence-dialog h3 {
+  margin: 16px 0 6px;
+  font-size: 13px;
+  color: #c8d8d1;
+}
+
+.acdd-evidence-dialog p {
+  margin: 8px 0;
+  font-size: 12px;
+  color: #adc0b8;
+}
+
+.acdd-evidence-dialog .acdd-note {
+  color: #9fb5ac;
+}
+
+.acdd-evidence-dialog .acdd-empty {
+  padding: 10px;
+  border: 1px dashed #4d625a;
+  border-radius: 6px;
+  color: #adc0b8;
+}
+
+.acdd-contract-list {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.acdd-contract-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.acdd-contract-list button {
+  flex: 1;
+  width: auto;
+  margin: 0;
+  padding: 8px;
+  text-align: left;
+  background: #263830;
+  color: #d7edbd;
+  border: 1px solid #3d554a;
+  border-radius: 5px;
+  overflow-wrap: anywhere;
+}
+
+.acdd-contract-list button:hover,
+.acdd-contract-list button:focus-visible {
+  border-color: #7c9b63;
+  background: #2f4539;
+}
+
+.acdd-contract-list span {
+  flex: none;
+  font-size: 11px;
+  color: #9fb5ac;
+}
+
+.acdd-evidence-dialog .acdd-detail {
+  margin-top: 12px;
+}
+
+.acdd-evidence-dialog .acdd-meta,
+.acdd-evidence-dialog .acdd-authority {
+  color: #9fb5ac;
+}
+
+.acdd-evidence-dialog .acdd-criteria {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.acdd-evidence-dialog .acdd-criteria th,
+.acdd-evidence-dialog .acdd-criteria td {
+  padding: 6px;
+  border-bottom: 1px solid #2c4038;
+  text-align: left;
+  vertical-align: top;
+}
+
+.acdd-evidence-dialog .acdd-timeline ol,
+.acdd-evidence-dialog .acdd-failures ul,
+.acdd-evidence-dialog .acdd-notes ul {
+  margin: 6px 0;
+  padding-left: 20px;
+  font-size: 12px;
+}
+
+.acdd-evidence-dialog .acdd-status-passed {
+  color: #8fd694;
+}
+
+.acdd-evidence-dialog .acdd-status-failed {
+  color: #f09292;
+}
+
+.acdd-evidence-dialog .acdd-status-not-run {
+  color: #a5b3ad;
+}
+
+.acdd-evidence-dialog .acdd-status-review {
+  color: #e6c97a;
+}

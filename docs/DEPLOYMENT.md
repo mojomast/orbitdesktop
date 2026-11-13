@@ -458,3 +458,10 @@ missing historical transitions, and never restarts execution.
 See [Hermes live view](HERMES_LIVE_VIEW.md) for durable versus live-only records,
 privacy, replay limits and the Normal stream's lack of exact replay. Deploy and
 test in a separate runtime before changing a service with live terminals.
+
+## Built-in token router in Docker mode
+
+The opt-in built-in router is not yet supported end to end when Orbit itself runs
+under `docker compose`. Orbit never mounts the Docker socket into its container.
+Use External router mode, or see
+[ROUTER.md: Known limitation](ROUTER.md#known-limitation-the-built-in-router-when-orbit-itself-runs-in-docker).
