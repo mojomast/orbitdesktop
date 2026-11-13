@@ -22,6 +22,7 @@ import './unified-taskbar.css';
 import { xpraApps } from './xpra-apps';
 import { installDesktopIcons } from './desktop-icons';
 import { showConnectionPasswords } from './connection-passwords';
+import { openAcddEvidence } from './acdd-evidence-window';
 import { workspaceId, ensureWorkspaceSynced } from './workspace-sync';
 import { pluginSelector, type PluginInstance } from './plugins';
 import { readPanePrefs, writePanePrefs } from './pane-prefs';
@@ -41,6 +42,7 @@ import {
   type PaneKind,
 } from "./model";
 import { createPane, setToken, sessionToken, type PaneView } from "./panes";
+import { initFirstRun, openSetupSettings, openSetupWizard, openSshHosts } from "./first-run";
 import { moveConnected } from './connected-dom';
 import { dockingRequested, installDockingRenderer, type DockingController } from './docking-renderer';
 import { createDockingSync } from './docking-sync';
@@ -419,11 +421,15 @@ async function sendSelectedContext() {
   const { requestConversationContext } = await import('./conversation-transfer');
   await requestConversationContext({ text, title: 'Selected workspace text' });
 }
+initFirstRun(() => sessionToken);
 const onboardingActions = {connected:()=>!!sessionToken,run:(id:string)=>{void commands.execute(id);}};
 const commands = createWorkspaceCommands((): WorkspaceCommand[] => [
   ...Object.entries(TECHNOLOGY_SURFACES).map(([id,entry])=>({id:`technology-${id}`,title:entry.title,detail:technologyReadiness.detail(HOST_SURFACE_URLS[id as HostSurfaceId],entry.detail),group:'Tools',disabledReason:entry.auth&&!sessionToken?'Connect host first to use this tool.':undefined,run:async()=>{const token=sessionToken,workspace=workspaceId;await technologyReadiness.refresh(true);if(token===sessionToken&&workspace===workspaceId)openHostSurface(id as HostSurfaceId);}})),
   { id: 'getting-started', title: 'Getting started', detail: 'Choose a task, check readiness or tour Orbit', group: 'Help', run: () => showOnboarding(onboardingActions) },
   { id: 'settings', title: 'Orbit settings', detail: 'Appearance, layout and browser-local experiments', group: 'Settings', run: openSettings },
+  { id: 'orbit-setup', title: 'Setup: components, providers and models', detail: 'Minimal or custom install; providers, keys, a model per role and the optional router', group: 'Settings', disabledReason: !sessionToken ? 'Connect host first to change setup.' : undefined, run: () => { void openSetupSettings(() => sessionToken); } },
+  { id: 'orbit-setup-wizard', title: 'Run the setup wizard again', detail: 'Choose what to install, providers and models', group: 'Settings', disabledReason: !sessionToken ? 'Connect host first to run setup.' : undefined, run: () => { void openSetupWizard(() => sessionToken); } },
+  { id: 'ssh-hosts', title: 'SSH hosts', detail: 'Add, verify, permit and revoke remote hosts', group: 'Settings', disabledReason: !sessionToken ? 'Connect host first to manage SSH hosts.' : undefined, run: () => { void openSshHosts(() => sessionToken); } },
   { id: 'connect-host', title: 'Connect host', detail: 'Unlock this browser session with a host token', group: 'Settings', run: connectHost },
   { id: 'connection-passwords', title: 'Connection passwords', detail: 'View host connection details', group: 'Settings', disabledReason: !sessionToken ? 'Connect host first to view connection details.' : undefined, run: () => showConnectionPasswords(() => sessionToken) },
   { id: 'export-layout', title: 'Export workspace layout', detail: 'Download the current workspace layout', group: 'Layout', run: exportLayout },
@@ -453,6 +459,7 @@ const commands = createWorkspaceCommands((): WorkspaceCommand[] => [
   { id: 'conversation-library', title: 'Conversation library', detail: 'Find, pin and resume agent conversations', group: 'Hermes', disabledReason: !sessionToken ? 'Connect host first to browse conversations.' : undefined, run: openConversationLibrary },
   { id: 'send-selection', title: 'Send selected text to conversation', detail: 'Review recently selected workspace text and choose a draft; never sends automatically', group: 'Hermes', disabledReason: !selectedWorkspaceText ? 'Select up to 20,000 characters of workspace text first.' : undefined, run: sendSelectedContext },
   { id: 'activity', title: 'Live activity', detail: 'Open host activity window', group: 'Hermes', run: () => openHostSurface('activity') },
+  { id: 'acdd-evidence', title: 'ACDD evidence', detail: 'Read-only contracts, RED/GREEN evidence and acceptance from bundlebees', group: 'Hermes', disabledReason: !sessionToken ? 'Connect host first to view ACDD evidence.' : undefined, run: () => { void openAcddEvidence(sessionToken); } },
   { id: 'collab', title: 'Collab', detail: 'Project board for Hermes and Grok Bot', group: 'Hermes', disabledReason: !sessionToken ? 'Connect host first to use Collab.' : undefined, run: () => openHostSurface('collab') },
   { id: 'irc', title: 'IRC', detail: 'IRC server and channel window', group: 'Apps', disabledReason: !sessionToken ? 'Connect host first to use IRC.' : undefined, run: () => openHostSurface('irc') },
   ...workspaceExtensions.map(extension => ({
@@ -570,6 +577,7 @@ function orbitMenuSections(): OrbitMenuSection[] {
       { id: 'conversation-library', label: 'Conversation library', icon: '☷', button: button('Conversation library', 'Conversation library', () => { void commands.execute('conversation-library'); }) },
       { id: 'send-selection', label: 'Send selected text to conversation', icon: '↗', button: button('Send selected text to conversation', 'Send selected text to conversation', () => { void commands.execute('send-selection'); }) },
       { id: 'activity', label: 'Live activity', icon: '↻', button: button('Live activity', 'Live activity', () => { void commands.execute('activity'); }) },
+      { id: 'acdd-evidence', label: 'ACDD evidence', icon: '✓', button: button('ACDD evidence', 'ACDD evidence', () => { void commands.execute('acdd-evidence'); }) },
       { id: 'collab', label: 'Collab', icon: '▦', button: button('Collab', 'Collab', () => { void commands.execute('collab'); }) },
       { id: 'irc', label: 'IRC', icon: '#', button: button('IRC', 'IRC', () => { void commands.execute('irc'); }) },
       ...hermesMenuItems,

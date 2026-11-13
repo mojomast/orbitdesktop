@@ -313,7 +313,9 @@ export function createKittyDoomProcess({
     name: "xterm-kitty",
     cols: columns,
     rows,
-    cwd: directory,
+    // Demonstration scripts need no game files, so they never depend on the
+    // kitty-doom checkout existing (a fresh install has none).
+    cwd: entry.kind === "script" ? SCRIPT_DIRECTORY : directory,
     env: childEnv,
     encoding: null,
   });

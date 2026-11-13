@@ -14,7 +14,7 @@ env:
 # manual dispatch. A failed diff resolves to the full gate, never a silent skip.
 # See the `changes` job.
 #
-# Runner: GitHub-hosted ubuntu-latest. Each fixture run builds and serves its own
+# Runner: GitHub-hosted ubuntu-24.04 (pinned: Playwright does not support ubuntu-latest = 26.04 yet). Each fixture run builds and serves its own
 # disposable temp root under /tmp/opencode; the checkout is not an owner runtime.
 # The fixture emits a synthetic failure screenshot at a fixed /tmp/opencode path
 # with any host session token masked and readiness errors redacted. No server

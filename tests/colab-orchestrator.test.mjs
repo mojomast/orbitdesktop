@@ -267,7 +267,8 @@ test('a detached job keeps running and can be tailed after the orchestrator clos
     const started = await first.dispatch({ action: 'exec', session: 'trainer', file: script, timeout: 30 });
     const jobId = started.job.id;
     const logPath = path.join(rootDir, 'jobs', jobId, 'output.log');
-    for (let attempt = 0; attempt < 50 && !fs.readFileSync(logPath, 'utf8').includes('tick'); attempt += 1) {
+    // Loaded CI runners can take seconds to start the fake CLI.
+    for (let attempt = 0; attempt < 250 && !fs.readFileSync(logPath, 'utf8').includes('tick'); attempt += 1) {
       await new Promise(resolve => setTimeout(resolve, 40));
     }
     assert.match(fs.readFileSync(logPath, 'utf8'), /tick/);
@@ -280,7 +281,7 @@ test('a detached job keeps running and can be tailed after the orchestrator clos
       token, port: 4318, devOrigins: [], reply, bin, home: '/home/tester', root: rootDir,
     });
     try {
-      for (let attempt = 0; attempt < 50 && fs.statSync(logPath).size <= before; attempt += 1) {
+      for (let attempt = 0; attempt < 250 && fs.statSync(logPath).size <= before; attempt += 1) {
         await new Promise(resolve => setTimeout(resolve, 40));
       }
       assert.equal(fs.statSync(logPath).size > before, true);

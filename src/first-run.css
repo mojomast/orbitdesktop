@@ -1,0 +1,14 @@
+/* Full-screen setup surface. Dark theme only, using the shared theme variables. */
+.orbit-first-run {
+  position: fixed; inset: 0; z-index: 2147483000; /* above the taskbar (100010), below toasts */ display: flex; flex-direction: column;
+  background: var(--theme-backgroundColor, #0d1317); color: var(--theme-textColor, #e8edf5);
+  color-scheme: dark; overflow: hidden;
+}
+.orbit-first-run-bar { display: flex; justify-content: flex-end; padding: 10px 14px; border-bottom: 1px solid #ffffff1f; }
+.orbit-first-run-close {
+  font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 8px; cursor: pointer;
+  color: inherit; background: #ffffff10; border: 1px solid #ffffff30;
+}
+.orbit-first-run-close:hover { background: #ffffff1c; }
+.orbit-first-run-body { flex: 1; min-height: 0; overflow: auto; padding: 16px 16px 32px; }
+.orbit-first-run-body > * { margin-inline: auto; max-width: 820px; }
