@@ -34,7 +34,7 @@ concurrency:
 jobs:
   changes:
     name: Detect Workbench scope
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       workbench: ${{ steps.scope.outputs.workbench }}
@@ -77,7 +77,7 @@ jobs:
   checks:
     name: Workbench / ${{ matrix.suite }}
     needs: changes
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -342,7 +342,7 @@ jobs:
     name: Workbench / deferred execution and results
     needs: changes
     if: needs.changes.outputs.workbench == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
@@ -477,7 +477,7 @@ jobs:
     name: workbench
     if: always()
     needs: [changes, checks, workbench-heavy]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Require every enabled isolated suite to pass
         env:
