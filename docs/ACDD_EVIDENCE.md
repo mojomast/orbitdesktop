@@ -80,3 +80,9 @@ Output of `buildEvidenceView`: `{contractId, title, shortSha, frozen, authority,
 ## Compatibility
 
 Briefs without a contract keep working exactly as today and show "no ACDD contract; TDD evidence not required". Slice 2 only adds a route and a menu entry; when `ORBIT_ACDD_STATE_DIR` is unset the view says it is not configured.
+
+## Campaign closeout is a separate record
+
+The ACDD evidence view shows one job's contract, verifier records and acceptance report. It does not assemble a multi-task product campaign, and it must not label a campaign accepted because its tasks are `accepted`.
+
+The workflow-owned [`rizzstack.campaign-report/1`](https://github.com/mojomast/workflow/blob/main/docs/30-campaign-closeout.md) record keeps implementation, integration and accepted evidence separate, attaches visual/performance evidence, records audit triage and leaves the receiver decision pending. Orbit may later display that report read-only; until then, the campaign closeout stays in the workflow/repository evidence and its human decision stays outside Orbit.
