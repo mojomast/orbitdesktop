@@ -126,34 +126,85 @@ SCHEMA_FIXTURE = {
         ]
     },
     'pipeline': {
+        # Frozen pipeline_section: reasons live at SECTION level (escalations[]/
+        # blockers[] rows keyed by job_id/task_id) and on pipeline_task.reason;
+        # jobs carry no state/escalations and tasks carry no escalation/blocker.
+        # stages/verify_state are NOT snapshot/1 task fields - kept deliberately
+        # as legacy-tolerance coverage for the stage renderer (the collector
+        # cannot emit them; fixture-schema-validation follow-up stays open).
+        'status': 'live',
+        'error': None,
+        'collected_at': iso(NOW_MS - 60_000),
         'jobs': [
             {
+                'schema': 'rizzstack.observability/snapshot/1',
+                'generated_at': iso(NOW_MS - 60_000),
                 'job_id': 'job-1',
+                'repo': 'mojomast/hyvv',
+                'base_rev': 'a' * 40,
+                'task_count': 2,
+                'escalation_count': 1,
                 'tasks': [
                     {
+                        'schema': 'rizzstack.observability/snapshot/1',
+                        'generated_at': iso(NOW_MS - 60_000),
                         'task_id': 'task-1',
-                        'task_state': 'blocked',
+                        'state': 'blocked',
+                        'attempts_count': 2,
+                        'reason': 'human review requested',
                         'stages': {
                             'verify': {'state': 'passed'},
                             'integrate': {'state': 'blocked', 'reason': 'conflict with main'},
                             'accept': {'state': 'waiting'},
                         },
-                        'escalation': {'reason': 'human review requested'},
-                        'blocker': {'reason': 'merge conflict'},
                     },
                     {
+                        'schema': 'rizzstack.observability/snapshot/1',
+                        'generated_at': iso(NOW_MS - 60_000),
                         'task_id': 'task-2',
-                        'task_state': 'completed',
+                        'state': 'completed',
+                        'attempts_count': 1,
+                        'reason': None,
                         'verify_state': 'passed',
                         'integrate_state': 'integrated',
                         'accept_state': 'accepted',
                     },
                 ],
-                'escalations': [{'reason': 'capacity review', 'state': 'open'}],
             },
-            {'job_id': 'job-2', 'tasks': []},
-            {'job_id': 'job-3', 'tasks': [], 'escalations': [{'reason': 'needs owner signoff'}]},
-        ]
+            {
+                'schema': 'rizzstack.observability/snapshot/1',
+                'generated_at': iso(NOW_MS - 60_000),
+                'job_id': 'job-2',
+                'repo': None,
+                'base_rev': None,
+                'task_count': 0,
+                'escalation_count': 0,
+                'tasks': [],
+            },
+            {
+                'schema': 'rizzstack.observability/snapshot/1',
+                'generated_at': iso(NOW_MS - 60_000),
+                'job_id': 'job-3',
+                'repo': None,
+                'base_rev': None,
+                'task_count': 0,
+                'escalation_count': 1,
+                'tasks': [],
+            },
+        ],
+        'counts': {},
+        'escalations': [
+            {'schema': 'rizzstack.observability/snapshot/1', 'generated_at': iso(NOW_MS - 60_000),
+             'job_id': 'job-1', 'reason': 'needs_agent', 'detail': 'capacity review',
+             'created_at': iso(NOW_MS - 60_000)},
+            {'schema': 'rizzstack.observability/snapshot/1', 'generated_at': iso(NOW_MS - 60_000),
+             'job_id': 'job-3', 'reason': 'needs_owner_signoff', 'detail': None, 'created_at': None},
+        ],
+        'blockers': [
+            {'schema': 'rizzstack.observability/snapshot/1', 'generated_at': iso(NOW_MS - 60_000),
+             'job_id': 'job-1', 'task_id': 'task-1', 'reason': 'merge_conflict', 'detail': 'conflict with main',
+             'created_at': iso(NOW_MS - 60_000)},
+        ],
     },
     'health': {
         'quota': [
@@ -163,9 +214,19 @@ SCHEMA_FIXTURE = {
         ],
         'scheduler': {'liveness': 'alive', 'last_event_age_s': 42},
     },
-    'alerts': [
-        {'level': 'warn', 'message': 'Tool call quota above 90%', 'detail': '950 / 1000'},
-    ],
+    'alerts': {
+        # Frozen alerts_section: {status, error, collected_at, active[]} of
+        # alert_row {schema, generated_at, key, severity, message, observed,
+        # threshold, ts}. severity is warn-only in snapshot/1.
+        'status': 'live',
+        'error': None,
+        'collected_at': iso(NOW_MS - 60_000),
+        'active': [
+            {'schema': 'rizzstack.observability/snapshot/1', 'generated_at': iso(NOW_MS - 60_000),
+             'key': 'tool_calls_warn_at', 'severity': 'warn', 'message': 'Tool call quota above 90%',
+             'observed': 950.0, 'threshold': 900.0, 'ts': iso(NOW_MS - 30_000)},
+        ],
+    },
 }
 
 
@@ -567,27 +628,62 @@ class SchemaShapeRendering(unittest.TestCase):
         self.assertEqual([job['title'] for job in jobs], ['job-1', 'job-2', 'job-3'])
         self.assertEqual(jobs[0]['state'], 'blocked')
         self.assertEqual(jobs[0]['stateClass'], 'bad')
-        self.assertEqual(jobs[0]['escalation'], 'capacity review')
+        self.assertEqual(jobs[0]['escalation'], 'needs_agent — capacity review')
         self.assertEqual(jobs[1]['state'], 'no tasks')
         self.assertEqual(jobs[1]['stateClass'], 'unknown')
         self.assertEqual(jobs[2]['state'], 'escalated')
-        self.assertEqual(jobs[2]['escalation'], 'needs owner signoff')
+        self.assertEqual(jobs[2]['escalation'], 'needs_owner_signoff')
         tasks = jobs[0]['tasks']
         self.assertEqual([task['id'] for task in tasks], ['task-1', 'task-2'])
         self.assertEqual([task['title'] for task in tasks], ['task-1', 'task-2'])
         self.assertEqual([task['state'] for task in tasks], ['blocked', 'completed'])
         self.assertEqual(tasks[0]['escalation'], 'human review requested')
+        self.assertEqual(tasks[0]['blocker'], 'merge_conflict — conflict with main')
         self.assertEqual(tasks[1]['stages']['verify']['state'], 'passed')
         self.assertEqual(tasks[1]['stages']['integrate']['state'], 'integrated')
         self.assertEqual(tasks[1]['stages']['accept']['state'], 'accepted')
         html = run_node('R.renderPipeline(R.normalizeSnapshot(fixture, %d).pipeline)' % NOW_MS, fixture=SCHEMA_FIXTURE)
         for expected in ('job-1', 'job-2', 'job-3', 'No tasks in this job.', 'blocked', 'completed',
                          'verify', 'integrate', 'accept', 'conflict with main',
-                         'Escalation: human review requested', 'Escalation: capacity review',
-                         'Escalation: needs owner signoff', 'Blocker: merge conflict'):
+                         'Escalation: human review requested', 'Escalation: needs_agent — capacity review',
+                         'Escalation: needs_owner_signoff', 'Blocker: merge_conflict — conflict with main'):
             self.assertIn(expected, html)
         self.assertNotIn('(unnamed job)', html)
         self.assertNotIn('[object Object]', html)
+
+    def test_alerts_section_renders_active_rows(self):
+        snapshot = self.schema_view()
+        self.assertTrue(snapshot['present']['alerts'])
+        self.assertEqual([banner['level'] for banner in snapshot['alerts']], ['warn'])
+        self.assertEqual(snapshot['alerts'][0]['message'], 'Tool call quota above 90%')
+        self.assertIn('950', snapshot['alerts'][0]['detail'])
+        self.assertIn('900', snapshot['alerts'][0]['detail'])
+        html = run_node('R.renderAlerts(R.normalizeSnapshot(fixture, %d).alerts)' % NOW_MS, fixture=SCHEMA_FIXTURE)
+        self.assertIn('Tool call quota above 90%', html)
+        self.assertNotIn('[object Object]', html)
+
+    def test_alerts_unavailable_section_surfaces_error(self):
+        fixture = {'alerts': {'status': 'unavailable', 'error': 'alerts source refused',
+                              'collected_at': iso(NOW_MS), 'active': []}}
+        snapshot = self.schema_view(fixture=fixture)
+        self.assertEqual([banner['level'] for banner in snapshot['alerts']], ['error'])
+        self.assertEqual(snapshot['alerts'][0]['message'], 'alerts source refused')
+
+    def test_section_escalations_and_blockers_thread_to_jobs_and_tasks(self):
+        jobs = self.schema_view()['pipeline']
+        self.assertIn('needs_agent', jobs[0]['escalation'])
+        self.assertIn('capacity review', jobs[0]['escalation'])
+        self.assertEqual(jobs[2]['escalation'], 'needs_owner_signoff')
+        self.assertEqual(jobs[2]['state'], 'escalated')
+        tasks = jobs[0]['tasks']
+        self.assertEqual(tasks[0]['escalation'], 'human review requested')
+        self.assertIn('merge_conflict', tasks[0]['blocker'])
+        self.assertIn('conflict with main', tasks[0]['blocker'])
+        self.assertEqual(tasks[1]['escalation'], '')
+        self.assertEqual(tasks[1]['blocker'], '')
+        html = run_node('R.renderPipeline(R.normalizeSnapshot(fixture, %d).pipeline)' % NOW_MS, fixture=SCHEMA_FIXTURE)
+        self.assertIn('Escalation: needs_agent', html)
+        self.assertIn('Blocker: merge_conflict', html)
 
     def test_job_state_aggregation_variants(self):
         def aggregate(jobs_fixture):
