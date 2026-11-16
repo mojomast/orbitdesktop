@@ -603,6 +603,8 @@ def _hermes_record(row, prices=None):
         route, route_source = "deepseek", "explicit"
     elif billing_provider in ("opencode", "go", "opencode-go"):
         route, route_source = "go", "explicit"
+    elif billing_provider == "zoo":
+        route, route_source = "zoo", "explicit"
     else:
         route, route_source = "unknown", "inferred"
 
@@ -731,8 +733,10 @@ def _version_for(prices, route):
         return (names[-1], versions[names[-1]]) if names else (None, None)
     if route == "go":
         preferred = [name for name in versions if name.startswith("opencode-go")]
-    else:
+    elif route == "deepseek":
         preferred = [name for name in versions if name.startswith("deepseek-pricing")]
+    else:
+        return None, None
     if preferred:
         name = sorted(preferred)[-1]  # newest dated snapshot
         return name, versions[name]
