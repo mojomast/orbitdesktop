@@ -5,6 +5,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
@@ -602,6 +603,159 @@ class RoutePrefixPricingTests(unittest.TestCase):
         self.assertEqual(ledger._strip_route_prefix("go:deepseek-v4.1-flash"), "deepseek-v4.1-flash")
         self.assertEqual(ledger._strip_route_prefix("deepseek-v4.1-flash"), "deepseek-v4.1-flash")
         self.assertIsNone(ledger._strip_route_prefix(None))
+
+
+class ReceiptPairTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.temp.name)
+        self.prices = load_prices()
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_missing_attempts_dir_is_recorded_as_missing(self):
+        info = ledger.receipt_pairs(self.dir / "nope")
+        self.assertEqual(info["status"], "missing")
+        self.assertEqual(info["pairs"], [])
+        self.assertEqual(info["attempts_dir"], str(self.dir / "nope"))
+
+    def test_pairs_enumerate_complete_pairs_in_sorted_order(self):
+        write_attempt(self.dir, "att-b", {"inputTokens": 1})
+        write_attempt(self.dir, "att-a", {"inputTokens": 1})
+        write_attempt(self.dir, "att-noresult", {"inputTokens": 1}, result_usage=False)
+        (self.dir / "orphan.result.json").write_text("{}", encoding="utf-8")
+        (self.dir / "notes.txt").write_text("not a receipt", encoding="utf-8")
+        info = ledger.receipt_pairs(self.dir)
+        self.assertEqual(info["status"], "ok")
+        self.assertEqual([pair["attempt_id"] for pair in info["pairs"]], ["att-a", "att-b"])
+        for pair in info["pairs"]:
+            self.assertEqual(pair["state_path"], str(self.dir / f"{pair['attempt_id']}.json"))
+            self.assertEqual(pair["result_path"], str(self.dir / f"{pair['attempt_id']}.result.json"))
+
+    def test_read_receipt_pair_returns_both_documents(self):
+        write_attempt(self.dir, "att-read", {"inputTokens": 3, "outputTokens": 1})
+        pair = ledger.receipt_pairs(self.dir)["pairs"][0]
+        state, result = ledger.read_receipt_pair(pair)
+        self.assertEqual(state["attempt_id"], "att-read")
+        self.assertEqual(result["schema"], "orbit.local-worker.result/v1")
+
+    def test_torn_result_json_raises_parse_error(self):
+        write_attempt(self.dir, "att-torn", {"inputTokens": 3})
+        pair = ledger.receipt_pairs(self.dir)["pairs"][0]
+        path = Path(pair["result_path"])
+        path.write_text(json.dumps(json.loads(path.read_text(encoding="utf-8")))[:40], encoding="utf-8")
+        with self.assertRaises(ledger.ReceiptParseError):
+            ledger.read_receipt_pair(pair)
+
+    def test_torn_state_json_raises_parse_error(self):
+        write_attempt(self.dir, "att-torn-state", {"inputTokens": 3})
+        pair = ledger.receipt_pairs(self.dir)["pairs"][0]
+        Path(pair["state_path"]).write_text('{"attempt_id": "att-torn', encoding="utf-8")
+        with self.assertRaises(ledger.ReceiptParseError):
+            ledger.read_receipt_pair(pair)
+
+    def test_non_object_receipt_json_raises_parse_error(self):
+        write_attempt(self.dir, "att-array", {"inputTokens": 3})
+        pair = ledger.receipt_pairs(self.dir)["pairs"][0]
+        Path(pair["result_path"]).write_text("[1, 2]", encoding="utf-8")
+        with self.assertRaises(ledger.ReceiptParseError):
+            ledger.read_receipt_pair(pair)
+
+    def test_record_from_receipt_matches_attempt_record(self):
+        raw = {"inputTokens": 140, "cachedReadTokens": 0, "outputTokens": 866}
+        write_attempt(self.dir, "att-from-pair", raw, brief={"project": "demo", "card_id": "c-1"})
+        pair = ledger.receipt_pairs(self.dir)["pairs"][0]
+        state, result = ledger.read_receipt_pair(pair)
+        record = ledger.record_from_receipt(state, result, pair["attempt_id"], prices=self.prices)
+        self.assertEqual(record, ledger._attempt_record(pair["attempt_id"], state, result, self.prices))
+        self.assertEqual(record["key"], "attempt:att-from-pair")
+        self.assertEqual(record["route"], "deepseek")
+        self.assertTrue(ledger.validate_record(record, USAGE_SCHEMA))
+
+    def test_record_from_receipt_preserves_zoo_identity(self):
+        state = {"model": "zoo:glm-5.3-flash", "created_at": OFF_PEAK, "updated_at": OFF_PEAK + 30,
+                 "brief": {"project": "smoke", "label": "T1", "run_id": "r1"}}
+        result = {"source": {"model": state["model"], "launcher": "0.1.17"},
+                  "observed": {"usage": {"prompt_tokens": 20, "completion_tokens": 66}}}
+        record = ledger.record_from_receipt(state, result, "att-zoo", prices=self.prices)
+        self.assertEqual(record["route"], "zoo")
+        self.assertEqual(record["provider"], "zoo")
+        self.assertIsNone(record["cost_usd_list"])
+        self.assertEqual(record["cost_status"], "unknown")
+        self.assertTrue(ledger.validate_record(record, USAGE_SCHEMA))
+
+    def test_record_from_receipt_falls_back_to_embedded_attempt_id(self):
+        write_attempt(self.dir, "att-embedded", {"inputTokens": 1})
+        pair = ledger.receipt_pairs(self.dir)["pairs"][0]
+        state, result = ledger.read_receipt_pair(pair)
+        record = ledger.record_from_receipt(state, result, None, prices=self.prices)
+        self.assertEqual(record["attempt_id"], "att-embedded")
+
+    def test_record_from_receipt_without_attempt_id_raises(self):
+        with self.assertRaises(ledger.ReceiptParseError):
+            ledger.record_from_receipt({}, {}, None)
+
+    def test_record_from_receipt_rejects_non_objects(self):
+        with self.assertRaises(ledger.ReceiptParseError):
+            ledger.record_from_receipt([], {}, "att-x")
+
+
+class AppendFlushTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.temp.name)
+        self.ledger = self.dir / "usage.jsonl"
+        self.prices = load_prices()
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def _two_records(self):
+        write_attempt(self.dir, "att-flush-1", {"inputTokens": 10, "outputTokens": 5})
+        write_attempt(self.dir, "att-flush-2", {"inputTokens": 10, "outputTokens": 5})
+        return ledger.records_from_attempts(self.dir, prices=self.prices)
+
+    def test_append_accepts_lazy_iterables(self):
+        records = self._two_records()
+        self.assertEqual(ledger.append_new(iter(records), self.ledger), 2)
+        self.assertEqual(len(self.ledger.read_text(encoding="utf-8").splitlines()), 2)
+
+    def test_append_durable_mode_skips_invalid_and_seen(self):
+        records = self._two_records()
+        self.assertEqual(ledger.append_new(records, self.ledger, durable=True), 2)
+        self.assertEqual(ledger.append_new(records, self.ledger, durable=True), 0)
+        self.assertEqual(ledger.append_new([{"key": "bad"}], self.ledger, durable=True), 0)
+        self.assertEqual(len(self.ledger.read_text(encoding="utf-8").splitlines()), 2)
+
+    def test_killed_writer_leaves_only_whole_lines(self):
+        records = self._two_records()
+        child_code = (
+            "import json, sys, time\n"
+            "sys.path.insert(0, %r)\n"
+            "import usage_ledger as ledger_mod\n"
+            "def records():\n"
+            "    yield json.loads(sys.argv[1])\n"
+            "    time.sleep(1.0)\n"
+            "    yield json.loads(sys.argv[2])\n"
+            "ledger_mod.append_new(records(), sys.argv[3], durable=True)\n"
+        ) % (str(PC_LAUNCHER / "scripts"),)
+        script = self.dir / "child.py"
+        script.write_text(child_code, encoding="utf-8")
+        process = subprocess.Popen(
+            [sys.executable, str(script), json.dumps(records[0]), json.dumps(records[1]), str(self.ledger)],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            if self.ledger.exists() and self.ledger.read_text(encoding="utf-8").strip():
+                break
+            time.sleep(0.05)
+        process.kill()
+        process.wait(timeout=10)
+        lines = self.ledger.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(json.loads(lines[0])["key"], "attempt:att-flush-1")
 
 
 if __name__ == "__main__":

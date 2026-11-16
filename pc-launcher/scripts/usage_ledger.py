@@ -9,6 +9,7 @@ import argparse
 import hashlib
 import json
 import math
+import os
 import re
 import sqlite3
 import sys
@@ -570,6 +571,65 @@ def records_from_attempts(attempts_dir, prices=None):
     return records
 
 
+class ReceiptParseError(Exception):
+    """A launcher receipt pair could not be parsed (e.g. a torn .result.json write)."""
+
+
+def receipt_pairs(attempts_dir):
+    """Enumerate launcher receipt pairs without reading their contents.
+
+    Returns {"attempts_dir", "status", "pairs"} where status is "ok" or
+    "missing" (the directory does not exist) and each pair carries the
+    attempt_id plus the state and result sidecar paths.
+    """
+    directory = Path(attempts_dir)
+    info = {"attempts_dir": str(directory), "status": "missing", "pairs": []}
+    if not directory.is_dir():
+        return info
+    info["status"] = "ok"
+    for path in sorted(directory.iterdir()):
+        if path.suffix != ".json" or path.name.endswith(".result.json"):
+            continue
+        attempt_id = path.stem
+        result_path = directory / f"{attempt_id}.result.json"
+        if not result_path.is_file():
+            continue
+        info["pairs"].append({
+            "attempt_id": attempt_id,
+            "state_path": str(path),
+            "result_path": str(result_path),
+        })
+    return info
+
+
+def read_receipt_pair(pair):
+    """Load one receipt pair; a torn or malformed file raises ReceiptParseError."""
+    state_path = pair.get("state_path") if isinstance(pair, dict) else None
+    result_path = pair.get("result_path") if isinstance(pair, dict) else None
+    if not isinstance(state_path, str) or not isinstance(result_path, str):
+        raise ReceiptParseError("receipt pair needs state_path and result_path")
+    try:
+        state = json.loads(Path(state_path).read_text(encoding="utf-8"))
+        result = json.loads(Path(result_path).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise ReceiptParseError(f"unreadable receipt pair: {error}") from error
+    if not isinstance(state, dict) or not isinstance(result, dict):
+        raise ReceiptParseError("receipt state and result must both be JSON objects")
+    return state, result
+
+
+def record_from_receipt(state, result, attempt_id, prices=None):
+    """Build one canonical bee.usage/v1 record from one launcher receipt pair."""
+    if not isinstance(state, dict) or not isinstance(result, dict):
+        raise ReceiptParseError("receipt state and result must both be JSON objects")
+    attempt = _join_text(attempt_id)
+    if attempt is None:
+        attempt = _join_text(state.get("attempt_id")) or _join_text(result.get("attempt_id"))
+    if attempt is None:
+        raise ReceiptParseError("receipt pair has no attempt_id")
+    return _attempt_record(attempt, state, result, prices)
+
+
 def _hermes_usage(row):
     input_uncached = _int_or_none(row.get("input_tokens"))
     cache_read = _int_or_none(row.get("cache_read_tokens"))
@@ -979,8 +1039,13 @@ def _ledger_keys(path):
     return keys
 
 
-def append_new(records, ledger_path):
-    """Append schema-valid records with unseen keys; return the number written."""
+def append_new(records, ledger_path, durable=False):
+    """Append schema-valid records with unseen keys; return the number written.
+
+    Each record line is written in one call and flushed before the next, so a
+    killed writer leaves only whole lines behind. durable=True also fsyncs
+    every line before the next record is considered.
+    """
     path = Path(ledger_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     schema = _load_schema()
@@ -994,6 +1059,9 @@ def append_new(records, ledger_path):
             if not isinstance(key, str) or key in seen:
                 continue
             handle.write(json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n")
+            handle.flush()
+            if durable:
+                os.fsync(handle.fileno())
             seen.add(key)
             added += 1
     return added
