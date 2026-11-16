@@ -154,6 +154,7 @@
   },
   "provider": {
    "enum": [
+    "zoo",
     "opencode",
     "deepseek",
     "unknown"
@@ -161,6 +162,7 @@
   },
   "route": {
    "enum": [
+    "zoo",
     "go",
     "deepseek",
     "unknown"

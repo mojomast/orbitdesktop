@@ -214,6 +214,8 @@ def infer_route(model, fallback, brief, launcher):
         target = fallback.get("to") or fallback.get("model")
         if isinstance(target, str) and (target == "deepseek" or target.startswith("deepseek:")):
             return "deepseek", "explicit"
+    if text.startswith(("zoo:", "zoo/")):
+        return "zoo", "explicit"
     if isinstance(brief, dict) and brief.get("priority") == "high":
         return "deepseek", "explicit"
     base = text[3:] if text.startswith("go:") else text[8:] if text.startswith("deepseek:") else text
@@ -230,13 +232,15 @@ def infer_route(model, fallback, brief, launcher):
 def _strip_route_prefix(model):
     if not isinstance(model, str):
         return None
-    for prefix in ("go:", "deepseek:"):
+    for prefix in ("go:", "deepseek:", "zoo:", "zoo/"):
         if model.startswith(prefix):
             return model[len(prefix):]
     return model
 
 
 def _provider_for(route):
+    if route == "zoo":
+        return "zoo"
     if route == "go":
         return "opencode"
     if route == "deepseek":
@@ -722,6 +726,9 @@ def _versions(prices):
 
 def _version_for(prices, route):
     versions = _versions(prices)
+    if route == "zoo":
+        names = sorted(name for name in versions if name.startswith("zoo-pricing"))
+        return (names[-1], versions[names[-1]]) if names else (None, None)
     if route == "go":
         preferred = [name for name in versions if name.startswith("opencode-go")]
     else:
@@ -812,6 +819,8 @@ def price(record, prices=None, allowance_raw=None):
 
     go = route == "go"
     billing_mode = "subscription_allowance" if go else "metered"
+    if route == "zoo" and not version:
+        billing_mode = "unknown"
     allowance = version.get("monthly_allowance_usd") if go else None
     if allowance is None and go:
         allowance = 100
