@@ -224,8 +224,13 @@ class UnitFileTests(unittest.TestCase):
     def test_unit_carries_protect_system_strict_class(self):
         text = UNIT.read_text(encoding="utf-8")
         for directive in ("ProtectSystem=strict", "ProtectHome=read-only", "NoNewPrivileges=true",
-                          "PrivateTmp=true", "PrivateDevices=true", "ReadWritePaths=", "UMask=0077"):
+                          "PrivateTmp=true", "ReadWritePaths=", "UMask=0077"):
             self.assertIn(directive, text, directive)
+        # PrivateDevices=true is deliberately ABSENT: with a user manager on
+        # systemd 255 it aborts the unit with exit 218 (EXIT_NAMESPACE) before
+        # ExecStart, so the documented install could not start (r1/r2 finding).
+        self.assertNotIn("PrivateDevices=true", text,
+                         "PrivateDevices aborts user units on systemd 255 (exit 218); see the README enforcement note")
         self.assertIn("usage_ingest_service.py run", text)
         self.assertIn(".orbit-launcher/attempts", text)
 

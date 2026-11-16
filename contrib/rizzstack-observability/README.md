@@ -81,22 +81,24 @@ Backfill runs started by hand always read the current snapshot from disk.
 - `ProtectSystem=strict` with `ProtectHome=read-only`: the whole filesystem
   including the receipts, the checkout and `prices.json` is read-only to the
   service; only `~/.local/state/bee` is writable via `ReadWritePaths=`.
-  Enforcement note (honest limits, systemd 255): in a user unit the
-  mount-based protections above are DECLARED but not ENFORCED unless
-  `PrivateUsers=` is set — and on systemd 255 adding `PrivateUsers=true`
-  combined with `ReadWritePaths=` left the state directory read-only in a
-  live probe, which would break the ingest writer, so it is deliberately
-  not set. What IS kernel-enforced: `RestrictAddressFamilies=AF_UNIX`
-  (AF_INET/AF_INET6 `socket()` fail with EAFNOSUPPORT inside the service
-  sandbox, verified by probe), `NoNewPrivileges`, and the namespace
-  protections. The read-only posture of receipts/code otherwise rests on
-  the service code touching only the paths it needs, not on mount
-  enforcement.
-- `RestrictAddressFamilies=AF_UNIX`, `NoNewPrivileges=true`,
-  `PrivateTmp=true`, `PrivateDevices=true`, kernel and namespace
-  protections: the service is disk-only by design and has no way to
-  open network sockets. It reads receipts, prices and the schema from disk
-  paths only; no credentials or tokens are involved.
+  Enforcement note (systemd 255 user unit; probed where stated):
+  - Verified enforced: RestrictAddressFamilies=AF_UNIX
+    (AF_INET/AF_INET6 socket() fail with EAFNOSUPPORT inside the
+    service sandbox) and NoNewPrivileges.
+  - Declared but NOT enforced in a user unit on 255:
+    ProtectSystem=strict, ProtectHome=read-only, ReadWritePaths= and
+    PrivateTmp= are silently inert here (probed: / and $HOME
+    writable). The read-only posture of receipts/code therefore
+    rests on the service code touching only the paths it needs, not
+    on mount enforcement.
+  - Not individually probed: the seccomp-level restrictions
+    (RestrictRealtime, RestrictSUIDSGID, LockPersonality,
+    MemoryDenyWriteExecute, ProtectClock, RestrictNamespaces) are
+    filter-based and generally apply without privileges, but this
+    note does not claim them as verified.
+  - PrivateDevices= was removed: with a user manager on 255 it
+    aborts the unit with exit 218 (EXIT_NAMESPACE) before
+    ExecStart, so the documented install could not start at all.
 - Torn `.result.json` writes are parse failures: the attempt is skipped,
   listed under `parse_errors` in the status JSON, and retried on the next
   cycle. A missing receipts directory is recorded as

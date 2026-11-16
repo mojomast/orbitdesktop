@@ -14,7 +14,6 @@ ProtectSystem=strict
 ProtectHome=read-only
 ReadWritePaths=%h/.local/state/bee
 PrivateTmp=true
-PrivateDevices=true
 ProtectClock=true
 ProtectControlGroups=true
 ProtectHostname=true
