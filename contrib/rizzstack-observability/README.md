@@ -15,7 +15,8 @@ warn-only budget alerts.
 - `usage-ingest.service` — hardened systemd user unit (runs the service in
   `run` mode every 15 minutes)
 - `pc-launcher/scripts/usage_ingest_service.py` — ingest service with
-  `backfill`, `once` and `run` modes
+  `backfill`, `once` and `run` modes and composable sources (`receipts`,
+  `outbox`)
 - `pc-launcher/scripts/usage_ledger.py` — record building, receipt pair
   reading (`receipt_pairs`, `record_from_receipt`) and the ledger writer
 
@@ -64,6 +65,51 @@ checkout or the launcher data dir live elsewhere, adjust the paths in the
      --ledger ~/.local/state/bee/usage.jsonl --today
    ```
 
+## Coordinator outbox source (split topology)
+
+On the split topology (native Windows launcher host plus a coordinator host
+running Hermes) the launcher receipts exist only on the launcher host. The
+coordinator does receive durable `rizzstack.bee.landed.v1` events in its local
+Hermes outbox (`~/.hermes/plugin-data/bundlebees/events/outbox/`), so the
+ingest service can also feed the ledger from there. The deployed collector
+keeps reading the same ledger path unchanged.
+
+```
+python3 ~/work/orbitdesktop/pc-launcher/scripts/usage_ingest_service.py once \
+  --attempts ~/.orbit-launcher/attempts \
+  --source outbox \
+  --outbox ~/.hermes/plugin-data/bundlebees/events/outbox \
+  --ledger ~/.local/state/bee/usage.jsonl \
+  --prices ~/work/orbitdesktop/pc-launcher/prices.json
+```
+
+- `--source` selects sources: `receipts` (the `--attempts` behavior, the
+  default) and `outbox`. Sources compose: `--attempts ... --source outbox`
+  runs both in one cycle; `--outbox` alone implies the outbox source, so a
+  coordinator-only host needs no `--attempts`. `--outbox` defaults to
+  `~/.hermes/plugin-data/bundlebees/events/outbox`.
+- Each `*.json` file in the outbox holds one JSON event object (or an array
+  of events). Only `rizzstack.bee.landed.v1` events are ingested; other types
+  are skipped with a counted `unrelated_type` reason.
+- Today's landed events carry no usage payload: they are skipped with a
+  counted `no_usage_payload` reason and never fabricated into ledger records.
+  Once the hyvv usage payload lands in the events, the same reader ingests
+  them. Events with usage but without an attempt id are skipped with
+  `missing_attempt_id` (a record without identity cannot be keyed honestly).
+- Records are built through the same receipt code path
+  (`usage_ledger.record_from_receipt`), so Zoo/DeepSeek/fallback provider
+  identity and unknown-preserving semantics are identical to launcher
+  receipts: unknown costs stay `null` and Zoo/unknown routes are never priced
+  from the DeepSeek table.
+- De-duplication is by ledger key (`attempt:<attempt_id>`) across sources:
+  when an attempt appears in both the receipts and the outbox, the receipts
+  record wins (receipts run first) and nothing is double counted. Replaying
+  an outbox backfill adds nothing. Unreadable or non-JSON event files are
+  parse failures listed under `parse_errors` and retried on the next cycle.
+- Whenever the outbox source is enabled, the status JSON gains `outbox` in
+  `sources` plus `outbox_dir`, `outbox_files`, `outbox_events`,
+  `outbox_records` and `outbox_skipped` (per-reason counts).
+
 ## prices.json is loaded once at start
 
 The service loads the pricing snapshot (`prices.json`) once at startup and
@@ -108,7 +154,9 @@ Backfill runs started by hand always read the current snapshot from disk.
 - Torn `.result.json` writes are parse failures: the attempt is skipped,
   listed under `parse_errors` in the status JSON, and retried on the next
   cycle. A missing receipts directory is recorded as
-  `"sources": {"launcher_attempts": "missing"}` instead of failing the cycle.
+  `"sources": {"launcher_attempts": "missing"}` instead of failing the cycle
+  (a missing outbox directory is recorded as `"outbox": "missing"` the same
+  way).
 - The status JSON of the last cycle is written to
   `~/.local/state/bee/usage-ingest-status.json` (same content as each
   journalctl line).
