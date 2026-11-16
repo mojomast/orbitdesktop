@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0d0f14">
+<title>Rizzstack Observatory</title>
+<link rel="stylesheet" href="./styles.css">
+<script defer src="./app.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<header class="obs-header">
+  <div class="brand"><span class="dot" aria-hidden="true"></span><h1>RIZZSTACK / OBSERVATORY</h1></div>
+  <span id="freshness" class="badge unknown">WAITING</span>
+  <div class="controls">
+    <button id="refresh" type="button" aria-label="Refresh snapshot">↻ Refresh</button>
+    <button id="open-settings" type="button" aria-label="Open observatory settings" aria-haspopup="dialog">⚙ Settings</button>
+  </div>
+</header>
+<p id="status" role="status" aria-live="polite">Connecting…</p>
+<div id="schema-note" hidden></div>
+<section id="alerts-section" aria-label="Alert banners" hidden></section>
+<main id="main">
+  <section id="health-section" aria-labelledby="health-title">
+    <h2 id="health-title">Health</h2>
+    <div id="health" hidden></div>
+    <p class="empty-state" id="health-empty">No snapshot loaded yet.</p>
+  </section>
+  <section id="fleet-section" aria-labelledby="fleet-title">
+    <h2 id="fleet-title">Fleet — live bee attempts</h2>
+    <div class="table-wrap">
+      <table id="fleet-table" hidden>
+        <caption class="visually-hidden">Live bee attempts with attempt id, branch, model, state and elapsed time</caption>
+        <thead>
+          <tr>
+            <th scope="col" data-sort-key="id" aria-sort="none"><button type="button" data-sort="id">Attempt</button></th>
+            <th scope="col" data-sort-key="branch" aria-sort="none"><button type="button" data-sort="branch">Branch</button></th>
+            <th scope="col" data-sort-key="model" aria-sort="none"><button type="button" data-sort="model">Model</button></th>
+            <th scope="col" data-sort-key="state" aria-sort="none"><button type="button" data-sort="state">State</button></th>
+            <th scope="col" data-sort-key="elapsed" aria-sort="none"><button type="button" data-sort="elapsed">Elapsed</button></th>
+          </tr>
+        </thead>
+        <tbody id="fleet-body"></tbody>
+      </table>
+    </div>
+    <p class="empty-state" id="fleet-empty">No snapshot loaded yet.</p>
+  </section>
+  <section id="usage-section" aria-labelledby="usage-title">
+    <h2 id="usage-title">Usage — tokens and cost</h2>
+    <div id="usage" hidden></div>
+    <p class="empty-state" id="usage-empty">No snapshot loaded yet.</p>
+  </section>
+  <section id="pipeline-section" aria-labelledby="pipeline-title">
+    <h2 id="pipeline-title">Pipeline timeline</h2>
+    <div id="pipeline" hidden></div>
+    <p class="empty-state" id="pipeline-empty">No snapshot loaded yet.</p>
+  </section>
+  <section id="backlog-section" aria-labelledby="backlog-title">
+    <h2 id="backlog-title">Backlog board</h2>
+    <div id="backlog" hidden></div>
+    <p class="empty-state" id="backlog-empty">No snapshot loaded yet.</p>
+  </section>
+</main>
+<footer>
+  <p>Data: one <code>rizzstack.observability/snapshot/1</code> document fetched from the configured snapshot URL. Unknown costs render as UNKNOWN, never zero. The bearer token is stored in this browser only and never logged.</p>
+</footer>
+<dialog id="settings-dialog" aria-labelledby="settings-title">
+  <form method="dialog" id="settings-form">
+    <h2 id="settings-title">Observatory settings</h2>
+    <p class="settings-note">The bearer token is stored in this browser only. It is sent exclusively as the Authorization header of the snapshot request and never written into code, config or URLs. The token is intentionally not configurable through the plugin config fragment, which is public.</p>
+    <label for="setting-url">Snapshot URL</label>
+    <input id="setting-url" name="snapshot_url" type="url" inputmode="url" autocomplete="off" placeholder="./snapshot.json" spellcheck="false">
+    <label for="setting-token">Bearer token</label>
+    <input id="setting-token" name="token" type="password" autocomplete="off" placeholder="Not stored" spellcheck="false" aria-describedby="token-help">
+    <p id="token-help" class="settings-note">Entered once; kept until you press Forget token.</p>
+    <div class="settings-actions">
+      <button type="button" id="forget-token">Forget token</button>
+      <button type="button" id="settings-close">Close</button>
+      <button type="submit" id="settings-save">Save</button>
+    </div>
+  </form>
+</dialog>
+</body>
+</html>
