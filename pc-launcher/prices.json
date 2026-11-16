@@ -1,0 +1,50 @@
+{
+  "schema": "bee.prices/v1",
+  "currency": "USD",
+  "unit": "per_1m_tokens",
+  "note": "Peak windows are Monday-Friday 01:00-04:00 and 06:00-10:00 UTC. Holidays are not modelled; every time outside those windows is off_peak.",
+  "deepseek-pricing-2026-09-10": {
+    "price_version": "deepseek-pricing-2026-09-10",
+    "source": "api-docs.deepseek.com/quick_start/pricing",
+    "billing_mode": "metered",
+    "peak_windows_utc": [
+      {"days": ["Mon", "Tue", "Wed", "Thu", "Fri"], "start": "01:00", "end": "04:00"},
+      {"days": ["Mon", "Tue", "Wed", "Thu", "Fri"], "start": "06:00", "end": "10:00"}
+    ],
+    "models": {
+      "deepseek-flash": {
+        "off_peak": {"cache_hit": 0.003, "cache_miss": 0.15, "output": 0.60},
+        "peak": {"cache_hit": 0.006, "cache_miss": 0.30, "output": 1.20}
+      },
+      "deepseek-v4.1-flash": {
+        "off_peak": {"cache_hit": 0.003, "cache_miss": 0.15, "output": 0.60},
+        "peak": {"cache_hit": 0.006, "cache_miss": 0.30, "output": 1.20}
+      },
+      "deepseek-v4-flash": {
+        "off_peak": {"cache_hit": 0.003, "cache_miss": 0.15, "output": 0.60},
+        "peak": {"cache_hit": 0.006, "cache_miss": 0.30, "output": 1.20}
+      },
+      "deepseek-v4-pro": {
+        "off_peak": {"cache_hit": 0.022, "cache_miss": 0.66, "output": 1.98},
+        "peak": {"cache_hit": 0.044, "cache_miss": 1.32, "output": 3.96}
+      }
+    }
+  },
+  "opencode-go-2026-11-12": {
+    "price_version": "opencode-go-2026-11-12",
+    "source": "opencode.ai/docs/console/go",
+    "billing_mode": "subscription_allowance",
+    "monthly_allowance_usd": 100,
+    "window_share": {"5h": 0.2, "week": 0.5, "month": 1.0},
+    "peak_windows_utc": [
+      {"days": ["Mon", "Tue", "Wed", "Thu", "Fri"], "start": "01:00", "end": "04:00"},
+      {"days": ["Mon", "Tue", "Wed", "Thu", "Fri"], "start": "06:00", "end": "10:00"}
+    ],
+    "models": {
+      "deepseek-v4.1-flash": {
+        "off_peak": {"cache_hit": 0.003, "cache_miss": 0.15, "output": 0.60},
+        "peak": {"cache_hit": 0.006, "cache_miss": 0.30, "output": 1.20}
+      }
+    }
+  }
+}
