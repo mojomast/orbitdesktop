@@ -227,7 +227,7 @@ class UnitFileTests(unittest.TestCase):
                           "PrivateTmp=true", "ReadWritePaths=", "UMask=0077"):
             self.assertIn(directive, text, directive)
         # Deliberately ABSENT (each aborts a user unit with exit 218
-        # EXIT_NAMESPACE before ExecStart on this systemd 255 host, probed
+        # CAPABILITIES before ExecStart on this systemd 255 host, probed
         # individually): PrivateDevices, ProtectKernelLogs,
         # ProtectKernelModules, ProtectClock. See the README enforcement
         # note for the full probe table.

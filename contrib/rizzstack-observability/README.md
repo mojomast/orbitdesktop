@@ -101,7 +101,7 @@ Backfill runs started by hand always read the current snapshot from disk.
     filter-based and generally apply without privileges, but this
     note does not claim them as verified.
   - Removed as unit-fatal on 255 user managers (each aborts the unit
-    with exit 218, EXIT_NAMESPACE, before ExecStart; probed
+    with exit 218, CAPABILITIES, before ExecStart; probed
     individually): PrivateDevices=, ProtectKernelLogs=,
     ProtectKernelModules=, ProtectClock=. The documented install could
     not start with them present.

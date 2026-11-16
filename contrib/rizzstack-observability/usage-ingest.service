@@ -8,7 +8,7 @@ ExecStart=/usr/bin/python3 %h/work/orbitdesktop/pc-launcher/scripts/usage_ingest
 Restart=on-failure
 RestartSec=30
 
-# Code, receipts and prices stay read-only; only the ledger state directory is writable.
+# Intended posture: code, receipts and prices are only read, only the ledger state directory is written (declared via the directives below; on a systemd 255 user manager the mount-based ones are inert - see the README enforcement note).
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only
