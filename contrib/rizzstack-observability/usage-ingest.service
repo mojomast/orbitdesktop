@@ -1,0 +1,33 @@
+[Unit]
+Description=Bee usage ledger ingest (launcher receipts to bee.usage/v1)
+Documentation=file:%h/work/orbitdesktop/contrib/rizzstack-observability/README.md
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 %h/work/orbitdesktop/pc-launcher/scripts/usage_ingest_service.py run --attempts %h/.orbit-launcher/attempts --ledger %h/.local/state/bee/usage.jsonl --prices %h/work/orbitdesktop/pc-launcher/prices.json --state %h/.local/state/bee/usage-ingest-status.json --interval 900
+Restart=on-failure
+RestartSec=30
+
+# Code, receipts and prices stay read-only; only the ledger state directory is writable.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.local/state/bee
+PrivateTmp=true
+PrivateDevices=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX
+LockPersonality=true
+MemoryDenyWriteExecute=true
+UMask=0077
+
+[Install]
+WantedBy=default.target
