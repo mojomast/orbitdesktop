@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import subprocess
 import sys
@@ -558,6 +559,32 @@ class PricesFileContractTests(unittest.TestCase):
                 self.assertIsInstance(snapshot.get("routes"), list)
                 self.assertTrue(snapshot["routes"])
 
+    def test_every_model_period_rate_entry_is_complete_and_finite(self):
+        for name, snapshot in self.version_entries().items():
+            models = snapshot.get("models")
+            self.assertIsInstance(models, dict, f"{name} has no models table")
+            for model, periods in models.items():
+                self.assertIsInstance(periods, dict, f"{name}/{model} is not a period table")
+                for period, rates in periods.items():
+                    with self.subTest(snapshot=name, model=model, period=period):
+                        self.assertIsInstance(
+                            rates, dict, f"{name}/{model}/{period} is not a rate table"
+                        )
+                        for component in ("cache_hit", "cache_miss", "output"):
+                            value = rates.get(component)
+                            self.assertIsInstance(
+                                value,
+                                (int, float),
+                                f"{name}/{model}/{period}.{component} is not a number",
+                            )
+                            self.assertNotIsInstance(
+                                value, bool, f"{name}/{model}/{period}.{component} is a bool"
+                            )
+                            self.assertTrue(
+                                math.isfinite(value),
+                                f"{name}/{model}/{period}.{component} is not finite",
+                            )
+
 
 class CostRollupTests(unittest.TestCase):
     """Per-attempt and per-job cost rollups priced from versioned snapshots (F3).
@@ -801,6 +828,62 @@ class CostRollupTests(unittest.TestCase):
             {"ledger": 0, "repriced": 0, "unknown": 1},
         )
         self.assertEqual(report["costs"]["totals"]["cost_usd"], 0.0)
+
+    def test_partial_rate_table_prices_unknown_never_zero(self):
+        snapshot = self.snapshot_doc(
+            "deepseek-pricing-2026-09-10",
+            routes=["deepseek"],
+            effective="2026-09-10T00:00:00Z",
+            off_peak={"output": 0.60},
+        )
+        self.write_prices(self.flat_doc(
+            {"deepseek-pricing-2026-09-10": snapshot},
+            {"deepseek": "deepseek-pricing-2026-09-10"},
+        ))
+        record = make_record(usd=None, input_tokens=1_000_000, cache_read=0, output_tokens=0)
+        record["price_table_version"] = "deepseek-pricing-2026-09-10"
+        report = self.report("--day", "2026-01-06", "--full", records=[record])
+        entry = self.entry_by_attempt(report)[record["attempt_id"]]
+        self.assertIsNone(entry["cost_usd"])
+        self.assertEqual(entry["cost_status"], "unknown")
+        self.assertEqual(entry["source"], "unknown")
+        self.assertEqual(entry["price_table_version"], "deepseek-pricing-2026-09-10")
+        self.assertEqual(report["costs"]["totals"]["cost_unknown_records"], 1)
+        self.assertEqual(
+            report["costs"]["totals"]["cost_sources"],
+            {"ledger": 0, "repriced": 0, "unknown": 1},
+        )
+        self.assertEqual(report["costs"]["totals"]["cost_usd"], 0.0)
+
+    def test_non_numeric_rate_value_is_unknown_not_a_crash(self):
+        snapshot = self.snapshot_doc(
+            "deepseek-pricing-2026-09-10",
+            routes=["deepseek"],
+            effective="2026-09-10T00:00:00Z",
+            off_peak={"cache_hit": 0.003, "cache_miss": "0.15", "output": 0.60},
+        )
+        self.write_prices(self.flat_doc(
+            {"deepseek-pricing-2026-09-10": snapshot},
+            {"deepseek": "deepseek-pricing-2026-09-10"},
+        ))
+        record = make_record(usd=None, input_tokens=1_000_000, cache_read=0, output_tokens=0)
+        record["price_table_version"] = "deepseek-pricing-2026-09-10"
+        result = self.run_report("--day", "2026-01-06", "--full", records=[record])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        report = json.loads(result.stdout)
+        self.assertTrue(report["ok"])
+        self.assertIn("alerts", report)
+        self.assertIsInstance(report["alerts"], list)
+        entry = self.entry_by_attempt(report)[record["attempt_id"]]
+        self.assertIsNone(entry["cost_usd"])
+        self.assertEqual(entry["cost_status"], "unknown")
+        self.assertEqual(entry["source"], "unknown")
+        self.assertEqual(report["costs"]["totals"]["cost_unknown_records"], 1)
+        self.assertEqual(
+            report["costs"]["totals"]["cost_sources"],
+            {"ledger": 0, "repriced": 0, "unknown": 1},
+        )
 
     def test_legacy_records_price_from_snapshot_live_at_attempt_time(self):
         june = self.snapshot_doc(

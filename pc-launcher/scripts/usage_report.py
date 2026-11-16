@@ -89,6 +89,9 @@ ROUTE_SNAPSHOT_PREFIXES = {
     "go": "opencode-go",
     "zoo": "zoo-pricing",
 }
+# Repricing needs every component of a rate entry as a finite number; a
+# partial or non-numeric table is unknown cost, never free usage.
+RATE_FIELDS = ("cache_hit", "cache_miss", "output")
 DEFAULT_PEAK_WINDOWS = [
     {"days": ["Mon", "Tue", "Wed", "Thu", "Fri"], "start": "01:00", "end": "04:00"},
     {"days": ["Mon", "Tue", "Wed", "Thu", "Fri"], "start": "06:00", "end": "10:00"},
@@ -579,8 +582,9 @@ def reprice_attempt(record, pricing):
     Returns (cost_usd, price_table_version, price_period, source). A stored
     cost_usd_list is returned untouched under source "ledger"; repricing uses
     only the snapshot recorded on the record, or the snapshot live at the
-    attempt timestamp when the record predates version recording. Anything
-    unresolvable stays unknown (cost_usd None), never zero.
+    attempt timestamp when the record predates version recording. A rate
+    table must carry cache_hit, cache_miss and output as finite numbers;
+    anything unresolvable stays unknown (cost_usd None), never zero.
     """
     route = record.get("route")
     route = route if isinstance(route, str) else None
@@ -613,16 +617,20 @@ def reprice_attempt(record, pricing):
     input_tokens = token_field(record, "input_tokens", "gen_ai.usage.input_tokens")
     cache_read = token_field(record, "cache_read_tokens", "gen_ai.usage.cache_read.input_tokens")
     output_tokens = token_field(record, "output_tokens", "gen_ai.usage.output_tokens")
-    if not isinstance(rates, dict) or not all(
-        isinstance(value, int) and not isinstance(value, bool)
-        for value in (input_tokens, cache_read, output_tokens)
+    if (
+        not isinstance(rates, dict)
+        or any(number(rates.get(name)) is None for name in RATE_FIELDS)
+        or not all(
+            isinstance(value, int) and not isinstance(value, bool)
+            for value in (input_tokens, cache_read, output_tokens)
+        )
     ):
         return None, chosen, period, "unknown"
     uncached = max(0, input_tokens - cache_read)
     amount = (
-        cache_read * rates.get("cache_hit", 0)
-        + uncached * rates.get("cache_miss", 0)
-        + output_tokens * rates.get("output", 0)
+        cache_read * rates["cache_hit"]
+        + uncached * rates["cache_miss"]
+        + output_tokens * rates["output"]
     ) / 1_000_000.0
     return round6(amount), chosen, period, "repriced"
 
