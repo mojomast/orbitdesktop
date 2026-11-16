@@ -11,7 +11,7 @@
   const SNAPSHOT_SCHEMA = 'rizzstack.observability/snapshot/1';
   const TOKEN_STORAGE_KEY = 'rizzstack.observatory.token';
   const URL_STORAGE_KEY = 'rizzstack.observatory.snapshot_url';
-  const DEFAULT_SNAPSHOT_URL = './snapshot.json';
+  const DEFAULT_SNAPSHOT_URL = '/obs-snapshot'; // same-origin proxy; token injected server-side
   const CONFIG_FRAGMENT_PREFIX = '#orbit-config=';
   const STALE_AFTER_MS = 10 * 60 * 1000;
   const REFRESH_INTERVAL_MS = 30000;
