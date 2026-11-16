@@ -319,6 +319,16 @@ class RecordToSpan(unittest.TestCase):
         span = usage_otlp.record_to_span(make_record(trace_id=trace))
         self.assertEqual(span["trace_id"], trace)
 
+    def test_gen_ai_copy_is_whitelist_only(self):
+        span = usage_otlp.record_to_span(
+            make_record(**{"gen_ai.prompt": "secret prompt", "gen_ai.completion": "secret reply"})
+        )
+        attrs = span["attributes"]
+        self.assertIn("gen_ai.request.model", attrs)
+        self.assertIn("gen_ai.usage.output_tokens", attrs)
+        self.assertNotIn("gen_ai.prompt", attrs)
+        self.assertNotIn("gen_ai.completion", attrs)
+
     def test_null_attributes_are_omitted(self):
         record = make_record(
             project=None,
@@ -458,6 +468,57 @@ class SdkPath(unittest.TestCase):
         post_json.assert_not_called()
         self.assertEqual(len(fake.exporters), 1)
         self.assertEqual(len(fake.readable_spans), 1)
+
+
+class ReadLedger(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.ledger = Path(self.temp.name) / "usage.jsonl"
+
+    def test_requires_canonical_schema_version(self):
+        good = make_record()
+        hand_added = {
+            key: value for key, value in make_record(key="attempt:hand").items()
+            if key != "schema_version"
+        }
+        wrong = make_record(key="attempt:wrong", schema_version="bee.usage/v0")
+        self.ledger.write_text(
+            "".join(json.dumps(record) + "\n" for record in (good, hand_added, wrong)),
+            encoding="utf-8",
+        )
+        records = usage_otlp.read_ledger(self.ledger)
+        self.assertEqual([record["key"] for record in records], [good["key"]])
+
+    def test_hand_added_line_without_schema_is_not_exported(self):
+        self.ledger.write_text(
+            json.dumps(make_record()) + "\n"
+            + json.dumps(
+                {k: v for k, v in make_record(key="attempt:hand").items()
+                 if k != "schema_version"}
+            ) + "\n",
+            encoding="utf-8",
+        )
+        server = _CaptureServer()
+        try:
+            with mock.patch.object(usage_otlp, "_sdk_available", return_value=False):
+                code, result = run_cli(
+                    [
+                        "export",
+                        "--ledger",
+                        str(self.ledger),
+                        "--endpoint",
+                        server.endpoint,
+                        "--state",
+                        str(Path(self.temp.name) / "state.json"),
+                    ]
+                )
+            self.assertEqual((code, result), (0, {"ok": True, "exported": 1}))
+            self.assertEqual(len(server.bodies), 1)
+            spans = json.loads(server.bodies[0][1])["resourceSpans"][0]["scopeSpans"][0]["spans"]
+            self.assertEqual(len(spans), 1)
+        finally:
+            server.close()
 
 
 class ExportBehaviour(unittest.TestCase):

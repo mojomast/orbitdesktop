@@ -257,6 +257,22 @@ class UsageReportTests(unittest.TestCase):
         compact = self.report("--day", "2026-01-06", "--by", "card")
         self.assertEqual(compact["totals"]["unknown_usage"], 1)
 
+    def test_compact_totals_surface_unknown_cost_records(self):
+        records = [
+            make_record(route="zoo", usd=None),
+            make_record(route="zoo", usd=None, card_id="card-2"),
+        ]
+        compact = self.report("--day", "2026-01-06", records=records)
+        self.assertEqual(compact["totals"]["usd"], 0.0)
+        self.assertEqual(compact["totals"]["records"], 2)
+        self.assertEqual(compact["totals"]["usd_unknown_records"], 2)
+
+        mixed = self.report(
+            "--day", "2026-01-06", records=[make_record(usd=1.0), make_record(route="zoo", usd=None)]
+        )
+        self.assertAlmostEqual(mixed["totals"]["usd"], 1.0, places=2)
+        self.assertEqual(mixed["totals"]["usd_unknown_records"], 1)
+
     def test_flat_v1_fields_drive_metrics(self):
         records = [
             make_record(

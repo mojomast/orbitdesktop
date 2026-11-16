@@ -324,6 +324,7 @@ def compact_totals(totals):
     return {
         "records": totals["records"],
         "usd": compact_usd(totals["usd_total"]),
+        "usd_unknown_records": totals["usd_unknown_records"],
         "go_usd": compact_usd(totals["go_usd"]),
         "go_allowance_pct": compact_usd(totals["go_allowance_pct"]),
         "coordinator_usd": compact_usd(totals["coordinator_usd"]),

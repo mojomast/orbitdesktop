@@ -57,6 +57,22 @@ _FLAT_ATTRIBUTES = {
     "bee.launcher": "launcher",
 }
 
+# gen_ai.* keys copied to spans; anything else in the record is ignored.
+_GEN_AI_ATTRIBUTES = frozenset(
+    {
+        "gen_ai.operation.name",
+        "gen_ai.agent.name",
+        "gen_ai.provider.name",
+        "gen_ai.request.model",
+        "gen_ai.response.model",
+        "gen_ai.usage.input_tokens",
+        "gen_ai.usage.cache_read.input_tokens",
+        "gen_ai.usage.cache_write.input_tokens",
+        "gen_ai.usage.output_tokens",
+        "gen_ai.usage.reasoning.output_tokens",
+    }
+)
+
 _SDK_MODULES = (
     "opentelemetry.sdk.resources",
     "opentelemetry.sdk.trace",
@@ -118,8 +134,9 @@ def record_to_span(record: dict) -> dict | None:
         trace_id = _sha256(key)[:32]
 
     attributes: dict[str, object] = {}
-    for name, value in record.items():
-        if name.startswith("gen_ai.") and value is not None:
+    for name in _GEN_AI_ATTRIBUTES:
+        value = record.get(name)
+        if value is not None:
             attributes[name] = value
 
     for attribute, field in _FLAT_ATTRIBUTES.items():
@@ -275,8 +292,7 @@ def read_ledger(path) -> list[dict]:
                 continue
             if not isinstance(record, dict):
                 continue
-            schema = record.get("schema_version")
-            if schema is not None and schema != SCHEMA:
+            if record.get("schema_version") != SCHEMA:
                 continue
             records.append(record)
     return records
