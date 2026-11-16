@@ -108,8 +108,16 @@ def canonical_landed_event(attempt_id, usage=None, *, backend=None, task_id="tas
     data/datacontenttype/id/source/specversion/time/type at the top level and
     the landed facts (attempt_id, backend, lease, result, state, task_id,
     feature_id, job_id, schema, source_rev) inside `data`; `payload` is not an
-    allowed envelope key. No live outbox or bee_events import exists on this
-    host, so the fixture mirrors that verified shape exactly.
+    allowed envelope key. This synthetic helper is legacy-shape coverage only,
+    NOT the canonical-identity proof: the producer identity is pinned by
+    REAL_CAPTURED_LANDED_EVENT below, a real bee-landed event captured verbatim
+    from the coordinator default outbox
+    (~/.hermes/plugin-data/bundlebees/events/outbox/
+    urn:rizzstack:bee-landed:026a2c5be5061b1bd32b35ea57ea616f.json), whose
+    data.schema ("rizzstack.bee-landed/1") and envelope id prefix
+    ("urn:rizzstack:bee-landed:") match bundlebees_plugin.bee_events SCHEMA and
+    EVENT_ID_PREFIX. (The r2 repair's claim that no live outbox or bee_events
+    import exists on this host was false, per review-od-pr38-r2.md B1.)
     """
     body = dict(data or {})
     body.setdefault("schema", "rizzstack.bee.landed.v1")
@@ -136,6 +144,16 @@ def canonical_landed_event(attempt_id, usage=None, *, backend=None, task_id="tas
         "datacontenttype": "application/json",
         "data": body,
     }
+
+
+# A real bee-landed event, inlined VERBATIM (single line, exactly as captured)
+# from the coordinator default outbox file
+# urn:rizzstack:bee-landed:026a2c5be5061b1bd32b35ea57ea616f.json
+# (attempt att_c3d1fdc1a72a4f2f, project smoke-20261120, state failed). This is
+# the canonical-identity fixture for the producer contract; canonical_landed_event
+# above stays only as legacy-shape coverage.
+REAL_CAPTURED_LANDED_EVENT = json.loads(
+    '''{"data":{"attempt_id":"att_c3d1fdc1a72a4f2f","backend":{"harness":"factory-driver"},"coordinator":{"identity":"factory-driver"},"feature_id":"smoke-20261120","job_id":"smoke-20261120","lease":{"assigned_files":["smoke/answer.py"],"sha256":"2f09d41b913d0db185f4331eddcc64cb0665841ee2682bd84b50cfbeb23cabd0"},"result":{"available":false},"schema":"rizzstack.bee-landed/1","source_rev":"dde2aa42d09c05e43895b3120cb3312f765eb876","state":"failed","task_id":"T1"},"datacontenttype":"application/json","id":"urn:rizzstack:bee-landed:026a2c5be5061b1bd32b35ea57ea616f","source":"rizzstack://bundlebees","specversion":"1.0","time":"2026-11-15T00:35:24Z","type":"rizzstack.bee.landed.v1"}''')
 
 
 class IngestServiceTests(unittest.TestCase):
@@ -591,6 +609,57 @@ class OutboxIngestTests(unittest.TestCase):
         self.assertEqual(state.get("state"), "landed")
         self.assertEqual(result["observed"]["usage"], {"input_tokens": 5, "output_tokens": 1})
         self.assertEqual(result["source"]["model"], "zoo:glm-5.3-flash")
+
+
+    def test_real_captured_event_constants_match_the_producer(self):
+        event = REAL_CAPTURED_LANDED_EVENT
+        self.assertEqual(event["data"]["schema"], "rizzstack.bee-landed/1")
+        self.assertTrue(event["id"].startswith("urn:rizzstack:bee-landed:"))
+        self.assertEqual(event["source"], "rizzstack://bundlebees")
+        self.assertEqual(event["type"], "rizzstack.bee.landed.v1")
+        self.assertEqual(event["specversion"], "1.0")
+        self.assertEqual(event["datacontenttype"], "application/json")
+        self.assertIn(event["data"]["state"], {"succeeded", "failed", "cancelled", "accepted"})
+
+    def test_real_captured_event_ingests_usage_from_data(self):
+        event = json.loads(json.dumps(REAL_CAPTURED_LANDED_EVENT))
+        event["data"].setdefault("result", {}).setdefault("observed", {})[
+            "usage"] = {"input_tokens": 40, "output_tokens": 9}
+        write_event(self.outbox, event["id"], event)
+        result = run_service("once", *self.outbox_args(with_attempts=False))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        status = status_lines(result.stdout)[-1]
+        self.assertTrue(status["ok"])
+        self.assertEqual(status["outbox_events"], 1)
+        self.assertEqual(status["outbox_records"], 1)
+        self.assertEqual(status["outbox_skipped"], self.zero_skipped)
+        self.assertEqual(status["added"], 1)
+        self.assertEqual(status["parse_errors"], [])
+        records = self.ledger_records()
+        self.assertEqual([r["key"] for r in records], ["attempt:att_c3d1fdc1a72a4f2f"])
+        record = records[0]
+        self.assertTrue(ledger.validate_record(record, USAGE_SCHEMA), record["key"])
+        self.assertEqual(record["input_tokens"], 40)
+        self.assertEqual(record["output_tokens"], 9)
+        self.assertIsNone(record["cost_usd_list"])
+        self.assertEqual(record["cost_status"], "unknown")
+        self.assertTrue(record["join_complete"])
+
+    def test_real_captured_event_backend_model_resolves_provider(self):
+        event = json.loads(json.dumps(REAL_CAPTURED_LANDED_EVENT))
+        event["data"]["backend"] = {"model": "zoo:glm-5.3-flash"}
+        event["data"].setdefault("result", {}).setdefault("observed", {})[
+            "usage"] = {"input_tokens": 3, "output_tokens": 1}
+        write_event(self.outbox, event["id"], event)
+        result = run_service("once", *self.outbox_args(with_attempts=False))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        record = self.ledger_records()[0]
+        self.assertTrue(ledger.validate_record(record, USAGE_SCHEMA), record["key"])
+        self.assertEqual(record["route"], "zoo")
+        self.assertEqual(record["route_source"], "explicit")
+        self.assertEqual(record["provider"], "zoo")
+        self.assertEqual(record["requested_model"], "zoo:glm-5.3-flash")
+
 
 
 class UnitFileTests(unittest.TestCase):
