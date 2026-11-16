@@ -96,9 +96,11 @@ Backfill runs started by hand always read the current snapshot from disk.
     MemoryDenyWriteExecute, ProtectClock, RestrictNamespaces) are
     filter-based and generally apply without privileges, but this
     note does not claim them as verified.
-  - PrivateDevices= was removed: with a user manager on 255 it
-    aborts the unit with exit 218 (EXIT_NAMESPACE) before
-    ExecStart, so the documented install could not start at all.
+  - Removed as unit-fatal on 255 user managers (each aborts the unit
+    with exit 218, EXIT_NAMESPACE, before ExecStart; probed
+    individually): PrivateDevices=, ProtectKernelLogs=,
+    ProtectKernelModules=, ProtectClock=. The documented install could
+    not start with them present.
 - Torn `.result.json` writes are parse failures: the attempt is skipped,
   listed under `parse_errors` in the status JSON, and retried on the next
   cycle. A missing receipts directory is recorded as
