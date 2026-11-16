@@ -354,6 +354,18 @@
     return String(value);
   }
 
+  // Section-level escalation/blocker rows carry a stable reason code plus an
+  // optional human detail; show both when they differ.
+  function reasonText(row) {
+    if (row == null || typeof row !== 'object') return '';
+    const reason = pick(row, ['reason']);
+    const detail = pick(row, ['detail']);
+    const a = reason == null ? '' : String(reason).trim();
+    const b = detail == null ? '' : String(detail).trim();
+    if (a && b && a !== b) return a + ' \u2014 ' + b;
+    return a || b;
+  }
+
   function escalationEntry(raw) {
     if (raw == null || raw === false || raw === '') return null;
     if (raw === true) return { state: 'escalated', reason: 'escalated' };
@@ -428,7 +440,7 @@
       stateClass: stateClass(state),
       attempts,
       stages,
-      escalation: flagReason(pick(task, ['escalation', 'escalations', 'escalated_reason']), 'escalated'),
+      escalation: flagReason(pick(task, ['escalation', 'escalations', 'escalated_reason', 'reason']), 'escalated'),
       blocker: flagReason(pick(task, ['blocker', 'blocked_reason', 'blockers']), 'blocked'),
     };
   }
@@ -447,6 +459,12 @@
       }
     }
     if (!list) return [];
+    // Frozen pipeline_section: reasons live at SECTION level - escalations[]
+    // rows (job_id/reason/detail) and blockers[] rows (job_id/task_id/reason/
+    // detail) - and on pipeline_task.reason. Jobs carry no state of their own.
+    const sectionShape = pipeline != null && typeof pipeline === 'object' && !Array.isArray(pipeline);
+    const sectionEscalations = sectionShape && Array.isArray(pipeline.escalations) ? pipeline.escalations : [];
+    const sectionBlockers = sectionShape && Array.isArray(pipeline.blockers) ? pipeline.blockers : [];
     const jobs = [];
     for (const raw of list) {
       if (raw == null) continue;
@@ -459,21 +477,56 @@
       const taskList = Array.isArray(raw.tasks) ? raw.tasks : Array.isArray(raw.children) ? raw.children : [];
       const tasks = [];
       for (const task of taskList) { const normalized = normalizeTask(task, now); if (normalized) tasks.push(normalized); }
-      const escalationsSource = Array.isArray(raw.escalations) && raw.escalations.length
-        ? raw.escalations
-        : firstDefined(raw, ['escalation', 'escalated_reason']);
-      const escalations = escalationEntries(escalationsSource);
+      const sectionEscalationRows = id
+        ? sectionEscalations.filter(row => row && typeof row === 'object' && String(pick(row, ['job_id']) ?? '') === id)
+        : [];
+      let escalations;
+      if (sectionEscalationRows.length) {
+        escalations = sectionEscalationRows.map(row => {
+          const entry = escalationEntry(row);
+          const text = reasonText(row);
+          return { state: entry ? entry.state : 'escalated', reason: text || (entry ? entry.reason : '') };
+        });
+      } else {
+        const escalationsSource = Array.isArray(raw.escalations) && raw.escalations.length
+          ? raw.escalations
+          : firstDefined(raw, ['escalation', 'escalated_reason']);
+        escalations = escalationEntries(escalationsSource);
+      }
       const escalationText = escalations.map(entry => entry.reason || entry.state).filter(Boolean).join('; ');
       const explicit = pick(raw, ['state', 'status', 'phase']);
       const aggregated = aggregateJobState(tasks, escalations);
       const state = explicit != null ? String(explicit) : aggregated.state;
+      const taskIds = new Set(tasks.map(task => task.id));
+      for (const task of tasks) {
+        if (!sectionBlockers.length) break;
+        const rows = sectionBlockers.filter(row => row && typeof row === 'object'
+          && String(pick(row, ['job_id']) ?? '') === id
+          && task.id && String(pick(row, ['task_id']) ?? '') === task.id);
+        if (rows.length) {
+          const text = rows.map(reasonText).filter(Boolean).join('; ');
+          if (text) task.blocker = task.blocker ? task.blocker + '; ' + text : text;
+        }
+      }
+      // Blocker rows whose task_id does not match a task still surface, on the
+      // job, rather than being dropped.
+      const jobBlockerRows = id
+        ? sectionBlockers.filter(row => {
+            if (!row || typeof row !== 'object') return false;
+            if (String(pick(row, ['job_id']) ?? '') !== id) return false;
+            const taskRef = pick(row, ['task_id']);
+            return taskRef == null || String(taskRef) === '' || !taskIds.has(String(taskRef));
+          })
+        : [];
+      const blockerText = [flagReason(pick(raw, ['blocker', 'blocked_reason', 'blockers']), 'blocked')]
+        .concat(jobBlockerRows.map(reasonText)).filter(Boolean).join('; ');
       jobs.push({
         id,
         title: String(pick(raw, ['title', 'name', 'summary']) ?? '') || id,
         state,
         stateClass: explicit != null ? stateClass(state) : aggregated.stateClass,
         escalation: escalationText,
-        blocker: flagReason(pick(raw, ['blocker', 'blocked_reason', 'blockers']), 'blocked'),
+        blocker: blockerText,
         tasks,
       });
     }
@@ -731,19 +784,45 @@
   }
 
   function alertBanners(alerts) {
-    if (!Array.isArray(alerts)) return [];
+    // Frozen schema: the alerts section is an object {status, error,
+    // collected_at, active[]} whose rows are alert_row {key, severity,
+    // message, observed, threshold, ts}; a bare array is the legacy shape and
+    // still accepted. An unavailable section must not silently read as
+    // "no alerts" - its error text becomes an error banner.
+    let rows = null;
+    let sectionBanner = null;
+    if (Array.isArray(alerts)) rows = alerts;
+    else if (alerts && typeof alerts === 'object') {
+      rows = Array.isArray(alerts.active) ? alerts.active : [];
+      const status = String(pick(alerts, ['status']) ?? '').toLowerCase();
+      const error = pick(alerts, ['error']);
+      if (status === 'unavailable' && error != null && String(error).trim()) {
+        sectionBanner = { level: 'error', message: String(error).trim(), detail: '' };
+      }
+    }
+    if (rows == null) return [];
     const banners = [];
-    for (const raw of alerts) {
+    if (sectionBanner) banners.push(sectionBanner);
+    for (const raw of rows) {
       if (raw == null) continue;
       if (typeof raw === 'string') { banners.push({ level: 'info', message: raw, detail: '' }); continue; }
       if (typeof raw !== 'object') { banners.push({ level: 'info', message: String(raw), detail: '' }); continue; }
       const message = pick(raw, ['message', 'title', 'text', 'summary', 'detail']);
       if (message == null) continue;
       const level = String(pick(raw, ['level', 'severity', 'kind']) ?? 'info').toLowerCase();
+      const observed = pick(raw, ['observed']);
+      const threshold = pick(raw, ['threshold']);
+      let detail = String(pick(raw, ['detail', 'description', 'context', 'hint']) ?? '');
+      if (!detail) {
+        const parts = [];
+        if (typeof observed === 'number' && isFinite(observed)) parts.push('observed ' + observed);
+        if (typeof threshold === 'number' && isFinite(threshold)) parts.push('threshold ' + threshold);
+        detail = parts.join(' / ');
+      }
       banners.push({
         level: /error|crit|fatal|fail|red|emergency|alert/.test(level) ? 'error' : /warn|yellow|degrad/.test(level) ? 'warn' : 'info',
         message: String(message),
-        detail: String(pick(raw, ['detail', 'description', 'context', 'hint']) ?? ''),
+        detail,
       });
     }
     return banners;
