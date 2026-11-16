@@ -1012,10 +1012,11 @@
       '<tr>' +
       '<td class="mono">' + escapeHtml(row.id) + '</td>' +
       '<td class="mono">' + escapeHtml(row.branch || '—') + '</td>' +
-      '<td>' + escapeHtml(row.model || '—') + '</td>' +
+      '<td>' + escapeHtml(row.model || (row.source === 'lease-store' ? 'dispatch lease' : '—')) + '</td>' +
       '<td><span class="state ' + row.stateClass + '">' + escapeHtml(row.state) + '</span></td>' +
       '<td class="mono">' + escapeHtml(row.elapsed) + '</td>' +
-      '</tr>'
+      '</tr>' +
+      (row.title ? '<tr class="row-detail"><td></td><td colspan="4" class="row-desc">' + escapeHtml(row.title) + '</td></tr>' : '')
     ).join('');
   }
 
