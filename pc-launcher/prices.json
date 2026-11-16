@@ -2,11 +2,18 @@
   "schema": "bee.prices/v1",
   "currency": "USD",
   "unit": "per_1m_tokens",
-  "note": "Peak windows are Monday-Friday 01:00-04:00 and 06:00-10:00 UTC. Holidays are not modelled; every time outside those windows is off_peak.",
+  "active": {
+    "deepseek": "deepseek-pricing-2026-09-10",
+    "go": "opencode-go-2026-11-12"
+  },
+  "note": "Snapshots are immutable once written: each carries an explicit price_version identifier and effective_from_utc, and 'active' references the live snapshot per route by version. Peak windows are Monday-Friday 01:00-04:00 and 06:00-10:00 UTC. Holidays are not modelled; every time outside those windows is off_peak.",
   "deepseek-pricing-2026-09-10": {
     "price_version": "deepseek-pricing-2026-09-10",
     "source": "api-docs.deepseek.com/quick_start/pricing",
     "billing_mode": "metered",
+    "immutable": true,
+    "effective_from_utc": "2026-09-10T00:00:00Z",
+    "routes": ["deepseek"],
     "peak_windows_utc": [
       {"days": ["Mon", "Tue", "Wed", "Thu", "Fri"], "start": "01:00", "end": "04:00"},
       {"days": ["Mon", "Tue", "Wed", "Thu", "Fri"], "start": "06:00", "end": "10:00"}
@@ -34,6 +41,9 @@
     "price_version": "opencode-go-2026-11-12",
     "source": "opencode.ai/docs/console/go",
     "billing_mode": "subscription_allowance",
+    "immutable": true,
+    "effective_from_utc": "2026-11-12T00:00:00Z",
+    "routes": ["go"],
     "monthly_allowance_usd": 100,
     "window_share": {"5h": 0.2, "week": 0.5, "month": 1.0},
     "peak_windows_utc": [
