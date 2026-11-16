@@ -36,6 +36,38 @@
     return undefined;
   }
 
+  // ISO 8601 fallback for collector variants Date.parse rejects: comma
+  // decimals ("…T09:30:00,500Z"), basic format ("20261116T093000Z"), offsets
+  // without a colon ("+0000"), and timestamps with no zone (read as UTC).
+  const ISO_PATTERN = /^(\d{4})-?(\d{2})-?(\d{2})(?:[Tt ](\d{2})(?::?(\d{2}))?(?::?(\d{2}))?(?:[.,](\d+))?)?(Z|z|[+-]\d{2}:?\d{2}|[+-]\d{2})?$/;
+
+  function parseIsoFallback(text) {
+    const match = ISO_PATTERN.exec(text);
+    if (!match) return null;
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    if (!(month >= 1 && month <= 12) || !(day >= 1 && day <= 31)) return null;
+    const hour = match[4] != null ? Number(match[4]) : 0;
+    const minute = match[5] != null ? Number(match[5]) : 0;
+    const second = match[6] != null ? Number(match[6]) : 0;
+    if (hour > 24 || minute > 59 || second > 60) return null;
+    const fraction = match[7] != null ? Math.floor(Number('0.' + match[7]) * 1000) : 0;
+    if (!isFinite(fraction)) return null;
+    const zone = match[8];
+    let offsetMinutes = 0;
+    if (zone && zone !== 'Z' && zone !== 'z') {
+      const sign = zone[0] === '-' ? -1 : 1;
+      const digits = zone.slice(1).replace(':', '');
+      const zoneHours = Number(digits.slice(0, 2));
+      const zoneMinutes = digits.length > 2 ? Number(digits.slice(2, 4)) : 0;
+      if (!isFinite(zoneHours) || !isFinite(zoneMinutes)) return null;
+      offsetMinutes = sign * (zoneHours * 60 + zoneMinutes);
+    }
+    const epoch = Date.UTC(year, month - 1, day, hour, minute, second, fraction) - offsetMinutes * 60000;
+    return isFinite(epoch) ? epoch : null;
+  }
+
   function parseTimestamp(value) {
     if (value == null || value === '') return null;
     if (typeof value === 'number') return isFinite(value) ? (value > 1e12 ? value : value * 1000) : null;
@@ -47,7 +79,13 @@
       return isFinite(n) ? (n > 1e12 ? n : n * 1000) : null;
     }
     const parsed = Date.parse(trimmed);
-    return isFinite(parsed) ? parsed : null;
+    if (isFinite(parsed)) return parsed;
+    const normalized = trimmed.replace(/,(\d+)/, '.$1').replace(/\s+(UTC|GMT)$/i, 'Z');
+    if (normalized !== trimmed) {
+      const retry = Date.parse(normalized);
+      if (isFinite(retry)) return retry;
+    }
+    return parseIsoFallback(normalized);
   }
 
   function elapsedLabel(ms) {
@@ -55,7 +93,7 @@
     const totalSeconds = Math.floor(ms / 1000);
     if (totalSeconds < 60) return totalSeconds + 's';
     const minutes = Math.floor(totalSeconds / 60);
-    if (minutes < 60) return minutes + 'm ' + (totalSeconds % 60) + 's';
+    if (minutes < 60) return minutes + 'm ' + String(totalSeconds % 60).padStart(2, '0') + 's';
     const hours = Math.floor(minutes / 60);
     return hours + 'h ' + String(minutes % 60).padStart(2, '0') + 'm';
   }
@@ -97,6 +135,26 @@
     return 'UNKNOWN';
   }
 
+  // The frozen schema labels the model column with the attempt's route: a
+  // string like "zoo/glm-5.3-flash", a {label|provider,model} object, or a
+  // separate route_label field. Falls back to the job-provided model.
+  function routeText(value) {
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      return trimmed ? trimmed : null;
+    }
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const label = pick(value, ['label', 'route_label', 'display']);
+      if (label != null) return String(label);
+      const provider = pick(value, ['provider', 'provider_label', 'extension']);
+      const model = pick(value, ['model', 'model_label', 'model_id', 'name']);
+      if (provider != null && model != null) return provider + '/' + model;
+      if (model != null) return String(model);
+      if (provider != null) return String(provider);
+    }
+    return null;
+  }
+
   function attemptRow(raw, now) {
     if (raw == null) return null;
     if (typeof raw === 'string') {
@@ -106,7 +164,7 @@
     const id = pick(raw, ['id', 'attempt', 'attempt_id', 'attemptId', 'name', 'key']);
     if (id == null) return null;
     const branch = pick(raw, ['branch', 'git_branch', 'ref']);
-    const model = pick(raw, ['model', 'model_name', 'model_id']);
+    const model = routeText(raw.route) || routeText(raw.route_label) || pick(raw, ['model', 'model_name', 'model_id']);
     const state = pick(raw, ['state', 'status', 'phase']);
     let elapsedMs = null;
     const directMs = firstDefined(raw, ['elapsed_ms', 'duration_ms', 'elapsedMs', 'durationMs']);
@@ -296,27 +354,81 @@
     return String(value);
   }
 
+  function escalationEntry(raw) {
+    if (raw == null || raw === false || raw === '') return null;
+    if (raw === true) return { state: 'escalated', reason: 'escalated' };
+    if (typeof raw === 'string') {
+      const text = raw.trim();
+      return text ? { state: 'escalated', reason: text } : null;
+    }
+    if (typeof raw !== 'object') return { state: 'escalated', reason: String(raw) };
+    const state = pick(raw, ['state', 'status', 'phase']);
+    const reason = pick(raw, ['reason', 'detail', 'message', 'why', 'summary', 'title', 'text']);
+    return {
+      state: state != null ? String(state) : 'escalated',
+      reason: reason == null ? '' : String(reason),
+    };
+  }
+
+  function escalationEntries(value) {
+    const list = Array.isArray(value) ? value : value != null ? [value] : [];
+    const entries = [];
+    for (const raw of list) {
+      const entry = escalationEntry(raw);
+      if (entry) entries.push(entry);
+    }
+    return entries;
+  }
+
+  // Frozen-schema jobs carry no state of their own: aggregate one from the
+  // job's tasks and escalations (worst severity wins; bad labels keep the
+  // triggering state's text). Zero tasks and escalations is a labeled empty.
+  function aggregateJobState(tasks, escalations) {
+    if (!tasks.length && !escalations.length) return { state: 'no tasks', stateClass: 'unknown' };
+    let badLabel = null;
+    let active = false;
+    let wait = false;
+    let ok = false;
+    const consider = (text, cls) => {
+      if (cls === 'bad') { if (badLabel == null) badLabel = text; }
+      else if (cls === 'active') active = true;
+      else if (cls === 'wait') wait = true;
+      else if (cls === 'ok') ok = true;
+    };
+    for (const task of tasks) consider(task.state, task.stateClass);
+    for (const entry of escalations) consider(entry.state, stateClass(entry.state));
+    if (badLabel != null) return { state: badLabel, stateClass: 'bad' };
+    if (active) return { state: 'running', stateClass: 'active' };
+    if (wait) return { state: 'waiting', stateClass: 'wait' };
+    if (ok) return { state: 'completed', stateClass: 'ok' };
+    return { state: 'unknown', stateClass: 'unknown' };
+  }
+
   function normalizeTask(task, now) {
     if (task == null) return null;
     if (typeof task === 'string') {
       return { id: task, title: task, state: 'unknown', stateClass: 'unknown', attempts: [], stages: blankStages(), escalation: '', blocker: '' };
     }
     if (typeof task !== 'object') return null;
-    const stageSource = task.stages && typeof task.stages === 'object' && !Array.isArray(task.stages) ? task.stages : task;
+    const id = String(pick(task, ['id', 'task_id', 'key', 'name']) ?? '');
+    const stageSource = task.stages && typeof task.stages === 'object' && !Array.isArray(task.stages) ? task.stages : null;
     const stages = {};
-    for (const name of ['verify', 'integrate', 'accept']) stages[name] = stageInfo(stageSource[name]);
+    for (const name of ['verify', 'integrate', 'accept']) {
+      const fromMap = stageSource && Object.prototype.hasOwnProperty.call(stageSource, name) ? stageSource[name] : undefined;
+      stages[name] = stageInfo(fromMap !== undefined ? fromMap : firstDefined(task, [name, name + '_state', name + '_status']));
+    }
     const attempts = [];
     const attemptSource = Array.isArray(task.attempts) ? task.attempts : Array.isArray(task.tries) ? task.tries : [];
     for (const raw of attemptSource) { const row = attemptRow(raw, now); if (row) attempts.push(row); }
-    const state = String(pick(task, ['state', 'status', 'phase']) ?? 'unknown');
+    const state = String(pick(task, ['task_state', 'state', 'status', 'phase']) ?? 'unknown');
     return {
-      id: String(pick(task, ['id', 'key', 'name']) ?? ''),
-      title: String(pick(task, ['title', 'name', 'summary']) ?? ''),
+      id,
+      title: String(pick(task, ['title', 'name', 'summary']) ?? '') || id,
       state,
       stateClass: stateClass(state),
       attempts,
       stages,
-      escalation: flagReason(pick(task, ['escalation', 'escalated_reason']), 'escalated'),
+      escalation: flagReason(pick(task, ['escalation', 'escalations', 'escalated_reason']), 'escalated'),
       blocker: flagReason(pick(task, ['blocker', 'blocked_reason', 'blockers']), 'blocked'),
     };
   }
@@ -330,7 +442,7 @@
     let list = null;
     if (Array.isArray(pipeline)) list = pipeline;
     else if (typeof pipeline === 'object' && !Array.isArray(pipeline)) {
-      for (const key of ['jobs', 'runs', 'entries', 'items']) {
+      for (const key of ['jobs', 'pipeline_jobs', 'runs', 'entries', 'items']) {
         if (Array.isArray(pipeline[key])) { list = pipeline[key]; break; }
       }
     }
@@ -343,17 +455,24 @@
         continue;
       }
       if (typeof raw !== 'object') continue;
-      const id = String(pick(raw, ['id', 'key', 'name']) ?? '');
-      const state = String(pick(raw, ['state', 'status', 'phase']) ?? 'unknown');
+      const id = String(pick(raw, ['id', 'job_id', 'key', 'name']) ?? '');
       const taskList = Array.isArray(raw.tasks) ? raw.tasks : Array.isArray(raw.children) ? raw.children : [];
       const tasks = [];
       for (const task of taskList) { const normalized = normalizeTask(task, now); if (normalized) tasks.push(normalized); }
+      const escalationsSource = Array.isArray(raw.escalations) && raw.escalations.length
+        ? raw.escalations
+        : firstDefined(raw, ['escalation', 'escalated_reason']);
+      const escalations = escalationEntries(escalationsSource);
+      const escalationText = escalations.map(entry => entry.reason || entry.state).filter(Boolean).join('; ');
+      const explicit = pick(raw, ['state', 'status', 'phase']);
+      const aggregated = aggregateJobState(tasks, escalations);
+      const state = explicit != null ? String(explicit) : aggregated.state;
       jobs.push({
         id,
-        title: String(pick(raw, ['title', 'name', 'summary']) ?? id),
+        title: String(pick(raw, ['title', 'name', 'summary']) ?? '') || id,
         state,
-        stateClass: stateClass(state),
-        escalation: flagReason(pick(raw, ['escalation', 'escalated_reason']), 'escalated'),
+        stateClass: explicit != null ? stateClass(state) : aggregated.stateClass,
+        escalation: escalationText,
         blocker: flagReason(pick(raw, ['blocker', 'blocked_reason', 'blockers']), 'blocked'),
         tasks,
       });
@@ -430,6 +549,52 @@
     return { state: stateClass(String(value)), detail: String(value) };
   }
 
+  function ratioState(used, cap) {
+    if (typeof used === 'number' && isFinite(used) && typeof cap === 'number' && isFinite(cap) && cap > 0) {
+      const ratio = used / cap;
+      return ratio >= 1 ? 'bad' : ratio >= 0.9 ? 'warn' : 'ok';
+    }
+    return 'unknown';
+  }
+
+  function quotaStatusState(status) {
+    const s = String(status == null ? '' : status).trim().toLowerCase();
+    if (!s) return null;
+    if (/^(ok|okay|healthy|normal|good|fine|green|available)/.test(s)) return 'ok';
+    if (/(warn|degrad|near|yellow|tight|pressure)/.test(s)) return 'warn';
+    if (/(crit|exceed|exhaust|full|red|denied|blocked|fail|error|over|breach|limit)/.test(s)) return 'bad';
+    return null;
+  }
+
+  function worstQuotaStatus(statuses) {
+    const rank = { ok: 1, warn: 2, bad: 3 };
+    let worst = null;
+    for (const status of statuses) {
+      const mapped = quotaStatusState(status);
+      if (mapped && (worst == null || rank[mapped] > rank[worst])) worst = mapped;
+    }
+    return worst;
+  }
+
+  function quotaDetailText(used, cap, remaining, unit) {
+    if (used != null && cap != null) {
+      let text = String(used) + ' / ' + String(cap) + (unit ? ' ' + unit : '');
+      if (remaining != null) text += ' · ' + remaining + ' free';
+      return text;
+    }
+    if (used == null && cap == null) return 'unknown';
+    return (used == null ? '?' : String(used)) + ' / ' + (cap == null ? '?' : String(cap));
+  }
+
+  function livenessState(value) {
+    const s = String(value == null ? '' : value).trim().toLowerCase();
+    if (!s) return 'unknown';
+    if (/(dead|down|gone|unreach|stopped|halted|crash|fail|error)/.test(s)) return 'bad';
+    if (/(stale|lagg|degrad|slow|warn|hung|stuck)/.test(s)) return 'warn';
+    if (/(alive|^live$|^ok$|healthy|responsiv|^ready$|^up$|running|active|nominal)/.test(s)) return 'ok';
+    return 'unknown';
+  }
+
   function healthChips(health, now) {
     if (!health || typeof health !== 'object' || Array.isArray(health)) return [];
     const chips = [];
@@ -467,22 +632,57 @@
     }
     if ('quota' in health) {
       const quota = health.quota;
-      if (quota && typeof quota === 'object' && !Array.isArray(quota)) {
+      if (Array.isArray(quota)) {
+        // Frozen schema: an array of quota_row {kind, value, cap, remaining,
+        // unit, status}. Sum used vs cap per kind; never render raw objects.
+        const kinds = new Map();
+        for (const row of quota) {
+          if (!row || typeof row !== 'object' || Array.isArray(row)) continue;
+          const kind = pick(row, ['kind', 'name', 'label', 'pool', 'id']);
+          const key = kind == null ? '' : String(kind);
+          let bucket = kinds.get(key);
+          if (!bucket) {
+            bucket = { used: 0, cap: 0, remaining: 0, usedKnown: false, capKnown: false, remainingKnown: false, unit: null, statuses: [] };
+            kinds.set(key, bucket);
+          }
+          const used = toNumber(firstDefined(row, ['value', 'used', 'current', 'count', 'x']));
+          const cap = toNumber(firstDefined(row, ['cap', 'max', 'limit', 'maximum', 'of']));
+          const remaining = toNumber(firstDefined(row, ['remaining', 'left', 'free']));
+          const unit = pick(row, ['unit', 'units']);
+          const status = firstDefined(row, ['status', 'state']);
+          if (used != null) { bucket.used += used; bucket.usedKnown = true; }
+          if (cap != null) { bucket.cap += cap; bucket.capKnown = true; }
+          if (remaining != null) { bucket.remaining += remaining; bucket.remainingKnown = true; }
+          if (unit != null && bucket.unit == null) bucket.unit = String(unit);
+          if (status != null) bucket.statuses.push(String(status));
+        }
+        for (const [kind, bucket] of kinds) {
+          const used = bucket.usedKnown ? bucket.used : null;
+          const cap = bucket.capKnown ? bucket.cap : null;
+          const remaining = bucket.remainingKnown ? bucket.remaining : null;
+          chips.push({
+            key: kind ? 'quota:' + kind : 'quota',
+            label: kind ? 'Quota · ' + kind : 'Quota',
+            state: worstQuotaStatus(bucket.statuses) || ratioState(used, cap),
+            detail: quotaDetailText(used, cap, remaining, bucket.unit),
+          });
+        }
+      } else if (quota && typeof quota === 'object') {
         const used = pick(quota, ['used', 'current', 'count', 'x', 'value']);
         const max = pick(quota, ['max', 'limit', 'maximum', 'cap', 'of']);
-        if (typeof used === 'number' && isFinite(used) && typeof max === 'number' && isFinite(max) && max > 0) {
-          const ratio = used / max;
-          chips.push({
-            key: 'quota',
-            label: 'Quota',
-            state: ratio >= 1 ? 'bad' : ratio >= 0.9 ? 'warn' : 'ok',
-            detail: used + ' / ' + max,
-          });
-        } else {
-          const shownUsed = used != null ? String(used) : '?';
-          const shownMax = max != null ? String(max) : '?';
-          chips.push({ key: 'quota', label: 'Quota', state: 'unknown', detail: used != null || max != null ? shownUsed + ' / ' + shownMax : 'unknown' });
-        }
+        const remaining = toNumber(firstDefined(quota, ['remaining', 'left', 'free']));
+        const unit = pick(quota, ['unit', 'units']);
+        const status = firstDefined(quota, ['status', 'state']);
+        const kind = pick(quota, ['kind', 'name', 'label', 'pool', 'id']);
+        const numeric = typeof used === 'number' && isFinite(used) && typeof max === 'number' && isFinite(max) && max > 0;
+        chips.push({
+          key: kind != null ? 'quota:' + kind : 'quota',
+          label: kind != null ? 'Quota · ' + kind : 'Quota',
+          state: worstQuotaStatus(status != null ? [String(status)] : []) || ratioState(used, max),
+          detail: numeric
+            ? quotaDetailText(used, max, remaining, unit)
+            : (used != null || max != null ? (used == null ? '?' : String(used)) + ' / ' + (max == null ? '?' : String(max)) : 'unknown'),
+        });
       } else {
         chips.push({ key: 'quota', label: 'Quota', state: 'unknown', detail: quota == null ? 'unknown' : String(quota) });
       }
@@ -490,19 +690,37 @@
     if ('scheduler' in health) {
       const scheduler = health.scheduler;
       if (scheduler && typeof scheduler === 'object' && !Array.isArray(scheduler)) {
-        const alive = pick(scheduler, ['alive', 'healthy', 'responsive', 'ok', 'running']);
-        const beat = parseTimestamp(firstDefined(scheduler, ['last_beat_at', 'last_beat', 'last_heartbeat', 'heartbeat_at', 'beat_at']));
+        const liveness = firstDefined(scheduler, ['liveness', 'alive', 'healthy', 'responsive', 'ok', 'running', 'live']);
+        const ageS = toNumber(firstDefined(scheduler, ['last_event_age_s', 'last_event_age_seconds', 'last_beat_age_s', 'age_s']));
+        const beat = parseTimestamp(firstDefined(scheduler, ['last_beat_at', 'last_beat', 'last_heartbeat', 'heartbeat_at', 'beat_at', 'last_event_at']));
         let state = 'unknown';
-        if (typeof alive === 'boolean') state = alive ? 'ok' : 'bad';
-        else if (alive != null) state = stateClass(String(alive));
         const details = [];
+        let livenessText = null;
+        if (typeof liveness === 'boolean') {
+          state = liveness ? 'ok' : 'bad';
+        } else if (liveness != null) {
+          if (liveness && typeof liveness === 'object' && !Array.isArray(liveness)) {
+            const inner = pick(liveness, ['state', 'status', 'liveness', 'value']);
+            livenessText = inner != null ? String(inner) : null;
+            const innerDetail = pick(liveness, ['detail', 'message', 'reason']);
+            if (innerDetail != null) details.push(String(innerDetail));
+          } else {
+            livenessText = String(liveness);
+          }
+          if (livenessText != null) state = livenessState(livenessText);
+        }
+        if (ageS != null) {
+          details.push('last event ' + relativeLabel(ageS * 1000));
+          if (state === 'unknown') state = ageS > STALE_AFTER_MS / 1000 ? 'warn' : 'ok';
+        }
         if (beat != null) {
           const age = reference - beat;
           details.push('last beat ' + relativeLabel(age));
           if (state === 'unknown') state = age > STALE_AFTER_MS ? 'warn' : 'ok';
         }
+        if (livenessText != null && details.indexOf(livenessText) < 0) details.unshift(livenessText);
         const extra = pick(scheduler, ['detail', 'message', 'reason']);
-        if (extra != null) details.push(String(extra));
+        if (extra != null && details.indexOf(String(extra)) < 0) details.push(String(extra));
         chips.push({ key: 'scheduler', label: 'Scheduler', state, detail: details.join(' · ') });
       } else {
         const info = scalarState(scheduler);
@@ -764,7 +982,7 @@
           (task.escalation ? '<p class="reason escalation">Escalation: ' + escapeHtml(task.escalation) + '</p>' : '') +
           (task.blocker ? '<p class="reason blocker">Blocker: ' + escapeHtml(task.blocker) + '</p>' : '') +
           '</li>').join('') + '</ul>'
-        : '') +
+        : '<p class="mini-empty">No tasks in this job.</p>') +
       '</li>').join('') + '</ol>';
   }
 

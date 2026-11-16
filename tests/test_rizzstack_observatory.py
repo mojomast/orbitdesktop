@@ -106,6 +106,69 @@ FIXTURE = {
 }
 
 
+# The frozen schema shape the collector workflow actually emits (contract:
+# rizzstack.observability/snapshot/1). Field-level drift found in live
+# integration: fleet attempts carry `route`/`route_label` instead of `model`,
+# elapsed comes from `started_at`/`updated_at` ISO timestamps, pipeline jobs
+# carry `job_id` (no state) with `tasks[]` using `task_id`/`task_state`, health
+# quota is an ARRAY of quota_row {kind, value, cap, remaining, unit, status},
+# and scheduler health is {liveness, last_event_age_s}.
+SCHEMA_FIXTURE = {
+    'schema': 'rizzstack.observability/snapshot/1',
+    'generated_at': iso(NOW_MS - 60_000),
+    'fleet': {
+        'attempts': [
+            {'id': 'bee-a1', 'branch': 'feat/bee-usage-observability', 'route': 'zoo/glm-5.3-flash',
+             'state': 'running', 'started_at': iso(NOW_MS - 93_000), 'updated_at': iso(NOW_MS)},
+            {'id': 'bee-c3', 'branch': 'fix/quota', 'route': {'provider': 'zoo', 'model': 'deepseek/go'},
+             'state': 'failed', 'started_at': iso(NOW_MS - 3_600_000), 'updated_at': iso(NOW_MS - 600_000)},
+            {'id': 'bee-d4', 'branch': 'main', 'route_label': 'go/llama-4', 'model': 'legacy-model', 'state': 'queued'},
+        ]
+    },
+    'pipeline': {
+        'jobs': [
+            {
+                'job_id': 'job-1',
+                'tasks': [
+                    {
+                        'task_id': 'task-1',
+                        'task_state': 'blocked',
+                        'stages': {
+                            'verify': {'state': 'passed'},
+                            'integrate': {'state': 'blocked', 'reason': 'conflict with main'},
+                            'accept': {'state': 'waiting'},
+                        },
+                        'escalation': {'reason': 'human review requested'},
+                        'blocker': {'reason': 'merge conflict'},
+                    },
+                    {
+                        'task_id': 'task-2',
+                        'task_state': 'completed',
+                        'verify_state': 'passed',
+                        'integrate_state': 'integrated',
+                        'accept_state': 'accepted',
+                    },
+                ],
+                'escalations': [{'reason': 'capacity review', 'state': 'open'}],
+            },
+            {'job_id': 'job-2', 'tasks': []},
+            {'job_id': 'job-3', 'tasks': [], 'escalations': [{'reason': 'needs owner signoff'}]},
+        ]
+    },
+    'health': {
+        'quota': [
+            {'kind': 'worker_pool', 'value': 3, 'cap': 10, 'remaining': 7, 'unit': 'tasks', 'status': 'ok'},
+            {'kind': 'worker_pool', 'value': 2, 'cap': 10, 'remaining': 5, 'unit': 'tasks', 'status': 'ok'},
+            {'kind': 'tool_calls', 'value': 950, 'cap': 1000, 'unit': 'calls', 'status': 'warn'},
+        ],
+        'scheduler': {'liveness': 'alive', 'last_event_age_s': 42},
+    },
+    'alerts': [
+        {'level': 'warn', 'message': 'Tool call quota above 90%', 'detail': '950 / 1000'},
+    ],
+}
+
+
 NODE_RUNNER = """
 const fs = require('fs');
 const source = fs.readFileSync(process.argv[1], 'utf8');
@@ -171,8 +234,18 @@ globalThis.location = { hash: '' };
 globalThis.setInterval = () => 0;
 (0, eval)(fs.readFileSync(process.argv[1], 'utf8'));
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+// A fixed sleep races the async snapshot update (the fetch rejection lands in
+// microtasks but can exceed 30 ms under load). Poll the status line until the
+// pending update has settled instead.
+const settled = async () => {
+  for (let i = 0; i < 200; i++) {
+    const text = elements.status.textContent;
+    if (text && !/^(Connect|Refresh)/.test(text)) return;
+    await wait(10);
+  }
+};
 (async () => {
-  await wait(30);
+  await settled();
   const out = {};
   out.freshness = elements.freshness.textContent;
   out.freshnessClass = elements.freshness.className;
@@ -182,7 +255,7 @@ const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
   elements['setting-url'].value = 'https://configured.invalid/snapshot.json';
   elements['setting-token'].value = 'tok-123';
   elements['settings-form']._listeners.submit[0]({ preventDefault() {} });
-  await wait(30);
+  await settled();
   out.dialogClosed = elements['settings-dialog']._open === false;
   out.tokenPlaceholderAfterSave = elements['setting-token'].placeholder;
   sortButtons[4]._listeners.click[0]();
@@ -190,7 +263,7 @@ const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
   elements['forget-token']._listeners.click[0]();
   out.tokenPlaceholderAfterForget = elements['setting-token'].placeholder;
   elements.refresh._listeners.click[0]();
-  await wait(30);
+  await settled();
   out.statusAfterRefresh = elements.status.textContent;
   return out;
 })().then(value => {
@@ -446,6 +519,149 @@ class SnapshotRendering(unittest.TestCase):
         self.assertEqual([row['id'] for row in descending], ['bee-c3', 'bee-b2', 'bee-a1'])
         ascending = run_node('R.sortFleetRows(fixture, "elapsed", 1)', fixture=rows)
         self.assertEqual([row['id'] for row in ascending], ['bee-a1', 'bee-b2', 'bee-c3'])
+
+
+class SchemaShapeRendering(unittest.TestCase):
+    """Rendering of the frozen rizzstack.observability/snapshot/1 shape the
+    collector workflow emits: route labels instead of model keys, ISO
+    started_at/updated_at timestamps, job_id/task_state pipeline rows,
+    quota_row arrays and scheduler_health liveness."""
+
+    def schema_view(self, now=NOW_MS, fixture=None):
+        return run_node('R.normalizeSnapshot(fixture, %d)' % now, fixture=SCHEMA_FIXTURE if fixture is None else fixture)
+
+    def test_fleet_model_column_renders_route(self):
+        rows = self.schema_view()['fleet']
+        self.assertEqual([row['id'] for row in rows], ['bee-a1', 'bee-c3', 'bee-d4'])
+        self.assertEqual([row['model'] for row in rows], ['zoo/glm-5.3-flash', 'zoo/deepseek/go', 'go/llama-4'])
+        html = run_node('R.renderFleet(R.normalizeSnapshot(fixture, %d).fleet)' % NOW_MS, fixture=SCHEMA_FIXTURE)
+        for expected in ('zoo/glm-5.3-flash', 'zoo/deepseek/go', 'go/llama-4'):
+            self.assertIn(expected, html)
+        self.assertNotIn('[object Object]', html)
+
+    def test_elapsed_derives_from_iso_timestamps(self):
+        rows = self.schema_view()['fleet']
+        self.assertEqual(rows[0]['elapsed'], '1m 33s')
+        self.assertEqual(rows[1]['elapsed'], '50m 00s')
+        self.assertEqual(rows[2]['elapsed'], '—')
+
+    def test_timestamp_parser_consumes_collector_iso_variants(self):
+        started_ms, updated_ms = NOW_MS - 93_000, NOW_MS
+        variants = [
+            (iso(started_ms), iso(updated_ms)),
+            (iso(started_ms).replace('T', ' '), iso(updated_ms).replace('T', ' ')),
+            (iso(started_ms)[:-1] + ',500Z', iso(updated_ms)[:-1] + ',500Z'),
+            (iso(started_ms)[:-1] + ',500', iso(updated_ms)[:-1] + ',500'),
+            (iso(started_ms).replace('-', '').replace(':', ''), iso(updated_ms).replace('-', '').replace(':', '')),
+            (iso(started_ms)[:-1], iso(updated_ms)[:-1].replace('Z', '')),
+            (iso(started_ms + 7_200_000)[:-1] + '+02:00', iso(updated_ms + 7_200_000)[:-1] + '+02:00'),
+            (iso(started_ms + 7_200_000)[:-1] + '+0200', iso(updated_ms + 7_200_000)[:-1] + '+0200'),
+        ]
+        for started_text, updated_text in variants:
+            fixture = {'fleet': {'attempts': [{'id': 'x', 'started_at': started_text, 'updated_at': updated_text}]}}
+            elapsed = run_node('R.normalizeSnapshot(fixture).fleet[0].elapsed', fixture=fixture)
+            self.assertEqual(elapsed, '1m 33s', (started_text, updated_text))
+
+    def test_pipeline_renders_schema_jobs(self):
+        jobs = self.schema_view()['pipeline']
+        self.assertEqual([job['title'] for job in jobs], ['job-1', 'job-2', 'job-3'])
+        self.assertEqual(jobs[0]['state'], 'blocked')
+        self.assertEqual(jobs[0]['stateClass'], 'bad')
+        self.assertEqual(jobs[0]['escalation'], 'capacity review')
+        self.assertEqual(jobs[1]['state'], 'no tasks')
+        self.assertEqual(jobs[1]['stateClass'], 'unknown')
+        self.assertEqual(jobs[2]['state'], 'escalated')
+        self.assertEqual(jobs[2]['escalation'], 'needs owner signoff')
+        tasks = jobs[0]['tasks']
+        self.assertEqual([task['id'] for task in tasks], ['task-1', 'task-2'])
+        self.assertEqual([task['title'] for task in tasks], ['task-1', 'task-2'])
+        self.assertEqual([task['state'] for task in tasks], ['blocked', 'completed'])
+        self.assertEqual(tasks[0]['escalation'], 'human review requested')
+        self.assertEqual(tasks[1]['stages']['verify']['state'], 'passed')
+        self.assertEqual(tasks[1]['stages']['integrate']['state'], 'integrated')
+        self.assertEqual(tasks[1]['stages']['accept']['state'], 'accepted')
+        html = run_node('R.renderPipeline(R.normalizeSnapshot(fixture, %d).pipeline)' % NOW_MS, fixture=SCHEMA_FIXTURE)
+        for expected in ('job-1', 'job-2', 'job-3', 'No tasks in this job.', 'blocked', 'completed',
+                         'verify', 'integrate', 'accept', 'conflict with main',
+                         'Escalation: human review requested', 'Escalation: capacity review',
+                         'Escalation: needs owner signoff', 'Blocker: merge conflict'):
+            self.assertIn(expected, html)
+        self.assertNotIn('(unnamed job)', html)
+        self.assertNotIn('[object Object]', html)
+
+    def test_job_state_aggregation_variants(self):
+        def aggregate(jobs_fixture):
+            return run_node('R.pipelineJobs(fixture).map(job => job.state)', fixture={'jobs': jobs_fixture})
+        self.assertEqual(aggregate([{'job_id': 'j', 'tasks': [
+            {'task_id': 't1', 'task_state': 'completed'}, {'task_id': 't2', 'task_state': 'running'}]}]),
+            ['running'])
+        self.assertEqual(aggregate([{'job_id': 'j', 'tasks': [{'task_id': 't', 'task_state': 'waiting'}]}]),
+            ['waiting'])
+        self.assertEqual(aggregate([{'job_id': 'j', 'tasks': [
+            {'task_id': 't1', 'task_state': 'completed'}, {'task_id': 't2', 'task_state': 'failed'}]}]),
+            ['failed'])
+        self.assertEqual(aggregate([{'job_id': 'j', 'tasks': [], 'escalations': [{'state': 'accepted'}]}]),
+            ['completed'])
+        self.assertEqual(aggregate([{'job_id': 'j'}]), ['no tasks'])
+        self.assertEqual(aggregate([{'job_id': 'j', 'state': 'paused'}]), ['paused'])
+
+    def test_health_quota_array_renders_rows_per_kind(self):
+        chips = {chip['key']: chip for chip in self.schema_view()['healthChips']}
+        self.assertEqual(chips['quota:worker_pool']['detail'], '5 / 20 tasks · 12 free')
+        self.assertEqual(chips['quota:worker_pool']['state'], 'ok')
+        self.assertEqual(chips['quota:tool_calls']['detail'], '950 / 1000 calls')
+        self.assertEqual(chips['quota:tool_calls']['state'], 'warn')
+        self.assertEqual(chips['scheduler']['state'], 'ok')
+        self.assertIn('alive', chips['scheduler']['detail'])
+        self.assertIn('last event 42s ago', chips['scheduler']['detail'])
+        html = run_node('R.renderHealth(R.normalizeSnapshot(fixture, %d).healthChips)' % NOW_MS, fixture=SCHEMA_FIXTURE)
+        self.assertIn('5 / 20 tasks · 12 free', html)
+        self.assertIn('950 / 1000 calls', html)
+        self.assertNotIn('[object Object]', html)
+
+    def test_quota_row_status_drives_state(self):
+        fixture = {'quota': [{'kind': 'gpu', 'value': 10, 'cap': 10, 'status': 'exhausted'}]}
+        chips = run_node('R.healthChips(fixture, %d)' % NOW_MS, fixture=fixture)
+        self.assertEqual(chips[0]['key'], 'quota:gpu')
+        self.assertEqual(chips[0]['state'], 'bad')
+        self.assertEqual(chips[0]['detail'], '10 / 10')
+        self.assertEqual(run_node('R.healthChips(fixture, %d)' % NOW_MS, fixture={'quota': []}), [])
+
+    def test_scheduler_liveness_and_event_age_variants(self):
+        chips = run_node('R.healthChips(fixture, %d)' % NOW_MS, fixture={'scheduler': {'liveness': 'stale', 'last_event_age_s': 30}})
+        self.assertEqual(chips[0]['state'], 'warn')
+        chips = run_node('R.healthChips(fixture, %d)' % NOW_MS, fixture={'scheduler': {'last_event_age_s': 1200}})
+        self.assertEqual(chips[0]['state'], 'warn')
+        chips = run_node('R.healthChips(fixture, %d)' % NOW_MS, fixture={'scheduler': {'last_event_age_s': 30}})
+        self.assertEqual(chips[0]['state'], 'ok')
+        chips = run_node('R.healthChips(fixture, %d)' % NOW_MS, fixture={'scheduler': {'liveness': 'dead'}})
+        self.assertEqual(chips[0]['state'], 'bad')
+
+    def test_schema_snapshot_missing_fields_never_crash(self):
+        fixture = {
+            'schema': 'rizzstack.observability/snapshot/1',
+            'fleet': {'attempts': [{'id': 'bee-x'}, None, 'str-row', 42]},
+            'pipeline': {'jobs': [{'job_id': 'job-9', 'tasks': [None]}, {'job_id': 'job-10', 'tasks': [{'task_id': 't'}]}]},
+            'health': {'quota': [None, {'kind': 'k'}], 'scheduler': None},
+        }
+        snapshot = self.schema_view(fixture=fixture)
+        self.assertEqual(snapshot['fleet'][0]['model'], '')
+        self.assertEqual(snapshot['fleet'][0]['elapsed'], '—')
+        self.assertEqual(snapshot['pipeline'][0]['state'], 'no tasks')
+        self.assertEqual(snapshot['pipeline'][1]['state'], 'unknown')
+        for key, renderer in (('fleet', 'renderFleet'), ('pipeline', 'renderPipeline'),
+                              ('healthChips', 'renderHealth')):
+            html = run_node('R.%s(R.normalizeSnapshot(fixture, %d).%s)' % (renderer, NOW_MS, key), fixture=fixture)
+            for bad in ('[object Object]', 'NaN', 'undefined'):
+                self.assertNotIn(bad, html)
+
+    def test_schema_snapshot_full_render_smoke(self):
+        for key, renderer in (('fleet', 'renderFleet'), ('pipeline', 'renderPipeline'),
+                              ('healthChips', 'renderHealth'), ('alerts', 'renderAlerts')):
+            html = run_node('R.%s(R.normalizeSnapshot(fixture, %d).%s)' % (renderer, NOW_MS, key), fixture=SCHEMA_FIXTURE)
+            self.assertTrue(html)
+            for bad in ('[object Object]', 'NaN', 'undefined'):
+                self.assertNotIn(bad, html)
 
 
 class TokenAndRequestHandling(unittest.TestCase):
