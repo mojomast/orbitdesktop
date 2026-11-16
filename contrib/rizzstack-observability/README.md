@@ -78,9 +78,13 @@ Backfill runs started by hand always read the current snapshot from disk.
 
 ## Hardening and failure semantics
 
-- `ProtectSystem=strict` with `ProtectHome=read-only`: the whole filesystem
-  including the receipts, the checkout and `prices.json` is read-only to the
-  service; only `~/.local/state/bee` is writable via `ReadWritePaths=`.
+- `ProtectSystem=strict`, `ProtectHome=read-only` and
+  `ReadWritePaths=%h/.local/state/bee` are DECLARED so the service is
+  intended to write only the ledger state directory. On a systemd 255 user
+  manager these mount protections are inert (see the enforcement note
+  below), so the read-only posture of receipts, the checkout and
+  `prices.json` rests on the service code touching only the paths it
+  needs, not on kernel enforcement.
   Enforcement note (systemd 255 user unit; probed where stated):
   - Verified enforced: RestrictAddressFamilies=AF_UNIX
     (AF_INET/AF_INET6 socket() fail with EAFNOSUPPORT inside the
@@ -93,7 +97,7 @@ Backfill runs started by hand always read the current snapshot from disk.
     on mount enforcement.
   - Not individually probed: the seccomp-level restrictions
     (RestrictRealtime, RestrictSUIDSGID, LockPersonality,
-    MemoryDenyWriteExecute, ProtectClock, RestrictNamespaces) are
+    MemoryDenyWriteExecute, RestrictNamespaces) are
     filter-based and generally apply without privileges, but this
     note does not claim them as verified.
   - Removed as unit-fatal on 255 user managers (each aborts the unit
