@@ -10,8 +10,12 @@ Sources (compose; dedupe by ledger key across sources):
   receipts  --attempts launcher receipt pairs (default when --attempts is given)
   outbox    --outbox coordinator-local rizzstack.bee.landed.v1 event JSON files
             (default ~/.hermes/plugin-data/bundlebees/events/outbox). Events
-            without a usage payload are skipped with a counted reason, never
-            fabricated into records.
+            are CloudEvents envelopes: the landed facts (attempt_id, backend,
+            lease, result, state, task_id, feature_id, job_id, schema,
+            source_rev) live under "data", which the reader parses first, with
+            a top-level "payload" object kept as a compatibility fallback.
+            Events without a usage payload are skipped with a counted reason,
+            never fabricated into records.
 
 Stdlib only, no network: events, receipts, prices.json and the schema are read
 from disk paths only. Torn receipt writes (e.g. a half-written .result.json)
@@ -186,12 +190,13 @@ def _event_type(event):
         value = event.get(key)
         if isinstance(value, str) and value.strip():
             return value.strip()
-    payload = event.get("payload")
-    if isinstance(payload, dict):
-        for key in ("type", "event_type"):
-            value = payload.get(key)
-            if isinstance(value, str) and value.strip():
-                return value.strip()
+    for body_key in ("data", "payload"):
+        body = event.get(body_key)
+        if isinstance(body, dict):
+            for key in ("type", "event_type"):
+                value = body.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
     return None
 
 
@@ -223,6 +228,13 @@ def _epoch_or_none(value):
 def _outbox_parts(event):
     """Split one landed event into a receipt-like (attempt_id, state, result).
 
+    Canonical landed events are CloudEvents envelopes whose facts live under
+    "data" (attempt_id, backend, lease, result, state, task_id, feature_id,
+    job_id, schema, source_rev); the "data" object is parsed first, with a
+    top-level "payload" object kept as a compatibility fallback and the whole
+    event as the last resort. "data.state" is a plain string ("landed"/
+    "failed") and is mapped as a string, never as a receipt state dict.
+
     Returns (attempt_id, state, result, None) on success or
     (None, None, None, skip_reason) when the event must not become a record:
     unrelated_type (not a rizzstack.bee.landed.v1 event), no_usage_payload
@@ -233,17 +245,15 @@ def _outbox_parts(event):
         return None, None, None, "unrelated_type"
     if _event_type(event) != OUTBOX_EVENT_TYPE:
         return None, None, None, "unrelated_type"
-    payload = event.get("payload")
-    if not isinstance(payload, dict):
-        payload = event
-    result_raw = payload.get("result") if isinstance(payload.get("result"), dict) else {}
+    body = _first_dict(event.get("data"), event.get("payload")) or event
+    result_raw = body.get("result") if isinstance(body.get("result"), dict) else {}
 
-    observed = _first_dict(result_raw.get("observed"), payload.get("observed"), event.get("observed"))
+    observed = _first_dict(result_raw.get("observed"), body.get("observed"), event.get("observed"))
     usage_map = None
     if observed is not None and observed.get("usage") is not None:
         usage_map = observed.get("usage")
     if usage_map is None:
-        for candidate in (result_raw, payload, event):
+        for candidate in (result_raw, body, event):
             if isinstance(candidate, dict) and candidate.get("usage") is not None:
                 usage_map = candidate.get("usage")
                 break
@@ -256,7 +266,7 @@ def _outbox_parts(event):
     if observed.get("usage") is None:
         observed["usage"] = usage_map
 
-    attempt_id = ledger._join_text(payload.get("attempt_id"))
+    attempt_id = ledger._join_text(body.get("attempt_id"))
     if attempt_id is None:
         attempt_id = ledger._join_text(result_raw.get("attempt_id"))
     if attempt_id is None:
@@ -264,16 +274,23 @@ def _outbox_parts(event):
     if attempt_id is None:
         return None, None, None, "missing_attempt_id"
 
-    state_raw = payload.get("state") if isinstance(payload.get("state"), dict) else {}
-    state = dict(state_raw)
-    brief = state.get("brief") if isinstance(state.get("brief"), dict) else payload.get("brief")
-    if isinstance(brief, dict):
-        brief = dict(brief)
-        if brief.get("run_id") is None and payload.get("run_id") is not None:
-            brief["run_id"] = payload.get("run_id")
+    state_raw = body.get("state")
+    state = dict(state_raw) if isinstance(state_raw, dict) else {}
+    if isinstance(state_raw, str) and state_raw.strip():
+        # Canonical data.state ("landed"/"failed") stays a plain string.
+        state["state"] = state_raw.strip()
+    brief = state.get("brief") if isinstance(state.get("brief"), dict) else body.get("brief")
+    brief = dict(brief) if isinstance(brief, dict) else {}
+    if brief.get("run_id") is None and body.get("run_id") is not None:
+        brief["run_id"] = body.get("run_id")
+    for brief_key, body_key in (("task_id", "task_id"), ("project", "feature_id"),
+                                ("run_id", "job_id")):
+        if brief.get(brief_key) is None and body.get(body_key) is not None:
+            brief[brief_key] = body[body_key]
+    if brief:
         state["brief"] = brief
     event_time = None
-    for source_dict in (payload, event):
+    for source_dict in (body, event):
         for key in _EVENT_TIME_KEYS:
             if source_dict.get(key) is not None:
                 event_time = source_dict.get(key)
@@ -282,21 +299,23 @@ def _outbox_parts(event):
             break
     created = _epoch_or_none(state.get("created_at"))
     if created is None:
-        created = _epoch_or_none(payload.get("created_at"))
+        created = _epoch_or_none(body.get("created_at"))
     if created is None:
         created = _epoch_or_none(event_time)
     if created is not None:
         state["created_at"] = created
     updated = _epoch_or_none(state.get("updated_at"))
     if updated is None:
-        updated = _epoch_or_none(payload.get("updated_at"))
+        updated = _epoch_or_none(body.get("updated_at"))
     if updated is not None:
         state["updated_at"] = updated
 
-    source = _first_dict(result_raw.get("source"), payload.get("source"), event.get("source")) or {}
-    for key in ("model", "fallback", "launcher", "project", "response_model", "served_model", "harness", "kind"):
-        if source.get(key) is None and payload.get(key) is not None:
-            source[key] = payload.get(key)
+    source = _first_dict(result_raw.get("source"), body.get("source"), event.get("source")) or {}
+    backend = body.get("backend") if isinstance(body.get("backend"), dict) else {}
+    for from_dict in (backend, body):
+        for key in ("model", "fallback", "launcher", "project", "response_model", "served_model", "harness", "kind"):
+            if source.get(key) is None and from_dict.get(key) is not None:
+                source[key] = from_dict.get(key)
 
     return attempt_id, state, {"source": source, "observed": observed}, None
 

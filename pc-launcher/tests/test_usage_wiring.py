@@ -21,6 +21,7 @@ PRICES = PC_LAUNCHER / "prices.json"
 USAGE_SCHEMA = json.loads((PC_LAUNCHER / "usage-schema.v1.json").read_text(encoding="utf-8"))
 UNIT = PC_LAUNCHER.parent / "contrib" / "rizzstack-observability" / "usage-ingest.service"
 sys.path.insert(0, str(SCRIPTS))
+import usage_ingest_service as ingest_service  # noqa: E402
 import usage_ledger as ledger  # noqa: E402
 
 CLEAN_ENV = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": os.environ.get("HOME", "/tmp")}
@@ -96,6 +97,45 @@ def landed_event(attempt_id, usage=None, *, model="deepseek-v4.1-flash", launche
     if brief is not None:
         payload["brief"] = brief
     return {"type": "rizzstack.bee.landed.v1", "ts": ts, "payload": payload}
+
+
+def canonical_landed_event(attempt_id, usage=None, *, backend=None, task_id="task-canonical",
+                           feature_id="feature-demo", job_id="job-canonical", state="landed",
+                           time="2026-11-16T12:00:00Z", data=None):
+    """Mirror the canonical envelope bundlebees_plugin.bee_events.build_event writes.
+
+    Per review-od-pr38.md B1 the real producer emits CloudEvents envelopes with
+    data/datacontenttype/id/source/specversion/time/type at the top level and
+    the landed facts (attempt_id, backend, lease, result, state, task_id,
+    feature_id, job_id, schema, source_rev) inside `data`; `payload` is not an
+    allowed envelope key. No live outbox or bee_events import exists on this
+    host, so the fixture mirrors that verified shape exactly.
+    """
+    body = dict(data or {})
+    body.setdefault("schema", "rizzstack.bee.landed.v1")
+    body.setdefault("attempt_id", attempt_id)
+    body.setdefault("task_id", task_id)
+    body.setdefault("feature_id", feature_id)
+    body.setdefault("job_id", job_id)
+    body.setdefault("state", state)
+    body.setdefault("backend", dict(backend or {}))
+    body.setdefault("lease", {"lease_id": f"lease-{attempt_id}"})
+    body.setdefault("source_rev", "3cc5aa87d242fa71b05b0fa48b0c37de0281a3dd")
+    if usage is not None:
+        body.setdefault("result", {
+            "schema": "orbit.local-worker.result/v1",
+            "attempt_id": attempt_id,
+            "observed": {"usage": usage, "tool_calls": 1, "stop_reason": "end_turn"},
+        })
+    return {
+        "specversion": "1.0",
+        "type": "rizzstack.bee.landed.v1",
+        "source": "/bundlebees/bee-coordinator",
+        "id": f"landed-{attempt_id}",
+        "time": time,
+        "datacontenttype": "application/json",
+        "data": body,
+    }
 
 
 class IngestServiceTests(unittest.TestCase):
@@ -472,6 +512,85 @@ class OutboxIngestTests(unittest.TestCase):
         missing_attempts = run_service("once", *base, "--source", "receipts")
         self.assertEqual(missing_attempts.returncode, 2)
         self.assertIn("--attempts", missing_attempts.stderr)
+
+    def test_canonical_build_event_envelope_ingests_usage_from_data(self):
+        event = canonical_landed_event(
+            "att-canonical-zoo", {"prompt_tokens": 20, "completion_tokens": 66},
+            backend={"model": "zoo:glm-5.3-flash"})
+        write_event(self.outbox, "evt-canonical", event)
+        result = run_service("once", *self.outbox_args(with_attempts=False))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        status = status_lines(result.stdout)[-1]
+        self.assertTrue(status["ok"])
+        self.assertEqual(status["outbox_events"], 1)
+        self.assertEqual(status["outbox_records"], 1)
+        self.assertEqual(status["outbox_skipped"], self.zero_skipped)
+        self.assertEqual(status["added"], 1)
+        self.assertEqual(status["parse_errors"], [])
+        records = self.ledger_records()
+        self.assertEqual([record["key"] for record in records], ["attempt:att-canonical-zoo"])
+        record = records[0]
+        self.assertTrue(ledger.validate_record(record, USAGE_SCHEMA), record["key"])
+        self.assertEqual(record["attempt_id"], "att-canonical-zoo")
+        self.assertEqual(record["route"], "zoo")
+        self.assertEqual(record["route_source"], "explicit")
+        self.assertEqual(record["provider"], "zoo")
+        self.assertEqual(record["gen_ai.provider.name"], "zoo")
+        self.assertEqual(record["requested_model"], "zoo:glm-5.3-flash")
+        self.assertEqual(record["input_tokens"], 20)
+        self.assertEqual(record["output_tokens"], 66)
+        self.assertIsNone(record["cost_usd_list"])
+        self.assertEqual(record["cost_status"], "unknown")
+        self.assertEqual(record["ts_start"], "2026-11-16T12:00:00Z")
+        self.assertEqual(record["card_id"], "task-canonical")
+        self.assertEqual(record["project"], "feature-demo")
+        self.assertEqual(record["run_id"], "job-canonical")
+        self.assertTrue(record["join_complete"])
+
+    def test_canonical_envelope_backend_fallback_resolves_deepseek(self):
+        event = canonical_landed_event(
+            "att-canonical-fb", {"inputTokens": 100, "cachedReadTokens": 0, "outputTokens": 5},
+            backend={"model": "deepseek-v4.1-flash", "fallback": "deepseek:deepseek-flash"})
+        write_event(self.outbox, "evt-canonical-fb", event)
+        result = run_service("once", *self.outbox_args(with_attempts=False))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        status = status_lines(result.stdout)[-1]
+        self.assertTrue(status["ok"])
+        self.assertEqual(status["outbox_records"], 1)
+        self.assertEqual(status["outbox_skipped"], self.zero_skipped)
+        record = self.ledger_records()[0]
+        self.assertTrue(ledger.validate_record(record, USAGE_SCHEMA), record["key"])
+        self.assertEqual(record["route"], "deepseek")
+        self.assertEqual(record["route_source"], "explicit")
+        self.assertEqual(record["provider"], "deepseek")
+        self.assertEqual(record["fallback"], "deepseek")
+        self.assertEqual(record["retry_count"], 1)
+        self.assertEqual(record["cost_status"], "estimated")
+        self.assertGreater(record["cost_usd_list"], 0)
+
+    def test_canonical_envelope_without_usage_still_skipped(self):
+        write_event(self.outbox, "evt-canonical-none", canonical_landed_event("att-canonical-none"))
+        result = run_service("once", *self.outbox_args(with_attempts=False))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        status = status_lines(result.stdout)[-1]
+        self.assertTrue(status["ok"])
+        self.assertEqual(status["outbox_events"], 1)
+        self.assertEqual(status["outbox_records"], 0)
+        self.assertEqual(status["outbox_skipped"],
+                         {"unrelated_type": 0, "no_usage_payload": 1, "missing_attempt_id": 0})
+        self.assertEqual(self.ledger_records(), [])
+
+    def test_canonical_data_state_is_mapped_as_string_not_receipt_dict(self):
+        event = canonical_landed_event(
+            "att-canonical-state", {"input_tokens": 5, "output_tokens": 1},
+            backend={"model": "zoo:glm-5.3-flash"})
+        attempt_id, state, result, skip = ingest_service._outbox_parts(event)
+        self.assertIsNone(skip)
+        self.assertEqual(attempt_id, "att-canonical-state")
+        self.assertIsInstance(state, dict)
+        self.assertEqual(state.get("state"), "landed")
+        self.assertEqual(result["observed"]["usage"], {"input_tokens": 5, "output_tokens": 1})
+        self.assertEqual(result["source"]["model"], "zoo:glm-5.3-flash")
 
 
 class UnitFileTests(unittest.TestCase):

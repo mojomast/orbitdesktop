@@ -91,21 +91,33 @@ python3 ~/work/orbitdesktop/pc-launcher/scripts/usage_ingest_service.py once \
 - Each `*.json` file in the outbox holds one JSON event object (or an array
   of events). Only `rizzstack.bee.landed.v1` events are ingested; other types
   are skipped with a counted `unrelated_type` reason.
-- Today's landed events carry no usage payload: they are skipped with a
-  counted `no_usage_payload` reason and never fabricated into ledger records.
-  Once the hyvv usage payload lands in the events, the same reader ingests
-  them. Events with usage but without an attempt id are skipped with
-  `missing_attempt_id` (a record without identity cannot be keyed honestly).
+- Landed events are CloudEvents envelopes: `data`, `datacontenttype`, `id`,
+  `source`, `specversion`, `time` and `type` at the top level, with the landed
+  facts (`attempt_id`, `backend`, `lease`, `result`, `state`, `task_id`,
+  `feature_id`, `job_id`, `schema`, `source_rev`) inside `data`. The reader
+  parses `data` first (a top-level `payload` object stays supported as a
+  compatibility fallback), so a usage payload inside `data` is ingested:
+  `backend.model`/`backend.fallback` drive route and provider identity exactly
+  like launcher receipts, `task_id`/`feature_id`/`job_id` fill the record
+  identity, and `data.state` (`landed`/`failed`) is mapped as a plain string.
+  Events without a usage payload are skipped with a counted
+  `no_usage_payload` reason and never fabricated into ledger records. Events
+  with usage but without an attempt id are skipped with `missing_attempt_id`
+  (a record without identity cannot be keyed honestly).
 - Records are built through the same receipt code path
   (`usage_ledger.record_from_receipt`), so Zoo/DeepSeek/fallback provider
   identity and unknown-preserving semantics are identical to launcher
   receipts: unknown costs stay `null` and Zoo/unknown routes are never priced
   from the DeepSeek table.
-- De-duplication is by ledger key (`attempt:<attempt_id>`) across sources:
-  when an attempt appears in both the receipts and the outbox, the receipts
-  record wins (receipts run first) and nothing is double counted. Replaying
-  an outbox backfill adds nothing. Unreadable or non-JSON event files are
-  parse failures listed under `parse_errors` and retried on the next cycle.
+- De-duplication is by ledger key (`attempt:<attempt_id>`) across sources and
+  the first record written for a key wins; later duplicates of that key are
+  skipped. Within a single cycle with both sources enabled, receipts are built
+  before outbox records, so a receipt already present at scan time is the one
+  recorded and nothing is double counted; a key already appended by an
+  earlier outbox-only cycle stays as it was and a later receipts cycle adds
+  nothing for it. Replaying an outbox backfill adds nothing. Unreadable or
+  non-JSON event files are parse failures listed under `parse_errors` and
+  retried on the next cycle.
 - Whenever the outbox source is enabled, the status JSON gains `outbox` in
   `sources` plus `outbox_dir`, `outbox_files`, `outbox_events`,
   `outbox_records` and `outbox_skipped` (per-reason counts).
