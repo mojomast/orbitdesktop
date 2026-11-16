@@ -551,6 +551,31 @@
   function backlogColumns(backlog) {
     if (!backlog || typeof backlog !== 'object' || Array.isArray(backlog)) return [];
     let columns = null;
+    // Canonical collector shape (rizzstack.observability/snapshot/1): backlog.features
+    // is a flat list of {feature_id, status, depends_on,...}. Group by status into
+    // columns; also surface stale/error honestly via the section badge (rendered elsewhere).
+    if (Array.isArray(backlog.features)) {
+      const groups = new Map();
+      for (const raw of backlog.features) {
+        const card = normalizeCard({
+          id: raw && (raw.feature_id || raw.id),
+          status: raw && raw.status,
+          title: raw && (raw.title || raw.feature_id),
+          depends_on: raw && raw.depends_on,
+        });
+        if (!card) continue;
+        const name = String((raw && (raw.status || raw.state)) || 'Unsorted');
+        if (!groups.has(name)) groups.set(name, []);
+        groups.get(name).push(card);
+      }
+      const order = ['queued', 'running', 'blocked', 'done', 'accepted', 'rejected'];
+      return [...groups.entries()]
+        .sort((a, b) => {
+          const ai = order.indexOf(a[0]), bi = order.indexOf(b[0]);
+          return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+        })
+        .map(([name, cards]) => ({ name, cards }));
+    }
     const board = firstDefined(backlog, ['board', 'columns', 'swimlanes']);
     if (Array.isArray(board)) columns = board;
     else if (board && typeof board === 'object') {
