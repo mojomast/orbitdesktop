@@ -354,10 +354,14 @@ def bundle_source():
 
 class StaticBundleAdmission(unittest.TestCase):
     def test_bundle_files_present_small_and_clean(self):
+        # The runtime bundle stays three files; DESIGN-v2.md and mockup-v2/
+        # are Observatory-v2 design-spike artifacts that live beside it.
         names = sorted(item.name for item in BUNDLE.iterdir())
-        self.assertEqual(names, ['app.js', 'index.html', 'styles.css'])
+        self.assertEqual(
+            names,
+            ['DESIGN-v2.md', 'app.js', 'index.html', 'mockup-v2', 'styles.css'])
         total = 0
-        for name in names:
+        for name in ('app.js', 'index.html', 'styles.css'):
             path = BUNDLE / name
             self.assertFalse(path.is_symlink(), name + ' must not be a symlink')
             self.assertTrue(path.is_file())

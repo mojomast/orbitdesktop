@@ -1,0 +1,141 @@
+<!doctype html>
+<!--
+  Observatory v2 design spike — static no-build mockup with fake data.
+  Interaction design contract: apps/rizzstack-observatory/DESIGN-v2.md
+  (L0 overview -> drill-down, RED above USE, burn-rate panels with thresholds
+  drawn on charts, deploy markers, color = state only, one question per view).
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0d0f14">
+<title>Observatory v2 — design mockup</title>
+<link rel="stylesheet" href="./styles.css">
+<script type="module" src="./app.js"></script>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="obs-header">
+  <div class="brand"><span class="dot" aria-hidden="true"></span><h1>OBSERVATORY / RIZZSTACK V2</h1></div>
+  <span id="freshness" class="badge unknown">NO DATA</span>
+  <span id="announce" role="status" aria-live="polite" class="visually-hidden"></span>
+</header>
+
+<p id="banner" class="banner" hidden></p>
+
+<nav class="views" aria-label="Observatory views">
+  <div role="tablist" id="tablist">
+    <button type="button" role="tab" id="tab-overview"  aria-controls="panel-overview"  aria-selected="true"  tabindex="0"  data-goto="overview">Overview</button>
+    <button type="button" role="tab" id="tab-fleet"     aria-controls="panel-fleet"     aria-selected="false" tabindex="-1" data-goto="fleet">Fleet</button>
+    <button type="button" role="tab" id="tab-usage"     aria-controls="panel-usage"     aria-selected="false" tabindex="-1" data-goto="usage">Usage</button>
+    <button type="button" role="tab" id="tab-pipeline"  aria-controls="panel-pipeline"  aria-selected="false" tabindex="-1" data-goto="pipeline">Pipeline</button>
+    <button type="button" role="tab" id="tab-backlog"   aria-controls="panel-backlog"   aria-selected="false" tabindex="-1" data-goto="backlog">Backlog</button>
+    <button type="button" role="tab" id="tab-topology"  aria-controls="panel-topology"  aria-selected="false" tabindex="-1" data-goto="topology">Topology</button>
+    <button type="button" role="tab" id="tab-control"   aria-controls="panel-control"   aria-selected="false" tabindex="-1" data-goto="control">Control</button>
+  </div>
+  <button type="button" id="open-shortcuts" aria-haspopup="dialog" aria-label="Keyboard shortcuts">? Shortcuts</button>
+</nav>
+
+<main id="main">
+  <!-- L0: health strip + overview. Every panel drills into exactly one L1 view. -->
+  <section id="panel-overview" role="tabpanel" aria-labelledby="tab-overview" tabindex="-1">
+    <h2 id="ov-title" tabindex="-1">Is anything wrong?</h2>
+    <div id="ov-health" aria-label="Health strip"></div>
+    <div class="ov-grid" id="ov-grid" aria-label="Overview panels"></div>
+  </section>
+
+  <section id="panel-fleet" role="tabpanel" aria-labelledby="tab-fleet" tabindex="-1" hidden>
+    <h2 id="fleet-title" tabindex="-1">What are the bees doing?</h2>
+    <div id="fleet-red" class="red-row" aria-label="Fleet rate, errors and duration"></div>
+    <div id="fleet-body" class="table-wrap"></div>
+  </section>
+
+  <section id="panel-usage" role="tabpanel" aria-labelledby="tab-usage" tabindex="-1" hidden>
+    <h2 id="usage-title" tabindex="-1">What did we spend?</h2>
+    <div id="usage-body"></div>
+  </section>
+
+  <section id="panel-pipeline" role="tabpanel" aria-labelledby="tab-pipeline" tabindex="-1" hidden>
+    <h2 id="pipeline-title" tabindex="-1">What is shipping, what is stuck?</h2>
+    <div id="pipeline-timeline" class="chart-frame" aria-label="24 hour pipeline timeline with deploy markers"></div>
+    <div id="pipeline-body"></div>
+  </section>
+
+  <section id="panel-backlog" role="tabpanel" aria-labelledby="tab-backlog" tabindex="-1" hidden>
+    <h2 id="backlog-title" tabindex="-1">What is queued next?</h2>
+    <div id="backlog-body" class="board"></div>
+  </section>
+
+  <section id="panel-topology" role="tabpanel" aria-labelledby="tab-topology" tabindex="-1" hidden>
+    <h2 id="topology-title" tabindex="-1">Is the setup coherent?</h2>
+    <p class="view-note">Doctor parity map: four repos × five stages. Cell color is state, the word says the state, and every cell opens its doctor evidence.</p>
+    <div id="topology-legend" class="legend"></div>
+    <div id="topology-map"></div>
+  </section>
+
+  <section id="panel-control" role="tabpanel" aria-labelledby="tab-control" tabindex="-1" hidden>
+    <h2 id="control-title" tabindex="-1">What do I decide right now?</h2>
+    <div id="owner-gate" class="gate"></div>
+    <p class="route-note">Mutations never hit an open endpoint: every action goes through Orbit's owner-authenticated API into the fenced, audited F6 action queue, then reconciles or reverts here.</p>
+    <div class="control-grid">
+      <div class="control-col" aria-label="Receiver decisions">
+        <h3>Receiver decisions</h3>
+        <div id="receiver-list"></div>
+      </div>
+      <div class="control-col" aria-label="Deploy and configuration">
+        <h3>Deploys</h3>
+        <div id="deploy-panel"></div>
+        <h3>Configuration</h3>
+        <div id="config-panel"></div>
+      </div>
+    </div>
+    <div class="queue-grid">
+      <div aria-label="F6 action queue">
+        <h3>F6 action queue</h3>
+        <div id="queue-body" class="table-wrap"></div>
+      </div>
+      <div aria-label="Audit trail">
+        <h3>Audit trail</h3>
+        <ol id="audit-body" class="audit" aria-label="Append-only audit trail, newest first"></ol>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <p>Demo data scenarios (mockup only — no snapshot is fetched):</p>
+  <div id="scenarios" class="scenarios" role="group" aria-label="Fake-data scenario">
+    <button type="button" data-scenario="normal" aria-pressed="true">Normal</button>
+    <button type="button" data-scenario="stale" aria-pressed="false">Stale</button>
+    <button type="button" data-scenario="degraded" aria-pressed="false">Degraded</button>
+    <button type="button" data-scenario="empty" aria-pressed="false">Empty</button>
+  </div>
+  <p class="fine">Static design spike for <code>apps/rizzstack-observatory/DESIGN-v2.md</code>. Fake data, no framework, no CDN, no build step. Unknown costs render as UNKNOWN, never zero.</p>
+</footer>
+
+<dialog id="evidence-dialog" aria-labelledby="evidence-title">
+  <form method="dialog">
+    <h2 id="evidence-title">Doctor evidence</h2>
+    <p id="evidence-body"></p>
+    <button type="submit" class="primary">Close</button>
+  </form>
+</dialog>
+
+<dialog id="shortcuts-dialog" aria-labelledby="shortcuts-title">
+  <form method="dialog">
+    <h2 id="shortcuts-title">Keyboard shortcuts</h2>
+    <ul class="keys">
+      <li><kbd>1</kbd>–<kbd>7</kbd> switch view</li>
+      <li><kbd>←</kbd> <kbd>→</kbd> <kbd>Home</kbd> <kbd>End</kbd> move between tabs</li>
+      <li><kbd>O</kbd> toggle mock owner session (Control view)</li>
+      <li><kbd>Esc</kbd> close dialog / return to Overview</li>
+      <li><kbd>?</kbd> this sheet</li>
+    </ul>
+    <button type="submit" class="primary">Close</button>
+  </form>
+</dialog>
+</body>
+</html>
