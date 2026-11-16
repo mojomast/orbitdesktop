@@ -165,6 +165,8 @@
     if (id == null) return null;
     const branch = pick(raw, ['branch', 'git_branch', 'ref']);
     const model = routeText(raw.route) || routeText(raw.route_label) || pick(raw, ['model', 'model_name', 'model_id']);
+    const title = pick(raw, ['title', 'brief', 'summary', 'description']);
+    const source = pick(raw, ['source']);
     const state = pick(raw, ['state', 'status', 'phase']);
     let elapsedMs = null;
     const directMs = firstDefined(raw, ['elapsed_ms', 'duration_ms', 'elapsedMs', 'durationMs']);
@@ -192,6 +194,8 @@
       stateClass: stateClass(stateText),
       elapsedMs,
       elapsed: elapsedLabel(elapsedMs),
+      title: (title == null ? '' : String(title)),
+      source: (source == null ? '' : String(source)),
     };
   }
 
