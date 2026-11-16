@@ -1,7 +1,7 @@
 # rizzstack-observability
 
 Usage wiring for the merged `bee.usage/v1` ledger: the systemd user unit
-`usage-ingest.service` keeps a ledger on moltussy-1 fed from the pc-launcher's
+`usage-ingest.service` keeps a ledger on the launcher host fed from the pc-launcher's
 real attempt receipts (`~/.orbit-launcher/attempts/<attempt_id>.json` plus the
 matching `<attempt_id>.result.json` sidecar written by the launcher when an
 attempt finishes). Every record is produced by
@@ -19,7 +19,7 @@ warn-only budget alerts.
 - `pc-launcher/scripts/usage_ledger.py` — record building, receipt pair
   reading (`receipt_pairs`, `record_from_receipt`) and the ledger writer
 
-## Install on moltussy-1
+## Install on the launcher host
 
 The paths below assume the orbitdesktop checkout lives at
 `~/work/orbitdesktop` and the launcher keeps its default data dir
@@ -81,6 +81,17 @@ Backfill runs started by hand always read the current snapshot from disk.
 - `ProtectSystem=strict` with `ProtectHome=read-only`: the whole filesystem
   including the receipts, the checkout and `prices.json` is read-only to the
   service; only `~/.local/state/bee` is writable via `ReadWritePaths=`.
+  Enforcement note (honest limits, systemd 255): in a user unit the
+  mount-based protections above are DECLARED but not ENFORCED unless
+  `PrivateUsers=` is set — and on systemd 255 adding `PrivateUsers=true`
+  combined with `ReadWritePaths=` left the state directory read-only in a
+  live probe, which would break the ingest writer, so it is deliberately
+  not set. What IS kernel-enforced: `RestrictAddressFamilies=AF_UNIX`
+  (AF_INET/AF_INET6 `socket()` fail with EAFNOSUPPORT inside the service
+  sandbox, verified by probe), `NoNewPrivileges`, and the namespace
+  protections. The read-only posture of receipts/code otherwise rests on
+  the service code touching only the paths it needs, not on mount
+  enforcement.
 - `RestrictAddressFamilies=AF_UNIX`, `NoNewPrivileges=true`,
   `PrivateTmp=true`, `PrivateDevices=true`, kernel and namespace
   protections: the service is disk-only by design and has no way to
