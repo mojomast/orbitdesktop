@@ -1064,6 +1064,7 @@
       '<li class="node ' + job.stateClass + '">' +
       '<div class="node-head"><span class="state ' + job.stateClass + '">' + escapeHtml(job.state) + '</span>' +
       '<span class="node-title">' + escapeHtml(job.title || job.id || '(unnamed job)') + '</span></div>' +
+      (job.summary ? '<p class="summary">' + escapeHtml(job.summary) + '</p>' : '') +
       (job.escalation ? '<p class="reason escalation">Escalation: ' + escapeHtml(job.escalation) + '</p>' : '') +
       (job.blocker ? '<p class="reason blocker">Blocker: ' + escapeHtml(job.blocker) + '</p>' : '') +
       (job.tasks.length
