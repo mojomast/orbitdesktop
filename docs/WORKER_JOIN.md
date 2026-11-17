@@ -1,6 +1,6 @@
 # Pair a worker on one machine
 
-Use join-only mode to give one worker a short-lived grant to report presence or check the digest of its installed Orbit join client. Its only task reads **the client's own module**. The launcher-backed [local workers](LOCAL_WORKERS.md) still serve ordinary BundleBees attempts. The two modes are mutually exclusive.
+Use join-only mode to give one worker a short-lived grant to report presence, check its installed client, or claim a synthetic data-only brief. See the [offline kit, enrolled transport and acceptance ledger](WORKER_JOIN_ACCEPTANCE.md) for the BundleBees queue and verification rehearsal. The launcher-backed [local workers](LOCAL_WORKERS.md) still serve ordinary executable attempts. The two modes are mutually exclusive.
 
 ## Rehearse without configuring Orbit
 
@@ -38,6 +38,7 @@ Keep any input file private; remove it after the exchange. Do not pass a secret 
 | Valid worker bearer | `refresh` | Rotates the old bearer immediately. Five minutes per token, at most one hour from pairing. No refresh after expiry. |
 | `presence` | `heartbeat` | Only bounded platform and arch names. Last-seen is when the coordinator heard from the worker, not a guarantee of liveness. |
 | `verify-client` | `claim`, `report` | Only this worker's preassigned `hash-installed-client` task and a 64-hex digest. No executable brief, shell, arguments, arbitrary path, free-form event, patch or evidence upload. |
+| `sum-brief` | `claim-brief`, `status-brief`, `report-brief` | Only this worker's assigned immutable attempt and base revision. A report is one integer. Acceptance requires a trusted coordinator, signed lease, scanner and combined suite. |
 
 The active coordinator uses its clock and a private `worker-join/registry.sqlite`. Exchange, rotation, task ownership checks, comparison and revocation take immediate SQLite transactions. Every request checks current authority. The DB contains credential hashes and bounded metadata; it is outside workspace layouts and checkpoints. An invitation appears once in its issue response; later inventory does not reveal secrets or verifiers. Revocation clears both hashes and atomically moves all queued, claimed or reported checks to `quarantined`. A late report, claim or refresh cannot revive them, even after reopen. Completed comparisons remain history. Expired workers cannot complete checks; revoke to quarantine outstanding records. No transport teardown or listener/mesh key rotation is implied.
 
@@ -53,7 +54,7 @@ The worker considers HTTPS first, then plain HTTP loopback, then records tailcat
 | F16 | Stable unavailable result; no native dependency or saved overlay material | tailcat binary, listener, handshake or NAT/DERP run. The proposed point-to-point tool promises no stable CLI/API/wire format and originally assumes the same person on both ends. Public DERP is rate-limited; self-hosted DERP is an option for a future approved integration. It is not a mesh. |
 | F17 | Fixed selection order, explicitly owned endpoints only, rejected redirects, fallback and override, CLI test with trusted local TLS | Mesh enrollment, image supervisor, GPU/sandbox capability scheduling or image publication |
 | F18 | Browser inventory/revocation, offline reconnect refused, unreviewed local reports quarantined | Cancelling a running BundleBees sandbox or invalidating another backend's leases |
-| F19 | Verified local client bytes, fresh throwaway stage, exchange/replay/refresh, digest task, revocation drill after DB reopen, stage/listener teardown | No OCI image verified or installed; no SSH recipe invocation, second machine, accepted wave or live-host install. No basis for a live-install decision. |
+| F19 | Verified client bytes, throwaway stage, exchange/replay/refresh, revoke/reopen and teardown; separate [OCI and accepted synthetic wave evidence](WORKER_JOIN_ACCEPTANCE.md) | No released worker image installed, second-machine rehearsal or live-host install. |
 
 **Recorded local rehearsal (Linux, Node 22.19):** the 9,266-byte client matched SHA-256 `e8ae82a283a627d71b2f27e042ddcad4979fa66250ed7509703ea940eb78c3ee` before and after staging. The invitation lifetime was 900,000 ms; a second exchange was refused. There was no HTTPS endpoint in that rehearsal and the explicitly supplied HTTP loopback endpoint was selected. The first reported digest matched; the second report was quarantined on revoke. Claim, refresh and review were refused after reopening the DB. The temporary stage was removed and the listener closed. This receipt applies only to those bytes and that local run.
 

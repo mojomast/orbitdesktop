@@ -42,7 +42,9 @@ try {
     process.stdout.write('sign '+JSON.stringify(exact)+'\n');const signature=JSON.parse((await lines.next()).value);
     await dialog.getByLabel('Detached SSH signature').fill(signature);await dialog.getByRole('button',{name:'Confirm signed feedback'}).click();
     await dialog.getByText(/Outcome unknown/).waitFor();await dialog.getByRole('button',{name:'Confirm signed feedback'}).click();
-    await dialog.getByText(/Feedback recorded:.*original receipt/).waitFor();
+    await dialog.getByText(/Feedback recorded:.*original receipt/).waitFor().catch(async()=>{
+      throw Error(`Receipt not displayed: ${railStatus.join(',')}; confirm controls: ${await dialog.getByLabel('Detached SSH signature').count()}; ${await dialog.locator('[role=status]').innerText()}`);
+    });
   }else await dialog.getByText(/No enrolled feedback writer available/).waitFor();
   // No pane has access to the parent DOM/storage or owner headers.
   for(const f of page.frames().filter(f=>f.parentFrame())) {
