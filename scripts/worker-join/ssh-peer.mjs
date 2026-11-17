@@ -28,7 +28,8 @@ export async function enrolledSshJoin(enrollment,invite) {
   const close=()=>{agent.destroy();for(const p of children)p.kill();fs.rmSync(root,{recursive:true,force:true});};
   try {
     const config=writeSshConfig([{id:'worker-peer',address:e.address,user:e.user,port:e.sshPort,auth:{kind:'host-key'},transport:{kind:'direct'}}],{runtimeDir:root});
-    fs.mkdirSync(path.join(root,'ssh','keys'),{mode:0o700}); fs.writeFileSync(path.join(root,'ssh/keys/orbit-host-worker-peer'),privateBytes(path.join(parent,'peer.key'),16384),{mode:0o600});
+    const key=path.join(parent,'peer.key');privateBytes(key,16384).fill(0);
+    fs.mkdirSync(path.join(root,'ssh','keys'),{mode:0o700});fs.symlinkSync(key,path.join(root,'ssh/keys/orbit-host-worker-peer'));
     fs.writeFileSync(path.join(root,'ssh/known_hosts'),`orbit-worker-peer ${e.hostKey}\n`,{mode:0o600});
     agent.createConnection=()=>{
       const child=spawn('/usr/bin/ssh',['-F',config,'-T','-o','ControlMaster=no','-o','ControlPath=none','-o','UpdateHostKeys=no','-o','ForwardAgent=no','-o','IdentityAgent=none','-o','PasswordAuthentication=no','-o','KbdInteractiveAuthentication=no','-o','HostKeyAlgorithms=ssh-ed25519','-W',`127.0.0.1:${e.peerPort}`,'orbit-worker-peer'],{env:{PATH:'/usr/bin:/bin',HOME:root},stdio:['pipe','pipe','ignore']});

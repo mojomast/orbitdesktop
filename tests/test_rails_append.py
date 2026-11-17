@@ -106,6 +106,19 @@ class AppendHTTP(unittest.TestCase):
                 self.assertEqual(self.post([self.record(1),dict(self.record(2),**{key:value})])[0],403)
                 self.assertFalse(self.state())
 
+    def test_maximum_page_rotation_and_storage_refusal(self):
+        records = [self.record(i) for i in range(500)]
+        status, response = self.post(records)
+        self.assertEqual(status,200,response)
+        self.assertEqual(len(response['receipts']),500)
+        self.assertLessEqual(len(json.dumps(response).encode()),131072)
+        new_key = secrets.token_urlsafe(32); self.write_file.write_text(new_key)
+        self.assertEqual(self.post(records[:1])[0],401)
+        self.service.executor.submit(setattr,self.service.writer,'min_free_bytes',1<<60).result()
+        status, err = self.post([self.record(501)],key=new_key)
+        self.assertEqual((status,err['error']['code']),(503,'storage_full'))
+        self.assertEqual(len(self.state()),501)
+
     def test_strict_wire_private_text_and_caps(self):
         raw = self.record(1)
         for record in [dict(raw,seq=1),dict(raw,schema='rizzstack.rails/1'),dict(raw,scope={'job_id':'job-test'}),

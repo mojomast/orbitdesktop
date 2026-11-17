@@ -34,7 +34,7 @@ HTTP_LIMIT = 128 * 1024
 PAGE_FIELDS = {'kind', 'id', 'format', 'limit', 'after', 'max_bytes', 'include', 'show_tokens'}
 STATUSES = {'invalid_request': 400, 'auth_required': 401, 'forbidden': 403,
             'not_found': 404, 'reset_required': 409, 'conflict': 409, 'source_fork': 409,
-            'too_large': 413, 'capacity': 429, 'source_unavailable': 503}
+            'too_large': 413, 'capacity': 429, 'source_unavailable': 503, 'storage_full': 503}
 
 
 class Refusal(Exception):

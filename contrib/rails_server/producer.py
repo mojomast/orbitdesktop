@@ -15,7 +15,7 @@ from uuid import UUID
 from .http import Handler, Refusal, Server, credential, wire
 from rizzstack_rails import RailsLedger, contracts, privacy
 from rizzstack_rails.importer import Importer
-from rizzstack_rails.ledger import IdempotencyConflict
+from rizzstack_rails.ledger import IdempotencyConflict, LedgerUnavailable
 from rizzstack_rails.projection import public_id
 from rizzstack_rails.shell_labels import command_family, tool_label
 
@@ -113,6 +113,20 @@ def validate_record(record, policy):
     # bytes (no legacy defaults/repairs) before starting its SQLite transaction.
 
 
+def append_response(rows, count, chain):
+    if not isinstance(rows,list) or len(rows) != count or not 0 <= count <= 500:
+        raise Refusal('source_unavailable')
+    receipts = []
+    for row in rows:
+        seq, digest, duplicate = row['seq'], row['hash'], row['duplicated']
+        if (type(seq) is not int or not 1 <= seq <= contracts.INT_LIMIT
+                or row['event_id'] != f'{chain}:{seq}' or type(duplicate) is not bool
+                or not isinstance(digest,str) or not contracts.HEX64_RE.fullmatch(digest)):
+            raise Refusal('source_unavailable')
+        receipts.append({'event_id':row['event_id'], 'seq':seq, 'hash':digest, 'duplicate':duplicate})
+    return {'ok':True, 'receipts':receipts, 'committed_cursor':None}
+
+
 class Producer(Server):
     def __init__(self, addr, db, producer_file, read_file, config):
         self.policy = grant(config)
@@ -170,9 +184,7 @@ class Producer(Server):
             self.writer.hooks.pop('before_commit', None)
         # This POST is keyed push, not cursor-based origin replication. The /1
         # result permits null committed_cursor. A replay publishes no checkpoint.
-        return {'ok':True, 'committed_cursor':None, 'receipts':[
-            {'event_id':r['event_id'], 'seq':r['seq'], 'hash':r['hash'], 'duplicate':r['duplicated']}
-            for r in batch['receipts']]}
+        return append_response(batch['receipts'],len(records),self.writer.chain_id)
 
     def server_close(self):
         super().server_close()
@@ -219,6 +231,11 @@ class ProducerHandler(Handler):
             self.reply(wire(result))
         except IdempotencyConflict:
             raise Refusal('conflict') from None
+        except LedgerUnavailable as exc:
+            if ('capacity below floor' in str(exc)
+                    or getattr(exc.__context__,'sqlite_errorcode',0)==sqlite3.SQLITE_FULL):
+                raise Refusal('storage_full') from None
+            raise Refusal('source_unavailable') from None
         except contracts.RailsRefusal as exc:
             raise Refusal('too_large' if exc.code=='too_large' else 'invalid_request') from None
         finally:

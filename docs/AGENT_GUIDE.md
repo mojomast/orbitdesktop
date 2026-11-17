@@ -25,7 +25,8 @@ GitHub connection and the repository picker belong to the owner's setup UI. Do n
 For an activity-history question, point the owner to **Rizzstack Rails** in Start,
 or **Rails** beside an Observatory attempt/job. The shell needs a connected host
 and configured Rails reader. The pane and workspace controller receive no Rails
-credential. Quality feedback is a local preview; retry is unavailable. See
+credential. Quality feedback stays a draft unless a separately enrolled owner
+signs its exact coordinator review and confirms in the shell; retry is unavailable. See
 [Rails](../extensions/rizzstack-rails/README.md).
 
 For the synthetic Asteria task, a separately published **Asteria Mission Control**

@@ -2,6 +2,7 @@
 // on demand; no production bundle copy, provider, model or live runtime is used.
 import fs from 'node:fs';
 import path from 'node:path';
+import {tmpdir} from 'node:os';
 import http from 'node:http';
 import {randomUUID} from 'node:crypto';
 import {createServer} from 'vite';
@@ -17,7 +18,7 @@ import {openProjectRoot} from '../server/project-files.mjs';
 import {initial} from '../src/model.ts';
 import {commandIdentity} from '../server/command-identity.mjs';
 
-const root=process.argv[2];if(!root?.startsWith('/tmp/opencode/reliability-browser-'))throw Error('Disposable root required');
+const root=process.argv[2];if(!root||path.dirname(root)!==tmpdir()||!/^reliability-browser-[A-Za-z0-9]{6}$/.test(path.basename(root))||!fs.lstatSync(root).isDirectory())throw Error('Disposable root required');
 const source=path.join(root,'source');fs.mkdirSync(source,{recursive:true});
 fs.writeFileSync(path.join(source,'math.js'),'export const sum=(a,b)=>a+b;\n');
 fs.writeFileSync(path.join(source,'sum.test.mjs'),"import test from 'node:test';test('fixture',()=>{});\n");

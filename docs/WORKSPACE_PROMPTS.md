@@ -43,7 +43,8 @@ Guides: [Usability](WORKSPACE_USABILITY.md), [Saved layouts](SAVED_WORKSPACE_LAY
 
 Use **Rizzstack Rails** in the connected shell or select **Rails** beside the
 Observatory row, then **Inspect**. Select a mark for safe event detail. A
-feedback preview does not save a rating or authorize a retry. See [Rails](../extensions/rizzstack-rails/README.md).
+feedback preview does not save a rating or authorize a retry. An enrolled owner
+can sign and confirm the exact quality annotation separately. See [Rails](../extensions/rizzstack-rails/README.md).
 
 > Help me find the conversation titled “Release research” using Conversation
 > library. Explain how I can pin it and resume it without discarding my current

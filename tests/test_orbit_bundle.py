@@ -2,6 +2,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -72,6 +73,22 @@ class BundleTest(unittest.TestCase):
         self.assertEqual(sorted(expected - actual), [], 'policy files missing from the bundle')
         self.assertEqual(sorted(actual - expected), [], 'bundle members outside the inclusion policy')
         self.assertEqual(len(actual), len(expected), 'bundle member count must match the policy')
+
+    def test_local_module_imports_are_packaged(self):
+        # A new untracked TS component can otherwise disappear while BOTH
+        # inventory comparisons pass. Resolve relative imports only; npm
+        # packages are installed separately and ambient files are never added.
+        parts = re.compile(r'''(?:\bfrom\s+|\bimport\s*\(?\s*|\brequire\(\s*)['"](\.[^'"]+)['"]''')
+        with tarfile.open(ROOT / 'hermes-plugin/orbit-source.tar.gz') as archive:
+            names = set(archive.getnames())
+            for name in sorted(names):
+                path = ROOT/name
+                if path.suffix not in {'.ts', '.js', '.mjs'}: continue
+                for ref in parts.findall(archive.extractfile(name).read().decode()):
+                    source = (path.parent/ref).resolve()
+                    if not source.is_file(): source = Path(str(source) + '.ts')
+                    if source.is_file() and source.is_relative_to(ROOT):
+                        self.assertIn(source.relative_to(ROOT).as_posix(), names, f'{name} imports {ref}')
 
     def test_only_exact_untracked_members_and_stable_after_indexing(self):
         with tempfile.TemporaryDirectory() as tmp:

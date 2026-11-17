@@ -16,7 +16,7 @@ test('official regression tests and their fixtures use portable filesystem roots
       else if(d.isFile() && keep.test(name)) files.push(name);
     }
   }
-  walk('.',/\.test\.mjs$/); walk('fixtures',/\.(?:mjs|js|ts|py|json|sh)$/); walk('../vendor/irc-suite',/\.test\.js$/);
+  walk('.',/\.mjs$/); walk('fixtures',/\.(?:js|ts|py|json|sh)$/); walk('../vendor/irc-suite',/\.test\.js$/);
   const authorPath=/\/(?:tmp\/opencode|home\/(?:mojo|kyle)|Users\/(?:mojo|kyle))(?:\/|['"`])/i;
   const bad=files.filter(name=>authorPath.test(fs.readFileSync(path.join(root,name),'utf8')));
   assert.deepEqual(bad,[],'Use tests/fixtures/scratch.mjs or an explicitly provisioned fixture.');

@@ -3,7 +3,7 @@ let owner = '', generation = 0, busy = false, hideTimer;
 function hide() { clearTimeout(hideTimer); el('payload').textContent = ''; el('hide').hidden = true; }
 function lock() {
   generation++; owner = ''; el('token').value = ''; hide();
-  el('workers').replaceChildren(); el('tasks').replaceChildren(); el('panel').hidden = true; el('unlock').hidden = false;
+  el('workers').replaceChildren(); el('tasks').replaceChildren(); el('briefs').replaceChildren(); el('panel').hidden = true; el('unlock').hidden = false;
   el('status').textContent = '';
 }
 async function post(body) {
@@ -26,10 +26,12 @@ function button(row, text, body) {
   row.append(' ',control);
 }
 async function refresh(stamp) {
-  const { workers,tasks } = await post({ op:'inventory' });
+  const { workers,tasks,briefs } = await post({ op:'inventory' });
   if (stamp !== generation) return;
   el('panel').hidden = false; el('unlock').hidden = true;
   el('workers').replaceChildren(); el('tasks').replaceChildren();
+  el('briefs').replaceChildren();
+  for (const b of briefs) { const row=document.createElement('li');row.textContent=`${b.attemptId} · ${b.workerId} — ${b.state}${b.waveCommit ? ' · '+b.waveCommit : ''}`;el('briefs').append(row); }
   for (const w of workers) {
     const row = document.createElement('li');
     const lastSeen = w.lastSeen ? new Date(w.lastSeen).toISOString() : 'never';
@@ -52,6 +54,7 @@ el('unlock').onsubmit = act(async stamp => {
 el('lock').onclick = lock; el('hide').onclick = hide; el('reload').onclick = act(refresh);
 el('invite').onsubmit = act(async stamp => {
   hide(); const scopes = el('verify').checked ? ['presence','verify-client'] : ['presence'];
+  if(el('sum').checked)scopes.push('sum-brief');
   const grant = await post({ op:'invite',label:el('label').value,scopes });
   if (generation !== stamp) return;
   el('payload').textContent = JSON.stringify(grant); el('hide').hidden = false;

@@ -15,6 +15,7 @@ try {
   await context.addInitScript(({state,id})=>{if(window.top===window){localStorage.setItem('orbit.onboarding.v1','done');localStorage.setItem('orbit.workspace.id',id);localStorage.setItem('orbit.workspace.v1',JSON.stringify(state));}}, {state,id:cfg.workspace});
   const page=await context.newPage(); page.setDefaultTimeout(10000);
   const requests=[];page.on('request',request=>requests.push(request));
+  const railStatus=[];page.on('response',r=>{const path=new URL(r.url()).pathname;if(path.startsWith('/api/rizzstack/rails/'))railStatus.push(path.split('/').at(-1)+':'+r.status());});
   page.on('pageerror',error=>console.error(error.name));
   await page.goto(cfg.origin);
   const obs=page.frameLocator('iframe[title="Embedded browser"]');
@@ -50,7 +51,7 @@ try {
   }
   const pane=page.frames().find(f=>f.url().includes('/apps/rizzstack-observatory/'));
   assert.equal(await pane.evaluate(async()=>{try{await fetch('/api/rizzstack/rails/feedback',{method:'POST',body:'{}'});return 'accepted';}catch{return 'refused';}}),'refused');
-  await dialog.getByText(/Connected to updates/).waitFor();process.stdout.write('append\n');
+  await dialog.getByText(/Connected to updates/).waitFor().catch(()=>{throw Error(`Stream did not connect: ${railStatus.slice(-18).join(',')}`);});process.stdout.write('append\n');
   const next=(await lines.next()).value;
   await renderer.locator(`.rail-mark[data-event-id="${next}"]`).waitFor();
   process.stdout.write('restart\n');const resumed=(await lines.next()).value;

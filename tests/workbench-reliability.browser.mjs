@@ -4,9 +4,10 @@ import path from 'node:path';
 import {spawn} from 'node:child_process';
 import {once} from 'node:events';
 import {chromium} from 'playwright-core';
+import {tmpdir} from 'node:os';
 
-const root=fs.mkdtempSync('/tmp/opencode/reliability-browser-'),log=fs.openSync(path.join(root,'server.log'),'w');
-const child=spawn(process.execPath,['--experimental-strip-types','tests/workbench-reliability-browser-fixture.mjs',root],{cwd:process.cwd(),env:{PATH:process.env.PATH,HOME:root},stdio:['ignore',log,log]});
+const root=fs.mkdtempSync(path.join(tmpdir(),'reliability-browser-')),log=fs.openSync(path.join(root,'server.log'),'w');
+const child=spawn(process.execPath,['--experimental-strip-types','tests/workbench-reliability-browser-fixture.mjs',root],{cwd:process.cwd(),env:{PATH:process.env.PATH,HOME:root,TMPDIR:tmpdir()},stdio:['ignore',log,log]});
 let browser;
 try{
   for(let n=0;!fs.existsSync(path.join(root,'ready.json'));n++){if(child.exitCode!==null||n>200)throw Error(fs.readFileSync(path.join(root,'server.log'),'utf8'));await new Promise(r=>setTimeout(r,100));}
