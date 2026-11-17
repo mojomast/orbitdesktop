@@ -2,6 +2,48 @@
 
 The reporter is intentionally read-only: it never dispatches, cancels, or
 mutates anything, and budget alerts never change the process exit code.
+
+Stable output shape (consumers depend on it; new fields are additive only):
+
+- Compact output (default): {"ok", "day", "bad_lines", "by", "totals", "top",
+  "alerts"} — unchanged by the pricing slice; totals.usd_total still sums only
+  the stored cost_usd_list values of the selected day.
+- Full output (--full): the same "ok"/"day"/"bad_lines"/"by" header plus
+  "totals", "groups", "days", "alerts", "costs", "pricing" and "compact".
+
+Cost rollups (full report, "costs"; they cover every ledger record after the
+--card filter, not just the selected day, because jobs span days; a job is a
+card, bucketed by card_id with "unknown" for records without one):
+
+- costs.totals: {"cost_usd", "cost_unknown_records", "cost_sources"} where
+  cost_usd sums resolved per-attempt costs (stored where present, repriced
+  where missing) and cost_sources counts {"ledger", "repriced", "unknown"}.
+- costs.attempts: one entry per ledger record, sorted by (ts, attempt):
+  {"attempt" (the ledger record key), "attempt_id", "card_id", "job", "ts",
+  "cost_usd" (null when unknown — unknown is never coerced to zero),
+  "cost_status", "source" ("ledger"|"repriced"|"unknown"),
+  "price_table_version", "price_period"}.
+- costs.jobs: one entry per job, sorted by cost: {"job", "attempts",
+  "cost_usd" (known attempts only), "cost_usd_unknown_attempts",
+  "price_table_versions"}.
+
+Versioned pricing snapshots ("pricing"; loaded read-only from --prices, by
+default prices.json beside the launcher):
+
+- {"schema", "available", "immutable", "active", "versions"} where versions
+  lists snapshot identifiers and active maps route -> live snapshot version.
+- Each snapshot is immutable once written and carries an explicit
+  price_version identifier matching its key; the file references the live
+  snapshot per route under "active".
+- Stored costs are history and are never reinterpreted against a newer
+  snapshot; missing costs are repriced only against the snapshot recorded on
+  the record (price_table_version), or the snapshot live at the attempt
+  timestamp for records that predate version recording. A recorded version
+  missing from the file, a route/snapshot mismatch, missing rates or missing
+  token counts all surface as unknown cost, never as zero.
+
+Out of scope (follow-up): RETURN linkage — the M1 RETURN format is not
+decided yet, so no RETURN-related fields are emitted in this slice.
 """
 
 from __future__ import annotations
@@ -11,7 +53,9 @@ import json
 import math
 import os
 import sys
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
+from decimal import Decimal, ROUND_HALF_UP
+from pathlib import Path
 
 SCHEMA = "bee.usage/v1"
 ROLES = ("work", "verify", "coordinator")
@@ -37,6 +81,24 @@ GO_WINDOWS = (
     ("7d", timedelta(days=7), 0.5, False),
     ("month", None, 1.0, True),
 )
+# Versioned pricing snapshots (bee.prices/v1). The reporter only reads them;
+# snapshots are immutable once written and are never rewritten or reinterpreted.
+DEFAULT_PRICES = Path(__file__).resolve().parent.parent / "prices.json"
+ROUTE_SNAPSHOT_PREFIXES = {
+    "deepseek": "deepseek-pricing",
+    "go": "opencode-go",
+    "zoo": "zoo-pricing",
+}
+# Repricing needs every component of a rate entry as a finite number; a
+# partial or non-numeric table is unknown cost, never free usage.
+RATE_FIELDS = ("cache_hit", "cache_miss", "output")
+DEFAULT_PEAK_WINDOWS = [
+    {"days": ["Mon", "Tue", "Wed", "Thu", "Fri"], "start": "01:00", "end": "04:00"},
+    {"days": ["Mon", "Tue", "Wed", "Thu", "Fri"], "start": "06:00", "end": "10:00"},
+]
+DAY_NAMES = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+EPOCH_FLOOR = datetime(1, 1, 1, tzinfo=timezone.utc)
+EMPTY_PRICING = {"schema": None, "available": False, "active": {}, "versions": {}}
 
 
 def parse_timestamp(value):
@@ -355,6 +417,303 @@ def load_ledger(path):
     return records, bad_lines
 
 
+def round6(value):
+    return float(Decimal(str(value)).quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP))
+
+
+def token_field(record, plain, mirrored):
+    value = record.get(mirrored)
+    if value is None and plain in record:
+        value = record.get(plain)
+    return value
+
+
+def strip_route_prefix(model):
+    if not isinstance(model, str):
+        return None
+    for prefix in ("go:", "deepseek:", "zoo:", "zoo/"):
+        if model.startswith(prefix):
+            return model[len(prefix):]
+    return model
+
+
+def moment_of(record):
+    for field in ("ts_start", "ts_end"):
+        value = record.get(field)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            try:
+                return datetime.fromtimestamp(float(value), tz=timezone.utc)
+            except (OverflowError, OSError, ValueError):
+                continue
+        moment = parse_timestamp(value)
+        if moment is not None:
+            return moment
+    return None
+
+
+def period_for(record, snapshot):
+    moment = moment_of(record)
+    if moment is None:
+        return None
+    windows = snapshot.get("peak_windows_utc") if isinstance(snapshot, dict) else None
+    if not isinstance(windows, list) or not windows:
+        windows = DEFAULT_PEAK_WINDOWS
+    day = DAY_NAMES[moment.weekday()]
+    current = moment.time()
+    for window in windows:
+        days = window.get("days") or []
+        if day not in days:
+            continue
+        try:
+            start = time.fromisoformat(window.get("start"))
+            end = time.fromisoformat(window.get("end"))
+        except (TypeError, ValueError):
+            continue
+        if start <= current < end:
+            return "peak"
+    return "off_peak"
+
+
+def load_price_snapshots(path):
+    """Load versioned pricing snapshots read-only; never mutate file or data.
+
+    Snapshots are immutable once written and must carry an explicit
+    price_version identifier that matches their key. Accepts a "versions"
+    object/array container or the flat historical layout with one snapshot per
+    top-level key. A missing or unreadable file is not fatal: repricing
+    degrades to unknown and stored costs still roll up.
+    """
+    if not path:
+        return dict(EMPTY_PRICING)
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, UnicodeError, ValueError):
+        print(
+            "usage_report: cannot read prices file; costs without stored values stay unknown",
+            file=sys.stderr,
+        )
+        return dict(EMPTY_PRICING)
+    if not isinstance(data, dict):
+        return dict(EMPTY_PRICING)
+    raw_versions = data.get("versions")
+    if isinstance(raw_versions, dict):
+        candidates = list(raw_versions.items())
+    elif isinstance(raw_versions, list):
+        candidates = [
+            (item.get("price_version") or item.get("version"), item)
+            for item in raw_versions
+            if isinstance(item, dict)
+        ]
+    elif "models" in data:
+        candidates = [(data.get("price_version") or data.get("version"), data)]
+    else:
+        candidates = [
+            (name, value)
+            for name, value in data.items()
+            if isinstance(value, dict) and "models" in value
+        ]
+    versions = {}
+    for name, snapshot in candidates:
+        if not isinstance(name, str) or not isinstance(snapshot, dict):
+            continue
+        declared = snapshot.get("price_version") or snapshot.get("version")
+        if declared != name:
+            continue
+        versions[name] = snapshot
+    active = {}
+    raw_active = data.get("active")
+    if isinstance(raw_active, dict):
+        for route, name in raw_active.items():
+            if isinstance(route, str) and isinstance(name, str) and name in versions:
+                active[route] = name
+    schema = data.get("schema")
+    return {
+        "schema": schema if isinstance(schema, str) else None,
+        "available": True,
+        "active": active,
+        "versions": versions,
+    }
+
+
+def snapshot_routes(snapshot, name):
+    routes = snapshot.get("routes")
+    if isinstance(routes, list) and routes:
+        return {route for route in routes if isinstance(route, str)}
+    for route, prefix in ROUTE_SNAPSHOT_PREFIXES.items():
+        if name.startswith(prefix):
+            return {route}
+    return set()
+
+
+def snapshot_effective_from(snapshot):
+    return parse_timestamp(snapshot.get("effective_from_utc"))
+
+
+def live_snapshot_name(record, route, pricing):
+    """Return the snapshot version live for this route at the attempt timestamp."""
+    versions = pricing["versions"]
+    names = sorted(
+        name
+        for name, snapshot in versions.items()
+        if route in snapshot_routes(snapshot, name)
+    )
+    if not names:
+        return None
+    moment = moment_of(record)
+    if moment is not None:
+        eligible = []
+        for name in names:
+            effective = snapshot_effective_from(versions[name]) or EPOCH_FLOOR
+            if effective <= moment:
+                eligible.append((effective, name))
+        if eligible:
+            return max(eligible)[1]
+        return None
+    reference = pricing["active"].get(route)
+    if reference in names:
+        return reference
+    return names[0] if len(names) == 1 else None
+
+
+def reprice_attempt(record, pricing):
+    """Resolve one record's list price without ever reinterpreting history.
+
+    Returns (cost_usd, price_table_version, price_period, source). A stored
+    cost_usd_list is returned untouched under source "ledger"; repricing uses
+    only the snapshot recorded on the record, or the snapshot live at the
+    attempt timestamp when the record predates version recording. A rate
+    table must carry cache_hit, cache_miss and output as finite numbers;
+    anything unresolvable stays unknown (cost_usd None), never zero.
+    """
+    route = record.get("route")
+    route = route if isinstance(route, str) else None
+    recorded = record.get("price_table_version")
+    recorded = recorded if isinstance(recorded, str) and recorded else None
+    stored = number(record.get("cost_usd_list"))
+    if stored is not None:
+        return stored, recorded, record.get("price_period"), "ledger"
+    versions = pricing["versions"]
+    chosen = None
+    if recorded is not None:
+        snapshot = versions.get(recorded)
+        if snapshot is not None and route is not None and route in snapshot_routes(snapshot, recorded):
+            chosen = recorded
+    elif route is not None:
+        chosen = live_snapshot_name(record, route, pricing)
+    if chosen is None:
+        return None, recorded, None, "unknown"
+    snapshot = versions[chosen]
+    period = period_for(record, snapshot)
+    model = strip_route_prefix(
+        record.get("gen_ai.request.model") or record.get("gen_ai.response.model")
+    )
+    models = snapshot.get("models")
+    rates = None
+    if isinstance(models, dict) and isinstance(model, str) and period is not None:
+        entry = models.get(model)
+        if isinstance(entry, dict):
+            rates = entry.get(period)
+    input_tokens = token_field(record, "input_tokens", "gen_ai.usage.input_tokens")
+    cache_read = token_field(record, "cache_read_tokens", "gen_ai.usage.cache_read.input_tokens")
+    output_tokens = token_field(record, "output_tokens", "gen_ai.usage.output_tokens")
+    if (
+        not isinstance(rates, dict)
+        or any(number(rates.get(name)) is None for name in RATE_FIELDS)
+        or not all(
+            isinstance(value, int) and not isinstance(value, bool)
+            for value in (input_tokens, cache_read, output_tokens)
+        )
+    ):
+        return None, chosen, period, "unknown"
+    uncached = max(0, input_tokens - cache_read)
+    amount = (
+        cache_read * rates["cache_hit"]
+        + uncached * rates["cache_miss"]
+        + output_tokens * rates["output"]
+    ) / 1_000_000.0
+    return round6(amount), chosen, period, "repriced"
+
+
+def build_cost_entry(record, pricing):
+    cost_usd, version, period, source = reprice_attempt(record, pricing)
+    card_id = record.get("card_id")
+    card_id = card_id if isinstance(card_id, str) and card_id else None
+    status = record.get("cost_status")
+    if status not in ("estimated", "actual", "unknown"):
+        status = "unknown"
+    if source == "repriced":
+        status = "estimated"
+    moment = moment_of(record)
+    record_name = record.get("key")
+    attempt_id = record.get("attempt_id")
+    return {
+        "attempt": record_name if isinstance(record_name, str) else None,
+        "attempt_id": attempt_id if isinstance(attempt_id, str) else None,
+        "card_id": card_id,
+        "job": card_id or "unknown",
+        "ts": moment.isoformat() if moment is not None else None,
+        "cost_usd": cost_usd,
+        "cost_status": status,
+        "source": source,
+        "price_table_version": version,
+        "price_period": period if period in ("peak", "off_peak") else None,
+    }
+
+
+def build_costs(records, pricing):
+    entries = [build_cost_entry(record, pricing) for record in records]
+    entries.sort(
+        key=lambda entry: (entry["ts"] or "", entry["attempt"] or "", entry["attempt_id"] or "")
+    )
+    sources = {"ledger": 0, "repriced": 0, "unknown": 0}
+    for entry in entries:
+        sources[entry["source"]] += 1
+    total = round6(sum(entry["cost_usd"] for entry in entries if entry["cost_usd"] is not None))
+    buckets = {}
+    for entry in entries:
+        bucket = buckets.setdefault(
+            entry["job"], {"attempts": 0, "amount": 0.0, "unknown": 0, "versions": set()}
+        )
+        bucket["attempts"] += 1
+        if entry["cost_usd"] is None:
+            bucket["unknown"] += 1
+        else:
+            bucket["amount"] += entry["cost_usd"]
+        if entry["price_table_version"]:
+            bucket["versions"].add(entry["price_table_version"])
+    jobs = [
+        {
+            "job": name,
+            "attempts": bucket["attempts"],
+            "cost_usd": round6(bucket["amount"]),
+            "cost_usd_unknown_attempts": bucket["unknown"],
+            "price_table_versions": sorted(bucket["versions"]),
+        }
+        for name, bucket in buckets.items()
+    ]
+    jobs.sort(key=lambda item: (-item["cost_usd"], -item["attempts"], item["job"]))
+    return {
+        "totals": {
+            "cost_usd": total,
+            "cost_unknown_records": sources["unknown"],
+            "cost_sources": sources,
+        },
+        "attempts": entries,
+        "jobs": jobs,
+    }
+
+
+def pricing_block(pricing):
+    return {
+        "schema": pricing["schema"],
+        "available": pricing["available"],
+        "immutable": True,
+        "active": {route: pricing["active"][route] for route in sorted(pricing["active"])},
+        "versions": sorted(pricing["versions"]),
+    }
+
+
 def parse_offset(value):
     return timezone(timedelta(hours=value))
 
@@ -384,6 +743,7 @@ def build_report(
     daily_cap,
     go_allowance,
     go_near_pct=DEFAULT_GO_NEAR_PCT,
+    pricing=None,
 ):
     by_day = {}
     for record in records:
@@ -398,15 +758,17 @@ def build_report(
     )
 
     days = []
-    for key in sorted(by_day):
-        day_totals, day_groups = summarize_day(by_day[key])
-        days.append({"day": key.isoformat(), "totals": day_totals, "groups": day_groups})
+    for day_key in sorted(by_day):
+        day_totals, day_groups = summarize_day(by_day[day_key])
+        days.append({"day": day_key.isoformat(), "totals": day_totals, "groups": day_groups})
 
     top = groups[by][:3]
     compact_top = [
         {"group": item["group"], "usd": compact_usd(item["usd_total"]), "records": item["records"]}
         for item in top
     ]
+
+    costs = build_costs(records, pricing or EMPTY_PRICING)
 
     return {
         "ok": True,
@@ -417,6 +779,8 @@ def build_report(
         "groups": groups,
         "days": days,
         "alerts": alerts,
+        "costs": costs,
+        "pricing": pricing_block(pricing or EMPTY_PRICING),
         "compact": {
             "ok": True,
             "day": selected_day.isoformat(),
@@ -444,6 +808,14 @@ def build_parser():
         description="Summarize a bee.usage/v1 JSONL ledger and emit warn-only budget alerts."
     )
     parser.add_argument("--ledger", required=True, help="path to the JSONL usage ledger")
+    parser.add_argument(
+        "--prices",
+        default=str(DEFAULT_PRICES),
+        help=(
+            "versioned pricing snapshots file, read-only "
+            "(default: prices.json beside the launcher)"
+        ),
+    )
     day_group = parser.add_mutually_exclusive_group()
     day_group.add_argument("--day", help="local calendar day to report (YYYY-MM-DD)")
     day_group.add_argument("--today", action="store_true", help="report the local current day")
@@ -566,6 +938,7 @@ def main(argv=None):
     thresholds = load_thresholds(args.alerts or os.environ.get("BEE_USAGE_ALERTS"))
     daily_cap = resolve_daily_cap(parser, args.daily_cap_usd, thresholds)
     go_near_pct = resolve_go_near_pct(thresholds)
+    pricing = load_price_snapshots(args.prices)
 
     try:
         records, bad_lines = load_ledger(args.ledger)
@@ -586,6 +959,7 @@ def main(argv=None):
         daily_cap,
         args.go_allowance_usd,
         go_near_pct,
+        pricing=pricing,
     )
 
     output = report if args.full else report["compact"]

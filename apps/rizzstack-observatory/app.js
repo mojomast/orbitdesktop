@@ -11,7 +11,7 @@
   const SNAPSHOT_SCHEMA = 'rizzstack.observability/snapshot/1';
   const TOKEN_STORAGE_KEY = 'rizzstack.observatory.token';
   const URL_STORAGE_KEY = 'rizzstack.observatory.snapshot_url';
-  const DEFAULT_SNAPSHOT_URL = './snapshot.json';
+  const DEFAULT_SNAPSHOT_URL = '/obs-snapshot'; // same-origin proxy; token injected server-side
   const CONFIG_FRAGMENT_PREFIX = '#orbit-config=';
   const STALE_AFTER_MS = 10 * 60 * 1000;
   const REFRESH_INTERVAL_MS = 30000;
@@ -165,6 +165,8 @@
     if (id == null) return null;
     const branch = pick(raw, ['branch', 'git_branch', 'ref']);
     const model = routeText(raw.route) || routeText(raw.route_label) || pick(raw, ['model', 'model_name', 'model_id']);
+    const title = pick(raw, ['title', 'brief', 'summary', 'description']);
+    const source = pick(raw, ['source']);
     const state = pick(raw, ['state', 'status', 'phase']);
     let elapsedMs = null;
     const directMs = firstDefined(raw, ['elapsed_ms', 'duration_ms', 'elapsedMs', 'durationMs']);
@@ -192,6 +194,8 @@
       stateClass: stateClass(stateText),
       elapsedMs,
       elapsed: elapsedLabel(elapsedMs),
+      title: (title == null ? '' : String(title)),
+      source: (source == null ? '' : String(source)),
     };
   }
 
@@ -551,6 +555,31 @@
   function backlogColumns(backlog) {
     if (!backlog || typeof backlog !== 'object' || Array.isArray(backlog)) return [];
     let columns = null;
+    // Canonical collector shape (rizzstack.observability/snapshot/1): backlog.features
+    // is a flat list of {feature_id, status, depends_on,...}. Group by status into
+    // columns; also surface stale/error honestly via the section badge (rendered elsewhere).
+    if (Array.isArray(backlog.features)) {
+      const groups = new Map();
+      for (const raw of backlog.features) {
+        const card = normalizeCard({
+          id: raw && (raw.feature_id || raw.id),
+          status: raw && raw.status,
+          title: raw && (raw.title || raw.feature_id),
+          depends_on: raw && raw.depends_on,
+        });
+        if (!card) continue;
+        const name = String((raw && (raw.status || raw.state)) || 'Unsorted');
+        if (!groups.has(name)) groups.set(name, []);
+        groups.get(name).push(card);
+      }
+      const order = ['queued', 'running', 'blocked', 'done', 'accepted', 'rejected'];
+      return [...groups.entries()]
+        .sort((a, b) => {
+          const ai = order.indexOf(a[0]), bi = order.indexOf(b[0]);
+          return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+        })
+        .map(([name, cards]) => ({ name, cards }));
+    }
     const board = firstDefined(backlog, ['board', 'columns', 'swimlanes']);
     if (Array.isArray(board)) columns = board;
     else if (board && typeof board === 'object') {
@@ -987,10 +1016,11 @@
       '<tr>' +
       '<td class="mono">' + escapeHtml(row.id) + '</td>' +
       '<td class="mono">' + escapeHtml(row.branch || '—') + '</td>' +
-      '<td>' + escapeHtml(row.model || '—') + '</td>' +
+      '<td>' + escapeHtml(row.model || (row.source === 'lease-store' ? 'dispatch lease' : '—')) + '</td>' +
       '<td><span class="state ' + row.stateClass + '">' + escapeHtml(row.state) + '</span></td>' +
       '<td class="mono">' + escapeHtml(row.elapsed) + '</td>' +
-      '</tr>'
+      '</tr>' +
+      (row.title ? '<tr class="row-detail"><td></td><td colspan="4" class="row-desc">' + escapeHtml(row.title) + '</td></tr>' : '')
     ).join('');
   }
 
@@ -1039,6 +1069,7 @@
       '<li class="node ' + job.stateClass + '">' +
       '<div class="node-head"><span class="state ' + job.stateClass + '">' + escapeHtml(job.state) + '</span>' +
       '<span class="node-title">' + escapeHtml(job.title || job.id || '(unnamed job)') + '</span></div>' +
+      (job.summary ? '<p class="summary">' + escapeHtml(job.summary) + '</p>' : '') +
       (job.escalation ? '<p class="reason escalation">Escalation: ' + escapeHtml(job.escalation) + '</p>' : '') +
       (job.blocker ? '<p class="reason blocker">Blocker: ' + escapeHtml(job.blocker) + '</p>' : '') +
       (job.tasks.length

@@ -1,0 +1,3768 @@
+{
+ "schema": "orbit-decomposition/inventory-v1",
+ "base_commit": "da8201617a55f8187642f7e03d6b30b6c3c294e5",
+ "generated": "2026-11-16",
+ "plan_only": true,
+ "counts": {
+  "server_modules": 151,
+  "apps": 4,
+  "src_files": 226,
+  "server_loc": 37581,
+  "src_loc": 35336,
+  "docs_files": 115
+ },
+ "classification_counts": {
+  "KEEP-PLATFORM": 29,
+  "KEEP-CORE": 69,
+  "EXTRACT-PROPOSAL": 41,
+  "RETIRE-PROPOSAL": 12
+ },
+ "families": {
+  "agent-ops-surfaces": {
+   "loc": 1395,
+   "count": 4
+  },
+  "agent-runtime": {
+   "loc": 7137,
+   "count": 18
+  },
+  "colab": {
+   "loc": 1354,
+   "count": 3
+  },
+  "collab": {
+   "loc": 2646,
+   "count": 4
+  },
+  "config-onboarding": {
+   "loc": 2671,
+   "count": 6
+  },
+  "entertainment": {
+   "loc": 873,
+   "count": 3
+  },
+  "extension-studio": {
+   "loc": 175,
+   "count": 2
+  },
+  "grokbots": {
+   "loc": 1513,
+   "count": 8
+  },
+  "host-core": {
+   "loc": 1168,
+   "count": 7
+  },
+  "irc": {
+   "loc": 494,
+   "count": 1
+  },
+  "local-workers": {
+   "loc": 534,
+   "count": 3
+  },
+  "mobile": {
+   "loc": 91,
+   "count": 2
+  },
+  "resource-authority": {
+   "loc": 336,
+   "count": 2
+  },
+  "router": {
+   "loc": 912,
+   "count": 2
+  },
+  "ssh-hosts": {
+   "loc": 2662,
+   "count": 7
+  },
+  "technology-surfaces": {
+   "loc": 2729,
+   "count": 25
+  },
+  "terminals": {
+   "loc": 1806,
+   "count": 7
+  },
+  "workbench": {
+   "loc": 7502,
+   "count": 33
+  },
+  "workspace-state": {
+   "loc": 1583,
+   "count": 14
+  }
+ },
+ "server_modules": {
+  "acdd-evidence-route.mjs": {
+   "classification": "KEEP-PLATFORM",
+   "family": "agent-ops-surfaces",
+   "evidence": "Owner-authenticated route for the evidence view.",
+   "route": "/api/acdd-evidence",
+   "loc": 319,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "acdd-evidence-route.test.mjs"
+   ],
+   "docs": []
+  },
+  "acdd-evidence.mjs": {
+   "classification": "KEEP-PLATFORM",
+   "family": "agent-ops-surfaces",
+   "evidence": "Read-only ACDD evidence view (contracts, verifier records, acceptance) \u2014 campaign evidence display; never decides acceptance.",
+   "loc": 716,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/acdd-evidence-route.mjs"
+   ],
+   "tests": [
+    "acdd-evidence-route.test.mjs",
+    "acdd-evidence.test.mjs"
+   ],
+   "docs": [
+    "ACDD_EVIDENCE.md"
+   ]
+  },
+  "agent-context.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "agent-runtime",
+   "evidence": "Per-request workspace context assembly incl. docs/AGENT_GUIDE.md; 398 LOC, no dedicated test (note).",
+   "loc": 398,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/agent.mjs"
+   ],
+   "tests": [],
+   "docs": [
+    "AGENT_CONTEXT.md"
+   ]
+  },
+  "agent-discovery.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "agent-runtime",
+   "evidence": "Hermes/Grok/Pi backend discovery at boot (zero-agents boot supported).",
+   "loc": 345,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/agent.mjs",
+    "server/index.mjs"
+   ],
+   "tests": [
+    "agent-discovery.test.mjs",
+    "pi-discovery.test.mjs"
+   ],
+   "docs": []
+  },
+  "agent-gateways.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "agent-runtime",
+   "evidence": "Gateway transport adapters for agents and shared rooms.",
+   "loc": 196,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/agent.mjs",
+    "server/grokbots-groups.mjs",
+    "server/shared-agents.mjs"
+   ],
+   "tests": [
+    "collab-orchestrator.test.mjs",
+    "group-autoresume.test.mjs"
+   ],
+   "docs": []
+  },
+  "agent-profiles.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "agent-runtime",
+   "evidence": "Profile model shared by chat, context and workbench selection.",
+   "loc": 99,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/agent-context.mjs",
+    "server/agent.mjs",
+    "server/gateway-chat.mjs",
+    "server/workbench-hermes.mjs"
+   ],
+   "tests": [
+    "agent-discovery.test.mjs",
+    "agent-profiles.test.mjs",
+    "pi-discovery.test.mjs",
+    "workbench-real-project-native.test.mjs",
+    "workbench-real-project.test.mjs",
+    "workbench-real-project/manifest.json"
+   ],
+   "docs": []
+  },
+  "agent-providers.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "agent-runtime",
+   "evidence": "Provider model/registration used by agent, context, gateways, onboarding.",
+   "loc": 120,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/agent-context.mjs",
+    "server/agent-discovery.mjs",
+    "server/agent-gateways.mjs",
+    "server/agent.mjs",
+    "server/gateway-chat.mjs",
+    "server/grokbots-app.mjs",
+    "server/onboarding-wiring.mjs",
+    "server/shared-agents.mjs"
+   ],
+   "tests": [
+    "agent-profile-provider.test.mjs",
+    "agent-registry.test.mjs",
+    "onboarding-wiring.test.mjs",
+    "zero-agents-boot.test.mjs"
+   ],
+   "docs": []
+  },
+  "agent-registry.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "agent-runtime",
+   "evidence": "Provider registry behind agent-providers.",
+   "loc": 320,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/agent-providers.mjs"
+   ],
+   "tests": [
+    "agent-registry.test.mjs",
+    "zero-agents-boot.test.mjs"
+   ],
+   "docs": []
+  },
+  "agent-session-controls.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "agent-runtime",
+   "evidence": "stop/steer/approval session controls shared by agent + gateway chat.",
+   "loc": 154,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/agent.mjs",
+    "server/gateway-chat.mjs"
+   ],
+   "tests": [
+    "agent-session-controls.test.mjs"
+   ],
+   "docs": []
+  },
+  "agent-status.mjs": {
+   "classification": "KEEP-PLATFORM",
+   "family": "agent-ops-surfaces",
+   "evidence": "Live agent status projection for /api/agent-status and the app.",
+   "loc": 68,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "agent-activity.browser.py",
+    "browser-agent-guide-live.py",
+    "browser-hermes-runtime-live.py",
+    "browser-hermes-surfaces-live.py",
+    "browser-hermes-tools-live.py",
+    "browser-live.py",
+    "browser-workspace-live.py",
+    "workbench-context.browser.py",
+    "workbench-live-journey.browser.py"
+   ],
+   "docs": []
+  },
+  "agent.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "agent-runtime",
+   "evidence": "The agent bridge: authenticated runs, history, approvals, stop/steer, activity, capabilities, catalog, jobs; wires gateway chat + shared rooms + workbench binding.",
+   "route": "/api/agent",
+   "loc": 755,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "agent-activity.browser.py",
+    "agent-discovery.test.mjs",
+    "agent-live-normal.test.mjs",
+    "agent-live-timeline.browser.py",
+    "agent-pane-context.test.mjs",
+    "agent-pane-ux.browser.py",
+    "agent-profile-provider.test.mjs",
+    "agent-profiles.test.mjs",
+    "agent-registry.test.mjs",
+    "agent-selection.browser.py",
+    "agent-session-controls.test.mjs",
+    "agent-store.test.mjs",
+    "agent-submission-recovery.test.mjs",
+    "agent.test.mjs",
+    "browser-agent-guide-live.py",
+    "browser-hermes-catalog-live.py",
+    "browser-hermes-jobs-live.py",
+    "browser-hermes-runtime-live.py",
+    "browser-hermes-surfaces-live.py",
+    "browser-hermes-tools-live.py",
+    "browser-live.py",
+    "browser-workspace-live.py",
+    "build-queue.test.mjs",
+    "candidate-diff-review.browser.py",
+    "collab-board.test.mjs",
+    "collab-orchestrator.test.mjs",
+    "collab.test.mjs",
+    "connection-passwords.browser.py",
+    "context-budget.test.mjs",
+    "conversation-library.browser.py",
+    "conversation-library.test.mjs",
+    "document-envelope-ui.browser.py",
+    "everyday-ux.browser.py",
+    "experimental-workbench.browser.py",
+    "grok-provider.test.mjs",
+    "grokbots-app.browser.mjs",
+    "grokbots-app.test.mjs",
+    "group-autoresume.test.mjs",
+    "group-long-turns.test.mjs",
+    "group-parallel.test.mjs",
+    "group-routing.test.mjs",
+    "host-api.test.mjs",
+    "host-surfaces.browser.py",
+    "interactive-results.browser.py",
+    "knowledge-search.browser.py",
+    "managed-terminal-attach-env.test.mjs",
+    "normal-resources-pinned.py",
+    "normal-resources.test.mjs",
+    "onboarding-wiring.test.mjs",
+    "openai-compat-gateway.test.mjs",
+    "orbit-config-minimal.test.mjs",
+    "orbit-config.test.mjs",
+    "pane-workbench-load-race.browser.py",
+    "pane-workbench-mode.browser.py",
+    "persistent-terminal.test.mjs",
+    "pi-discovery.test.mjs",
+    "pi-gateway.test.mjs",
+    "pi-provider.test.mjs",
+    "project-tools.browser.py",
+    "project-workbench.browser.py",
+    "recovery-real-server.browser.py",
+    "recovery.browser.py",
+    "research-handoffs.browser.py",
+    "resource-grants.browser.py",
+    "run-traces.browser.py",
+    "run-traces.test.mjs",
+    "setup-agent.test.mjs",
+    "shared-agents.test.mjs",
+    "ssh-hosts.test.mjs",
+    "technology-integration-agent.test.mjs",
+    "technology-workspace.browser.py",
+    "test_rizzstack_observatory.py",
+    "test_workbench_native_runtime.py",
+    "workbench-authority.test.mjs",
+    "workbench-ci-scope.test.mjs",
+    "workbench-context.browser.py",
+    "workbench-context.test.mjs",
+    "workbench-data.test.mjs",
+    "workbench-execution.browser.py",
+    "workbench-handoff.browser.py",
+    "workbench-journey.browser.py",
+    "workbench-live-journey.browser.py",
+    "workbench-live.test.mjs",
+    "workbench-native.browser.py",
+    "workbench-native.test.mjs",
+    "workbench-provenance.test.mjs",
+    "workbench-real-project-native.test.mjs",
+    "workbench-real-project.test.mjs",
+    "workbench-real-project/manifest.json",
+    "workbench-result-boundary.test.mjs",
+    "workbench-results-ui.browser.py",
+    "workbench-results.browser.py",
+    "workbench-task-result.browser.py",
+    "workbench-workflow.test.mjs",
+    "workspace-arrangements.browser.py",
+    "workspace-arrangements.test.mjs",
+    "workspace-receipts.test.mjs",
+    "workspace-recipe-import.test.mjs",
+    "workspace-release-acceptance.browser.py",
+    "zero-agents-boot.test.mjs"
+   ],
+   "docs": [
+    "AGENT_CONTEXT.md",
+    "AGENT_GUIDE.md",
+    "AGENT_PANE_SESSION.md",
+    "AGENT_PANE_UX.md",
+    "WORKBENCH_AGENT_LOOP_LEDGER.md"
+   ]
+  },
+  "automation.mjs": {
+   "classification": "KEEP-PLATFORM",
+   "family": "agent-runtime",
+   "evidence": "Hermes scheduled-job CRUD wrapper with explicit confirmation (pause/resume).",
+   "loc": 19,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/agent.mjs"
+   ],
+   "tests": [
+    "automation.test.mjs"
+   ],
+   "docs": []
+  },
+  "browser-copilot-driver.mjs": {
+   "classification": "EXTRACT-PROPOSAL",
+   "family": "technology-surfaces",
+   "evidence": "Playwright driver for the copilot.",
+   "loc": 117,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/browser-copilot-evidence.mjs",
+    "server/browser-copilot-records.mjs",
+    "server/browser-copilot.mjs"
+   ],
+   "tests": [
+    "browser-copilot-fixture.mjs",
+    "browser-copilot.test.mjs"
+   ],
+   "docs": []
+  },
+  "browser-copilot-evidence.mjs": {
+   "classification": "EXTRACT-PROPOSAL",
+   "family": "technology-surfaces",
+   "evidence": "Copilot evidence records.",
+   "loc": 74,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/browser-copilot.mjs"
+   ],
+   "tests": [
+    "browser-copilot.test.mjs"
+   ],
+   "docs": []
+  },
+  "browser-copilot-records.mjs": {
+   "classification": "EXTRACT-PROPOSAL",
+   "family": "technology-surfaces",
+   "evidence": "Copilot observation schemas.",
+   "loc": 42,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/browser-copilot-evidence.mjs",
+    "server/browser-copilot.mjs"
+   ],
+   "tests": [],
+   "docs": []
+  },
+  "browser-copilot-route.mjs": {
+   "classification": "RETIRE-PROPOSAL",
+   "family": "technology-surfaces",
+   "evidence": "Unwired duplicate route: /api/browser-copilot is served through technologyOwnerRoute; this handler is imported only by the browser test fixture.",
+   "loc": 17,
+   "reachable_from_index": false,
+   "consumers": [],
+   "tests": [
+    "browser-copilot-fixture.mjs"
+   ],
+   "docs": []
+  },
+  "browser-copilot.mjs": {
+   "classification": "EXTRACT-PROPOSAL",
+   "family": "technology-surfaces",
+   "evidence": "Disposable browser copilot service (env-gated: ORBIT_BROWSER_EXECUTABLE + ORBIT_BROWSER_ALLOWED_ORIGINS).",
+   "loc": 112,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "browser-copilot-fixture.mjs",
+    "browser-copilot.browser.py",
+    "browser-copilot.test.mjs",
+    "feature-readiness.test.mjs",
+    "technology-workspace.browser.py"
+   ],
+   "docs": [
+    "BROWSER_COPILOT.md"
+   ]
+  },
+  "build-queue.mjs": {
+   "classification": "KEEP-PLATFORM",
+   "family": "agent-runtime",
+   "evidence": "Legacy build-queue lane: pinned disabled at boot; its unknown-outcome snapshot feeds workbench-gate fencing until legacy migration completes.",
+   "loc": 138,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/agent.mjs"
+   ],
+   "tests": [
+    "build-queue.test.mjs"
+   ],
+   "docs": [
+    "BUILD_QUEUE.md"
+   ]
+  },
+  "builtin-apps.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "host-core",
+   "evidence": "Installs built-in app bundles (grokbots) into the runtime before bundle-index refresh; part of catalog+app serving.",
+   "loc": 81,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "builtin-apps.test.mjs"
+   ],
+   "docs": []
+  },
+  "bundle-registry.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "host-core",
+   "evidence": "Content-addressed bundle index; exact-byte serving verification; protects published apps incl. the Observatory bundle.",
+   "loc": 237,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/sqlite-workspace-store.mjs",
+    "server/workspace.mjs"
+   ],
+   "tests": [
+    "bundle-registry.test.mjs",
+    "test_orbit_bundle.py"
+   ],
+   "docs": [
+    "BUNDLE_REGISTRY.md"
+   ]
+  },
+  "checkpoints.mjs": {
+   "classification": "RETIRE-PROPOSAL",
+   "family": "workspace-state",
+   "evidence": "Legacy fs checkpoint store: zero importers in the tree (verified by import scan); refuses writes when workspace.sqlite exists; superseded by SQLite checkpoint tables.",
+   "loc": 11,
+   "reachable_from_index": false,
+   "consumers": [],
+   "tests": [
+    "browser-appearance-checkpoint-live.py",
+    "browser-plugins-live.py",
+    "hermes-plugin.test.mjs",
+    "recovery.test.mjs",
+    "workspace-receipts.test.mjs",
+    "workspace-schema12.test.mjs",
+    "workspace.test.mjs"
+   ],
+   "docs": [
+    "CHECKPOINTS.md"
+   ]
+  },
+  "colab-job-worker.mjs": {
+   "classification": "EXTRACT-PROPOSAL",
+   "family": "colab",
+   "evidence": "Detached CLI step worker process (spawned by the orchestrator).",
+   "loc": 50,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/colab-orchestrator.mjs",
+    "server/colab-orchestrator.mjs (url-ref)"
+   ],
+   "tests": [],
+   "docs": []
+  },
+  "colab-orchestrator.mjs": {
+   "classification": "EXTRACT-PROPOSAL",
+   "family": "colab",
+   "evidence": "Google Colab runtime orchestration (872 LOC): runtime list, step execution via detached job worker. Extraction: standalone service; Orbit keeps only the surface link.",
+   "loc": 872,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "colab-orchestrator.test.mjs"
+   ],
+   "docs": [
+    "COLAB_ORCHESTRATOR.md"
+   ]
+  },
+  "colab-plan.mjs": {
+   "classification": "EXTRACT-PROPOSAL",
+   "family": "colab",
+   "evidence": "Step planning/redaction for colab.",
+   "loc": 432,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/colab-job-worker.mjs",
+    "server/colab-orchestrator.mjs"
+   ],
+   "tests": [
+    "colab-orchestrator.test.mjs"
+   ],
+   "docs": []
+  },
+  "collab-board.mjs": {
+   "classification": "KEEP-PLATFORM",
+   "family": "collab",
+   "evidence": "Loopback board poster for ~/bin/collab-board (system posters); operator tooling glue.",
+   "route": "/api/collab-board",
+   "loc": 97,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "collab-board-get.test.mjs",
+    "collab-board-system-poster.test.mjs",
+    "collab-board.test.mjs",
+    "local-worker-artifact.test.mjs"
+   ],
+   "docs": []
+  },
+  "collab-orchestrator.mjs": {
+   "classification": "EXTRACT-PROPOSAL",
+   "family": "collab",
+   "evidence": "Subagent spawn/limits/cost projection + span records (231 LOC): extractable as a standalone orchestrator service against the same board API.",
+   "loc": 231,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/collab.mjs"
+   ],
+   "tests": [
+    "collab-orchestrator.test.mjs"
+   ],
+   "docs": []
+  },
+  "collab-store.mjs": {
+   "classification": "KEEP-PLATFORM",
+   "family": "collab",
+   "evidence": "Collab persistence behind collab.mjs.",
+   "loc": 237,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/collab.mjs"
+   ],
+   "tests": [],
+   "docs": []
+  },
+  "collab.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "collab",
+   "evidence": "Orbit Collab: board, approvals (shell.write/review verdicts), orchestrator engine, budget gates \u2014 the operator approval flow for multi-agent work (2,081 LOC, 7 test refs).",
+   "route": "/api/irc? no \u2014 collab surface via host-surfaces + agent APIs",
+   "loc": 2081,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/agent.mjs"
+   ],
+   "tests": [
+    "collab-board-get.test.mjs",
+    "collab-board-system-poster.test.mjs",
+    "collab-board.test.mjs",
+    "collab-orchestrator.test.mjs",
+    "collab.test.mjs",
+    "local-worker-artifact.test.mjs",
+    "resource-content-verbs.test.mjs"
+   ],
+   "docs": [
+    "COLLAB.md",
+    "COLLAB_ORCHESTRATION.md"
+   ]
+  },
+  "command-identity.mjs": {
+   "classification": "KEEP-PLATFORM",
+   "family": "workspace-state",
+   "evidence": "Canonical request hashing/identity used by 54 modules incl. the store and every owner route.",
+   "loc": 20,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/extension-studio.mjs",
+    "server/project-tools.mjs",
+    "server/sqlite-workspace-store.mjs",
+    "server/workspace-arrangements.mjs",
+    "server/workspace-diff.mjs",
+    "server/workspace-layouts.mjs",
+    "server/workspace.mjs"
+   ],
+   "tests": [
+    "agent-store.test.mjs",
+    "bundle-schema.test.mjs",
+    "extension-studio.test.mjs",
+    "plugin-instances-policy.test.mjs",
+    "project-files-adversarial.test.mjs",
+    "project-tools-migration.test.mjs",
+    "project-tools-review.test.mjs",
+    "project-tools.test.mjs",
+    "project-workbench.test.mjs",
+    "recovery-policy-storage.test.mjs",
+    "recovery-policy.test.mjs",
+    "run-traces.test.mjs",
+    "saved-workspace-layouts.test.mjs",
+    "sqlite-backup-safety.test.mjs",
+    "sqlite-contention.test.mjs",
+    "workbench-authority.test.mjs",
+    "workbench-context.test.mjs",
+    "workbench-data.test.mjs",
+    "workbench-dependency-export-current.test.mjs",
+    "workbench-dependency-export-real.test.mjs",
+    "workbench-environments.test.mjs",
+    "workbench-evaluation-families.test.mjs",
+    "workbench-execution.test.mjs",
+    "workbench-fault-boundary.test.mjs",
+    "workbench-findings.test.mjs",
+    "workbench-live-diff.test.mjs",
+    "workbench-live.test.mjs",
+    "workbench-loop-execution.test.mjs",
+    "workbench-native.test.mjs",
+    "workbench-patch-moving-target.test.mjs",
+    "workbench-patch.test.mjs",
+    "workbench-provenance.test.mjs",
+    "workbench-real-project-native.test.mjs",
+    "workbench-recovery-boundary.test.mjs",
+    "workbench-registry-profile.test.mjs",
+    "workbench-reliability-browser-fixture.mjs",
+    "workbench-result-boundary.test.mjs",
+    "workbench-result.test.mjs",
+    "workbench-setup.test.mjs",
+    "workbench-status.test.mjs",
+    "workbench-terminal-boundary.test.mjs",
+    "workbench-workflow.test.mjs",
+    "workspace-arrangements-migration.test.mjs",
+    "workspace-arrangements-retention.test.mjs",
+    "workspace-arrangements.test.mjs",
+    "workspace-event-page.test.mjs",
+    "workspace-schema12.test.mjs",
+    "workspace-store-placement.test.mjs"
+   ],
+   "docs": []
+  },
+  "conversation-private-store.mjs": {
+   "classification": "KEEP-PLATFORM",
+   "family": "agent-runtime",
+   "evidence": "Private fsynced conversation library store (never enters workspace DB).",
+   "loc": 77,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/agent.mjs"
+   ],
+   "tests": [
+    "conversation-library.test.mjs"
+   ],
+   "docs": []
+  },
+  "data-engine-assets.mjs": {
+   "classification": "EXTRACT-PROPOSAL",
+   "family": "technology-surfaces",
+   "evidence": "DuckDB asset manifest/integrity pins.",
+   "loc": 81,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/feature-readiness.mjs",
+    "server/technology-assets.mjs"
+   ],
+   "tests": [
+    "data-workbench-assets.test.mjs",
+    "data-workbench.browser.py",
+    "feature-readiness.test.mjs"
+   ],
+   "docs": []
+  },
+  "data-recipes.mjs": {
+   "classification": "EXTRACT-PROPOSAL",
+   "family": "technology-surfaces",
+   "evidence": "Data Lab exact-input recipes service.",
+   "loc": 71,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "data-workbench.browser.py",
+    "data-workbench.test.mjs",
+    "technology-workspace.browser.py"
+   ],
+   "docs": []
+  },
+  "documents-canvas-assets.mjs": {
+   "classification": "EXTRACT-PROPOSAL",
+   "family": "technology-surfaces",
+   "evidence": "Canvas/editor asset manifest.",
+   "loc": 39,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/technology-assets.mjs"
+   ],
+   "tests": [
+    "documents-fonts.test.mjs",
+    "documents.browser.py"
+   ],
+   "docs": []
+  },
+  "documents-store.mjs": {
+   "classification": "EXTRACT-PROPOSAL",
+   "family": "technology-surfaces",
+   "evidence": "Documents/canvas private store service.",
+   "loc": 132,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "documents.test.mjs",
+    "normal-resources.test.mjs",
+    "resource-content-verbs.test.mjs",
+    "resource-delegation.test.mjs",
+    "resource-grants.browser.py"
+   ],
+   "docs": []
+  },
+  "extension-studio-artifact.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "extension-studio",
+   "evidence": "Artifact primitives for the studio.",
+   "loc": 27,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/extension-studio.mjs"
+   ],
+   "tests": [],
+   "docs": []
+  },
+  "extension-studio.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "extension-studio",
+   "evidence": "Exact-artifact Studio: finite generator, drafts/checks/proposals, revocation receipts.",
+   "loc": 148,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "extension-studio.browser.py",
+    "extension-studio.test.mjs",
+    "plugin-instances-policy.test.mjs",
+    "plugin-instances.browser.py"
+   ],
+   "docs": [
+    "EXTENSION_STUDIO.md"
+   ]
+  },
+  "feature-readiness.mjs": {
+   "classification": "KEEP-PLATFORM",
+   "family": "host-core",
+   "evidence": "Capability-readiness observation consumed by featureCapabilities and the settings UI; stat-only.",
+   "loc": 31,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "feature-readiness.test.mjs",
+    "workspace-description.test.mjs"
+   ],
+   "docs": []
+  },
+  "gateway-chat.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "agent-runtime",
+   "evidence": "Streaming chat runtime over the discovered/configured gateways (1,119 LOC).",
+   "loc": 1119,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/agent.mjs"
+   ],
+   "tests": [
+    "group-long-turns.test.mjs"
+   ],
+   "docs": []
+  },
+  "grokbots-activity.mjs": {
+   "classification": "KEEP-PLATFORM",
+   "family": "grokbots",
+   "evidence": "Shared activity/redaction projection consumed by grokbots-app, agent-status and acdd-evidence (load-bearing across families).",
+   "loc": 188,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/acdd-evidence-route.mjs",
+    "server/acdd-evidence.mjs",
+    "server/agent-status.mjs",
+    "server/grokbots-app.mjs"
+   ],
+   "tests": [],
+   "docs": []
+  },
+  "grokbots-app.mjs": {
+   "classification": "EXTRACT-PROPOSAL",
+   "family": "grokbots",
+   "evidence": "Grok Bots app backend: capability-scoped list/history/send/upload for the sandboxed app + launch capability. Load-bearing today (built-in app); extraction target: standalone agent-chat app service.",
+   "route": "/api/grokbots-app, /api/grokbots-app/launch, /api/grokbots-app/upload",
+   "loc": 353,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "builtin-apps.test.mjs",
+    "grokbots-app.browser.mjs",
+    "grokbots-app.test.mjs",
+    "grokbots-browser-fixture.mjs"
+   ],
+   "docs": []
+  },
+  "grokbots-controls-grok.mjs": {
+   "classification": "EXTRACT-PROPOSAL",
+   "family": "grokbots",
+   "evidence": "Grok gateway controls for the app (bridges to the external sand-host gateway).",
+   "loc": 127,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/grokbots-app.mjs"
+   ],
+   "tests": [],
+   "docs": []
+  },
+  "grokbots-controls-hermes.mjs": {
+   "classification": "EXTRACT-PROPOSAL",
+   "family": "grokbots",
+   "evidence": "Hermes controls for the app.",
+   "loc": 249,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/grokbots-app.mjs"
+   ],
+   "tests": [
+    "grokbots-app.test.mjs"
+   ],
+   "docs": []
+  },
+  "grokbots-controls-pi.mjs": {
+   "classification": "EXTRACT-PROPOSAL",
+   "family": "grokbots",
+   "evidence": "Pi controls for the app.",
+   "loc": 207,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/grokbots-app.mjs"
+   ],
+   "tests": [
+    "grokbots-app.test.mjs"
+   ],
+   "docs": []
+  },
+  "grokbots-groups.mjs": {
+   "classification": "EXTRACT-PROPOSAL",
+   "family": "grokbots",
+   "evidence": "Group rooms over the shared-agents engine for the app.",
+   "loc": 223,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/grokbots-app.mjs"
+   ],
+   "tests": [
+    "grokbots-app.test.mjs"
+   ],
+   "docs": []
+  },
+  "grokbots-prefs.mjs": {
+   "classification": "EXTRACT-PROPOSAL",
+   "family": "grokbots",
+   "evidence": "App preference store.",
+   "loc": 74,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/grokbots-app.mjs"
+   ],
+   "tests": [
+    "grokbots-app.browser.mjs",
+    "grokbots-app.test.mjs"
+   ],
+   "docs": []
+  },
+  "grokbots-uploads.mjs": {
+   "classification": "EXTRACT-PROPOSAL",
+   "family": "grokbots",
+   "evidence": "App upload handling (bounded).",
+   "loc": 92,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/grokbots-app.mjs"
+   ],
+   "tests": [
+    "grokbots-app.browser.mjs",
+    "grokbots-app.test.mjs"
+   ],
+   "docs": []
+  },
+  "host-api.mjs": {
+   "classification": "RETIRE-PROPOSAL",
+   "family": "ssh-hosts",
+   "evidence": "843 LOC agent-facing hosts.run/put/deploy API: unreachable from index.mjs; imported only by tests/host-api.test.mjs; onboarding-wiring mentions it in a comment but never imports it \u2014 host actions actually flow through ssh-hosts.",
+   "loc": 843,
+   "reachable_from_index": false,
+   "consumers": [],
+   "tests": [
+    "host-api.test.mjs"
+   ],
+   "docs": []
+  },
+  "host-audit.mjs": {
+   "classification": "KEEP-PLATFORM",
+   "family": "ssh-hosts",
+   "evidence": "Hash-chained per-host audit log used by the hosts UI and permission changes.",
+   "loc": 239,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/host-api.mjs",
+    "server/host-recipes.mjs",
+    "server/onboarding-wiring.mjs"
+   ],
+   "tests": [
+    "host-api.test.mjs",
+    "host-audit.test.mjs"
+   ],
+   "docs": []
+  },
+  "host-recipes.mjs": {
+   "classification": "RETIRE-PROPOSAL",
+   "family": "ssh-hosts",
+   "evidence": "Idempotent worker-install recipes: unreachable from index.mjs, imported only by host-api.mjs and its test (dead with host-api).",
+   "loc": 291,
+   "reachable_from_index": false,
+   "consumers": [
+    "server/host-api.mjs"
+   ],
+   "tests": [
+    "host-api.test.mjs"
+   ],
+   "docs": []
+  },
+  "index.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "host-core",
+   "evidence": "Composition root: every route, the PTY websocket, auth env and shutdown; the single place all server families are wired.",
+   "route": "/api/* (router)",
+   "loc": 676,
+   "reachable_from_index": true,
+   "consumers": [],
+   "tests": [
+    "acdd-evidence-route.test.mjs",
+    "acdd-evidence.test.mjs",
+    "agent-selection.browser.py",
+    "build-isolation.test.mjs",
+    "builtin-apps.test.mjs",
+    "bundle-registry.test.mjs",
+    "candidate-diff-review.browser.py",
+    "catalog-backend.browser.py",
+    "catalog-backend.test.mjs",
+    "chat-message-browser.py",
+    "checkpoint-preview.browser.py",
+    "command-palette.browser.py",
+    "conversation-library.browser.py",
+    "docking-adapters.browser.py",
+    "docking-persistence.browser.py",
+    "docking-renderer.test.mjs",
+    "docking-workspace.browser.py",
+    "documents.browser.py",
+    "experimental-workbench.browser.py",
+    "feature-readiness.test.mjs",
+    "fixtures/pi-rpc-framing.mjs",
+    "fixtures/pi-rpc-stub.mjs",
+    "fixtures/routetok-net-address-repair.patch",
+    "grokbots-app.test.mjs",
+    "grokbots-browser-fixture.mjs",
+    "host-surfaces.browser.py",
+    "knowledge-embedder.test.mjs",
+    "knowledge-index.test.mjs",
+    "knowledge-search.browser.py",
+    "knowledge-vector.test.mjs",
+    "managed-terminals.browser.py",
+    "mcp-apps-proxy.test.mjs",
+    "normal-resources.test.mjs",
+    "nous-theme.browser.py",
+    "onboarding-wiring.test.mjs",
+    "orbit-catalog.browser.py",
+    "orbit-catalog.test.py",
+    "orbit-docking.browser.py",
+    "output-library.browser.py",
+    "output-library.test.mjs",
+    "pane-workbench-mode.browser.py",
+    "plugin-config-schema.test.py",
+    "plugin-customization.test.mjs",
+    "plugin-editors.browser.py",
+    "plugin-instances.test.mjs",
+    "plugin-publish.test.py",
+    "plugins.test.mjs",
+    "project-tools-migration.test.mjs",
+    "project-tools.browser.py",
+    "project-workbench.browser.py",
+    "quickstart-docs.test.mjs",
+    "recovery-policy.test.mjs",
+    "recovery-real-server.browser.py",
+    "recovery.browser.py",
+    "recovery.test.mjs",
+    "release-external-resolution.test.mjs",
+    "release-isolation.test.mjs",
+    "release-package-launch.test.mjs",
+    "release-package-minimal.test.mjs",
+    "renderer-parity.browser.py",
+    "resource-content-verbs.test.mjs",
+    "resource-delegation.test.mjs",
+    "resource-grants.browser.py",
+    "run-traces.browser.py",
+    "runtime-continuity.browser.py",
+    "saved-workspace-layouts.browser.py",
+    "search-evidence.test.mjs",
+    "server-boot.test.mjs",
+    "server.test.mjs",
+    "sqlite-migration.test.mjs",
+    "ssh-hosts.test.mjs",
+    "static-cache.test.mjs",
+    "technology-workspace.browser.py",
+    "test_orbit_bundle.py",
+    "test_rizzstack_observatory.py",
+    "theme-chrome.browser.py",
+    "theme_fixture.py",
+    "widget-feature-compatibility.test.mjs",
+    "window-count.test.mjs",
+    "workbench-artifact-cancel.browser.py",
+    "workbench-authority.test.mjs",
+    "workbench-context.browser.py",
+    "workbench-execution.browser.py",
+    "workbench-journey.browser.py",
+    "workbench-live-journey.browser.py",
+    "workbench-loop-execution.test.mjs",
+    "workbench-native.browser.py",
+    "workbench-native.test.mjs",
+    "workbench-real-project-native.test.mjs",
+    "workbench-recovery-revocation.browser.py",
+    "workbench-result-boundary.test.mjs",
+    "workbench-results-ui.browser.py",
+    "workbench-results.browser.py",
+    "workbench-review-view.browser.py",
+    "workbench_setup_fixture.py",
+    "workspace-arrange.browser.py",
+    "workspace-arrangements-migration.test.mjs",
+    "workspace-arrangements.browser.py",
+    "workspace-arrangements.test.mjs",
+    "workspace-protocol.test.mjs",
+    "workspace-release-acceptance.browser.py",
+    "workspace-store.browser.py",
+    "workspace.test.mjs",
+    "zero-agents-boot.test.mjs"
+   ],
+   "docs": []
+  },
+  "interactive-results.mjs": {
+   "classification": "EXTRACT-PROPOSAL",
+   "family": "technology-surfaces",
+   "evidence": "A2UI v0.9 interactive-results service.",
+   "loc": 306,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "docking-narrow.browser.py",
+    "document-envelope-ui.browser.py",
+    "interactive-results.browser.py",
+    "interactive-results.test.mjs",
+    "research-handoffs.browser.py",
+    "technology-workspace.browser.py"
+   ],
+   "docs": [
+    "INTERACTIVE_RESULTS.md"
+   ]
+  },
+  "irc.mjs": {
+   "classification": "EXTRACT-PROPOSAL",
+   "family": "irc",
+   "evidence": "Loopback ircd surface behind Orbit auth (494 LOC) + vendor/irc-suite (3,731 LOC): agent channel posts gated by owner approval. Extraction: standalone ircd service; Orbit keeps the surface pane.",
+   "route": "/api/irc (+WS)",
+   "loc": 494,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "irc.test.mjs",
+    "workbench-authority.test.mjs"
+   ],
+   "docs": [
+    "IRC.md"
+   ]
+  },
+  "jev.mjs": {
+   "classification": "KEEP-PLATFORM",
+   "family": "workspace-state",
+   "evidence": "JSON envelope validation primitive used by workspace/widget compatibility checks.",
+   "loc": 22,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/workspace.mjs"
+   ],
+   "tests": [
+    "jev.test.mjs",
+    "widget-feature-compatibility.test.mjs"
+   ],
+   "docs": [
+    "JEV.md"
+   ]
+  },
+  "kitty-doom.mjs": {
+   "classification": "RETIRE-PROPOSAL",
+   "family": "entertainment",
+   "evidence": "Kitty DOOM bridge (615 LOC): entertainment \u2014 out of mission, not operator mission; no contract doc; wired unconditionally (/api/kitty-doom + WS upgrade) with a dedicated 226-line verify script. Owner decision required to remove the surface.",
+   "route": "/api/kitty-doom",
+   "loc": 615,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "kitty-doom.test.mjs"
+   ],
+   "docs": []
+  },
+  "kitty-graphics-demo.py": {
+   "classification": "RETIRE-PROPOSAL",
+   "family": "entertainment",
+   "evidence": "Kitty graphics protocol demo script; demo script, no test, no wiring.",
+   "loc": 148,
+   "reachable_from_index": null,
+   "consumers": [],
+   "tests": [],
+   "docs": []
+  },
+  "kitty-terminal-probe.py": {
+   "classification": "RETIRE-PROPOSAL",
+   "family": "entertainment",
+   "evidence": "Terminal capability probe demo script for the DOOM bridge; no test, no wiring.",
+   "loc": 110,
+   "reachable_from_index": null,
+   "consumers": [],
+   "tests": [],
+   "docs": []
+  },
+  "knowledge-chunker.mjs": {
+   "classification": "EXTRACT-PROPOSAL",
+   "family": "technology-surfaces",
+   "evidence": "Source chunking for the index.",
+   "loc": 23,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/knowledge-index-store.mjs",
+    "server/knowledge-index.mjs",
+    "server/knowledge-model.mjs"
+   ],
+   "tests": [
+    "knowledge-index.test.mjs"
+   ],
+   "docs": []
+  },
+  "knowledge-embed-worker.mjs": {
+   "classification": "EXTRACT-PROPOSAL",
+   "family": "technology-surfaces",
+   "evidence": "Embedding worker process (spawned).",
+   "loc": 30,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/knowledge-embedder.mjs",
+    "server/knowledge-embedder.mjs (url-ref)"
+   ],
+   "tests": [],
+   "docs": []
+  },
+  "knowledge-embedder.mjs": {
+   "classification": "EXTRACT-PROPOSAL",
+   "family": "technology-surfaces",
+   "evidence": "Local embeddings worker host.",
+   "loc": 123,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/knowledge-index.mjs"
+   ],
+   "tests": [
+    "knowledge-embedder.test.mjs"
+   ],
+   "docs": []
+  },
+  "knowledge-index-store.mjs": {
+   "classification": "EXTRACT-PROPOSAL",
+   "family": "technology-surfaces",
+   "evidence": "Search index store (sqlite-vec).",
+   "loc": 498,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/knowledge-index.mjs"
+   ],
+   "tests": [
+    "knowledge-vector.test.mjs"
+   ],
+   "docs": []
+  },
+  "knowledge-index.mjs": {
+   "classification": "EXTRACT-PROPOSAL",
+   "family": "technology-surfaces",
+   "evidence": "Source-backed keyword + optional semantic search service (lazy-mounted /api/search).",
+   "loc": 384,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "knowledge-embedder.test.mjs",
+    "knowledge-index.test.mjs",
+    "knowledge-search.browser.py",
+    "knowledge-vector.test.mjs",
+    "normal-resources.test.mjs",
+    "resource-content-verbs.test.mjs",
+    "resource-delegation.test.mjs",
+    "resource-grants.browser.py",
+    "technology-workspace.browser.py"
+   ],
+   "docs": []
+  },
+  "knowledge-model.mjs": {
+   "classification": "EXTRACT-PROPOSAL",
+   "family": "technology-surfaces",
+   "evidence": "Local embedding model manifest/integrity pins.",
+   "loc": 75,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/feature-readiness.mjs",
+    "server/knowledge-embedder.mjs",
+    "server/knowledge-index-store.mjs"
+   ],
+   "tests": [
+    "feature-readiness.test.mjs",
+    "knowledge-embedder.test.mjs",
+    "technology-workspace.browser.py"
+   ],
+   "docs": []
+  },
+  "local-host.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "terminals",
+   "evidence": "node-pty LocalHostProvider + tmux history capture for /api/terminal and pane history.",
+   "loc": 63,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "docking-workspace.browser.py",
+    "managed-terminal-adoption.test.mjs",
+    "orbit-docking.browser.py",
+    "persistent-terminal.test.mjs",
+    "renderer-parity.browser.py",
+    "runtime-continuity.browser.py",
+    "workspace-arrangements.browser.py"
+   ],
+   "docs": []
+  },
+  "local-worker-artifact.mjs": {
+   "classification": "EXTRACT-PROPOSAL",
+   "family": "local-workers",
+   "evidence": "Artifact handling for local workers.",
+   "loc": 121,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/local-workers-route.mjs"
+   ],
+   "tests": [],
+   "docs": [
+    "LOCAL_WORKER_ARTIFACTS.md"
+   ]
+  },
+  "local-workers-route.mjs": {
+   "classification": "EXTRACT-PROPOSAL",
+   "family": "local-workers",
+   "evidence": "Local-workers route (env-gated).",
+   "route": "/api/local-workers",
+   "loc": 54,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "local-worker-artifact-auth.test.mjs",
+    "local-worker-artifact.test.mjs"
+   ],
+   "docs": []
+  },
+  "local-workers.mjs": {
+   "classification": "EXTRACT-PROPOSAL",
+   "family": "local-workers",
+   "evidence": "Cua/OpenCode workers on a tailnet PC; off unless ORBIT_LOCAL_WORKERS=1. Extraction: standalone worker-fleet service.",
+   "loc": 359,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/local-workers-route.mjs"
+   ],
+   "tests": [
+    "collab-board-system-poster.test.mjs",
+    "local-worker-artifact-auth.test.mjs",
+    "local-worker-artifact.test.mjs",
+    "local-workers-archive.test.mjs",
+    "local-workers.test.mjs",
+    "setup-agent.test.mjs"
+   ],
+   "docs": [
+    "LOCAL_WORKERS.md"
+   ]
+  },
+  "managed-terminal-broker.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "terminals",
+   "evidence": "Owner-scoped broker binding terminals to workspaces; journal-backed.",
+   "route": "/api/managed-terminals (via routes)",
+   "loc": 311,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "managed-terminal-adoption.test.mjs",
+    "managed-terminal-broker.test.mjs",
+    "workbench-terminal-boundary.test.mjs"
+   ],
+   "docs": []
+  },
+  "managed-terminal-contract.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "terminals",
+   "evidence": "Shared contract shapes for the managed-terminal family.",
+   "loc": 280,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/managed-terminal-broker.mjs",
+    "server/managed-terminal-ledger.mjs",
+    "server/managed-terminal-provider.mjs",
+    "server/managed-terminal-routes.mjs",
+    "server/workbench-context.mjs"
+   ],
+   "tests": [
+    "managed-terminal-adoption.test.mjs",
+    "managed-terminal-broker.test.mjs",
+    "managed-terminals-route.test.mjs"
+   ],
+   "docs": []
+  },
+  "managed-terminal-ledger.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "terminals",
+   "evidence": "Durable private identity ledger for adopted tmux shells; gates the legacy attach fallback.",
+   "loc": 94,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs",
+    "server/managed-terminal-broker.mjs"
+   ],
+   "tests": [
+    "managed-terminal-adoption.test.mjs",
+    "managed-terminal-broker.test.mjs",
+    "managed-terminal-provider.test.mjs",
+    "workbench-terminal-boundary.test.mjs"
+   ],
+   "docs": []
+  },
+  "managed-terminal-provider.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "terminals",
+   "evidence": "Attach-only tmux lifecycle (adopt existing shells); private fresh-session mode.",
+   "loc": 691,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "managed-terminal-adoption.test.mjs",
+    "managed-terminal-attach-env.test.mjs",
+    "managed-terminal-broker.test.mjs",
+    "managed-terminal-provider.test.mjs",
+    "workbench-terminal-boundary.test.mjs"
+   ],
+   "docs": []
+  },
+  "managed-terminal-routes.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "terminals",
+   "evidence": "Owner-authenticated managed-terminal route handler.",
+   "route": "/api/managed-terminals",
+   "loc": 120,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "managed-terminals-route.test.mjs"
+   ],
+   "docs": []
+  },
+  "mcp-apps-sandbox.mjs": {
+   "classification": "EXTRACT-PROPOSAL",
+   "family": "technology-surfaces",
+   "evidence": "Separate-origin static proxy for MCP snapshots (ORBIT_MCP_APPS=1).",
+   "loc": 39,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [],
+   "docs": []
+  },
+  "mcp-apps.mjs": {
+   "classification": "EXTRACT-PROPOSAL",
+   "family": "technology-surfaces",
+   "evidence": "Imported MCP Apps host service.",
+   "loc": 140,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "feature-readiness.browser.py",
+    "mcp-apps-proxy.test.mjs",
+    "mcp-apps.browser.py",
+    "mcp-apps.test.mjs",
+    "research-handoffs.browser.py",
+    "technology-workspace.browser.py"
+   ],
+   "docs": [
+    "MCP_APPS.md"
+   ]
+  },
+  "mobile-proxy.mjs": {
+   "classification": "RETIRE-PROPOSAL",
+   "family": "mobile",
+   "evidence": "Standalone TLS proxy for one phone: hardcodes a private workspace UUID, a tailnet origin and runtime TLS paths; explicitly excluded from the portable bundle by scripts/bundle_hermes.py; not wired into index.mjs.",
+   "loc": 77,
+   "reachable_from_index": false,
+   "consumers": [],
+   "tests": [
+    "test_orbit_bundle.py"
+   ],
+   "docs": []
+  },
+  "mobile-security.mjs": {
+   "classification": "RETIRE-PROPOSAL",
+   "family": "mobile",
+   "evidence": "Pixel/tailnet identity checks for mobile-proxy only (hardcoded node id + addresses).",
+   "loc": 14,
+   "reachable_from_index": false,
+   "consumers": [
+    "server/mobile-proxy.mjs"
+   ],
+   "tests": [],
+   "docs": []
+  },
+  "onboarding-apply.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "config-onboarding",
+   "evidence": "Applies reviewed onboarding/Settings changes to orbit-config.json.",
+   "loc": 340,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/onboarding-wiring.mjs"
+   ],
+   "tests": [
+    "onboarding-apply.test.mjs",
+    "onboarding-minimal.test.mjs"
+   ],
+   "docs": []
+  },
+  "onboarding-wiring.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "config-onboarding",
+   "evidence": "Glue for /api/onboarding, /api/settings, /api/hosts: config, onboarding, router, setup agent, ssh hosts, audit, OpenAI-compat gateway.",
+   "route": "/api/onboarding, /api/settings, /api/hosts",
+   "loc": 292,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "onboarding-wiring.test.mjs"
+   ],
+   "docs": []
+  },
+  "onboarding.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "config-onboarding",
+   "evidence": "Onboarding wizard state machine (37 test refs).",
+   "loc": 695,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/onboarding-wiring.mjs"
+   ],
+   "tests": [
+    "candidate-diff-review.browser.py",
+    "checkpoint-preview.browser.py",
+    "command-palette.browser.py",
+    "docking-narrow.browser.py",
+    "docking-workspace.browser.py",
+    "documents.browser.py",
+    "everyday-ux.browser.py",
+    "experimental-workbench.browser.py",
+    "feature-readiness.browser.py",
+    "host-surfaces.browser.py",
+    "managed-terminals.browser.py",
+    "onboarding-apply.test.mjs",
+    "onboarding-minimal.test.mjs",
+    "onboarding-roles.test.mjs",
+    "onboarding-wiring.test.mjs",
+    "onboarding.test.mjs",
+    "project-tools.browser.py",
+    "project-workbench.browser.py",
+    "renderer-parity.browser.py",
+    "runtime-continuity.browser.py",
+    "saved-workspace-layouts.browser.py",
+    "setup-agent.test.mjs",
+    "technology-workspace.browser.py",
+    "theme-preset-switch.browser.py",
+    "workbench-artifact-cancel.browser.py",
+    "workbench-context.browser.py",
+    "workbench-execution.browser.py",
+    "workbench-journey.browser.py",
+    "workbench-live-journey.browser.py",
+    "workbench-native.browser.py",
+    "workbench-recovery-revocation.browser.py",
+    "workbench-results-ui.browser.py",
+    "workbench-results.browser.py",
+    "workbench-setup.browser.py",
+    "workspace-arrange.browser.py",
+    "workspace-arrangements.browser.py",
+    "workspace-release-acceptance.browser.py"
+   ],
+   "docs": []
+  },
+  "openai-compat-gateway.mjs": {
+   "classification": "KEEP-PLATFORM",
+   "family": "agent-runtime",
+   "evidence": "Generic OpenAI-compatible/provider gateway for configured roles (openrouter/anthropic/router).",
+   "loc": 957,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/onboarding-wiring.mjs"
+   ],
+   "tests": [
+    "openai-compat-gateway.test.mjs"
+   ],
+   "docs": []
+  },
+  "opencode-detect.mjs": {
+   "classification": "KEEP-PLATFORM",
+   "family": "config-onboarding",
+   "evidence": "Detects an available OpenCode binary for setup.",
+   "loc": 146,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/onboarding.mjs"
+   ],
+   "tests": [],
+   "docs": []
+  },
+  "orbit-config.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "config-onboarding",
+   "evidence": "orbit-config.json schema, roles, agent profiles; zero-agents boot.",
+   "loc": 736,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/onboarding-apply.mjs",
+    "server/onboarding-wiring.mjs",
+    "server/onboarding.mjs"
+   ],
+   "tests": [
+    "onboarding-apply.test.mjs",
+    "onboarding-minimal.test.mjs",
+    "onboarding-wiring.test.mjs",
+    "onboarding.test.mjs",
+    "orbit-config-minimal.test.mjs",
+    "orbit-config.test.mjs",
+    "ssh-hosts.test.mjs"
+   ],
+   "docs": []
+  },
+  "output-library.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "agent-ops-surfaces",
+   "evidence": "Outputs library: published files with private aliases/pins/tags (the Outputs surface).",
+   "route": "/api/output-library",
+   "loc": 292,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "output-library.browser.py",
+    "output-library.test.mjs",
+    "workspace-release-acceptance.browser.py"
+   ],
+   "docs": [
+    "OUTPUT_LIBRARY.md"
+   ]
+  },
+  "pi-gateway.mjs": {
+   "classification": "EXTRACT-PROPOSAL",
+   "family": "agent-runtime",
+   "evidence": "Hosts the Pi harness as a loopback gateway inside the Orbit process (901 LOC). Extraction: standalone gateway process with the same profile contract; Orbit only discovers an apiUrl.",
+   "loc": 901,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "pi-gateway.test.mjs",
+    "pi-provider.test.mjs"
+   ],
+   "docs": []
+  },
+  "pi-rpc.mjs": {
+   "classification": "EXTRACT-PROPOSAL",
+   "family": "agent-runtime",
+   "evidence": "Pi RPC framing; travels with pi-gateway.",
+   "loc": 197,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/pi-gateway.mjs"
+   ],
+   "tests": [
+    "pi-gateway.test.mjs",
+    "pi-provider.test.mjs"
+   ],
+   "docs": []
+  },
+  "project-files.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "workbench",
+   "evidence": "Confined file observations / Project Inspector primitive (48 consumers).",
+   "loc": 317,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/workbench-artifact-verification.mjs",
+    "server/workbench-candidates.mjs",
+    "server/workbench-checks.mjs",
+    "server/workbench-context.mjs",
+    "server/workbench-environments.mjs",
+    "server/workbench-execution.mjs",
+    "server/workbench-legacy-state.mjs",
+    "server/workbench-native-runtime.mjs",
+    "server/workbench-patch-export.mjs",
+    "server/workbench-setup.mjs",
+    "server/workbench-workflow.mjs",
+    "server/workbench-worktrees.mjs",
+    "server/workbench.mjs"
+   ],
+   "tests": [
+    "project-files-adversarial.test.mjs",
+    "project-git-snapshot.test.mjs",
+    "project-tools.test.mjs",
+    "project-workbench.test.mjs",
+    "workbench-authority.test.mjs",
+    "workbench-candidate-changes.test.mjs",
+    "workbench-ci-scope.test.mjs",
+    "workbench-context.test.mjs",
+    "workbench-dependency-export-current.test.mjs",
+    "workbench-dependency-export-real.test.mjs",
+    "workbench-environments.test.mjs",
+    "workbench-evaluation-families.test.mjs",
+    "workbench-execution.test.mjs",
+    "workbench-fault-boundary.test.mjs",
+    "workbench-findings.test.mjs",
+    "workbench-gate2-fault-matrix.md",
+    "workbench-live-diff.test.mjs",
+    "workbench-live.test.mjs",
+    "workbench-loop-execution.test.mjs",
+    "workbench-native.test.mjs",
+    "workbench-patch-moving-target.test.mjs",
+    "workbench-patch.test.mjs",
+    "workbench-provenance.test.mjs",
+    "workbench-real-project-native.test.mjs",
+    "workbench-recovery-boundary.test.mjs",
+    "workbench-registry-profile.test.mjs",
+    "workbench-reliability-browser-fixture.mjs",
+    "workbench-result-boundary.test.mjs",
+    "workbench-result.test.mjs",
+    "workbench-setup-route.test.mjs",
+    "workbench-setup.test.mjs",
+    "workbench-status.test.mjs",
+    "workbench-terminal-boundary.test.mjs",
+    "workbench-workflow.test.mjs",
+    "workbench-worktrees.test.mjs",
+    "workspace-arrangements-retention.test.mjs",
+    "workspace-arrangements.test.mjs",
+    "workspace-store-preserve-schema.test.mjs"
+   ],
+   "docs": []
+  },
+  "project-tools-data.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "workbench",
+   "evidence": "Project-tool private data CAS (schema 10).",
+   "loc": 80,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/sqlite-workspace-store.mjs"
+   ],
+   "tests": [
+    "project-tools-migration.test.mjs"
+   ],
+   "docs": []
+  },
+  "project-tools-evidence.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "workbench",
+   "evidence": "Review-card evidence binding.",
+   "loc": 119,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/project-tools.mjs"
+   ],
+   "tests": [
+    "project-tools-review.test.mjs",
+    "project-tools.test.mjs"
+   ],
+   "docs": []
+  },
+  "project-tools.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "workbench",
+   "evidence": "Persistent project tools (notebook + recorded checks) owner route.",
+   "loc": 725,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "project-tools-migration.test.mjs",
+    "project-tools-review.test.mjs",
+    "project-tools.browser.py",
+    "project-tools.test.mjs",
+    "workbench-ci-scope.test.mjs"
+   ],
+   "docs": [
+    "PROJECT_TOOLS.md"
+   ]
+  },
+  "release-identity.mjs": {
+   "classification": "KEEP-PLATFORM",
+   "family": "host-core",
+   "evidence": "/api/health release identity; tiny.",
+   "loc": 19,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "release-package-launch.test.mjs"
+   ],
+   "docs": []
+  },
+  "resource-delegation.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "resource-authority",
+   "evidence": "Normal resource authority: grants pinned to accepted submissions; orbit_resources describe/grant flow (the owner approval surface for agent capabilities).",
+   "route": "/api/resource-grants",
+   "loc": 326,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "normal-resources.test.mjs",
+    "resource-content-verbs.test.mjs",
+    "resource-delegation.test.mjs",
+    "resource-grants.browser.py"
+   ],
+   "docs": [
+    "RESOURCE_DELEGATION.md"
+   ]
+  },
+  "resource-documents.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "resource-authority",
+   "evidence": "Document verbs for delegated resources.",
+   "loc": 10,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/resource-delegation.mjs"
+   ],
+   "tests": [],
+   "docs": []
+  },
+  "router-render.mjs": {
+   "classification": "EXTRACT-PROPOSAL",
+   "family": "router",
+   "evidence": "Router config rendering; travels with router-supervisor.",
+   "loc": 292,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/router-supervisor.mjs"
+   ],
+   "tests": [
+    "router-render.test.mjs"
+   ],
+   "docs": []
+  },
+  "router-supervisor.mjs": {
+   "classification": "EXTRACT-PROPOSAL",
+   "family": "router",
+   "evidence": "Opt-in Docker token router supervisor (bifrost/litellm, pinned digests); off unless router.enabled. Extraction: standalone compose profile + CLI; Orbit keeps only config UI.",
+   "loc": 620,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/onboarding-wiring.mjs"
+   ],
+   "tests": [
+    "router-supervisor.test.mjs"
+   ],
+   "docs": []
+  },
+  "run-trace-project.mjs": {
+   "classification": "EXTRACT-PROPOSAL",
+   "family": "technology-surfaces",
+   "evidence": "Project-scoped trace filtering.",
+   "loc": 55,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/run-traces-store.mjs",
+    "server/run-traces.mjs"
+   ],
+   "tests": [],
+   "docs": []
+  },
+  "run-trace-tee.mjs": {
+   "classification": "KEEP-PLATFORM",
+   "family": "agent-runtime",
+   "evidence": "In-process tee of agent run streams into /api/run-traces.",
+   "loc": 19,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/agent.mjs",
+    "server/run-traces.mjs"
+   ],
+   "tests": [],
+   "docs": []
+  },
+  "run-traces-route.mjs": {
+   "classification": "RETIRE-PROPOSAL",
+   "family": "technology-surfaces",
+   "evidence": "Unwired duplicate route: /api/run-traces is served through technologyOwnerRoute; this handler is imported only by tests/run-traces.test.mjs.",
+   "loc": 15,
+   "reachable_from_index": false,
+   "consumers": [],
+   "tests": [
+    "run-traces.test.mjs"
+   ],
+   "docs": []
+  },
+  "run-traces-store.mjs": {
+   "classification": "EXTRACT-PROPOSAL",
+   "family": "technology-surfaces",
+   "evidence": "Trace persistence.",
+   "loc": 103,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/run-traces.mjs"
+   ],
+   "tests": [],
+   "docs": []
+  },
+  "run-traces.mjs": {
+   "classification": "EXTRACT-PROPOSAL",
+   "family": "technology-surfaces",
+   "evidence": "Run-traces service (redacted timing projection).",
+   "loc": 47,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "run-traces.browser.py",
+    "run-traces.test.mjs",
+    "technology-workspace.browser.py"
+   ],
+   "docs": [
+    "RUN_TRACES.md"
+   ]
+  },
+  "security.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "host-core",
+   "evidence": "Owner token/origin validation used by 21 server modules; the owner-auth primitive.",
+   "loc": 65,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/agent.mjs",
+    "server/browser-copilot-route.mjs",
+    "server/colab-orchestrator.mjs",
+    "server/documents-store.mjs",
+    "server/index.mjs",
+    "server/irc.mjs",
+    "server/kitty-doom.mjs",
+    "server/knowledge-index.mjs",
+    "server/managed-terminal-routes.mjs",
+    "server/output-library.mjs",
+    "server/pi-gateway.mjs",
+    "server/run-traces-route.mjs",
+    "server/technology-owner-route.mjs",
+    "server/workbench-live-route.mjs",
+    "server/workbench-owner-route.mjs",
+    "server/workbench.mjs",
+    "server/workspace-events.mjs",
+    "server/workspace-layouts.mjs",
+    "server/workspace.mjs"
+   ],
+   "tests": [
+    "data-workbench-assets.test.mjs",
+    "listen-host.test.mjs",
+    "mcp-apps-proxy.test.mjs",
+    "recovery-real-server.browser.py",
+    "server.test.mjs",
+    "static-cache.test.mjs",
+    "test_portable_endpoints.py",
+    "workspace.test.mjs"
+   ],
+   "docs": [
+    "SECURITY.md"
+   ]
+  },
+  "setup-agent.mjs": {
+   "classification": "KEEP-PLATFORM",
+   "family": "config-onboarding",
+   "evidence": "Goal-first setup checklist agent prompt/state.",
+   "loc": 462,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/onboarding-wiring.mjs"
+   ],
+   "tests": [
+    "onboarding-wiring.test.mjs",
+    "setup-agent.test.mjs"
+   ],
+   "docs": []
+  },
+  "shared-agents.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "agent-runtime",
+   "evidence": "Shared-room engine (1,266 LOC) behind normal chat handoff and the grokbots groups app.",
+   "loc": 1266,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/agent.mjs",
+    "server/grokbots-groups.mjs"
+   ],
+   "tests": [
+    "collab-board.test.mjs",
+    "group-autoresume.test.mjs",
+    "group-long-turns.test.mjs",
+    "group-parallel.test.mjs",
+    "group-routing.test.mjs",
+    "shared-agents.test.mjs"
+   ],
+   "docs": []
+  },
+  "shared-chats.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "agent-runtime",
+   "evidence": "Private per-pane chat persistence for the conversation library.",
+   "loc": 57,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/agent.mjs"
+   ],
+   "tests": [
+    "workbench-context.test.mjs"
+   ],
+   "docs": []
+  },
+  "sqlite-workspace-store.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "workspace-state",
+   "evidence": "Transactional state authority (schema 12): revisions, checkpoints, receipts, outbox, bundles, workbench/project-tools records. 54 consumers.",
+   "route": "/api/workspace (via workspace.mjs)",
+   "loc": 455,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/workspace.mjs"
+   ],
+   "tests": [
+    "agent-store.test.mjs",
+    "bundle-schema.test.mjs",
+    "extension-studio.test.mjs",
+    "fixtures/schema11-store.mjs",
+    "fixtures/sqlite-crash-worker.mjs",
+    "fixtures/sqlite-store-helpers.mjs",
+    "plugin-instances-policy.test.mjs",
+    "project-files-adversarial.test.mjs",
+    "project-tools-migration.test.mjs",
+    "project-tools-review.test.mjs",
+    "project-tools.test.mjs",
+    "project-workbench.test.mjs",
+    "recovery-policy-storage.test.mjs",
+    "recovery-policy.test.mjs",
+    "release-operations.test.mjs",
+    "release-package-launch.test.mjs",
+    "run-traces.test.mjs",
+    "saved-workspace-layouts.test.mjs",
+    "sqlite-backup-safety.test.mjs",
+    "sqlite-contention.test.mjs",
+    "sqlite-migration.test.mjs",
+    "sqlite-workspace-store.test.mjs",
+    "test_orbit_bundle.py",
+    "workbench-authority.test.mjs",
+    "workbench-ci-scope.test.mjs",
+    "workbench-context.test.mjs",
+    "workbench-data.test.mjs",
+    "workbench-dependency-export-current.test.mjs",
+    "workbench-dependency-export-real.test.mjs",
+    "workbench-environments.test.mjs",
+    "workbench-evaluation-families.test.mjs",
+    "workbench-execution.test.mjs",
+    "workbench-fault-boundary.test.mjs",
+    "workbench-findings.test.mjs",
+    "workbench-live-diff.test.mjs",
+    "workbench-live.test.mjs",
+    "workbench-loop-execution.test.mjs",
+    "workbench-native.test.mjs",
+    "workbench-patch-moving-target.test.mjs",
+    "workbench-patch.test.mjs",
+    "workbench-provenance.test.mjs",
+    "workbench-real-project-native.test.mjs",
+    "workbench-recovery-boundary.test.mjs",
+    "workbench-registry-profile.test.mjs",
+    "workbench-reliability-browser-fixture.mjs",
+    "workbench-result-boundary.test.mjs",
+    "workbench-result.test.mjs",
+    "workbench-setup-route.test.mjs",
+    "workbench-setup.test.mjs",
+    "workbench-status.test.mjs",
+    "workbench-terminal-boundary.test.mjs",
+    "workbench-workflow.test.mjs",
+    "workspace-arrangements-migration.test.mjs",
+    "workspace-arrangements-retention.test.mjs",
+    "workspace-arrangements.test.mjs",
+    "workspace-event-page.test.mjs",
+    "workspace-schema12.test.mjs",
+    "workspace-store-preserve-schema.test.mjs"
+   ],
+   "docs": []
+  },
+  "ssh-bootstrap.mjs": {
+   "classification": "RETIRE-PROPOSAL",
+   "family": "ssh-hosts",
+   "evidence": "Host bootstrap script generator: unreachable from index.mjs; imported only by tests/ssh-hosts.test.mjs; the /api/hosts action surface never sends the generated script (verified against onboarding-wiring hostAction).",
+   "loc": 149,
+   "reachable_from_index": false,
+   "consumers": [],
+   "tests": [
+    "ssh-hosts.test.mjs"
+   ],
+   "docs": []
+  },
+  "ssh-config.mjs": {
+   "classification": "KEEP-PLATFORM",
+   "family": "ssh-hosts",
+   "evidence": "ssh_config writer for pinned hosts.",
+   "loc": 189,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/ssh-hosts.mjs"
+   ],
+   "tests": [
+    "ssh-hosts.test.mjs"
+   ],
+   "docs": []
+  },
+  "ssh-hosts.mjs": {
+   "classification": "KEEP-PLATFORM",
+   "family": "ssh-hosts",
+   "evidence": "Direct SSH host registry/pinning behind /api/hosts (owner UI); roadmap \"later\" feature but load-bearing for the hosts settings surface.",
+   "route": "/api/hosts (via onboarding-wiring)",
+   "loc": 721,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/onboarding-wiring.mjs"
+   ],
+   "tests": [
+    "ssh-hosts.test.mjs",
+    "ssh-sshd.test.mjs"
+   ],
+   "docs": [
+    "SSH-HOSTS-RESEARCH.md"
+   ]
+  },
+  "ssh-keys.mjs": {
+   "classification": "KEEP-PLATFORM",
+   "family": "ssh-hosts",
+   "evidence": "Orbit ed25519 key material handling.",
+   "loc": 230,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/ssh-hosts.mjs"
+   ],
+   "tests": [
+    "ssh-hosts.test.mjs"
+   ],
+   "docs": []
+  },
+  "static-cache.mjs": {
+   "classification": "KEEP-PLATFORM",
+   "family": "host-core",
+   "evidence": "Immutable content-hashed asset serving for the built client.",
+   "loc": 59,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "static-cache.test.mjs"
+   ],
+   "docs": []
+  },
+  "technology-assets.mjs": {
+   "classification": "EXTRACT-PROPOSAL",
+   "family": "technology-surfaces",
+   "evidence": "Serves /vendor/* local engine assets (duckdb, voice, fonts) for browser-side surfaces; travels with the surfaces as an asset service.",
+   "loc": 47,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "technology-integration-assets.test.mjs",
+    "technology-workspace.browser.py"
+   ],
+   "docs": []
+  },
+  "technology-owner-route.mjs": {
+   "classification": "KEEP-PLATFORM",
+   "family": "technology-surfaces",
+   "evidence": "The extraction seam itself: owner-authenticated POST dispatch wrapper every lazy technology service mounts behind.",
+   "loc": 46,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "normal-resources.test.mjs",
+    "resource-grants.browser.py",
+    "technology-integration-route.test.mjs"
+   ],
+   "docs": []
+  },
+  "terminal-resource-registry.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "terminals",
+   "evidence": "Process-local terminal identity registry used by the broker (fencing primitive).",
+   "loc": 247,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/managed-terminal-broker.mjs"
+   ],
+   "tests": [
+    "managed-terminal-provider.test.mjs",
+    "terminal-resource-registry.test.mjs"
+   ],
+   "docs": [
+    "TERMINAL_RESOURCE_REGISTRY.md"
+   ]
+  },
+  "voice-model-assets.mjs": {
+   "classification": "EXTRACT-PROPOSAL",
+   "family": "technology-surfaces",
+   "evidence": "Voice model manifest/integrity pins for the dictation surface.",
+   "loc": 113,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/feature-readiness.mjs",
+    "server/technology-assets.mjs"
+   ],
+   "tests": [
+    "feature-readiness.test.mjs",
+    "voice-capture.browser.py",
+    "voice-model-assets.test.mjs"
+   ],
+   "docs": []
+  },
+  "workbench-artifact-verification.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "workbench",
+   "evidence": "Completed-materialization verification for setup recovery.",
+   "loc": 262,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/workbench-execution.mjs"
+   ],
+   "tests": [
+    "workbench-environments.test.mjs"
+   ],
+   "docs": []
+  },
+  "workbench-build-identity.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "workbench",
+   "evidence": "Recorder/service build identity snapshot.",
+   "loc": 13,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/workbench-artifact-verification.mjs",
+    "server/workbench-execution.mjs",
+    "server/workbench-native.mjs",
+    "server/workbench.mjs"
+   ],
+   "tests": [
+    "workbench-provenance.test.mjs"
+   ],
+   "docs": []
+  },
+  "workbench-candidates.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "workbench",
+   "evidence": "Candidate state/hash promotion.",
+   "loc": 349,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/workbench-execution.mjs",
+    "server/workbench-patch-export.mjs",
+    "server/workbench-setup.mjs",
+    "server/workbench-workflow.mjs"
+   ],
+   "tests": [
+    "workbench-candidate-changes.test.mjs",
+    "workbench-evaluation-families.test.mjs",
+    "workbench-execution.test.mjs"
+   ],
+   "docs": []
+  },
+  "workbench-checks.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "workbench",
+   "evidence": "Recorded checks + test-runner supervision.",
+   "loc": 276,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/workbench-artifact-verification.mjs",
+    "server/workbench-execution.mjs",
+    "server/workbench-setup.mjs"
+   ],
+   "tests": [
+    "workbench-cleanup.test.mjs",
+    "workbench-findings.test.mjs",
+    "workbench-sandbox-provider.test.mjs",
+    "workbench-sandbox-real.test.mjs"
+   ],
+   "docs": []
+  },
+  "workbench-context.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "workbench",
+   "evidence": "Private bounded context sharing (630 LOC).",
+   "loc": 630,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "workbench-authority.test.mjs",
+    "workbench-context.browser.py",
+    "workbench-context.test.mjs",
+    "workbench-gate2-fault-matrix.md",
+    "workbench-journey.browser.py",
+    "workbench-live-journey.browser.py",
+    "workbench-native.browser.py",
+    "workbench-terminal-boundary.test.mjs"
+   ],
+   "docs": []
+  },
+  "workbench-data.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "workbench",
+   "evidence": "Schema-6+ private task/attempt/submission/candidate records; event bus consumed by 40 modules.",
+   "loc": 196,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs",
+    "server/project-tools.mjs",
+    "server/sqlite-workspace-store.mjs",
+    "server/workbench-live.mjs",
+    "server/workbench-workflow.mjs",
+    "server/workspace-arrangements.mjs"
+   ],
+   "tests": [
+    "project-tools-migration.test.mjs",
+    "project-tools-review.test.mjs",
+    "project-tools.test.mjs",
+    "run-traces.test.mjs",
+    "workbench-authority.test.mjs",
+    "workbench-context.test.mjs",
+    "workbench-data.test.mjs",
+    "workbench-dependency-export-current.test.mjs",
+    "workbench-dependency-export-real.test.mjs",
+    "workbench-environments.test.mjs",
+    "workbench-evaluation-families.test.mjs",
+    "workbench-execution.test.mjs",
+    "workbench-fault-boundary.test.mjs",
+    "workbench-findings.test.mjs",
+    "workbench-live-diff.test.mjs",
+    "workbench-live.test.mjs",
+    "workbench-loop-execution.test.mjs",
+    "workbench-native.test.mjs",
+    "workbench-patch-moving-target.test.mjs",
+    "workbench-patch.test.mjs",
+    "workbench-provenance.test.mjs",
+    "workbench-real-project-native.test.mjs",
+    "workbench-recovery-boundary.test.mjs",
+    "workbench-registry-profile.test.mjs",
+    "workbench-reliability-browser-fixture.mjs",
+    "workbench-result-boundary.test.mjs",
+    "workbench-result.test.mjs",
+    "workbench-setup-route.test.mjs",
+    "workbench-setup.test.mjs",
+    "workbench-status.test.mjs",
+    "workbench-terminal-boundary.test.mjs",
+    "workbench-workflow.test.mjs",
+    "workspace-arrangements-retention.test.mjs",
+    "workspace-arrangements.test.mjs",
+    "workspace-store-preserve-schema.test.mjs"
+   ],
+   "docs": []
+  },
+  "workbench-environments.mjs": {
+   "classification": "KEEP-PLATFORM",
+   "family": "workbench",
+   "evidence": "Environment preparation (npm caches, toolchain hashing).",
+   "loc": 315,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "workbench-dependency-export-current.test.mjs",
+    "workbench-dependency-export-real.test.mjs",
+    "workbench-environments.test.mjs",
+    "workbench-gate2-fault-matrix.md",
+    "workbench-loop-execution.test.mjs",
+    "workbench-registry-profile.test.mjs",
+    "workbench-sandbox-provider.test.mjs"
+   ],
+   "docs": []
+  },
+  "workbench-execution.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "workbench",
+   "evidence": "Task execution engine (928 LOC, 35 test refs).",
+   "loc": 928,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "pane-workbench-load-race.browser.py",
+    "project-tools-review.test.mjs",
+    "project-workbench.browser.py",
+    "workbench-artifact-cancel.browser.py",
+    "workbench-ci-scope.test.mjs",
+    "workbench-dependency-export-current.test.mjs",
+    "workbench-dependency-export-real.test.mjs",
+    "workbench-environments.test.mjs",
+    "workbench-evaluation-families.test.mjs",
+    "workbench-execution.browser.py",
+    "workbench-execution.test.mjs",
+    "workbench-fault-boundary.test.mjs",
+    "workbench-findings.test.mjs",
+    "workbench-journey.browser.py",
+    "workbench-live-diff.test.mjs",
+    "workbench-live-journey.browser.py",
+    "workbench-live.test.mjs",
+    "workbench-loop-execution.test.mjs",
+    "workbench-native.browser.py",
+    "workbench-native.test.mjs",
+    "workbench-patch-moving-target.test.mjs",
+    "workbench-patch.test.mjs",
+    "workbench-provenance.test.mjs",
+    "workbench-real-project-native.test.mjs",
+    "workbench-recovery-boundary.test.mjs",
+    "workbench-recovery-revocation.browser.py",
+    "workbench-registry-profile.test.mjs",
+    "workbench-reliability-browser-fixture.mjs",
+    "workbench-result-boundary.test.mjs",
+    "workbench-result.test.mjs",
+    "workbench-results-ui.browser.py",
+    "workbench-review-view.browser.py",
+    "workbench-setup.test.mjs",
+    "workbench-workflow.test.mjs",
+    "workspace-arrangements.browser.py"
+   ],
+   "docs": []
+  },
+  "workbench-gate.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "workbench",
+   "evidence": "The execution gate: serial dispatch, legacy-lane fencing, quarantine \u2014 the approval authority for agent work.",
+   "loc": 26,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "agent-submission-recovery.test.mjs",
+    "agent.test.mjs",
+    "workbench-authority.test.mjs",
+    "workbench-context.test.mjs",
+    "workbench-data.test.mjs",
+    "workbench-environments.test.mjs",
+    "workbench-evaluation-families.test.mjs",
+    "workbench-execution.test.mjs",
+    "workbench-fault-boundary.test.mjs",
+    "workbench-live-diff.test.mjs",
+    "workbench-live.test.mjs",
+    "workbench-native.test.mjs",
+    "workbench-real-project-native.test.mjs",
+    "workbench-recovery-boundary.test.mjs",
+    "workbench-reliability-browser-fixture.mjs",
+    "workbench-result-boundary.test.mjs",
+    "workbench-result.test.mjs",
+    "workbench-setup.test.mjs"
+   ],
+   "docs": []
+  },
+  "workbench-hermes.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "workbench",
+   "evidence": "Workbench<->Hermes binding used by agent bridge.",
+   "loc": 332,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/agent.mjs"
+   ],
+   "tests": [
+    "workbench-ci-scope.test.mjs",
+    "workbench-context.test.mjs"
+   ],
+   "docs": []
+  },
+  "workbench-legacy-state.mjs": {
+   "classification": "KEEP-PLATFORM",
+   "family": "workbench",
+   "evidence": "Legacy queue snapshot feeding the gate fence.",
+   "loc": 36,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "workbench-ci-scope.test.mjs",
+    "workbench-data.test.mjs"
+   ],
+   "docs": []
+  },
+  "workbench-live-diff.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "workbench",
+   "evidence": "Bounded live diffs.",
+   "loc": 40,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/workbench-live.mjs"
+   ],
+   "tests": [
+    "workbench-live-diff.test.mjs"
+   ],
+   "docs": []
+  },
+  "workbench-live-route.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "workbench",
+   "evidence": "Live activity route with backpressure.",
+   "loc": 132,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "workbench-live-route-backpressure.test.mjs",
+    "workbench-live.test.mjs"
+   ],
+   "docs": []
+  },
+  "workbench-live.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "workbench",
+   "evidence": "Private activity projection (806 LOC).",
+   "loc": 806,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "candidate-diff-contract.test.mjs",
+    "candidate-diff-review.browser.py",
+    "pane-workbench-load-race.browser.py",
+    "pane-workbench-mode.browser.py",
+    "workbench-live-client.test.mjs",
+    "workbench-live-diff.test.mjs",
+    "workbench-live-journey.browser.py",
+    "workbench-live-route-backpressure.test.mjs",
+    "workbench-live.test.mjs"
+   ],
+   "docs": []
+  },
+  "workbench-native-runtime.mjs": {
+   "classification": "KEEP-PLATFORM",
+   "family": "workbench",
+   "evidence": "Pinned native Hermes adapter process; inactive unless ORBIT_NATIVE_HERMES_* is configured; extraction candidate for a standalone adapter.",
+   "loc": 127,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "workbench-native.test.mjs",
+    "workbench-real-project-native.test.mjs",
+    "workbench-result-boundary.test.mjs",
+    "workbench-result.test.mjs"
+   ],
+   "docs": []
+  },
+  "workbench-native.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "workbench",
+   "evidence": "Native task grants + private tool calls (schema 7).",
+   "route": "/api/workbench/native",
+   "loc": 428,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "workbench-evaluation-families.test.mjs",
+    "workbench-fault-boundary.test.mjs",
+    "workbench-gate2-fault-matrix.md",
+    "workbench-live.test.mjs",
+    "workbench-native.browser.py",
+    "workbench-native.test.mjs",
+    "workbench-provenance.test.mjs",
+    "workbench-real-project-native.test.mjs",
+    "workbench-result-boundary.test.mjs",
+    "workbench-result.test.mjs",
+    "workbench-setup.test.mjs",
+    "workbench_setup_fixture.py"
+   ],
+   "docs": []
+  },
+  "workbench-owner-route.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "workbench",
+   "evidence": "Owner-authenticated dispatch wrapper for all workbench owner routes.",
+   "loc": 25,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "workbench-authority.test.mjs",
+    "workbench-native.test.mjs",
+    "workbench-reliability-browser-fixture.mjs",
+    "workbench-result-boundary.test.mjs",
+    "workbench-setup-route.test.mjs",
+    "workbench-terminal-boundary.test.mjs"
+   ],
+   "docs": []
+  },
+  "workbench-patch-export.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "workbench",
+   "evidence": "Review-bound patch records export.",
+   "loc": 293,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/workbench-workflow.mjs"
+   ],
+   "tests": [],
+   "docs": []
+  },
+  "workbench-publication.mjs": {
+   "classification": "KEEP-PLATFORM",
+   "family": "workbench",
+   "evidence": "Integration publication manifest helper.",
+   "loc": 38,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/workbench-workflow.mjs"
+   ],
+   "tests": [],
+   "docs": []
+  },
+  "workbench-registry-profile.mjs": {
+   "classification": "KEEP-PLATFORM",
+   "family": "workbench",
+   "evidence": "Registry cache descriptor for environments.",
+   "loc": 34,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/workbench-environments.mjs"
+   ],
+   "tests": [
+    "workbench-registry-profile.test.mjs"
+   ],
+   "docs": []
+  },
+  "workbench-sandbox-provider.mjs": {
+   "classification": "KEEP-PLATFORM",
+   "family": "workbench",
+   "evidence": "Optional gVisor check provider; inactive without ORBIT_WORKBENCH_GVISOR_*; isolated-checks boundary.",
+   "loc": 112,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "workbench-sandbox-provider.test.mjs",
+    "workbench-sandbox-real.test.mjs"
+   ],
+   "docs": []
+  },
+  "workbench-setup.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "workbench",
+   "evidence": "Goal-first setup with durable fsynced journal.",
+   "loc": 282,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "pane-workbench-mode.browser.py",
+    "test_orbit_bundle.py",
+    "workbench-live-journey.browser.py",
+    "workbench-reliability-browser-fixture.mjs",
+    "workbench-reliability.browser.mjs",
+    "workbench-setup-proposal.test.mjs",
+    "workbench-setup-route.test.mjs",
+    "workbench-setup.browser.py",
+    "workbench-setup.test.mjs"
+   ],
+   "docs": [
+    "WORKBENCH_SETUP.md"
+   ]
+  },
+  "workbench-status.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "workbench",
+   "evidence": "Authoritative task-status snapshots.",
+   "loc": 49,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/workbench-workflow.mjs"
+   ],
+   "tests": [
+    "pane-workbench-mode.browser.py",
+    "project-workbench.browser.py",
+    "workbench-context.browser.py",
+    "workbench-live-journey.browser.py",
+    "workbench-status.test.mjs"
+   ],
+   "docs": []
+  },
+  "workbench-store.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "workbench",
+   "evidence": "Error taxonomy, wbError and store primitives used by 69 modules.",
+   "loc": 52,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/extension-studio.mjs",
+    "server/project-files.mjs",
+    "server/project-tools.mjs",
+    "server/run-traces-route.mjs",
+    "server/run-traces-store.mjs",
+    "server/run-traces.mjs",
+    "server/sqlite-workspace-store.mjs",
+    "server/workbench-artifact-verification.mjs",
+    "server/workbench-candidates.mjs",
+    "server/workbench-checks.mjs",
+    "server/workbench-context.mjs",
+    "server/workbench-data.mjs",
+    "server/workbench-environments.mjs",
+    "server/workbench-execution.mjs",
+    "server/workbench-gate.mjs",
+    "server/workbench-hermes.mjs",
+    "server/workbench-live.mjs",
+    "server/workbench-native.mjs",
+    "server/workbench-owner-route.mjs",
+    "server/workbench-patch-export.mjs",
+    "server/workbench-publication.mjs",
+    "server/workbench-registry-profile.mjs",
+    "server/workbench-sandbox-provider.mjs",
+    "server/workbench-setup.mjs",
+    "server/workbench-status.mjs",
+    "server/workbench-terminal-source.mjs",
+    "server/workbench-workflow.mjs",
+    "server/workbench-worktrees.mjs",
+    "server/workbench.mjs",
+    "server/workspace-arrangement-control.mjs",
+    "server/workspace-arrangements.mjs",
+    "server/workspace-description.mjs"
+   ],
+   "tests": [
+    "hermes-plugin.test.mjs",
+    "project-files-adversarial.test.mjs",
+    "project-tools-migration.test.mjs",
+    "project-tools-review.test.mjs",
+    "project-tools.test.mjs",
+    "run-traces.test.mjs",
+    "workbench-authority.test.mjs",
+    "workbench-context.test.mjs",
+    "workbench-data.test.mjs",
+    "workbench-dependency-export-current.test.mjs",
+    "workbench-dependency-export-real.test.mjs",
+    "workbench-environments.test.mjs",
+    "workbench-evaluation-families.test.mjs",
+    "workbench-execution.test.mjs",
+    "workbench-fault-boundary.test.mjs",
+    "workbench-findings.test.mjs",
+    "workbench-live-diff.test.mjs",
+    "workbench-live.test.mjs",
+    "workbench-loop-execution.test.mjs",
+    "workbench-native.test.mjs",
+    "workbench-patch-moving-target.test.mjs",
+    "workbench-patch.test.mjs",
+    "workbench-provenance.test.mjs",
+    "workbench-real-project-native.test.mjs",
+    "workbench-recovery-boundary.test.mjs",
+    "workbench-registry-profile.test.mjs",
+    "workbench-reliability-browser-fixture.mjs",
+    "workbench-result-boundary.test.mjs",
+    "workbench-result.test.mjs",
+    "workbench-setup-route.test.mjs",
+    "workbench-setup.test.mjs",
+    "workbench-status.test.mjs",
+    "workbench-terminal-boundary.test.mjs",
+    "workbench-workflow.test.mjs",
+    "workspace-arrangement-control.test.mjs",
+    "workspace-arrangements-retention.test.mjs",
+    "workspace-arrangements.test.mjs",
+    "workspace-description.test.mjs",
+    "workspace-store-preserve-schema.test.mjs"
+   ],
+   "docs": []
+  },
+  "workbench-terminal-source.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "workbench",
+   "evidence": "Confined terminal source adapter for context.",
+   "loc": 25,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "workbench-authority.test.mjs",
+    "workbench-terminal-boundary.test.mjs"
+   ],
+   "docs": []
+  },
+  "workbench-test-runner.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "workbench",
+   "evidence": "Spawned test-runner script used by workbench-checks (url-ref).",
+   "loc": 40,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/workbench-checks.mjs",
+    "server/workbench-checks.mjs (url-ref)"
+   ],
+   "tests": [],
+   "docs": []
+  },
+  "workbench-workflow.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "workbench",
+   "evidence": "Workflow dispatch incl. publication + patch export.",
+   "loc": 198,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "test_orbit_bundle.py",
+    "workbench-dependency-export-current.test.mjs",
+    "workbench-dependency-export-real.test.mjs",
+    "workbench-patch-moving-target.test.mjs",
+    "workbench-patch.test.mjs",
+    "workbench-recovery-boundary.test.mjs",
+    "workbench-reliability-browser-fixture.mjs",
+    "workbench-review-view.browser.py",
+    "workbench-workflow.test.mjs",
+    "workspace-arrangements.test.mjs"
+   ],
+   "docs": []
+  },
+  "workbench-worktrees.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "workbench",
+   "evidence": "Private git worktree materialization.",
+   "loc": 112,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/project-files.mjs",
+    "server/workbench.mjs"
+   ],
+   "tests": [
+    "workbench-worktrees.test.mjs"
+   ],
+   "docs": []
+  },
+  "workbench.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "workbench",
+   "evidence": "Project Workbench route facade (records registry + dispatch).",
+   "loc": 105,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "agent-pane-ux.browser.py",
+    "agent-submission-recovery.test.mjs",
+    "agent.test.mjs",
+    "candidate-diff-contract.test.mjs",
+    "candidate-diff-review.browser.py",
+    "experimental-workbench.browser.py",
+    "feature-readiness.test.mjs",
+    "hermes-plugin.test.mjs",
+    "pane-workbench-load-race.browser.py",
+    "pane-workbench-mode.browser.py",
+    "project-files-adversarial.test.mjs",
+    "project-tools-migration.test.mjs",
+    "project-tools-review.test.mjs",
+    "project-tools.browser.py",
+    "project-tools.test.mjs",
+    "project-workbench.browser.py",
+    "project-workbench.test.mjs",
+    "release-isolation.test.mjs",
+    "release-package-minimal.test.mjs",
+    "run-traces.test.mjs",
+    "static-cache.test.mjs",
+    "test_hermes_plugin.py",
+    "test_orbit_bundle.py",
+    "test_workbench_native_runtime.py",
+    "test_workspace_contract.py",
+    "workbench-artifact-cancel.browser.py",
+    "workbench-authority.test.mjs",
+    "workbench-candidate-changes.test.mjs",
+    "workbench-ci-scope.test.mjs",
+    "workbench-cleanup.test.mjs",
+    "workbench-context.browser.py",
+    "workbench-context.test.mjs",
+    "workbench-data.test.mjs",
+    "workbench-dependency-export-current.test.mjs",
+    "workbench-dependency-export-real.test.mjs",
+    "workbench-environments.test.mjs",
+    "workbench-evaluation-families.test.mjs",
+    "workbench-evaluation/FIXTURES.json",
+    "workbench-evaluation/cases.json",
+    "workbench-execution.browser.py",
+    "workbench-execution.test.mjs",
+    "workbench-fault-boundary.test.mjs",
+    "workbench-findings.test.mjs",
+    "workbench-gate2-fault-matrix.md",
+    "workbench-handoff.browser.py",
+    "workbench-journey.browser.py",
+    "workbench-live-client.test.mjs",
+    "workbench-live-diff.test.mjs",
+    "workbench-live-journey.browser.py",
+    "workbench-live-route-backpressure.test.mjs",
+    "workbench-live.test.mjs",
+    "workbench-loop-execution.test.mjs",
+    "workbench-native.browser.py",
+    "workbench-native.test.mjs",
+    "workbench-patch-moving-target.test.mjs",
+    "workbench-patch.test.mjs",
+    "workbench-provenance.test.mjs",
+    "workbench-real-project-native.test.mjs",
+    "workbench-real-project.test.mjs",
+    "workbench-recovery-boundary.test.mjs",
+    "workbench-recovery-revocation.browser.py",
+    "workbench-registry-profile.test.mjs",
+    "workbench-reliability-browser-fixture.mjs",
+    "workbench-reliability.browser.mjs",
+    "workbench-result-boundary.test.mjs",
+    "workbench-result.test.mjs",
+    "workbench-results-ui.browser.py",
+    "workbench-results.browser.py",
+    "workbench-review-view.browser.py",
+    "workbench-sandbox-provider.test.mjs",
+    "workbench-sandbox-real.test.mjs",
+    "workbench-setup-proposal.test.mjs",
+    "workbench-setup-route.test.mjs",
+    "workbench-setup.browser.py",
+    "workbench-setup.test.mjs",
+    "workbench-status.test.mjs",
+    "workbench-task-result.browser.py",
+    "workbench-terminal-boundary.test.mjs",
+    "workbench-workflow.test.mjs",
+    "workbench-worktrees.test.mjs",
+    "workbench_setup_fixture.py",
+    "workspace-arrangement-control.test.mjs",
+    "workspace-arrangements-retention.test.mjs",
+    "workspace-arrangements.browser.py",
+    "workspace-arrangements.test.mjs",
+    "workspace-description.test.mjs",
+    "workspace-store-preserve-schema.test.mjs"
+   ],
+   "docs": [
+    "MILESTONE_GOAL_FIRST_WORKBENCH.md",
+    "PROJECT_WORKBENCH.md",
+    "PROJECT_WORKBENCH_LEDGER.md",
+    "WORKBENCH_AGENT_LOOP_LEDGER.md",
+    "WORKBENCH_CONVERSATIONAL_UX_RESEARCH.md",
+    "WORKBENCH_REAL_PROJECT_S3.md",
+    "WORKBENCH_RESULT_CONTRACT.md",
+    "WORKBENCH_RESULT_INCREMENT.md",
+    "WORKBENCH_SETUP.md"
+   ]
+  },
+  "workspace-arrangement-control.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "workspace-state",
+   "evidence": "Controller-side arrangement dispatch.",
+   "loc": 20,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/workspace.mjs"
+   ],
+   "tests": [
+    "test_orbit_bundle.py"
+   ],
+   "docs": []
+  },
+  "workspace-arrangements.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "workspace-state",
+   "evidence": "Logical arrangement history + preview/apply records; used by workflow, controller, description.",
+   "loc": 528,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/workbench-workflow.mjs",
+    "server/workspace-arrangement-control.mjs",
+    "server/workspace-description.mjs"
+   ],
+   "tests": [
+    "test_orbit_bundle.py",
+    "workbench-ci-scope.test.mjs",
+    "workspace-arrangements-retention.test.mjs",
+    "workspace-arrangements.browser.py",
+    "workspace-arrangements.test.mjs"
+   ],
+   "docs": [
+    "WORKSPACE_ARRANGEMENTS_API.md"
+   ]
+  },
+  "workspace-contract.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "workspace-state",
+   "evidence": "Workspace operation contract (schema-generated source).",
+   "loc": 14,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/workspace.mjs"
+   ],
+   "tests": [
+    "release-coherence.test.mjs",
+    "test_orbit_bundle.py",
+    "widget-feature-compatibility.test.mjs",
+    "workbench-ci-scope.test.mjs",
+    "workspace-contract-placement.test.mjs",
+    "workspace-contract.test.mjs"
+   ],
+   "docs": []
+  },
+  "workspace-description.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "workspace-state",
+   "evidence": "Bounded layout metadata + operation catalog for the workspace controller.",
+   "route": "/api/workspace (context)",
+   "loc": 46,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/workspace.mjs"
+   ],
+   "tests": [
+    "resource-delegation.test.mjs",
+    "test_orbit_bundle.py"
+   ],
+   "docs": []
+  },
+  "workspace-diff.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "workspace-state",
+   "evidence": "Bounded checkpoint_preview metadata diff.",
+   "loc": 62,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/workspace.mjs"
+   ],
+   "tests": [
+    "widget-feature-compatibility.test.mjs"
+   ],
+   "docs": []
+  },
+  "workspace-events.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "workspace-state",
+   "evidence": "Authenticated bounded POST event pages (polling, not SSE).",
+   "route": "/api/workspace/events, /api/workspace/control/events",
+   "loc": 72,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "test_orbit_bundle.py",
+    "workspace-events-client.test.mjs",
+    "workspace-events.test.mjs",
+    "workspace-poll-backoff.test.mjs",
+    "workspace-sync-policy.test.mjs"
+   ],
+   "docs": [
+    "WORKSPACE_EVENTS.md"
+   ]
+  },
+  "workspace-layouts-storage.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "workspace-state",
+   "evidence": "Layout storage primitive behind workspace-layouts.",
+   "loc": 34,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/workspace-layouts.mjs"
+   ],
+   "tests": [],
+   "docs": []
+  },
+  "workspace-layouts.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "workspace-state",
+   "evidence": "Saved workspace layouts API.",
+   "route": "/api/workspace-layouts",
+   "loc": 62,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "saved-workspace-layouts-retention.test.mjs",
+    "saved-workspace-layouts.browser.py",
+    "saved-workspace-layouts.test.mjs"
+   ],
+   "docs": [
+    "SAVED_WORKSPACE_LAYOUTS.md"
+   ]
+  },
+  "workspace-store.mjs": {
+   "classification": "RETIRE-PROPOSAL",
+   "family": "workspace-state",
+   "evidence": "Legacy JSON store: unreachable from index.mjs, imported only by tests/recovery.test.mjs; SQLite is authoritative and loadLegacy/exportLegacy in sqlite-workspace-store.mjs handle legacy bytes directly. Keep until legacy export parity is re-verified, then remove.",
+   "loc": 25,
+   "reachable_from_index": false,
+   "consumers": [],
+   "tests": [
+    "agent-store.test.mjs",
+    "bundle-schema.test.mjs",
+    "extension-studio.test.mjs",
+    "fixtures/schema11-store.mjs",
+    "fixtures/sqlite-crash-worker.mjs",
+    "fixtures/sqlite-store-helpers.mjs",
+    "plugin-instances-policy.test.mjs",
+    "project-files-adversarial.test.mjs",
+    "project-tools-migration.test.mjs",
+    "project-tools-review.test.mjs",
+    "project-tools.test.mjs",
+    "project-workbench.test.mjs",
+    "recovery-policy-storage.test.mjs",
+    "recovery-policy.test.mjs",
+    "recovery.test.mjs",
+    "release-operations.test.mjs",
+    "release-package-launch.test.mjs",
+    "run-traces.test.mjs",
+    "saved-workspace-layouts.test.mjs",
+    "sqlite-backup-safety.test.mjs",
+    "sqlite-contention.test.mjs",
+    "sqlite-migration.test.mjs",
+    "sqlite-workspace-store.test.mjs",
+    "test_orbit_bundle.py",
+    "workbench-authority.test.mjs",
+    "workbench-ci-scope.test.mjs",
+    "workbench-context.test.mjs",
+    "workbench-data.test.mjs",
+    "workbench-dependency-export-current.test.mjs",
+    "workbench-dependency-export-real.test.mjs",
+    "workbench-environments.test.mjs",
+    "workbench-evaluation-families.test.mjs",
+    "workbench-execution.test.mjs",
+    "workbench-fault-boundary.test.mjs",
+    "workbench-findings.test.mjs",
+    "workbench-live-diff.test.mjs",
+    "workbench-live.test.mjs",
+    "workbench-loop-execution.test.mjs",
+    "workbench-native.test.mjs",
+    "workbench-patch-moving-target.test.mjs",
+    "workbench-patch.test.mjs",
+    "workbench-provenance.test.mjs",
+    "workbench-real-project-native.test.mjs",
+    "workbench-recovery-boundary.test.mjs",
+    "workbench-registry-profile.test.mjs",
+    "workbench-reliability-browser-fixture.mjs",
+    "workbench-result-boundary.test.mjs",
+    "workbench-result.test.mjs",
+    "workbench-setup-route.test.mjs",
+    "workbench-setup.test.mjs",
+    "workbench-status.test.mjs",
+    "workbench-terminal-boundary.test.mjs",
+    "workbench-workflow.test.mjs",
+    "workspace-arrangements-migration.test.mjs",
+    "workspace-arrangements-retention.test.mjs",
+    "workspace-arrangements.test.mjs",
+    "workspace-event-page.test.mjs",
+    "workspace-schema12.test.mjs",
+    "workspace-store-preserve-schema.test.mjs"
+   ],
+   "docs": [
+    "WORKSPACE_STORE.md"
+   ]
+  },
+  "workspace.mjs": {
+   "classification": "KEEP-CORE",
+   "family": "workspace-state",
+   "evidence": "Authenticated workspace/control/recovery service + /apps/* serving; supplies workspaceRead to every family.",
+   "route": "/api/workspace, /api/workspace/control, /api/workspace/recovery, /apps/*",
+   "loc": 212,
+   "reachable_from_index": true,
+   "consumers": [
+    "server/index.mjs"
+   ],
+   "tests": [
+    "agent-pane-ux.browser.py",
+    "agent-selection.browser.py",
+    "agent-store.test.mjs",
+    "asteria-simulator.browser.py",
+    "browser-appearance-checkpoint-live.py",
+    "browser-appearance-live.py",
+    "browser-checkpoints-live.py",
+    "browser-copilot-fixture.mjs",
+    "browser-copilot.browser.py",
+    "browser-copilot.test.mjs",
+    "browser-jev-live.py",
+    "browser-layout-customization-live.py",
+    "browser-plugins-live.py",
+    "browser-spatial-live.py",
+    "browser-style-live.py",
+    "browser-workspace-live.py",
+    "browser_workspace.py",
+    "bundle-schema.test.mjs",
+    "bundle-workspace.test.mjs",
+    "candidate-diff-review.browser.py",
+    "catalog-backend.test.mjs",
+    "checkpoint-preview.browser.py",
+    "chrome-customization.test.mjs",
+    "client-command.test.mjs",
+    "collab.test.mjs",
+    "command-palette.browser.py",
+    "conversation-library.browser.py",
+    "conversation-library.test.mjs",
+    "data-workbench.browser.py",
+    "desktop-icons.browser.py",
+    "docking-narrow.browser.py",
+    "docking-persistence.browser.py",
+    "docking-workspace.browser.py",
+    "document-creations.test.mjs",
+    "document-envelope-ui.browser.py",
+    "documents.browser.py",
+    "documents.test.mjs",
+    "everyday-ux.browser.py",
+    "experimental-workbench.browser.py",
+    "extension-studio.browser.py",
+    "extension-studio.test.mjs",
+    "feature-readiness.browser.py",
+    "feature-readiness.test.mjs",
+    "fixtures/schema11-store.mjs",
+    "fixtures/sqlite-crash-worker.mjs",
+    "fixtures/sqlite-store-helpers.mjs",
+    "grok-provider.test.mjs",
+    "grokbots-app.browser.mjs",
+    "hermes-plugin.test.mjs",
+    "host-surfaces.browser.py",
+    "interactive-results.browser.py",
+    "knowledge-search.browser.py",
+    "layout-bulk.test.mjs",
+    "layout-customization.test.mjs",
+    "managed-terminal-broker.test.mjs",
+    "managed-terminals.browser.py",
+    "mcp-apps.browser.py",
+    "mcp-apps.test.mjs",
+    "nous-theme.browser.py",
+    "orbit-docking.browser.py",
+    "output-library.browser.py",
+    "pane-workbench-mode.browser.py",
+    "pi-provider.test.mjs",
+    "plugin-customization.test.mjs",
+    "plugin-editors.browser.py",
+    "plugin-instances-policy.test.mjs",
+    "plugin-instances.browser.py",
+    "plugin-instances.test.mjs",
+    "plugins.test.mjs",
+    "project-files-adversarial.test.mjs",
+    "project-tools-migration.test.mjs",
+    "project-tools-review.test.mjs",
+    "project-tools.browser.py",
+    "project-tools.test.mjs",
+    "project-workbench.browser.py",
+    "project-workbench.test.mjs",
+    "recovery-policy-storage.test.mjs",
+    "recovery-policy.test.mjs",
+    "recovery-real-server.browser.py",
+    "recovery.browser.py",
+    "recovery.test.mjs",
+    "release-coherence.test.mjs",
+    "release-operations.test.mjs",
+    "release-package-launch.test.mjs",
+    "release-package-minimal.test.mjs",
+    "renderer-parity.browser.py",
+    "research-handoffs.browser.py",
+    "resource-delegation.test.mjs",
+    "resource-grants.browser.py",
+    "resource-identity.test.mjs",
+    "run-traces.browser.py",
+    "run-traces.test.mjs",
+    "runtime-continuity.browser.py",
+    "runtime-import.browser.py",
+    "saved-workspace-layouts-retention.test.mjs",
+    "saved-workspace-layouts.browser.py",
+    "saved-workspace-layouts.test.mjs",
+    "sqlite-backup-safety.test.mjs",
+    "sqlite-contention.test.mjs",
+    "sqlite-migration.test.mjs",
+    "sqlite-workspace-store.test.mjs",
+    "static-cache.test.mjs",
+    "technology-integration-agent.test.mjs",
+    "technology-workspace.browser.py",
+    "test_command_adapters.py",
+    "test_hermes_plugin.py",
+    "test_orbit_bundle.py",
+    "test_workspace_batch_limit_regression.py",
+    "test_workspace_contract.py",
+    "theme-chrome.browser.py",
+    "theme-icons.browser.py",
+    "theme-personalities.browser.py",
+    "theme-personality.test.mjs",
+    "theme-preset-switch.browser.py",
+    "theme-tokens.test.mjs",
+    "theme_fixture.py",
+    "themes.test.mjs",
+    "widget-feature-compatibility.test.mjs",
+    "window-count.test.mjs",
+    "workbench-artifact-cancel.browser.py",
+    "workbench-authority.test.mjs",
+    "workbench-ci-scope.test.mjs",
+    "workbench-context.browser.py",
+    "workbench-context.test.mjs",
+    "workbench-data.test.mjs",
+    "workbench-dependency-export-current.test.mjs",
+    "workbench-dependency-export-real.test.mjs",
+    "workbench-environments.test.mjs",
+    "workbench-evaluation-families.test.mjs",
+    "workbench-execution.browser.py",
+    "workbench-execution.test.mjs",
+    "workbench-fault-boundary.test.mjs",
+    "workbench-findings.test.mjs",
+    "workbench-journey.browser.py",
+    "workbench-live-diff.test.mjs",
+    "workbench-live-journey.browser.py",
+    "workbench-live.test.mjs",
+    "workbench-loop-execution.test.mjs",
+    "workbench-native.browser.py",
+    "workbench-native.test.mjs",
+    "workbench-patch-moving-target.test.mjs",
+    "workbench-patch.test.mjs",
+    "workbench-provenance.test.mjs",
+    "workbench-real-project-native.test.mjs",
+    "workbench-recovery-boundary.test.mjs",
+    "workbench-recovery-revocation.browser.py",
+    "workbench-registry-profile.test.mjs",
+    "workbench-reliability-browser-fixture.mjs",
+    "workbench-result-boundary.test.mjs",
+    "workbench-result.test.mjs",
+    "workbench-results-ui.browser.py",
+    "workbench-results.browser.py",
+    "workbench-sandbox-provider.test.mjs",
+    "workbench-sandbox-real.test.mjs",
+    "workbench-setup-proposal.test.mjs",
+    "workbench-setup-route.test.mjs",
+    "workbench-setup.browser.py",
+    "workbench-setup.test.mjs",
+    "workbench-status.test.mjs",
+    "workbench-terminal-boundary.test.mjs",
+    "workbench-workflow.test.mjs",
+    "workbench_setup_fixture.py",
+    "workspace-arrange-pending.test.mjs",
+    "workspace-arrange-plan.test.mjs",
+    "workspace-arrange.browser.py",
+    "workspace-arrangement-control.test.mjs",
+    "workspace-arrangements-migration.test.mjs",
+    "workspace-arrangements-retention.test.mjs",
+    "workspace-arrangements.browser.py",
+    "workspace-arrangements.test.mjs",
+    "workspace-commands.test.mjs",
+    "workspace-composition.test.mjs",
+    "workspace-contract-placement.test.mjs",
+    "workspace-contract.test.mjs",
+    "workspace-description.test.mjs",
+    "workspace-event-page.test.mjs",
+    "workspace-events-client.test.mjs",
+    "workspace-events.test.mjs",
+    "workspace-poll-backoff.test.mjs",
+    "workspace-protocol.test.mjs",
+    "workspace-receipts.test.mjs",
+    "workspace-recipe-import.test.mjs",
+    "workspace-release-acceptance.browser.py",
+    "workspace-schema12.test.mjs",
+    "workspace-store-placement.test.mjs",
+    "workspace-store-preserve-schema.test.mjs",
+    "workspace-store.browser.py",
+    "workspace-sync-policy.test.mjs",
+    "workspace.test.mjs",
+    "xpra-orbit.browser.py"
+   ],
+   "docs": [
+    "DYNAMIC_WORKSPACE_PLAN.md",
+    "SAVED_WORKSPACE_LAYOUTS.md",
+    "WORKSPACE_ARRANGEMENTS_API.md",
+    "WORKSPACE_CONTROL.md",
+    "WORKSPACE_EVENTS.md",
+    "WORKSPACE_OPERATIONS.generated.md",
+    "WORKSPACE_PROMPTS.md",
+    "WORKSPACE_STORE.md",
+    "WORKSPACE_USABILITY.md",
+    "WORKSPACE_VERIFICATION.md"
+   ]
+  }
+ },
+ "unreachable_from_index": [
+  "browser-copilot-route.mjs",
+  "checkpoints.mjs",
+  "host-api.mjs",
+  "host-recipes.mjs",
+  "mobile-proxy.mjs",
+  "mobile-security.mjs",
+  "run-traces-route.mjs",
+  "ssh-bootstrap.mjs",
+  "workspace-store.mjs"
+ ],
+ "apps": [
+  {
+   "slug": "rizzstack-observatory",
+   "loc": 1504,
+   "protected": true,
+   "builtin": false,
+   "classification": "KEEP-CORE",
+   "evidence": "Deployed Observatory: static catalog-admissible viewer for rizzstack.observability/snapshot/1 (fleet, usage, pipeline, backlog, health, alerts). Source in extensions/rizzstack-observatory; registration documented in its README; PROTECTED by owner directive \u2014 never modified or retired by this decomposition."
+  },
+  {
+   "slug": "grokbots",
+   "loc": 685,
+   "protected": false,
+   "builtin": true,
+   "classification": "KEEP-CORE",
+   "evidence": "Built-in multi-agent chat app, installed into the runtime at boot by server/builtin-apps.mjs and served content-addressed; backed by /api/grokbots-app family. Operator-facing multi-agent chat."
+  },
+  {
+   "slug": "hermes-live-tools",
+   "loc": 12,
+   "protected": false,
+   "builtin": false,
+   "classification": "KEEP-CORE",
+   "evidence": "Live tool-call viewer embedded in Activity panes; src/tool-feed.ts posts orbit:tool-feed events to its published bundle URLs. Ported deliberately per CORPUS_TRIAGE bucket 3."
+  },
+  {
+   "slug": "hermes-token-stats",
+   "loc": 5,
+   "protected": false,
+   "builtin": false,
+   "classification": "KEEP-PLATFORM",
+   "evidence": "Static token-telemetry viewer; scripts/token_widget_export.py (operator-host script reading the Hermes state DB) writes usage.json beside the deployed copy. Load-bearing on the deployed host, but its export script carries a hardcoded personal DB path \u2014 extraction candidate for owner tooling."
+  }
+ ],
+ "areas": [
+  {
+   "area": "apps",
+   "classification": "KEEP-CORE",
+   "note": "Four app bundles (one protected Observatory, one built-in, two small viewers)."
+  },
+  {
+   "area": "bin",
+   "classification": "KEEP-PLATFORM",
+   "note": "Two loopback CLIs: agent-status, collab-board."
+  },
+  {
+   "area": "config",
+   "classification": "KEEP-CORE",
+   "note": "orbit-config schema + hosts schema + agents example."
+  },
+  {
+   "area": "contracts",
+   "classification": "KEEP-CORE",
+   "note": "35 reviewed contract modules/schemas (13,108 LOC) \u2014 the API surface every family validates against."
+  },
+  {
+   "area": "contrib",
+   "classification": "KEEP-PLATFORM",
+   "note": "rizzstack-observability usage-ledger ingest (campaign infra; not portable-bundled)."
+  },
+  {
+   "area": "deploy",
+   "classification": "KEEP-PLATFORM",
+   "note": "Systemd units (7 Orbit services) + xpra/shared-browser/shared-desktop launchers."
+  },
+  {
+   "area": "docs",
+   "classification": "KEEP-PLATFORM",
+   "note": "131 documents / ~82.5k lines: reviewed feature contracts + agent guide; historical research/handoff docs are archival candidates."
+  },
+  {
+   "area": "examples",
+   "classification": "KEEP-PLATFORM",
+   "note": "Plugin/catalog examples."
+  },
+  {
+   "area": "experiments",
+   "classification": "KEEP-PLATFORM",
+   "note": "Isolated docking spikes (dockview/golden-layout, orbit-docking); research evidence, not shipped runtime."
+  },
+  {
+   "area": "extensions",
+   "classification": "PROTECTED",
+   "note": "extensions/rizzstack-observatory \u2014 Observatory source."
+  },
+  {
+   "area": "hermes-plugin",
+   "classification": "KEEP-CORE",
+   "note": "The distribution vehicle: Hermes plugin + pinned orbit-source.tar.gz archive (parity-tested)."
+  },
+  {
+   "area": "packages",
+   "classification": "KEEP-PLATFORM",
+   "note": "orbit-live-telemetry catalog app + reviewed Python backend."
+  },
+  {
+   "area": "pc-launcher",
+   "classification": "KEEP-PLATFORM",
+   "note": "7.5k LOC launcher/worker fleet + usage ledger scripts (campaign infra; PowerShell host tooling)."
+  },
+  {
+   "area": "plugin-catalog",
+   "classification": "KEEP-PLATFORM",
+   "note": "Reviewed community catalog metadata + removal list."
+  },
+  {
+   "area": "public",
+   "classification": "KEEP-CORE",
+   "note": "Independent recovery console (recovery.html/js/css) + icons/fonts/wallpapers/art assets."
+  },
+  {
+   "area": "scripts",
+   "classification": "KEEP-PLATFORM",
+   "note": "Build, publish, provision, contract-generation and release tooling; token_widget_export.py is operator-host-specific."
+  },
+  {
+   "area": "server",
+   "classification": "MIXED",
+   "note": "151 modules \u2014 classified per module in server_modules."
+  },
+  {
+   "area": "skills",
+   "classification": "KEEP-PLATFORM",
+   "note": "Two agent skills (setup-agent, report-subagent-progress)."
+  },
+  {
+   "area": "src",
+   "classification": "MIXED",
+   "note": "226 modules in six areas \u2014 classified per area in src_areas."
+  },
+  {
+   "area": "tests",
+   "classification": "KEEP-PLATFORM",
+   "note": "361 test files (~59.8k LOC) incl. browser suites; expensive CI is scoped by scripts/workbench_ci_scope.mjs."
+  },
+  {
+   "area": "vendor",
+   "classification": "KEEP-PLATFORM",
+   "note": "vendored irc-suite (3.7k LOC) \u2014 travels with the IRC surface extraction."
+  }
+ ],
+ "src_areas": [
+  {
+   "area": "renderer/pane-core",
+   "files": 22,
+   "loc": 4441,
+   "classification": "KEEP-CORE",
+   "modules": [
+    "main.ts",
+    "model.ts",
+    "windows.ts",
+    "panes.ts",
+    "scene.ts",
+    "viewport.ts",
+    "spatial-*.ts",
+    "docking-*.ts",
+    "connected-dom.ts",
+    "layout-*.ts",
+    "minimize.ts",
+    "pane-prefs.ts",
+    "compact-windows.ts"
+   ],
+   "evidence": "The desktop itself: stable pane IDs, Windows/Spatial/Focus rendering, docking opt-in."
+  },
+  {
+   "area": "workspace-state",
+   "files": 7,
+   "loc": 698,
+   "classification": "KEEP-CORE",
+   "modules": [
+    "workspace-client.ts",
+    "workspace-sync.ts",
+    "workspace-ops.ts",
+    "workspace-events.ts",
+    "workspace-history.ts",
+    "workspace-commands.ts",
+    "workspace-recipe-import.ts"
+   ],
+   "evidence": "Browser-side sync/ack/checkpoint/event cursor over the SQLite authority."
+  },
+  {
+   "area": "agent-chat",
+   "files": 29,
+   "loc": 4122,
+   "classification": "KEEP-CORE",
+   "modules": [
+    "agent-chat.ts",
+    "agent-pane-*.ts",
+    "chat-*.ts",
+    "conversation-*.ts",
+    "shared-agents.ts",
+    "hermes-*.ts",
+    "tool-feed.ts",
+    "context-budget.ts"
+   ],
+   "evidence": "Real Hermes chat UI, session library, shared rooms, live activity."
+  },
+  {
+   "area": "workbench",
+   "files": 30,
+   "loc": 7763,
+   "classification": "KEEP-CORE",
+   "modules": [
+    "workbench-*.ts",
+    "project-workbench.ts",
+    "project-tool-*.ts",
+    "candidate-diff-*.ts",
+    "build-queue.ts",
+    "automation-editor.ts",
+    "colab-orchestrator.ts",
+    "collab.ts"
+   ],
+   "evidence": "Task inbox/authority/results, review host, candidate diff, setup UI."
+  },
+  {
+   "area": "technology-surfaces",
+   "files": 44,
+   "loc": 4267,
+   "classification": "EXTRACT-PROPOSAL",
+   "modules": [
+    "search-*.ts",
+    "data-*.ts",
+    "duckdb-client.ts",
+    "document-*.ts",
+    "canvas-editor.ts",
+    "richdoc-editor.ts",
+    "interactive-result-*.ts",
+    "run-trace-*.ts",
+    "voice-*.ts",
+    "output-library*.ts",
+    "browser-copilot*.ts",
+    "mcp-apps-host.ts",
+    "xpra-apps.ts",
+    "irc.ts",
+    "jev-ui.ts"
+   ],
+   "evidence": "Lazy-loaded surface UIs; they follow their server services in the extraction plan. Exceptions: output-library UI stays with core Outputs surface."
+  },
+  {
+   "area": "desktop-chrome",
+   "files": 61,
+   "loc": 8495,
+   "classification": "KEEP-PLATFORM",
+   "modules": [
+    "theme-*.ts/css",
+    "taskbar.ts",
+    "desktop-icons.ts",
+    "orbit-menu.ts",
+    "orbit-settings.ts",
+    "settings.ts",
+    "onboarding*.ts",
+    "first-run.ts",
+    "hosts.ts",
+    "connection-passwords.ts",
+    "command-palette.ts",
+    "saved-workspace-layouts*.ts",
+    "workspace-arrange*.ts",
+    "plugin-*.ts",
+    "experimental.ts",
+    "shared-browser.ts",
+    "mobile*.ts",
+    "technology-*.ts",
+    "host-surfaces.ts",
+    "inline-tools.ts"
+   ],
+   "evidence": "Desktop chrome, themes, Start/menu, settings/onboarding, plugin manager."
+  },
+  {
+   "area": "other (integrations + shared)",
+   "files": 33,
+   "loc": 5550,
+   "classification": "MIXED",
+   "modules": [
+    "grokbots-bridge.ts (EXTRACT)",
+    "kitty-doom.ts/.css (RETIRE)",
+    "acdd-evidence-*.ts (KEEP-PLATFORM)",
+    "managed-terminals.ts (KEEP-CORE)",
+    "resource-grants.ts (KEEP-CORE)",
+    "extension-studio.ts (KEEP-CORE)",
+    "dom.ts/style.css (KEEP-CORE)",
+    "RETIRE-PROPOSAL orphans: browser-copilot-pane.ts, saved-workspace-layouts-grid.ts, agent-context.css"
+   ],
+   "evidence": "Cross-cutting integration UIs and shared primitives."
+  }
+ ],
+ "protected_surfaces": {
+  "observatory": {
+   "status": "protected-in-repo",
+   "paths": [
+    "apps/rizzstack-observatory/",
+    "extensions/rizzstack-observatory/",
+    "plugin-catalog/schema.json"
+   ],
+   "depends_on": [
+    "static app serving (/apps/*, content-addressed bundles)",
+    "plugin publisher + catalog admission",
+    "workspace store (only for plugin registration/checkpoints)"
+   ]
+  },
+  "rails_proxy": {
+   "status": "protected-external",
+   "in_repo": false,
+   "evidence": "Campaign surface operated outside this repository (rizzstack workflow; see docs/ACDD_EVIDENCE.md and the Observatory snapshot contract). Verified absent from server/, src/ and apps/ by string scan at base da82016."
+  },
+  "decision_queue": {
+   "status": "protected-external",
+   "in_repo": false,
+   "evidence": "Campaign receiver decision lives in the workflow/repository evidence per docs/ACDD_EVIDENCE.md \u00a7Campaign closeout; verified absent from this tree."
+  }
+ }
+}
