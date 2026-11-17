@@ -18,7 +18,7 @@ def included(name):
         'docs/REAL_PROJECT_EVALUATION.md', 'docs/REAL_PROJECT_EVALUATION_PREFLIGHT.md',
     )
 
-def build():
+def build(target=None):
     paths = subprocess.check_output(['git', 'ls-files', '-z'], cwd=ROOT).decode().split('\0')
     output = io.BytesIO()
     with tarfile.open(fileobj=output, mode='w', format=tarfile.PAX_FORMAT) as archive:
@@ -33,8 +33,15 @@ def build():
             info.size = len(data)
             info.mode = 0o644
             archive.addfile(info, io.BytesIO(data))
-    target = ROOT / 'hermes-plugin/orbit-source.tar.gz'
-    target.write_bytes(gzip.compress(output.getvalue(), mtime=0))
+    if target is None:
+        target = ROOT / 'hermes-plugin/orbit-source.tar.gz'
+    compressed = io.BytesIO()
+    # GzipFile keeps the container framing interpreter-independent: it always
+    # writes the OS=0xff header byte, unlike gzip.compress(mtime=0) whose
+    # Python 3.11+ zlib fast path writes OS=0x03.
+    with gzip.GzipFile(fileobj=compressed, mode='wb', mtime=0) as stream:
+        stream.write(output.getvalue())
+    target.write_bytes(compressed.getvalue())
     print(f'Bundled Orbit source: {target.name} ({target.stat().st_size} bytes)')
 
 if __name__ == '__main__':
