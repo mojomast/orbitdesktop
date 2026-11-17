@@ -289,13 +289,13 @@ export function parseEvidence(obj) {
   if (!phase) throw fail('evidence_invalid', 'Evidence record needs a phase.', 'missing_fields');
   const classification = text(obj.classification).trim();
   if (!classification) throw fail('evidence_invalid', 'Evidence record needs a classification.', 'missing_fields');
-  const contractSha256 = text(obj.contract_sha256).trim();
+  const contractSha256 = text(obj.contract_sha256);
   if (!contractSha256) throw fail('evidence_invalid', 'Evidence record needs a contract_sha256.', 'missing_fields');
 
   const producedBy = obj.produced_by && typeof obj.produced_by === 'object' && !Array.isArray(obj.produced_by)
     ? obj.produced_by
     : {};
-  const producedByRole = text(producedBy.role).trim();
+  const producedByRole = text(producedBy.role);
   if (!producedByRole) throw fail('evidence_invalid', 'Evidence record needs a produced_by.role.', 'missing_fields');
 
   const revision = text(obj.revision);
@@ -395,7 +395,7 @@ export function buildEvidenceView(contract, records = [], report = null, options
     };
   }
 
-  const notes = [];
+  const notes = ['These records describe past runs. No current code head is selected.'];
   const failures = [];
   const seenFailures = new Set();
   const addFailure = code => {
@@ -494,6 +494,13 @@ export function buildEvidenceView(contract, records = [], report = null, options
       addFailure('stale_revision');
       return;
     }
+    // Only a signed, full Git object ID identifies the commit tested. Neither
+    // the contract's baseline nor a short display prefix can substitute.
+    if (!/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(record.revision)) {
+      recordResults.push({ index, phase: record.phase, status: 'rejected', reason: 'invalid_revision' });
+      addFailure('evidence_invalid');
+      return;
+    }
     recordResults.push({ index, phase: record.phase, status: 'verified', reason: 'signature_verified' });
     counted.push(record);
   };
@@ -513,6 +520,7 @@ export function buildEvidenceView(contract, records = [], report = null, options
     phase: record.phase,
     classification: record.classification,
     result: phaseResult(record.phase, record),
+    revision: record.revision,
     shortRev: record.shortRev,
     at: record.at,
     by: record.by,
@@ -581,10 +589,10 @@ export function buildEvidenceView(contract, records = [], report = null, options
   ));
 
   let verificationState;
-  if (allRecordsInvalid) verificationState = 'invalid';
+  if (verificationAvailable && (hasRejectedRecord || reportRejected)) verificationState = 'rejected';
+  else if (allRecordsInvalid) verificationState = 'invalid';
   else if (!verificationAvailable) verificationState = 'unverified';
   else if (recordResults.length === 0) verificationState = 'unverified';
-  else if (hasRejectedRecord || reportRejected) verificationState = 'rejected';
   else if (!trustedReport || trustedReport.accepted !== true || !requiredPhasesVerified) verificationState = 'incomplete';
   else verificationState = 'verified';
 
@@ -619,7 +627,7 @@ export function toActivityItems(view) {
   const recorded = new Map();
   for (const [index, row] of view.timeline.entries()) {
     recorded.set(row.phase, row.result);
-    items.push({ kind: 'acdd', id: `${view.contractId}:record:${index}`, title: `ACDD ${row.phase}`, state: stateFor(row.result), text: `${row.phase}: ${row.result} (${row.classification})`, at: row.at });
+    items.push({ kind: 'acdd', id: `${view.contractId}:record:${index}`, title: `ACDD ${row.phase}`, state: stateFor(row.result), text: `${row.phase}: ${row.result} (${row.classification}) at ${row.revision}`, at: row.at });
   }
   for (const [phase, result] of Object.entries(view.phases ?? {})) {
     if (recorded.get(phase) === result || (!recorded.has(phase) && result === 'valid')) continue;

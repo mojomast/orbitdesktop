@@ -74,12 +74,15 @@ test('owner edits repository review list and inspects verifier chips, feed and p
       if(!r.ok) throw Error('Fixture board read failed'); return r.json();
     }}); document.body.append(view.element);
   },{identity,project_id,token:app.token});
-  await page.locator('.collab-card').filter({hasText:'Pricing'}).getByText('ACDD integration: integration_failed').waitFor();
+  const chip=page.locator('.collab-card').filter({hasText:'Pricing'}).getByText('ACDD · historical runs only');
+  await chip.waitFor(); assert.equal(await chip.getAttribute('data-verifier'),'pending');
   assert.equal(await page.locator('.collab-card').filter({hasText:'Legacy'}).locator('.collab-evidence-chip').count(),0);
   await page.locator('.collab-card').filter({hasText:'Other revision'}).getByText('ACDD · no verified record').waitFor();
   const feed=page.getByLabel('Verifier activity');
   for(const phase of ['red','green','refactor','integration']) assert.match(await feed.innerText(),new RegExp(`${phase}:`));
-  assert.match(await feed.locator('[data-verifier="pending"]').innerText(),/review: unrun/);
+  assert.equal(await feed.locator('[data-verifier="done"]').count(),0);
+  await feed.getByText(`Historical · green: valid (passed) at ${'a'.repeat(40)}`,{exact:true}).waitFor();
+  await feed.getByText('Historical · review: unrun (not run)',{exact:true}).waitFor();
   await page.evaluate(token=>hostViews.openAcddEvidence(token),app.token);
   await page.getByRole('button',{name:'Pricing fixture'}).click();
   await page.locator('.acdd-status-not-run').getByText('Not run').waitFor();

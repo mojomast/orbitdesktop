@@ -5,7 +5,7 @@ import { makeFixture, snapshot } from './fixtures/acdd-board.mjs';
 import { projectEvidence } from '../src/collab-evidence.ts';
 import { renderEvidencePanel } from '../src/acdd-evidence-panel.ts';
 
-test('real Orbit evidence GET projects only signed matching records into the chip, panel and feed', async t => {
+test('real Orbit evidence GET projects signed matching records as history on the board', async t => {
   const { root,ref } = makeFixture(t);
   const before = snapshot(root);
   const app = await boot(t,{ORBIT_ACDD_STATE_DIR:root});
@@ -19,8 +19,9 @@ test('real Orbit evidence GET projects only signed matching records into the chi
   assert.equal((await app.call('POST',route,{})).status,405);
   const {status,data} = await read(); assert.equal(status,200);
   const {chip,rows,state} = projectEvidence(ref,data);
-  assert.equal(chip,'ACDD integration: integration_failed'); assert.equal(state,'error');
-  assert.deepEqual(rows.slice(0,4).map(row=>row.text.split(':')[0]), ['red','green','refactor','integration']);
+  assert.equal(chip,'ACDD · historical runs only'); assert.equal(state,'pending');
+  assert.deepEqual(rows.slice(0,4).map(row=>row.text.split(':')[0]), ['red','green','refactor','integration'].map(phase => `Historical · ${phase}`));
+  assert.ok(rows.every(row => row.text.startsWith('Historical · ') && row.state !== 'done'));
   for (const code of ['scope_violation','tests_tampered','integration_failed']) assert.ok(rows.some(row => row.state === 'error' && row.text.includes(code)),code);
   assert.ok(rows.some(row => row.state === 'pending' && row.text.includes('unrun')));
   assert.match(renderEvidencePanel(data.view), /acdd-status-not-run[^]*?Not run/);

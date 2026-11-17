@@ -261,6 +261,23 @@ test('signed stale records are flagged and ignored for status', () => {
   assert.ok(v.failures.some(f => f.code === 'stale_revision'));
 });
 
+test('a historical run needs an intact signed full tested revision and exact contract and role', () => {
+  const { revision, ...noRevision } = GREEN;
+  for (const [candidate, reason] of [
+    [sign(noRevision), 'invalid_revision'],
+    [sign({ ...GREEN, revision: revision.slice(0, 12) }), 'invalid_revision'],
+    [{ ...GREEN, revision: SHA }, 'modified'],
+    [sign({ ...GREEN, contract_sha256: ` ${CSHA}` }), 'stale_contract'],
+    [sign({ ...GREEN, produced_by: { role: ' verifier ' } }), 'not_verifier'],
+  ]) {
+    const result = view([RED, candidate], completeReport());
+    assert.deepEqual(result.timeline.map(row => row.revision), [RED.revision]);
+    assert.equal(result.records[1].reason, reason);
+    assert.equal(result.accepted, false);
+    if (reason !== 'not_verifier') assert.equal(result.verificationState, 'rejected');
+  }
+});
+
 test('same digest and a verifier signature do not transfer evidence to another contract id', () => {
   const other = sign(rec('green','passed',{'AC-001':'passed'},{contract_id:'other'}));
   const result = view([other]);

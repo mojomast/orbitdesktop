@@ -205,11 +205,12 @@ async function readAcceptanceReport(stateDir, contractId) {
   let reportStat;
   try {
     reportStat = await lstat(path);
-  } catch {
-    return { present: false, report: null, unreadable: false };
+  } catch (error) {
+    if (isMissing(error)) return { present: false, report: null, unreadable: false };
+    return { present: true, report: null, unreadable: true };
   }
   if (!reportStat.isFile() || reportStat.size > MAX_REPORT_BYTES) {
-    return { present: false, report: null, unreadable: false };
+    return { present: true, report: null, unreadable: true };
   }
 
   let parsed;

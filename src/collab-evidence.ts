@@ -1,11 +1,11 @@
-// Owner-side projection of one exact contract revision. A task reference is
-// only a lookup key. No board state, note, report summary or worker label is
-// sufficient to synthesize a passing chip.
+// The task selects a contract revision, not a current code head. Even a
+// signed, accepted report can only supply history to this board.
 import type { AcddEvidenceView } from './acdd-evidence-panel.ts';
 
 export type ContractRef = { id: string; contract_sha256: string };
 export type FeedItem = { id: string; state: 'done' | 'pending' | 'error'; text: string };
-export type BoardEvidence = { chip: string; state: FeedItem['state']; rows: FeedItem[] };
+type BoardState = 'pending' | 'error';
+export type BoardEvidence = { chip: string; state: BoardState; rows: (FeedItem & { state: BoardState })[] };
 const neutral: BoardEvidence = { chip: 'ACDD · no verified record', state: 'pending', rows: [] };
 
 export function contractKey(ref?: ContractRef): string {
@@ -15,12 +15,16 @@ export function contractKey(ref?: ContractRef): string {
 
 export function projectEvidence(ref: ContractRef, response: {view?: AcddEvidenceView; items?: FeedItem[]}): BoardEvidence {
   const view = response?.view;
-  if (!view?.frozen || view.contractId !== ref.id || view.contractSha256 !== ref.contract_sha256 || !view.verification?.available) return neutral;
-  const latest = view.timeline.at(-1);
-  const rows = (response.items ?? []).filter(item => item.id !== `${ref.id}:summary`);
-  if (!latest) return { ...neutral, rows };
-  const state = latest.result === 'unrun' ? 'pending' : latest.ok ? 'done' : 'error';
-  return { chip: `ACDD ${latest.phase}: ${latest.result === 'valid' ? latest.classification : latest.result}`, state, rows };
+  if (!contractKey(ref) || view?.frozen !== true || view.contractId !== ref.id || view.contractSha256 !== ref.contract_sha256 || view.verification?.available !== true) return neutral;
+  if (view.verificationState === 'rejected') return { chip: 'ACDD · evidence rejected', state: 'error', rows: [] };
+  if (view.verificationState !== 'verified' && view.verificationState !== 'incomplete') return neutral;
+  if (!Array.isArray(view.timeline) || !view.timeline.length) return neutral;
+  return {
+    chip: 'ACDD · historical runs only', state: 'pending',
+    rows: (response.items ?? []).filter(item => item.id !== `${ref.id}:summary`).map(item => ({
+      id: item.id, text: `Historical · ${item.text}`, state: item.state === 'error' ? 'error' : 'pending',
+    })),
+  };
 }
 
 export async function readBoardEvidence(ref: ContractRef, token: string, signal: AbortSignal): Promise<BoardEvidence> {

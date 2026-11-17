@@ -1,6 +1,6 @@
 # ACDD evidence view (integration contract and plan)
 
-The read-only model, panel and owner evidence route from #26 are in the baseline. This development candidate also displays exact-revision evidence in the Collab board and its Activity list.
+The read-only model, panel and owner evidence route from #26 are in the baseline. The Collab board displays historical runs for a selected contract. It has no authenticated selection of the task's current code head.
 
 The protocol is defined in the workflow repo: [ACDD + TDD](https://github.com/mojomast/workflow/blob/main/docs/16-acdd-tdd.md). Execution and verification belong to [bundlebees](https://github.com/mojomast/bundlebees/blob/main/docs/ACDD.md). Orbit is the coordination interface: it **displays** contracts and verifier evidence and asks humans for the gates. It never decides acceptance, never re-classifies a test result and never runs its own orchestrator.
 
@@ -28,6 +28,7 @@ Rules the view enforces (all covered by the tests):
 - `produced_by.role` is only a label, never authority. A record must verify **and** say `produced_by.role == "verifier"` to count; unsigned, modified and worker records never count.
 - A modified or unsigned record that claims `produced_by.role == "verifier"` is a stolen label: it adds `evidence_tampered` and a note, and can never mark anything accepted.
 - Records whose `contract_sha256` differs from the frozen contract are flagged `stale_revision` and ignored for status.
+- A counted run must identify the commit actually tested in its signed `revision` (a full 40- or 64-digit lowercase hex Git object ID). The contract's `source_rev` is the baseline, not the tested commit or current head.
 - When a **verified** bundlebees acceptance report is present (`reports/<contract_id>.json`, HMAC-signed with the same key and matching the contract id and `contract_sha256`), its per-criterion status is shown as-is. An unsigned, wrongly signed or mismatched report is ignored and cannot set `accepted: true`.
 - Without a verified report, `accepted` is `false` and criteria/phases come from verified verifier records only.
 - Every displayed string goes through the existing activity redactor (`makeRedactor`), and the panel escapes HTML.
@@ -45,12 +46,12 @@ This matches `bundlebees_plugin/tdd.py` on `feat/acdd-tdd`:
 
 ## Verification states
 
-The view exposes exactly one overall `verificationState`, and `accepted` is true only when it is `verified`. No record label, report field, phase string or client input can set acceptance independently.
+The view exposes exactly one overall `verificationState`, and `accepted` is true only when it is `verified`. These fields describe the collected contract evidence; neither verifies the current code head.
 
 | State | Plain-language meaning | What produces it |
 |---|---|---|
 | `verified` | The evidence is verified and accepted. | A verified acceptance report with matching `contract_id` and `contract_sha256` and `accepted: true`, every phase in `contract.evidence_required` has a verified record, and nothing is rejected. |
-| `rejected` | Something failed verification. | Any rejected record (modified signature, stolen verifier label, stale contract sha) or a rejected report (bad/unsigned signature, `contract_id` or `contract_sha256` mismatch). |
+| `rejected` | Something failed verification. | Any rejected record (for example a modified signature, stale contract digest or missing full tested revision) or a rejected report (unreadable, bad signature or contract mismatch). With verification available, rejection takes precedence even when there are no usable run records. |
 | `invalid` | The contract or records cannot be read. | The contract is invalid, or every supplied record is invalid (unreadable JSON, wrong `evidence_version`, missing required fields). |
 | `unverified` | Verification could not be performed. | No usable lease key, or there are no evidence records at all. |
 | `incomplete` | Verification has not finished. | Nothing is rejected, but a required phase lacks a verified record, there is no verified report, or the verified report says `accepted: false`. |
@@ -75,8 +76,8 @@ Output of `buildEvidenceView`: `{contractId, title, shortSha, frozen, authority,
   
   The route never writes, and errors and responses never include the key, its path or other absolute host paths.
 - **Window:** a dark, read-only dialog (`src/acdd-evidence-window.ts`, `src/acdd-evidence.css`). Open it with **ACDD evidence** in the command palette (group Hermes) or the Hermes menu. It lists contracts, then shows `renderEvidencePanel` for the one you pick. It makes GET requests only, and there are no approve/merge buttons.
-- **Collab tracking boards:** a task may carry a reference `{id, contract_sha256}`. Use `--contract ID --contract-sha256 SHA` with `collab-board` `new` or `update`. The referenced chip reads `GET /api/acdd-evidence?contract=ID&sha=SHA`. Only the server-verified timeline for that id and full digest supplies its latest phase and classification. Missing records/revisions are neutral; legacy tasks need no reference. The board neither infers a contract from a job title nor converts a completed task into evidence.
-- **Board Activity / Task history:** shows the signed sequence (including repeated attempts), named failures and required phases still `unrun`. These are on-demand projections, not persisted workspace events. Reads are coalesced per revision, limited to four per board refresh, and normally refreshed after 30 seconds. No read writes the evidence tree or operates a human gate. Separate launcher cards without a bound contract are unchanged.
+- **Collab tracking boards:** a task may carry a reference `{id, contract_sha256}`. Use `--contract ID --contract-sha256 SHA` with `collab-board` `new` or `update`; `sha` in `GET /api/acdd-evidence?contract=ID&sha=SHA` pins the contract digest only. When the view has counted records the chip says **ACDD · historical runs only**, even for an accepted report. A rejected view instead shows **ACDD · evidence rejected** and withholds the feed. Unverified or missing evidence stays neutral; a task without a reference has no chip.
+- **Board Activity / Task history:** each run lists the full tested `revision` from the signed record. Run outcomes, report failures and `unrun` phases are labeled historical; a past pass is not styled as current success. Reads are coalesced per contract revision, limited to four per board refresh, and normally refreshed after 30 seconds. They do not write the evidence tree or operate a human gate.
 - **Local smoke:** `tests/acdd-live-smoke.test.mjs` starts Orbit on loopback, verifies access and records a before/after snapshot of the fixture tree. `tests/packets-ui.browser.mjs` mounts the actual owner UI modules in disposable Chromium against the same real routes. Run with `CHROMIUM_PATH` pointing to an already provisioned Chromium executable.
 
 ## Compatibility
