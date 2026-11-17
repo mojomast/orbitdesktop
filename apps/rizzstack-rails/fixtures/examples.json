@@ -1,0 +1,183 @@
+[
+  {
+    "schema": "rizzstack.rails/1",
+    "chain_id": "worker-1.ledger-example",
+    "seq": 1,
+    "event_id": "worker-1.ledger-example:1",
+    "dedupe_key": "launcher.att-example.run1.event17",
+    "source": {
+      "adapter": "launcher-log",
+      "instance": "worker-1",
+      "record_id": "att-example.event17",
+      "revision": "r1"
+    },
+    "scope": {
+      "repo": "mojomast/hyvv",
+      "campaign_id": "campaign-example",
+      "job_id": "job-example",
+      "task_id": "task-example",
+      "attempt_id": "att-example",
+      "session_id": null,
+      "action_id": null,
+      "contract_sha256": null,
+      "code_rev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "lane_id": "worker-1.att-example",
+    "parent_lane_id": "coordinator-1.job-example",
+    "parent_event_id": null,
+    "kind": "tool.finish",
+    "occurred_at": "2026-11-16T12:00:00.000000Z",
+    "recorded_at": "2026-11-16T12:00:01.000000Z",
+    "duration_ms": 2100,
+    "timing_quality": "measured",
+    "authority": "worker_report",
+    "payload": {
+      "call_id": "call-1",
+      "tool_name": "terminal",
+      "command_family": "pytest",
+      "outcome": "ok",
+      "summary": "Named test command completed",
+      "evidence_ref": "artifact-example"
+    },
+    "redaction_policy": "rails-safe/1",
+    "prev_hash": "genesis",
+    "hash": "936621efb751f3389217df99d83f920a054eb4f86888b7983f34d47eb9192631"
+  },
+  {
+    "schema": "rizzstack.rails/1",
+    "chain_id": "coordinator-1.ledger-example",
+    "seq": 1,
+    "event_id": "coordinator-1.ledger-example:1",
+    "dedupe_key": "verify.run1.ac001",
+    "source": {
+      "adapter": "bundlebees",
+      "instance": "coordinator-1",
+      "record_id": "verify-run1",
+      "revision": "r1"
+    },
+    "scope": {
+      "repo": "mojomast/hyvv",
+      "campaign_id": "campaign-example",
+      "job_id": "job-example",
+      "task_id": "task-example",
+      "attempt_id": "att-example",
+      "session_id": null,
+      "action_id": null,
+      "contract_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "code_rev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "lane_id": "coordinator-1.verify-run1",
+    "parent_lane_id": "coordinator-1.job-example",
+    "parent_event_id": null,
+    "kind": "verification.result",
+    "occurred_at": "2026-11-16T12:00:00.000000Z",
+    "recorded_at": "2026-11-16T12:00:01.000000Z",
+    "duration_ms": 2100,
+    "timing_quality": "measured",
+    "authority": "verifier_record",
+    "payload": {
+      "ac_id": "AC-001",
+      "contract_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "code_rev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "run_id": "run1",
+      "phase": "green",
+      "verdict": "PASS",
+      "evidence_refs": [
+        "verify-artifact-1"
+      ],
+      "reason": ""
+    },
+    "redaction_policy": "rails-safe/1",
+    "prev_hash": "genesis",
+    "hash": "858656b94916e32316327e2f2af560bf033a8b37b45c8142ce7e14b63581c35b"
+  },
+  {
+    "schema": "rizzstack.rails/1",
+    "chain_id": "coordinator-1.ledger-example",
+    "seq": 2,
+    "event_id": "coordinator-1.ledger-example:2",
+    "dedupe_key": "feedback.request1",
+    "source": {
+      "adapter": "owner-feedback",
+      "instance": "coordinator-1",
+      "record_id": "request1",
+      "revision": "r1"
+    },
+    "scope": {
+      "repo": "mojomast/hyvv",
+      "campaign_id": "campaign-example",
+      "job_id": "job-example",
+      "task_id": "task-example",
+      "attempt_id": "att-example",
+      "session_id": null,
+      "action_id": null,
+      "contract_sha256": null,
+      "code_rev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "lane_id": "coordinator-1.owner",
+    "parent_lane_id": null,
+    "parent_event_id": null,
+    "kind": "feedback.recorded",
+    "occurred_at": "2026-11-16T12:00:00.000000Z",
+    "recorded_at": "2026-11-16T12:00:01.000000Z",
+    "duration_ms": null,
+    "timing_quality": "unknown",
+    "authority": "owner_record",
+    "payload": {
+      "target_event_id": "worker-1.ledger-example:1",
+      "rating": -1,
+      "note": "Repeated the same command after its result was available.",
+      "category": "both",
+      "actor": "owner-1",
+      "supersedes_event_id": null
+    },
+    "redaction_policy": "rails-safe/1",
+    "prev_hash": "858656b94916e32316327e2f2af560bf033a8b37b45c8142ce7e14b63581c35b",
+    "hash": "b50e81a9e7798c28310d549d510cf15210670ccc1e0bfc2e3d1aa6c71e21fdcc"
+  },
+  {
+    "schema": "rizzstack.rails/1",
+    "chain_id": "coordinator-1.ledger-example",
+    "seq": 3,
+    "event_id": "coordinator-1.ledger-example:3",
+    "dedupe_key": "import.launcher-log.worker-1.head1",
+    "source": {
+      "adapter": "launcher-log",
+      "instance": "worker-1",
+      "record_id": "import-head-1",
+      "revision": "r1"
+    },
+    "scope": {
+      "repo": "mojomast/hyvv",
+      "campaign_id": "campaign-example",
+      "job_id": "job-example",
+      "task_id": "task-example",
+      "attempt_id": "att-example",
+      "session_id": null,
+      "action_id": null,
+      "contract_sha256": null,
+      "code_rev": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "lane_id": "coordinator-1.import",
+    "parent_lane_id": null,
+    "parent_event_id": null,
+    "kind": "source.checkpoint",
+    "occurred_at": "2026-11-16T12:00:02.000000Z",
+    "recorded_at": "2026-11-16T12:00:02.000000Z",
+    "duration_ms": null,
+    "timing_quality": "unknown",
+    "authority": "coordinator_record",
+    "payload": {
+      "source_id": "launcher-log:worker-1",
+      "cursor": "origin-seq-1",
+      "range_start": 1,
+      "range_end": 1,
+      "code": "import_ok",
+      "count": 1,
+      "digest": "936621efb751f3389217df99d83f920a054eb4f86888b7983f34d47eb9192631"
+    },
+    "redaction_policy": "rails-safe/1",
+    "prev_hash": "b50e81a9e7798c28310d549d510cf15210670ccc1e0bfc2e3d1aa6c71e21fdcc",
+    "hash": "7b15ddc318da4ed9359e9d198c5f81f6ff56e69df6aa25369b1069e8068d0ce1"
+  }
+]
