@@ -7,7 +7,6 @@ import socketserver
 import subprocess
 import sys
 import threading
-from uuid import uuid4
 
 import paramiko
 
@@ -52,11 +51,16 @@ class Fixture:
                     if len(raw)>8192:return
                     proc=subprocess.run([sys.executable,'-m','bundlebees_plugin.rails_owner_bridge',str(profile)],cwd=outer.bb,
                        env={'PATH':os.environ['PATH'],'HOME':str(root/'home')},input=raw,stdout=subprocess.PIPE,timeout=8)
-                    if json.loads(raw)['action']=='confirm' and json.loads(proc.stdout).get('ok') and outer.blackhole:
+                    result=json.loads(proc.stdout)
+                    if not result['ok']:print('Fixture writer refused:',result['code'],file=sys.stderr)
+                    if json.loads(raw)['action']=='confirm' and result['ok'] and outer.blackhole:
                         # Commit made it to the ledger; deliberately lose the first success reply.
                         outer.blackhole=False;ch.send_exit_status(1)
                     else:ch.sendall(proc.stdout);ch.send_exit_status(proc.returncode)
                     ch.shutdown_write();ch.close()
+                    # Let OpenSSH receive the exit status and complete channel
+                    # shutdown before the synthetic peer drops the transport.
+                    t.join(timeout=3)
         server=socketserver.ThreadingTCPServer(('127.0.0.1',0),Handler);server.daemon_threads=True
         thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
         cleanup.callback(server.server_close);cleanup.callback(thread.join);cleanup.callback(server.shutdown)
