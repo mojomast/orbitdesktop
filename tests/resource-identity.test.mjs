@@ -16,8 +16,9 @@ const format = '#{session_name}|#{session_id}|#{pane_id}|#{session_created}|#{pi
 
 // A disposable provider fixture, not an Orbit resource broker or a production API.
 async function privateTmux(t) {
-  const root = await mkdtemp(scratchPath('orbit-resource-identity-'));
-  const socket = `orbit-identity-${randomUUID()}`;
+  const root = await mkdtemp(scratchPath('ri-'));
+  // mkdtemp already distinguishes the two private fixtures. Keep the AF_UNIX path short.
+  const socket = path.basename(root);
   const env = {
     PATH: '/usr/bin:/bin',
     HOME: root,
