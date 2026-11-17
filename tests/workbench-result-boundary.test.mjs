@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 // Flash lane boundary regressions: native result delivery + provenance attribution.
 // Dedicated file so Sol can change production code without concurrent edits here.
 // Asserts the frozen contracts/workbench-result-v1.mjs interfaces. Baseline
@@ -26,7 +27,7 @@ const WRONG='export const sum = (a,b) => a - b;\n',RIGHT='export const sum = (a,
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
 
 function fixture(t,adapter={},now=Date.now){
-  const root=fs.mkdtempSync('/tmp/opencode/wrb-'),projectRoot=path.join(root,'project');
+  const root=fs.mkdtempSync(scratchPath('wrb-')),projectRoot=path.join(root,'project');
   fs.mkdirSync(projectRoot);fs.writeFileSync(path.join(projectRoot,'math.js'),WRONG);
   const store=new SqliteWorkspaceStore(path.join(root,'r')),workspace_id=randomUUID(),pane_id=randomUUID();
   store.commit(commandIdentity({workspace_id,action:'sync',base_revision:0,state:initial(),operation_id:randomUUID(),intent:'Boundary fixture'},'owner'),{create:()=>({id:workspace_id,revision:1,state:initial(),capability:randomUUID(),api:'http://127.0.0.1:4318'})});

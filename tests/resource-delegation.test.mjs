@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -11,7 +12,7 @@ import {boundedWorkspaceContext} from '../server/workspace-description.mjs';
 import {featureCapabilities} from '../contracts/feature-capabilities.mjs';
 const ws='11111111-1111-1111-1111-111111111111',other='22222222-2222-2222-2222-222222222222';
 async function fixture(t,longRoot=false){
-  const temp=fs.mkdtempSync('/tmp/opencode/agency-'),root=longRoot?`${temp}/${'long-runtime-name-'.repeat(8)}`:temp;fs.mkdirSync(root,{recursive:true,mode:0o700});let clock=Date.now(),hook=()=>{};
+  const temp=fs.mkdtempSync(scratchPath('agency-')),root=longRoot?`${temp}/${'long-runtime-name-'.repeat(8)}`:temp;fs.mkdirSync(root,{recursive:true,mode:0o700});let clock=Date.now(),hook=()=>{};
   const workspaceRead=async()=>{await hook();return {state:{monitors:[]}};};
   const knowledge=createKnowledgeSearch({root,workspaceRead}),documents=createDocumentsService({root,workspaceRead});
   let service=await createResourceDelegation({root,workspaceRead,knowledge,documents,now:()=>clock});

@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -19,7 +20,7 @@ import {initial} from '../src/model.ts';
 import {commandIdentity} from '../server/command-identity.mjs';
 
 function fixture(t){
-  const root=fs.mkdtempSync('/tmp/opencode/wsetup-'),projectRoot=path.join(root,'project');fs.mkdirSync(projectRoot);
+  const root=fs.mkdtempSync(scratchPath('wsetup-')),projectRoot=path.join(root,'project');fs.mkdirSync(projectRoot);
   fs.writeFileSync(path.join(projectRoot,'sum.test.mjs'),"import test from 'node:test'; import assert from 'node:assert/strict'; test('sum',()=>assert.equal(1+1,2));\n");
   const store=new SqliteWorkspaceStore(path.join(root,'r')),workspace_id=randomUUID(),pane_id=randomUUID();
   store.commit(commandIdentity({workspace_id,action:'sync',base_revision:0,state:initial(),operation_id:randomUUID(),intent:'Setup fixture'},'owner'),{create:()=>({id:workspace_id,revision:1,state:initial(),capability:randomUUID(),api:'http://127.0.0.1:4318'})});

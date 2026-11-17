@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -13,7 +14,7 @@ import {initial} from '../src/model.ts';
 import {commandIdentity} from '../server/command-identity.mjs';
 
 function fixture(t,{controlHeavy=false}={}){
-  const root=fs.mkdtempSync('/tmp/opencode/workbench-patch-'),projectRoot=path.join(root,'source');fs.mkdirSync(projectRoot);
+  const root=fs.mkdtempSync(scratchPath('workbench-patch-')),projectRoot=path.join(root,'source');fs.mkdirSync(projectRoot);
   fs.writeFileSync(path.join(projectRoot,'.gitignore'),'math.js\n');
   fs.writeFileSync(path.join(projectRoot,'.gitattributes'),'*.js -diff\n');
   fs.writeFileSync(path.join(projectRoot,'.env'),'owner-private fixture\n');

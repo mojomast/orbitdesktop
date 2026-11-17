@@ -261,6 +261,22 @@ test('signed stale records are flagged and ignored for status', () => {
   assert.ok(v.failures.some(f => f.code === 'stale_revision'));
 });
 
+test('same digest and a verifier signature do not transfer evidence to another contract id', () => {
+  const other = sign(rec('green','passed',{'AC-001':'passed'},{contract_id:'other'}));
+  const result = view([other]);
+  assert.deepEqual(result.timeline,[]);
+  assert.equal(result.phases.green,'unrun');
+});
+
+test('repeated verifier attempts each appear once; a final not_run remains pending', () => {
+  const later = sign(rec('green','not_run',{'AC-001':'not_run'}));
+  const result = view([RED,GREEN,later]);
+  const rows = toActivityItems(result).filter(row => row.id.includes(':record:'));
+  assert.deepEqual(rows.map(row => row.state), ['done','done','pending']);
+  assert.equal(result.phases.green,'unrun');
+  assert.equal(result.criteria[0].label,'Not run');
+});
+
 // AC-011: explicit overall verification states are mutually exclusive.
 test('verificationState is verified only for a verified report and every required phase', () => {
   const v = view([RED, GREEN, INTEGRATION], completeReport());

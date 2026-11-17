@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -163,7 +164,7 @@ test('bounded timeout, held capacity, provider failures and malformed identity h
 
 test('real private tmux remains unavailable without trusted incarnation tokens; missing lookup never creates', async (t) => {
   try { await exec('/usr/bin/tmux', ['-V'], { timeout: 1000 }); } catch { t.skip('tmux unavailable'); return; }
-  const root = await mkdtemp('/tmp/opencode/orbit-terminal-registry-');
+  const root = await mkdtemp(scratchPath('orbit-terminal-registry-'));
   const socket = `orbit-registry-${randomUUID()}`;
   const env = { PATH: '/usr/bin:/bin', HOME: root, XDG_CONFIG_HOME: root, TMUX_TMPDIR: root,
     SHELL: '/bin/bash', LC_ALL: 'C', TERM: 'xterm-256color' };

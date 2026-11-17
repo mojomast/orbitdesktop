@@ -5,6 +5,12 @@ A static, catalog-style Orbit app that renders one
 usage charts, the pipeline timeline, a backlog board mirror, a health strip and
 alert banners.
 
+In a connected Orbit shell, **Rails** beside a fleet attempt or pipeline job
+opens [Rizzstack Rails](../rizzstack-rails/README.md) on its public `attempt_id`
+or `job_id`. Choose **Inspect** in the shell to read. A row with no suitable
+ID shows a disabled button; closing the dialog restores row focus. This uses
+the existing snapshot/1 fields. The snapshot token does not authorize Rails.
+
 The served bundle lives at `apps/rizzstack-observatory/` (`index.html` +
 `app.js` + `styles.css`). It follows the plugin-catalog admission rules: a
 static bundle with `index.html` and relative assets only, no build or install
@@ -73,7 +79,8 @@ string or `{reason}`; `backlog.board` may be a column list, a
 - **Snapshot URL** resolution order: the `#orbit-config=` plugin config
   fragment field `snapshot_url` (highest), then the operator value saved in the
   app's Settings (localStorage key `rizzstack.observatory.snapshot_url`), then
-  the default `./snapshot.json` relative to the bundle.
+  the same-origin `/obs-snapshot` default. For a standalone bundle, set the
+  snapshot URL to `./snapshot.json` explicitly.
 - **Bearer token**: entered once by the operator in the in-app Settings dialog
   and stored only in localStorage key `rizzstack.observatory.token`. It is sent
   exclusively as the `Authorization: Bearer …` header of the snapshot request.

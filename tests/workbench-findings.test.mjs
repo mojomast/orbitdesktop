@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -13,7 +14,7 @@ import {initial} from '../src/model.ts';
 import {commandIdentity} from '../server/command-identity.mjs';
 
 function fixture(t,source="import test from 'node:test'; test('real',()=>{});"){
-  const root=fs.mkdtempSync('/tmp/opencode/wb-findings-'),projectRoot=path.join(root,'project');fs.mkdirSync(projectRoot);
+  const root=fs.mkdtempSync(scratchPath('wb-findings-')),projectRoot=path.join(root,'project');fs.mkdirSync(projectRoot);
   fs.writeFileSync(path.join(projectRoot,'proof.test.mjs'),source);
   fs.writeFileSync(path.join(projectRoot,'math.js'),'export const sum=(a,b)=>a+b;');
   const store=new SqliteWorkspaceStore(path.join(root,'private')),workspace_id=randomUUID();

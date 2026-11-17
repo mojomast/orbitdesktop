@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -14,7 +15,7 @@ import {initial} from '../src/model.ts';
 import {commandIdentity} from '../server/command-identity.mjs';
 
 function fixture(t,{dependency=false,source}={}){
-  const root=fs.mkdtempSync('/tmp/opencode/wb-loop-'),projectRoot=path.join(root,'project');fs.mkdirSync(projectRoot);
+  const root=fs.mkdtempSync(scratchPath('wb-loop-')),projectRoot=path.join(root,'project');fs.mkdirSync(projectRoot);
   fs.writeFileSync(path.join(projectRoot,'math.js'),'export const sum=(a,b)=>a-b;');
   let pkg={name:'fixture-project',version:'1.0.0',type:'module'};
   if(dependency){

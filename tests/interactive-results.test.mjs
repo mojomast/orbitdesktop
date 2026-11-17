@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -100,7 +101,7 @@ test("bounds fail closed before renderer work", () => {
   });
 });
 test("private library commits CAS and exact retry receipts; source identity/stream fences and reload", async () => {
-  const root = fs.mkdtempSync(path.join("/tmp/opencode", "interactive-store-")),
+  const root = fs.mkdtempSync(scratchPath("interactive-store-")),
     workspace = randomUUID();
   const service = createInteractiveResults({
     root,
@@ -198,7 +199,7 @@ test("private library commits CAS and exact retry receipts; source identity/stre
   }
 });
 test("independent writers serialize revision CAS, enforce library limit and refuse symlink paths", async () => {
-  const root = fs.mkdtempSync(path.join("/tmp/opencode", "interactive-cas-")),
+  const root = fs.mkdtempSync(scratchPath("interactive-cas-")),
     workspace = randomUUID();
   const make = () =>
     createInteractiveResults({ root, workspaceRead: () => ({}) });

@@ -5,7 +5,8 @@ import path from 'node:path';
 import { createOrbitConfig, ROUTER_IMAGES, DEFAULT_ROLE_BUDGETS } from '../server/orbit-config.mjs';
 
 const sentinel = 'sk-orbit-test-SENTINEL-9f3a';
-const root = () => fs.mkdtempSync('/tmp/opencode/orbit-config-');
+import { tmpdir } from 'node:os';
+const root = () => fs.mkdtempSync(path.join(tmpdir(), 'orbit-config-'));
 
 function provider(overrides = {}) {
   return {

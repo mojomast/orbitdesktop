@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
@@ -201,8 +201,12 @@ test('superseded attempt cannot overwrite the newer one', async () => {
   } finally { F.close(); }
 });
 
-test('real cua==0.5.0 SDK contract (no network, no Docker)', { skip: !process.env.PATH.split(':').some((d) => existsSync(path.join(d, 'uv'))) && 'uv not installed' }, async () => {
-  const r = spawnSync('uv', ['run', '-q', '--python', '3.12', '--with', 'cua==0.5.0', 'python', 'pc-launcher/tests/test_sdk_contract.py'], { encoding: 'utf8', timeout: 240000 });
+test('real cua==0.5.0 SDK contract (no network, no Docker)', { skip: !process.env.ORBIT_TEST_CUA_PYTHON && 'requires a provisioned Python with cua==0.5.0' }, async () => {
+  const python=process.env.ORBIT_TEST_CUA_PYTHON;
+  assert.ok(path.isAbsolute(python));
+  const version=spawnSync(python,['-I','-c','from importlib.metadata import version; print(version("cua"))'],{encoding:'utf8'});
+  assert.equal(version.stdout?.trim(),'0.5.0','provision cua==0.5.0 for the SDK contract');
+  const r = spawnSync(python, ['-I', 'pc-launcher/tests/test_sdk_contract.py'], { encoding: 'utf8', timeout: 240000 });
   assert.equal(r.status, 0, r.stderr.slice(-2000));
 });
 
@@ -258,9 +262,9 @@ test('control-plane hooks: dispatch.json pause holds new dispatch, running conti
     await lw.tick(); assert.equal(lw.get(b.attempt_id).state, 'queued', 'paused: no new dispatch');
     writeFileSync(path.join(cp, 'dispatch.json'), JSON.stringify({ paused: false }));
     await done(lw, b.attempt_id); assert.equal(lw.get(b.attempt_id).state, 'succeeded');
-    writeFileSync(path.join(cp, 'concurrency.json'), JSON.stringify({ nodes: { brrrrrrrr: 14 } }));
+    writeFileSync(path.join(cp, 'concurrency.json'), JSON.stringify({ nodes: { 'local-worker': 14 } }));
     assert.equal(lw.cap, 10, 'clamped to 10');
-    writeFileSync(path.join(cp, 'concurrency.json'), JSON.stringify({ nodes: { brrrrrrrr: 3 } }));
+    writeFileSync(path.join(cp, 'concurrency.json'), JSON.stringify({ nodes: { 'local-worker': 3 } }));
     assert.equal(lw.cap, 3);
     await lw.pump();
     const h = await (await fetch(L.url + '/v1/health', { headers: { Authorization: 'Bearer ' + TOKEN } })).json();

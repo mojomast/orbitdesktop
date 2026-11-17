@@ -11,7 +11,9 @@ import {
   MINIMAL_ROLES,
 } from '../server/orbit-config.mjs';
 
-const root = () => fs.mkdtempSync('/tmp/opencode/orbit-config-minimal-');
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+const root = () => fs.mkdtempSync(join(tmpdir(), 'orbit-config-minimal-'));
 const sentinel = 'sk-orbit-test-SENTINEL-min7';
 const local = { id: 'local', kind: 'openai-compatible', label: 'Local models', baseUrl: 'http://127.0.0.1:8000/v1' };
 const ALL_FOUR = ['setup', 'chat', 'workers', 'summarize'];

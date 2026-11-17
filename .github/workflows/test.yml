@@ -30,9 +30,12 @@ jobs:
           python-version: '3.11'
       - run: sudo apt-get update && sudo apt-get install -y tmux
       - run: npm ci
-      - name: Prepare isolated test scratch directory
-        run: mkdir -p /tmp/opencode
-      - run: npm run check
+      - name: Offline regression gate (isolated loopback, private home)
+        run: bash scripts/ci-offline-check.sh
+      - name: Rails HTTP and vendored source contracts
+        run: |
+          python3 tests/test_rails_vendor.py
+          python3 -m unittest discover -s tests -p test_rails_http.py -v
       - run: python3 -m unittest discover -s tests -p test_hermes_plugin.py -v
       - run: python3 -m unittest discover -s tests -p test_normal_resource_retention.py -v
       - name: Widget schema and publisher parity

@@ -59,6 +59,16 @@ export function acceptedHosts(port, devOrigins = [], listenHost = resolveListenH
 export function allowedRequest(req, port, devOrigins = []) {
   const { hosts, origins } = acceptedHosts(port, devOrigins);
   if (!hosts.has(req.headers.host)) return false;
+  // A same-origin browser GET omits Origin. Only the read-only evidence
+  // endpoint accepts this alternative; still require the owner bearer in
+  // its authorizer, same-origin fetch metadata, and an exact allowed origin.
+  if (req.method === 'GET' && req.url?.split('?')[0] === '/api/acdd-evidence' &&
+      req.headers.origin === undefined && req.headers['sec-fetch-site'] === 'same-origin') {
+    try {
+      const ref = new URL(req.headers.referer);
+      return ref.host === req.headers.host && origins.has(ref.origin);
+    } catch { return false; }
+  }
   return (
     typeof req.headers.origin === "string" && origins.has(req.headers.origin)
   );

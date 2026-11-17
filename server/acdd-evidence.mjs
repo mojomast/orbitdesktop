@@ -20,6 +20,8 @@ export const FAILURE_TEXT = Object.freeze({
   refactor_failed: 'The refactor verification did not pass.',
   integration_failed: 'The integration verification did not pass.',
   review_failed: 'The independent review did not pass.',
+  security_failed: 'The security verification did not pass.',
+  evidence_invalid: 'The evidence record is invalid.',
   evidence_tampered: 'The evidence record failed its integrity check.',
   unrun: 'This required check has not run yet.',
 });
@@ -322,7 +324,7 @@ function recordOk(record) {
 }
 
 function phaseResult(phase, record) {
-  if (!record) return 'unrun';
+  if (!record || ['not_run', 'unrun'].includes(record.classification)) return 'unrun';
   if (phase === 'red') {
     return record.classification === 'behavioral_failure' ? 'valid' : 'red_invalid';
   }
@@ -487,7 +489,7 @@ export function buildEvidenceView(contract, records = [], report = null, options
       notes.push(redact(`Only verifier output is authoritative; ignored the ${record.phase} record ${index + 1}.`));
       return;
     }
-    if (parsedContract.sha256 === null || record.contractSha256 !== parsedContract.sha256) {
+    if (!parsedContract.frozen || record.contractSha256 !== parsedContract.sha256 || raw.contract_id !== contract.id) {
       recordResults.push({ index, phase: record.phase, status: 'rejected', reason: 'stale_contract' });
       addFailure('stale_revision');
       return;
@@ -510,6 +512,7 @@ export function buildEvidenceView(contract, records = [], report = null, options
   const timeline = counted.map(record => ({
     phase: record.phase,
     classification: record.classification,
+    result: phaseResult(record.phase, record),
     shortRev: record.shortRev,
     at: record.at,
     by: record.by,
@@ -593,6 +596,7 @@ export function buildEvidenceView(contract, records = [], report = null, options
 
   return {
     contractId: parsedContract.id,
+    contractSha256: parsedContract.sha256,
     title: parsedContract.title,
     shortSha: parsedContract.shortSha,
     frozen: parsedContract.frozen,
@@ -611,14 +615,25 @@ export function buildEvidenceView(contract, records = [], report = null, options
 
 export function toActivityItems(view) {
   const items = [];
+  const stateFor = result => result === 'valid' ? 'done' : result === 'unrun' ? 'pending' : 'error';
+  const recorded = new Map();
+  for (const [index, row] of view.timeline.entries()) {
+    recorded.set(row.phase, row.result);
+    items.push({ kind: 'acdd', id: `${view.contractId}:record:${index}`, title: `ACDD ${row.phase}`, state: stateFor(row.result), text: `${row.phase}: ${row.result} (${row.classification})`, at: row.at });
+  }
   for (const [phase, result] of Object.entries(view.phases ?? {})) {
-    const state = result === 'valid' ? 'done' : result === 'unrun' ? 'pending' : 'error';
+    if (recorded.get(phase) === result || (!recorded.has(phase) && result === 'valid')) continue;
+    const state = stateFor(result);
     const text = result === 'valid'
       ? `${phase}: valid`
       : result === 'unrun'
-        ? `${phase}: not run`
+        ? `${phase}: unrun (not run)`
         : `${phase}: ${result} - ${failureText(result)}`;
     items.push({ kind: 'acdd', id: `${view.contractId}:${phase}`, title: `ACDD ${phase}`, state, text });
+  }
+  for (const failure of view.failures) {
+    if (Object.values(view.phases).includes(failure.code)) continue;
+    items.push({ kind: 'acdd', id: `${view.contractId}:failure:${failure.code}`, title: 'ACDD verification', state: 'error', text: `${failure.code}: ${failure.text}` });
   }
   items.push({
     kind: 'acdd',

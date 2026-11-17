@@ -30,7 +30,6 @@ const AGENT_ALIASES = Object.freeze({
 const WORKER_ALIASES = ['workers', 'workerPairing', 'worker_pairing', 'worker-pairing', 'localWorkers', 'local_workers', 'worker'];
 const APP_ALIASES = ['apps', 'optionalApps', 'optional_apps', 'optional-apps', 'optionalAppsComponent'];
 const ROUTER_ALIASES = ['router'];
-const LITELLM_ALIASES = ['litellmLocal', 'litellm_local', 'litellm-local', 'localLitellm', 'local_litellm'];
 const KNOWN_INSTALL_STATES = new Set(['pending', 'running', 'installed', 'failed', 'skipped', 'done', 'ready', 'unknown']);
 const ROLE_ORDER = ['setup', 'chat', 'workers', 'summarize', 'router', 'colab', 'apps'];
 const SECRET_LIKE = /\b(?:sk|pk|rk|ghp|gho|ghs|xox[a-z])[-_][A-Za-z0-9_-]{8,}\b/i;
@@ -121,7 +120,6 @@ function selectedComponents(config) {
     colab: pickComponent(components, ['colab'], false),
     apps: pickComponent(components, APP_ALIASES, false),
     router: pickComponent(components, ROUTER_ALIASES, false),
-    litellmLocal: pickComponent(components, LITELLM_ALIASES, false),
   };
 }
 
@@ -234,7 +232,6 @@ function chosenNames(selected) {
   if (selected.colab) names.push('colab');
   if (selected.apps) names.push('apps');
   if (selected.router) names.push('router');
-  if (selected.litellmLocal) names.push('local LiteLLM');
   return names;
 }
 
@@ -249,7 +246,7 @@ function roleLine(roles, keys) {
 
 function routerActive(config, selected) {
   const mode = typeof config?.providerMode === 'string' ? config.providerMode.trim().toLowerCase() : '';
-  return selected.router || selected.litellmLocal || mode === 'router' || config?.router?.enabled === true;
+  return selected.router || mode === 'router' || config?.router?.enabled === true;
 }
 
 function routingNotes(config, selected, router, roles) {
@@ -258,9 +255,7 @@ function routingNotes(config, selected, router, roles) {
     lines.push('Provider mode: direct. Each selected part uses the provider and model named in the role mapping; no local router runs.');
     return lines;
   }
-  if (selected.litellmLocal) {
-    lines.push(`Provider mode: router. The explicitly selected local LiteLLM proxy is the router endpoint at ${router.engine === 'litellm' ? `http://127.0.0.1:${DEFAULT_LITELLM_PORT}/v1` : router.baseUrl || 'the runtime-configured endpoint'}.`);
-  } else if (router.mode === 'external') {
+  if (router.mode === 'external') {
     lines.push(`Router mode: external. Point every router-backed agent at ${router.configured ? router.baseUrl : 'the external base URL configured in Orbit settings'}; Orbit does not start or supervise an external router.`);
   } else {
     lines.push(`Router mode: built-in (${router.engine === 'litellm' ? 'LiteLLM advanced' : 'Bifrost by default'}). Orbit's onboarding wizard and Settings call the router supervisor; the setup agent never starts the router itself and never asks for keys in chat.`);
@@ -270,28 +265,9 @@ function routingNotes(config, selected, router, roles) {
     const routed = [...roles.entries()].filter(([, entry]) => entry.provider === 'router');
     if (routed.length) lines.push(`Role models through the router: ${routed.map(([key, entry]) => `${key}=${entry.model}`).join(', ')}.`);
   }
-  lines.push('Each role gets its own virtual key (for example setup, chat, workers and summarize). Orbit stores it as a 0600 key file under the runtime key directory and injects the matching key into that role; masked status only is shown to the agent.');
+  lines.push(router.mode === 'external' ? 'Use the single external key reference; the external service manages limits.' : 'Built-in setup prepares a private virtual key per role with budget and rate-limit policy. Prepared configuration is not a verified installation.');
   lines.push('OpenCode free models stay direct to OpenCode. They cannot be fronted by the router; only paid or self-hosted OpenCode endpoints can use the router base URL.');
   return lines;
-}
-
-function litellmDetail(config) {
-  const providers = providerSummaries(config).map((provider) => provider.id).filter((id) => id !== 'router');
-  const names = providers.length ? providers.join(', ') : 'the upstream providers chosen in the wizard';
-  const envRefs = (providers.length ? providers : ['provider']).map((id) => envName(id)).join(', ');
-  return [
-    'This is an explicit advanced opt-in. Run it only after the person confirms this step.',
-    `Render runtime/router/litellm.yaml from the selected upstream providers (${names}) with key references only: ${envRefs}. Load those values from 0600 key files under the runtime key directory; never inline an upstream key.`,
-    'Generate a master key into a 0600 file under runtime/router and load it from the environment; never put the value on a command line.',
-    'Compose path: docker compose --profile router up -d router',
-    "npm path: pipx install 'litellm[proxy]' then litellm --config <runtime>/router/litellm.yaml --host 127.0.0.1 --port 4000",
-    'Then set providerMode to router and the router base URL to http://127.0.0.1:4000/v1 in the wizard, and record the step with PUT /api/onboarding/install-state.',
-  ].join('\n   ');
-}
-
-function envName(id) {
-  const name = String(id).toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
-  return `os.environ/${name || 'PROVIDER'}_API_KEY`;
 }
 
 function buildSteps(config) {
@@ -329,16 +305,7 @@ function buildSteps(config) {
     );
   }
 
-  if (selected.litellmLocal) {
-    add(
-      'litellmLocal',
-      'Install and start the explicitly selected local LiteLLM proxy',
-      'curl -fsS http://127.0.0.1:4000/health',
-      litellmDetail(config),
-    );
-  }
-
-  if (routerActive(config, selected) && !selected.litellmLocal) {
+  if (routerActive(config, selected)) {
     add(
       'router',
       'Confirm the built-in router state through Orbit settings',
@@ -395,7 +362,7 @@ function rosterHint(label, roles, activeRouter, router) {
   const line = roleLine(roles, keys) || roleLine(roles, ['chat']);
   const parts = [];
   if (line) parts.push(`Uses ${line}.`);
-  if (activeRouter) parts.push(`Route through ${router.mode === 'external' ? 'the external router base URL' : 'the router supervisor base URL'} and use that role's virtual key; never paste a key in chat.`);
+  if (activeRouter) parts.push(`For router-backed roles use ${router.mode === 'external' ? 'the external endpoint and its key reference' : 'the built-in endpoint and the role’s virtual key file'}; never paste a key in chat.`);
   return parts.join(' ');
 }
 

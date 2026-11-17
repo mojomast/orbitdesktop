@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -43,7 +44,7 @@ test('symlink and corrupt private sidecars fail closed', async () => {
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 test('existing insecure recipe directories and files fail closed without implicit chmod', async () => {
-  const root = fs.mkdtempSync('/tmp/opencode/orbit-recipes-mode-'), workspace_id = randomUUID();
+  const root = fs.mkdtempSync(scratchPath('orbit-recipes-mode-')), workspace_id = randomUUID();
   try {
     const store = createDataRecipes({ root, workspaceRead: () => ({}) });
     const dir = path.join(root, 'data-recipes'); fs.mkdirSync(dir, { mode: 0o700 }); fs.chmodSync(dir, 0o755);

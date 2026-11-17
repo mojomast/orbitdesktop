@@ -7,7 +7,8 @@ import { createOrbitConfig, defaultOrbitConfig } from '../server/orbit-config.mj
 import { createOnboardingApply } from '../server/onboarding-apply.mjs';
 
 const sentinel = 'sk-orbit-test-SENTINEL-apply-42';
-const root = () => fs.mkdtempSync('/tmp/opencode/orbit-onboarding-apply-');
+import { tmpdir } from 'node:os';
+const root = () => fs.mkdtempSync(path.join(tmpdir(), 'orbit-onboarding-apply-'));
 const local = { id: 'local', kind: 'openai-compatible', label: 'Local models', baseUrl: 'http://127.0.0.1:8000/v1' };
 const fourRoles = {
   setup: { provider: 'local', model: 'small' },

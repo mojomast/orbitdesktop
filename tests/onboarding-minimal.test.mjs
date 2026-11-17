@@ -14,7 +14,8 @@ import {
 import { createOnboardingApply } from '../server/onboarding-apply.mjs';
 import { defaultSetupMode, minimalComponents, overrideRole, clearRoleOverride, roleRows } from '../src/onboarding-roles.ts';
 
-const root = () => fs.mkdtempSync('/tmp/opencode/orbit-onboarding-minimal-');
+import { tmpdir } from 'node:os';
+const root = () => fs.mkdtempSync(path.join(tmpdir(), 'orbit-onboarding-minimal-'));
 const local = { id: 'local', kind: 'openai-compatible', label: 'Local models', baseUrl: 'http://127.0.0.1:8000/v1' };
 const sentinel = 'sk-orbit-test-SENTINEL-minimal-77';
 const ALL_ROLES = ['setup', 'chat', 'workers', 'summarize'];

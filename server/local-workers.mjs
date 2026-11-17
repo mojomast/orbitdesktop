@@ -69,7 +69,7 @@ export function manifestHash(brief) {
 
 export function createLocalWorkers({
   runtimeDir, launcherUrl, launcherToken, tokenFile, board, fetchImpl,
-  maxConcurrent = 1, node = 'brrrrrrrr', timeoutMs = 30000, connectTimeoutMs = 20000, now = () => Date.now(), log = () => {},
+  maxConcurrent = 1, node = 'local-worker', timeoutMs = 30000, connectTimeoutMs = 20000, now = () => Date.now(), log = () => {},
   retries = 2, retryBaseMs = 400, disconnectFails = 3, disconnectMs = 45000, sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
   artifactMaxBytes = 8 * 1024 * 1024,
 } = {}) {

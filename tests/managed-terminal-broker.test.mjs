@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises';
@@ -12,7 +13,7 @@ import { MANAGED_TERMINAL_LIMITS, MANAGED_TERMINAL_RELEASE_ACKNOWLEDGEMENT } fro
 
 const exec = promisify(execFile);
 async function fixture(t) {
-  const root = await mkdtemp('/tmp/opencode/broker-'), socket = 'broker-' + randomUUID(), paneId = randomUUID();
+  const root = await mkdtemp(scratchPath('broker-')), socket = 'broker-' + randomUUID(), paneId = randomUUID();
   const sessionName = 'pane-' + paneId;
   const env = { PATH: '/usr/bin:/bin', HOME: root, TMUX_TMPDIR: root, TERM: 'xterm-256color' };
   const run = (...args) => exec('/usr/bin/tmux', ['-L', socket, '-f', '/dev/null', ...args], { env, timeout: 3000 });
@@ -110,7 +111,7 @@ test('release clears owned markers after respawn, but refuses foreign markers', 
 });
 
 test('journal capacity denies a new operation before dispatch and retains replay receipts', async t => {
-  const root = await mkdtemp('/tmp/opencode/journal-capacity-');
+  const root = await mkdtemp(scratchPath('journal-capacity-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const entries = {};
   let i = 0;

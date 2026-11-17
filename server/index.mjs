@@ -47,6 +47,8 @@ import { createAgentStatus } from './agent-status.mjs';
 import { createCollabBoard } from './collab-board.mjs';
 import { createLocalWorkersRoute } from './local-workers-route.mjs';
 import { createAcddEvidenceRoute } from './acdd-evidence-route.mjs';
+import { createRailsProxy } from './rails-proxy.mjs';
+import { ownerRelay, fixedSshExchange } from './rails-owner-relay.mjs';
 const port = Number(process.env.PORT || 4318);
 if (!Number.isInteger(port) || port < 1024 || port > 65535)
   throw Error("PORT must be between 1024 and 65535");
@@ -142,6 +144,11 @@ const kittyDoom = createKittyDoomService({ token, port, devOrigins, reply });
 // Grok Bots app: capability-scoped list/history/send for the sandboxed app iframe.
 const agentStatus = createAgentStatus({ runtimeRoot });
 const acddEvidence = createAcddEvidenceRoute({ stateDir: process.env.ORBIT_ACDD_STATE_DIR || '', authorize: req => allowedRequest(req, port, devOrigins) && tokenMatches(String(req.headers.authorization || '').replace(/^Bearer /, ''), token) });
+const railsProxy = createRailsProxy({token, port, devOrigins, upstreamPort:process.env.ORBIT_RAILS_PORT,
+  readTokenFile:process.env.ORBIT_RAILS_READ_TOKEN_FILE,
+  ownerFeedback:ownerRelay({workspace:process.env.ORBIT_RAILS_FEEDBACK_WORKSPACE,workspaceRead:workspaceService.read,exchange:fixedSshExchange(process.env)})});
+// This renderer is reviewed release source, never a mutable runtime app slug.
+const railsAssets = new Map(Object.entries({'index.html':'text/html','styles.css':'text/css','app.js':'text/javascript','rails.js':'text/javascript','inspector.js':'text/javascript','feedback.js':'text/javascript'}));
 const grokBotsApp = createGrokBotsApp({ runtimeRoot, catalog: () => agentHandler.profileCatalog?.(), agentStatus, chats: () => agentHandler.gatewayChats?.(), workspaceContext: workspaceService.context });
 const agentHandler = createAgentHandler({ token, port, devOrigins, reply, workspaceContext: workspaceService.context, workspaceRead:workspaceService.read, runtimeDirectory:runtimeRoot,executionGate,onRunEvent:event=>observeTechnologyTrace(event,'observeAgentRunEvent'),onNormalAccepted:record=>normalResources?.normalAccepted(record),
   ...(!explicitHermes && discovered.hermes ? { apiUrl: null, apiKey: null, profiles: [{ id: "default", label: discovered.hermes.label, apiUrl: discovered.hermes.apiUrl, apiKey: discovered.hermes.apiKey }] } : {}),
@@ -344,6 +351,17 @@ async function handleOrbitRequest(req, res) {
   if (!allowedHosts.has(req.headers.host))
     return reply(res, 403, { error: "Host rejected" });
   const url = new URL(req.url, "http://localhost");
+  if(url.pathname.startsWith('/api/rizzstack/rails/')) return railsProxy(req,res);
+  if(url.pathname.startsWith('/rails-pane/')) {
+    const file=url.pathname.slice('/rails-pane/'.length);
+    if(req.method!=='GET'||!railsAssets.has(file)||url.search)return reply(res,404,{error:'not_found'});
+    try {
+      const bytes=await readFile(new URL(`../apps/rizzstack-rails/${file}`,import.meta.url));
+      res.writeHead(200,{'Content-Type':railsAssets.get(file),'Cache-Control':'no-store','X-Content-Type-Options':'nosniff',
+        'Referrer-Policy':'no-referrer',...(file==='index.html'?{'Content-Security-Policy':"sandbox allow-scripts; default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'"}:{'Access-Control-Allow-Origin':'*'})});
+      return res.end(bytes);
+    }catch{return reply(res,503,{error:'unavailable'});}
+  }
   if(url.pathname==='/api/technology-capabilities')return technologyCapabilities(req,res);
   if(Object.hasOwn(technologyHandlers,url.pathname))return technologyHandlers[url.pathname](req,res);
   if(url.pathname.startsWith('/vendor/')){
@@ -393,6 +411,8 @@ async function handleOrbitRequest(req, res) {
   if (url.pathname === '/api/grokbots-app/upload') return grokBotsApp.upload(req, res);
   if (url.pathname === '/api/agent-status') return agentStatus.handle(req, res);
   if (url.pathname === '/api/acdd-evidence') return acddEvidence.handle(req, res, url);
+  // /api/approvals deliberately falls through to the API 404. The Orbit
+  // bearer is not a workspace-bound BundleBees approval session (SECURITY.md).
   if (url.pathname === '/api/collab-board') return collabBoard.handle(req, res);
   if (url.pathname === '/api/local-workers') { if (localWorkers) return localWorkers.handle(req, res); res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end('{"error":"local workers disabled"}'); }
   if (url.pathname === "/api/health")

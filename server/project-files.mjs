@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {createHash,randomUUID} from 'node:crypto';
 import {execFile} from 'node:child_process';
@@ -131,7 +132,7 @@ function execFileRaw(file,args,options){
 // fsmonitor, external diff, aliases, includes, alternates or lazy fetch. Local
 // config/hooks/logs/info are excluded, linked worktrees are refused, and the
 // child Git/diff processes run under an address-space and CPU limit.
-export async function repositorySnapshot(project,capture,{scratchRoot='/tmp/opencode'}={}){
+export async function repositorySnapshot(project,capture,{scratchRoot=tmpdir()}={}){
   const unavailable=reason=>({state:'unavailable',reason,head:null,status:'',diff:'',snapshot_hash:null,base:null,exclusions:'Repository inspection is unavailable; the document project remains readable.'});
   if(process.platform!=='linux'||!fs.existsSync(PRLIMIT))return unavailable('Bounded child execution requires /usr/bin/prlimit on Linux; repository inspection is disabled');
   let root;

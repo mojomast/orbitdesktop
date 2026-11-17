@@ -19,7 +19,7 @@ export class BuildGuardError extends Error{
 }
 
 function splitRoots(value){return String(value??'').split(/[:,]/).map(entry=>entry.trim()).filter(Boolean);}
-function scratchBase(env){return env.ORBIT_BUILD_SCRATCH!==undefined?env.ORBIT_BUILD_SCRATCH:(fs.existsSync('/tmp/opencode')?'/tmp/opencode':os.tmpdir());}
+function scratchBase(env){return env.ORBIT_BUILD_SCRATCH!==undefined?env.ORBIT_BUILD_SCRATCH:os.tmpdir();}
 
 // Protected roots are explicit configuration plus the runtime/release environments
 // the served system uses. The default build never needs them because it targets an

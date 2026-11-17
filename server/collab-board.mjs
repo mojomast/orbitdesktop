@@ -74,7 +74,7 @@ export function createCollabBoard({ runtimeRoot, collab, groups, workspace }) {
       if (!action) throw fail('Use list, get, new, update, or checkin.', 400);
       const { link } = await boardFor(g, action === 'add');
       if (!link) throw fail('This group has no board entries yet. Create one with: collab-board <group> new "<title>" --as <you>.', 404);
-      const st = await collab()({ workspace_id: link.workspace, project_id: link.projectId, operation: 'board', title: b.title, spec: b.spec, status: b.status, note: b.note, owner: b.owner, task_id: b.entry, by: by || 'agent', board_action: action });
+      const st = await collab()({ workspace_id: link.workspace, project_id: link.projectId, operation: 'board', title: b.title, spec: b.spec, status: b.status, note: b.note, owner: b.owner, task_id: b.entry, by: by || 'agent', board_action: action, ...(b.contract === undefined ? {} : { contract: b.contract }) });
       const t = st.tasks.find(x => x.id === st.entry);
       return { group: g.id, board: link.projectId, entry: t ? entryView(t) : { id: st.entry } };
     });

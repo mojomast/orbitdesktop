@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -13,7 +14,7 @@ import { hash } from "../server/knowledge-chunker.mjs";
 const ws = "11111111-1111-1111-1111-111111111111",
   other = "22222222-2222-2222-2222-222222222222";
 function fixture(t) {
-  const root = fs.mkdtempSync("/tmp/opencode/knowledge-index-");
+  const root = fs.mkdtempSync(scratchPath("knowledge-index-"));
   let service;
   const open = () =>
     (service = createKnowledgeSearch({

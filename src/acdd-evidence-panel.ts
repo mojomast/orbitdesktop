@@ -3,6 +3,7 @@
 export interface AcddTimelineRow {
   phase: string;
   classification: string;
+  result?: string;
   shortRev: string | null;
   at: string;
   by: string;
@@ -40,6 +41,7 @@ export type AcddVerificationState = 'verified' | 'rejected' | 'invalid' | 'unver
 
 export interface AcddEvidenceView {
   contractId: string;
+  contractSha256?: string | null;
   title: string;
   shortSha: string | null;
   frozen: boolean;
@@ -122,7 +124,7 @@ export function renderEvidencePanel(view: AcddEvidenceView): string {
       const revision = row.shortRev ? ` · ${escapeHtml(row.shortRev)}` : '';
       const by = row.by ? ` · ${escapeHtml(row.by)}` : '';
       const at = row.at ? ` · ${escapeHtml(row.at)}` : '';
-      const state = row.ok ? '' : ' · not counted';
+      const state = row.result && row.result !== 'valid' ? ` · ${escapeHtml(row.result)}` : '';
       return `<li class="acdd-timeline-${escapeHtml(statusClass(row.phase))}">`
         + `<strong>${escapeHtml(row.phase)}</strong>: ${escapeHtml(row.classification)}`
         + `${revision}${by}${at}${state}</li>`;

@@ -1,24 +1,19 @@
-// Contract tests for the job approval surface route (server/approvals-route.mjs).
-// Red-first: while the route module is absent every test skips except the
-// loader test, so the first run fails on exactly one assertion.
-import { test } from 'node:test';
+// Isolated contract tests; imported by tests/approvals.test.mjs in ordinary CI.
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Readable } from 'node:stream';
-import { createHash, createHmac } from 'node:crypto';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
+import { createHash, createHmac, randomBytes } from 'node:crypto';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, statSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-let mod = null;
-try { mod = await import('./approvals-route.mjs'); } catch { mod = null; }
+import * as mod from './approvals-route.mjs';
 
-const seedParts = ['orbit', 'approvals', 'surface'];
-const signingSeed = seedParts.join('-');
-const envPiece = (...parts) => parts.join('_');
-const secretEnv = envPiece('BUNDLEBEES', 'APPROVAL', 'SECRET');
-const rootEnv = envPiece('BUNDLEBEES', 'APPROVALS', 'DIR');
-process.env[secretEnv] = signingSeed;
+const signingSeed = randomBytes(32).toString('hex');
+const token = randomBytes(32).toString('hex');
+const scratch = mkdtempSync(path.join(tmpdir(), 'approval-contract-'));
+after(() => rmSync(scratch, {recursive:true, force:true}));
 
 const BASE = '/api/approvals';
 const decisionUrl = (id) => [BASE, encodeURIComponent(id), 'decision'].join('/');
@@ -27,7 +22,7 @@ const hexDigest = (material) => createHash('sha256').update(material).digest('he
 let seq = 0;
 function freshRoot() {
   seq += 1;
-  return mkdtempSync(path.join(tmpdir(), ['appr', String(seq)].join('-') + '-'));
+  return mkdtempSync(path.join(scratch, 'store-'));
 }
 
 function approvalRequest(overrides = {}) {
@@ -50,7 +45,7 @@ function seedRequest(root, request) {
 
 function makeRoute(options = {}) {
   const root = options.root || freshRoot();
-  const instance = mod.createApprovalsRoute({ root, env: options.env || process.env, now: options.now, log: () => {} });
+  const instance = mod.createApprovalsRoute({ root, token, port:4318, key:signingSeed, ...options });
   return { root, instance };
 }
 
@@ -59,7 +54,7 @@ async function call(instance, { method = 'GET', url = BASE, body, raw, origin = 
   const req = Readable.from(payload);
   req.method = method;
   req.url = url;
-  req.headers = { host: '127.0.0.1:4318' };
+  req.headers = { host: '127.0.0.1:4318', authorization: `Bearer ${token}` };
   if (origin) req.headers.origin = origin;
   req.socket = { remoteAddress: remote };
   let status = 0;
@@ -80,8 +75,7 @@ test('approval surface route module loads with its factory', () => {
   assert.equal(typeof mod.bindingDigest, 'function');
 });
 
-test('pending list exposes id, timestamps, preview, binding digest and state', async (t) => {
-  if (!mod) return t.skip('route module absent');
+test('pending list exposes id, timestamps, preview, binding digest and state', async () => {
   const { root, instance } = makeRoute();
   const first = approvalRequest({ preview: 'Publish widget alpha' });
   const second = approvalRequest({ job: { action: 'deploy', target: 'edge' } });
@@ -111,8 +105,7 @@ test('pending list exposes id, timestamps, preview, binding digest and state', a
   assert.deepEqual(emptyList.data, { approvals: [], count: 0, generated_at: emptyList.data.generated_at });
 });
 
-test('detail exposes the job and refuses unknown or malformed identifiers', async (t) => {
-  if (!mod) return t.skip('route module absent');
+test('detail exposes the job and refuses unknown or malformed identifiers', async () => {
   const { root, instance } = makeRoute();
   const request = approvalRequest();
   seedRequest(root, request);
@@ -129,8 +122,7 @@ test('detail exposes the job and refuses unknown or malformed identifiers', asyn
   assert.equal(traversed.data.error, 'invalid_request');
 });
 
-test('approve writes an atomic 0600 receipt and flips the listed state', async (t) => {
-  if (!mod) return t.skip('route module absent');
+test('approve writes an atomic 0600 receipt and flips the listed state', async () => {
   const { root, instance } = makeRoute();
   const request = approvalRequest();
   seedRequest(root, request);
@@ -156,12 +148,11 @@ test('approve writes an atomic 0600 receipt and flips the listed state', async (
   assert.equal(detail.data.note, 'looks good to me');
 });
 
-test('decline writes an unsigned decline record', async (t) => {
-  if (!mod) return t.skip('route module absent');
+test('decline writes an unsigned decline record', async () => {
   const { root, instance } = makeRoute();
   const request = approvalRequest();
   seedRequest(root, request);
-  const sent = await call(instance, { method: 'POST', url: decisionUrl(request.id), body: { decision: 'decline' } });
+  const sent = await call(instance, { method: 'POST', url: decisionUrl(request.id), body: { decision: 'decline', binding:mod.bindingDigest(request) } });
   assert.equal(sent.status, 200);
   assert.equal(sent.data.ok, true);
   assert.equal(sent.data.state, 'declined');
@@ -178,8 +169,7 @@ test('decline writes an unsigned decline record', async (t) => {
   assert.equal(detail.data.signature, undefined);
 });
 
-test('expired approvals are refused for both decisions', async (t) => {
-  if (!mod) return t.skip('route module absent');
+test('expired approvals are refused for both decisions', async () => {
   const { root, instance } = makeRoute();
   const request = approvalRequest({ expires_at: new Date(Date.now() - 5000).toISOString() });
   seedRequest(root, request);
@@ -194,8 +184,7 @@ test('expired approvals are refused for both decisions', async (t) => {
   assert.ok(!existsSync(path.join(root, 'decisions', request.id + '.json')));
 });
 
-test('binding mismatches and forged records are refused without writing', async (t) => {
-  if (!mod) return t.skip('route module absent');
+test('binding mismatches and forged records are refused without writing', async () => {
   const { root, instance } = makeRoute();
   const request = approvalRequest();
   seedRequest(root, request);
@@ -218,8 +207,7 @@ test('binding mismatches and forged records are refused without writing', async 
   assert.equal(strayAttempt.data.error, 'invalid_record');
 });
 
-test('a second decision is refused with the recorded state', async (t) => {
-  if (!mod) return t.skip('route module absent');
+test('a second decision is refused with the recorded state', async () => {
   const { root, instance } = makeRoute();
   const first = approvalRequest();
   seedRequest(root, first);
@@ -234,14 +222,13 @@ test('a second decision is refused with the recorded state', async (t) => {
   assert.equal(flip.data.state, 'approved');
   const second = approvalRequest();
   seedRequest(root, second);
-  await call(instance, { method: 'POST', url: decisionUrl(second.id), body: { decision: 'decline' } });
+  await call(instance, { method: 'POST', url: decisionUrl(second.id), body: { decision: 'decline', binding:mod.bindingDigest(second) } });
   const late = await call(instance, { method: 'POST', url: decisionUrl(second.id), body: { decision: 'approve', binding: mod.bindingDigest(second) } });
   assert.equal(late.status, 409);
   assert.equal(late.data.state, 'declined');
 });
 
-test('receipt shape follows the canonical field set and signature rules', async (t) => {
-  if (!mod) return t.skip('route module absent');
+test('receipt shape follows the canonical field set and signature rules', async () => {
   assert.equal(mod.canonicalJson({ b: 1, a: [true, null, 'x'] }), '{"a":[true,null,"x"],"b":1}');
   assert.equal(mod.canonicalJson({ k: ['café'] }), '{"k":["caf\\u00e9"]}');
   const { root, instance } = makeRoute();
@@ -262,19 +249,18 @@ test('receipt shape follows the canonical field set and signature rules', async 
   assert.deepEqual(Object.keys(bareSent.data.receipt).sort(), ['approval_id', 'binding', 'decided_at', 'decision', 'signature']);
   const spaced = approvalRequest();
   seedRequest(root, spaced);
-  const spacedSent = await call(instance, { method: 'POST', url: decisionUrl(spaced.id), body: { decision: 'approve', note: '   ' } });
+  const spacedSent = await call(instance, { method: 'POST', url: decisionUrl(spaced.id), body: { decision: 'approve', binding:mod.bindingDigest(spaced), note: '   ' } });
   assert.deepEqual(Object.keys(spacedSent.data.receipt).sort(), ['approval_id', 'binding', 'decided_at', 'decision', 'signature']);
 });
 
-test('decision journal stays complete and no temp files linger', async (t) => {
-  if (!mod) return t.skip('route module absent');
+test('decision journal stays complete and no temp files linger', async () => {
   const { root, instance } = makeRoute();
   const approved = approvalRequest();
   const declined = approvalRequest();
   seedRequest(root, approved);
   seedRequest(root, declined);
   await call(instance, { method: 'POST', url: decisionUrl(approved.id), body: { decision: 'approve', binding: mod.bindingDigest(approved) } });
-  await call(instance, { method: 'POST', url: decisionUrl(declined.id), body: { decision: 'decline' } });
+  await call(instance, { method: 'POST', url: decisionUrl(declined.id), body: { decision: 'decline', binding:mod.bindingDigest(declined) } });
   const entries = readdirSync(path.join(root, 'decisions')).sort();
   assert.deepEqual(entries, [approved.id + '.json', declined.id + '.json', 'journal.jsonl'].sort());
   for (const name of entries) {
@@ -292,11 +278,9 @@ test('decision journal stays complete and no temp files linger', async (t) => {
   assert.equal(readFileSync(path.join(root, 'decisions', 'journal.jsonl'), 'utf8'), journal);
 });
 
-test('the signing secret is never returned or persisted', async (t) => {
-  if (!mod) return t.skip('route module absent');
-  const distinctSeed = ['vault', 'approval', String(Date.now())].join('-');
-  const env = { ...process.env, [secretEnv]: distinctSeed };
-  const { root, instance } = makeRoute({ env });
+test('the signing secret is never returned or persisted', async () => {
+  const distinctSeed = randomBytes(32).toString('hex');
+  const { root, instance } = makeRoute({ key: distinctSeed });
   const request = approvalRequest();
   seedRequest(root, request);
   const seen = [];
@@ -305,7 +289,7 @@ test('the signing secret is never returned or persisted', async (t) => {
   seen.push(await call(instance, { method: 'POST', url: decisionUrl(request.id), body: { decision: 'approve', binding: mod.bindingDigest(request) } }));
   seen.push(await call(instance, { method: 'POST', url: decisionUrl(request.id), body: { decision: 'approve', binding: mod.bindingDigest(request) } }));
   seen.push(await call(instance, { url: [BASE, ['ghost', String(seq)].join('-')].join('/') }));
-  const needles = [distinctSeed, secretEnv];
+  const needles = [distinctSeed, token];
   for (const response of seen) {
     for (const needle of needles) {
       assert.ok(!response.text.includes(needle), 'secret material must never appear in a response');
@@ -321,8 +305,7 @@ test('the signing secret is never returned or persisted', async (t) => {
   assert.equal(receipt.signature, createHmac('sha256', distinctSeed).update(mod.canonicalJson(fields), 'utf8').digest('hex'));
 });
 
-test('transport guards and body validation refuse bad decisions', async (t) => {
-  if (!mod) return t.skip('route module absent');
+test('transport guards and body validation refuse bad decisions', async () => {
   const { root, instance } = makeRoute();
   const request = approvalRequest();
   seedRequest(root, request);
@@ -332,7 +315,7 @@ test('transport guards and body validation refuse bad decisions', async (t) => {
   assert.equal(offsite.data.error, 'loopback_only');
   const stealth = await call(instance, { method: 'POST', url: decisionUrl(request.id), body: { decision: 'approve', binding }, origin: null });
   assert.equal(stealth.status, 403);
-  assert.equal(stealth.data.error, 'cross_origin_decision');
+  assert.equal(stealth.data.error, 'permission_denied');
   const evil = await call(instance, { method: 'POST', url: decisionUrl(request.id), body: { decision: 'approve', binding }, origin: 'http://evil.example' });
   assert.equal(evil.status, 403);
   const wrongMethod = await call(instance, { method: 'DELETE' });
@@ -357,52 +340,27 @@ test('transport guards and body validation refuse bad decisions', async (t) => {
   assert.equal(broken.data.error, 'invalid_request');
   const oversized = await call(instance, { method: 'POST', url: decisionUrl(request.id), raw: 'x'.repeat(70000) });
   assert.equal(oversized.status, 413);
-  const bareEnv = { ...process.env };
-  delete bareEnv[secretEnv];
-  const unlocked = makeRoute({ env: bareEnv });
+  const unlocked = makeRoute({ key: null });
   const hidden = approvalRequest();
   seedRequest(unlocked.root, hidden);
   const refused = await call(unlocked.instance, { method: 'POST', url: decisionUrl(hidden.id), body: { decision: 'approve', binding: mod.bindingDigest(hidden) } });
   assert.equal(refused.status, 503);
   assert.equal(refused.data.error, 'signing_unavailable');
   assert.ok(!existsSync(path.join(unlocked.root, 'decisions', hidden.id + '.json')));
-  const quiet = await call(unlocked.instance, { method: 'POST', url: decisionUrl(hidden.id), body: { decision: 'decline' } });
+  const quiet = await call(unlocked.instance, { method: 'POST', url: decisionUrl(hidden.id), body: { decision: 'decline', binding:mod.bindingDigest(hidden) } });
   assert.equal(quiet.status, 200);
   assert.equal(quiet.data.state, 'declined');
 });
 
-test('the approvals root can come from the configured environment', async (t) => {
-  if (!mod) return t.skip('route module absent');
-  const root = freshRoot();
-  const previous = process.env[rootEnv];
-  process.env[rootEnv] = root;
-  try {
-    const instance = mod.createApprovalsRoute({ env: process.env, log: () => {} });
-    const request = approvalRequest();
-    seedRequest(root, request);
-    const listed = await call(instance);
-    assert.equal(listed.status, 200);
-    assert.equal(listed.data.count, 1);
-    assert.equal(listed.data.approvals[0].id, request.id);
-  } finally {
-    if (previous === undefined) delete process.env[rootEnv];
-    else process.env[rootEnv] = previous;
-  }
+test('the factory requires a server-selected root and fails closed without an owner credential', async () => {
+  assert.throws(() => mod.createApprovalsRoute(), /per-workspace/);
+  const {instance} = makeRoute({token:undefined});
+  assert.equal((await call(instance)).status, 403);
 });
 
-test('the approvals page renders preview and digest without any secret', async (t) => {
-  if (!mod) return t.skip('route module absent');
+test('the legacy app is inert, with no owner token prompt or decision controls', () => {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const html = readFileSync(path.join(here, '..', 'apps', 'rizzstack-approvals', 'index.html'), 'utf8');
-  const script = readFileSync(path.join(here, '..', 'apps', 'rizzstack-approvals', 'app.js'), 'utf8');
-  assert.match(html, /<script[^>]*src="\.\/app\.js"/);
-  assert.match(html, /id="approval-list"/);
-  assert.match(script, /function escapeHtml/);
-  assert.match(script, /\/api\/approvals/);
-  assert.match(script, /'decision'/);
-  assert.match(script, /binding/);
-  for (const source of [html, script]) {
-    assert.ok(!source.includes(secretEnv), 'page must not reference the signing secret setting');
-    assert.ok(!source.includes(signingSeed), 'page must not embed the signing seed');
-  }
+  assert.match(html, /unavailable in Orbit/);
+  assert.doesNotMatch(html, /<(?:script|form|button|input)\b/i);
 });

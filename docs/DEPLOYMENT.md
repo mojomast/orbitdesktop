@@ -265,6 +265,17 @@ integration and acceptance status.
   runtime data and the owner-specific mobile proxy are excluded. Package and
   cleanup operations reject symlink/hardlink escapes; cleanup is restricted to
   an exact, marker-bound disposable release inventory.
+- The Hermes source tarball and full release packer also require the exact
+  product paths in `scripts/portable-product.json` (including the Rails pane,
+  offline Python reader and licenses, onboarding skill, router Compose profile
+  and digest-pinned worker pairing client). These named paths may be unstaged
+  during integration; neither packer discovers untracked files by walking a
+  directory. Review the members and bytes before publication. From the Orbit
+  checkout, regenerate with `python3 scripts/bundle_hermes.py` and verify with
+  `python3 -m unittest discover -s tests -p test_orbit_bundle.py`.
+  The portable launcher node alias defaults to `local-worker`. If an existing
+  installation used a machine-specific alias for its token file or concurrency
+  configuration, set `ORBIT_LOCAL_WORKERS_NODE` to that alias before upgrading.
 - Node dependencies remain external. The declared dependency root must be the
   root actually resolved from the physical release entrypoint; runtime package
   versions and Node ABI must match the pinned metadata. Merely setting

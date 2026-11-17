@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
@@ -18,7 +19,7 @@ const close = server => new Promise(resolve => { server.close(resolve); server.c
 const reply = (res,status,body) => { res.writeHead(status,{'Content-Type':'application/json'}); res.end(JSON.stringify(body)); };
 
 async function setup(t, {lost = false, legacy = false, durable = false, initial = {}, panes = [pane_id], messages = [{role:'user',content:'Earlier'},{role:'assistant',content:'Remembered'},{role:'system',content:'not context'}]} = {}) {
-  const directory = fs.mkdtempSync('/tmp/opencode/ordinary-submission-');
+  const directory = fs.mkdtempSync(scratchPath('ordinary-submission-'));
   const calls = [];
   const runs = new Map();
   let runStatus = 'running', postFault;

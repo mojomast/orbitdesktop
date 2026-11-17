@@ -22,7 +22,8 @@ test('collab-board creates a board-only project, adds entries, check-ins and sta
   const board = createCollabBoard({ runtimeRoot: dir, collab: () => operate, groups: () => groups, workspace: () => WS });
   try {
     assert.deepEqual((await board.op({ group: GID, op: 'list' })).entries, []);
-    const made = await board.op({ group: GID, op: 'new', title: 'Pizza Panic', by: 'hermes', status: 'doing' });
+    const ref = {id:'example',contract_sha256:'a'.repeat(64)};
+    const made = await board.op({ group: GID, op: 'new', title: 'Pizza Panic', by: 'hermes', status: 'doing', contract:{ ...ref, accepted:true } });
     assert.ok(group.board.projectId, 'the group links to its board');
     const id = made.entry.id;
     await board.op({ group: GID, op: 'checkin', entry: id, note: 'testing in the pane', by: 'pipi' });
@@ -34,6 +35,7 @@ test('collab-board creates a board-only project, adds entries, check-ins and sta
     await assert.rejects(board.op({ group: GID, op: 'checkin', entry: id, note: 'x', by: 'stranger' }), /handle/);
     const st = await operate({ workspace_id: WS, project_id: group.board.projectId, operation: 'state' });
     assert.equal(st.project.status, 'tracking');
+    assert.deepEqual(st.tasks[0].contract, ref);
     await assert.rejects(operate({ workspace_id: WS, project_id: group.board.projectId, operation: 'resume' }), /tracking board/);
     assert.equal(turns.length, 0);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }

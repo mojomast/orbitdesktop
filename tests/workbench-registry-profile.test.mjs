@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -29,7 +30,7 @@ test('TypeScript registry profile restricts toolchain, URLs and lock identity',(
 test('real RouteTok lock prepares offline in a private view and runs TypeScript with pinned dependencies',{
   skip:!process.env.ORBIT_ROUTETOK_TEST_SOURCE||!process.env.ORBIT_ROUTETOK_TEST_CACHE,timeout:120000,
 },async t=>{
-  const root=fs.mkdtempSync('/tmp/opencode/orbit-ts-profile-');
+  const root=fs.mkdtempSync(scratchPath('orbit-ts-profile-'));
   const store=new SqliteWorkspaceStore(path.join(root,'runtime'));t.after(()=>{store.close();fs.rmSync(root,{recursive:true,force:true});});
   const workspace_id=randomUUID();store.commit(commandIdentity({workspace_id,action:'sync',base_revision:0,state:initial(),operation_id:randomUUID()},'owner'),{create:()=>({id:workspace_id,revision:1,state:initial(),capability:randomUUID()})});
   const records=new WorkbenchStore(store),data=new WorkbenchData(store),source=process.env.ORBIT_ROUTETOK_TEST_SOURCE,opened=openProjectRoot(source);

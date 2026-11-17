@@ -14,8 +14,10 @@ Sources (compose; dedupe by ledger key across sources):
             lease, result, state, task_id, feature_id, job_id, schema,
             source_rev) live under "data", which the reader parses first, with
             a top-level "payload" object kept as a compatibility fallback.
-            Events without a usage payload are skipped with a counted reason,
-            never fabricated into records.
+            Hyvv's optional rizzstackusage object is an envelope sibling of
+            data. The reader accepts its canonical counts or, for older
+            events, a nested receipt-style usage payload. Events without token
+            counts are skipped with a counted reason.
 
 Stdlib only, no network: events, receipts, prices.json and the schema are read
 from disk paths only. Torn receipt writes (e.g. a half-written .result.json)
@@ -123,12 +125,24 @@ def _outbox_cycle(args, prices, status, records):
         return
     for event in info["events"]:
         status["outbox_events"] += 1
-        attempt_id, state, result, skip = _outbox_parts(event)
+        data = event.get("data")
+        block = event.get("rizzstackusage")
+        counts = (ledger.hyvv_token_counts(block) if event.get("type") == OUTBOX_EVENT_TYPE
+                  and isinstance(data, dict) else {})
+        if counts:
+            attempt_id = ledger._safe_text(data.get("attempt_id"))
+            skip = None if attempt_id else "missing_attempt_id"
+        else:
+            attempt_id, state, result, skip = _outbox_parts(event)
         if skip is not None:
             status["outbox_skipped"][skip] = status["outbox_skipped"].get(skip, 0) + 1
             continue
         try:
-            records.append(ledger.record_from_receipt(state, result, attempt_id, prices))
+            if counts:
+                record = ledger.record_from_hyvv(attempt_id, data, event.get("time"), block, counts)
+            else:
+                record = ledger.record_from_receipt(state, result, attempt_id, prices)
+            records.append(record)
         except ledger.ReceiptParseError:
             status["parse_errors"].append({"event": attempt_id or "unknown", "reason": "parse_failure"})
             continue
@@ -226,7 +240,7 @@ def _epoch_or_none(value):
 
 
 def _outbox_parts(event):
-    """Split one landed event into a receipt-like (attempt_id, state, result).
+    """Split a legacy receipt-style event into (attempt_id, state, result).
 
     Canonical landed events are CloudEvents envelopes whose facts live under
     "data" (attempt_id, backend, lease, result, state, task_id, feature_id,

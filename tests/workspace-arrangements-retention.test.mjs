@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -12,7 +13,7 @@ import {initial} from '../src/model.ts';
 import {commandIdentity} from '../server/command-identity.mjs';
 
 function fixture(t){
-  const root=fs.mkdtempSync('/tmp/opencode/arrangement-retention-'),runtime=path.join(root,'runtime'),source=path.join(root,'source');
+  const root=fs.mkdtempSync(scratchPath('arrangement-retention-')),runtime=path.join(root,'runtime'),source=path.join(root,'source');
   fs.mkdirSync(source);
   const workspace_id=randomUUID();let time=1000,store=new SqliteWorkspaceStore(runtime),records,data,arrangements;
   store.commit(commandIdentity({workspace_id,action:'sync',base_revision:0,state:initial(),operation_id:randomUUID()},'owner'),{create:()=>({id:workspace_id,revision:1,state:initial(),capability:randomUUID()})});

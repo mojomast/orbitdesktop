@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -17,7 +18,7 @@ import {
 
 const HASH_A = 'a'.repeat(24);
 const HASH_B = 'b'.repeat(24);
-const rootFor = name => fs.mkdtempSync(`/tmp/opencode/ol-${name}-`);
+const rootFor = name => fs.mkdtempSync(scratchPath(`ol-${name}-`));
 const reply = (res, status, data) => { res.writeHead(status, {'Content-Type': 'application/json'}); res.end(JSON.stringify(data)); };
 
 function request(body, {token = 'o'.repeat(40), origin = 'http://127.0.0.1:4318', host = '127.0.0.1:4318', method = 'POST', authorization} = {}) {

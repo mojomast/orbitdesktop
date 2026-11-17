@@ -20,6 +20,14 @@ has no delegated implementation the reply says so and names the supported surfac
 
 ## Current tools: prefer the built-in surface
 
+GitHub connection and the repository picker belong to the owner's setup UI. Do not ask for a GitHub token in chat. Selecting a name saves a local review preference, not permission for an agent to read that repository. For a Collab tracking card with a bound ACDD contract, its chip and Activity rows show verifier evidence for that revision; none grants approval to merge, release, deploy or publish.
+
+For an activity-history question, point the owner to **Rizzstack Rails** in Start,
+or **Rails** beside an Observatory attempt/job. The shell needs a connected host
+and configured Rails reader. The pane and workspace controller receive no Rails
+credential. Quality feedback is a local preview; retry is unavailable. See
+[Rails](../extensions/rizzstack-rails/README.md).
+
 For the synthetic Asteria task, a separately published **Asteria Mission Control**
 plugin can provide real scenario calculations and comparison. Reuse its installed
 window when present; see `docs/ASTERIA_MISSION_CONTROL.md`. It computes from bundled

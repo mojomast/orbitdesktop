@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -18,7 +19,7 @@ import {createWorkbenchBuildIdentity} from '../server/workbench-build-identity.m
 import {pathToFileURL} from 'node:url';
 const wait=()=>new Promise(resolve=>setTimeout(resolve,5));
 test('source recorder identity is a startup snapshot despite subsequent on-disk changes',t=>{
-  const root=fs.mkdtempSync('/tmp/opencode/sol-build-identity-'),server=path.join(root,'server'),contracts=path.join(root,'contracts');fs.mkdirSync(server);fs.mkdirSync(contracts);
+  const root=fs.mkdtempSync(scratchPath('sol-build-identity-')),server=path.join(root,'server'),contracts=path.join(root,'contracts');fs.mkdirSync(server);fs.mkdirSync(contracts);
   t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
   fs.writeFileSync(path.join(server,'one.mjs'),'export const value=1;');fs.writeFileSync(path.join(contracts,'one.mjs'),'export const contract=1;');
   const serverURL=pathToFileURL(server+'/'),contractURL=pathToFileURL(contracts+'/'),first=createWorkbenchBuildIdentity(serverURL,contractURL),identity=first();
@@ -30,7 +31,7 @@ async function privateCall(channel,args,seq){
   return new Promise((resolve,reject)=>{const req=http.request({socketPath:channel.socket,path:'/tool',method:'POST',headers:{'content-type':'application/json','x-orbit-grant':channel.grant_id,'x-orbit-sequence':String(seq),'x-orbit-mac':mac}},res=>{let body='';res.on('data',chunk=>body+=chunk);res.on('end',()=>resolve(JSON.parse(body)));});req.on('error',reject);req.end(raw);});
 }
 test('owner and authenticated native checks retain distinct initiator/authorizer/recorder through evidence finalization',async t=>{
-  const root=fs.mkdtempSync('/tmp/opencode/sol-provenance-'),projectRoot=path.join(root,'project');fs.mkdirSync(projectRoot);fs.writeFileSync(path.join(projectRoot,'math.js'),'export const sum = (a,b) => a - b;\n');
+  const root=fs.mkdtempSync(scratchPath('sol-provenance-')),projectRoot=path.join(root,'project');fs.mkdirSync(projectRoot);fs.writeFileSync(path.join(projectRoot,'math.js'),'export const sum = (a,b) => a - b;\n');
   const store=new SqliteWorkspaceStore(path.join(root,'runtime')),workspace_id=randomUUID(),pane_id=randomUUID();
   store.commit(commandIdentity({workspace_id,action:'sync',base_revision:0,state:initial(),operation_id:randomUUID(),intent:'Provenance'},'owner'),{create:()=>({id:workspace_id,revision:1,state:initial(),capability:randomUUID(),api:'http://127.0.0.1:4318'})});
   const records=new WorkbenchStore(store),opened=openProjectRoot(projectRoot),project=records.register(workspace_id,{root:projectRoot,name:'Provenance',identity:opened.identity});opened.close();

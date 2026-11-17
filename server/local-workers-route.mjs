@@ -5,9 +5,13 @@ import { timingSafeEqual } from 'node:crypto';
 import path from 'node:path';
 import { createLocalWorkers, collabBoardClient } from './local-workers.mjs';
 import { workerArtifact, DEFAULT_MAX_BYTES } from './local-worker-artifact.mjs';
+import { createWorkerJoinRoute } from './worker-join-route.mjs';
 
 export function createLocalWorkersRoute({ runtimeRoot, port, env = process.env, log = () => {} }) {
-  const node = env.ORBIT_LOCAL_WORKERS_NODE || 'brrrrrrrr';
+  // Mutually exclusive mode on the existing mount. No launcher, timer, board
+  // credential, executable brief or attempt ledger in this mode.
+  if (env.ORBIT_WORKER_JOIN_ONLY === '1') return createWorkerJoinRoute({ runtimeRoot, port, env });
+  const node = env.ORBIT_LOCAL_WORKERS_NODE || 'local-worker';
   const artifactMax = Number(env.ORBIT_WORKER_ARTIFACT_MAX_BYTES) > 0 ? Number(env.ORBIT_WORKER_ARTIFACT_MAX_BYTES) : DEFAULT_MAX_BYTES;
   const lw = createLocalWorkers({
     runtimeDir: runtimeRoot, node,

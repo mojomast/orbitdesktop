@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -6,7 +7,7 @@ import {execFileSync} from 'node:child_process';
 import {captureProject,openProjectRoot,readProjectFile,repositorySnapshot,PROJECT_LIMITS} from '../server/project-files.mjs';
 
 function fixture(t){
-  const home=fs.mkdtempSync('/tmp/opencode/git-snapshot-');
+  const home=fs.mkdtempSync(scratchPath('git-snapshot-'));
   t.after(()=>fs.rmSync(home,{recursive:true,force:true}));
   const root=path.join(home,'project');
   fs.mkdirSync(root);

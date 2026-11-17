@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -6,7 +7,7 @@ import { createMcpApps } from '../server/mcp-apps.mjs';
 const workspace_id='aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const snapshot={title:'Private',resource_uri:'ui://exact/resource',html:'<h1>Private</h1>',arguments:{},result:{content:[{type:'text',text:'Exact'}]}};
 test('private content-addressed snapshots recover exact results and refuse scope/identity/CAS drift',()=>{
- const root=fs.mkdtempSync(path.join('/tmp/opencode/','mcp-apps-unit-'));
+ const root=fs.mkdtempSync(scratchPath('mcp-apps-unit-'));
  try{
   const service=createMcpApps({root,workspaceRead:id=>id===workspace_id});
   const send=(action,fields={})=>service.dispatch({action,workspace_id,...fields});
@@ -29,7 +30,7 @@ test('sandbox origin configuration must be exact',()=>{
  for(const sandboxOrigin of ['https://example.com/path','file:///tmp/x','https://u:p@example.com'])assert.throws(()=>createMcpApps({root:'/unused',workspaceRead:()=>true,sandboxOrigin}));
 });
 test('retention is bounded and deleted snapshots cannot be recovered by identity',()=>{
- const root=fs.mkdtempSync(path.join('/tmp/opencode/','mcp-apps-retention-'));
+ const root=fs.mkdtempSync(scratchPath('mcp-apps-retention-'));
  try{
   const service=createMcpApps({root,workspaceRead:()=>true});
   const send=(action,fields={})=>service.dispatch({action,workspace_id,...fields});
@@ -51,7 +52,7 @@ test('retention is bounded and deleted snapshots cannot be recovered by identity
 });
 
 function privateFixture(run) {
- const root=fs.mkdtempSync(path.join('/tmp/opencode/','mcp-apps-fs-'));
+ const root=fs.mkdtempSync(scratchPath('mcp-apps-fs-'));
  const factory=()=>createMcpApps({root,workspaceRead:id=>id===workspace_id});
  const send=(action,fields={})=>factory().dispatch({action,workspace_id,...fields});
  const save=(value=snapshot)=>send('import',{snapshot:value,expected_revision:send('list').revision});

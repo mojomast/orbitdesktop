@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -14,7 +15,7 @@ import {commandIdentity} from '../server/command-identity.mjs';
 import {initial} from '../src/model.ts';
 import {validateTraceSpan,TRACE_LIMITS} from '../contracts/run-trace-v1.mjs';
 
-function fixture(t){const root=fs.mkdtempSync('/tmp/opencode/run-traces-test-');const workspaces=[randomUUID(),randomUUID()];let clock=1790810000000;
+function fixture(t){const root=fs.mkdtempSync(scratchPath('run-traces-test-'));const workspaces=[randomUUID(),randomUUID()];let clock=1790810000000;
   const service=createRunTraces({root,workspaceRead:id=>{if(!workspaces.includes(id))throw Error();return {id};},now:()=>clock});
   t.after(()=>{service.close();fs.rmSync(root,{recursive:true,force:true});});
   const binding={workspace_id:workspaces[0],profile_id:'default',session_id:'orbit-fixture',run_id:'run_fixture'};
@@ -85,7 +86,7 @@ test('Workbench attempt creation is an instant fact and actual native grant life
 });
 
 test('real WorkbenchData commit subscription projects actual records and isolates callback failure',t=>{
-  const root=fs.mkdtempSync('/tmp/opencode/run-traces-wb-');const store=new SqliteWorkspaceStore(root);const workspace=randomUUID();
+  const root=fs.mkdtempSync(scratchPath('run-traces-wb-'));const store=new SqliteWorkspaceStore(root);const workspace=randomUUID();
   store.commit(commandIdentity({workspace_id:workspace,action:'sync',base_revision:0,state:initial(),operation_id:randomUUID(),intent:'Fixture'},'owner'),{create:()=>({id:workspace,revision:1,state:initial(),capability:randomUUID(),api:'http://127.0.0.1:4318'})});
   const records=new WorkbenchStore(store);const project=records.register(workspace,{root:path.join(root,'project'),name:'Synthetic',identity:'synthetic'});const data=new WorkbenchData(store);
   const traces=createRunTraces({root,workspaceRead:id=>store.read(id),workbenchData:data});t.after(()=>{traces.close();store.close();fs.rmSync(root,{recursive:true,force:true});});

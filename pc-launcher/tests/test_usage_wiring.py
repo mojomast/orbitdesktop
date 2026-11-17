@@ -79,6 +79,25 @@ def write_event(directory, name, event):
     (directory / f"{name}.json").write_text(json.dumps(event), encoding="utf-8")
 
 
+def hyvv_event(attempt_id, usage):
+    """Local fixture for hyvv/docs/bee-landed.md; data.result is a reference."""
+    return {
+        "specversion": "1.0", "type": "rizzstack.bee.landed.v1", "source": "hyvv://worker-1",
+        "id": "urn:rizzstack:bee-landed:0123456789abcdef0123456789abcdef", "subject": attempt_id,
+        "time": "2026-11-14T12:34:56.789012Z", "datacontenttype": "application/json",
+        "dataschema": "https://rizstack.dev/schemas/bee-landed/v1", "rizzstackusage": usage,
+        "data": {
+            "schema": "rizzstack.bee-landed/1", "feature_id": "feat_1", "job_id": "job_1",
+            "task_id": "task_1", "attempt_id": attempt_id, "state": "succeeded",
+            "coordinator": {"identity": "orbit", "session": "sess_1"},
+            "backend": {"harness": "opencode", "model": "deepseek-v4.1-flash"},
+            "source_rev": "a" * 40, "lease": {"sha256": "b" * 64, "assigned_files": ["src/module.py"]},
+            "result": {"available": True, "artifact_sha256": "c" * 64,
+                       "reference": f"hyvv://attempts/{attempt_id}/result"},
+        },
+    }
+
+
 def landed_event(attempt_id, usage=None, *, model="deepseek-v4.1-flash", launcher="0.1.14",
                  fallback=None, brief=None, ts="2026-11-16T12:00:00Z", payload=None):
     payload = dict(payload or {})
@@ -330,6 +349,101 @@ class OutboxIngestTests(unittest.TestCase):
         extra += ["--ledger", str(self.ledger), "--prices", str(PRICES),
                   "--source", "outbox", "--outbox", str(outbox or self.outbox)]
         return tuple(extra)
+
+    def ingest(self, with_attempts=False):
+        result = run_service("once", *self.outbox_args(with_attempts=with_attempts))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        status = status_lines(result.stdout)[-1]
+        self.assertEqual(status["parse_errors"], [])
+        self.assertEqual(status["invalid_records"], 0)
+        return status
+
+    def test_hyvv_extension_records_only_named_observations_and_replays_once(self):
+        aid = "att_0123456789abcdef"
+        counts = {"input": 120, "output": 45, "cache_read": 0, "cache_write": 12,
+                  "reasoning": 8, "thinking": 5, "total": 195}
+        event = hyvv_event(aid, {**counts, "tool_calls": 0, "stop_reason": "end_turn",
+                                 "model": "deepseek-v4.1-flash", "route": "go",
+                                 "prompt": "private words", "cost_usd": 22, "daily_total": 999})
+        write_event(self.outbox, "one", event)
+        self.assertEqual(self.ingest()["added"], 1)
+        before = self.ledger.read_bytes()
+        self.assertEqual(self.ingest()["added"], 0)
+        self.assertEqual(self.ledger.read_bytes(), before)
+        record, = self.ledger_records()
+        self.assertTrue(ledger.validate_record(record, USAGE_SCHEMA))
+        self.assertEqual((record["key"], record["project"], record["run_id"], record["card_id"]),
+                         (f"attempt:{aid}", "feat_1", "job_1", "task_1"))
+        self.assertEqual((record["route"], record["route_source"], record["gen_ai.provider.name"]),
+                         ("go", "explicit", "opencode"))
+        self.assertEqual(record["requested_model"], "deepseek-v4.1-flash")
+        self.assertEqual((record["tool_calls"], record["stop_reason"]), (0, "end_turn"))
+        self.assertEqual(record["usage_status"], "known")
+        self.assertEqual(record["usage_raw"], counts)
+        self.assertEqual([record[k] for k in ("input_tokens", "output_tokens", "cache_read_tokens",
+                                              "cache_write_tokens", "reasoning_tokens")], [120, 45, 0, 12, 8])
+        self.assertEqual(record["gen_ai.usage.cache_read.input_tokens"], 0)
+        self.assertEqual(record["gen_ai.usage.reasoning.output_tokens"], 8)
+        self.assertIsNone(record["cost_usd_list"])
+        for omitted in (b"private words", b"daily_total", b"src/module.py", b"hyvv://"):
+            self.assertNotIn(omitted, before)
+
+    def test_hyvv_sparse_counts_remain_partial_and_unsupported_routes_unknown(self):
+        cases = [("free", {"total": 0}), ("agy", {"thinking": 5}), (None, {"cache_write": 0}),
+                 ("future", {"reasoning": 2}), ("zoo", {"input": 999_999_999}), ("deepseek", {"output": 1})]
+        for i, (route, counts) in enumerate(cases):
+            event = hyvv_event(f"att-{i}", {"model": "go:deepseek-flash", "stop_reason": "private words",
+                                           "tool_calls": True, **counts})
+            if route is not None:
+                event["rizzstackusage"]["route"] = route
+            write_event(self.outbox, str(i), event)
+        self.assertEqual(self.ingest()["added"], len(cases))
+        for record, (route, counts) in zip(self.ledger_records(), cases):
+            with self.subTest(route=route):
+                self.assertEqual(record["usage_status"], "partial")
+                self.assertEqual(record["usage_raw"], counts)
+                self.assertIsNone(record["stop_reason"])
+                self.assertIsNone(record["tool_calls"])
+                for name in ("input", "output", "cache_read", "cache_write", "reasoning"):
+                    self.assertEqual(record[name + "_tokens"], counts.get(name))
+                if route in ("zoo", "deepseek"):
+                    self.assertEqual((record["route"], record["provider"], record["route_source"]),
+                                     (route, route, "explicit"))
+                else:
+                    self.assertEqual((record["route"], record["provider"], record["billing_mode"]),
+                                     ("unknown", "unknown", "unknown"))
+                    self.assertIsNone(record["gen_ai.provider.name"])
+                self.assertEqual(record["cost_status"], "unknown")
+                self.assertIsNone(record["cost_usd_list"])
+
+    def test_hyvv_skips_invalid_usage_and_non_root_extension(self):
+        invalid = {"input": True, "output": "12", "cache_read": -1, "cache_write": 1.0,
+                   "reasoning": 1.5, "thinking": 10 ** 400, "total": 1_000_000_000}
+        for i, block in enumerate([invalid, {"route": "go", "tool_calls": 1, "input_tokens": 5},
+                                   json.dumps({"output": 1}), None]):
+            write_event(self.outbox, str(i), hyvv_event(f"att-{i}", block))
+        nested = hyvv_event("att-nested", {"total": 500})
+        nested["data"]["rizzstackusage"] = nested.pop("rizzstackusage")
+        write_event(self.outbox, "nested", nested)
+        write_event(self.outbox, "no-id", hyvv_event(None, {"input": 0}))
+        write_event(self.outbox, "mixed", hyvv_event("att-valid", {**invalid, "total": 0, "model": "/tmp/private"}))
+        status = self.ingest()
+        self.assertEqual(status["outbox_skipped"], {"unrelated_type": 0, "no_usage_payload": 5, "missing_attempt_id": 1})
+        record, = self.ledger_records()
+        self.assertEqual(record["usage_raw"], {"total": 0})
+        self.assertIsNone(record["requested_model"])
+
+    def test_receipt_wins_over_hyvv_extension_and_legacy_fallback_still_works(self):
+        write_receipt(self.attempts, "att-both", {"inputTokens": 17, "outputTokens": 2})
+        write_event(self.outbox, "new", hyvv_event("att-both", {"input": 90}))
+        legacy = landed_event("att-old", {"input_tokens": 4}, model="zoo:glm-5.3-flash")
+        legacy["rizzstackusage"] = {"route": "deepseek"}  # metadata alone is not usage
+        write_event(self.outbox, "old", legacy)
+        status = self.ingest(with_attempts=True)
+        self.assertEqual((status["outbox_records"], status["added"], status["skipped"]), (2, 2, 1))
+        both, old = self.ledger_records()
+        self.assertEqual(both["input_tokens"], 17)
+        self.assertEqual((old["route"], old["input_tokens"], old["cache_read_tokens"]), ("zoo", 4, 0))
 
     def test_outbox_landed_event_builds_schema_valid_ledger_record(self):
         write_event(self.outbox, "evt-1", landed_event(

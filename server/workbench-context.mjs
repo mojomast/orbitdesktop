@@ -265,7 +265,7 @@ export function createWorkbenchContext({store,records,data,hermes,execution,gate
     const privateProject=activeProject(workspace_id,project_id);
     const generation=privateProject.generation;
     const captured=captureProject(privateProject);
-    const scratchRoot=store?.root?path.join(store.root,'workbench-scratch'):'/tmp/opencode';
+    const scratchRoot=store?.root?path.join(store.root,'workbench-scratch'):undefined;
     const repository=await repositorySnapshot(privateProject,captured,{scratchRoot});
     generationGuard(workspace_id,project_id,generation)();
     if(repository.state!=='available')throw wbError('unsupported');

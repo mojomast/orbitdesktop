@@ -12,3 +12,4 @@
 .orbit-first-run-close:hover { background: #ffffff1c; }
 .orbit-first-run-body { flex: 1; min-height: 0; overflow: auto; padding: 16px 16px 32px; }
 .orbit-first-run-body > * { margin-inline: auto; max-width: 820px; }
+.orbit-first-run-body .orbit-setup-wizard { max-height: calc(100dvh - 100px); }

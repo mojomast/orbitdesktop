@@ -1,6 +1,7 @@
 import defaultFs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { roleFileBound } from './router-litellm-policy.mjs';
 
 /**
  * Orbit's single owner-facing configuration document.
@@ -37,7 +38,40 @@ const INSTALL_STATES = Object.freeze(['pending', 'installed', 'failed', 'skipped
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/;
 const ENV_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const KEY_FILE_PATTERN = /^[a-z0-9][a-z0-9._-]{0,96}\.key$/;
-const TOP_LEVEL = new Set(['schemaVersion', 'mode', 'defaultModel', 'providerMode', 'components', 'providers', 'roles', 'router', 'appliedAt', 'installState']);
+const TOP_LEVEL = new Set(['schemaVersion', 'mode', 'defaultModel', 'providerMode', 'components', 'providers', 'roles', 'router', 'observability', 'appliedAt', 'installState']);
+const OBSERVABILITY_FIELDS = new Set(['repos']);
+export const MAX_WATCHED_REPOS = 50;
+const REPO_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}$/;
+
+/**
+ * Normalise the observability watch list: trimmed `owner/name` entries,
+ * de-duplicated case-insensitively (first spelling wins), at most 50.
+ */
+export function normalizeRepoList(list) {
+  if (!Array.isArray(list)) throw invalid('observability.repos must be a list of owner/name repositories.');
+  const out = [];
+  const seen = new Set();
+  for (const raw of list) {
+    const name = typeof raw === 'string' ? raw.trim() : '';
+    const repoName = name.split('/')[1];
+    if (!REPO_PATTERN.test(name) || repoName === '.' || repoName === '..') {
+      throw invalid('Each repository must be owner/name (for example octo/hello-world).');
+    }
+    const key = name.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(name);
+  }
+  if (out.length > MAX_WATCHED_REPOS) throw invalid(`At most ${MAX_WATCHED_REPOS} repositories can be watched.`);
+  return out;
+}
+
+function normalizeObservability(value) {
+  if (value === undefined) return { repos: [] };
+  if (!isPlainObject(value)) throw invalid('observability must be an object.');
+  rejectUnknown(value, OBSERVABILITY_FIELDS, 'observability');
+  return { repos: value.repos === undefined ? [] : normalizeRepoList(value.repos) };
+}
 const PROVIDER_FIELDS = new Set(['id', 'kind', 'label', 'baseUrl', 'keyRef', 'privacyNote', 'routerType']);
 const ROLE_FIELDS = new Set(['provider', 'model']);
 const ROUTER_FIELDS = new Set(['enabled', 'mode', 'engine', 'image', 'bind', 'port', 'contentLogging', 'allowPrivateNetwork', 'upstreams', 'fallbacks', 'virtualKeys', 'external']);
@@ -116,6 +150,7 @@ export function defaultOrbitConfig() {
       router: false,
     },
     providers: [],
+    observability: { repos: [] },
     roles: {
       setup: { provider: '', model: '' },
       chat: { provider: '', model: '' },
@@ -232,7 +267,7 @@ function normalizeRouter(value) {
   }
   if (value.image !== undefined) {
     if (typeof value.image !== 'string' || !value.image.trim() || value.image.length > 300) throw invalid('router.image must be a pinned image reference.');
-    if (/(^|[:/])latest(@|$)/i.test(value.image)) throw invalid('router.image must never use the latest tag.');
+    if (value.image !== ROUTER_IMAGES[result.engine]) throw invalid('router.image must match the repository pin for the selected engine.');
     result.image = value.image.trim();
   }
   if (value.bind !== undefined) {
@@ -281,6 +316,7 @@ function normalizeRouter(value) {
       rejectUnknown(entry, VIRTUAL_KEY_FIELDS, where);
       if (typeof entry.role !== 'string' || !ID_PATTERN.test(entry.role)) throw invalid(`${where}.role is not a valid role id.`);
       const keyRef = normalizeKeyRef(entry.keyRef, `${where}.keyRef`, { fileOnly: true });
+      if (!ROUTER_ROLES.includes(entry.role) || keyRef.file !== `router-vk-${entry.role}.key`) throw invalid(`${where} requires the key file for its own role.`);
       const allowedModels = entry.allowedModels === undefined ? ['*'] : normalizeStringList(entry.allowedModels, `${where}.allowedModels`);
       const budgetValue = entry.budget ?? DEFAULT_ROLE_BUDGETS[entry.role] ?? { usd: 0, reset: '1mo' };
       if (!isPlainObject(budgetValue)) throw invalid(`${where}.budget must be an object.`);
@@ -308,6 +344,7 @@ function normalizeRouter(value) {
         expiresAt: entry.expiresAt ?? null,
       };
     });
+    if (new Set(result.virtualKeys.map(k => k.role)).size !== result.virtualKeys.length) throw invalid('Duplicate virtual-key role.');
   }
   if (value.external !== undefined) {
     const external = value.external;
@@ -317,6 +354,10 @@ function normalizeRouter(value) {
     if (external.baseUrl !== undefined) {
       if (typeof external.baseUrl !== 'string' || (external.baseUrl && !isHttpUrl(external.baseUrl))) throw invalid('router.external.baseUrl must be an http or https URL.');
       next.baseUrl = external.baseUrl.trim();
+      if (next.baseUrl) {
+        const url = new URL(next.baseUrl);
+        if (url.protocol !== 'https:' && !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)) throw invalid('Use HTTPS for a non-loopback external router.');
+      }
     }
     if (external.keyRef !== undefined) next.keyRef = normalizeKeyRef(external.keyRef, 'router.external.keyRef', { fileOnly: true });
     result.external = next;
@@ -443,7 +484,20 @@ export function validateOrbitConfig(value) {
     providers: normalizedProviders,
     roles,
     router,
+    observability: normalizeObservability(value.observability),
   };
+  if (router.enabled && router.mode === 'builtin') {
+    for (const [role, mapping] of Object.entries(resolveRoles(result))) {
+      if (mapping.provider === 'router' && !router.virtualKeys.some(key => key.role === role)) throw invalid(`Missing built-in router policy for ${role}.`);
+    }
+  }
+  const externalFile = router.external.keyRef.file;
+  if (externalFile.startsWith('router-vk-')) throw invalid('External router cannot use a built-in role key.');
+  for (const p of normalizedProviders) {
+    if (p.kind === 'router') continue;
+    if (p.id === 'router') throw invalid('The router id is reserved for the token router.');
+    if ([`${p.id}.key`, p.keyRef?.file].some(file => file && (file.startsWith('router-vk-') || file === externalFile))) throw invalid('Provider key collides with a router credential.');
+  }
   if (installState !== undefined) result.installState = installState;
   if (value.appliedAt !== undefined) result.appliedAt = value.appliedAt;
   return result;
@@ -595,11 +649,10 @@ export function createOrbitConfig({ runtimeDir, env = process.env, fs = defaultF
   }
 
   function effectiveKeyRef(provider, config) {
-    if (provider?.keyRef) return provider.keyRef;
-    if (provider?.kind === 'router' && config?.router?.enabled && config.router.mode === 'external') {
-      return config.router.external?.keyRef ?? null;
+    if (provider?.kind === 'router') {
+      return config?.router?.enabled && config.router.mode === 'external' ? config.router.external.keyRef : null;
     }
-    return null;
+    return provider?.keyRef ?? null;
   }
 
   function readKeyValue(provider, config) {
@@ -706,6 +759,7 @@ export function createOrbitConfig({ runtimeDir, env = process.env, fs = defaultF
         model: mapping.model,
       };
       if (provider.kind === 'router' && config.router.enabled) {
+        if (config.router.mode === 'builtin' && !roleFileBound(runtime, config.router, role, mapping, fs)) continue;
         const file = config.router.mode === 'external'
           ? config.router.external?.keyRef?.file
           : (config.router.virtualKeys.find(entry => entry.role === role)?.keyRef?.file ?? `router-vk-${role}.key`);

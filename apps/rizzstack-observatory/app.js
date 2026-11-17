@@ -11,7 +11,8 @@
   const SNAPSHOT_SCHEMA = 'rizzstack.observability/snapshot/1';
   const TOKEN_STORAGE_KEY = 'rizzstack.observatory.token';
   const URL_STORAGE_KEY = 'rizzstack.observatory.snapshot_url';
-  const DEFAULT_SNAPSHOT_URL = '/obs-snapshot'; // same-origin proxy; token injected server-side
+  const DEFAULT_SNAPSHOT_URL = './snapshot.json'; // portable standalone bundle
+  const ORBIT_SNAPSHOT_URL = '/obs-snapshot'; // Orbit injects the collector credential server-side
   const CONFIG_FRAGMENT_PREFIX = '#orbit-config=';
   const STALE_AFTER_MS = 10 * 60 * 1000;
   const REFRESH_INTERVAL_MS = 30000;
@@ -188,6 +189,7 @@
     const stateText = state == null ? 'unknown' : String(state);
     return {
       id: String(id),
+      railsId: raw.attempt_id,
       branch: branch == null ? '' : String(branch),
       model: model == null ? '' : String(model),
       state: stateText,
@@ -526,6 +528,7 @@
         .concat(jobBlockerRows.map(reasonText)).filter(Boolean).join('; ');
       jobs.push({
         id,
+        railsId: raw.job_id,
         title: String(pick(raw, ['title', 'name', 'summary']) ?? '') || id,
         state,
         stateClass: explicit != null ? stateClass(state) : aggregated.stateClass,
@@ -933,6 +936,8 @@
     const fragmentConfig = readConfigFragment(opts.fragment);
     const fragmentUrl = typeof fragmentConfig.snapshot_url === 'string' && fragmentConfig.snapshot_url.trim() ? fragmentConfig.snapshot_url.trim() : null;
     const storedUrl = typeof opts.storedUrl === 'string' && opts.storedUrl.trim() ? opts.storedUrl.trim() : null;
+    // The portable resolver works for a standalone static snapshot; the Orbit
+    // bootstrap supplies its same-origin collector proxy below.
     const fallback = typeof opts.fallbackUrl === 'string' && opts.fallbackUrl.trim() ? opts.fallbackUrl.trim() : DEFAULT_SNAPSHOT_URL;
     const snapshotUrl = fragmentUrl || storedUrl || fallback;
     return { snapshotUrl, source: fragmentUrl ? 'config' : storedUrl ? 'operator' : 'default' };
@@ -1010,11 +1015,16 @@
     ).join('') + '</ul>';
   }
 
+  function railsLink(kind, id) {
+    if(typeof id!=='string'||!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$/.test(id))return '<button type="button" disabled title="No public '+kind+'_id in this snapshot row">Rails unavailable</button>';
+    return '<button type="button" data-rails-kind="'+kind+'" data-rails-id="'+escapeHtml(id)+'" aria-label="Inspect Rails for '+kind+' '+escapeHtml(id)+'">Rails</button>';
+  }
+
   function renderFleet(rows) {
     if (!rows || !rows.length) return '';
     return rows.map(row =>
       '<tr>' +
-      '<td class="mono">' + escapeHtml(row.id) + '</td>' +
+      '<td class="mono">' + escapeHtml(row.id) + ' ' + railsLink('attempt',row.railsId) + '</td>' +
       '<td class="mono">' + escapeHtml(row.branch || '—') + '</td>' +
       '<td>' + escapeHtml(row.model || (row.source === 'lease-store' ? 'dispatch lease' : '—')) + '</td>' +
       '<td><span class="state ' + row.stateClass + '">' + escapeHtml(row.state) + '</span></td>' +
@@ -1068,7 +1078,7 @@
     return '<ol class="timeline">' + jobs.map(job =>
       '<li class="node ' + job.stateClass + '">' +
       '<div class="node-head"><span class="state ' + job.stateClass + '">' + escapeHtml(job.state) + '</span>' +
-      '<span class="node-title">' + escapeHtml(job.title || job.id || '(unnamed job)') + '</span></div>' +
+      '<span class="node-title">' + escapeHtml(job.title || job.id || '(unnamed job)') + '</span> '+railsLink('job',job.railsId)+'</div>' +
       (job.summary ? '<p class="summary">' + escapeHtml(job.summary) + '</p>' : '') +
       (job.escalation ? '<p class="reason escalation">Escalation: ' + escapeHtml(job.escalation) + '</p>' : '') +
       (job.blocker ? '<p class="reason blocker">Blocker: ' + escapeHtml(job.blocker) + '</p>' : '') +
@@ -1079,7 +1089,7 @@
           '<span class="node-title">' + escapeHtml(task.title || task.id || '(unnamed task)') + '</span></div>' +
           (task.attempts.length
             ? '<ul class="attempts">' + task.attempts.map(attempt =>
-              '<li><span class="mono">' + escapeHtml(attempt.id) + '</span><span>' + escapeHtml(attempt.model || '—') + '</span>' +
+              '<li><span class="mono">' + escapeHtml(attempt.id) + '</span>'+railsLink('attempt',attempt.railsId)+'<span>' + escapeHtml(attempt.model || '—') + '</span>' +
               '<span class="state ' + attempt.stateClass + '">' + escapeHtml(attempt.state) + '</span>' +
               '<span class="mono">' + escapeHtml(attempt.elapsed) + '</span></li>').join('') + '</ul>'
             : '') +
@@ -1178,17 +1188,30 @@
       settingsClose: $('settings-close'),
     };
     if (!elements.status || !elements.fleetBody) return;
+    let returnToRow=null;
+    document.addEventListener?.('click',event=>{
+      const row=event.target.closest?.('[data-rails-id]');if(!row)return;
+      if(window.parent===window){elements.status.textContent='Open this Observatory in Orbit to inspect Rails.';return;}
+      returnToRow={row,kind:row.dataset.railsKind,id:row.dataset.railsId};
+      window.parent.postMessage({type:'orbit-open-rails',kind:returnToRow.kind,id:returnToRow.id},location.origin);
+    });
+    global.addEventListener?.('message',event=>{
+      if(event.source!==window.parent||event.origin!==location.origin||event.data?.type!=='orbit-rails-closed'||!returnToRow)return;
+      const row=returnToRow.row.isConnected?returnToRow.row:[...document.querySelectorAll('[data-rails-id]')].find(b=>b.dataset.railsKind===returnToRow.kind&&b.dataset.railsId===returnToRow.id);
+      (row||elements.refresh).focus();returnToRow=null;
+    });
     const state = { url: null, token: '', sortKey: 'id', sortDir: 1, last: null, busy: false, storageNote: '' };
     const canStore = storageAvailable();
     if (!canStore) state.storageNote = 'browser storage unavailable; settings are session-only';
     const config = resolveConfig({
       fragment: typeof location === 'object' && location ? String(location.hash || '') : '',
+      fallbackUrl: ORBIT_SNAPSHOT_URL,
       storedUrl: canStore ? storageGet(URL_STORAGE_KEY) : null,
     });
     state.url = config.snapshotUrl;
     if (canStore) state.token = storageGet(TOKEN_STORAGE_KEY) || '';
     elements.urlInput.value = config.source === 'operator' ? state.url : (config.source === 'default' ? '' : state.url);
-    elements.urlInput.placeholder = DEFAULT_SNAPSHOT_URL;
+    elements.urlInput.placeholder = ORBIT_SNAPSHOT_URL;
     elements.tokenInput.placeholder = state.token ? 'Stored in this browser — leave blank to keep' : 'Not stored';
 
     function applyView(snapshot) {

@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -14,7 +15,7 @@ import {initial} from '../src/model.ts';
 import {commandIdentity} from '../server/command-identity.mjs';
 
 test('live candidate detail compares exact historical generations after later edits and refuses altered history',async t=>{
-  const root=fs.mkdtempSync('/tmp/opencode/live-diff-'),projectRoot=path.join(root,'project');fs.mkdirSync(projectRoot);
+  const root=fs.mkdtempSync(scratchPath('live-diff-')),projectRoot=path.join(root,'project');fs.mkdirSync(projectRoot);
    fs.writeFileSync(path.join(projectRoot,'math.js'),'export const sum=(a,b)=>a-b;\n');
    fs.writeFileSync(path.join(projectRoot,'note.txt'),'original\n');
   const store=new SqliteWorkspaceStore(path.join(root,'runtime')),workspace_id=randomUUID();

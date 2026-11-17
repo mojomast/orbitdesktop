@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -13,7 +14,7 @@ import {applyOperation} from '../src/workspace-ops.ts';
 
 const spec={id:'focus-timer',title:'Focus <&> timer',version:'1.0.0',minutes:25,accent:'#b5f268'};
 function fixture(t){
-  const root=fs.mkdtempSync('/tmp/opencode/studio-test-'),workspace_id=randomUUID();
+  const root=fs.mkdtempSync(scratchPath('studio-test-')),workspace_id=randomUUID();
   let store=new SqliteWorkspaceStore(root),clock=1000,studio=createExtensionStudio({store,now:()=>clock});
   store.commit(commandIdentity({workspace_id,action:'sync',base_revision:0,operation_id:randomUUID()},'owner'),{create:()=>({id:workspace_id,revision:1,state:initial(),capability:randomUUID()})});
   const call=body=>studio.dispatch({workspace_id,...body});
@@ -92,7 +93,7 @@ test('strict finite profile, actor-scoped operation identity and workspace separ
   await assert.rejects(f.call({action:'get',draft_id:a.draft.id,workspace_id:randomUUID()}));
 });
 test('real schema-10 database upgrades without rewriting state; archived writer refuses the Studio revocation schema',async t=>{
-  const root=fs.mkdtempSync('/tmp/opencode/studio-schema-'),source=path.join(root,'source'),runtime=path.join(root,'runtime');
+  const root=fs.mkdtempSync(scratchPath('studio-schema-')),source=path.join(root,'source'),runtime=path.join(root,'runtime');
   t.after(()=>fs.rmSync(root,{recursive:true,force:true}));fs.mkdirSync(source);
   const repo=fileURLToPath(new URL('../',import.meta.url));
   const archive=execFileSync('git',['archive','--format=tar','a15d7eb947d0c5936ce7ac66b5cda0ce49b5fea3'],{cwd:repo,maxBuffer:64*1024*1024});

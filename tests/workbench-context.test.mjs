@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -25,7 +26,7 @@ function registerProject(root,store,workspace_id,name){
 }
 
 function fixture(t,{retentionMs='default',gate=true}={}){
-  const root=fs.mkdtempSync('/tmp/opencode/workbench-context-'),store=new SqliteWorkspaceStore(path.join(root,'runtime'));
+  const root=fs.mkdtempSync(scratchPath('workbench-context-')),store=new SqliteWorkspaceStore(path.join(root,'runtime'));
   const workspace_id=randomUUID(),other=randomUUID();
   for(const id of [workspace_id,other])store.commit(commandIdentity({workspace_id:id,action:'sync',base_revision:0,state:initial(),operation_id:randomUUID(),intent:'Fixture'},'owner'),{create:()=>({id,revision:1,state:initial(),capability:randomUUID(),api:'http://127.0.0.1:4318'})});
   let clock=1_000_000;const now=()=>clock;
@@ -509,7 +510,7 @@ test('the adapter bounds agent output and flags truncation without leaking the t
 });
 
 test('ordinary upstream JSON is byte-bounded and refuses an oversized reply without leaking',async t=>{
-  const directory=fs.mkdtempSync('/tmp/opencode/agent-bound-');t.after(()=>fs.rmSync(directory,{recursive:true,force:true}));
+  const directory=fs.mkdtempSync(scratchPath('agent-bound-'));t.after(()=>fs.rmSync(directory,{recursive:true,force:true}));
   const token='b'.repeat(40);
   const huge=JSON.stringify({data:'LEAK'.repeat(1024*1024)});
   const handler=createAgentHandler({token,port:4318,devOrigins:[],reply:(res,status,body)=>{res.status=status;res.body=body;},workspaceContext:()=>'',workspaceRead:()=>({state:{monitors:[]}}),runtimeDirectory:directory,apiUrl:'http://hermes.test',apiKey:'k',fetchImpl:async()=>new Response(huge,{status:200,'Content-Type':'application/json'})});
@@ -520,7 +521,7 @@ test('ordinary upstream JSON is byte-bounded and refuses an oversized reply with
 });
 
 test('shared chats expose anyActive excluding the caller pane',async t=>{
-  const directory=fs.mkdtempSync('/tmp/opencode/shared-any-');t.after(()=>fs.rmSync(directory,{recursive:true,force:true}));
+  const directory=fs.mkdtempSync(scratchPath('shared-any-'));t.after(()=>fs.rmSync(directory,{recursive:true,force:true}));
   const shared=createSharedChats(path.join(directory,'chats'));
   const a=randomUUID(),b=randomUUID(),paneA=randomUUID(),paneB=randomUUID();
   shared.bind(a,paneA,{session:'orbit-'+randomUUID(),profile_id:'default'});
@@ -540,7 +541,7 @@ test('hermes adapter refuses to prepare while another pane has an active run',as
 });
 
 test('ordinary chat start is fenced while the workbench agent lane is held',async t=>{
-  const directory=fs.mkdtempSync('/tmp/opencode/agent-lane-');t.after(()=>fs.rmSync(directory,{recursive:true,force:true}));
+  const directory=fs.mkdtempSync(scratchPath('agent-lane-'));t.after(()=>fs.rmSync(directory,{recursive:true,force:true}));
   const workspace_id=randomUUID(),pane_id=randomUUID(),token='t'.repeat(40);
   const state={version:1,selected:'monitor',arc:1,view:'windows',monitors:[{id:'monitor',name:'agent',diagonal:1,aspect:'16:9',height:0,distance:0,pitch:0,yaw:0,offset:0,fontSize:18,frame:{x:0,y:0,width:1,height:1,z:0},layout:{type:'pane',pane:{id:pane_id,kind:'agent',url:''}}}]};
   let busy=true;
@@ -574,7 +575,7 @@ test('dispatchExact tolerates its own persisted marker but fences another',async
 // The adapter below reuses the same shared-chat locks as ordinary chat and never
 // guesses gateway capabilities. It is exercised against a fixture transport.
 function hermesFixture(t,{capabilities={}}={}){
-  const directory=fs.mkdtempSync('/tmp/opencode/workbench-hermes-');
+  const directory=fs.mkdtempSync(scratchPath('workbench-hermes-'));
   const shared=createSharedChats(path.join(directory,'shared-chats'));
   const workspace_id=randomUUID(),pane_id=randomUUID(),session_id='orbit-'+randomUUID();
   shared.bind(workspace_id,pane_id,{session:session_id,profile_id:'default'});
@@ -596,7 +597,7 @@ function hermesFixture(t,{capabilities={}}={}){
 }
 
 test('hermes adapter fails closed without configuration and never exposes credentials',async t=>{
-  const directory=fs.mkdtempSync('/tmp/opencode/workbench-hermes-empty-');t.after(()=>fs.rmSync(directory,{recursive:true,force:true}));
+  const directory=fs.mkdtempSync(scratchPath('workbench-hermes-empty-'));t.after(()=>fs.rmSync(directory,{recursive:true,force:true}));
   const api=createWorkbenchHermes({configuration:null,shared:createSharedChats(path.join(directory,'shared')),locks:new Set(),upstreamFor:async()=>{throw Error('must not call')},validatePane:()=>{},workspaceRead:()=>{},runtimeDirectory:directory});
   await assert.rejects(api.readBinding({workspace_id:randomUUID(),pane_id:randomUUID()}),{code:'unavailable'});
   await assert.rejects(api.probe({workspace_id:randomUUID()}),{code:'unavailable'});

@@ -8,6 +8,10 @@ private feature actions still use the owner UI or documented trusted adapters.
 
 ## Discover, arrange and recover
 
+> Where can I review my repository list and check the evidence for a board task?
+
+Use **Settings → Repos to watch** to edit names locally; connecting GitHub is optional. Open **Collab** to inspect a contract-bound card and its Activity entries, or **ACDD evidence** to inspect the full per-job panel. No token belongs in the conversation.
+
 > Inspect this workspace and suggest which existing Orbit tools fit my research
 > task. Reuse the built-in tools where possible. Tell me which need configuration
 > before making changes.
@@ -33,6 +37,13 @@ Guides: [Usability](WORKSPACE_USABILITY.md), [Saved layouts](SAVED_WORKSPACE_LAY
 [Checkpoints](CHECKPOINTS.md), [Themes](THEMES.md).
 
 ## Conversations, outputs and context
+
+> Help me inspect this attempt's tool timing and evidence in Rizzstack Rails.
+> Distinguish the worker's report from verification and tell me if coverage is partial.
+
+Use **Rizzstack Rails** in the connected shell or select **Rails** beside the
+Observatory row, then **Inspect**. Select a mark for safe event detail. A
+feedback preview does not save a rating or authorize a retry. See [Rails](../extensions/rizzstack-rails/README.md).
 
 > Help me find the conversation titled “Release research” using Conversation
 > library. Explain how I can pin it and resume it without discarding my current

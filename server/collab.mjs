@@ -1771,6 +1771,14 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
     const by = clean(body.by, 64) || 'agent';
     const action = String(body.board_action || '');
     const note = clean(body.note, 1000);
+    // A pointer, never evidence. Only the read-only verifier view assigns a
+    // status. Do not store a caller-supplied chip/decision or raw contract.
+    let contract;
+    if (body.contract !== undefined) {
+      const { id, contract_sha256 } = body.contract ?? {};
+      if (!['add','update'].includes(action) || typeof id !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(id) || typeof contract_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(contract_sha256)) throw fail('Board contract needs an id and full contract_sha256.', 400);
+      contract = { id, contract_sha256 };
+    }
     if (action === 'add') {
       const title = clean(body.title, 120);
       if (!title) throw fail('Give the board entry a title.', 400);
@@ -1786,6 +1794,7 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
       const existing = bundle.tasks.find(task => task.title.toLowerCase() === title.toLowerCase() && !['completed', 'canceled', 'failed'].includes(task.status));
       if (existing) return existing.id;
       const task = { id: mintCollabId('t'), title, spec: clean(body.spec, 2000) || title, acceptance: clean(body.acceptance, 1000), dependsOn: [], owner: clean(body.owner, 64) || by, reviewer: '', role: 'builder', skillsHint: [], risk: '', status: BOARD_STATUS[body.status] || 'submitted', attempts: 0, reviewAttempts: 0, maxAttempts: 0, lease: null, artifacts: [], summary: note, reviewNotes: '', lastError: '', checkins: [], createdAt: now() };
+      if (contract) task.contract = contract;
       bundle.tasks.push(task);
       event(bundle, 'task.created', { actor: by, taskId: task.id, data: { title, owner: task.owner } });
       bundle.lastBoardTask = task.id;
@@ -1797,6 +1806,7 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
     if (action === 'update') {
       const status = BOARD_STATUS[String(body.status || '').toLowerCase()];
       if (body.status && !status) throw fail('Status must be todo, doing, review, done, or blocked.', 400);
+      if (contract) task.contract = contract;
       if (status) task.status = status;
       if (body.owner) task.owner = clean(body.owner, 64);
       if (note) task.summary = note;
@@ -1922,6 +1932,7 @@ Last error: ${task?.lastError || project.activity || '(none)'}`;
 
   function publicTask(task) {
     return {
+      ...(task.contract ? { contract: task.contract } : {}),
       id: task.id,
       title: task.title,
       spec: task.spec,

@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -31,7 +32,7 @@ import {commandIdentity} from '../server/command-identity.mjs';
 const WRONG='export const sum = (a,b) => a - b;\n',RIGHT='export const sum = (a,b) => a + b;\n';
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
 test('private native endpoint key file is bounded, identity-bound and never projected',t=>{
-  const root=fs.mkdtempSync('/tmp/opencode/native-key-');t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+  const root=fs.mkdtempSync(scratchPath('native-key-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
   const file=path.join(root,'key'),alias=path.join(root,'alias');fs.writeFileSync(file,'private-endpoint-token\n',{mode:0o600});
   assert.equal(readNativeApiKeyFile(file),'private-endpoint-token');
   const options=nativeRuntimeEnvironmentOptions({root,env:{ORBIT_NATIVE_HERMES_SOURCE:'/tmp/source',ORBIT_NATIVE_HERMES_PYTHON:'/tmp/python',ORBIT_NATIVE_HERMES_MODEL_URL:'http://127.0.0.1:3456/v1',ORBIT_NATIVE_HERMES_PROFILE:'fixture',ORBIT_NATIVE_HERMES_API_KEY_FILE:file}});
@@ -46,7 +47,7 @@ test('private native endpoint key file is bounded, identity-bound and never proj
   fs.chmodSync(file,0o644);assert.throws(()=>readNativeApiKeyFile(file));
   fs.chmodSync(file,0o600);fs.writeFileSync(file,'x'.repeat(4097));assert.throws(()=>readNativeApiKeyFile(file));
 });
-function fixture(t,adapter={},now=Date.now,prefix='/tmp/opencode/wn-'){
+function fixture(t,adapter={},now=Date.now,prefix=scratchPath('wn-')){
   const root=fs.mkdtempSync(prefix),projectRoot=path.join(root,'project');fs.mkdirSync(projectRoot);fs.writeFileSync(path.join(projectRoot,'math.js'),WRONG);
   const store=new SqliteWorkspaceStore(path.join(root,'r')),workspace_id=randomUUID(),pane_id=randomUUID();
   store.commit(commandIdentity({workspace_id,action:'sync',base_revision:0,state:initial(),operation_id:randomUUID(),intent:'Native fixture'},'owner'),{create:()=>({id:workspace_id,revision:1,state:initial(),capability:randomUUID(),api:'http://127.0.0.1:4318'})});
@@ -78,7 +79,7 @@ test('strict contracts exclude model authority and owner-supplied approval short
 test('hosted DeepSeek binding with long runtime path survives consent and fences credential rotation and unsupported destinations',async t=>{
   let channel;
   const metadata=nativeRuntimeMetadata({source:'/source',python:'/python',endpoint:'https://api.deepseek.com/v1',profile_id:'fixture',model:'deepseek-flash',apiKey:'synthetic-key'});
-  const f=fixture(t,{bindingMetadata:metadata,startNative:async config=>{await config.authorize();channel=config.channel;return {completion:new Promise(()=>{})};},stopNative:async()=>({requested:true})},Date.now,'/tmp/opencode/'+ 'long-runtime-'.repeat(8));
+  const f=fixture(t,{bindingMetadata:metadata,startNative:async config=>{await config.authorize();channel=config.channel;return {completion:new Promise(()=>{})};},stopNative:async()=>({requested:true})},Date.now,scratchPath('long-runtime-'.repeat(8)));
   const a=await f.prepare();
   assert.deepEqual(a.grant.recipient.native_runtime,metadata);
   await f.native.dispatch({...f.base,action:'start',grant_id:a.grant.id});

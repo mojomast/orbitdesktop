@@ -6,12 +6,11 @@ import {SqliteWorkspaceStore} from '../../server/sqlite-workspace-store.mjs';
 export async function loadSqliteWorkspaceStore() {return SqliteWorkspaceStore;}
 
 /**
- * Create a unique disposable root directory. Prefer /tmp/opencode when present,
- * otherwise fall back to the OS temp directory. Callers must remove only the
+ * Create a unique disposable root in the process temp directory. Callers must remove only the
  * roots they created (see `removeRoot`).
  */
 export function tempRoot(prefix = 'orbit-sqlite-') {
-  const base = fs.existsSync('/tmp/opencode') ? '/tmp/opencode' : os.tmpdir();
+  const base = os.tmpdir();
   fs.mkdirSync(base, { recursive: true });
   return fs.mkdtempSync(path.join(base, prefix));
 }

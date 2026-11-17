@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -13,7 +14,7 @@ import {initial} from '../src/model.ts';
 import {commandIdentity} from '../server/command-identity.mjs';
 
 function fixture(t){
-  const root=fs.mkdtempSync('/tmp/opencode/workbench-test-'),projectRoot=path.join(root,'project');fs.mkdirSync(projectRoot);
+  const root=fs.mkdtempSync(scratchPath('workbench-test-')),projectRoot=path.join(root,'project');fs.mkdirSync(projectRoot);
   fs.writeFileSync(path.join(projectRoot,'math.js'),'export const sum = (a,b) => a - b;\n');
   const store=new SqliteWorkspaceStore(path.join(root,'runtime')),workspace_id=randomUUID(),other=randomUUID();
   for(const id of [workspace_id,other])store.commit(commandIdentity({workspace_id:id,action:'sync',base_revision:0,state:initial(),operation_id:randomUUID(),intent:'Fixture'},'owner'),{create:()=>({id,revision:1,state:initial(),capability:randomUUID(),api:'http://127.0.0.1:4318'})});
@@ -107,7 +108,7 @@ test('HTTP boundary requires owner Bearer and allowed origin; IDs and confirm ca
   assert.equal(f.store.eventPage(f.workspace_id)?.events?.some?.(event=>JSON.stringify(event).includes('math.js'))??false,false);
 });
 test('schema 4 upgrades additively and backup preserve-schema can retain the old binary format',async t=>{
-  const root=fs.mkdtempSync('/tmp/opencode/workbench-migrate-');t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+  const root=fs.mkdtempSync(scratchPath('workbench-migrate-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
   const store=new SqliteWorkspaceStore(path.join(root,'source'));store.db.exec('DROP TABLE wb_bindings; DROP TABLE wb_resources; DROP TABLE wb_projects; PRAGMA user_version=4;');
   const backup=path.join(root,'v4.sqlite');await store.backup(backup);store.close();
   const before=fs.readFileSync(backup);

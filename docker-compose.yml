@@ -1,7 +1,7 @@
 ## The opt-in token router lives in compose.router.yml under the `router`
 ## profile. A plain `docker compose up` never starts it; Orbit writes
 ## COMPOSE_PROFILES=router to the runtime .env only when you choose the router.
-## `include` needs Docker Compose v2.20 or newer.
+## The included service uses raw env_file format (Docker Compose v2.30+).
 include:
   - compose.router.yml
 

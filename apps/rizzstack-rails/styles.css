@@ -12,6 +12,9 @@
   --rails-unknown: #64748b;
 }
 
+.rail-mark.rail-mark--unrun { fill: transparent; stroke: var(--rails-muted); stroke-dasharray: 3 2; }
+.rail-mark.rail-mark--accepted { stroke: var(--rails-ok); stroke-width: 4px; }
+
 html,
 body {
   margin: 0;

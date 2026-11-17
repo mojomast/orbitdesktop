@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -16,7 +17,7 @@ import {workbenchOwnerRoute} from '../server/workbench-owner-route.mjs';
 const reply=(res,status,body)=>{res.writeHead(status,{'Content-Type':'application/json'});res.end(JSON.stringify(body));};
 
 async function fixture(t){
-  const root=fs.mkdtempSync('/tmp/opencode/workbench-setup-route-');
+  const root=fs.mkdtempSync(scratchPath('workbench-setup-route-'));
   const store=new SqliteWorkspaceStore(path.join(root,'runtime'));
   const records=new WorkbenchStore(store),data=new WorkbenchData(store);
   const ownerToken=randomUUID(),workspace_id=randomUUID(),layout=initial();

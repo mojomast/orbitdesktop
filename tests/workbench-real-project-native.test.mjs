@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -24,7 +25,7 @@ const sourceFile='server/agent-profiles.mjs';
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
 test('pinned maintained Node project: native repair, structured checks, owner review and artifact verification', {skip:!process.env.HERMES_NATIVE_SOURCE,timeout:120000},async t=>{
-  const base=fs.mkdtempSync('/tmp/opencode/workbench-real-native-'),projectRoot=path.join(base,'project');fs.mkdirSync(projectRoot);
+  const base=fs.mkdtempSync(scratchPath('workbench-real-native-')),projectRoot=path.join(base,'project');fs.mkdirSync(projectRoot);
   t.after(()=>fs.rmSync(base,{recursive:true,force:true}));
   const manifestFile=path.join(sourceRoot,'tests/workbench-real-project/manifest.json');
   if(fs.existsSync(manifestFile)){const manifest=JSON.parse(fs.readFileSync(manifestFile));assert.equal(manifest.revision,revision);assert.deepEqual(manifest.input_hashes,inputs);assert.deepEqual(manifest.inputs,Object.keys(inputs));}

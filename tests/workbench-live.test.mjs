@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -20,7 +21,7 @@ import {commandIdentity} from '../server/command-identity.mjs';
 import {initial} from '../src/model.ts';
 
 function fixture(t,{withLive=true,execution,native,gate}={}){
-  const root=fs.mkdtempSync('/tmp/opencode/workbench-live-');
+  const root=fs.mkdtempSync(scratchPath('workbench-live-'));
   const store=new SqliteWorkspaceStore(root);
   const workspace=randomUUID();
   store.commit(commandIdentity({workspace_id:workspace,action:'sync',base_revision:0,state:initial(),operation_id:randomUUID(),intent:'Fixture'},'owner'),{create:()=>({id:workspace,revision:1,state:initial(),capability:randomUUID(),api:'http://127.0.0.1:4318'})});
@@ -727,7 +728,7 @@ function privateCall(channel,args,sequence=1,secret=channel.secret){
   return new Promise((resolve,reject)=>{const req=http.request({socketPath:channel.socket,path:'/tool',method:'POST',headers:{'content-type':'application/json','x-orbit-grant':channel.grant_id,'x-orbit-sequence':String(sequence),'x-orbit-mac':mac}},res=>{let text='';res.on('data',c=>text+=c);res.on('end',()=>resolve({status:res.statusCode,...JSON.parse(text)}));});req.on('error',reject);req.end(raw);});
 }
 function nativeFixture(t){
-  const root=fs.mkdtempSync('/tmp/opencode/workbench-live-native-');
+  const root=fs.mkdtempSync(scratchPath('workbench-live-native-'));
   const projectRoot=path.join(root,'project');fs.mkdirSync(projectRoot);fs.writeFileSync(path.join(projectRoot,'math.js'),WRONG_SUM);
   const store=new SqliteWorkspaceStore(path.join(root,'runtime')),workspace_id=randomUUID(),pane_id=randomUUID();
   store.commit(commandIdentity({workspace_id,action:'sync',base_revision:0,state:initial(),operation_id:randomUUID(),intent:'Live native fixture'},'owner'),{create:()=>({id:workspace_id,revision:1,state:initial(),capability:randomUUID(),api:'http://127.0.0.1:4318'})});
@@ -825,7 +826,7 @@ test('a recorder-verified artifact is recorder-authoritative with bounded per-ch
 });
 
 test('a real recorded check writes a birthtime identity and tail reads it, refusing replacement',async t=>{
-  const root=fs.mkdtempSync('/tmp/opencode/workbench-live-check-'),projectRoot=path.join(root,'project');fs.mkdirSync(projectRoot);fs.writeFileSync(path.join(projectRoot,'math.js'),'export const sum = (a,b) => a - b;\n');
+  const root=fs.mkdtempSync(scratchPath('workbench-live-check-')),projectRoot=path.join(root,'project');fs.mkdirSync(projectRoot);fs.writeFileSync(path.join(projectRoot,'math.js'),'export const sum = (a,b) => a - b;\n');
   const store=new SqliteWorkspaceStore(path.join(root,'runtime')),workspace_id=randomUUID();
   store.commit(commandIdentity({workspace_id,action:'sync',base_revision:0,state:initial(),operation_id:randomUUID(),intent:'Check tail fixture'},'owner'),{create:()=>({id:workspace_id,revision:1,state:initial(),capability:randomUUID(),api:'http://127.0.0.1:4318'})});
   const data=new WorkbenchData(store),records=new WorkbenchStore(store);

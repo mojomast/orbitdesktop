@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -10,7 +11,7 @@ import {createWorkbenchEnvironments} from '../server/workbench-environments.mjs'
 
 const sha=bytes=>createHash('sha256').update(bytes).digest('hex');
 function fixture(t){
-  const root=fs.mkdtempSync('/tmp/opencode/orbit-sandbox-');t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+  const root=fs.mkdtempSync(scratchPath('orbit-sandbox-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
   const state=path.join(root,'state'),rootfs=path.join(root,'rootfs'),runsc=path.join(root,'runsc');fs.mkdirSync(state,{mode:0o700});fs.mkdirSync(rootfs,{mode:0o700});
   for(const p of ['workspace','tmp','proc','opt/orbit','usr/local/bin'])fs.mkdirSync(path.join(rootfs,p),{recursive:true,mode:0o700});
   fs.writeFileSync(path.join(rootfs,'usr/local/bin/node'),'unit fixture, never a runtime',{mode:0o700});

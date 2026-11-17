@@ -1,8 +1,9 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 // Adversarial confinement tests for the Comet Project Workbench owner API.
 //
 // These tests target the Slice A surface (server/project-files.mjs,
 // server/workbench.mjs, server/workbench-store.mjs, contracts/workbench-v1.mjs).
-// They only ever use disposable roots under /tmp/opencode and never touch an owner
+// They only ever use disposable roots in the test temp directory and never touch an owner
 // runtime, .runtime, dist, credentials, terminals or live services.
 //
 // All tests here are strict: there are no `todo`, `skip` or retry-to-green paths.
@@ -37,7 +38,7 @@ import {commandIdentity} from '../server/command-identity.mjs';
 const TOKEN='w'.repeat(40);
 
 function fixture(t){
-  const root=fs.mkdtempSync('/tmp/opencode/workbench-adversarial-');
+  const root=fs.mkdtempSync(scratchPath('workbench-adversarial-'));
   const projectRoot=path.join(root,'project');fs.mkdirSync(projectRoot);
   const scratchRoot=path.join(root,'scratch');
   const store=new SqliteWorkspaceStore(path.join(root,'runtime'));
@@ -93,7 +94,7 @@ test('descriptor confinement denies nested symlinks, hardlinks, FIFOs, sockets a
 
 test('git materialization refuses linked worktrees and common-dir indirection',async t=>{
   const f=fixture(t);const fileRoot=path.join(f.root,'worktree');fs.mkdirSync(fileRoot);
-  fs.writeFileSync(path.join(fileRoot,'.git'),'gitdir: /tmp/opencode/elsewhere/.git\n');
+  fs.writeFileSync(path.join(fileRoot,'.git'),`gitdir: ${path.join(f.root,'elsewhere','.git')}\n`);
   const fileProject=await f.register(fileRoot,'Gitfile');
   const fileSnapshot=await repositorySnapshot(f.privateProject(fileProject.id),captureProject(f.privateProject(fileProject.id)),{scratchRoot:f.scratchRoot});
   assert.equal(fileSnapshot.state,'unavailable');
@@ -103,7 +104,7 @@ test('git materialization refuses linked worktrees and common-dir indirection',a
   const commonSnapshot=await repositorySnapshot(f.privateProject(commonProject.id),captureProject(f.privateProject(commonProject.id)),{scratchRoot:f.scratchRoot});
   assert.equal(commonSnapshot.state,'unavailable');
   const gitdirRoot=path.join(f.root,'gitdir');fs.mkdirSync(path.join(gitdirRoot,'.git'),{recursive:true});
-  fs.writeFileSync(path.join(gitdirRoot,'.git','gitdir'),'/tmp/opencode/elsewhere\n');
+  fs.writeFileSync(path.join(gitdirRoot,'.git','gitdir'),path.join(f.root,'elsewhere')+'\n');
   const gitdirProject=await f.register(gitdirRoot,'Gitdir');
   const gitdirSnapshot=await repositorySnapshot(f.privateProject(gitdirProject.id),captureProject(f.privateProject(gitdirProject.id)),{scratchRoot:f.scratchRoot});
   assert.equal(gitdirSnapshot.state,'unavailable');

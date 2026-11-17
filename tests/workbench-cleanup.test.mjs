@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -13,7 +14,7 @@ test('check definitions pin the absolute server Node executable rather than assu
 });
 
 test('job temporary cleanup rejects a directory-to-symlink swap without deleting outside data',async t=>{
-  const root=fs.mkdtempSync('/tmp/opencode/workbench-cleanup-');
+  const root=fs.mkdtempSync(scratchPath('workbench-cleanup-'));
   t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
   const candidate=path.join(root,'candidate'),outside=path.join(root,'outside');
   fs.mkdirSync(candidate);fs.mkdirSync(outside);fs.writeFileSync(path.join(outside,'keep'),'SYNTHETIC_OWNER_DATA');

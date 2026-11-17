@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 // Setup validator for the six evaluation families. It materialises each bounded
 // fixture and proves the outcome oracle deterministically WITHOUT calling a model:
 // node fixtures fail initially and pass after the known repair; the authority
@@ -63,7 +64,7 @@ test('fixture manifest binds every input hash, schema and runtime',t=>{
 for(const family of catalogue.families){
   test(`setup oracle holds without a model: ${family.id}`,async t=>{
     const dirs=[];
-    const tempDir=()=>{const dir=fs.mkdtempSync('/tmp/opencode/orbit-eval-');dirs.push(dir);return dir;};
+    const tempDir=()=>{const dir=fs.mkdtempSync(scratchPath('orbit-eval-'));dirs.push(dir);return dir;};
     t.after(()=>{for(const dir of dirs)fs.rmSync(dir,{recursive:true,force:true});});
 
     if(family.fixture_kind==='node-test'){

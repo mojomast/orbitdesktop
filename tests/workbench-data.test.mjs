@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -13,7 +14,7 @@ import {commandIdentity} from '../server/command-identity.mjs';
 import {initial} from '../src/model.ts';
 
 function fixture(t){
-  const root=fs.mkdtempSync('/tmp/opencode/workbench-data-'),store=new SqliteWorkspaceStore(root);
+  const root=fs.mkdtempSync(scratchPath('workbench-data-')),store=new SqliteWorkspaceStore(root);
   const workspace=randomUUID();store.commit(commandIdentity({workspace_id:workspace,action:'sync',base_revision:0,state:initial(),operation_id:randomUUID(),intent:'Fixture'},'owner'),{create:()=>({id:workspace,revision:1,state:initial(),capability:randomUUID(),api:'http://127.0.0.1:4318'})});
   const records=new WorkbenchStore(store),project=records.register(workspace,{root:path.join(root,'project'),name:'Synthetic',identity:'synthetic'}),data=new WorkbenchData(store);
   t.after(()=>{store.close();fs.rmSync(root,{recursive:true,force:true});});return {root,store,workspace,project,records,data};

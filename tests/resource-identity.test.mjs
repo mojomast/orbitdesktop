@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import assert from 'node:assert/strict';
 import { execFile, spawn } from 'node:child_process';
 import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
@@ -15,7 +16,7 @@ const format = '#{session_name}|#{session_id}|#{pane_id}|#{session_created}|#{pi
 
 // A disposable provider fixture, not an Orbit resource broker or a production API.
 async function privateTmux(t) {
-  const root = await mkdtemp(path.join('/tmp/opencode/', 'orbit-resource-identity-'));
+  const root = await mkdtemp(scratchPath('orbit-resource-identity-'));
   const socket = `orbit-identity-${randomUUID()}`;
   const env = {
     PATH: '/usr/bin:/bin',

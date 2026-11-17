@@ -1,5 +1,6 @@
 .git
 .runtime
+runtime
 games/
 .env
 .env*

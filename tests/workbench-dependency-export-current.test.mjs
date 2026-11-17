@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -58,7 +59,7 @@ async function reviewed(f,repair,{profileInputs=['package.json','package-lock.js
 }
 
 function localFixture(t){
-  const root=fs.mkdtempSync('/tmp/opencode/orbit-export-local-'),library=path.join(root,'lib'),source=path.join(root,'source');
+  const root=fs.mkdtempSync(scratchPath('orbit-export-local-')),library=path.join(root,'lib'),source=path.join(root,'source');
   fs.mkdirSync(library);fs.mkdirSync(path.join(source,'vendor'),{recursive:true});
   fs.writeFileSync(path.join(library,'package.json'),JSON.stringify({name:'export-fixture-lib',version:'1.0.0',main:'index.js'}));
   fs.writeFileSync(path.join(library,'index.js'),'module.exports = 41;\n');
@@ -243,7 +244,7 @@ test('real RouteTok export independently verifies 293 tests and retrieved diff p
   const filename='src/net-address.ts',oldHash='f6439cfa1775a2c01bfbb5d3682401abffbb62ac36bfb6cbb54ab470f8a3cb09',newHash='540967904a3898172b9a4a9ed9bd436b2a0c3a303933032c7c4ce767929b44d1';
   const regression=fs.readFileSync(new URL('routetok-net-address-equivalence.test.ts',fixtures));
   const publicRepair=fs.readFileSync(new URL('routetok-net-address-repair.patch',fixtures));
-  const root=fs.mkdtempSync('/tmp/opencode/orbit-export-routetok-');
+  const root=fs.mkdtempSync(scratchPath('orbit-export-routetok-'));
   const source=path.join(root,'source');
   execFileSync('/usr/bin/git',['clone','--no-hardlinks','--quiet',upstream,source]);
   execFileSync('/usr/bin/git',['-C',source,'checkout','--detach','--quiet',upstreamHead]);

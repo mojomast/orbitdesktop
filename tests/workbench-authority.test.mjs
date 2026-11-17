@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -16,7 +17,7 @@ import {initial} from '../src/model.ts';
 
 const hash=value=>createHash('sha256').update(value).digest('hex');
 function fixture(t){
-  const root=fs.mkdtempSync('/tmp/opencode/workbench-authority-');
+  const root=fs.mkdtempSync(scratchPath('workbench-authority-'));
   const store=new SqliteWorkspaceStore(path.join(root,'runtime'));
   function workspace(){const id=randomUUID();store.commit(commandIdentity({workspace_id:id,action:'sync',base_revision:0,state:initial(),operation_id:randomUUID(),intent:'Fixture'},'owner'),{create:()=>({id,revision:1,state:initial(),capability:randomUUID(),api:'http://127.0.0.1:4318'})});return id;}
   const ws=workspace(),records=new WorkbenchStore(store),data=new WorkbenchData(store);

@@ -1,6 +1,6 @@
 # ACDD evidence view (integration contract and plan)
 
-Status: **slice 1 (read-only model + panel renderer) and slice 2 (wiring) built**, on `feat/acdd-evidence-view`, under review (not merged). Slice 2 adds three lines to `server/index.mjs` and three to `src/main.ts`. The runnable-by-anyone branch (`feat/runnable-by-anyone`) also edits those two files; `git merge-tree` against its head `cd2e8eb` merges cleanly, and nothing on that branch was touched.
+The read-only model, panel and owner evidence route from #26 are in the baseline. This development candidate also displays exact-revision evidence in the Collab board and its Activity list.
 
 The protocol is defined in the workflow repo: [ACDD + TDD](https://github.com/mojomast/workflow/blob/main/docs/16-acdd-tdd.md). Execution and verification belong to [bundlebees](https://github.com/mojomast/bundlebees/blob/main/docs/ACDD.md). Orbit is the coordination interface: it **displays** contracts and verifier evidence and asks humans for the gates. It never decides acceptance, never re-classifies a test result and never runs its own orchestrator.
 
@@ -75,7 +75,9 @@ Output of `buildEvidenceView`: `{contractId, title, shortSha, frozen, authority,
   
   The route never writes, and errors and responses never include the key, its path or other absolute host paths.
 - **Window:** a dark, read-only dialog (`src/acdd-evidence-window.ts`, `src/acdd-evidence.css`). Open it with **ACDD evidence** in the command palette (group Hermes) or the Hermes menu. It lists contracts, then shows `renderEvidencePanel` for the one you pick. It makes GET requests only, and there are no approve/merge buttons.
-- **Not built yet:** board-card phase chips, feeding `toActivityItems` into the live activity stream, and showing the contract on local-worker cards. Human gates stay human, as above.
+- **Collab tracking boards:** a task may carry a reference `{id, contract_sha256}`. Use `--contract ID --contract-sha256 SHA` with `collab-board` `new` or `update`. The referenced chip reads `GET /api/acdd-evidence?contract=ID&sha=SHA`. Only the server-verified timeline for that id and full digest supplies its latest phase and classification. Missing records/revisions are neutral; legacy tasks need no reference. The board neither infers a contract from a job title nor converts a completed task into evidence.
+- **Board Activity / Task history:** shows the signed sequence (including repeated attempts), named failures and required phases still `unrun`. These are on-demand projections, not persisted workspace events. Reads are coalesced per revision, limited to four per board refresh, and normally refreshed after 30 seconds. No read writes the evidence tree or operates a human gate. Separate launcher cards without a bound contract are unchanged.
+- **Local smoke:** `tests/acdd-live-smoke.test.mjs` starts Orbit on loopback, verifies access and records a before/after snapshot of the fixture tree. `tests/packets-ui.browser.mjs` mounts the actual owner UI modules in disposable Chromium against the same real routes. Run with `CHROMIUM_PATH` pointing to an already provisioned Chromium executable.
 
 ## Compatibility
 

@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -13,7 +14,7 @@ import {commandIdentity} from '../server/command-identity.mjs';
 import {ARRANGEMENT_LIMITS} from '../contracts/workbench-workflow-v1.mjs';
 
 function fixture(t){
-  const root=fs.mkdtempSync('/tmp/opencode/workbench-arrangements-'),projectRoot=path.join(root,'source');
+  const root=fs.mkdtempSync(scratchPath('workbench-arrangements-')),projectRoot=path.join(root,'source');
   fs.mkdirSync(projectRoot);fs.writeFileSync(path.join(projectRoot,'math.js'),'export const sum = (a,b) => a - b;\n');
   const store=new SqliteWorkspaceStore(path.join(root,'runtime')),workspace_id=randomUUID();
   store.commit(commandIdentity({workspace_id,action:'sync',base_revision:0,state:initial(),operation_id:randomUUID()},'owner'),{create:()=>({id:workspace_id,revision:1,state:initial(),capability:randomUUID()})});
