@@ -13,7 +13,6 @@ import socket
 import subprocess
 import sys
 import tempfile
-import threading
 import time
 from urllib.request import urlopen
 from uuid import uuid4
@@ -65,17 +64,18 @@ def run():
         if '--signed-feedback' in sys.argv:
             from rails_owner_ssh_fixture import Fixture
             writer = Fixture(root,ledger,workspace,cleanup)
+        # Keep R12 in its own process, as deployed. Its read-only file-header
+        # checks must not share process-scoped SQLite file locks with the writer.
         def serve(port):
-            service = make_server('127.0.0.1', port, root / 'ledger.sqlite', root / 'upstream-read')
-            service.poll_interval = .05
-            thread = threading.Thread(target=service.serve_forever, daemon=True)
-            thread.start()
-            return service, thread
-        service, thread = serve(0)
+            process = subprocess.Popen([sys.executable, __file__, '--fixture-reader', str(port), str(root)],
+                                       env=env, stdout=subprocess.PIPE, text=True)
+            try:
+                return process, int(process.stdout.readline())
+            except BaseException:
+                process.kill(); process.wait(); raise
+        service, reader_port = serve(0)
         def stop_reader():
-            service.shutdown()
-            thread.join()
-            service.server_close()
+            service.terminate(); service.wait(timeout=5); service.stdout.close()
         cleanup.callback(stop_reader)
 
         with socket.socket() as probe:
@@ -84,7 +84,7 @@ def run():
         origin = f'http://127.0.0.1:{port}'
         server = subprocess.Popen(['node', '--experimental-strip-types', 'server/index.mjs'], cwd=root,
             env={**env, **(writer.env if writer else {}), 'PORT': str(port), 'ORBIT_TOKEN': owner, 'ORBIT_RUNTIME_DIR': str(root/'runtime'),
-                 'ORBIT_RAILS_PORT': str(service.server_port), 'ORBIT_RAILS_READ_TOKEN_FILE': str(root/'proxy-read'),
+                 'ORBIT_RAILS_PORT': str(reader_port), 'ORBIT_RAILS_READ_TOKEN_FILE': str(root/'proxy-read'),
                  'ORBIT_CWD': str(root/'cwd'), 'ORBIT_TMUX_SOCKET': 'rails-' + uuid4().hex[:20],
                  'ORBIT_TMUX_CONFIG': '/dev/null'}, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         def stop():
@@ -118,10 +118,9 @@ def run():
             if writer and line.startswith('sign '):js.stdin.write(json.dumps(writer.sign(json.loads(line[5:])))+'\n');js.stdin.flush()
             elif line.strip() == 'append': js.stdin.write(event(ledger,2)+'\n'); js.stdin.flush()
             elif line.strip() == 'restart':
-                reader_port = service.server_port
                 stop_reader()
                 added = event(ledger, 3)
-                service, thread = serve(reader_port)
+                service, reader_port = serve(reader_port)
                 js.stdin.write(added+'\n'); js.stdin.flush()
             elif line.strip() == 'revoke': (root/'upstream-read').write_text(secrets.token_urlsafe(36))
         if js.wait() != 0: raise RuntimeError('Real browser assertions failed')
@@ -132,4 +131,12 @@ def run():
         print('PASS: Observatory row → owner proxy → R12 view → selected origin mark; feedback denied, SSE restart/replay/revocation, focus restored')
 
 
-if __name__ == '__main__': run()
+if __name__ == '__main__':
+    if sys.argv[1:2] == ['--fixture-reader']:
+        root = Path(sys.argv[3])
+        with make_server('127.0.0.1', int(sys.argv[2]), root/'ledger.sqlite', root/'upstream-read') as service:
+            service.poll_interval = .05
+            print(service.server_port, flush=True)
+            service.serve_forever()
+    else:
+        run()
