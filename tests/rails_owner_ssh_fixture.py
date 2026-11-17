@@ -24,10 +24,10 @@ class Peer(paramiko.ServerInterface):
 
 class Fixture:
     def __init__(self,root,ledger,workspace,cleanup):
-        self.root=root;self.blackhole=True
+        self.root=root;self.blackhole=True;self.key_env={'PATH':'/usr/bin:/bin','HOME':str(root/'home'),'LC_ALL':'C'}
         self.bb=Path(__file__).resolve().parents[2]/'bundlebees'
-        self.owner=root/'owner-signing';relay=root/'relay'
-        for key in (self.owner,relay):subprocess.run(['ssh-keygen','-q','-t','ed25519','-N','','-f',str(key)],check=True)
+        self.owner=root/'owner-signing';relay=self.relay=root/'relay'
+        for key in (self.owner,relay):subprocess.run(['ssh-keygen','-q','-t','ed25519','-C','fixture','-N','','-f',str(key)],env=self.key_env,check=True)
         host=paramiko.RSAKey.generate(2048);pub=base64.b64decode(relay.with_suffix('.pub').read_text().split()[1]);pins=root/'host-keys'
         pins.write_text('rails-feedback-coordinator '+host.get_name()+' '+host.get_base64()+'\n')
         allowed=root/'allowed-signers';allowed.write_text(workspace+':alice namespaces="rizzstack-rails-feedback-v1" '+' '.join(self.owner.with_suffix('.pub').read_text().split()[:2])+'\n');allowed.chmod(0o600)
@@ -67,6 +67,6 @@ class Fixture:
         self.env=dict(ORBIT_RAILS_FEEDBACK_WORKSPACE=workspace,ORBIT_RAILS_RELAY_PORT=str(server.server_address[1]),
                       ORBIT_RAILS_RELAY_USER='fixture-relay',ORBIT_RAILS_RELAY_HOST_KEYS=str(pins),ORBIT_RAILS_RELAY_IDENTITY=str(relay))
 
-    def sign(self,text):
-        return subprocess.run(['ssh-keygen','-Y','sign','-n','rizzstack-rails-feedback-v1','-f',str(self.owner)],input=text.encode('ascii'),
-            stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,check=True).stdout.decode()
+    def sign(self,text,*,as_relay=False):
+        return subprocess.run(['ssh-keygen','-Y','sign','-n','rizzstack-rails-feedback-v1','-f',str(self.relay if as_relay else self.owner)],input=text.encode('ascii'),
+            env=self.key_env,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,check=True).stdout.decode()

@@ -115,7 +115,9 @@ def run():
         cleanup.callback(lambda: js.kill() if js.poll() is None else None)
         js.stdin.write(json.dumps(dict(origin=origin,owner=owner,reader=reader,event=original,workspace=workspace,signed=bool(writer)))+'\n'); js.stdin.flush()
         for line in js.stdout:
-            if writer and line.startswith('sign '):js.stdin.write(json.dumps(writer.sign(json.loads(line[5:])))+'\n');js.stdin.flush()
+            if writer and line.startswith(('sign ', 'sign-as-relay ')):
+                operation,text = line.split(' ',1)
+                js.stdin.write(json.dumps(writer.sign(json.loads(text),as_relay=operation=='sign-as-relay'))+'\n');js.stdin.flush()
             elif line.strip() == 'append': js.stdin.write(event(ledger,2)+'\n'); js.stdin.flush()
             elif line.strip() == 'restart':
                 stop_reader()
@@ -128,7 +130,7 @@ def run():
             rows=ledger.query("SELECT envelope_json FROM event_rows WHERE kind='feedback.recorded'")
             assert len(rows)==1 and json.loads(rows[0]['envelope_json'])['payload']['target_event_id']==original
             print('PASS: pinned SSH relay, coordinator-sealed job, enrolled detached owner signature, lost commit reply reconciled exactly once')
-        print('PASS: Observatory row → owner proxy → R12 view → selected origin mark; feedback denied, SSE restart/replay/revocation, focus restored')
+        print('PASS: Observatory row → owner proxy → R12 view → selected origin mark; pane write denied, SSE restart/replay/revocation, focus restored')
 
 
 if __name__ == '__main__':

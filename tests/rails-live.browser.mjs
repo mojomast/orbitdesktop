@@ -39,6 +39,10 @@ try {
   await dialog.getByRole('button',{name:'Prepare signed feedback'}).click();
   if(cfg.signed){
     const exact=await dialog.locator('pre').textContent();assert.equal(JSON.parse(exact).workspace_id,cfg.workspace);assert.ok(!exact.includes('private synthetic'));
+    // The real key enrolled for the SSH transport is not the owner signer.
+    process.stdout.write('sign-as-relay '+JSON.stringify(exact)+'\n');const relaySig=JSON.parse((await lines.next()).value);
+    await dialog.getByLabel('Detached SSH signature').fill(relaySig);await dialog.getByRole('button',{name:'Confirm signed feedback'}).click();
+    await dialog.getByText(/Feedback refused/).waitFor();
     process.stdout.write('sign '+JSON.stringify(exact)+'\n');const signature=JSON.parse((await lines.next()).value);
     await dialog.getByLabel('Detached SSH signature').fill(signature);await dialog.getByRole('button',{name:'Confirm signed feedback'}).click();
     await dialog.getByText(/Outcome unknown/).waitFor();await dialog.getByRole('button',{name:'Confirm signed feedback'}).click();

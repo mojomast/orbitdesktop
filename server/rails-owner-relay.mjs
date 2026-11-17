@@ -5,11 +5,11 @@ import {isAbsolute} from 'node:path';
 
 const UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const ID=/^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$/;
-const exact=(obj,keys)=>obj!==null&&typeof obj==='object'&&!Array.isArray(obj)&&Object.keys(obj).sort().join(',')===keys.slice().sort().join(',');
+const exact=(obj,keys)=>obj!==null&&typeof obj==='object'&&!Array.isArray(obj)&&Object.keys(obj).length===keys.length&&keys.every(k=>Object.hasOwn(obj,k));
 const refuse=code=>{throw Object.assign(Error('Rails owner request refused'),{code});};
 const ns='rizzstack-rails-feedback-v1';
 const draftFields=['workspace_id','target_event_id','idempotency_key','category','rating','note'];
-function validDraft(d){return d&&UUID.test(d.workspace_id)&&UUID.test(d.idempotency_key)&&typeof d.target_event_id==='string'&&ID.test(d.target_event_id)&&
+function validDraft(d){return d&&[d.workspace_id,d.idempotency_key].every(v=>typeof v==='string'&&UUID.test(v))&&typeof d.target_event_id==='string'&&ID.test(d.target_event_id)&&
   d.category==='quality'&&[-1,0,1].includes(d.rating)&&['','[redacted]'].includes(d.note);}
 function parseReview(text){
   if(typeof text!=='string'||Buffer.byteLength(text)>3072)refuse('invalid_request');
@@ -23,7 +23,9 @@ function parseReview(text){
 export function fixedSshExchange(env){
   const {ORBIT_RAILS_RELAY_IDENTITY:identity,ORBIT_RAILS_RELAY_HOST_KEYS:pins,ORBIT_RAILS_RELAY_USER:user,ORBIT_RAILS_RELAY_PORT:port}=env;
   if(!identity||!pins||![identity,pins].every(p=>isAbsolute(p)&&/^\/[A-Za-z0-9/_.-]+$/.test(p))||!user||!/^[a-z_][a-z0-9_-]{0,31}$/.test(user)||!/^\d{1,5}$/.test(port)||+port<1||+port>65535)return null;
-  const args=['-F','none','-T','-a','-x','-i',identity,'-p',port,'-o','BatchMode=yes','-o','IdentitiesOnly=yes','-o','IdentityAgent=none',
+  // An unavailable -i file can be skipped by the OpenSSH option parser,
+  // restoring default identity paths. Configure the single filename directly.
+  const args=['-F','none','-T','-a','-x','-o','IdentityFile='+identity,'-p',port,'-o','BatchMode=yes','-o','PreferredAuthentications=publickey','-o','IdentitiesOnly=yes','-o','IdentityAgent=none',
     '-o','StrictHostKeyChecking=yes','-o','HostKeyAlias=rails-feedback-coordinator','-o','UpdateHostKeys=no','-o','GlobalKnownHostsFile=/dev/null',
     '-o','UserKnownHostsFile='+pins,'-o','ClearAllForwardings=yes','-o','ConnectTimeout=3',user+'@127.0.0.1','rails-feedback-v1'];
   return body=>new Promise((resolve,reject)=>{
@@ -52,7 +54,7 @@ export function ownerRelay({workspace,workspaceRead,exchange}){
       else refuse('invalid_request');
       if(d.workspace_id!==workspace)refuse('forbidden');
       let bound;try{bound=workspaceRead(workspace);}catch{refuse('forbidden');}
-      if(bound?.id!==workspace||bound.recovery_policy?.held)refuse('forbidden');
+      if(bound?.id!==workspace||bound.recovery_policy?.held!==false)refuse('forbidden');
       const reply=await exchange(o);if(reply?.ok!==true)refuse(['forbidden','not_found','source_fork','conflict','invalid_request','capability_unavailable'].includes(reply?.code)?reply.code:'source_unavailable');
       if(o.action==='preview'){
         const checked=parseReview(reply.review);if(!draftFields.every(k=>checked[k]===d[k]))refuse('conflict');return {ok:true,review:reply.review};

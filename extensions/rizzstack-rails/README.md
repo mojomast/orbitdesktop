@@ -52,7 +52,13 @@ feedback** obtains a five-minute, quality-only review from the coordinator. Save
 and inspect its exact bytes, sign with your independently held enrolled SSH
 signing key using namespace `rizzstack-rails-feedback-v1`, paste the detached
 signature into the shell, and select **Confirm signed feedback**. Never paste a
-private key. A lost reply is uncertain: reconfirm only that exact same review
+private key. On the separate signing machine, after inspecting the saved file:
+
+```sh
+ssh-keygen -Y sign -f "$OWNER_SIGNING_KEY" -n rizzstack-rails-feedback-v1 rails-feedback-review.json
+```
+
+Use the resulting `rails-feedback-review.json.sig`. A lost reply is uncertain: reconfirm only that exact same review
 to recover the original receipt. Later, lookup the feedback by its target and
 receipt before preparing another. Drafts and signatures are transient.
 
@@ -84,7 +90,9 @@ disposable keys in one account does not establish that deployment isolation.
   caller-supplied arguments. The command consumes one bounded JSON document
   on stdin and terminates. No daemon, listener, scheduler, job approval key or
   writable R12 instance is added. Do not configure if no such restricted
-  transport and separation already exist.
+  transport and separation already exist. The writer needs read-only access to
+  the sealed job records and their existing verification key, and R11 write
+  access to the configured ledger. Keep the verifier key inaccessible to Orbit.
 * Orbit's opt-in settings are `ORBIT_RAILS_FEEDBACK_WORKSPACE` (an existing
   registered workspace UUID), `ORBIT_RAILS_RELAY_USER`, `ORBIT_RAILS_RELAY_PORT`
   (numeric IPv4 loopback SSH endpoint), `ORBIT_RAILS_RELAY_IDENTITY` (relay-only
@@ -108,7 +116,7 @@ Use Node 22.12+ with Orbit dependencies, Python 3 and an installed Playwright
 Chromium (`CHROMIUM_EXECUTABLE` may name a compatible local browser).
 
 ```
-node --test tests/rails-ui.test.mjs tests/rails-proxy.test.mjs tests/rails-feedback.test.mjs
+node --test tests/rails-ui.test.mjs tests/rails-proxy.test.mjs tests/rails-feedback.test.mjs tests/rails-owner-relay.test.mjs
 python3 tests/rails-live.browser.py
 python3 tests/rails-live.browser.py --signed-feedback
 ```
