@@ -255,7 +255,7 @@ window.__technologyCspViolations.push({uri:event.blockedURI,directive:event.effe
         try:
             page.goto(f['origin'] + ('/?renderer=docking' if args.renderer == 'docking' else '/'), wait_until='networkidle')
             if args.renderer == 'docking':
-                page.wait_for_function("document.documentElement.dataset.dockingRenderer==='docking'")
+                expect(page.locator('html')).to_have_attribute('data-docking-renderer', 'docking', timeout=30000)
             unlock()
             # Authenticate the real owner routes, including bad JSON and unknown fields.
             for route, action in ROUTES.items():
