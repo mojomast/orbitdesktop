@@ -53,5 +53,17 @@ class BundleTest(unittest.TestCase):
         self.assertEqual(sorted(actual - expected), [], 'bundle members outside the inclusion policy')
         self.assertEqual(len(actual), len(expected), 'bundle member count must match the policy')
 
+    def test_rebuilt_bundle_reproduces_committed_tarball_bytes(self):
+        # DEFECT-1 regression (PR #42 review): the gzip container framing must
+        # be interpreter-independent, so a rebuild on any supported Python
+        # reproduces the committed artifact byte-for-byte, not merely its
+        # gunzipped inner payload.
+        committed = (ROOT / 'hermes-plugin/orbit-source.tar.gz').read_bytes()
+        with tempfile.TemporaryDirectory() as temp:
+            target = Path(temp) / 'orbit-source.tar.gz'
+            bundler.build(target)
+            rebuilt = target.read_bytes()
+        self.assertEqual(rebuilt, committed, 'rebuilt bundle bytes must equal the committed hermes-plugin/orbit-source.tar.gz')
+
 if __name__ == '__main__':
     unittest.main()
