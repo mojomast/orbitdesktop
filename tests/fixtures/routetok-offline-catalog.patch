@@ -1,0 +1,29 @@
+diff --git a/test/integration/admin-endpoints.test.ts b/test/integration/admin-endpoints.test.ts
+--- a/test/integration/admin-endpoints.test.ts
++++ b/test/integration/admin-endpoints.test.ts
+@@ -55,6 +55,9 @@ test("admin diagnostic endpoints are reachable over HTTP with dashboard auth", as
+     if (url.pathname === "/requesty/v1/models") {
+       response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ data: [{ id: "vendor/rq-model", type: "chat", pricing: { input: 0.000002, output: 0.000004 } }] })); return;
+     }
++    if (url.pathname === "/zen/v1/models") {
++      response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ data: [{ id: "mimo-v2.5-free" }] })); return;
++    }
+     if (url.pathname === "/openrouter/v1/models") {
+       response.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ data: [{ id: "vendor/or-model", name: "OR Model", pricing: { prompt: "0.000001", completion: "0.000002" } }] })); return;
+     }
+@@ -138,6 +141,7 @@ test("admin diagnostic endpoints are reachable over HTTP with dashboard auth", as
+       KIMI_CODING_BASE_URL: `${root}/kimi/v1`,
+       OPENROUTER_API_KEY: "openrouter-secret",
+       OPENROUTER_BASE_URL: `${root}/openrouter/v1`,
++      OPENCODE_ZEN_BASE_URL: `${root}/zen/v1`,
+       REQUESTY_API_KEY: "requesty-secret",
+       REQUESTY_BASE_URL: `${root}/requesty/v1`,
+       REQUESTY_MANAGEMENT_BASE_URL: `${root}/management`
+@@ -251,6 +255,7 @@ test("admin diagnostic endpoints are reachable over HTTP with dashboard auth", as
+     const refreshed = await fetch(`${base}/admin/api/catalog/refresh`, { method: "POST", headers: dashboardHeaders });
+     assert.equal(refreshed.status, 200);
+     const refreshedPayload = await refreshed.json() as { catalog: { source: string }; models: Array<{ id: string }> };
++    assert.ok(refreshedPayload.models.some((model) => model.id === "opencode:mimo-v2.5-free"));
+     assert.deepEqual(refreshedPayload.models.map((model) => model.id).filter((id) => id === "agent-model" || id === "groq:fast-model").sort(), ["agent-model", "groq:fast-model"]);
+     const unknownRefresh = await fetch(`${base}/admin/api/catalog/refresh?provider=not-a-provider`, { method: "POST", headers: dashboardHeaders });
+     assert.equal(unknownRefresh.status, 400);

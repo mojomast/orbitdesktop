@@ -1,4 +1,5 @@
 import { scratchPath } from './fixtures/scratch.mjs';
+import { adminFixture, cloneOfflineRouteTok, upstreamHead } from './fixtures/routetok-offline.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -237,22 +238,17 @@ test('real RouteTok export independently verifies 293 tests and retrieved diff p
   skip:!process.env.ORBIT_ROUTETOK_TEST_SOURCE||!process.env.ORBIT_ROUTETOK_TEST_CACHE,timeout:300000,
 },async t=>{
   const upstream=process.env.ORBIT_ROUTETOK_TEST_SOURCE,cache=process.env.ORBIT_ROUTETOK_TEST_CACHE;
-  const upstreamHead='5982efe845f99528b2facde08991d951269ec4ab';
-  assert.equal(git(upstream,'rev-parse','HEAD'),upstreamHead);
-  assert.equal(git(upstream,'status','--porcelain'),'');
-  assert.equal(fs.existsSync(path.join(upstream,'node_modules')),false);
   const filename='src/net-address.ts',oldHash='f6439cfa1775a2c01bfbb5d3682401abffbb62ac36bfb6cbb54ab470f8a3cb09',newHash='540967904a3898172b9a4a9ed9bd436b2a0c3a303933032c7c4ce767929b44d1';
   const regression=fs.readFileSync(new URL('routetok-net-address-equivalence.test.ts',fixtures));
   const publicRepair=fs.readFileSync(new URL('routetok-net-address-repair.patch',fixtures));
   const root=fs.mkdtempSync(scratchPath('orbit-export-routetok-'));
   const source=path.join(root,'source');
-  execFileSync('/usr/bin/git',['clone','--no-hardlinks','--quiet',upstream,source]);
-  execFileSync('/usr/bin/git',['-C',source,'checkout','--detach','--quiet',upstreamHead]);
-  assert.equal(git(source,'status','--porcelain'),'');
+  const wiredAdmin=cloneOfflineRouteTok(upstream,source);
   const testPath='test/unit/net-address-equivalence.test.ts';
   assert.equal(fs.existsSync(path.join(source,testPath)),false);
   fs.writeFileSync(path.join(source,testPath),regression);
-  assert.equal(git(source,'status','--porcelain'),`?? ${testPath}`);
+  const fixtureStatus=`M ${adminFixture}\n?? ${testPath}`;
+  assert.equal(git(source,'status','--porcelain'),fixtureStatus);
   const temporary=path.join(root,'repaired');fs.mkdirSync(path.join(temporary,'src'),{recursive:true});
   const original=fs.readFileSync(path.join(source,filename));assert.equal(hash(original),oldHash);
   fs.writeFileSync(path.join(temporary,filename),original);
@@ -284,8 +280,7 @@ test('real RouteTok export independently verifies 293 tests and retrieved diff p
   const downloaded=await f.flow('private_patch_get',{artifact_id:exported.patch.id});
   assert.equal(hash(Buffer.from(downloaded.patch)),exported.patch.artifact_hash);
   const fresh=path.join(root,'fresh-base');
-  execFileSync('/usr/bin/git',['clone','--no-hardlinks','--quiet',upstream,fresh]);
-  execFileSync('/usr/bin/git',['-C',fresh,'checkout','--detach','--quiet',upstreamHead]);
+  assert.equal(cloneOfflineRouteTok(upstream,fresh),wiredAdmin);
   fs.writeFileSync(path.join(fresh,testPath),regression);
   assert.equal(git(fresh,'rev-parse','HEAD'),upstreamHead);
   assert.equal(hash(fs.readFileSync(path.join(fresh,filename))),oldHash);
@@ -306,7 +301,8 @@ test('real RouteTok export independently verifies 293 tests and retrieved diff p
   assert.match(retest.stdout,/tests 293\b/);
   assert.match(retest.stdout,/pass 293\b/);
   assert.equal(git(upstream,'status','--porcelain'),'');
-  assert.equal(git(source,'status','--porcelain'),`?? ${testPath}`);
+  assert.equal(git(source,'status','--porcelain'),fixtureStatus);
+  assert.equal(fs.readFileSync(path.join(source,adminFixture),'utf8'),wiredAdmin);
   assert.deepEqual(fs.readFileSync(path.join(source,filename)),original);
   assert.equal(fs.existsSync(path.join(source,'node_modules')),false);
   console.log(JSON.stringify({current_artifact:exported.patch.id,artifact_check_count:result.test_results.tests,required_files:result.test_results.covered_files.length,artifact_hash:exported.patch.artifact_hash,source_head:upstreamHead,changed_file_hash:newHash,fresh_retest:'293/293'}));
