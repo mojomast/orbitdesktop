@@ -123,7 +123,7 @@ export function bindHiveHost(frame:HTMLIFrameElement, url:URL, token:()=>string,
     if (delay>0) {timer=window.setTimeout(refresh,Math.ceil(delay));return;}
     lifecycle.clock.last=performance.now();
     const controller = request = new AbortController();
-    const deadline = setTimeout(()=>controller.abort(),10_000);
+    const deadline = setTimeout(()=>controller.abort(),30_000);
     const opts={...sharedOptions,signal:controller.signal};
     confirmed=undefined;offered=undefined;selectors.clear();reportRequest?.abort();reportRequest=undefined;clearTimeout(reportTimer);label();status('loading');
     try {
