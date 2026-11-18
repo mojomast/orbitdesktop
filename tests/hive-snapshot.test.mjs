@@ -82,14 +82,29 @@ test('fresh envelope cannot launder old sections, lease fallback, or an undecida
 });
 
 test('schema and JSON admission fail closed before selecting any fields, without echoing source', () => {
-  for (const mutate of [s => { s.schema += '.99'; }, s => { s.decisions.requests[0].authority = 'owner'; },
-    s => { s.degraded = ['not_a_section']; }, s => { s.fleet.attempts[0].attempt_id = 'bad/id'; }, s => { delete s.usage.by_repo; },
-    s => { s.health.quota = [{ ...row, kind: 'box_ram', status: 'unavailable', value: 4, unit: 'byte', remaining: null, cap: null, resource_id: null }]; },
-    s => { s.ci.prs[0].state = 'deployed'; }, s => { s.usage.totals.cost_usd = Infinity; },
+  for (const mutate of [s => { s.schema += '.99'; },
+    s => { s.degraded = ['not_a_section']; }, s => { s.usage.totals.cost_usd = Infinity; },
     s => { s.fleet = Object.create(s.fleet); }, s => { s.generated_at = '2026-02-31T00:00:00Z'; },
     s => { s.generated_at = '2099-12-31T23:59:59Z'; },
     s => { s.fleet.attempts[0] = Object.defineProperty({}, 'state', { get() { throw new Error(privateNote); } }); },
   ]) { const s = snapshot(); mutate(s); assert.throws(() => project(s, clock), { message: 'Invalid Hive snapshot' }); }
+});
+
+test('section-local schema violations degrade only their own section', () => {
+  for (const [id, mutate] of [
+    ['decisions', s => { s.decisions.requests[0].authority = 'owner'; }],
+    ['fleet', s => { s.fleet.attempts[0].attempt_id = 'bad/id'; }],
+    ['usage', s => { delete s.usage.by_repo; }],
+    ['health', s => { s.health.quota = [{ ...row, kind: 'box_ram', status: 'unavailable', value: 4, unit: 'byte', remaining: null, cap: null, resource_id: null }]; }],
+    ['ci', s => { s.ci.prs[0].state = 'deployed'; }],
+  ]) {
+    const s = snapshot();
+    mutate(s);
+    const v = project(s, clock);
+    assert.equal(v.sections.find(x => x.id === id).state, 'unavailable');
+    assert.ok(v.sections.some(x => x.id !== id && x.state === 'live'), `${id} degraded every section`);
+    assert.deepEqual(v.stations.map(x => x.id), ['auth','dispatch','build','verify','review','integrate','deploy','receiver']);
+  }
 });
 
 test('bounded collections, deterministic identities, no placeholder bee or index-based join', () => {
