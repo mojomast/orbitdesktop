@@ -65,7 +65,7 @@ export function bindHiveHost(frame:HTMLIFrameElement, url:URL, token:()=>string,
   }
   function revoke(value:Status) {
     grant = undefined; request?.abort(); request=undefined; selectors.clear(); confirmed=undefined;enrolled=false;
-    reportRequest?.abort();reportRequest=undefined;clearTimeout(reportTimer);turns.leave(turn);offered=undefined;admission.reset();
+    reportRequest?.abort();reportRequest=undefined;clearTimeout(reportTimer);turns.leave(turn);offered=undefined;
     clearTimeout(timer); closeRails?.(); closeRails=undefined; status(value); label();
   }
   function withdraw() {
@@ -150,11 +150,16 @@ export function bindHiveHost(frame:HTMLIFrameElement, url:URL, token:()=>string,
       const view=await projectLabelView(snapshot,{now:Date.now()});
       if (!valid(g)) return;
       const serialized=JSON.stringify(view);
-      if (serialized.includes(g.credential) || new TextEncoder().encode(serialized).length>512*1024) throw Error();
+      const bytes=new TextEncoder().encode(serialized);
+      if (serialized.includes(g.credential) || bytes.length>512*1024) throw Error();
+      // A demo round trip clears consent and private rows, not the document's
+      // freshness boundary. Keep only a timestamp and SHA-256 in admission.
+      const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),b=>b.toString(16).padStart(2,'0')).join('');
+      if (!valid(g)) return;
       const next=new Set<string>();
       for (const row of view.attempts) if (ID.test(row.id)) next.add('attempt:'+row.id);
       for (const row of view.records) if (typeof row.jobId==='string' && ID.test(row.jobId)) next.add('job:'+row.jobId);
-      const result=admission.hydrate(view);
+      const result=admission.hydrate({generatedAt:view.generatedAt,hash});
       if(result==='old'||admission.current.status==='conflict'){turns.leave(turn);status(result==='old'?'out of order':'conflict');return;}
       if(result!=='new'&&result!=='duplicate')throw Error();
       offered={seq:++sequence,v:view,selectors:next};
@@ -210,7 +215,7 @@ export function bindHiveHost(frame:HTMLIFrameElement, url:URL, token:()=>string,
   const loaded=()=>{if (++loads>1) dispose();};
   function dispose() {
     if(disposed)return;
-    disposed=true;revoke('unauthorized');port?.close();port=undefined;
+    disposed=true;revoke('unauthorized');admission.reset();port?.close();port=undefined;
     frame.removeEventListener('load',loaded);window.removeEventListener('message',receive);
     window.removeEventListener('orbit-host-connected',authChanged);document.removeEventListener('visibilitychange',visibility);
     window.removeEventListener('pagehide',dispose);bar.remove();

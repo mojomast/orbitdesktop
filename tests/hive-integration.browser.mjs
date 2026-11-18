@@ -236,6 +236,18 @@ try {
   assert.ok(!(await evidenceButton.isVisible())||await evidenceButton.isDisabled(),'evidence control must not use the rejected view');
   assert.equal(await child.evaluate(()=>window.seenHive.filter(m=>m.type==='reports').length),fromOldPoll.sent);
   await excludes(child,[alias,outside,queueDigest,releaseAt]);
+  // The same document's freshness boundary survives a fresh grant, while
+  // its private rows and report consent do not. The collector still serves
+  // the formerly accepted older observation.
+  const offersBefore=await child.evaluate(()=>window.seenHive.filter(m=>m.type==='admission').length);
+  await actual.locator('#scenario').selectOption('shift');
+  await actual.locator('#source-caption').filter({hasText:/synthetic/i}).waitFor();
+  await actual.locator('#scenario').selectOption('host');await share.waitFor();
+  const resumedRead=page.waitForResponse(r=>new URL(r.url()).pathname==='/obs-snapshot/snapshot',{timeout:45_000});
+  await share.click();assert.equal((await resumedRead).status(),200);
+  await actual.locator('#connection').filter({hasText:/out of order/i}).waitFor();
+  assert.equal(child.isDetached(),false);assert.equal(await child.evaluate(()=>window.seenHive.filter(m=>m.type==='admission').length),offersBefore);
+  await noEnroll();await noRejectedEvidence();await excludes(child,[alias,outside,queueDigest,releaseAt]);
   // Revocation is an actual collector bearer rejection through Orbit. Give the
   // initial 30-second floor time to elapse (not a shortened production timer).
   const refusal=page.waitForResponse(r=>new URL(r.url()).pathname==='/obs-snapshot/snapshot'&&[401,403].includes(r.status()),{timeout:45_000});
