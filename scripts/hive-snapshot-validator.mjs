@@ -21,7 +21,7 @@ function schema(name) {
   if (createHash('sha256').update(bytes).digest('hex') !== pins[name]) throw new Error(`Unreviewed ${name} schema`);
   return JSON.parse(bytes);
 }
-const ajv = new Ajv2020({ strictTypes: false, ownProperties: true, inlineRefs: false, messages: false, code: { source: true, esm: true } });
+const ajv = new Ajv2020({ strictTypes: false, ownProperties: true, inlineRefs: false, messages: false, allErrors: true, code: { source: true, esm: true } });
 ajv.addSchema(schema('common'));
 const code = standalone(ajv, ajv.compile(schema('snapshot')));
 const bundle = buildSync({

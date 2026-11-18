@@ -66,3 +66,24 @@ test('credential-shaped identifiers are still withheld', () => {
   assert.ok(!v.attempts.some(a => a.id === 'ghp_fixtureCredential'));
   assert.doesNotMatch(JSON.stringify(v), /ghp_fixtureCredential/);
 });
+
+test('a second schema-only violation cannot keep its section live', () => {
+  const s = structuredClone(fixtures.dense);
+  s.fleet.in_flight = '14'; // first failing top-level property
+  s.decisions.requests[0].state = 'pwned by producer text'; // enum violation later in document order
+  const v = project(s, clock);
+  assert.equal(section(v, 'fleet').state, 'unavailable');
+  assert.equal(section(v, 'decisions').state, 'unavailable');
+  assert.ok(!v.records.some(r => r.kind === 'decision'));
+  assert.ok(!v.attention.some(a => JSON.stringify(a).includes('pwned')));
+});
+
+test('a guard-degraded usage section cannot contribute cost metrics', () => {
+  const s = structuredClone(fixtures.dense);
+  s.fleet.in_flight = '14'; // makes admit single-error before the allErrors fix
+  s.usage.by_model = {unexpected: true}; // the usage guard throws on this only when admit misses it
+  const v = project(s, clock);
+  assert.equal(section(v, 'usage').state, 'unavailable');
+  assert.equal(v.metrics.cost, null);
+  assert.equal(v.metrics.costCoverage, null);
+});
