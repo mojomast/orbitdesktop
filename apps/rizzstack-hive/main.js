@@ -63,13 +63,13 @@ let nav = "floor",
   initial = true,
   rendered = null,
   renderedHeld = null;
-let report=null, displayView=null, railFeed=null, railNotice=null, releasePacket;
+let report=null, displayView=null, railFeed=null, railNotice=null, releasePacket,reportState='off';
 const feedLabels={following:'Selected Rails stream live',invalidated:'Selected history changed · overview reread queued',reconnecting:'Selected Rails stream reconnecting',gap:'Selected history gap · reconciling'};
 function discardReports(){report=null;displayView=null;work.setDocket(null);}
 function receiveReport(packet){
   const raw=store.current.view;
   if(!raw||store.current.status!=='connected'||packet.generatedAt!==raw.generatedAt)return;
-  report=packet;displayView=raw;
+  report=packet;reportState='shared';displayView=raw;
   if(packet.titles.length){const lookup=new Map(packet.titles.map(t=>[JSON.stringify([t.kind,t.id]),t.title]));
     const records=raw.records.map(r=>{const title=lookup.get(JSON.stringify([r.kind,r.id]));return title?{...r,title}:r;});
     displayView={...raw,records};}
@@ -165,7 +165,7 @@ function openRails(kind, id) {
   return host.openRails(kind, id);
 }
 function clear() {
-  discardReports();railFeed=null;railNotice=null;
+  discardReports();railFeed=null;railNotice=null;reportState='off';
   previous = [];
   focusReturn = null;
   rendered = null;
@@ -361,7 +361,8 @@ function render() {
   $("world").classList.toggle("historical", historical);
   $('watch').hidden=demo||!view;
   set('follow-state',railFeed?`${feedLabels[railFeed.signal]} · ${railFeed.id}`:'Selected history off');
-  set('evidence-state',report?(report.queue||report.release||report.titles.length?'Enrolled evidence shared':'No valid enrolled observations'):'Companion evidence not shared');
+  set('evidence-state',report?(report.queue||report.release||report.titles.length?'Enrolled evidence shared':'No valid enrolled observations'):
+    ({off:'Companion evidence not shared',waiting:'Evidence shared · next read scheduled',busy:'Evidence reader busy · retry scheduled',unavailable:'Evidence shared · reader unavailable',shared:'Evidence shared · awaiting confirmed view'}[reportState]));
   const notice=railNotice && !held && view && (railNotice.kind==='attempt'?v.attempts.find(r=>r.id===railNotice.id):v.records.find(r=>r.kind==='job'&&r.jobId===railNotice.id));
   const ticket=$('stream-ticket');ticket.hidden=!notice;
   ticket.lastElementChild.textContent=notice?`${railNotice.id} · inspect the updated history; outcome unconfirmed`:'';
@@ -455,6 +456,7 @@ async function setMode(key) {
         schedule();
       },
       onReports(packet){if(g===gen)receiveReport(packet);},
+      onReportStatus(s){if(g===gen){reportState=s;schedule();}},
       onFollow(data){if(g!==gen)return;railFeed=data.signal==='idle'?null:data;
         if(data.signal==='invalidated')railNotice=data;
         if(data.signal==='gap'||data.signal==='reconnecting'){railNotice=null;continuous=false;}

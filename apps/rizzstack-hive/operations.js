@@ -1,4 +1,5 @@
 import { release } from './release.js';
+import { releaseCitation } from './release-provider.js';
 
 // Refusals, not executable actions. These facts belong to the source owner,
 // regardless of the pane's connection, a role label, or caller-supplied keys.
@@ -144,13 +145,7 @@ export function renderRelease(root) {
     if (cls) n.className = cls;
     return n;
   };
-  const link = (text, url) => {
-    const a = node('a', text);
-    a.href = url;
-    a.target = '_blank';
-    a.rel = 'noopener noreferrer';
-    return a;
-  };
+  const link = (text, url) => releaseCitation(doc, text, url);
   const pins = field => {
     const details = node('details', null, 'docket-pins');
     details.append(node('summary', field === 'candidate' ? 'Qualified SHA pins' : 'Captured SHA pins & checks'));

@@ -26,6 +26,22 @@ class Element {
   append(...els){this.children.push(...els)} replaceChildren(...els){this.children=els}
   get text(){return [this.textContent,...this.children.map(el=>el.text)].join(' ')}
 }
+for (const [state, wording] of [
+  ['PARTIAL', /draft.*some.*leased files/i],
+  ['COVERED_BY_DRAFT', /draft.*all.*leased files/i],
+  ['LANDED', /merged.*all.*leased files/i],
+]) {
+  test(`${state} explains file coverage and the timestamp's source`, () => {
+    const value = doc(), root = new Element();
+    value.coverage.state = state;
+    if (state !== 'PARTIAL') value.coverage.covered = value.coverage.total;
+    renderQueueDocket(root, value);
+    assert.match(root.text, wording);
+    assert.match(root.text, /acceptance criteria (?:were )?not evaluated/i);
+    assert.match(root.text, /local record read/i);
+    assert.doesNotMatch(root.text, /covers (?:part of )?the job scope/i);
+  });
+}
 test('historical evidence labelled, invalid or cleared grant discards it',()=>{
   const value=doc(), root=new Element(); value.observedAt='2020-01-01T00:00:00Z';
   renderQueueDocket(root,value);

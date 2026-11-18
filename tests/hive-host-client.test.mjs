@@ -25,8 +25,13 @@ test('navigation requires a bounded view followed by connected on this active do
   assert.equal(views.length,0);assert.equal(outbound.length,0);
   send({type:'view',view});assert.equal(views.length,0);assert.equal(open(),false);
   send({type:'status',value:'connected'});assert.equal(views.length,1);assert.equal(open(),true);
+  send({type:'admission',seq:1,generatedAt:view.generatedAt});
+  assert.deepEqual(outbound.at(-1),{type:'accepted',seq:1,generatedAt:view.generatedAt});
+  const n=outbound.length;
+  send({type:'admission',seq:2,generatedAt:'2000-01-01T00:00:00Z'});assert.equal(outbound.length,n);
   admission='old';send({type:'status',value:'loading'});send({type:'view',view});send({type:'status',value:'connected'});
-  assert.equal(states.at(-1),'out of order');assert.equal(open(),false);admission='new';
+  assert.equal(states.at(-1),'out of order');assert.equal(open(),false);
+  send({type:'admission',seq:2,generatedAt:view.generatedAt});assert.equal(outbound.length,n);admission='new';
   handle.close();assert.equal(open(),false);
   handle=connectHost(client);send({type:'status',value:'connected'});assert.equal(open(),false);
   for(const status of ['unavailable','unauthorized','disconnected','loading']) {

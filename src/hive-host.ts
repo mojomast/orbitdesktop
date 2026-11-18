@@ -1,9 +1,13 @@
 import {openRailsShell} from './rails-shell';
+import {reportTurns} from './hive-report-turn';
+// @ts-expect-error The same release-owned admission rules run in both documents.
+import {createStore} from '../apps/rizzstack-hive/store.js';
 
 // Publish with scripts/plugin_publish.py. This exact registry-verified entry is
 // the ONLY app eligible for the operator's per-document read grant.
-const HIVE_ENTRY = '/apps/rizzstack-hive-49d03e50c151d218f2542ddf/index.html';
+const HIVE_ENTRY = '/apps/rizzstack-hive-45ee654988881bd4e8bac461/index.html';
 const PERIOD = 30_000;
+const turns=reportTurns(PERIOD);
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$/;
 const sharedOptions = {credentials:'omit', redirect:'error', cache:'no-store', referrerPolicy:'no-referrer'} as const;
 
@@ -23,7 +27,7 @@ async function json(response: Response, cap: number) {
   } finally { await reader.cancel().catch(()=>{}); }
 }
 
-type Status = 'connected'|'loading'|'unauthorized'|'unavailable'|'disconnected';
+type Status = 'connected'|'loading'|'unauthorized'|'unavailable'|'disconnected'|'conflict'|'out of order';
 type Grant = {credential:string};
 
 export function bindHiveHost(frame:HTMLIFrameElement, url:URL, token:()=>string, controls:HTMLElement,
@@ -48,6 +52,8 @@ export function bindHiveHost(frame:HTMLIFrameElement, url:URL, token:()=>string,
   type Row={kind:string,id:string,title:string};
   type PublicView={generatedAt:string,records:Row[]};
   let confirmed:PublicView|undefined, enrolled=false, lastReport=-Infinity, reportRequest:AbortController|undefined;
+  const admission=createStore();let sequence=0, offered:{seq:number,v:PublicView,selectors:Set<string>}|undefined, reportTimer=0;
+  const turn=Symbol();
   const valid = (g:Grant) => !disposed && frame.isConnected && grant === g && !!port && token() === g.credential;
   const status = (value:Status) => port?.postMessage({type:'status',value});
   function label() {
@@ -59,7 +65,7 @@ export function bindHiveHost(frame:HTMLIFrameElement, url:URL, token:()=>string,
   }
   function revoke(value:Status) {
     grant = undefined; request?.abort(); request=undefined; selectors.clear(); confirmed=undefined;enrolled=false;
-    reportRequest?.abort();reportRequest=undefined;
+    reportRequest?.abort();reportRequest=undefined;clearTimeout(reportTimer);turns.leave(turn);offered=undefined;admission.reset();
     clearTimeout(timer); closeRails?.(); closeRails=undefined; status(value); label();
   }
   function withdraw() {
@@ -73,13 +79,19 @@ export function bindHiveHost(frame:HTMLIFrameElement, url:URL, token:()=>string,
   // Only the trusted owner control enrolls this exact document. At most one
   // bounded report read per cadence; never let a guest choose a source or path.
   async function evidence(g:Grant, v:PublicView) {
-    if(!enrolled||!valid(g)||v!==confirmed||document.hidden||reportRequest||performance.now()-lastReport<PERIOD)return;
+    if(!enrolled||!valid(g)||v!==confirmed||document.hidden||reportRequest)return;
+    clearTimeout(reportTimer);
+    const progress=(value:'waiting'|'busy'|'unavailable')=>port?.postMessage({type:'report-status',value});
+    const now=performance.now(); const delay=now<lastReport+PERIOD?lastReport+PERIOD-now:turns.delay(turn,now);
+    if(delay>0){progress('waiting');reportTimer=window.setTimeout(()=>void evidence(g,v),Math.ceil(delay));return;}
     lastReport=performance.now();
     const ctl=reportRequest=new AbortController();const deadline=setTimeout(()=>ctl.abort(),8000);
     const current=()=>enrolled&&valid(g)&&v===confirmed&&reportRequest===ctl;
     try {
       const r=await fetch('/api/rizzstack/hive/reports',{...sharedOptions,method:'GET',headers:{Authorization:'Bearer '+g.credential,Accept:'application/json'},signal:ctl.signal});
-      if(!current())return;if(r.status===401||r.status===403){withdraw();return;}if(!r.ok)throw Error();
+      if(!current())return;if(r.status===401||r.status===403){withdraw();return;}
+      if(r.status===429){progress('busy');reportTimer=window.setTimeout(()=>void evidence(g,v),PERIOD+Math.ceil(Math.random()*1000));return;}
+      if(!r.ok)throw Error();
       const packet=await json(r,200*1024);
       if(!current())return;
       if(!packet || packet.version!=='hive.reports/1'||Object.keys(packet).sort().join()!=='labels,queue,release,version')throw Error();
@@ -98,7 +110,7 @@ export function bindHiveHost(frame:HTMLIFrameElement, url:URL, token:()=>string,
       const msg={type:'reports',generatedAt:v.generatedAt,queue:packet.queue&&validateQueue(packet.queue)?packet.queue:null,
         release:packet.release&&validateRelease(packet.release)?packet.release:null,titles};
       if(JSON.stringify(msg).includes(g.credential))throw Error();if(current())port?.postMessage(msg);
-    } catch {if(current())port?.postMessage({type:'reports',generatedAt:v.generatedAt,queue:null,release:null,titles:[]});}
+    } catch {if(current())progress('unavailable');}
     finally{clearTimeout(deadline);ctl.abort();if(reportRequest===ctl)reportRequest=undefined;}
   }
   reports.onclick=e=>{if(!e.isTrusted||!grant||!confirmed||!valid(grant))return;if(enrolled){withdraw();return;}
@@ -113,7 +125,7 @@ export function bindHiveHost(frame:HTMLIFrameElement, url:URL, token:()=>string,
     const controller = request = new AbortController();
     const deadline = setTimeout(()=>controller.abort(),10_000);
     const opts={...sharedOptions,signal:controller.signal};
-    status('loading');
+    confirmed=undefined;offered=undefined;selectors.clear();reportRequest?.abort();reportRequest=undefined;clearTimeout(reportTimer);label();status('loading');
     try {
       // Legacy snapshot proxy does not validate an owner bearer. Recheck the
       // in-memory owner session on the real Orbit auth route for *each* read.
@@ -142,11 +154,14 @@ export function bindHiveHost(frame:HTMLIFrameElement, url:URL, token:()=>string,
       const next=new Set<string>();
       for (const row of view.attempts) if (ID.test(row.id)) next.add('attempt:'+row.id);
       for (const row of view.records) if (typeof row.jobId==='string' && ID.test(row.jobId)) next.add('job:'+row.jobId);
-      selectors=next; lastConfirmed=performance.now();confirmed=view;label();
+      const result=admission.hydrate(view);
+      if(result==='old'||admission.current.status==='conflict'){turns.leave(turn);status(result==='old'?'out of order':'conflict');return;}
+      if(result!=='new'&&result!=='duplicate')throw Error();
+      offered={seq:++sequence,v:view,selectors:next};
       port!.postMessage({type:'view',view}); status('connected');
-      void evidence(g,view);
+      port!.postMessage({type:'admission',seq:sequence,generatedAt:view.generatedAt});
     } catch {
-      if (valid(g)) {selectors.clear();confirmed=undefined;label();status('unavailable');}
+      if (valid(g)) {turns.leave(turn);selectors.clear();confirmed=undefined;label();status('unavailable');}
     } finally {
       controller.abort(); clearTimeout(deadline);
       if (request===controller) request=undefined;
@@ -164,6 +179,9 @@ export function bindHiveHost(frame:HTMLIFrameElement, url:URL, token:()=>string,
       if (data.type==='suspend') {suspended=true;revoke('unauthorized');return;}
       if (data.type==='resume' && suspended) {suspended=false;label();status(token()?'disconnected':'unauthorized');return;}
       if (!grant || !valid(grant)) return;
+      if(data.type==='accepted'&&Object.keys(data).length===3&&offered&&data.seq===offered.seq&&data.generatedAt===offered.v.generatedAt){
+        selectors=offered.selectors;confirmed=offered.v;offered=undefined;lastConfirmed=performance.now();label();void evidence(grant,confirmed);return;
+      }
       if (data.type==='refresh' && Object.keys(data).length===1) {void refresh();return;}
       if (data.type!=='rails' || Object.keys(data).length!==3 || closeRails ||
           (data.kind!=='attempt' && data.kind!=='job') || typeof data.id!=='string' || !ID.test(data.id) ||
@@ -188,7 +206,7 @@ export function bindHiveHost(frame:HTMLIFrameElement, url:URL, token:()=>string,
     grant={credential:token()};label();void refresh();
   };
   const authChanged=()=>{withdraw();};
-  const visibility=()=>{if(!document.hidden) void refresh();};
+  const visibility=()=>{if(document.hidden)turns.leave(turn);else void refresh();};
   const loaded=()=>{if (++loads>1) dispose();};
   function dispose() {
     if(disposed)return;

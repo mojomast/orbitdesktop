@@ -103,7 +103,7 @@ def run():
     workflow=Path(os.environ.get('HIVE_WORKFLOW_TEST_ROOT',ROOT.parent/'workflow')).resolve()
     collector=load('collector',workflow/'contrib/rizzstack-observability/collector.py')
     rails_fixture=load('rails_browser',ROOT/'tests/rails-live.browser.py')
-    snapshot=synthetic()
+    original=snapshot=synthetic()
     owner, reader, upstream = [secrets.token_urlsafe(36) for _ in range(3)]
     with tempfile.TemporaryDirectory(prefix='orbit-hive-') as tmp, ExitStack() as cleanup:
         root=Path(tmp)
@@ -177,7 +177,7 @@ def run():
         cfg=dict(origin=origin,workspace=str(uuid4()),entry=manifest['entry'],owner=owner,reader=reader,upstream=upstream,event=event_id,
                  capture=os.getenv('HIVE_TEST_CAPTURE_DIR'),fixture=fixture)
         js.stdin.write(json.dumps(cfg)+'\n');js.stdin.flush()
-        appended=advanced=revoked=False
+        appended=advanced=replaying=revoked=False
         for line in js.stdout:
             if line.strip()=='append':
                 assert not appended
@@ -187,8 +187,16 @@ def run():
                 assert appended and not advanced
                 advanced=True; snapshot=advance(snapshot)
                 js.stdin.write('advanced\n');js.stdin.flush()
+            elif line.strip()=='replay-old':
+                assert advanced and not replaying and len(reads)>=3
+                assert original['generated_at'] < snapshot['generated_at']
+                # Replay the exact previously accepted /1 source. Only the
+                # provider changes; the next ordinary host poll still goes
+                # through owner auth, proxy and credentialed Workflow HTTP.
+                replaying=True; before_replay=len(reads); snapshot=original
+                js.stdin.write('replaying\n');js.stdin.flush()
             elif line.strip()=='revoke':
-                assert advanced and not revoked and len(reads)>=3, 'expected initial, updated and duplicate credentialed reads'
+                assert replaying and not revoked and len(reads)>before_replay, 'expected a credentialed read of the older snapshot'
                 revoked=True; prior=len(reads)
                 stop_collector();server=serve(collector_port,secrets.token_urlsafe(36))
                 js.stdin.write('revoked\n');js.stdin.flush()
@@ -200,7 +208,7 @@ def run():
         # hops, not the scheduling clock. The browser also measures read starts.
         assert all(t>=29.75 for t in intervals),f'credentialed collector reads too close: {intervals}'
         print('PASS: exact Hive pane → overview and enrolled evidence → exact selected R12 append → '
-              'authoritative snapshot and duplicate → collector revocation. '
+              'authoritative snapshot and duplicate → out-of-order report scope withheld → collector revocation. '
               'Credentialed provider intervals (s): '+', '.join(f'{v:.3f}' for v in intervals))
 
 

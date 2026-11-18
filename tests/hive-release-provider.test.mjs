@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {validateRelease, renderReleaseObservation} from '../apps/rizzstack-hive/release-provider.js';
+import {renderRelease} from '../apps/rizzstack-hive/operations.js';
 
 const A='a'.repeat(40), B='b'.repeat(40), C='c'.repeat(40);
 const enroll=[['workflow',1455472841,91],['bundlebees',1454339884,82],['hyvv',1455851481,26],['orbitdesktop',1377703993,46]];
@@ -42,8 +43,9 @@ test('non-atomic read times must be real UTC instants ordered within one bounded
   assert.equal(validateRelease(report(86400000)),true,'old evidence remains valid dated evidence');
 });
 
-function dom(){
-  const doc={createElement(tag){return {ownerDocument:doc,tag,children:[],textContent:'',
+function dom(embedded=false){
+  const view={}; view.parent=embedded?{}:view;
+  const doc={defaultView:view,createElement(tag){return {ownerDocument:doc,tag,children:[],textContent:'',
     append(...els){this.children.push(...els);},replaceChildren(...els){this.children=els;}};}};
   const root=doc.createElement('section'), walk=n=>[n,...n.children.flatMap(walk)];
   return {root,text:()=>walk(root).map(el=>el.textContent).join(' '),all:()=>walk(root)};
@@ -61,5 +63,23 @@ test('current docket is replaceable dated evidence, never a required-check verdi
   for(const value of [null,{secret:'SHOULD_NOT_RENDER'}]){
     renderReleaseObservation(d.root,value); assert.match(d.text(),/unavailable/i); assert.ok(!d.text().includes(A));
     assert.ok(!d.text().includes('SHOULD_NOT_RENDER'));
+  }
+});
+
+test('enrolled and historical citations preserve exact standalone destinations as selectable source addresses in a pane',()=>{
+  for(const render of [root=>renderReleaseObservation(root,report()),renderRelease]){
+    const standalone=dom(), pane=dom(true);
+    render(standalone.root); render(pane.root);
+    const links=standalone.all().filter(n=>n.tag==='a');
+    assert.ok(links.length>0);
+    for(const a of links){
+      assert.equal(a.target,'_blank'); assert.equal(a.rel,'noopener noreferrer');
+      assert.match(a.href,/^https:\/\/github\.com\/mojomast\/(?:(?:workflow|bundlebees|hyvv|orbitdesktop)\/commit\/[a-f0-9]{40}|workflow\/blob\/2d45b5958abed555b910cbddd5bdfe5e8b22144d\/evidence\/rails-rc\/[\w./-]+)$/);
+    }
+    assert.equal(pane.all().filter(n=>n.tag==='a').length,0,'a scripts-only frame cannot open popup links');
+    const fields=pane.all().filter(n=>n.tag==='input' && n.readOnly && !n.disabled);
+    assert.deepEqual(fields.map(f=>f.value),links.map(a=>a.href));
+    assert.match(pane.text(),/select.*URL.*copy/i);
+    assert.equal(pane.all().filter(n=>n.tag==='button').length,0);
   }
 });

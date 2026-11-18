@@ -36,9 +36,15 @@ try {
       addEventListener('message',e=>{if(['view','reports','follow'].includes(e.data?.type)||e.data?.view?.attempts)window.seenHiveBroadcast=true;});
       // Record the owner's per-read authentication start, before variable
       // network/proxy latency. Deliberately do not retain request bodies/headers.
-      window.readTimes=[];const fetch0=window.fetch.bind(window);
+      window.readTimes=[];window.reportTransfers=0;
+      // Count actual host sends even if the guest drops a packet after receipt,
+      // or its old document is discarded during the final credential rotation.
+      const send=MessagePort.prototype.postMessage;
+      MessagePort.prototype.postMessage=function(data,...rest){const result=send.call(this,data,...rest);
+        if(data?.type==='reports')window.reportTransfers++;return result;};
+      const fetch0=window.fetch.bind(window);
       window.fetch=(input,init)=>{if(typeof input==='string' && ['/api/auth','/api/rizzstack/hive/reports'].includes(input))
-        window.readTimes.push({path:input,at:performance.now()});const promise=fetch0(input,init);
+        window.readTimes.push({path:input,at:performance.now(),sent:window.reportTransfers});const promise=fetch0(input,init);
         if(input==='/obs-snapshot/snapshot')promise.then(()=>window.initialSnapshotReady??=performance.now(),()=>{});
         if(input==='/api/rizzstack/hive/reports')promise.then(r=>{window.fixturePacket=r.clone().json().catch(()=>null);},()=>{});
         return promise;};
@@ -205,6 +211,31 @@ try {
   assert.ok(![outside,cfg.event,appended,'hive.public-labels/1'].some(s=>recording.includes(s)));
   assert.equal(await page.evaluate(()=>window.seenHiveBroadcast),false);
   assert.equal(await child.evaluate(async()=>{try {await fetch('/obs-snapshot/snapshot');return 'allowed';} catch {return 'refused';}}),'refused');
+  // Use an actual previously accepted collector response after a newer one
+  // and its duplicate. Don't inject requests, alter the pane or fake its ACK.
+  // A report retry for the *accepted duplicate* can legitimately run before
+  // the stale poll, so observe the boundary at the next owner re-auth start.
+  const authBeforeOld=await page.evaluate(()=>window.readTimes.filter(r=>r.path==='/api/auth').length);
+  const oldAuth=page.waitForRequest(r=>r.frame()===page.mainFrame()&&new URL(r.url()).pathname==='/api/auth',{timeout:45_000});
+  const oldResponse=page.waitForResponse(r=>r.request().frame()===page.mainFrame()&&new URL(r.url()).pathname==='/obs-snapshot/snapshot',{timeout:45_000});
+  assert.equal(await control('replay-old'),'replaying');assert.equal((await oldResponse).status(),200);
+  await actual.locator('#connection').filter({hasText:/out of order/i}).waitFor();
+  const fromOldPoll=await page.evaluate(n=>window.readTimes.filter(r=>r.path==='/api/auth')[n],authBeforeOld);
+  const requestBoundary=requests.indexOf(await oldAuth);assert.ok(requestBoundary>=0);
+  assert.ok(fromOldPoll && fromOldPoll.sent>0,'the stale read must follow a successful evidence grant and transfer');
+  async function noRejectedEvidence(){
+    assert.ok(!requests.slice(requestBoundary).some(r=>new URL(r.url()).pathname===endpoint),'report request after stale poll began');
+    const blocked=await page.evaluate(({at,sent})=>({
+      gets:window.readTimes.filter(r=>r.path==='/api/rizzstack/hive/reports' && r.at>=at).length,
+      sends:window.reportTransfers-sent,
+    }),fromOldPoll);
+    assert.deepEqual(blocked,{gets:0,sends:0},'rejected overview must neither fetch nor transfer reports');
+  }
+  await noRejectedEvidence();
+  const evidenceButton=page.getByRole('button',{name:/^(Share enrolled evidence with this pane|Stop sharing overview and evidence)$/});
+  assert.ok(!(await evidenceButton.isVisible())||await evidenceButton.isDisabled(),'evidence control must not use the rejected view');
+  assert.equal(await child.evaluate(()=>window.seenHive.filter(m=>m.type==='reports').length),fromOldPoll.sent);
+  await excludes(child,[alias,outside,queueDigest,releaseAt]);
   // Revocation is an actual collector bearer rejection through Orbit. Give the
   // initial 30-second floor time to elapse (not a shortened production timer).
   const refusal=page.waitForResponse(r=>new URL(r.url()).pathname==='/obs-snapshot/snapshot'&&[401,403].includes(r.status()),{timeout:45_000});
@@ -214,6 +245,7 @@ try {
   assert.ok(!(await fake.locator('body').innerText()).includes('att-fixture'));
   // A subsequent opaque document shares the WindowProxy, not the granted port.
   assert.ok(child.isDetached(),'revocation discards the old document and hidden/ARIA content');
+  await noRejectedEvidence(); // Includes the entire real cadence until the bearer refusal.
   const fresh=page.frames().find(f=>f.url().includes(cfg.entry));
   await noEnroll();await excludes(fresh,[alias,outside,feature,queueDigest,releaseAt,'att-fixture']);
   await excludes(page.frames().find(f=>new URL(f.url()).pathname==='/apps/rizzstack-hive/index.html'),[alias,outside,feature,queueDigest,releaseAt]);
@@ -230,7 +262,7 @@ try {
   const times=await page.evaluate(()=>window.readTimes);
   for(const p of ['/api/auth',endpoint]){
     const t=times.filter(r=>r.path===p).map(r=>r.at);
-    assert.ok(t.length>=(p===endpoint?1:4));
+    assert.ok(t.length>=(p===endpoint?1:5));
     // Host sets the cadence clock immediately before calling fetch. Two
     // timestamp reads can straddle adjacent high-resolution clock ticks.
     assert.ok(t.slice(1).every((at,i)=>at-t[i]>=30_000-1),'host read starts violate the 30-second floor');

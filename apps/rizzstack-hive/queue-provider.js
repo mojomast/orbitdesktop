@@ -52,17 +52,17 @@ export function renderQueueDocket(root, value) {
   }
   const {subject,observedAt,queue,scheduler,lease,coverage} = value;
   const stale = Date.now() - Date.parse(observedAt) > 300000;
-  const meanings = {UNKNOWN:'Insufficient linked evidence.', PARTIAL:'Draft covers part of the job scope.',
-    COVERED_BY_DRAFT:'Draft covers the job scope; review and merge remain separate.',
-    LANDED:'Reconciliation records a merged candidate for this scope.'};
+  const meanings = {UNKNOWN:'Insufficient linked file evidence.', PARTIAL:'The recorded draft covers some leased files.',
+    COVERED_BY_DRAFT:'The recorded draft covers all leased files.',
+    LANDED:'The recorded merged PR covers all leased files.'};
   const body = make('section','');
   body.className = 'release-body';
   body.append(make('h2','Selected coordinator docket'), make('p',`${subject.featureId} / ${subject.jobId}`),
-    make('p',`${stale ? 'Stale observation' : 'Observed'} · ${observedAt}`),
+    make('p',`${stale ? 'Stale · ' : ''}Local record read: ${observedAt}. No live PR query.`),
     make('p',`Recorded queue state: ${queue.state}. Last queue update: ${queue.updatedAt ?? 'unknown'}.`),
     make('p',`Scheduler: ${scheduler.state}. Claimed file overlap in this snapshot: ${scheduler.overlap}.`),
     make('p',`Signed lease record: ${lease.state}. A recorded lease does not establish current ownership.`),
-    make('h3',coverage.state), make('p',meanings[coverage.state]));
+    make('h3',`Leased file coverage: ${coverage.state}`), make('p',`${meanings[coverage.state]} Acceptance criteria were not evaluated.`));
   if (coverage.head) body.append(make('p',`${coverage.covered} of ${coverage.total} assigned files. Verified head: ${coverage.head}.`));
   body.append(make('p','This observation does not authorize dispatch, acceptance or merge.'));
   const sources = make('details','');

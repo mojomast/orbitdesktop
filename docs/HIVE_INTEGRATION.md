@@ -49,6 +49,12 @@ is part of the pane integration.
 
 ## Fixture proof and release packaging
 
+### Companion evidence and read admission
+
+The trusted host runs the same monotonic snapshot admission rule as the pane. Starting a new read clears the previous selectors and pending offer. The host sends a valid projection, then its positive transport acknowledgement and a document-local read sequence. Only a matching acceptance reply on that document's port for the still-current `(sequence, generatedAt)` enables companion enrollment and Rails selector navigation. Older or same-time conflicting projections never produce an offer. Consent to the overview does not read companion files: the operator separately clicks **Share enrolled evidence with this pane**. See [Mission control](HIVE_MISSION_CONTROL.md) for enrollment and [the browser proof](HIVE_MISSION_QA.md) for the full journey. With no enrollment the original overview works as before.
+
+The independent companion reader serializes I/O. A busy reader can delay another pane; the pane distinguishes a delayed retry from an empty validated report. Neither a busy reader nor a withdrawn grant substitutes demonstration data. Stopping sharing discards the previously granted document.
+
 With local project dependencies, Node ≥22.12, Chromium, and the candidate
 Workflow tree adjacent to the Orbit checkout (or `HIVE_WORKFLOW_TEST_ROOT`):
 

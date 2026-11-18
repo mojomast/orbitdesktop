@@ -29,7 +29,7 @@ function start() {
   const {port1,port2}=new MessageChannel();port=port1;
   port.onmessage=({data})=>{
     if (!callbacks || !object(data)) return;
-    if (data.type==='status' && keys(data,['type','value']) && ['connected','unauthorized','unavailable','disconnected','loading'].includes(data.value)) {
+    if (data.type==='status' && keys(data,['type','value']) && ['connected','unauthorized','unavailable','disconnected','loading','conflict','out of order'].includes(data.value)) {
       if (data.value==='connected' && phase!=='projected') return;
       // Both halves must match the same ordered read. Do not expose a pending
       // projection, or acknowledge a read the store rejected as old/conflicting.
@@ -43,7 +43,10 @@ function start() {
       callbacks.onStatus(phase);
     } else if (data.type==='view' && phase==='loading' && keys(data,['type','view']) && viewShape(data.view)) {
       pending=data.view;phase='projected';arm(65_000);
-    } else if (phase==='connected' && confirmedAt && data.type==='reports' && keys(data,['type','generatedAt','queue','release','titles']) &&
+    } else if (phase==='connected' && confirmedAt && data.type==='admission' && keys(data,['type','seq','generatedAt']) && data.generatedAt===confirmedAt && Number.isSafeInteger(data.seq)&&data.seq>0){
+      port.postMessage({type:'accepted',seq:data.seq,generatedAt:confirmedAt});
+    } else if(phase==='connected' && data.type==='report-status'&&keys(data,['type','value'])&&['busy','waiting','unavailable'].includes(data.value))callbacks.onReportStatus?.(data.value);
+    else if (phase==='connected' && confirmedAt && data.type==='reports' && keys(data,['type','generatedAt','queue','release','titles']) &&
       data.generatedAt===confirmedAt && Array.isArray(data.titles) && data.titles.length<=200 && data.titles.every(r=>keys(r,['kind','id','title'])&&typeof r.id==='string'&&typeof r.kind==='string'&&typeof r.title==='string'&&r.title.length<=160)) {
       callbacks.onReports?.(data);
     } else if (data.type==='follow' && keys(data,['type','signal','kind','id']) && ['connected','loading','projected'].includes(phase) &&

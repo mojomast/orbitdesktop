@@ -56,6 +56,24 @@ export function validateRelease(value) {
   return true;
 }
 
+// Both dockets construct the URL from reviewed #92 paths or validated repo/SHA
+// pairs. Never read a destination from a report. Comparing WindowProxy identity
+// works in an opaque frame without accessing the parent's document or origin.
+export function releaseCitation(doc, text, url) {
+  const view = doc.defaultView;
+  if (view && view.parent !== view) {
+    const label = doc.createElement('label'), field = doc.createElement('input');
+    const subject = text === 'Read the pinned decision ↗' ? 'Pinned decision' : text;
+    label.textContent = `${subject} · Select URL to copy: `;
+    field.type = 'text'; field.readOnly = true; field.size = 10; field.value = url;
+    label.append(field);
+    return label;
+  }
+  const a = doc.createElement('a');
+  a.textContent = text; a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+  return a;
+}
+
 /** Replace only the current-state docket. Null/rejected data clears all prior public pins. */
 export function renderReleaseObservation(root, value) {
   const node = (tag, text, cls) => {
@@ -87,10 +105,9 @@ export function renderReleaseObservation(root, value) {
     const details = node('details', null, 'docket-pins'), dl = node('dl');
     details.append(node('summary', 'Exact commits & read times'));
     for (const [label, digest] of entries) {
-      const a = node('a', digest);
-      a.href = `https://github.com/${repo}/commit/${digest}`;
-      a.target = '_blank'; a.rel = 'noopener noreferrer';
-      const dd = node('dd'); dd.append(a); dl.append(node('dt', label), dd);
+      const dd = node('dd');
+      dd.append(releaseCitation(root.ownerDocument, digest, `https://github.com/${repo}/commit/${digest}`));
+      dl.append(node('dt', label), dd);
     }
     for (const [label, t] of dates) dl.append(node('dt', label), node('dd', t));
     details.append(dl);
