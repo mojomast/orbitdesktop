@@ -279,7 +279,7 @@ async function serveObsSnapshot(req,res,pathname){
   try{
     const headers={'authorization':'Bearer '+OBS_TOKEN};
     if(req.headers.accept)headers.accept=req.headers.accept;
-    const r=await fetch(upstream,{method:req.method,headers,signal:AbortSignal.timeout(8000)});
+    const r=await fetch(upstream,{method:req.method,headers,signal:AbortSignal.timeout(20000)});
     const body=req.method==='HEAD'?undefined:Buffer.from(await r.arrayBuffer());
     res.writeHead(r.status,{'Content-Type':r.headers.get('content-type')||'application/json','Cache-Control':'no-store','Access-Control-Allow-Origin':'*'});
     res.end(body);
