@@ -249,7 +249,7 @@ function render() {
     held =
       !!view &&
       !demo &&
-      ["unavailable", "disconnected", "conflict", "loading"].includes(status),
+      status !== "connected",
     historical = held || v.health === "stale";
   const items = inboxItems(v, historical);
   if (initial && view && !replay) {
@@ -415,13 +415,15 @@ async function setMode(key) {
         if (res === "invalid") store.transport("unavailable");
         if (res === "new")
           changes = confirmedChanges(prev, v, continuous && !document.hidden);
-        continuous = res === "new" || res === "duplicate";
+        const accepted = (res === "new" || res === "duplicate") && store.current.status !== "conflict";
+        continuous = accepted;
         schedule();
+        return store.current.status === "conflict" ? "conflict" : res;
       },
       onStatus(s) {
         if (g !== gen) return;
         store.transport(s);
-        if (["disconnected", "unauthorized", "unavailable"].includes(s))
+        if (!["connected", "loading"].includes(s))
           continuous = false;
         if (s === "unauthorized") clear();
         schedule();

@@ -14,7 +14,8 @@ test('navigation requires a bounded view followed by connected on this active do
   for (const [key,val] of Object.entries(globals)) {const old=Object.getOwnPropertyDescriptor(globalThis,key);Object.defineProperty(globalThis,key,{configurable:true,value:val});
     t.after(()=>{if(old)Object.defineProperty(globalThis,key,old);else delete globalThis[key];});}
   const {connectHost}=await import('../apps/rizzstack-hive/host-client.js');
-  const client={onStatus:s=>states.push(s),onView:v=>views.push(v),onReturnFocus(){}};
+  let admission='new';
+  const client={onStatus:s=>states.push(s),onView:v=>{views.push(v);return admission;},onReturnFocus(){}};
   let handle=connectHost(client);const open=()=>handle.openRails('attempt','att_digest');
   const send=data=>port.onmessage({data});
   const view=project(fixtures.shift,{now:fixtureTime});
@@ -22,8 +23,10 @@ test('navigation requires a bounded view followed by connected on this active do
     {type:'status',value:'loading'},{type:'view',view:{}},{type:'status',value:'connected'},
     {type:'status',value:'connected',other:true}]) {send(data);assert.equal(open(),false);}
   assert.equal(views.length,0);assert.equal(outbound.length,0);
-  send({type:'view',view});assert.equal(views.length,1);assert.equal(open(),false);
-  send({type:'status',value:'connected'});assert.equal(open(),true);
+  send({type:'view',view});assert.equal(views.length,0);assert.equal(open(),false);
+  send({type:'status',value:'connected'});assert.equal(views.length,1);assert.equal(open(),true);
+  admission='old';send({type:'status',value:'loading'});send({type:'view',view});send({type:'status',value:'connected'});
+  assert.equal(states.at(-1),'out of order');assert.equal(open(),false);admission='new';
   handle.close();assert.equal(open(),false);
   handle=connectHost(client);send({type:'status',value:'connected'});assert.equal(open(),false);
   for(const status of ['unavailable','unauthorized','disconnected','loading']) {

@@ -67,6 +67,7 @@ export function emptyInbox(v) {
   const missing = sections.filter(
     (id) => !v.sections.some((x) => x.id === id && x.state === "live"),
   );
+  if (!missing.includes('decisions') && !v.stations?.some(s=>s.id==='receiver' && s.quality==='live' && s.depth===0)) missing.push('current owner requests');
   return missing.length
     ? `No signals in this observation. Incomplete coverage: ${missing.join(", ")}.`
     : "No active attention signals reported by the covered sources.";

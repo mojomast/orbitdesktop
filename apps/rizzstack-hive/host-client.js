@@ -3,7 +3,7 @@
 // requires a new click in Orbit. Navigation destroys both.
 const pairing = /^#orbit-hive-document=([a-f\d-]{36})$/.exec(location.hash)?.[1];
 const unavailable = {openRails:()=>false,refresh:()=>{},close:()=>{}};
-let port, callbacks, watchdog, phase='waiting', focusPending=false, expired=false;
+let port, callbacks, watchdog, pending=null, phase='waiting', focusPending=false, expired=false;
 const object=v=>!!v && typeof v==='object' && !Array.isArray(v);
 const keys=(v,names)=>object(v) && Object.keys(v).length===names.length && names.every(k=>Object.hasOwn(v,k));
 // Transport envelope/shape checks. Full snapshot validation, redaction, scope
@@ -18,7 +18,7 @@ function viewShape(v) {
 
 function arm(ms) {
   clearTimeout(watchdog);
-  watchdog=setTimeout(()=>{const state=phase==='waiting'?'unavailable':'disconnected';phase='waiting';focusPending=false;callbacks?.onStatus(state);},ms);
+  watchdog=setTimeout(()=>{const state=phase==='waiting'?'unavailable':'disconnected';phase='waiting';pending=null;focusPending=false;callbacks?.onStatus(state);},ms);
 }
 function start() {
   // Ordinary plugin CSP allows network. Tighten the reviewed document before
@@ -31,16 +31,21 @@ function start() {
     if (!callbacks || !object(data)) return;
     if (data.type==='status' && keys(data,['type','value']) && ['connected','unauthorized','unavailable','disconnected','loading'].includes(data.value)) {
       if (data.value==='connected' && phase!=='projected') return;
-      phase=data.value;
+      // Both halves must match the same ordered read. Do not expose a pending
+      // projection, or acknowledge a read the store rejected as old/conflicting.
+      const result=data.value==='connected'?callbacks.onView(pending):null;
+      pending=null;
+      phase=data.value!=='connected'||result==='new'||result==='duplicate'?data.value:
+        result==='conflict'?'conflict':result==='old'?'out of order':'unavailable';
       if(!['connected','loading'].includes(phase)) focusPending=false;
       clearTimeout(watchdog);if(phase==='connected' || phase==='loading') arm(65_000);
-      callbacks.onStatus(data.value);
+      callbacks.onStatus(phase);
     } else if (data.type==='view' && phase==='loading' && keys(data,['type','view']) && viewShape(data.view)) {
-      phase='projected';arm(65_000);callbacks.onView(data.view);
+      pending=data.view;phase='projected';arm(65_000);
     } else if (data.type==='return-focus' && keys(data,['type']) && focusPending) {focusPending=false;callbacks.onReturnFocus();}
   };
   const dispose=()=>{
-    expired=true;phase='waiting';focusPending=false;clearTimeout(watchdog);callbacks?.onStatus('unauthorized');callbacks=null;
+    expired=true;pending=null;phase='waiting';focusPending=false;clearTimeout(watchdog);callbacks?.onStatus('unauthorized');callbacks=null;
     port.postMessage({type:'close'});port.close();
   };
   port.onmessageerror=dispose;
@@ -58,6 +63,6 @@ export function connectHost(client) {
       focusPending=true;port.postMessage({type:'rails',kind,id});return true;
     },
     refresh(){if(callbacks===client)port.postMessage({type:'refresh'});},
-    close(){if(callbacks!==client)return;callbacks=null;phase='waiting';focusPending=false;clearTimeout(watchdog);port.postMessage({type:'suspend'});}
+    close(){if(callbacks!==client)return;pending=null;callbacks=null;phase='waiting';focusPending=false;clearTimeout(watchdog);port.postMessage({type:'suspend'});}
   };
 }

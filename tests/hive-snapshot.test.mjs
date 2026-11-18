@@ -130,6 +130,10 @@ test('a section timestamp on an old row and a contradicted fleet tally cannot re
 
 const replay = (s = fixtures.dense) => project(s, {now: fixtureTime});
 const byId = (rows, id) => rows.find(r => r.id === id);
+test('verifier ticket opens the same stage and retains uncertainty about recovery',()=>{
+  const v=replay(), signal=v.attention.find(r=>r.id==='section:verifier-failure');
+  const evidence=byId(v.records,signal.detail);assert.equal(evidence.source,signal.source);assert.equal(evidence.stage,'verify');assert.match(evidence.detail,/Recovery status is unknown/);
+});
 test('new public selectors may use a reviewed operational phrase without inheriting a job binding',()=>{
   const s=structuredClone(fixtures.shift), d=s.decisions.requests[0];
   Object.assign(d,{request_id:'req_new',question:'Integrate observability bridge?',subject:'bridge'});

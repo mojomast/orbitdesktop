@@ -339,7 +339,8 @@ export function project(snapshot, { now = Date.now() } = {}) {
     for (const [key, { f, count }] of groups) {
       const jobId = token(f.job_id), taskId = token(f.task_id);
       const detail = `Matching rows: ${count}; attempt: ${token(f.attempt_id) ?? 'unknown'}; fallback: ${token(f.fallback_to) ?? 'not reported'}.` + (count === 1 ? ` Component: ${token(f.component) ?? 'unknown'}; code: ${token(f.code) ?? 'unknown'}; retryable: ${fmt(f.retryable)}; HTTP 429: ${fmt(f.http_429)}.` : '');
-      const id = record('failure', key, 'build', `${f.class} observation`, f.class, 'failures', f.ts, detail, jobId, count === 1 ? f.generated_at : f.ts);
+       const verifier = count === 1 && f.component === 'verify';
+       const id = record('failure', key, verifier ? 'verify' : 'build', verifier ? `Verifier ${f.class} observation` : `${f.class} observation`, f.class, 'failures', f.ts, detail + ' Recovery status is unknown.', jobId, count === 1 ? f.generated_at : f.ts);
       const task = jobId && taskId && currentTasks.get(`${jobId}:${taskId}`);
       // A failure event can outlive its incident. Surface only a fresh reported
       // verifier regression, or one corroborated by a current failed task. No
