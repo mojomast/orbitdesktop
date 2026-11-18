@@ -83,7 +83,7 @@ test('fresh envelope cannot launder old sections, lease fallback, or an undecida
 
 test('schema and JSON admission fail closed before selecting any fields, without echoing source', () => {
   for (const mutate of [s => { s.schema += '.99'; }, s => { s.decisions.requests[0].authority = 'owner'; },
-    s => { s.degraded = ['decisions']; }, s => { s.fleet.attempts[0].attempt_id = 'bad/id'; }, s => { delete s.usage.by_repo; },
+    s => { s.degraded = ['not_a_section']; }, s => { s.fleet.attempts[0].attempt_id = 'bad/id'; }, s => { delete s.usage.by_repo; },
     s => { s.health.quota = [{ ...row, kind: 'box_ram', status: 'unavailable', value: 4, unit: 'byte', remaining: null, cap: null, resource_id: null }]; },
     s => { s.ci.prs[0].state = 'deployed'; }, s => { s.usage.totals.cost_usd = Infinity; },
     s => { s.fleet = Object.create(s.fleet); }, s => { s.generated_at = '2026-02-31T00:00:00Z'; },
