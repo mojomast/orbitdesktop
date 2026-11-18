@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'none'; img-src 'self'; font-src 'none'; form-action 'none'; base-uri 'none'"
+    />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="referrer" content="no-referrer" />
+    <title>The Hive — Rizzstack Operations</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./scene.css" />
+    <script type="module" src="./main.js"></script>
+  </head>
+  <body>
+    <a href="#floor" class="skip">Skip to factory floor</a>
+    <header class="mast">
+      <div class="brand">
+        <svg viewBox="0 0 48 48" aria-hidden="true">
+          <path
+            fill="none"
+            stroke="currentColor"
+            stroke-width="3"
+            d="M24 3 43 14v20L24 45 5 34V14Z M13 17v14l8 5V24l6-4v17l8-5V16l-8-5-6 4v4l-8 5"
+          />
+        </svg>
+        <div>THE HIVE<small>RIZZSTACK OPERATIONS</small></div>
+      </div>
+      <nav aria-label="Work surfaces" class="mastnav">
+        <button data-nav="floor" aria-current="page">Factory floor</button
+        ><button data-nav="work">Work register</button
+        ><button data-nav="release">Release desk</button>
+      </nav>
+      <div class="masttools">
+        <button
+          id="prefs"
+          aria-expanded="false"
+          aria-controls="preferences"
+          title="Display preferences"
+        >
+          Display <span aria-hidden="true">⊙</span>
+        </button>
+      </div>
+    </header>
+    <div id="preferences" hidden>
+      <label><input type="checkbox" id="static" /> Still transitions</label
+      ><label><input type="checkbox" id="contrast" /> High contrast</label>
+    </div>
+    <main class="shell">
+      <div class="folio">
+        <span>FIELD ATLAS <b>/</b> OPERATIONS DIVISION</span
+        ><span id="edition">PLATE 01—08</span>
+      </div>
+      <section class="intro">
+        <div>
+          <p class="kicker"><i></i> PROCEDURAL FACTORY</p>
+          <h1 id="surface-title">Factory floor<span>.</span></h1>
+          <p id="lead">Read the line from authorization to receipt.</p>
+        </div>
+        <div class="mode-box">
+          <label for="scenario" id="mode-label">DATA SOURCE</label
+          ><select id="scenario" aria-labelledby="mode-label">
+            <option value="host">Orbit host</option>
+            <option value="shift">Demo · Working shift</option>
+            <option value="dense">Demo · Full complement</option>
+            <option value="quiet">Demo · Quiet floor</option>
+            <option value="degraded">Demo · Signal loss</option></select
+          ><span id="source-caption">Awaiting a read source</span>
+        </div>
+      </section>
+      <div class="telemetry" aria-label="Shift readings">
+        <div>
+          <small>01 / FLIGHT</small><b id="flight">—</b
+          ><span>attempts in flight</span>
+        </div>
+        <div>
+          <small>02 / HEADROOM</small><b id="slots">—</b
+          ><span>scheduler slots free</span>
+        </div>
+        <div>
+          <small>03 / INTAKE</small><b id="eligible">—</b
+          ><span>eligible work items</span>
+        </div>
+        <div>
+          <small>04 / METER</small><b id="cost">—</b
+          ><span id="cost-label">cost coverage unknown</span>
+        </div>
+        <button data-nav="release" class="release-chip">
+          <small>05 / RELEASE RECORD</small><strong id="release-state">—</strong
+          ><span>loaded revision unknown ↗</span>
+        </button>
+      </div>
+      <div class="statusline">
+        <span id="connection" role="status">Waiting for source</span
+        ><button id="source-info" aria-controls="sources" aria-expanded="false">
+          Source register <span aria-hidden="true">↘</span></button
+        ><button id="refresh">Refresh</button>
+      </div>
+      <section id="sources" aria-label="Source register" hidden></section>
+      <div id="floor" tabindex="-1">
+        <div class="floor-layout">
+          <section class="atlas" aria-labelledby="atlas-title">
+            <header class="sheet-head">
+              <div>
+                <small class="kicker">FIG. 01 <b>/</b> TOPOLOGY</small>
+                <h2 id="atlas-title">Production line</h2>
+              </div>
+              <div class="sheet-index">
+                8 STATIONS <b>·</b> <span id="atlas-count">— ATTEMPTS</span>
+              </div>
+            </header>
+            <div id="world" aria-label="Factory topology"></div>
+            <div class="map-base">
+              <span><i class="key active"></i> Active</span
+              ><span><i class="key delay"></i> Pressure</span
+              ><span><i class="key gate"></i> Owner gate</span
+              ><span><i class="key unknown"></i> Unknown</span
+              ><button id="focus-b" title="Focus bottleneck (B)">
+                Find pressure <kbd>B</kbd>
+              </button>
+            </div>
+            <details id="board">
+              <summary>
+                Station register <span>Keyboard &amp; text view</span>
+              </summary>
+              <div id="stations"></div>
+            </details>
+          </section>
+          <aside
+            class="inspection"
+            id="inspector"
+            aria-labelledby="inspect-title"
+          >
+            <div class="inspect-cap">
+              <span class="kicker">⌖ &nbsp; INSPECTION BENCH</span
+              ><span id="sel-plate">03 / 08</span>
+            </div>
+            <div id="inspection-body"></div>
+          </aside>
+        </div>
+        <section class="inbox">
+          <div class="sheet-head">
+            <div>
+              <small class="kicker">FIG. 02 <b>/</b> TRIAGE</small>
+              <h2>Needs attention</h2>
+            </div>
+            <span id="attention-count" class="sheet-index"></span>
+          </div>
+          <div id="attention"></div>
+        </section>
+      </div>
+      <section id="work" hidden tabindex="-1">
+        <div class="sheet-head">
+          <div>
+            <small class="kicker">REGISTER <b>/</b> EVIDENCE INDEX</small>
+            <h2>Objects on this shift</h2>
+          </div>
+        </div>
+        <div class="filters">
+          <label
+            >Find an object<input
+              type="search"
+              id="search"
+              placeholder="Attempt, route, job or source…" /></label
+          ><label
+            >Scope<select id="scope">
+              <option value="all">All objects</option>
+              <option value="attempt">Attempts</option>
+              <option value="job">Jobs</option>
+              <option value="decision">Decisions</option>
+              <option value="backlog">Backlog</option>
+              <option value="bottleneck">Station pressure</option>
+              <option value="ci">Pull requests</option>
+              <option value="usage">Usage</option>
+              <option value="failure">Failures</option>
+            </select></label
+          >
+        </div>
+        <p class="sheet-index" id="result-count" aria-live="polite"></p>
+        <div id="rows"></div>
+        <button id="more" hidden>Show more objects</button>
+      </section>
+      <section
+        id="release"
+        hidden
+        tabindex="-1"
+        aria-label="Release desk"
+      ></section>
+      <footer class="foot">
+        <span>HIVE <b>/</b> FIELD ATLAS SERIES</span
+        ><span>OBSERVATION CONSOLE &nbsp;·&nbsp; READ ONLY</span>
+      </footer>
+    </main>
+    <p class="sr" id="announcement" aria-live="polite"></p>
+    <noscript
+      >This operational atlas requires JavaScript. With scripting disabled there
+      is no telemetry or action authority.</noscript
+    >
+  </body>
+</html>
