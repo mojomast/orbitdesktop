@@ -85,7 +85,7 @@ export function bindHiveHost(frame:HTMLIFrameElement, url:URL, token:()=>string,
     const now=performance.now(); const delay=now<lastReport+PERIOD?lastReport+PERIOD-now:turns.delay(turn,now);
     if(delay>0){progress('waiting');reportTimer=window.setTimeout(()=>void evidence(g,v),Math.ceil(delay));return;}
     lastReport=performance.now();
-    const ctl=reportRequest=new AbortController();const deadline=setTimeout(()=>ctl.abort(),8000);
+    const ctl=reportRequest=new AbortController();const deadline=setTimeout(()=>ctl.abort(),30000);
     const current=()=>enrolled&&valid(g)&&v===confirmed&&reportRequest===ctl;
     try {
       const r=await fetch('/api/rizzstack/hive/reports',{...sharedOptions,method:'GET',headers:{Authorization:'Bearer '+g.credential,Accept:'application/json'},signal:ctl.signal});
