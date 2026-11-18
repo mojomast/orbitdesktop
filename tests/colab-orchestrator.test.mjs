@@ -76,6 +76,49 @@ function service(spawn, port) {
   return { colab, root };
 }
 
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+function detachedProcessGone(pid) {
+  if (!pid) return true;
+  try { process.kill(pid, 0); }
+  catch (error) { return error?.code !== 'EPERM'; }
+  // A killed detached child can stay a zombie until its new parent reaps it.
+  try {
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
+    const close = stat.lastIndexOf(')');
+    return stat.slice(close + 2, close + 3) === 'Z';
+  } catch { return false; }
+}
+
+function metaState(file) {
+  try { return String(JSON.parse(fs.readFileSync(file, 'utf8')).state || ''); }
+  catch { return ''; }
+}
+
+function metaSignature(file) {
+  try { const stat = fs.statSync(file); return `${stat.mtimeMs}:${stat.size}`; }
+  catch { return 'missing'; }
+}
+
+// Orchestrator writes (pump/finishJob/settleDetached -> remember) can land after
+// close(); wait until the worker is gone and every settle write has stopped.
+async function waitForDetachedSettle(pid, metaPath, { timeoutMs = 5000, stableMs = 500, intervalMs = 50 } = {}) {
+  const started = Date.now();
+  let signature = null;
+  let stableSince = 0;
+  let alive = true;
+  let state = '';
+  while (Date.now() - started < timeoutMs) {
+    alive = !detachedProcessGone(pid);
+    state = metaState(metaPath);
+    const next = `${alive}:${metaSignature(metaPath)}`;
+    if (next !== signature) { signature = next; stableSince = Date.now(); }
+    else if (!alive && state && state !== 'running' && Date.now() - stableSince >= stableMs) return;
+    await sleep(intervalMs);
+  }
+  throw new Error(`detached colab job ${pid} did not settle before teardown (alive=${alive}, state=${state || 'missing'})`);
+}
+
 async function post(port, body, headers = {}) {
   const response = await fetch(`http://127.0.0.1:${port}/api/colab-runtime`, {
     method: 'POST',
@@ -263,9 +306,11 @@ test('a detached job keeps running and can be tailed after the orchestrator clos
     token, port: 4318, devOrigins: [], reply, bin, home: '/home/tester', root: rootDir,
   });
   let pid = 0;
+  let jobId = '';
+  let second = null;
   try {
     const started = await first.dispatch({ action: 'exec', session: 'trainer', file: script, timeout: 30 });
-    const jobId = started.job.id;
+    jobId = started.job.id;
     const logPath = path.join(rootDir, 'jobs', jobId, 'output.log');
     // Loaded CI runners can take seconds to start the fake CLI.
     for (let attempt = 0; attempt < 250 && !fs.readFileSync(logPath, 'utf8').includes('tick'); attempt += 1) {
@@ -277,7 +322,7 @@ test('a detached job keeps running and can be tailed after the orchestrator clos
     assert.equal(pid > 0, true);
     first.close();
     process.kill(pid, 0);
-    const second = createColabOrchestrator({
+    second = createColabOrchestrator({
       token, port: 4318, devOrigins: [], reply, bin, home: '/home/tester', root: rootDir,
     });
     try {
@@ -293,8 +338,15 @@ test('a detached job keeps running and can be tailed after the orchestrator clos
       assert.equal(jobs.jobs[0].endedAt, null);
       assert.equal(jobs.jobs[0].exitCode, null);
       assert.equal(jobs.jobs[0].bytes > 0, true);
-      const tail = await second.dispatch({ action: 'tail', job_id: jobId, after: 0 });
-      assert.match(tail.text, /tick/);
+      let tail = await second.dispatch({ action: 'tail', job_id: jobId, after: 0 });
+      // The reloaded job's byte offset advances only when the watch interval
+      // pumps newly written ticks, so a single tail can arrive before the first tick.
+      for (let attempt = 0; attempt < 250 && !/tick/.test(tail.text); attempt += 1) {
+        if (tail.job.state !== 'running' || tail.job.endedAt) break;
+        await sleep(40);
+        tail = await second.dispatch({ action: 'tail', job_id: jobId, after: 0 });
+      }
+      assert.match(tail.text, /tick/, `tail ${JSON.stringify(tail.text)} never gained a tick (state=${tail.job.state}, endedAt=${tail.job.endedAt}, exitCode=${tail.job.exitCode})`);
       assert.equal((await second.dispatch({ action: 'jobs', session: 'other' })).jobs.length, 0);
     } finally {
       second.close();
@@ -302,6 +354,10 @@ test('a detached job keeps running and can be tailed after the orchestrator clos
   } finally {
     if (pid) { try { process.kill(-pid, 'SIGTERM'); } catch { try { process.kill(pid, 'SIGTERM'); } catch { /* already exited */ } } }
     first.close();
+    second?.close();
+    // waitExit() can still resolve ~1s after the kill and run finishJob(), and a
+    // pump already inside the queue can still call remember(); wait for both.
+    if (pid) await waitForDetachedSettle(pid, path.join(rootDir, 'jobs', jobId, 'meta.json'));
     fs.rmSync(rootDir, { recursive: true, force: true });
   }
 });
