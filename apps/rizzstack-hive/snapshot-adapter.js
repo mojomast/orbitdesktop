@@ -368,7 +368,20 @@ export function project(snapshot, { now = Date.now() } = {}) {
   const priority = x => x.level === 'danger' ? 0 : x.level === 'gate' ? 1 : x.id === 'bottleneck:invariant' ? 2 : x.level === 'delay' ? 3 : 4;
   attention.sort((a, b) => priority(a) - priority(b) || compare(a.id, b.id));
   records.sort((a, b) => compare(a.id, b.id));
-  if (records.some((r, i) => i > 0 && r.id === records[i - 1].id)) invalid();
+  // A job legitimately appears in more than one source section (backlog AND pipeline), so the
+  // merged record stream can carry the same id twice with IDENTICAL content. Keep the first and
+  // still refuse a duplicate whose content differs: that is the case this guard exists for.
+  {
+    const seenRecords = new Map();
+    const deduped = [];
+    for (const record of records) {
+      const prior = seenRecords.get(record.id);
+      if (prior === undefined) { seenRecords.set(record.id, record); deduped.push(record); continue; }
+      if (JSON.stringify(prior) !== JSON.stringify(record)) invalid();
+    }
+    records.length = 0;
+    records.push(...deduped);
+  }
   // Per-kind budget prevents one crowded source from burying all other facts.
   const shown = attention.slice(0, 28), targets = new Set(shown.map(a => a.detail ?? a.id));
   const rank = r => targets.has(r.id) ? 0 : decisionSupport.has(r.id) ? 1 : 2;
