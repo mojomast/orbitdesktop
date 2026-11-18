@@ -12,6 +12,7 @@ const CLOCK_SKEW_MS = 60_000;
 const invalid = () => { throw new TypeError('Invalid Hive snapshot'); };
 const sourceOf = id => `snapshot/1:${id}`;
 const measured = status => status === 'known' || status === 'partial';
+const list = value => { if (!Array.isArray(value)) throw new TypeError('Unreadable Hive section'); return value; };
 const fmt = n => n ?? 'unknown';
 const compare = (a, b) => a < b ? -1 : a > b ? 1 : 0;
 const fresh = (ts, now) => { const age = now - Date.parse(ts); return age <= FRESH_MS && age >= -CLOCK_SKEW_MS; };
@@ -85,7 +86,19 @@ function admit(value) {
     }
   }
   visit(value, '', 0);
-  if (!validate(value)) invalid();
+  if (validate(value)) return new Set();
+  const errors = validate.errors;
+  if (!Array.isArray(errors) || errors.length === 0) invalid();
+  const broken = new Set();
+  for (const error of errors) {
+    const path = typeof error?.instancePath === 'string' ? error.instancePath : '';
+    const top = path.startsWith('/') ? path.slice(1).split('/')[0] : '';
+    // Only a schema failure confined to a section body may degrade. Anything
+    // outside one of those bodies is a document-level refusal.
+    if (!SECTIONS.includes(top)) invalid();
+    broken.add(top);
+  }
+  return broken;
 }
 
 // ID fields are public by producer contract. In addition to schema syntax,
@@ -101,8 +114,9 @@ function repoSlug(s) {
   const parts = s.split('/');
   return parts.length === 2 && parts.every(token) ? s : null;
 }
-function sectionStates(s, now) {
+function sectionStates(s, now, broken) {
   return SECTIONS.map(id => {
+    if (broken.has(id)) return { id, state: 'unavailable', at: null };
     const body = s[id];
     if (!body) return { id, state: 'absent', at: null };
     let state = body.status;
@@ -124,30 +138,12 @@ function coverage(usage) {
 // arriving out of order; all times here are source times, never ingest time.
 export function project(snapshot, { now = Date.now() } = {}) {
   const s = snapshot;
-  admit(s);
+  const broken = admit(s);
   if (!Number.isFinite(now) || Date.parse(s.generated_at) > now + CLOCK_SKEW_MS) invalid();
-  const sections = sectionStates(s, now);
+  const sections = sectionStates(s, now, broken);
   const quality = Object.fromEntries(sections.map(x => [x.id, x.state]));
   const live = id => quality[id] === 'live';
   const readable = id => live(id) || quality[id] === 'stale';
-  const observations = sections.filter(x => x.state !== 'absent');
-  const health = observations.every(x => x.state === 'unavailable') ? 'unavailable'
-    : observations.every(x => x.state !== 'live') ? 'stale'
-    : observations.some(x => x.state !== 'live') || s.health.scheduler.liveness !== 'live' ? 'degraded' : 'live';
-  const b = s.bottlenecks, inv = b?.invariant;
-  const usableInvariant = live('bottlenecks') && fresh(inv.generated_at, now) && measured(inv.status);
-  const metered = live('usage') && measured(s.usage.source.usage_status) && fresh(s.usage.source.generated_at, now) && fresh(s.usage.totals.generated_at, now);
-  const activeRows = s.fleet.attempts.filter(a => ACTIVE.has(a.state));
-  const fleetConflict = live('fleet') && s.fleet.in_flight !== null && (s.fleet.in_flight !== activeRows.length || activeRows.some(a => !fresh(a.generated_at, now)));
-  const metrics = {
-    active: live('fleet') && !fleetConflict ? s.fleet.in_flight : null,
-    available: usableInvariant && live('pipeline') && live('backlog') ? inv.capacity?.available ?? null : null,
-    capacity: usableInvariant ? inv.capacity?.max_active ?? null : null,
-    eligible: usableInvariant && live('backlog') && live('pipeline') ? inv.ready : null,
-    cost: metered && measured(s.usage.totals.cost_status) ? s.usage.totals.cost_usd : null,
-    costCoverage: metered ? coverage(s.usage) : null,
-  };
-  const waiting = usableInvariant && live('pipeline') && live('backlog') ? inv.waiting_despite_capacity : null;
   const stations = STATIONS.map(id => ({ id, signal: 'No current observation', quality: 'unknown', level: 'unknown', depth: null }));
   function display(id, signal, quality, level, depth = null) {
     Object.assign(stations.find(x => x.id === id), { signal, quality, level, depth });
@@ -175,11 +171,65 @@ export function project(snapshot, { now = Date.now() } = {}) {
     const later = !group || Date.parse(at) > Date.parse(group.at) || (Date.parse(at) === Date.parse(group.at) && compare(target, group.target) < 0);
     negative.set(key, { ...(later ? example : group), count: (group?.count ?? 0) + 1 });
   }
+  const currentJobs = new Map(), currentTasks = new Map(), gateFeatures = new Map(), dependents = new Map(), decisionSupport = new Set();
+  function degrade(id) {
+    const section = sections.find(x => x.id === id);
+    if (section) {
+      section.state = 'unavailable';
+      if (typeof section.at !== 'string') section.at = null;
+    }
+    quality[id] = 'unavailable';
+  }
+  // A schema-approved body can still have a shape this read-only projection
+  // cannot consume. Roll that section's contributions back, mark it
+  // unavailable, and keep the other stations. Security refusals rethrow.
+  function guard(id, fn) {
+    const prior = {
+      attempts: attempts.length, records: records.length, attention: attention.length,
+      negative: new Map(negative), stations: stations.map(x => ({ ...x })),
+      currentJobs: new Map(currentJobs), currentTasks: new Map(currentTasks),
+      gateFeatures: new Map([...gateFeatures].map(([k, v]) => [k, [...v]])),
+      dependents: new Map([...dependents].map(([k, v]) => [k, new Set(v)])),
+      decisionSupport: new Set(decisionSupport),
+    };
+    try { fn(); } catch (error) {
+      if (error instanceof Error && error.message === 'Invalid Hive snapshot') throw error;
+      attempts.length = prior.attempts; records.length = prior.records; attention.length = prior.attention;
+      negative.clear(); for (const [k, v] of prior.negative) negative.set(k, v);
+      for (const row of stations) Object.assign(row, prior.stations.find(x => x.id === row.id));
+      currentJobs.clear(); for (const [k, v] of prior.currentJobs) currentJobs.set(k, v);
+      currentTasks.clear(); for (const [k, v] of prior.currentTasks) currentTasks.set(k, v);
+      gateFeatures.clear(); for (const [k, v] of prior.gateFeatures) gateFeatures.set(k, v);
+      dependents.clear(); for (const [k, v] of prior.dependents) dependents.set(k, v);
+      decisionSupport.clear(); for (const v of prior.decisionSupport) decisionSupport.add(v);
+      degrade(id);
+    }
+  }
+  const b = s.bottlenecks, inv = b?.invariant;
+  const usableInvariant = live('bottlenecks') && fresh(inv?.generated_at, now) && measured(inv?.status);
+  const metered = live('usage') && measured(s.usage?.source?.usage_status) && fresh(s.usage?.source?.generated_at, now) && fresh(s.usage?.totals?.generated_at, now);
+  let activeRows = [];
+  let fleetConflict = false;
+  guard('fleet', () => {
+    if (!readable('fleet')) return;
+    activeRows = list(s.fleet.attempts).filter(a => ACTIVE.has(a.state));
+    fleetConflict = live('fleet') && s.fleet.in_flight !== null && (s.fleet.in_flight !== activeRows.length || activeRows.some(a => !fresh(a.generated_at, now)));
+  });
+  const metrics = {
+    active: live('fleet') && !fleetConflict ? s.fleet.in_flight : null,
+    available: usableInvariant && live('pipeline') && live('backlog') ? inv.capacity?.available ?? null : null,
+    capacity: usableInvariant ? inv.capacity?.max_active ?? null : null,
+    eligible: usableInvariant && live('backlog') && live('pipeline') ? inv.ready : null,
+    cost: metered && measured(s.usage.totals.cost_status) ? s.usage.totals.cost_usd : null,
+    costCoverage: metered ? coverage(s.usage) : null,
+  };
+  const waiting = usableInvariant && live('pipeline') && live('backlog') ? inv.waiting_despite_capacity : null;
 
+  guard('fleet', () => {
   if (readable('fleet')) {
     const source = sourceOf('fleet') + (s.fleet.source ? `:${s.fleet.source}` : '');
     const seen = new Set();
-    for (const a of s.fleet.attempts) {
+    for (const a of list(s.fleet.attempts)) {
       const id = token(a.attempt_id);
       if (!id) continue;
       if (seen.has(id)) invalid(); // No verified identity for either conflicting row.
@@ -192,17 +242,19 @@ export function project(snapshot, { now = Date.now() } = {}) {
   if (metrics.active !== null) display('build', `${metrics.active} in flight`, quality.fleet, metrics.active ? 'active' : 'quiet');
   else display('build', 'In-flight count unknown', quality.fleet, 'unknown');
   if (fleetConflict) issue('section:fleet-count', 'build', 'Fleet tally unconfirmed', 'The in-flight tally is not supported by the current attempt rows.', 'fleet', s.fleet.collected_at, 'danger');
+  });
 
   const gates = usableInvariant && inv.status === 'known' && live('pipeline') ? inv.human_approvals_required : null;
   if (gates !== null) display('auth', `${gates} approval gates pending`, inv.status, gates ? 'gate' : 'quiet', gates);
   if (metrics.eligible !== null) display('dispatch', `${metrics.eligible} eligible · ${fmt(metrics.available)} slots free`, inv.status,
     waiting === true ? 'delay' : waiting === null ? 'unknown' : metrics.eligible ? 'active' : 'quiet', metrics.eligible);
+  guard('bottlenecks', () => {
   if (b && readable('bottlenecks')) {
     const reason = `Eligible: ${fmt(metrics.eligible)}; free scheduler slots: ${fmt(metrics.available)}; waiting despite capacity: ${fmt(waiting)}.`;
     const id = record('bottleneck', 'invariant', 'dispatch', 'Scheduler invariant', inv.status, 'bottlenecks', inv.generated_at, reason);
     if (waiting === true) issue(id, 'dispatch', 'Eligible work is waiting', reason, 'bottlenecks', inv.generated_at, 'delay');
     const stages = new Set();
-    for (const r of b.stages) {
+    for (const r of list(b.stages)) {
       if (stages.has(r.stage)) invalid();
       stages.add(r.stage);
       const primary = { verify: 'pipeline', integrate: 'pipeline', review: 'backlog', deploy: 'ci' }[r.stage];
@@ -220,16 +272,17 @@ export function project(snapshot, { now = Date.now() } = {}) {
       if (state === 'over') issue(id, r.stage, `${r.stage} dwell over target`, detail, 'bottlenecks', r.generated_at, 'delay');
     }
   }
+  });
 
-  const currentJobs = new Map(), currentTasks = new Map();
-  if (readable('pipeline')) for (const j of s.pipeline.jobs) {
+  guard('pipeline', () => {
+  if (readable('pipeline')) for (const j of list(s.pipeline.jobs)) {
     const jobId = token(j.job_id);
     if (!jobId) continue;
     const title = approved(JOB_LABELS, jobId, j.title) ?? publicPhrase(PUBLIC_TITLES,j.title) ?? publicPhrase(PUBLIC_TITLES,j.summary) ?? `Job ${jobId}`;
     const current = live('pipeline') && fresh(j.generated_at, now);
     if (current) currentJobs.set(jobId, {title, repo: repoSlug(j.repo)});
     const counts = new Map(), labels = [], failed = [], ids = new Set();
-    for (const t of j.tasks) {
+    for (const t of list(j.tasks)) {
       const taskId = token(t.task_id);
       if (taskId) {
         if (ids.has(taskId)) invalid();
@@ -250,13 +303,14 @@ export function project(snapshot, { now = Date.now() } = {}) {
     const id = record('job', jobId, 'build', title, 'recorded', 'pipeline', j.generated_at, names ? `${detail} ${names}.` : detail, jobId);
     if (failed.length) negativeExample('failed-tasks', 'build', `${title}: failed task`, `${failed.sort()[0]} was reported failed by the pipeline.`, 'pipeline', j.generated_at, id);
   }
+  });
   for (const a of attempts) {
     if (a.quality !== 'live' || !a.jobId || !a.taskId) continue;
     const job = currentJobs.get(a.jobId), task = currentTasks.get(`${a.jobId}:${a.taskId}`);
     if (task?.name && !(a.repo && job.repo && a.repo !== job.repo)) a.detail = task.name;
   }
-  const gateFeatures = new Map(), dependents = new Map();
-  if (readable('backlog')) for (const f of s.backlog.features) {
+  guard('backlog', () => {
+  if (readable('backlog')) for (const f of list(s.backlog.features)) {
     const key = token(f.feature_id);
     if (!key) continue;
     const stage = f.status === 'needs_approval' ? 'auth' : f.status === 'ready_for_review' ? 'review' : 'dispatch';
@@ -268,16 +322,18 @@ export function project(snapshot, { now = Date.now() } = {}) {
         if (!gateFeatures.has(jobId)) gateFeatures.set(jobId, []);
         gateFeatures.get(jobId).push(key);
       }
-      for (const dep of new Set(f.depends_on)) {
+      for (const dep of new Set(list(f.depends_on))) {
         if (!dependents.has(dep)) dependents.set(dep, new Set());
         dependents.get(dep).add(key);
       }
     }
   }
-  const decisionSupport = new Set();
+  });
+
+  guard('decisions', () => {
   if (readable('decisions')) {
     let pending = 0, complete = true;
-    for (const d of s.decisions.requests) {
+    for (const d of list(s.decisions.requests)) {
       const key = token(d.request_id), current = live('decisions') && fresh(d.generated_at, now);
       if (!current) complete = false;
       if (d.state === 'pending' && current) pending++;
@@ -312,27 +368,36 @@ export function project(snapshot, { now = Date.now() } = {}) {
     }
     if (live('decisions') && complete) display('receiver', `${pending} pending owner requests`, 'live', pending ? 'gate' : 'quiet', pending);
   }
-  if (readable('ci')) for (const pr of s.ci.prs) {
+  });
+
+  guard('ci', () => {
+  if (readable('ci')) for (const pr of list(s.ci.prs)) {
     const repo = repoSlug(pr.repo);
     if (!repo) continue;
     const title = `${repo} #${pr.number}`;
     const id = record('ci', `${repo}#${pr.number}`, 'review', title, pr.state, 'ci', pr.generated_at, `CI: ${pr.ci_state}; failing checks: ${pr.failing_check_names.length}. No reviewed head or deployment receipt in this row.`);
     if (live('ci') && fresh(pr.generated_at, now) && pr.ci_state === 'failing') negativeExample('failing-ci', 'review', `${title}: CI failing`, 'The PR row reports failing CI.', 'ci', pr.generated_at, id);
   }
+  });
+
+  guard('usage', () => {
   if (readable('usage')) {
     const meterRow = (key, title, r) => record('usage', key, 'build', title, r.cost_status, 'usage', r.generated_at,
       `Requests: ${fmt(r.requests)}; tokens: ${fmt(measured(r.tokens_status) ? r.total_tokens : null)} (${r.tokens_status}); list-price subtotal USD: ${fmt(measured(r.cost_status) ? r.cost_usd : null)} (${r.cost_status}).`);
     meterRow('totals', 'Usage totals', s.usage.totals);
-    for (const r of s.usage.by_model) {
+    for (const r of list(s.usage.by_model)) {
       if (token(r.model) && token(r.provider)) meterRow(`model:${r.provider}:${r.model}`, `${r.provider} · ${r.model}`, r);
     }
-    for (const r of s.usage.by_repo) if (repoSlug(r.repo)) meterRow(`repo:${r.repo}`, r.repo, r);
+    for (const r of list(s.usage.by_repo)) if (repoSlug(r.repo)) meterRow(`repo:${r.repo}`, r.repo, r);
   }
+  });
+
+  guard('failures', () => {
   if (readable('failures')) {
     // No event ID in /1: group equal public observations instead of inventing
     // mutable array-index IDs or silently merging two independent events.
     const groups = new Map();
-    for (const f of s.failures.failures) {
+    for (const f of list(s.failures.failures)) {
       const key = [f.ts, f.class, token(f.attempt_id), token(f.job_id), token(f.task_id), token(f.fallback_to)].join(':');
       const group = groups.get(key) ?? { f, count: 0 }; group.count++; groups.set(key, group);
     }
@@ -351,11 +416,14 @@ export function project(snapshot, { now = Date.now() } = {}) {
       }
     }
   }
+  });
   for (const [key, g] of negative) issue(`section:${key}`, g.stage, g.title,
     g.reason + (g.count > 1 ? ` Matching records: ${g.count}.` : ''), g.section, g.at, 'danger', g.target);
+
+  guard('alerts', () => {
   if (live('alerts')) {
     const groups = new Map();
-    for (const r of s.alerts.active) {
+    for (const r of list(s.alerts.active)) {
       const key = token(r.key);
       if (!key) continue;
       const group = groups.get(key) ?? { at: r.ts, count: 0 };
@@ -363,6 +431,9 @@ export function project(snapshot, { now = Date.now() } = {}) {
     }
     for (const [key, g] of groups) issue(`alert:${key}`, 'dispatch', `Threshold: ${key}`, `${g.count} active threshold warning(s) reported.`, 'alerts', g.at, 'delay');
   }
+  });
+
+  const observations = sections.filter(x => x.state !== 'absent');
   for (const x of observations) if (x.state !== 'live') issue(`section:${x.id}`, SECTION_STAGE[x.id], `${x.id} source ${x.state}`, 'Current facts cannot be confirmed from this source.', x.id, x.at, 'unknown');
 
   const priority = x => x.level === 'danger' ? 0 : x.level === 'gate' ? 1 : x.id === 'bottleneck:invariant' ? 2 : x.level === 'delay' ? 3 : 4;
@@ -389,5 +460,8 @@ export function project(snapshot, { now = Date.now() } = {}) {
   const used = new Map();
   const bounded = records.filter(r => { const count = used.get(r.kind) ?? 0; used.set(r.kind, count + 1); return count < 28; });
   bounded.sort((a,b) => compare(a.id,b.id));
+  const health = observations.every(x => x.state === 'unavailable') ? 'unavailable'
+    : observations.every(x => x.state !== 'live') ? 'stale'
+    : observations.some(x => x.state !== 'live') || s.health?.scheduler?.liveness !== 'live' ? 'degraded' : 'live';
   return { generatedAt: s.generated_at, health: fleetConflict ? 'degraded' : health, sections, metrics, attempts: attempts.slice(0, 100), stations, attention: shown, records: bounded };
 }
