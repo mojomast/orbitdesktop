@@ -19,6 +19,7 @@ import urllib.error
 import urllib.request
 import uuid
 from pathlib import Path
+from ui_fixture import copy_ui_source
 from playwright.sync_api import expect, sync_playwright
 from browser_workspace import wait_for_workspace_connection
 
@@ -44,7 +45,8 @@ def post(origin, token, path, body):
 def run_fixture(kind='richtext'):
     with tempfile.TemporaryDirectory(prefix='orbit-documents-browser-', dir='/tmp/opencode') as temporary:
         root = Path(temporary)
-        for name in ('src', 'server', 'contracts', 'public', 'docs'):
+        copy_ui_source(ROOT, root)
+        for name in ('server', 'contracts', 'public', 'docs'):
             shutil.copytree(ROOT / name, root / name)
         for name in ('index.html', 'package.json', 'tsconfig.json'):
             shutil.copy2(ROOT / name, root / name)

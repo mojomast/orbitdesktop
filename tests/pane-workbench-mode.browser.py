@@ -18,6 +18,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from ui_fixture import copy_ui_source
 import re
 import secrets
 import shutil
@@ -36,7 +37,8 @@ ROOT = Path(__file__).resolve().parents[1]
 def main(renderer):
     with tempfile.TemporaryDirectory(prefix="orbit-pane-workbench-", dir="/tmp/opencode") as temporary:
         root = Path(temporary)
-        for name in ("server", "src", "contracts", "docs", "scripts"):
+        copy_ui_source(ROOT, root)
+        for name in ("server", "contracts", "docs", "scripts"):
             shutil.copytree(ROOT / name, root / name)
         for name in ("index.html", "package.json", "package-lock.json", "tsconfig.json", "vite.config.js"):
             shutil.copy2(ROOT / name, root / name)

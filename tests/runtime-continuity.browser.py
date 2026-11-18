@@ -25,6 +25,7 @@ import uuid
 
 from playwright.sync_api import expect, sync_playwright
 from browser_workspace import wait_for_workspace_connection
+from ui_fixture import copy_ui_source
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -37,7 +38,8 @@ if args.pty and (not shutil.which("tmux") or "ORBIT_TMUX_SOCKET" not in (ROOT / 
 
 with tempfile.TemporaryDirectory(prefix="orbit-continuity-", dir="/tmp/opencode") as temporary:
     root = Path(temporary)
-    for name in ("server", "src", "contracts", "scripts", "public", "docs"):
+    copy_ui_source(ROOT, root)
+    for name in ("server", "contracts", "scripts", "public", "docs"):
         shutil.copytree(ROOT / name, root / name)
     for name in ("index.html", "package.json", "package-lock.json", "tsconfig.json", "vite.config.js"):
         shutil.copy2(ROOT / name, root / name)

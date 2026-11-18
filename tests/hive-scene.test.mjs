@@ -103,3 +103,39 @@ test('motion only highlights exact accepted objects on subsequent refresh, respe
     h.scene.update({attempts:rows}); assert.equal(h.container.children.length,0);
   }
 });
+
+test('fleet dock is an identity index: terminal, failure, active, waiting, historical and unknown badges', () => {
+  const h=host(), cases=[
+    ['running','live','flight','In flight'], ['succeeded','live','filed','Terminal record'],
+    ['failed','live','failed','Terminal failure'], ['blocked','live','held','Waiting'],
+    ['working','stale','last','Last observed'], ['unknown','live','gap','unconfirmed'],
+  ];
+  const rows=cases.map(([state,quality],i)=>({id:`unit-${i}`,state,quality,stage:'build'}));
+  h.scene.update({attempts:rows});
+  const glyphs=new Set();
+  for(const [i,[state,,posture,description]] of cases.entries()) {
+    const mark=h.get('attempt',rows[i].id), title=mark.children[0].textContent;
+    assert.equal(mark.getAttribute('data-posture'),posture);
+    assert.equal(mark.getAttribute('aria-label'),title);
+    assert(title.includes(description)&&title.includes(`State ${state}.`));
+    assert.match(title,/Dispatch and stage attribution unproven/);
+    const def=mark.children.find(n=>n.tagName==='use').getAttribute('href').slice(1);
+    const die=h.all().find(n=>n.getAttribute('id')===def);
+    glyphs.add(die.children.find(n=>n.tagName==='text').textContent);
+  }
+  assert.deepEqual(glyphs,new Set(['IN','END','ERR','WAIT','OLD','?']));
+  h.scene.update({attempts:rows,health:'recorded · partial'});
+  assert.equal(h.get('attempt','unit-0').getAttribute('data-posture'),'last');
+});
+
+test('an object highlights only the supplied stage and related public attempt IDs', () => {
+  const h=host(), v={attempts:attempts(3)};
+  const opts={relatedIds:new Set(['worker-02','not-mounted'])};
+  h.scene.update(v,{kind:'job',id:'build'},opts);
+  assert(h.objects('station').every(n=>n.getAttribute('data-object-station')==='false'));
+  assert.deepEqual(h.objects('attempt').filter(n=>n.getAttribute('data-related')==='true').map(n=>n.getAttribute('data-attempt')),['worker-02']);
+  h.scene.update(v,{kind:'job',id:'build',stage:'review'});
+  assert.equal(h.get('station','review').getAttribute('data-object-station'),'true');
+  assert.equal(h.get('station','review').getAttribute('aria-pressed'),'false');
+  assert(h.objects('attempt').every(n=>n.getAttribute('data-related')==='false'));
+});

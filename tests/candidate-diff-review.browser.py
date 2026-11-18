@@ -8,6 +8,7 @@ import fcntl
 import json
 import os
 from pathlib import Path
+from ui_fixture import copy_ui_source
 import secrets
 import shutil
 import socket
@@ -234,7 +235,8 @@ def main(renderer):
         fcntl.flock(lock, fcntl.LOCK_EX)
         with tempfile.TemporaryDirectory(prefix='orbit-candidate-diff-', dir='/tmp/opencode') as directory:
             root = Path(directory)
-            for name in ('server', 'src', 'contracts', 'docs', 'public', 'scripts'):
+            copy_ui_source(ROOT, root)
+            for name in ('server', 'contracts', 'docs', 'public', 'scripts'):
                 shutil.copytree(ROOT / name, root / name)
             for name in ('index.html', 'package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.js'):
                 shutil.copy2(ROOT / name, root / name)

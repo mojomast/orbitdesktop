@@ -7,11 +7,14 @@
   user-select: none;
 }
 .hive-scene text { pointer-events: none; }
-.hs-survey, .hs-number, .hs-reading, .hs-depth, .hs-register-label {
+.hs-survey, .hs-number, .hs-reading, .hs-depth, .hs-register-label, .hs-register-note, .hs-code {
   font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
 }
 .hs-survey { font-size: 8px; fill: #98aaa1; letter-spacing: 1.3px; }
-.hs-register-label { font-size: 9px; fill: #c5cbbb; letter-spacing: 1px; }
+.hs-register-label { font-size: 13px; font-weight: 700; fill: #c8e0d4; letter-spacing: .9px; }
+.hs-register-note { font-size: 10px; fill: #c0ccc6; }
+.hs-die-key { font: 12px ui-monospace, Consolas, monospace; fill: #c3d2c9; }
+.hs-code { font-size: 9px; letter-spacing: -.6px; font-weight: 750; fill: var(--hs-body); }
 .hs-station, .hs-worker { cursor: pointer; outline: none; }
 .hs-station { --hs-tone: #b6c1b9; }
 .hs-station[data-tone="active"] { --hs-tone: #88d6c5; }
@@ -23,17 +26,28 @@
 .hs-hatching { visibility: hidden; }
 .hs-station[data-gap="true"] .hs-hatching { visibility: visible; }
 .hs-signal-land { color: var(--hs-tone); }
-.hs-station:is([data-tone="pressure"],[data-tone="delay"],[data-tone="blocked"],[data-tone="failure"]) .hs-outline { stroke: var(--hs-tone); stroke-width: 1.2; stroke-dasharray: 14 6 2 6; }
+.hs-station:is([data-tone="pressure"],[data-tone="delay"],[data-tone="blocked"]) .hs-outline { stroke: var(--hs-tone); stroke-width: 1.65; stroke-dasharray: 12 4; }
+.hs-station[data-tone="failure"] .hs-outline { stroke: var(--hs-tone); stroke-width: 2; }
+.hs-station[data-tone="failure"] .hs-docket { stroke: var(--hs-tone); stroke-width: 1; }
 .hs-docket { fill: #142024; fill-opacity: .92; }
 .hs-number { font-size: 11.5px; fill: #bdc9be; font-weight: 600; }
 .hs-name { font-family: system-ui, sans-serif; font-size: 15px; font-weight: 650; fill: #f0eee1; }
-.hs-reading { fill: var(--hs-tone); font-size: 10px; }
+.hs-reading { fill: var(--hs-tone); font-size: 10.8px; }
 .hs-depth { fill: #bbc6bd; font-size: 9px; letter-spacing: .3px; }
-.hs-station:hover .hs-outline { stroke: #95ada3; stroke-dasharray: 3 4; }
-.hs-station[aria-pressed="true"] .hs-outline { stroke: #93d5c3; stroke-dasharray: none; }
+.hs-station:hover .hs-name { fill: #b5e9d8; }
+.hs-station:is([aria-pressed="true"],[data-object-station="true"]) .hs-docket { stroke: #9cdcc8; stroke-width: 1.6; }
+.hs-station[data-object-station="true"] .hs-docket { stroke-dasharray: 6 2; }
+.hs-station:is([aria-pressed="true"],[data-object-station="true"]):not(:is([data-tone="pressure"],[data-tone="delay"],[data-tone="blocked"],[data-tone="failure"])) .hs-outline { stroke: #95c8b7; }
 .hs-station[aria-pressed="true"] .hs-number, .hs-station[aria-pressed="true"] .hs-name { fill: #a7e4ce; }
-.hs-worker-land { stroke: #749188; stroke-width: .8; }
-.hs-worker[data-gap="true"] .hs-worker-land { stroke: #a4aaa5; stroke-dasharray: 2 2; }
+.hs-worker { --hs-wing: #96b5a6; --hs-body: #d8dfcf; --hs-tile: #22322f; --hs-edge: #708a7f; }
+.hs-worker[data-posture="flight"] { --hs-wing: #a3dfc7; --hs-body: #e9fcda; --hs-tile: #284743; --hs-edge: #8bc6b0; }
+.hs-worker[data-posture="filed"] { --hs-wing: #748781; --hs-body: #c6d1c7; --hs-tile: #1b282b; --hs-edge: #657671; }
+.hs-worker[data-posture="failed"] { --hs-wing: #b8897e; --hs-body: #f6c5b7; --hs-tile: #342729; --hs-edge: #e7a394; }
+.hs-worker[data-posture="held"] { --hs-wing: #ae9f82; --hs-body: #e3cba3; --hs-tile: #332f28; }
+.hs-worker:is([data-posture="last"],[data-posture="gap"]) { --hs-wing: #939e9a; --hs-body: #cdd7d2; --hs-tile: #263234; }
+.hs-worker-land { fill: var(--hs-tile); stroke: var(--hs-edge); stroke-width: 1.2; }
+.hs-worker[data-gap="true"] .hs-worker-land { stroke: #a4aaa5; stroke-dasharray: 2 3; }
+.hs-worker[data-related="true"] .hs-worker-land { stroke: #b9e7d5; stroke-dasharray: 7 2; stroke-width: 2; }
 .hs-worker:hover .hs-worker-land { stroke: #c6d0b8; }
 .hs-worker[aria-pressed="true"] .hs-worker-land { stroke: #a5e6cb; stroke-dasharray: none; stroke-width: 2; }
 .hs-station:focus-visible .hs-outline, .hs-worker:focus-visible .hs-worker-land {
@@ -51,7 +65,10 @@
 @media (forced-colors: active) {
   .hive-scene { forced-color-adjust: none; }
   .hs-docket { fill: Canvas; fill-opacity: 1; }
-  .hs-name,.hs-reading,.hs-number,.hs-depth,.hs-register-label { fill: CanvasText; }
+  .hs-register path,.hs-worker-land { fill: Canvas; stroke: CanvasText; }
+  .hs-worker { --hs-wing: GrayText; --hs-body: CanvasText; }
+  .hs-name,.hs-reading,.hs-number,.hs-depth,.hs-register-label,.hs-register-note,.hs-die-key,.hs-code { fill: CanvasText; }
+  .hs-station[data-object-station="true"] .hs-docket,.hs-worker[data-related="true"] .hs-worker-land { stroke: Highlight; }
   .hs-station[aria-pressed="true"] .hs-outline,.hs-worker[aria-pressed="true"] .hs-worker-land { stroke: Highlight; }
   .hs-station:focus-visible .hs-outline,.hs-worker:focus-visible .hs-worker-land { stroke: LinkText; }
 }

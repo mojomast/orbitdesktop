@@ -22,6 +22,7 @@ import uuid
 
 from playwright.sync_api import expect, sync_playwright
 from browser_workspace import wait_for_workspace_connection
+from ui_fixture import copy_ui_source
 
 ROOT = Path(__file__).resolve().parents[1]
 parser = argparse.ArgumentParser()
@@ -43,7 +44,8 @@ def api(origin, token, workspace, route, action, **fields):
 
 with tempfile.TemporaryDirectory(prefix='orbit-arrangements-', dir='/tmp/opencode') as temporary:
     root = Path(temporary)
-    for directory in ('server', 'src', 'contracts', 'docs', 'scripts', 'public'):
+    copy_ui_source(ROOT, root)
+    for directory in ('server', 'contracts', 'docs', 'scripts', 'public'):
         shutil.copytree(ROOT / directory, root / directory)
     for name in ('index.html', 'package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.js'):
         shutil.copy2(ROOT / name, root / name)

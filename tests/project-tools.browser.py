@@ -34,6 +34,7 @@ import urllib.error
 import urllib.request
 import uuid
 from pathlib import Path
+from ui_fixture import copy_ui_source
 
 from playwright.sync_api import expect, sync_playwright
 
@@ -331,7 +332,8 @@ def main(renderer):
         fcntl.flock(lock, fcntl.LOCK_EX)
         with tempfile.TemporaryDirectory(prefix="comet-project-tools-", dir="/tmp/opencode") as temporary:
             root = Path(temporary)
-            for name in ("server", "src", "contracts", "docs", "public", "scripts"):
+            copy_ui_source(ROOT, root)
+            for name in ("server", "contracts", "docs", "public", "scripts"):
                 if (ROOT / name).is_dir():
                     shutil.copytree(ROOT / name, root / name)
             for name in ("index.html", "package.json", "package-lock.json", "tsconfig.json", "vite.config.js"):

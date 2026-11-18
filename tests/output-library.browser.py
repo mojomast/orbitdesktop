@@ -14,6 +14,7 @@ import urllib.error
 import urllib.request
 import uuid
 from pathlib import Path
+from ui_fixture import copy_ui_source
 
 from playwright.sync_api import expect, sync_playwright
 
@@ -45,7 +46,8 @@ def post(url, payload, token=TOKEN, origin=None):
 
 with tempfile.TemporaryDirectory(prefix='orbit-output-library-', dir='/tmp/opencode') as temporary:
     root = Path(temporary)
-    for name in ('src', 'contracts', 'public', 'server', 'scripts', 'docs'):
+    copy_ui_source(ROOT, root)
+    for name in ('contracts', 'public', 'server', 'scripts', 'docs'):
         # Copy only files; keep the temporary tree disposable.
         shutil.copytree(ROOT / name, root / name)
     for name in ('index.html', 'package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.js'):

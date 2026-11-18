@@ -10,6 +10,7 @@ PLAYWRIGHT_BROWSERS_PATH=/tmp/opencode/orbit-evolution-browsers \
 import argparse
 import json
 from pathlib import Path
+from ui_fixture import copy_ui_source
 import shutil
 import socket
 import subprocess
@@ -267,7 +268,8 @@ def main(args):
               'source': str(args.source), 'cases': [], 'limitations': ['Network authority is mocked; no model or execution is exercised.', 'Private activity uses page fallback transport.']}
     with tempfile.TemporaryDirectory(prefix='orbit-agent-ux-', dir='/tmp/opencode') as temp:
         root = Path(temp)
-        for folder in ('src', 'contracts', 'server', 'scripts', 'docs'):
+        copy_ui_source(args.source, root)
+        for folder in ('contracts', 'server', 'scripts', 'docs'):
             shutil.copytree(args.source / folder, root / folder)
         for file in ('index.html', 'package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.js'):
             shutil.copy2(args.source / file, root / file)

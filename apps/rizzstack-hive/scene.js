@@ -6,10 +6,10 @@ const PLATES = [
   ['dispatch','Dispatch','Dispatch transmitter',315,110],
   ['build','Build','Fabrication gantry',520,101],
   ['verify','Verify','Verification optics',725,92],
-  ['review','Review','Review lens',783,275],
-  ['integrate','Integrate','Integration press',578,284],
-  ['deploy','Deploy','Deploy tower',373,293],
-  ['receiver','Receiver','Receiver aperture',168,302],
+  ['review','Review','Review lens',783,326],
+  ['integrate','Integrate','Integration press',578,335],
+  ['deploy','Deploy','Deploy tower',373,344],
+  ['receiver','Receiver','Receiver aperture',168,353],
 ];
 const CAP = 30;
 let instance = 0;
@@ -38,7 +38,7 @@ function slab(p,x,y,w,l,base,h,mat) {
   const a=face(x,y,base+h),b=face(x+w,y,base+h),c=face(x+w,y+l,base+h),d=face(x,y+l,base+h);
   const B=face(x+w,y,base),C=face(x+w,y+l,base),D=face(x,y+l,base);
   shape(p,poly([b,B,C,c]),mat[2]); shape(p,poly([d,c,C,D]),mat[1]);
-  shape(p,poly([a,b,c,d]),mat[0],{stroke:mat[3],'stroke-width':.62,'stroke-linejoin':'round'});
+  shape(p,poly([a,b,c,d]),mat===iron?'inherit':mat[0],{stroke:mat[3],'stroke-width':.62,'stroke-linejoin':'round'});
 }
 const iron = ['#607b7b','#324d51','#1c3239','#a1b6af'];
 const steel = ['#adb9ab','#647971','#394f50','#d0d6c3'];
@@ -51,6 +51,7 @@ function ramp(defs,id,colors) {
   for (const [offset,color] of colors) el(g,'stop',{offset,'stop-color':color});
 }
 function definitions(defs,ns) {
+  ramp(defs,ns+'machined',[[0,'#b1c3b4'],['24%','#819c91'],['100%','#486466']]);
   ramp(defs,ns+'deck',[[0,'#88a09a'],['18%','#597977'],['68%','#3e585a'],['100%','#304747']]);
   ramp(defs,ns+'wall',[[0,'#506863'],['35%','#2e4646'],['95%','#182d30']]);
   ramp(defs,ns+'lens',[[0,'#bfdfdf'],['27%','#8faebd'],['38%','#427084'],['72%','#293f56'],['100%','#152c36']]);
@@ -70,15 +71,18 @@ function definitions(defs,ns) {
   line(pad,multiple(14,i=>`M${-38+i*5} ${24+(i*5)*.05}v4`),'#182b2c',1.7);
   line(pad,'M-62 0l7 5m2-6 7 5m77-23 10 1m6 1 5 3M-63 -8l8-5 6 .3m-5 6 7-4M12 17l8 .5m-12-3 16 1','#263f42',1.1);
   shape(pad,'M-70 -7l3-2 4 1-3 2ZM65 -5l3-2 4 1-3 2ZM-40 12l3-2 4 1-3 2ZM35 17l3-2 4 1-3 2Z','#d0cbb2');
-  // Six punched dies: swept, blunt or notched wing; split or barred thorax.
-  // The die is an identity aid, not provider, authority, or execution state.
-  const wings=['M-1 -1Q-9 -9 -9 -4Q-9 1 -2 2','M-1 -1 -9 -6 -8 0 -2 2','M-1 -1 -6 -6 -9 -5 -7 -2 -9 -1 -2 2'];
-  for(let i=0;i<6;i++) {
-    const bee=el(defs,'g',{id:ns+'wing'+i});
-    const left=wings[i%3],right=left.replace(/(-?\d+) (-?\d+)/g,(_,x,y)=>`${-Number(x)} ${y}`);
-    shape(bee,left+'Z'+right+'Z','#a9c3b9',{stroke:'#102125','stroke-width':.7});
-    shape(bee,'M-2 -3 0 -5 2 -3 2 2 0 5 -2 2Z','#d3b37e');
-    line(bee,'M-8 -4 -2 0M7 -4 2 0'+(i<3?'M-2 0h4m-4 2h4':'M0 -2v5'),'#465a54',1);
+  // Punched badges. Broad, deployed wings for in-flight observations; a
+  // folded pair for filed/held receipts. Code and silhouette survive grayscale.
+  // Reuse the dies (including lettering), rather than duplicating DOM per badge.
+  const swept='M-2 0Q-13 -13 -14 -6Q-14 0 -3 4ZM2 0Q13 -13 14 -6Q14 0 3 4Z';
+  const blunt='M-2 0 -12 -8 -14 -3 -10 1 -3 4ZM2 0 12 -8 14 -3 10 1 3 4Z';
+  const folded='M-2 -4Q-11 -5 -8 3L-3 8 -2 2ZM2 -4Q11 -5 8 3L3 8 2 2Z';
+  const body='M-2 -5 -4 -10 -1 -7Q0 -9 1 -7L4 -10 2 -5Q5 -3 3 0L3 4 0 9 -3 4 -3 0Q-5 -3 -2 -5ZM-2 1H2v1h-4Zm.5 3h3v1h-3Z';
+  for(const [id,wings,code] of [['flight0',swept,'IN'],['flight1',blunt,'IN'],['filed',folded,'END'],['failed',folded,'ERR'],['held',folded,'WAIT'],['last',folded,'OLD'],['gap','M-3 -6 -9 -8 -11 -4 -5 1ZM3 0 8 2 9 6 3 5Z','?']]) {
+    const die=el(defs,'g',{id:ns+id});
+    shape(die,wings,'var(--hs-wing)',{transform:'translate(-6 0)'});
+    shape(die,body,'var(--hs-body)',{transform:'translate(-6 0)','fill-rule':'evenodd'});
+    label(die,12,4,'hs-code',code).setAttribute('text-anchor','middle');
   }
 }
 
@@ -199,7 +203,7 @@ const CASTS=[
 
 function cartography(svg,ns) {
   const g=el(svg,'g',{'aria-hidden':'true',class:'hs-map'});
-  shape(g,'M0 0H900V418H0Z','#131e22');shape(g,'M0 0H900V418H0Z',`url(#${ns}grid)`);
+  shape(g,'M0 0H900V470H0Z','#141d22');shape(g,'M0 0H900V470H0Z',`url(#${ns}grid)`);
   // Survey bench cuts: nested contours share the overburden and the cut faces of
   // one landform, rather than a generic repeating field behind eight icons.
   const cuts=[
@@ -209,23 +213,21 @@ function cartography(svg,ns) {
     'M640 -29 705 4 763 6 810 30 851 30 905 60 956 62',
     'M669 211 707 190 747 192 788 170 833 173 890 143 946 147',
   ];
-  for(const [i,d] of cuts.entries()) {
-    const strips=multiple(6,k=>d.replace(/(-?\d+) (-?\d+)/g,(_,x,y)=>`${Number(x)+k*3} ${Number(y)+k*(i%2?5:4)}`));
-    line(g,strips,'#2a393c',.8);line(g,d,'#374648',1);
-  }
+  const strips=cuts.map((d,i)=>multiple(6,k=>d.replace(/(-?\d+) (-?\d+)/g,(_,x,y)=>`${Number(x)+k*3} ${Number(y)+k*(i%2?5:4)}`))).join('');
+  line(g,strips,'#273438',.8);line(g,cuts.join(''),'#334246',1);
   // Twin track: ballast shadow, web, transverse ties, crown and recessed flangeway.
-  const track='M-24 121 111 126 166 107 231 110 259 96 315 117 374 96 438 99 472 82 520 108 581 86 646 89 678 73 725 99 816 103 861 131 861 193 809 225 783 282 722 302 656 299 624 314 578 291 518 312 447 309 416 326 373 300 314 322 242 319 214 335 168 309 97 337 -22 331';
+  const track='M-24 121 111 126 166 107 231 110 259 96 315 117 374 96 438 99 472 82 520 108 581 86 646 89 678 73 725 99 816 103 861 131 861 244 809 276 783 333 722 353 656 350 624 365 578 342 518 363 447 360 416 377 373 351 314 373 242 370 214 386 168 360 97 388 -22 382';
   line(g,track,'#0d1619',15,{transform:'translate(1 3)'});
   line(g,track,'#526564',8);line(g,track,'#293c40',6.2);
   line(g,track,'#899088',7.8,{'stroke-dasharray':'1 7'});line(g,track,'#1a2a2e',3.4);
   // Stroke direction markers are fixed drafting arrows, not moving parcels.
-  line(g,'M207 103l5 4-5 3m205-15 5 4-5 3m207-16 5 4-5 3m234 68 3 5 3-5m-178 140-6 3 5 4m-205 0-6 3 5 4m-205 1-6 3 5 4','#b3ad92',1.55);
+  line(g,'M207 103l5 4-5 3m205-15 5 4-5 3m207-16 5 4-5 3m234 68 3 5 3-5m-178 191-6 3 5 4m-205 0-6 3 5 4m-205 1-6 3 5 4','#a5afa3',1.55);
   const crosses=[[27,31],[873,31],[27,386],[873,386],[232,54],[681,218],[74,260],[445,381]];
   line(g,crosses.map(([x,y])=>`M${x-4} ${y}h8m-4-4v8`).join(''),'#6c7c77',.8);
   line(g,multiple(43,i=>`M${30+20*i} 7v${i%5?2:5}`)+multiple(19,i=>`M8 ${27+20*i}h${i%5?2:5}`),'#61716c',.8);
   label(g,43,34,'hs-survey','H / 08    ·    AXONOMETRIC PLAN');
-  label(g,728,385,'hs-survey','SECTION   A—A′');
-  line(g,'M817 380h38m-37-2v4m12-4v4m12-4v4m12-4v4','#9ca69b',1);
+  label(g,728,434,'hs-survey','SECTION   A—A′');
+  line(g,'M817 430h38m-37-2v4m12-4v4m12-4v4m12-4v4','#9ca69b',1);
 }
 
 function station(svg,plate,i,ns) {
@@ -234,7 +236,7 @@ function station(svg,plate,i,ns) {
   const title=el(node,'title');
   // Transparent hit area is restricted to this assembly and its docket.
   shape(node,'M-85 -47h50v-38h70v38h50V80H-85Z','transparent');
-  const g=el(node,'g',{'aria-hidden':'true'});
+  const g=el(node,'g',{'aria-hidden':'true',fill:`url(#${ns}machined)`});
   use(g,ns+'pad');line(g,PERIM,'none',1.8,{class:'hs-outline'});
   shape(g,CASTS[i],'#172b2d',{'fill-opacity':.75});
   ASSEMBLIES[i](g,ns);
@@ -255,15 +257,36 @@ function value(v,fallback='unknown') { return typeof v==='string'&&v.trim()?v.tr
 function clipped(s,n) { return s.length<=n?s:s.slice(0,n-1).trimEnd()+'…'; }
 function uncertain(quality) { return !['known','ok','live','measured','fresh','observed'].includes(quality); }
 
+const TERMINAL=new Set(['succeeded','failed','cancelled','accepted','rejected','done']);
+const IN_FLIGHT=new Set(['starting','running','working','backoff']);
+const WAITING=new Set(['queued','blocked','not_started']);
+function posture(state,quality,historical) {
+  if(TERMINAL.has(state)) return state==='failed'||state==='rejected'?'failed':'filed';
+  if(historical||quality==='stale')return 'last';
+  if(uncertain(quality))return 'gap';
+  if(IN_FLIGHT.has(state))return 'flight';
+  return WAITING.has(state)?'held':'gap';
+}
+const POSTURE_NAME={flight:'In flight',held:'Waiting',filed:'Terminal record',failed:'Terminal failure record',last:'Last observed; current state unknown',gap:'Current state unconfirmed'};
+const BADGE={
+  flight:'M-24 -12H18l6 6v12l-6 6h-42Z',
+  filed:'M-23 -10H18l5 5v15h-46Z',
+  held:'M-23 -10H21v20h-44Z',
+  last:'M-23 -10H18l5 5v15h-46Z',
+  gap:'M-17 -11H17l6 6v10l-6 6h-34l-6-6V-5Z',
+  failed:'M-23 -10H18l5 5v15h-46Z',
+};
+
 function updateStation(s,row,selection) {
   const quality=value(row?.quality),level=value(row?.level),gap=uncertain(quality)||level==='unknown';
   const depth=Number.isSafeInteger(row?.depth)&&row.depth>=0?row.depth:null;
   const signal=value(row?.signal), count=depth!==null?`Q ${depth}`:'';
   // The adapter owns level. It is only used as an allowlisted paint token.
   const tone=level==='danger'?'failure':['active','pressure','gate','verified','failure','delay','blocked','unknown'].includes(level)?level:'neutral';
-  const readable=`${s.name}. ${s.machine}. ${signal}. Queue depth ${depth??'unknown'}. Quality ${quality}.`;
+  const readable=`${s.name}. ${s.machine}. ${signal}. Queue depth ${depth??'unknown'}. Quality ${quality}.`+(s.id==='build'?' The Build dock indexes observed execution identities. Dispatch and stage attribution are unproven.':'');
   set(s.node,'data-tone',tone); set(s.node,'data-gap',gap); set(s.node,'aria-label',readable);
   set(s.node,'aria-pressed',selection?.kind==='station'&&selection.id===s.id);
+  set(s.node,'data-object-station',!!selection&&selection.kind!=='station'&&selection.stage===s.id);
   text(s.title,readable);
   text(s.depth,count);
   const notes=gap&&quality!=='unknown'&&uncertain(quality)?quality:'';
@@ -281,13 +304,18 @@ function byID(rows) {
 const cmp=(a,b)=>a<b?-1:a>b?1:0;
 export function createScene(container,{onSelect}={}) {
   const ns=`hs-${++instance}-`, doc=container.ownerDocument;
-  const svg=el(container,'svg',{viewBox:'0 0 900 418',class:'hive-scene',role:'group','aria-label':'Production line. Use arrow keys to focus a station; Enter or Space to inspect.'});
+  const svg=el(container,'svg',{viewBox:'0 0 900 470',class:'hive-scene',role:'group','aria-label':'Production line. Use arrow keys to focus a station; Enter or Space to inspect.'});
   definitions(el(svg,'defs'),ns);cartography(svg,ns);
   const stations=PLATES.map((p,i)=>station(svg,p,i,ns));
   const register=el(svg,'g',{'aria-hidden':'true',class:'hs-register'});
-  const buildRail=line(register,'M439 180v15h6m2 0h325','#748780',.75,{visibility:'hidden'});
-  const buildCount=label(register,438,200,'hs-register-label','');buildCount.setAttribute('text-anchor','end');
-  const detached=label(register,18,404,'hs-register-label','');
+  shape(register,'M15 202H883v50H21l-6-6Z','#101a1e',{stroke:'#516661','stroke-width':1});
+  line(register,'M23 204h87m4 0h17M158 203v47M871 249h9','#81978c',1);
+  label(register,24,219,'hs-register-label','BUILD DOCK');
+  label(register,24,234,'hs-register-note','Execution identities');
+  label(register,24,247,'hs-register-note','Dispatch link unproven');
+  const detached=label(svg,22,456,'hs-register-label','');
+  const legend=label(svg,22,456,'hs-die-key','');
+  set(register,'visibility','hidden');
   const layer=el(svg,'g',{'aria-label':'Recorded attempt identities',role:'group'});
   const marks=new Map(), bindings=[];
   let disposed=false, hydrated=false, lastChanges=null;
@@ -318,9 +346,9 @@ export function createScene(container,{onSelect}={}) {
   function newMark(id,slot) {
     const node=el(layer,'g',{class:'hs-worker','data-id':id,'data-attempt':id,'data-kind':'attempt',tabindex:0,role:'button'});
     const title=el(node,'title');
-    const land=shape(node,'M-11 -8H8l3 3v13H-8l-3-3Z','#203032',{class:'hs-worker-land'});
+    const land=shape(node,BADGE.gap,'#203032',{class:'hs-worker-land'});
     let die=0;for(const char of id)die=(Math.imul(31,die)+char.codePointAt(0))>>>0;
-    use(node,ns+'wing'+(die%6),{'pointer-events':'none'});
+    const badge=use(node,ns+'gap',{'pointer-events':'none'});
     const unbind=bind(node,'attempt',id,key=>{
       const current=marks.get(id);
       const group=[...marks.values()].filter(other=>other.dock===current.dock).sort((a,b)=>a.slot-b.slot);
@@ -329,22 +357,25 @@ export function createScene(container,{onSelect}={}) {
       if(target<0&&key==='ArrowUp'&&current.dock==='build')return stations[2].node;
       return group[Math.min(group.length-1,Math.max(0,target))]?.node;
     });
-    return {node,title,land,slot,unbind,dock:null};
+    return {node,title,land,badge,die:die%2,slot,unbind,dock:null};
   }
   function update(view,selection,options={}) {
     if(disposed)return;
     const rows=byID(view?.stations), attempts=byID(view?.attempts);
-    const flash=hydrated&&options.motion===true&&!reduced?.matches&&options.changedIds instanceof Set&&options.changedIds!==lastChanges;
-    const maybeFlash=(record,id)=>{
-      if(!options.motion||reduced?.matches)record.pulse?.cancel();
-      if(flash&&options.changedIds.has(id)) {
+    const historical=container.classList?.contains('historical')||['stale','unavailable'].includes(view?.health)||value(view?.health).startsWith('recorded')||options.historical===true;
+    const moving=!historical&&!doc.hidden&&options.motion===true&&!reduced?.matches;
+    const flash=hydrated&&moving&&options.changedIds instanceof Set&&options.changedIds!==lastChanges;
+    // changedIds is the transport's result from confirmedChanges. Its keys
+    // belong to attempts, not stations (their public IDs can collide).
+    const maybeFlash=(record,id,eligible)=>{
+      if(!moving||!eligible)record.pulse?.cancel();
+      if(flash&&eligible&&options.changedIds.has(id)) {
         record.pulse?.cancel();
-        record.pulse=record.node.animate?.([{opacity:.6},{opacity:1}],{duration:320,easing:'ease-out',iterations:1});
+        record.pulse=record.land.animate?.([{stroke:'#d9fff0',strokeWidth:3},{stroke:'#9ccab8',strokeWidth:1.5}],{duration:440,easing:'ease-out',iterations:1});
       }
     };
     for(const s of stations){
       updateStation(s,rows.get(s.id),selection);
-      if(rows.has(s.id))maybeFlash(s,s.id);else s.pulse?.cancel();
     }
     // Preserve visible identities and their physical slots. Fill free slots in
     // immutable-ID order. A selected off-plate receipt displaces one unselected
@@ -362,24 +393,33 @@ export function createScene(container,{onSelect}={}) {
     }
     const used=new Set([...marks.values()].map(r=>r.slot));
     let build=0,other=0;
+    const badges=new Set();
     for(const id of visible) {
       const row=attempts.get(id), staged=row.stage==='build';
       let r=marks.get(id);
       if(!r) {let slot=0;while(used.has(slot))slot++;used.add(slot);r=newMark(id,slot);marks.set(id,r);}
       if(staged)build++;else other++;
       r.dock=staged?'build':'register';
-      const x=staged?458+(r.slot%15)*23:153+r.slot*23;
-      const y=staged?195+Math.floor(r.slot/15)*19:400;
-      set(r.node,'transform',xlate(x,y));
+      const x=staged?188+(r.slot%15)*47.5:163+r.slot*24;
+      const y=staged?214+Math.floor(r.slot/15)*25:452;
+      set(r.node,'transform',xlate(x,y)+(staged?' scale(.94 1)':' scale(.48 .82)'));
       const quality=value(row.quality), state=value(row.state), stage=value(row.stage), route=value(row.route);
-      const name=`Attempt ${id}. Stage ${stage}. State ${state}. Route ${route}. Quality ${quality}.`;
+      const mode=posture(state,quality,historical);
+      const location=staged?'Build dock. Dispatch and stage attribution unproven.':`Stage ${stage}.`;
+      const name=`Attempt ${id}. ${POSTURE_NAME[mode]}. ${location} State ${state}. Route ${route}. Quality ${quality}.`+(historical?' Historical view.':'');
       text(r.title,name);set(r.node,'aria-label',name);set(r.node,'aria-pressed',selection?.kind==='attempt'&&selection.id===id);
-      const gap=uncertain(quality)||state==='unknown';set(r.node,'data-gap',gap);
-      set(r.land,'fill',gap?`url(#${ns}hatch)`:'#263b3c');maybeFlash(r,id);
+      const gap=uncertain(quality)||mode==='gap'||historical;
+      set(r.node,'data-gap',gap);set(r.node,'data-posture',mode);
+      set(r.node,'data-related',!!selection&&options.relatedIds instanceof Set&&options.relatedIds.has(id));
+      set(r.land,'d',BADGE[mode]);set(r.badge,'href','#'+ns+mode+(mode==='flight'?r.die:''));
+      badges.add(mode);maybeFlash(r,id,!gap);
     }
     const total=attempts.size, overflow=total>CAP?` · ${CAP}/${total} SHOWN`:'';
-    text(buildCount,build?`BUILD IDS${overflow}`:'');set(buildRail,'visibility',build?'visible':'hidden');
-    text(detached,other?`ATTEMPT IDS${!build?overflow:''}`:'');
+    set(register,'visibility',build?'visible':'hidden');
+    text(detached,other?'ATTEMPT IDS':'');
+    const key={flight:'IN · In flight',held:'WAIT · Waiting',filed:'END · Terminal',failed:'ERR · Terminal failure',last:'OLD · Last observed',gap:'? · Unknown'};
+    set(legend,'y',other?437:456);
+    text(legend,Object.keys(key).filter(k=>badges.has(k)).map(k=>key[k]).join('    /    ')+overflow);
     hydrated=!!view;lastChanges=options.changedIds??null;
   }
   return {update,destroy(){

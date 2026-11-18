@@ -1,0 +1,559 @@
+/* Nightshift / shift control. Read from the dispatch tickets through the map
+   to the underlying record. The map is an instrument, not the top-level menu. */
+:root {
+  --ground: #101619;
+  --paper: #182023;
+  --line: #3c4949;
+  --muted: #b9c5c2;
+  --ink: #f4f1e7;
+  --brass: #edc086;
+  --mint: #91decb;
+}
+.mast {
+  position: sticky;
+  top: 0;
+  z-index: 8;
+  background: #101719;
+  height: 55px;
+  padding-inline: clamp(14px, 2vw, 38px);
+  gap: clamp(22px, 4vw, 68px);
+}
+.mastnav {
+  gap: 22px;
+}
+.masttools {
+  gap: 12px;
+}
+.masttools button {
+  min-height: 38px;
+}
+.shell {
+  max-width: 2040px;
+  padding: 0 clamp(12px, 1.7vw, 36px) 22px;
+}
+.intro {
+  padding: 18px 0 16px;
+}
+.intro h1 {
+  font-size: clamp(34px, 3.3vw, 58px);
+  margin: 3px 0 6px;
+  letter-spacing: -0.055em;
+}
+.intro .kicker {
+  color: var(--brass);
+  font-size: 9px;
+}
+.intro #lead {
+  font-size: 13px;
+}
+.intro .mode-box {
+  gap: 3px;
+}
+.mode-box select {
+  background: #192427;
+}
+.command-strip {
+  position: sticky;
+  top: 55px;
+  z-index: 5;
+  background: var(--ground);
+  box-shadow: 0 4px 0 #101619;
+}
+.telemetry {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  background: #172023;
+  border-color: #485751;
+}
+.telemetry > div,
+.telemetry > button {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: baseline;
+  padding: 9px 15px;
+  column-gap: 9px;
+}
+.telemetry small {
+  font-size: 9px;
+  color: #c4c9be;
+}
+.telemetry b,
+.telemetry strong {
+  font:
+    500 clamp(21px, 1.75vw, 33px) / 1.22 Georgia,
+    serif;
+  letter-spacing: -0.045em;
+}
+.telemetry span {
+  font: 11px/1.3 system-ui;
+  overflow-wrap: anywhere;
+}
+.telemetry #decisions {
+  color: var(--brass);
+}
+.statusline {
+  min-height: 34px;
+  font-size: 10px;
+  letter-spacing: 0.015em;
+}
+.statusline #connection:before {
+  color: #97cbb8;
+}
+.command-grid {
+  display: grid;
+  grid-template-columns: clamp(185px, 16vw, 278px) minmax(0, 1fr) clamp(
+      243px,
+      20.3vw,
+      346px
+    );
+  gap: 12px;
+  align-items: start;
+}
+.desk-center,
+.inbox,
+.inspection {
+  min-width: 0;
+}
+.command-grid .inbox,
+.command-grid .inspection {
+  position: sticky;
+  top: 160px;
+  max-height: calc(100vh - 175px);
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #4e615b #141c1f;
+  scroll-margin-top: 165px;
+}
+.command-grid .inbox {
+  margin: 0;
+  background: #182025;
+}
+.desk-cap,
+.inspect-cap {
+  padding: 13px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--muted);
+  background: #20292a;
+  border-bottom: 1px solid var(--line);
+}
+.desk-cap .kicker,
+.inspect-cap .kicker {
+  font-size: 9px;
+  letter-spacing: 0.09em;
+  color: #dbc49d;
+}
+.index-no {
+  font: 11px var(--mono);
+  color: var(--brass);
+}
+.inbox h2 {
+  font-size: 23px;
+  line-height: 1.1;
+  padding: 14px 13px 12px;
+  margin: 0;
+}
+.ticket {
+  width: 100%;
+  display: grid;
+  text-align: left;
+  gap: 6px;
+  padding: 12px 12px 13px 15px;
+  border-block-start: 1px solid var(--line);
+  border-inline-start: 3px solid transparent;
+  position: relative;
+}
+.ticket:hover {
+  background: #1d292d;
+}
+.ticket[aria-pressed="true"] {
+  background: #292923;
+  border-inline-start-color: var(--brass);
+}
+.ticket:focus-visible {
+  outline-offset: -3px;
+}
+.ticket-meta,
+.ticket-id,
+.ticket-foot,
+.gate-note small,
+.gate-note span {
+  font: 10px/1.35 var(--mono);
+  overflow-wrap: anywhere;
+}
+.ticket-meta {
+  text-transform: uppercase;
+  letter-spacing: 0.065em;
+  color: #b8c9c2;
+}
+.ticket-meta:before {
+  content: "◇";
+  margin-right: 6px;
+}
+.ticket[data-level="gate"] .ticket-meta {
+  color: var(--brass);
+}
+.ticket[data-level="danger"] .ticket-meta {
+  color: #ffb6a4;
+}
+.ticket[data-level="delay"] .ticket-meta {
+  color: #eabc85;
+}
+.ticket strong {
+  font: 600 14px/1.38 system-ui;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+}
+.ticket-id {
+  color: #acb6b6;
+}
+.ticket-foot {
+  color: #c6cec9;
+  font-size: 9px;
+}
+.gate-note {
+  width: 100%;
+  text-align: left;
+  padding: 14px;
+  border-top: 1px dashed #52625a;
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  margin-top: 5px;
+}
+.gate-note strong {
+  font:
+    500 17px Georgia,
+    serif;
+  color: #e0c39b;
+}
+.gate-note small {
+  letter-spacing: 0.07em;
+}
+.inbox-empty {
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 0 13px;
+  color: var(--muted);
+}
+.sheet-head {
+  padding: 12px 15px;
+}
+.sheet-head h2 {
+  font-size: 24px;
+  letter-spacing: -0.04em;
+}
+.atlas .sheet-index {
+  font-size: 9px;
+}
+.atlas #world svg {
+  max-height: unset;
+}
+.map-base {
+  padding: 6px 9px;
+  font-size: 9px;
+  gap: 9px;
+}
+.inspection {
+  background: #172124;
+}
+.inspect-cap {
+  background: #20302f;
+}
+#inspection-body {
+  padding: 16px 15px;
+}
+#inspection-body h2 {
+  font-size: clamp(22px, 2vw, 32px);
+  line-height: 1.06;
+  letter-spacing: -0.04em;
+}
+.facts div {
+  padding: 6px 0;
+}
+.facts dd {
+  line-height: 1.4;
+}
+.facts dt {
+  font-size: 11px;
+}
+.unavailable,
+.choice {
+  line-height: 1.48;
+}
+.command-grid .atlas {
+  background: #131d20;
+}
+.summary-line {
+  font: 11px var(--mono);
+}
+#floor,
+#work,
+#release {
+  scroll-margin-top: 165px;
+}
+#shift-board {
+  margin-top: 12px;
+  min-width: 0;
+}
+#work {
+  padding: 0;
+}
+#sources {
+  font-size: 10px;
+}
+.foot {
+  border-top: 1px solid var(--line);
+  margin-top: 18px;
+}
+.high .ticket[aria-pressed="true"] {
+  border-left-color: var(--ink);
+}
+.high .telemetry small,
+.high .ticket-id {
+  color: var(--muted);
+}
+.sr {
+  inset: auto auto 0 0;
+}
+@media (min-width: 1700px) {
+  .shell {
+    padding-inline: 32px;
+  }
+  .command-grid {
+    gap: 18px;
+  }
+  .intro {
+    padding: 22px 0;
+  }
+  .ticket {
+    padding-block: 16px;
+  }
+  .telemetry > div,
+  .telemetry > button {
+    padding: 12px 20px;
+  }
+  .map-base {
+    padding: 8px 12px;
+  }
+  .desk-cap,
+  .inspect-cap {
+    padding: 16px;
+  }
+  .inbox h2 {
+    font-size: 26px;
+  }
+  .command-grid .inbox,
+  .command-grid .inspection {
+    top: 174px;
+    max-height: calc(100vh - 192px);
+  }
+}
+@media (min-width: 1080px) and (max-width: 1249px) {
+  .command-grid {
+    grid-template-columns: 184px minmax(0, 1fr) 232px;
+    gap: 9px;
+  }
+  .telemetry > div,
+  .telemetry > button {
+    padding: 8px;
+  }
+  .map-base {
+    gap: 6px;
+  }
+  .desk-center .sheet-head {
+    padding: 9px;
+  }
+  .ticket strong {
+    font-size: 13px;
+  }
+}
+@media (max-width: 1079px) {
+  .command-grid {
+    grid-template-columns: 200px minmax(0, 1fr);
+    gap: 10px;
+  }
+  .command-grid .inbox {
+    grid-column: 1;
+    grid-row: 1/3;
+  }
+  .desk-center,
+  .command-grid .inspection {
+    grid-column: 2;
+  }
+  .command-grid .inspection {
+    position: static;
+    max-height: none;
+  }
+  .telemetry > div,
+  .telemetry > button {
+    padding: 7px 9px;
+  }
+  .telemetry span {
+    grid-column: 1/-1;
+  }
+  .command-grid .inbox {
+    top: 166px;
+  }
+  .mode-box {
+    min-width: 170px;
+  }
+}
+@media (max-width: 720px) {
+  .mast {
+    height: auto;
+    padding: 0 12px;
+    position: static;
+    display: grid;
+    gap: 0;
+  }
+  .masttools {
+    gap: 8px;
+  }
+  .mastnav button {
+    min-height: 36px;
+  }
+  .shell {
+    padding: 0 10px 14px;
+  }
+  .intro {
+    padding: 12px 0;
+    gap: 9px;
+  }
+  .intro .kicker {
+    display: block;
+  }
+  .intro h1 {
+    font-size: 37px;
+  }
+  .intro #lead {
+    font-size: 12px;
+    line-height: 1.4;
+  }
+  .intro .mode-box {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+  }
+  .mode-box span {
+    font-size: 9px;
+  }
+  .mode-box select {
+    min-height: 32px;
+  }
+  .command-strip {
+    position: static;
+    box-shadow: none;
+  }
+  .telemetry {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .telemetry > :last-child {
+    grid-column: auto;
+  }
+  .telemetry b,
+  .telemetry strong {
+    font-size: 22px;
+  }
+  .telemetry span {
+    font-size: 10px;
+  }
+  .telemetry small {
+    font-size: 8px;
+  }
+  .statusline {
+    margin: 4px 0 7px;
+    align-items: center;
+  }
+  .statusline #connection {
+    font-size: 9px;
+    margin-top: 0;
+  }
+  .statusline button {
+    min-height: 26px;
+  }
+  .command-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .command-grid .inbox,
+  .desk-center,
+  .command-grid .inspection {
+    width: 100%;
+    max-height: none;
+    position: static;
+    scroll-margin: 8px;
+  }
+  .desk-cap,
+  .inspect-cap {
+    padding: 9px 12px;
+  }
+  .inbox h2 {
+    font-size: 21px;
+    padding: 10px 12px 8px;
+  }
+  .ticket {
+    padding: 8px 10px;
+    gap: 3px;
+  }
+  .ticket strong {
+    font-size: 13px;
+  }
+  .ticket-id {
+    display: none;
+  }
+  .inbox #attention {
+    max-height: 205px;
+    overflow-y: auto;
+  }
+  .gate-note {
+    padding: 7px 11px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .gate-note strong {
+    font-size: 13px;
+  }
+  .gate-note span {
+    display: none;
+  }
+  .atlas #world {
+    max-height: none;
+  }
+  .atlas #world svg {
+    max-height: 185px;
+  }
+  .map-base {
+    gap: 5px;
+  }
+  .atlas .sheet-head {
+    padding: 10px 12px;
+  }
+  .command-grid .inspection {
+    order: 3;
+  }
+  body[data-surface="work"] .command-grid .inbox,
+  body[data-surface="release"] .command-grid .inbox {
+    display: none;
+  }
+  #floor,
+  #work,
+  #release {
+    scroll-margin-top: 4px;
+  }
+  .foot {
+    flex-wrap: wrap;
+  }
+}
+@media (max-height: 650px) and (min-width: 721px) {
+  .mast,
+  .command-strip,
+  .command-grid .inbox,
+  .command-grid .inspection {
+    position: static;
+    max-height: none;
+  }
+}
+#assignment-lead{display:flex;width:100%;align-items:center;gap:10px;text-align:left;flex-wrap:wrap;padding:8px 14px;border-bottom:1px solid #476258;background:#1b2e29;color:#deece0}#assignment-lead small{font:9px var(--mono);color:var(--mint);letter-spacing:.1em}#assignment-lead strong{font:600 13px system-ui}#assignment-lead span{margin-left:auto;font:10px var(--mono);color:#bdd3c5}@media(min-width:1100px){.command-grid .atlas #world svg{max-height:clamp(286px,36vh,440px)}}@media(max-width:720px){#assignment-lead{gap:4px 7px}#assignment-lead span{margin-left:0}}

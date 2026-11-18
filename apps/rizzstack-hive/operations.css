@@ -1,0 +1,31 @@
+.release-docket { color: var(--ink, #f1efe6); min-width: 0; }
+.docket-intro { padding: 1.2rem 0 1.4rem; border-top: 2px solid var(--brass, #e8ba77); }
+.docket-eyebrow, .docket-table thead, .docket-table caption small, .docket-pins { font: 0.72rem/1.5 var(--mono, monospace); }
+.docket-eyebrow, .docket-table caption small { color: var(--brass, #e8ba77); letter-spacing: 0.09em; }
+.docket-intro h2 { font-size: clamp(1.6rem, 3vw, 2.55rem); margin: 0.3rem 0; line-height: 1.12; }
+.docket-intro p { max-width: 78ch; line-height: 1.5; margin: 0.6rem 0; }
+.docket-table { border-collapse: collapse; table-layout: fixed; width: 100%; margin-bottom: 2rem; font-size: 0.88rem; line-height: 1.45; overflow-wrap: anywhere; }
+.docket-table caption { text-align: left; font-size: 1.2rem; font-weight: 650; border-block: 1px solid var(--line, #334046); padding: 0.65rem 0; }
+.docket-table caption small { margin-right: 1.1rem; }
+.docket-table :is(th,td) { text-align: left; vertical-align: top; padding: 0.65rem 0.8rem 0.65rem 0; border-bottom: 1px solid var(--line, #334046); }
+.docket-table thead { color: var(--muted, #acb8b8); text-transform: uppercase; letter-spacing: 0.05em; }
+.docket-table thead th:nth-child(1) { width: 18%; }
+.docket-table thead th:nth-child(2) { width: 36%; }
+.docket-table thead th:nth-child(3) { width: 21%; }
+.docket-table td p { margin: 0.22rem 0 0; color: var(--muted, #acb8b8); }
+.docket-table td > span, .docket-pins dd span { display: block; color: var(--muted, #acb8b8); font: 0.75rem/1.5 var(--mono, monospace); }
+.docket-table a, .docket-intro a { color: var(--mint, #84dfcd); text-underline-offset: 0.18em; }
+.docket-pins { margin-top: 0.5rem; }
+.docket-pins summary { color: var(--mint, #84dfcd); }
+.docket-pins dl { margin: 0.4rem 0 0; }
+.docket-pins dt { font-weight: bold; }
+.docket-pins dd { margin: 0 0 0.5rem; }
+@media (max-width: 750px) {
+  .docket-table, .docket-table caption, .docket-table tbody, .docket-table tbody tr, .docket-table tbody th, .docket-table tbody td { display: block; }
+  .docket-table thead { position: absolute; clip-path: inset(50%); width: 1px; height: 1px; overflow: hidden; }
+  .docket-table tbody tr { padding-block: 0.75rem; border-bottom: 1px solid var(--line, #334046); }
+  .docket-table tbody :is(th,td) { border: 0; padding: 0.1rem 0; }
+  .docket-table td:nth-child(3)::before, .docket-table td:nth-child(4)::before { font: 0.7rem/1.4 var(--mono, monospace); color: var(--muted, #acb8b8); }
+  .docket-table td:nth-child(3)::before { content: 'EVIDENCE  /  '; }
+  .docket-table td:nth-child(4)::before { content: 'NEXT  /  '; }
+}

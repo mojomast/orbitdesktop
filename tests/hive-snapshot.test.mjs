@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { project } from '../apps/rizzstack-hive/snapshot-adapter.js';
+import { fixtures, fixtureTime } from '../apps/rizzstack-hive/fixtures.js';
 
 // Synthetic snapshot/1 observations, not a deployed collector or owner receipt.
 const at = '2026-11-17T15:00:00Z';
@@ -125,4 +126,137 @@ test('a section timestamp on an old row and a contradicted fleet tally cannot re
   assert.equal(v.metrics.active, null);
   assert.equal(station(v, 'verify').level, 'unknown');
   assert.ok(!v.attention.some(x => x.stage === 'verify' && x.level === 'delay'));
+});
+
+const replay = (s = fixtures.dense) => project(s, {now: fixtureTime});
+const byId = (rows, id) => rows.find(r => r.id === id);
+test('new public selectors may use a reviewed operational phrase without inheriting a job binding',()=>{
+  const s=structuredClone(fixtures.shift), d=s.decisions.requests[0];
+  Object.assign(d,{request_id:'req_new',question:'Integrate observability bridge?',subject:'bridge'});
+  const j=s.pipeline.jobs[0];j.title='Verify receipt replay';const v=replay(s);
+  const decision=byId(v.records,'decision:req_new');assert.equal(decision.title,d.question);assert.equal(decision.jobId,undefined);assert.equal(byId(v.records,`job:${j.job_id}`).title,j.title);
+  d.question+=' private notes';assert.equal(byId(replay(s).records,'decision:req_new').title,'Owner request req_new');
+});
+
+test('published job, task, feature and gate labels follow exact collector keys', () => {
+  for (const name of ['shift','dense','quiet','degraded']) {
+    const raw = fixtures[name], v = replay(raw);
+    for (const j of raw.pipeline.jobs) assert.equal(byId(v.records, `job:${j.job_id}`).title, j.title);
+    for (const a of v.attempts) {
+      const task = raw.pipeline.jobs.find(j => j.job_id === a.jobId)?.tasks.find(t => t.task_id === a.taskId);
+      if (a.quality === 'live') assert.equal(a.detail, task.title);
+      else assert.ok(!Object.hasOwn(a, 'detail'));
+    }
+    for (const d of raw.decisions?.requests ?? []) {
+      const r = byId(v.records, `decision:${d.request_id}`);
+      assert.equal(r.title, d.question);
+      assert.equal(r.jobId, d.subject);
+      assert.ok(r.detail.includes(`(${d.subject})`));
+      const job = byId(v.records, `job:${r.jobId}`);
+      assert.ok(r.detail.includes(job.title));
+      if (r.state === 'pending') {
+        assert.equal(byId(v.attention,r.id).title,r.title);
+        const gate = v.records.find(f => f.kind === 'backlog' && f.jobId === r.jobId);
+        assert.equal(gate.state, 'needs_approval');
+        assert.match(r.detail, /Downstream feature: Publish/);
+        assert.equal(byId(v.records,'backlog:feat_publish').title, 'Publish');
+      }
+    }
+  }
+});
+
+test('free prose never becomes public through a title, task, subject, question, dependency or named producer', () => {
+  for (const canary of ['Plan the quarterly staffing review', 'Approve that travel reimbursement?', 'PRIVATE-FIXTURE-OMIT',
+    'ghp_fixtureCredential', 'west-ops.ts.net', '/home/operator/private.txt', 'https://private.invalid/session', '<script>', 'a\u202eb']) {
+    const s = structuredClone(fixtures.shift), j = s.pipeline.jobs.find(j => j.job_id === 'return');
+    j.title = canary; j.summary = canary; j.tasks[0].title = canary; j.tasks[0].reason = canary;
+    const a = s.fleet.attempts[0], aj = s.pipeline.jobs.find(j => j.job_id === a.job_id);
+    aj.tasks.find(t => t.task_id === a.task_id).title = canary; a.detail = canary;
+    s.decisions.requests[0].question = canary;
+    const v = replay(s);
+    assert.ok(!JSON.stringify(v).includes(canary));
+    assert.equal(byId(v.records,'job:return').title, 'Job return');
+    assert.equal(byId(v.records,'decision:gate_handoff').title, 'Owner request gate_handoff');
+    assert.ok(!byId(v.records,'decision:gate_handoff').jobId);
+    assert.ok(!byId(v.attempts,a.attempt_id).detail);
+  }
+  const s = structuredClone(fixtures.shift);
+  s.decisions.requests[0].subject = 'Quarterly.staffing.review';
+  s.decisions.requests[0].kind = 'private-owner';
+  s.backlog.features[0].feature_id = 'PRIVATE-FEATURE';
+  s.backlog.features.at(-1).depends_on = ['private.ts.net'];
+  assert.doesNotMatch(JSON.stringify(replay(s)), /Quarterly\.staffing|private-owner|PRIVATE-FEATURE|private\.ts\.net/);
+});
+
+test('matching a request id, task id, gate type or similar feature id alone does not establish a join', () => {
+  const s = structuredClone(fixtures.shift);
+  const a = s.fleet.attempts.find(a => a.task_id === 'digest');
+  a.job_id = 'ledger'; // digest exists, but in another job
+  s.decisions.requests.push({...s.decisions.requests[0], request_id: 'return'});
+  s.backlog.features.at(-1).depends_on = ['feat_return_2'];
+  const v = replay(s);
+  assert.ok(!byId(v.attempts,a.attempt_id).detail);
+  assert.ok(!byId(v.records,'decision:return').jobId);
+  assert.doesNotMatch(byId(v.records,'decision:gate_handoff').detail, /Publish/);
+  a.job_id = 'replay'; a.repo = 'another/repo';
+  assert.ok(!byId(replay(s).attempts,a.attempt_id).detail);
+  const j = s.pipeline.jobs.find(j => j.job_id === 'replay');
+  j.tasks.push({...j.tasks[0], title:'Conflicting identity'});
+  assert.throws(() => replay(s), {message:'Invalid Hive snapshot'});
+});
+
+test('the worker outcome, failed task, verifier report and PR checks remain separate observations', () => {
+  const s = structuredClone(fixtures.dense);
+  s.failures.failures[0].retryable = true;
+  const v = replay(s), worker = byId(v.attempts,'att_offset');
+  assert.equal(worker.state, 'succeeded');
+  const verifier = byId(v.attention,'section:verifier-failure');
+  assert.equal(verifier.stage, 'verify');
+  assert.equal(verifier.at, s.failures.failures[0].ts);
+  assert.match(byId(v.records,verifier.detail).detail, /retryable: true/);
+  assert.match(verifier.reason, /Recovery status is unknown/);
+  assert.equal(byId(v.attention,'section:failed-tasks').detail, 'job:ledger');
+  assert.equal(byId(v.records,'job:ledger').state, 'recorded');
+  const ci = byId(v.attention,'section:failing-ci');
+  assert.equal(byId(v.records,ci.detail).id, 'ci:demo/bundlebees#24');
+  assert.ok(!Object.hasOwn(byId(v.records,ci.detail), 'jobId'));
+  s.ci.prs[0].ci_state = 'unavailable'; // check names are not verdicts
+  s.pipeline.jobs.find(j => j.job_id === 'ledger').tasks.find(t => t.task_id === 'offset').state = 'pending';
+  s.failures.failures[0].component = 'unknown';
+  assert.ok(!replay(s).attention.some(a => ['section:verifier-failure','section:failed-tasks','section:failing-ci'].includes(a.id)));
+});
+
+test('live envelope with stale rows cannot support present-tense joins or attention', () => {
+  const s = structuredClone(fixtures.dense), old = '2026-11-16T15:00:00Z';
+  s.decisions.requests[0].generated_at = old;
+  s.pipeline.jobs.find(j => j.job_id === 'ledger').generated_at = old;
+  s.failures.failures[0].generated_at = old;
+  s.ci.prs.find(pr => pr.ci_state === 'failing').generated_at = old;
+  const v = replay(s);
+  assert.equal(byId(v.records,'decision:gate_canary').state, 'last observed: pending');
+  assert.ok(!byId(v.records,'decision:gate_canary').jobId);
+  assert.equal(station(v,'receiver').depth, null);
+  assert.ok(!byId(v.attempts,'att_cursor').detail);
+  assert.ok(!v.attention.some(a => a.level === 'danger' || a.level === 'gate'));
+  s.decisions.status = 'unavailable'; s.pipeline.status = 'unavailable';
+  const u = replay(s);
+  assert.ok(!u.records.some(r => ['job','decision'].includes(r.kind)));
+  assert.ok(!u.attempts.some(a => a.detail));
+});
+
+test('bounded selection retains pending gate and its exact evidence under crowded sources and permutation', () => {
+  const s = structuredClone(fixtures.dense);
+  for (let i = 0; i < 80; i++) {
+    s.pipeline.jobs.push({...s.pipeline.jobs[0], job_id:`a-${i}`, tasks:[]});
+    s.backlog.features.push({...s.backlog.features[0], feature_id:`a-${i}`});
+    s.decisions.requests.push({...s.decisions.requests[1], request_id:`a-${i}`});
+    s.ci.prs.push({...s.ci.prs[0], ci_state:'passing', repo:`a/r${i}`});
+  }
+  const v = replay(s);
+  for (const id of ['decision:gate_canary','job:release','backlog:feat_release','backlog:feat_publish']) assert.ok(byId(v.records,id));
+  for (const a of v.attention) if (a.detail) assert.equal(byId(v.records,a.detail).source,a.source);
+  assert.ok(v.records.length <= 200 && v.attention.length <= 50);
+  assert.ok(Buffer.byteLength(JSON.stringify(v)) <= 512 * 1024);
+  s.pipeline.jobs.reverse(); s.backlog.features.reverse(); s.decisions.requests.reverse(); s.ci.prs.reverse();
+  assert.deepEqual(replay(s), v);
 });

@@ -2,6 +2,7 @@
 import json
 import os
 from pathlib import Path
+from ui_fixture import copy_ui_source
 import secrets
 import shutil
 import socket
@@ -69,7 +70,8 @@ thread = threading.Thread(target=gateway.serve_forever, daemon=True); thread.sta
 try:
     with tempfile.TemporaryDirectory(prefix='orbit-agent-selection-', dir='/tmp/opencode') as temporary:
         root = Path(temporary)
-        for name in ('server', 'src', 'contracts', 'public', 'docs', 'scripts'):
+        copy_ui_source(ROOT, root)
+        for name in ('server', 'contracts', 'public', 'docs', 'scripts'):
             shutil.copytree(ROOT / name, root / name)
         (root / 'node_modules').symlink_to(ROOT / 'node_modules', target_is_directory=True)
         for name in ('package.json', 'index.html', 'tsconfig.json', 'vite.config.js'):

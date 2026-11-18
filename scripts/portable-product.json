@@ -1,6 +1,14 @@
 {
   "required": [
     "scripts/portable-product.json",
+    "apps/rizzstack-hive/console.css",
+    "apps/rizzstack-hive/inbox.js",
+    "apps/rizzstack-hive/inspector.js",
+    "apps/rizzstack-hive/operations.css",
+    "apps/rizzstack-hive/operations.js",
+    "apps/rizzstack-hive/recorder.js",
+    "apps/rizzstack-hive/workbench.css",
+    "apps/rizzstack-hive/workbench.js",
     "apps/rizzstack-hive/fixtures.js",
     "apps/rizzstack-hive/host-client.js",
     "apps/rizzstack-hive/index.html",

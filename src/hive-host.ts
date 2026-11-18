@@ -2,7 +2,7 @@ import {openRailsShell} from './rails-shell';
 
 // Publish with scripts/plugin_publish.py. This exact registry-verified entry is
 // the ONLY app eligible for the operator's per-document read grant.
-const HIVE_ENTRY = '/apps/rizzstack-hive-cd585d57c7d75e82006c804a/index.html';
+const HIVE_ENTRY = '/apps/rizzstack-hive-8153b1af3c76434d6629a648/index.html';
 const PERIOD = 30_000;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$/;
 const sharedOptions = {credentials:'omit', redirect:'error', cache:'no-store', referrerPolicy:'no-referrer'} as const;

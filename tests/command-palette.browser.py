@@ -4,6 +4,7 @@ import argparse
 import re
 import os
 from pathlib import Path
+from ui_fixture import copy_ui_source
 import shutil
 import socket
 import subprocess
@@ -22,7 +23,8 @@ args = parser.parse_args()
 
 with tempfile.TemporaryDirectory(prefix='orbit-command-palette-', dir='/tmp/opencode') as temporary:
     root = Path(temporary)
-    for name in ('server', 'src', 'contracts', 'public', 'docs', 'scripts'):
+    copy_ui_source(ROOT, root)
+    for name in ('server', 'contracts', 'public', 'docs', 'scripts'):
         shutil.copytree(ROOT / name, root / name)
     for name in ('package.json', 'package-lock.json', 'index.html', 'tsconfig.json', 'vite.config.js'):
         shutil.copy2(ROOT / name, root / name)

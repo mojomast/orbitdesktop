@@ -1,5 +1,5 @@
 // Offline Linux/Chromium Hive QA. Run with TMPDIR and CHROMIUM_EXECUTABLE set:
-// node tests/hive-density.browser.mjs ../evidence/density.json
+// node tests/hive-density.browser.mjs ../evidence/density.json [--fast]
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
@@ -15,6 +15,7 @@ import {chromium} from 'playwright-core';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const app = path.join(root, 'apps/rizzstack-hive');
 const output = process.argv[2];
+const fast = process.argv.includes('--fast'); // Frame, AX and latency gates only. Default still runs all three soaks.
 assert.ok(output && process.env.TMPDIR && process.env.CHROMIUM_EXECUTABLE,
   'Supply density JSON path, TMPDIR and CHROMIUM_EXECUTABLE');
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -23,23 +24,23 @@ const assets = new Map();
 for (const name of (await fs.readdir(app)).sort()) {
   if (/^[\w-]+\.(?:js|css|html)$/.test(name)) assets.set(name, await fs.readFile(path.join(app,name)));
 }
-const spec = await fs.readFile(path.join(root, '../workflow/specs/hivespec.md'), 'utf8');
-const budgets = spec.split('\n').find(s => s.startsWith('Hive frontend proposed acceptance budgets'));
-assert.ok(budgets?.includes('14 attempts/500 retained marks') && budgets.includes('<=500 normal nodes'));
+// Pinned upstream excerpt, so standalone Orbit CI needs no sibling checkout.
+const hivespec = JSON.parse(await fs.readFile(new URL('./fixtures/hive-density-budgets.json', import.meta.url), 'utf8'));
+assert.ok(hivespec.budgets.includes('14 attempts/500 retained marks') && hivespec.budgets.includes('<=500 normal nodes'));
 const report = {
   started: new Date().toISOString(), gitBase: execFileSync('git',['rev-parse','HEAD'],{cwd:root}).toString().trim(),
   bytesServedSha256: Object.fromEntries([...assets].map(([name,b]) => [name,hash(b)])),
   testSha256: hash(await fs.readFile(fileURLToPath(import.meta.url))),
-  hivespec: {path:'workflow/specs/hivespec.md §6.4', sha256:hash(spec), budgets},
+  hivespec,
   environment: {platform:os.platform(), arch:os.arch(), kernel:os.release(), cpu:os.cpus()[0]?.model,
     node:process.version, chromiumExecutable:process.env.CHROMIUM_EXECUTABLE, tmpdir:process.env.TMPDIR},
   limits: ['Synthetic views via a disposable same-origin test parent; no Orbit, credentials, live worker or Rails network.',
     '200% layout equivalent = 720×450 CSS px at DPR 2 for a 1440×900 output; not native desktop zoom UI.',
     'Automated Chromium AX names, states, and keyboard checks; no screen-reader user test or WCAG conformance claim.',
-    'Retained marks are synthetic event records in the projected view. The floor consumes no rail-mark timeline; no R12/backend or actual Rails synopsis qualification.',
+    'The synthetic parent retains 500 history records and sends the newest 200 per accepted guest view. The separate scene microbenchmark passes 500 retained records directly; the floor consumes no rail-mark timeline. No R12/backend or actual Rails synopsis qualification.',
     'JS heap includes same-renderer harness, Playwright instrumentation and guest. Periodic forced GC affects timing. Two-minute trends do not establish or exclude a leak.',
     'Production cadence, 30-minute reconnect soak, real Orbit sandbox and Windows/native mobile devices not tested.'],
-  checks: [], errors: [], exceptions: [], offsite: [], soaks: [],
+  run:fast?'fast (no soaks)':'full', checks: [], errors: [], exceptions: [], offsite: [], soaks: [],
 };
 const check = (name, pass, observed) => {
   report.checks.push({name, pass:!!pass, ...(observed === undefined ? {} : {observed})});
@@ -76,11 +77,8 @@ async function context(options={}) {
   return ctx;
 }
 const marks=500, soakMs=120_000;
-async function soak(count,fixed) {
-  const ctx=await context({reducedMotion:'reduce'});
-  try {
-    const page=await ctx.newPage(), cdp=await ctx.newCDPSession(page);
-    await cdp.send('Performance.enable');await page.goto(origin+'/density-host.html');
+async function mountFrame(page,count,fixed) {
+    await page.goto(origin+'/density-host.html');
     // Test data and generator live in the parent only. No guest test API or modified modules.
     await page.evaluate(async ({count,marks,fixed})=>{
       const {fixtures,fixtureTime}=await import('./fixtures.js');
@@ -98,15 +96,18 @@ async function soak(count,fixed) {
       }));
       iframe.src=`/index.html#orbit-hive-document=${pair}`;document.body.append(iframe);
       const port=await Promise.race([ready,new Promise((_,reject)=>setTimeout(()=>reject(Error('No synthetic parent handshake')),5000))]);
-      let anchor=null;
+       window.fixtureStatus=value=>port.postMessage({type:'status',value});
+       let anchor=null;
       window.tick=async t=>{
         const generatedAt=new Date(fixtureTime+t*1000).toISOString();
         const rows=attempts.map((a,i)=>({...a, at:generatedAt,
           state:t%2&&i===0?'working':'running', id:i===count-1?`rotating-${t}`:a.id}));
         if (t%2)rows.reverse();
         if (t&&!fixed) {history.shift();history.push(makeMark(marks+t-1));}
-        port.postMessage({type:'view',view:{...sample, generatedAt, attempts:rows,records:history,
+        port.postMessage({type:'status',value:'loading'});
+        port.postMessage({type:'view',view:{...sample, generatedAt, attempts:rows,records:history.slice(-200),
           metrics:{...sample.metrics,active:count}, stations:sample.stations.map(s=>s.id==='build'?{...s,signal:`${count} in flight`}:s)}});
+        port.postMessage({type:'status',value:'connected'});
         const doc=iframe.contentDocument, start=performance.now();
         while (!doc.querySelector(`[data-attempt="rotating-${t}"]`)) {
           if (performance.now()-start>4000) throw Error('Guest did not render offered frame '+t);
@@ -124,9 +125,59 @@ async function soak(count,fixed) {
           animations:doc.getAnimations().length};
       };
     },{count,fixed,marks});
-    const tick=t=>page.evaluate(t=>window.tick(t), t);
-    await tick(0);
-    const frame=page.frames().find(f=>f.parentFrame());
+    const tick=t=>page.evaluate(t=>window.tick(t), t);await tick(0);
+    return {tick,frame:page.frames().find(f=>f.parentFrame())};
+}
+
+// Traverse the real tab order; stop on a cycle rather than assuming today's
+// inbox, release buttons or text register will always have the same length.
+async function tabTo(page,frame,selector) {
+  const visited=new Set();
+  for (;;) {
+    await page.keyboard.press('Tab');
+    const {target,key}=await frame.evaluate(selector=>{
+      const el=document.activeElement;
+      return {target:el?.matches(selector),key:[...document.querySelectorAll('*')].indexOf(el)};
+    },selector);
+    if(target) return;
+    assert.ok(!visited.has(key),`Keyboard cycle did not reach ${selector}`);visited.add(key);
+  }
+}
+
+async function frameChecks() {
+  const ctx=await context({reducedMotion:'reduce'});
+  try {
+    const page=await ctx.newPage(), {tick,frame}=await mountFrame(page,14,true);
+    const board=frame.locator('#board');
+    if(!await board.evaluate(el=>el.open)) await board.locator('summary').press('Enter');
+    await board.locator('summary').focus();
+    await tabTo(page,frame,'#stations [data-key="verify"]');await page.keyboard.press('Enter');
+    const active=()=>frame.evaluate(()=>({id:document.activeElement.id,title:document.querySelector('#inspect-title')?.textContent,
+      selected:document.querySelector('[data-station][aria-pressed="true"]')?.dataset.station}));
+    const before=await active();await tick(1);const after=await active();
+    check('Keyboard inspector heading remains focused on the selected verification station after accepted refresh',
+      before.id==='inspect-title'&&after.id==='inspect-title'&&before.title===after.title&&after.selected==='verify',{before,after});
+    await page.evaluate(()=>window.fixtureStatus('disconnected'));
+    await frame.locator('#connection').filter({hasText:/disconnected|connection lost|offline/i}).waitFor();
+    check('F: disconnected retains the last observed IDs with explicit historical status',
+      /last|histor|disconnected/i.test(await frame.locator('#connection').innerText()) && await frame.locator('[data-attempt="density-0"]').count()===1,
+      await frame.locator('#connection').innerText());
+    await frame.locator('[data-attempt="density-0"]').press('Enter');
+    check('F: disconnected inspection offers no live Rails navigation',!await frame.getByRole('button',{name:/Open Rails timeline/}).isEnabled());
+    await page.screenshot({path:path.join(path.dirname(output),'journey-F-disconnected.png'),animations:'disabled'});
+    await page.evaluate(()=>window.fixtureStatus('unauthorized'));
+    await frame.locator('#connection').filter({hasText:/unauthorized/i}).waitFor();
+    check('F: unauthorized clears prior metric, rendered attempt IDs and selection',
+      await frame.locator('#flight').textContent()==='Unknown' && !await frame.locator('[data-attempt]').count() &&
+      !/density-0|rotating-1/.test(await frame.locator('body').textContent()),await frame.locator('#connection').innerText());
+    await page.screenshot({path:path.join(path.dirname(output),'journey-F-unauthorized.png'),animations:'disabled'});
+  } finally {await ctx.close();}
+}
+async function soak(count,fixed) {
+  const ctx=await context({reducedMotion:'reduce'});
+  try {
+    const page=await ctx.newPage(), cdp=await ctx.newCDPSession(page);
+    await cdp.send('Performance.enable');const {tick,frame}=await mountFrame(page,count,fixed);
     const selected=frame.locator('[data-attempt="density-0"]');await selected.focus();await page.keyboard.press('Enter');
     // Warm the actual paths before using a post-GC baseline (including control).
     for(let t=1;t<=12;t++) await tick(t);
@@ -150,7 +201,7 @@ async function soak(count,fixed) {
     } while(performance.now()-t0<soakMs);
     await sample(t);
     const last=samples.at(-1), seconds=last.seconds;
-    const observed={tag,count,fixed,marks,samples,seconds,refreshes:t,afterGCChangeBytes:last.afterGC-samples[0].afterGC,
+    const observed={tag,count,fixed,retainedHistory:marks,deliveredHistory:200,samples,seconds,refreshes:t,afterGCChangeBytes:last.afterGC-samples[0].afterGC,
       sampleRangeBytes:summary(samples.map(s=>s.afterGC)),networkRequestsAfterWarmup:requests-req0,
       dimensions:Object.fromEntries(['scene','elements','width','height','sceneWidth','sceneHeight','attempts','stations','animations'].map(k=>[k,summary(counts.map(x=>x[k]))])),
       layoutCount:last.layouts-samples[0].layouts, layoutSeconds:last.layoutSeconds-samples[0].layoutSeconds,
@@ -162,6 +213,17 @@ async function soak(count,fixed) {
     check(`Soak ${tag}: bounded geometry, DOM and no animation under reduce`,counts.every(s=>s.stations===8 && s.attempts===count && s.width<=s.viewport && !s.animations) &&
       ['scene','elements','height','sceneWidth','sceneHeight'].every(k=>observed.dimensions[k].max===observed.dimensions[k].min), observed.dimensions);
     check(`Soak ${tag}: no polling/static asset requests during refresh`,observed.networkRequestsAfterWarmup===0,observed.networkRequestsAfterWarmup);
+    // The text register intentionally sends focus to its detail heading. Check a new
+    // accepted read while the user is still there, separately from diagram focus.
+    if(fixed){
+      if(!await frame.locator('#board').evaluate(el=>el.open))await frame.locator('#board summary').press('Enter');
+      await frame.locator('#stations [data-key="verify"]').press('Enter');
+      const active=()=>frame.evaluate(()=>({tag:document.activeElement.tagName,id:document.activeElement.id,
+        title:document.querySelector('#inspect-title').textContent,selected:document.querySelector('[data-station][aria-pressed="true"]')?.dataset.station}));
+      const before=await active();await tick(13+t);const after=await active();
+      check('Text-register selection: inspector focus survives an accepted refresh',before.id==='inspect-title' &&
+        after.id==='inspect-title' && after.title===before.title && after.selected==='verify',{before,after});
+    }
     console.log('END',tag,JSON.stringify({seconds,refreshes:t,scene:observed.dimensions.scene.max,afterGCChangeBytes:observed.afterGCChangeBytes}));
   } finally {await ctx.close();}
 }
@@ -191,15 +253,24 @@ async function accessibility(mode,options) {
     });
     const board=page.locator('#board'), autoOpen=await board.evaluate(el=>el.open);
     if(!autoOpen) await page.locator('#board summary').press('Enter');
-    if (mode==='contrast-reduced') {
-      await page.locator('#prefs').press('Enter');await page.locator('#contrast').press('Space');
-      check('Display preference responds to keyboard',await page.locator('#contrast').isChecked() && await page.locator('html').evaluate(el=>el.classList.contains('high')));
+    if (mode==='contrast-reduced' || mode==='still-high') {
+      await page.locator('#prefs').press('Enter');
+      if(mode==='still-high') {
+        await page.locator('#static').press('Space');
+        check('Still transitions preference works independently of reduced motion',await page.locator('#static').isChecked() &&
+          await page.locator('html').evaluate(el=>el.classList.contains('still') && !matchMedia('(prefers-reduced-motion: reduce)').matches));
+      }
+      await page.locator('#contrast').press('Space');
+      check(`${mode}: high contrast responds to keyboard`,await page.locator('#contrast').isChecked() && await page.locator('html').evaluate(el=>el.classList.contains('high')));
+      await page.locator('#prefs').press('Enter');
     }
     const geometry=await page.evaluate(()=>({width:innerWidth,height:innerHeight,scrollWidth:document.documentElement.scrollWidth,
       dpr:devicePixelRatio, reduced:matchMedia('(prefers-reduced-motion:reduce)').matches,
       forced:matchMedia('(forced-colors:active)').matches,boardWidth:document.querySelector('#stations').getBoundingClientRect().width,
       rowsFit:[...document.querySelectorAll('#stations button')].every(el=>el.clientWidth>0 && el.scrollWidth<=el.clientWidth+1 && el.getBoundingClientRect().right<=innerWidth+1)}));
     const evidence={mode,autoOpen,geometry};(report.accessibility??=[]).push(evidence);
+    await page.evaluate(()=>scrollTo(0,0));
+    await page.screenshot({path:path.join(path.dirname(output),`accessibility-${mode}.png`),animations:'disabled'});
     check(`${mode}: reflow and register bounds`,geometry.width===options.viewport.width && geometry.scrollWidth<=geometry.width && geometry.rowsFit &&
       (geometry.width>720||autoOpen) && (mode!=='contrast-reduced'||(geometry.forced&&geometry.reduced)),geometry);
     evidence.scene=await axNodes(cdp,'[data-station]');evidence.register=await axNodes(cdp,'#stations .st-row');
@@ -216,7 +287,8 @@ async function accessibility(mode,options) {
       await page.locator(`#stations [data-key="${s.id}"]`).press(i%2?'Space':'Enter');
       const h=page.locator('#inspect-title'), text=norm(await page.locator('#inspection-body').ariaSnapshot());
       const ok=await h.innerText()===registers[i] && await h.evaluate(el=>el===document.activeElement) &&
-        text.includes(norm(s.signal)) && text.includes(norm(s.quality)) && text.includes('queue depth') && text.includes(norm(s.depth??'Unknown'));
+        text.includes(norm(s.signal)) && text.includes(`text: ${norm(s.quality)}`) &&
+        new RegExp(`term: queue depth - definition: "?${s.depth??'unknown'}"?(?: |$)`).test(text);
       evidence.stationDetails.push({id:s.id,ok,ax:text});
     }
     check(`${mode}: register keyboard activation opens equivalent inspector text and places focus`,evidence.stationDetails.every(x=>x.ok));
@@ -224,19 +296,20 @@ async function accessibility(mode,options) {
     evidence.attemptRows=await axNodes(cdp,'#rows .obj');
     check(`${mode}: work-register AX has an actionable text equivalent for each worker ID, route and state`,evidence.attemptRows.length===fixture.attempts.length && fixture.attempts.every(a=>
       evidence.attemptRows.some(n=>usable(n)&&[a.id,a.route,a.state].every(x=>contains(n,x)))));
-    await page.locator('#rows .obj').first().press('Space');
-    check(`${mode}: attempt selection moves to matching inspector`,await page.locator('#inspect-title').innerText()===fixture.attempts[0].id &&
+    const rowId=fixture.attempts[0].id;
+    await page.locator('#rows .obj').filter({hasText:rowId}).press('Space');
+    check(`${mode}: attempt selection moves to matching inspector`,await page.locator('#inspect-title').innerText()===rowId &&
       await page.locator('#inspect-title').evaluate(n=>n===document.activeElement));
     if (geometry.width>720) {
-      // Demonstrate keyboard-only entry from the preceding native control.
-      await page.locator('#refresh').focus();let reached=false;
-      for (let i=0;i<12;i++) {await page.keyboard.press('Tab');if(await page.evaluate(()=>document.activeElement?.dataset.station==='auth')){reached=true;break;}}
+      await page.getByRole('navigation',{name:'Work surfaces'}).getByRole('button',{name:'Factory floor',exact:true}).press('Enter');
+      // Enter the map from the preceding inbox, without focusing an SVG directly.
+      await page.locator('#refresh').focus();await tabTo(page,page,'#world [data-station="auth"]');
       await page.keyboard.press('ArrowRight');await page.keyboard.press('Space');
       const selection=await page.evaluate(()=>({active:document.activeElement?.dataset.station,pressed:document.activeElement?.getAttribute('aria-pressed'),
         announcement:document.querySelector('#announcement').textContent,live:document.querySelector('#announcement').getAttribute('aria-live'),
         outline:getComputedStyle(document.activeElement.querySelector('.hs-outline')||document.activeElement).stroke}));
       evidence.keyboard=selection;
-      check(`${mode}: Tab / ArrowRight / Space selects Dispatch without focus loss`,reached && selection.active==='dispatch' && selection.pressed==='true' && selection.live==='polite' && /dispatch/i.test(selection.announcement) && selection.outline!=='none',selection);
+       check(`${mode}: Tab / ArrowRight / Space selects Dispatch without focus loss`,selection.active==='dispatch' && selection.pressed==='true' && selection.live==='polite' && /dispatch/i.test(selection.announcement) && selection.outline!=='none',selection);
     }
   } finally {await ctx.close();}
 }
@@ -292,18 +365,20 @@ async function timings() {
 try {
   browser=await chromium.launch({executablePath:process.env.CHROMIUM_EXECUTABLE,headless:true,args:['--disable-dev-shm-usage']});
   report.environment.browser=browser.version();
+  await safe('fixture frame refresh, disconnect and authorization',frameChecks);
   await safe('latency',timings);
   for(const [mode,options] of [
     ['desktop',{viewport:{width:1440,height:900}}],
     ['zoom-200-equivalent',{viewport:{width:720,height:450},deviceScaleFactor:2}],
     ['mobile',{viewport:{width:390,height:844},deviceScaleFactor:2,isMobile:true,hasTouch:true}],
     ['contrast-reduced',{viewport:{width:1440,height:900},reducedMotion:'reduce',forcedColors:'active'}],
+    ['still-high',{viewport:{width:1440,height:900},reducedMotion:'no-preference'}],
   ]) await safe(mode,()=>accessibility(mode,options));
-  for(const [count,fixed] of [[14,false],[30,false],[30,true]]) await safe(`soak ${count} ${fixed?'fixed':'rolling'}`,()=>soak(count,fixed));
+  if(!fast)for(const [count,fixed] of [[14,false],[30,false],[30,true]]) await safe(`soak ${count} ${fixed?'fixed':'rolling'}`,()=>soak(count,fixed));
   check('No uncaught page exceptions or offsite requests',!report.errors.length && !report.offsite.length);
 } finally {
   await browser?.close();server.closeAllConnections();await new Promise(r=>server.close(r));
-  report.finished=new Date().toISOString();report.pass=!report.exceptions.length && report.checks.every(c=>c.pass) && report.soaks.length===3;
+  report.finished=new Date().toISOString();report.pass=!report.exceptions.length && report.checks.every(c=>c.pass) && report.soaks.length===(fast?0:3);
   await fs.writeFile(output,JSON.stringify(report,null,2)+'\n');
   console.log(report.pass?'PASS':'FAIL',output,report.checks.filter(c=>!c.pass).map(c=>c.name));
   if(!report.pass)process.exitCode=1;

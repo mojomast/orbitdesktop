@@ -1,5 +1,13 @@
 # The Hive · Nightshift field atlas
 
+## Start a shift
+
+The command strip shows active attempts, eligible work, scheduler slots, pending decisions, the known price subtotal, and the dated release verdict. **Shift control** opens on the highest-ranked observed issue. Read the ticket, then its question, source, ID and timestamp in **Investigation**. A ticket marked *Verification queue* opens the stage measurement: compare dwell and target before treating the queue as stalled. Unknown recovery status is not evidence that a retry is running.
+
+Click **On shift** to inspect an actual execution-associated attempt, or press **/** for the operational workbench. Work, Workers, Queue, Decisions, Evidence and Usage provide different indexes into the same projection. Follow exact job references, use the contextual back link to return, or inspect a selected public attempt/job in the existing trusted Rails shell. The Workbench retains its filters and sort while you inspect a record. No private selection is stored in the URL.
+
+The observation source is always identified: the host delivers **snapshot polling** at a 30-second floor, the separate Rails shell can stream a selected history, and the incident recorder is **historical replay**. A disconnected session can display its last confirmed observations. Revocation discards the granted pane. No control in the demo authorizes an owner action. Free-text labels cross the host boundary only under the adapter's reviewed publication policy; other records retain safe stable identifiers.
+
 The Hive is a read-only Orbit control room for the Rizzstack factory. Each of its eight machined stations has a fixed address. A station is a workflow stage; a wing marker is a recorded **attempt ID**, not a claim that a unique machine is busy. The marker register retains terminal attempts. The **in flight** reading counts active records independently. A missing source, an unresolved gap and a measured zero have different meanings.
 
 ## Open a private local demonstration

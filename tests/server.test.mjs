@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { WebSocket } from "ws";
 import { setTimeout as delay } from "node:timers/promises";
 import { tokenMatches, geometry, allowedRequest } from "../server/security.mjs";
+import { projectionInputs } from "./fixtures/ui-projection-inputs.mjs";
 const REPO = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 let port, base, token = `orbit-test-only-${process.pid}-${Date.now()}`;
 let isolatedRoot;
@@ -27,7 +28,7 @@ before(async () => {
   await mkdir(app);
   for (const name of ["server", "src", "contracts", "scripts", "public", "docs"])
     await cp(path.join(REPO, name), path.join(app, name), { recursive: true });
-  for (const name of ["index.html", "package.json", "package-lock.json", "tsconfig.json", "vite.config.js"])
+  for (const name of ["index.html", "package.json", "package-lock.json", "tsconfig.json", "vite.config.js", ...projectionInputs(REPO)])
     await cp(path.join(REPO, name), path.join(app, name));
   await symlink(path.join(REPO, "node_modules"), path.join(app, "node_modules"), "dir");
   execFileSync(process.execPath, [path.join(REPO, "scripts/isolated_build.mjs"),

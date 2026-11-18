@@ -16,6 +16,38 @@ const fmt = n => n ?? 'unknown';
 const compare = (a, b) => a < b ? -1 : a > b ? 1 : 0;
 const fresh = (ts, now) => { const age = now - Date.parse(ts); return age <= FRESH_MS && age >= -CLOCK_SKEW_MS; };
 
+// Published display copy only (Workflow scripts/hive_fixtures.py and its
+// schemas/hive/fixtures). Collector.scrub masks URLs and truncates; it doesn't
+// make an objective, criterion, or owner question public. Never learn labels
+// from the incoming snapshot, trust collector.name, or redact by regex.
+const JOB_LABELS = new Map(Object.entries({ replay: 'Receipt replay', ledger: 'Ledger reader', viewer: 'Evidence desk',
+  worker: 'Landing export', return: 'Receiver gate', release: 'Canary admission' }));
+const TASK_LABELS = new Map(Object.entries({
+  'replay:digest': 'Match receipt digests', 'replay:twins': 'Reject duplicate receipts', 'replay:redact': 'Remove private fields',
+  'replay:chain': 'Match the chain head', 'replay:pair': 'Replay both receipt halves', 'replay:header': 'Match the receipt header',
+  'ledger:cursor': 'Resume at the saved cursor', 'ledger:window': 'Limit the replay window', 'ledger:index': 'Index receipt offsets',
+  'ledger:limit': 'Cap the page size', 'ledger:offset': 'Match the replay offset',
+  'viewer:focus': 'Keep the selected receipt', 'viewer:marks': 'Label source gaps', 'viewer:keys': 'Restore keyboard focus',
+  'worker:export': 'Bind the landing receipt', 'worker:origin': 'Preserve the origin ID', 'worker:clock': 'Separate source times',
+  'worker:seal': 'Read back the sealed landing', 'return:handoff': 'Wait for the receiver', 'release:handoff': 'Review the canary scope',
+}));
+const GATE_QUESTIONS = new Map(Object.entries({
+  'gate_handoff:return': 'Accept the replay evidence for handoff?', 'gate_canary:release': 'Admit the replay candidate to canary review?',
+  'gate_window:ledger': 'Keep the bounded replay window?', 'gate_reader:viewer': 'Include the read-only evidence view?',
+}));
+// /1 has NO backlog title. These are display names for exact published keys.
+const FEATURE_LABELS = new Map(Object.entries({ feat_replay: 'Replay', feat_ledger: 'Ledger', feat_viewer: 'Viewer', feat_worker: 'Worker',
+  feat_return: 'Receiver handoff', feat_release: 'Release', feat_publish: 'Publish', feat_obs_snapshot: 'Observability snapshot',
+  feat_obs_dashboards: 'Observability dashboards', feat_obs_alerts: 'Observability alerts' }));
+const approved = (catalog, key, value) => typeof value === 'string' && catalog.get(key) === value ? catalog.get(key) : null;
+// Closed public operations vocabulary for previously unseen IDs. Emit the
+// reviewed phrase itself, never a substring/capture from arbitrary producer text.
+const PUBLIC_OBJECTS=['observability bridge','snapshot adapter','release candidate','receipt replay','integration results','deployment rollback','worker routing','verification evidence','Rails timeline'];
+const PUBLIC_TITLES=new Set(PUBLIC_OBJECTS.flatMap(noun=>['Review','Verify','Integrate','Inspect','Prepare','Repair'].map(verb=>`${verb} ${noun}`)));
+const PUBLIC_QUESTIONS=new Set([...PUBLIC_TITLES].flatMap(title=>[`${title}?`,`Approve: ${title[0].toLowerCase()+title.slice(1)}?` ]));
+const publicPhrase=(allowed,value)=>typeof value==='string'&&allowed.has(value)?value:null;
+const featureName = key => FEATURE_LABELS.get(key) ?? `Feature ${key}`;
+
 // The API accepts parsed JSON, not objects with methods, sparse arrays, accessors
 // or inherited facts. Budget the input independently of the bounded display.
 function admit(value) {
@@ -59,7 +91,8 @@ function admit(value) {
 // ID fields are public by producer contract. In addition to schema syntax,
 // withhold placeholders and common credential/network-shaped lookalikes.
 function token(s) {
-  if (!s || s === 'unknown' || !/^[a-z0-9][a-z0-9._-]{0,127}$/i.test(s)) return null;
+  if (!s || s.toLowerCase() === 'unknown' || !/^[a-z0-9][a-z0-9._-]{0,127}$/i.test(s)) return null;
+  if (/(?:^|[._-])(?:private|secret|credential|password)(?:[._-]|$)/i.test(s)) return null;
   if (/^(?:gh[pousr]_|github_pat_|sk-|glpat-|AKIA|ASIA|eyJ[a-z0-9_-]*\.|bearer[._-])|\.(?:internal|local|lan|ts\.net)$|^\d+\.\d+\.\d+\.\d+$/i.test(s)) return null;
   return s;
 }
@@ -120,17 +153,27 @@ export function project(snapshot, { now = Date.now() } = {}) {
     Object.assign(stations.find(x => x.id === id), { signal, quality, level, depth });
   }
   const attempts = [], records = [], attention = [];
-  function record(kind, key, stage, title, state, section, at, detail, jobId = null) {
+  function record(kind, key, stage, title, state, section, at, detail, jobId = null, observedAt = at) {
     const id = `${kind}:${key}`;
     // Records lack a separate quality field in this display contract. Historical
     // rows keep their observed values, explicitly qualified in both fields.
-    const stale = !live(section);
+    const stale = !live(section) || !fresh(observedAt, now);
     records.push({ id, kind, stage, title, state: stale ? `last observed: ${state}` : state, source: sourceOf(section), at,
       detail: (stale ? 'Stale source. ' : '') + detail, ...(jobId ? { jobId } : {}) });
     return id;
   }
-  function issue(id, stage, title, reason, section, at, level) {
-    attention.push({ id, title, reason, stage, level, source: sourceOf(section), at });
+  function issue(id, stage, title, reason, section, at, level, detail) {
+    attention.push({ id, title, reason, stage, level, source: sourceOf(section), at, ...(detail ? { detail } : {}) });
+  }
+  // A section summary with a direct record target; no fabricated event IDs.
+  // Keep the latest example (stable ID tie-break) and the number of matching
+  // observations. This keeps a large source from displacing the owner inbox.
+  const negative = new Map();
+  function negativeExample(key, stage, title, reason, section, at, target) {
+    const group = negative.get(key);
+    const example = { stage, title, reason, section, at, target };
+    const later = !group || Date.parse(at) > Date.parse(group.at) || (Date.parse(at) === Date.parse(group.at) && compare(target, group.target) < 0);
+    negative.set(key, { ...(later ? example : group), count: (group?.count ?? 0) + 1 });
   }
 
   if (readable('fleet')) {
@@ -178,43 +221,103 @@ export function project(snapshot, { now = Date.now() } = {}) {
     }
   }
 
-  if (readable('decisions')) {
-    let pending = 0;
-    for (const d of s.decisions.requests) {
-      const key = token(d.request_id);
-      if (d.state === 'pending') pending++;
-      if (!key) continue;
-      const at = d.applied_at ?? d.decided_at ?? d.raised_at;
-      const title = `Owner request ${key}`;
-      // Snapshot/1 lacks a nonce, owner signature or consumption receipt.
-      const state = d.state === 'applied' && !d.applied_at ? 'reported applied (time unknown)' : d.state;
-      const detail = `Queue reports ${state}; kind: ${token(d.kind) ?? 'unknown'}. Read-only observation.`;
-      const id = record('decision', key, 'receiver', title, state, 'decisions', at, detail);
-      if (live('decisions') && d.state === 'pending') issue(id, 'receiver', title, 'The decision queue reports a pending owner request.', 'decisions', at, 'gate');
-    }
-    if (live('decisions')) display('receiver', `${pending} pending owner requests`, 'live', pending ? 'gate' : 'quiet', pending);
-  }
+  const currentJobs = new Map(), currentTasks = new Map();
   if (readable('pipeline')) for (const j of s.pipeline.jobs) {
     const jobId = token(j.job_id);
     if (!jobId) continue;
-    // Jobs have no job-level verdict in /1. Summarize closed task states only.
-    const counts = new Map();
-    for (const t of j.tasks) counts.set(t.state, (counts.get(t.state) ?? 0) + 1);
+    const title = approved(JOB_LABELS, jobId, j.title) ?? publicPhrase(PUBLIC_TITLES,j.title) ?? publicPhrase(PUBLIC_TITLES,j.summary) ?? `Job ${jobId}`;
+    const current = live('pipeline') && fresh(j.generated_at, now);
+    if (current) currentJobs.set(jobId, {title, repo: repoSlug(j.repo)});
+    const counts = new Map(), labels = [], failed = [], ids = new Set();
+    for (const t of j.tasks) {
+      const taskId = token(t.task_id);
+      if (taskId) {
+        if (ids.has(taskId)) invalid();
+        ids.add(taskId);
+      }
+      if (!fresh(t.generated_at, now) && current) continue;
+      counts.set(t.state, (counts.get(t.state) ?? 0) + 1);
+      if (!taskId) continue;
+      // Neither ID admits ':'. Task IDs alone are not unique across jobs.
+      const pair = `${jobId}:${taskId}`, name = approved(TASK_LABELS, pair, t.title) ?? publicPhrase(PUBLIC_TITLES,t.title);
+      if (name) labels.push(`${name} (${t.state})`);
+      if (current) currentTasks.set(pair, {name, state: t.state});
+      if (current && t.state === 'failed') failed.push(name ?? `Task ${taskId}`);
+    }
     const states = [...counts.keys()].sort().map(k => `${k}: ${counts.get(k)}`).join(', ');
-    record('job', jobId, 'build', `Job ${jobId}`, 'recorded', 'pipeline', j.generated_at,
-      `Tasks: ${fmt(j.task_count)}${states ? ` (${states})` : ''}; base: ${j.base_rev ?? 'unknown'}; escalations: ${fmt(j.escalation_count)}.`, jobId);
+    const names = labels.sort().slice(0, 8).join('; ');
+    const detail = `Tasks: ${fmt(j.task_count)}${states ? ` (${states})` : ''}; base: ${j.base_rev ?? 'unknown'}; escalations: ${fmt(j.escalation_count)}.`;
+    const id = record('job', jobId, 'build', title, 'recorded', 'pipeline', j.generated_at, names ? `${detail} ${names}.` : detail, jobId);
+    if (failed.length) negativeExample('failed-tasks', 'build', `${title}: failed task`, `${failed.sort()[0]} was reported failed by the pipeline.`, 'pipeline', j.generated_at, id);
   }
+  for (const a of attempts) {
+    if (a.quality !== 'live' || !a.jobId || !a.taskId) continue;
+    const job = currentJobs.get(a.jobId), task = currentTasks.get(`${a.jobId}:${a.taskId}`);
+    if (task?.name && !(a.repo && job.repo && a.repo !== job.repo)) a.detail = task.name;
+  }
+  const gateFeatures = new Map(), dependents = new Map();
   if (readable('backlog')) for (const f of s.backlog.features) {
     const key = token(f.feature_id);
     if (!key) continue;
     const stage = f.status === 'needs_approval' ? 'auth' : f.status === 'ready_for_review' ? 'review' : 'dispatch';
-    record('backlog', key, stage, `Feature ${key}`, f.status, 'backlog', f.generated_at, `Recorded dependencies: ${f.depends_on.length}.`, token(f.job_id));
+    const title = featureName(key), jobId = token(f.job_id);
+    const id = record('backlog', key, stage, title, f.status, 'backlog', f.generated_at, `Recorded dependencies: ${f.depends_on.length}.`, jobId);
+    if (live('backlog') && fresh(f.generated_at, now)) {
+      if (f.status === 'failed') negativeExample('failed-features', stage, `${title}: failed feature`, 'The backlog reports this feature as failed.', 'backlog', f.generated_at, id);
+      if (f.status === 'needs_approval' && jobId) {
+        if (!gateFeatures.has(jobId)) gateFeatures.set(jobId, []);
+        gateFeatures.get(jobId).push(key);
+      }
+      for (const dep of new Set(f.depends_on)) {
+        if (!dependents.has(dep)) dependents.set(dep, new Set());
+        dependents.get(dep).add(key);
+      }
+    }
+  }
+  const decisionSupport = new Set();
+  if (readable('decisions')) {
+    let pending = 0, complete = true;
+    for (const d of s.decisions.requests) {
+      const key = token(d.request_id), current = live('decisions') && fresh(d.generated_at, now);
+      if (!current) complete = false;
+      if (d.state === 'pending' && current) pending++;
+      if (!key) continue;
+      const at = d.applied_at ?? d.decided_at ?? d.raised_at;
+      // A subject may also name a gate, feature, or grant. Only these published
+      // requests have a typed subject→job binding, not every ID-shaped subject.
+      const question = d.kind === 'gate' && approved(GATE_QUESTIONS, `${key}:${d.subject}`, d.question);
+      const jobId = question && current && currentJobs.has(d.subject) ? d.subject : null;
+      const title = question || publicPhrase(PUBLIC_QUESTIONS,d.question) || `Owner request ${key}`;
+      const state = d.state === 'applied' && !d.applied_at ? 'reported applied (time unknown)' : d.state;
+      const subject = jobId ? `${currentJobs.get(jobId).title} (${jobId})` : question || PUBLIC_OBJECTS.includes(d.subject) ? d.subject : 'not published';
+      const kind = ['gate','budget','scope','grant'].includes(d.kind) ? d.kind : 'unknown';
+      let detail = `Subject: ${subject}. Queue reports ${state}; kind: ${kind}. Read-only observation.`;
+      if (jobId && d.state === 'pending') {
+        decisionSupport.add(`job:${jobId}`);
+        const keys = (gateFeatures.get(jobId) ?? []).sort().slice(0, 3);
+        const downstream = new Set();
+        for (const k of keys) {
+          decisionSupport.add(`backlog:${k}`);
+          for (const dep of dependents.get(k) ?? []) downstream.add(dep);
+        }
+        // Describe dependency edges, not a prediction that approving will run work.
+        const next = [...downstream].sort().slice(0, 3);
+        for (const k of next) decisionSupport.add(`backlog:${k}`);
+        // New prose exposes only published aliases, not other opaque subjects.
+        const named = next.map(k => FEATURE_LABELS.get(k)).filter(Boolean);
+        if (named.length) detail += ` Downstream feature: ${named.join(', ')}.`;
+      }
+      const id = record('decision', key, 'receiver', title, state, 'decisions', at, detail, jobId, d.generated_at);
+      if (current && d.state === 'pending') issue(id, 'receiver', title, 'The decision queue reports a pending owner request.', 'decisions', at, 'gate');
+    }
+    if (live('decisions') && complete) display('receiver', `${pending} pending owner requests`, 'live', pending ? 'gate' : 'quiet', pending);
   }
   if (readable('ci')) for (const pr of s.ci.prs) {
     const repo = repoSlug(pr.repo);
     if (!repo) continue;
     const title = `${repo} #${pr.number}`;
-    record('ci', `${repo}#${pr.number}`, 'review', title, pr.state, 'ci', pr.generated_at, `CI: ${pr.ci_state}; failing checks: ${pr.failing_check_names.length}. No reviewed head or deployment receipt in this row.`);
+    const id = record('ci', `${repo}#${pr.number}`, 'review', title, pr.state, 'ci', pr.generated_at, `CI: ${pr.ci_state}; failing checks: ${pr.failing_check_names.length}. No reviewed head or deployment receipt in this row.`);
+    if (live('ci') && fresh(pr.generated_at, now) && pr.ci_state === 'failing') negativeExample('failing-ci', 'review', `${title}: CI failing`, 'The PR row reports failing CI.', 'ci', pr.generated_at, id);
   }
   if (readable('usage')) {
     const meterRow = (key, title, r) => record('usage', key, 'build', title, r.cost_status, 'usage', r.generated_at,
@@ -233,9 +336,22 @@ export function project(snapshot, { now = Date.now() } = {}) {
       const key = [f.ts, f.class, token(f.attempt_id), token(f.job_id), token(f.task_id), token(f.fallback_to)].join(':');
       const group = groups.get(key) ?? { f, count: 0 }; group.count++; groups.set(key, group);
     }
-    for (const [key, { f, count }] of groups) record('failure', key, 'build', `${f.class} observation`, f.class, 'failures', f.ts,
-      `Matching rows: ${count}; attempt: ${token(f.attempt_id) ?? 'unknown'}; fallback: ${token(f.fallback_to) ?? 'not reported'}.` + (count === 1 ? ` Component: ${token(f.component) ?? 'unknown'}; code: ${token(f.code) ?? 'unknown'}; retryable: ${fmt(f.retryable)}; HTTP 429: ${fmt(f.http_429)}.` : ''), token(f.job_id));
+    for (const [key, { f, count }] of groups) {
+      const jobId = token(f.job_id), taskId = token(f.task_id);
+      const detail = `Matching rows: ${count}; attempt: ${token(f.attempt_id) ?? 'unknown'}; fallback: ${token(f.fallback_to) ?? 'not reported'}.` + (count === 1 ? ` Component: ${token(f.component) ?? 'unknown'}; code: ${token(f.code) ?? 'unknown'}; retryable: ${fmt(f.retryable)}; HTTP 429: ${fmt(f.http_429)}.` : '');
+      const id = record('failure', key, 'build', `${f.class} observation`, f.class, 'failures', f.ts, detail, jobId, count === 1 ? f.generated_at : f.ts);
+      const task = jobId && taskId && currentTasks.get(`${jobId}:${taskId}`);
+      // A failure event can outlive its incident. Surface only a fresh reported
+      // verifier regression, or one corroborated by a current failed task. No
+      // inference from a worker exit state, error prose, fallback, or retryable.
+      if (count === 1 && live('failures') && fresh(f.generated_at, now) && Date.parse(f.ts) <= now + CLOCK_SKEW_MS &&
+          f.component === 'verify' && f.class === 'regression' && (fresh(f.ts, now) || task?.state === 'failed')) {
+        negativeExample('verifier-failure', 'verify', 'Verifier reported a regression', `Recorded failure${task?.name ? ` for ${task.name}` : ''}. Recovery status is unknown.`, 'failures', f.ts, id);
+      }
+    }
   }
+  for (const [key, g] of negative) issue(`section:${key}`, g.stage, g.title,
+    g.reason + (g.count > 1 ? ` Matching records: ${g.count}.` : ''), g.section, g.at, 'danger', g.target);
   if (live('alerts')) {
     const groups = new Map();
     for (const r of s.alerts.active) {
@@ -253,7 +369,11 @@ export function project(snapshot, { now = Date.now() } = {}) {
   records.sort((a, b) => compare(a.id, b.id));
   if (records.some((r, i) => i > 0 && r.id === records[i - 1].id)) invalid();
   // Per-kind budget prevents one crowded source from burying all other facts.
+  const shown = attention.slice(0, 28), targets = new Set(shown.map(a => a.detail ?? a.id));
+  const rank = r => targets.has(r.id) ? 0 : decisionSupport.has(r.id) ? 1 : 2;
+  records.sort((a,b) => rank(a) - rank(b) || compare(a.id,b.id));
   const used = new Map();
   const bounded = records.filter(r => { const count = used.get(r.kind) ?? 0; used.set(r.kind, count + 1); return count < 28; });
-  return { generatedAt: s.generated_at, health: fleetConflict ? 'degraded' : health, sections, metrics, attempts: attempts.slice(0, 100), stations, attention: attention.slice(0, 28), records: bounded };
+  bounded.sort((a,b) => compare(a.id,b.id));
+  return { generatedAt: s.generated_at, health: fleetConflict ? 'degraded' : health, sections, metrics, attempts: attempts.slice(0, 100), stations, attention: shown, records: bounded };
 }

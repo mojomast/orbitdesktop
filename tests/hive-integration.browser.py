@@ -32,8 +32,11 @@ def load(name, filename):
     return module
 
 
-def synthetic(workflow):
-    raw = json.loads((workflow/'schemas/hive/fixtures/shift.json').read_text())
+def synthetic():
+    # Exercise the same tracked snapshot fixture that the portable pane uses.
+    # Only the optional real-collector HTTP integration needs a Workflow tree.
+    raw = json.loads(subprocess.check_output(['node', '--input-type=module', '-e',
+        "import {fixtures} from './apps/rizzstack-hive/fixtures.js'; console.log(JSON.stringify(fixtures.shift));"], cwd=ROOT))
     shift = datetime.now(timezone.utc) - datetime.fromisoformat(raw['generated_at'].replace('Z','+00:00'))
 
     def rebase(value):
@@ -59,7 +62,7 @@ def run():
     workflow=Path(os.environ.get('HIVE_WORKFLOW_TEST_ROOT',ROOT.parent/'workflow'))
     collector=load('collector',workflow/'contrib/rizzstack-observability/collector.py')
     rails_fixture=load('rails_browser',ROOT/'tests/rails-live.browser.py')
-    snapshot=synthetic(workflow)
+    snapshot=synthetic()
     owner, reader, upstream = [secrets.token_urlsafe(36) for _ in range(3)]
     with tempfile.TemporaryDirectory(prefix='orbit-hive-') as tmp, ExitStack() as cleanup:
         root=Path(tmp)
