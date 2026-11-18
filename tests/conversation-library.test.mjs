@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -8,7 +9,7 @@ import { createAgentHandler } from '../server/agent.mjs';
 import { createConversationPrivateStore } from '../server/conversation-private-store.mjs';
 
 test('authenticated isolated conversation API: durable scoped drafts, CAS, metadata-only catalogs and binding fences', async t => {
-  const directory=fs.mkdtempSync(path.join('/tmp/opencode','orbit-conversation-api-'));
+  const directory=fs.mkdtempSync(scratchPath('orbit-conversation-api-'));
   t.after(()=>fs.rmSync(directory,{recursive:true,force:true}));
   const workspace=randomUUID(), pane=randomUUID(), token='fixture-'.repeat(8), calls=[];
   const gateway=http.createServer((req,res)=>{
@@ -69,7 +70,7 @@ test('authenticated isolated conversation API: durable scoped drafts, CAS, metad
 });
 
 test('private record reads/listing reject corrupt shapes, unsafe revisions and mismatched hash keys', t => {
-  const directory=fs.mkdtempSync(path.join('/tmp/opencode','orbit-conversation-integrity-'));
+  const directory=fs.mkdtempSync(scratchPath('orbit-conversation-integrity-'));
   t.after(()=>fs.rmSync(directory,{recursive:true,force:true}));
   const store=createConversationPrivateStore(directory);
   const scope={workspace_id:randomUUID(),profile_id:'default',session_id:'existing'};
@@ -105,7 +106,7 @@ test('private record reads/listing reject corrupt shapes, unsafe revisions and m
 });
 
 test('private store rejects symlink/non-directory roots before chmod and rejects raw record symlinks', t => {
-  const directory=fs.mkdtempSync(path.join('/tmp/opencode','orbit-conversation-symlinks-'));
+  const directory=fs.mkdtempSync(scratchPath('orbit-conversation-symlinks-'));
   t.after(()=>fs.rmSync(directory,{recursive:true,force:true}));
   const target=path.join(directory,'target');fs.mkdirSync(target,{mode:0o755});fs.chmodSync(target,0o755);
   const link=path.join(directory,'private-link');fs.symlinkSync(target,link);
@@ -130,7 +131,7 @@ test('private store rejects symlink/non-directory roots before chmod and rejects
 });
 
 test('revision exhaustion rejects before committing an unsafe revision or changing durable bytes', t => {
-  const directory=fs.mkdtempSync(path.join('/tmp/opencode','orbit-conversation-revision-'));
+  const directory=fs.mkdtempSync(scratchPath('orbit-conversation-revision-'));
   t.after(()=>fs.rmSync(directory,{recursive:true,force:true}));
   const store=createConversationPrivateStore(directory);
   const scope={workspace_id:randomUUID(),profile_id:'default',session_id:'existing'};
@@ -146,7 +147,7 @@ test('revision exhaustion rejects before committing an unsafe revision or changi
 });
 
 test('write and file-fsync failures remove temporary files and preserve the previous durable record', t => {
-  const directory=fs.mkdtempSync(path.join('/tmp/opencode','orbit-conversation-io-failure-'));
+  const directory=fs.mkdtempSync(scratchPath('orbit-conversation-io-failure-'));
   t.after(()=>fs.rmSync(directory,{recursive:true,force:true}));
   const store=createConversationPrivateStore(directory);
   const scope={workspace_id:randomUUID(),profile_id:'default',session_id:'existing'};

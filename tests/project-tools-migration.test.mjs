@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -24,7 +25,7 @@ const PLUGIN_ID='notes';
 const PLUGIN_ENTRY='/apps/notes-0123456789abcdef01234567/index.html';
 const id=()=>randomUUID();
 
-function tempRoot(prefix){return fs.mkdtempSync(path.join('/tmp/opencode',prefix));}
+function tempRoot(prefix){return fs.mkdtempSync(scratchPath(prefix));}
 function clean(root){fs.rmSync(root,{recursive:true,force:true});}
 function commit(store,workspaceId,baseRevision,operationId,intent,change){
   return store.commit(commandIdentity({workspace_id:workspaceId,action:'apply',base_revision:baseRevision,operation_id:operationId,intent},'owner'),change);

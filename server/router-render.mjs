@@ -104,7 +104,7 @@ function parseBaseUrl(value, providerId) {
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
     throw Error(`Router upstream ${providerId} must use http or https.`);
   }
-  if (url.username || url.password) {
+  if (url.username || url.password || url.search || url.hash) {
     throw Error(`Router upstream ${providerId} must not embed credentials.`);
   }
   return url;
@@ -132,14 +132,14 @@ function upstreamEntries(config) {
       privateNetwork,
       allowPrivate: allowPrivate === true,
       weight: Number.isFinite(upstream.weight) && upstream.weight > 0 ? upstream.weight : 1,
-      models: Array.isArray(upstream.models) && upstream.models.length ? upstream.models.map(String) : ['*'],
+      models: Array.isArray(upstream.models) ? upstream.models.map(String) : ['*'],
       type: typeof upstream.type === 'string' && upstream.type ? upstream.type : (url ? 'custom' : 'openai'),
     });
   }
   return entries;
 }
 
-function virtualKeyEntries(config) {
+export function virtualKeyEntries(config) {
   const configured = Array.isArray(config.virtualKeys) ? config.virtualKeys : [];
   const list = configured.length ? configured : DEFAULT_VIRTUAL_KEYS;
   return list.map(source => {
@@ -148,7 +148,7 @@ function virtualKeyEntries(config) {
     const entry = {
       id: role,
       name: role,
-      allowed_models: Array.isArray(source.allowedModels) && source.allowedModels.length
+      allowed_models: Array.isArray(source.allowedModels)
         ? source.allowedModels.map(String)
         : ['*'],
       expires_at: source.expiresAt ?? null,
@@ -184,20 +184,24 @@ function fallbackEntries(config) {
     }));
 }
 
-/** Bifrost file-only config: no config store, env-referenced keys, VKs per role. */
+export function roleEnvName(role) {
+  if (!ROLE_ID.test(role)) throw Error('Invalid router role.');
+  return `ROUTER_VK_${envFragment(role)}`;
+}
+
+// Field names follow transports/v2.5.1's transports/config.schema.json. Budget
+// ownership is on the budget; model and key grants are on VK provider_configs.
 export function renderBifrostConfig(config = {}, keyNames = {}) {
   const router = routerSection(config);
-  const providers = {};
-  for (const upstream of upstreamEntries(router)) {
+  const providers = Object.create(null);
+  const upstreams = upstreamEntries(router);
+  for (const upstream of upstreams) {
     const envName = keyNameFor(keyNames, upstream.providerId);
     const entry = {
-      type: upstream.type,
-      weight: upstream.weight,
-      keys: [{ name: `${upstream.providerId}-primary`, value: `env.${envName}` }],
-      models: upstream.models.slice(),
+      keys: [{ id: `${upstream.providerId}-primary`, name: `${upstream.providerId}-primary`, value: `env.${envName}`, weight: upstream.weight, models: upstream.models }],
     };
     if (upstream.baseUrl) {
-      entry.base_provider_type = 'openai';
+      if (upstream.type === 'custom') entry.custom_provider_config = { base_provider_type: 'openai' };
       entry.network_config = {
         base_url: upstream.baseUrl,
         allow_private_network: upstream.allowPrivate === true,
@@ -208,22 +212,32 @@ export function renderBifrostConfig(config = {}, keyNames = {}) {
     providers[upstream.providerId] = entry;
   }
 
+  const rules = virtualKeyEntries(router);
+  const window = duration => duration.replace(/mo$/, 'M');
   return {
     config_store: { enabled: false },
+    logs_store: { enabled: false },
     encryption_key: 'env.BIFROST_ENCRYPTION_KEY',
-    management: {
-      enabled: true,
-      auth: { enabled: true, token: 'env.BIFROST_SETUP_TOKEN' },
-      ui: { enabled: false },
-    },
-    logging: {
-      enabled: false,
-      content_logging: router.contentLogging === true,
-    },
-    drop_excess_requests: true,
+    setup_token: 'env.BIFROST_SETUP_TOKEN',
+    client: { enable_logging: false, disable_content_logging: true, drop_excess_requests: true, enforce_auth_on_inference: true, allow_direct_keys: false },
+    plugins: [{ name: 'governance', enabled: true, config: { is_vk_mandatory: true } }],
     providers,
-    virtual_keys: virtualKeyEntries(router),
-    fallbacks: fallbackEntries(router),
+    governance: {
+      auth_config: { is_enabled: true, admin_username: 'orbit-admin', admin_password: 'env.BIFROST_ADMIN_PASSWORD' },
+      budgets: rules.map(({ id, budget }) => ({ id: `budget-${id}`, virtual_key_id: id, max_limit: budget.max_limit, reset_duration: window(budget.reset_duration) })),
+      rate_limits: rules.map(({ id, rate_limit: rate }) => ({ id: `rate-${id}`, token_max_limit: rate.tokens, token_reset_duration: window(rate.reset_duration), request_max_limit: rate.requests, request_reset_duration: window(rate.reset_duration) })),
+      virtual_keys: rules.map(({ id, allowed_models, expires_at }) => ({ id, name: id, is_active: true, value: `env.${roleEnvName(id)}`, rate_limit_id: `rate-${id}`,
+        ...(expires_at ? { expires_at } : {}),
+        provider_configs: upstreams.map(({ providerId, weight }) => ({ provider: providerId, weight, key_ids: [`${providerId}-primary`], allowed_models })),
+      })),
+      routing_rules: fallbackEntries(router).map(({ model, fallback_models }, i) => ({ name: `fallback-${i}`, enabled: true, scope: 'global', priority: i,
+        cel_expression: `model == ${JSON.stringify(model)}`, targets: [{ weight: 1 }],
+        fallbacks: fallback_models.map(target => {
+          if (!Object.hasOwn(providers, target.split('/')[0]) || !target.includes('/')) throw Error('Fallbacks need a configured provider/model.');
+          return target;
+        }),
+      })),
+    },
   };
 }
 

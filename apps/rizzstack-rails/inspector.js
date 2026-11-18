@@ -8,7 +8,7 @@ function setChildren(el, kids) {
 
 function el(doc, tag, className, text) {
   const node = doc.createElement(tag);
-  if (className) node.classList.add(className);
+  if (className) node.classList.add(...className.split(' '));
   if (text !== undefined) node.textContent = String(text);
   return node;
 }

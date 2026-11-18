@@ -1,11 +1,12 @@
 // Disposable two-origin fixture; never start against an owner runtime.
 import http from 'node:http';
 import fs from 'node:fs';
+import {tmpdir} from 'node:os';
 import path from 'node:path';
 import { build, createServer } from 'vite';
 import { createMcpApps } from '../server/mcp-apps.mjs';
 import { createMcpAppsSandbox } from '../server/mcp-apps-sandbox.mjs';
-const root = fs.mkdtempSync(path.join('/tmp/opencode/', 'mcp-apps-fixture-'));
+const root = fs.mkdtempSync(path.join(tmpdir(), 'mcp-apps-fixture-'));
 const repo = process.cwd();
 const appEntry = path.join(root, 'app.ts');
 fs.writeFileSync(appEntry, `import {App} from ${JSON.stringify(path.join(repo, 'node_modules/@modelcontextprotocol/ext-apps/dist/src/app.js'))};

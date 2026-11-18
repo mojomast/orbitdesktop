@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {mkdtemp,rm,writeFile,mkdir,symlink,stat,readFile,readdir,rename,chmod} from 'node:fs/promises';
@@ -23,7 +24,7 @@ function fakeDriver(){
     pages,get clicks(){return clicks;},hang(){resolveAct=true;},
   };
 }
-async function fixture(t){const root=await mkdtemp('/tmp/opencode/browser-copilot-unit-');const driver=fakeDriver();const service=createBrowserCopilot({root,driver,workspaceRead:id=>id===workspace_id?{}:null});t.after(async()=>{await service.close();await rm(root,{recursive:true,force:true});});const request=b=>service.dispatch({workspace_id,...b});const opened=(await request({action:'open',url:'https://fixture.example',op_key:'start'})).receipt.result;return {root,driver,service,request,session_id:opened.session.session_id,revision:opened.session.revision,target_id:'selected'};}
+async function fixture(t){const root=await mkdtemp(scratchPath('browser-copilot-unit-'));const driver=fakeDriver();const service=createBrowserCopilot({root,driver,workspaceRead:id=>id===workspace_id?{}:null});t.after(async()=>{await service.close();await rm(root,{recursive:true,force:true});});const request=b=>service.dispatch({workspace_id,...b});const opened=(await request({action:'open',url:'https://fixture.example',op_key:'start'})).receipt.result;return {root,driver,service,request,session_id:opened.session.session_id,revision:opened.session.revision,target_id:'selected'};}
 test('strict closed action union and unavailable capability',async()=>{
   assert.equal(validateCopilotRequest({action:'preview',workspace_id,session_id:'s',target_id:'t',expected_revision:1,mode:'owner',operation:{kind:'evaluate',code:'alert(1)'}}),false);
   assert.equal(validateCopilotRequest({action:'open',workspace_id,url:'https://x',op_key:'k',executablePath:'/host'}),false);
@@ -91,17 +92,17 @@ test('pending cancel declares unknown, cleans context, never replays',async t=>{
   assert.equal(receipt.status,'unknown');assert.equal(driver.clicks,1);assert.equal(driver.pages.get('neighbor').closed,true);
 });
 test('restart fences durable pending receipt and refuses private symlink directory',async t=>{
-  const root=await mkdtemp('/tmp/opencode/browser-copilot-restart-');t.after(()=>rm(root,{recursive:true,force:true}));
+  const root=await mkdtemp(scratchPath('browser-copilot-restart-'));t.after(()=>rm(root,{recursive:true,force:true}));
   const directory=join(root,'browser-copilot','receipts');await mkdir(directory,{recursive:true,mode:0o700});
   const key=digest(workspace_id+'\0'+'lost');
   await writeFile(join(directory,key+'.json'),JSON.stringify({workspace_id,op_key:'lost',fingerprint:digest('request'),created_at:Date.now(),session_id:'s',target_id:'t',status:'pending'}),{mode:0o600});
   const s=createBrowserCopilot({root,driver:fakeDriver(),workspaceRead:()=>({})});t.after(()=>s.close());
   assert.equal((await s.dispatch({action:'receipt',workspace_id,op_key:'lost'})).receipt.status,'unknown');
-  const other=await mkdtemp('/tmp/opencode/browser-copilot-symlink-');t.after(()=>rm(other,{recursive:true,force:true}));await symlink(root,join(other,'browser-copilot'));
+  const other=await mkdtemp(scratchPath('browser-copilot-symlink-'));t.after(()=>rm(other,{recursive:true,force:true}));await symlink(root,join(other,'browser-copilot'));
   const bad=createBrowserCopilot({root:other,driver:fakeDriver(),workspaceRead:()=>({})});await assert.rejects(()=>bad.dispatch({action:'list',workspace_id}),{code:'unavailable'});
 });
 test('private CAS verifies bytes, binds workspace/session, and prunes bounded evidence',async t=>{
-  const directory=await mkdtemp('/tmp/opencode/browser-copilot-cas-');t.after(()=>rm(directory,{recursive:true,force:true}));
+  const directory=await mkdtemp(scratchPath('browser-copilot-cas-'));t.after(()=>rm(directory,{recursive:true,force:true}));
   let at=Date.now();const store=createCopilotEvidenceStore(directory,{now:()=>at++});const items=[];
   for(let i=0;i<42;i++)items.push(await store.put({workspace_id,session_id:'s',target_id:'t',observation:fullObservation('t','synthetic '+i),bytes:Buffer.from('image '+i)}));
   await assert.rejects(()=>store.read({workspace_id,session_id:'s',evidence_id:items[0].evidence_id}),{code:'stale_resource'});
@@ -135,7 +136,7 @@ test('untrusted receipt records fail closed before pending recovery or completed
   }
 });
 test('symlink ancestors and replacement feature directories cannot redirect IO; permissions stay unchanged',async t=>{
-  const root=await mkdtemp('/tmp/opencode/browser-copilot-ancestors-');t.after(()=>rm(root,{recursive:true,force:true}));
+  const root=await mkdtemp(scratchPath('browser-copilot-ancestors-'));t.after(()=>rm(root,{recursive:true,force:true}));
   const runtime=join(root,'runtime'),outside=join(root,'outside');await mkdir(runtime,{mode:0o700});await mkdir(outside,{mode:0o700});await symlink(runtime,join(root,'alias'));
   await assert.rejects(()=>privateDirectory(join(root,'alias','browser-copilot','evidence')),{code:'unavailable'});
   assert.deepEqual(await readdir(runtime),[]);
@@ -148,7 +149,7 @@ test('symlink ancestors and replacement feature directories cannot redirect IO; 
   assert.deepEqual(await readdir(join(outside,'receipts')),[]);
 });
 test('failed temporary writes are cleaned and directory enumeration has a hard bound',async t=>{
-  const root=await mkdtemp('/tmp/opencode/browser-copilot-temp-');t.after(()=>rm(root,{recursive:true,force:true}));
+  const root=await mkdtemp(scratchPath('browser-copilot-temp-'));t.after(()=>rm(root,{recursive:true,force:true}));
   const directory=join(root,'browser-copilot','receipts');await privateDirectory(directory);
   await assert.rejects(()=>privateWrite(join(directory,'failed.json'),Symbol('not bytes')),{code:'unavailable'});
   assert.deepEqual(await readdir(directory),[]);
@@ -156,7 +157,7 @@ test('failed temporary writes are cleaned and directory enumeration has a hard b
   await assert.rejects(()=>privateNames(directory,3),{code:'limit_exceeded'});
 });
 test('a valid evidence digest cannot authorize malformed accounting or unknown metadata fields',async t=>{
-  const directory=await mkdtemp('/tmp/opencode/browser-copilot-bogus-evidence-');t.after(()=>rm(directory,{recursive:true,force:true}));
+  const directory=await mkdtemp(scratchPath('browser-copilot-bogus-evidence-'));t.after(()=>rm(directory,{recursive:true,force:true}));
   const store=createCopilotEvidenceStore(directory),bytes=Buffer.from('synthetic PNG'),sha256=digest(bytes);
   await privateWrite(join(directory,sha256+'.png'),bytes);
   const meta={workspace_id,session_id:'s',target_id:'t',observation:fullObservation('t','synthetic'),sha256,bytes:-1,captured_at:Date.now()};

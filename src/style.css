@@ -581,6 +581,10 @@ p {
 .collab-drawer { margin-top: 8px; padding: 10px; border-radius: 10px; border: 1px solid var(--theme-border, #2c3b38); }
 .collab-timeline { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; max-height: 240px; overflow: auto; }
 .collab-event { font-size: 13px; }
+.collab-evidence-chip { display: inline-block; font-size: 12px; border: 1px solid currentColor; border-radius: 10px; padding: 1px 6px; }
+.collab [data-verifier="done"] { color: #8fd694; }
+.collab [data-verifier="error"] { color: #f09292; }
+.collab [data-verifier="pending"] { color: #b4bbd1; }
 .collab-skill { display: inline-flex; gap: 4px; align-items: center; font-size: 12px; }
 .collab-artifact { max-height: 280px; overflow: auto; padding: 8px; border-radius: 8px; background: color-mix(in srgb, var(--theme-background, #101610) 92%, black); }
 .collab-diff-add { color: #c2ed90; }

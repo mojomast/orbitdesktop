@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -20,7 +21,7 @@ const RIGHT='export const sum = (a,b) => a + b;\n';
 const SLOW_TEST="import test from 'node:test';\ntest('slow',async()=>{await new Promise(resolve=>setTimeout(resolve,4000));});\n";
 
 function fixture(t){
-  const root=fs.mkdtempSync('/tmp/opencode/workbench-execution-');
+  const root=fs.mkdtempSync(scratchPath('workbench-execution-'));
   const projectRoot=path.join(root,'project');fs.mkdirSync(projectRoot);
   fs.writeFileSync(path.join(projectRoot,'math.js'),WRONG);
   const store=new SqliteWorkspaceStore(path.join(root,'runtime')),workspace_id=randomUUID(),other=randomUUID();

@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 // F3 representative real project: a real maintained Orbit pure-Node subproject
 // (explicit SOURCE SELECTION of exactly the module and its existing test), pinned
 // at the inspected revision. A labelled controlled defect must be detected by the
@@ -41,7 +42,7 @@ test('agent-profiles subproject: existing test passes, detects a labelled defect
   });
   const originalHashes=Object.fromEntries(sources.map(({input})=>[input,manifest.input_hashes[input]]));
 
-  const candidate=fs.mkdtempSync('/tmp/opencode/orbit-real-project-');
+  const candidate=fs.mkdtempSync(scratchPath('orbit-real-project-'));
   candidates.push(candidate);
   for(const {input,text} of sources){const target=path.join(candidate,input);fs.mkdirSync(path.dirname(target),{recursive:true});fs.writeFileSync(target,text);}
 

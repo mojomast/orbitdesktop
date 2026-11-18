@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -12,7 +13,7 @@ import {initial} from '../src/model.ts';
 import {commandIdentity} from '../server/command-identity.mjs';
 
 test('authoritative reconnect snapshot retains read identities across restart; completion never means checks passed',t=>{
-  const root=fs.mkdtempSync('/tmp/opencode/wstatus-'),source=path.join(root,'source');fs.mkdirSync(source);
+  const root=fs.mkdtempSync(scratchPath('wstatus-')),source=path.join(root,'source');fs.mkdirSync(source);
   const runtime=path.join(root,'runtime'),workspace_id=randomUUID();let store=new SqliteWorkspaceStore(runtime),data=new WorkbenchData(store);
   store.commit(commandIdentity({workspace_id,action:'sync',base_revision:0,state:initial(),operation_id:randomUUID()},'owner'),{create:()=>({id:workspace_id,revision:1,state:initial(),capability:randomUUID()})});
   const records=new WorkbenchStore(store),opened=openProjectRoot(source),project=records.register(workspace_id,{root:source,name:'Status',identity:opened.identity});opened.close();

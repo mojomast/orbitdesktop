@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -14,7 +15,7 @@ import {commandIdentity} from '../server/command-identity.mjs';
 import {initial} from '../src/model.ts';
 
 function fixture(t){
-  const root=fs.mkdtempSync('/tmp/opencode/workbench-recovery-boundary-'),source=path.join(root,'source');fs.mkdirSync(source);
+  const root=fs.mkdtempSync(scratchPath('workbench-recovery-boundary-')),source=path.join(root,'source');fs.mkdirSync(source);
   fs.writeFileSync(path.join(source,'math.js'),'export const sum=(a,b)=>a-b;\n');
   fs.writeFileSync(path.join(source,'math.test.mjs'),"import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport {sum} from './math.js';\ntest('sum',()=>assert.equal(sum(2,3),5));\n");
   const store=new SqliteWorkspaceStore(path.join(root,'runtime')),workspace_id=randomUUID();

@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -7,7 +8,7 @@ import { createKnowledgeSearch } from "../server/knowledge-index.mjs";
 import { verifyModel } from "../server/knowledge-model.mjs";
 test("absent model means useful explicit semantic-off status and no remote fetch", async () => {
   const embedder = createEmbedder({
-    modelDir: "/tmp/opencode/nonexistent-knowledge-model",
+    modelDir: scratchPath("nonexistent-knowledge-model"),
   });
   assert.equal(embedder.status().present, false);
   await assert.rejects(embedder.embed(["test"]));
@@ -36,7 +37,7 @@ test(
     const rejected = assert.rejects(pending);
     await embedder.cancel();
     await rejected;
-    const root = fs.mkdtempSync("/tmp/opencode/knowledge-real-model-");
+    const root = fs.mkdtempSync(scratchPath("knowledge-real-model-"));
     fs.mkdirSync(root + "/knowledge-index", { mode: 0o700 });
     // fs.cpSync creates destination directories using the process umask, not
     // the source directory modes. Keep this private fixture valid on CI's 0022.

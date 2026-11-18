@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
@@ -5,7 +6,7 @@ import {mkdtempSync,rmSync} from 'node:fs';
 import {createAgentHandler} from '../server/agent.mjs';
 
 test('trace hook preserves SSE bytes/status and only observes checked pane bindings',async t=>{
-  const root=mkdtempSync('/tmp/opencode/technology-agent-');
+  const root=mkdtempSync(scratchPath('technology-agent-'));
   const token='technology-test-token-'.repeat(3),workspace='11111111-1111-4111-8111-111111111111',pane='22222222-2222-4222-8222-222222222222';
   const session='orbit-33333333-3333-4333-8333-333333333333',run='run_123456789abcdef';
   const bytes='event: update\ndata: {"event":"tool.started","tool":"read_file","tool_call_id":"call-1"}\n\ndata: [DONE]\n\n';

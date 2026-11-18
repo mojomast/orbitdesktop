@@ -1,0 +1,30 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { chromium } from 'playwright-core';
+import { joinFixture } from './fixtures/worker-join.mjs';
+import { join } from '../scripts/worker-join/client.mjs';
+
+test('owner loads inventory, issues one scoped invite and revokes a connected worker from the UI',async t => {
+  const f = await joinFixture(t);
+  const browser = await chromium.launch({ executablePath:process.env.ORBIT_TEST_CHROMIUM,headless:true });
+  t.after(()=>browser.close()); const page = await browser.newPage();
+  await page.route('**/*',r=>new URL(r.request().url()).origin === f.origin ? r.continue() : r.abort());
+  await page.goto(f.origin+'/worker-join.html');
+  await page.locator('#token').fill('synthetic-wrong-token'); await page.getByText('Load inventory').click();
+  await page.getByText('Owner authorization or loopback origin refused.').waitFor();
+  await page.locator('#token').fill(f.owner); await page.getByText('Load inventory').click();
+  await page.getByText('0 worker(s), 0 check(s).').waitFor();
+  await page.locator('#label').fill('Browser fixture'); await page.locator('#verify').check();
+  await page.getByText('Create invitation').click(); await page.getByText('1 worker(s), 0 check(s).').waitFor();
+  const invite = JSON.parse(await page.locator('#payload').textContent());
+  await page.getByText('Hide invitation').click();
+  const session = await join(invite,{ loopback:f.origin }); await session.heartbeat();
+  await page.getByText('Refresh inventory').click(); await page.getByText('Request digest').click();
+  await page.getByText('1 worker(s), 1 check(s).').waitFor(); const { task } = await session.claim(); await session.report(task.taskId);
+  await page.getByText('Refresh inventory').click(); await page.getByText('Compare with pin').click();
+  await page.locator('#tasks').getByText(/digest_matched/).waitFor(); await page.getByRole('button',{ name:'Revoke',exact:true }).click();
+  await page.locator('#workers').getByText(/revoked/).waitFor();
+  await assert.rejects(session.claim(),{ code:'credential_denied' });
+  await page.getByText('Lock inventory').click(); assert.equal(await page.locator('#workers').textContent(),'');
+  assert.equal(await page.evaluate(()=>localStorage.length + sessionStorage.length),0);
+});

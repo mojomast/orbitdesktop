@@ -12,6 +12,7 @@ import { join } from 'node:path';
 import { createAcddEvidenceRoute } from '../server/acdd-evidence-route.mjs';
 import { canonicalJson, verifyRecordSignature } from '../server/acdd-evidence.mjs';
 import { contractListHtml, evidenceRequest, ACDD_EVIDENCE_COMMAND } from '../src/acdd-evidence-window.ts';
+import { projectEvidence } from '../src/collab-evidence.ts';
 
 const SHA = 'a'.repeat(40);
 const CSHA = 'c'.repeat(64);
@@ -161,6 +162,56 @@ test('a valid signed report with matching contract sha yields accepted:true', as
   assert.equal(out.json.view.verificationState, 'verified');
   assert.equal(out.json.view.criteria.find(c => c.id === 'AC-001').status, 'passed');
   assert.equal(out.json.verification.available, true);
+});
+
+test('even an accepted contract report identifies historical runs, not a current task head', async () => {
+  const first = 'd'.repeat(40), second = first + 'e'.repeat(24);
+  const root = stateDir({ records: [sign({ ...RED, revision: first }), sign({ ...GREEN, revision: second })] });
+  writeReport(root, acceptance());
+  const ref = { id: 'W1-pricing', contract_sha256: CSHA };
+  const route = createAcddEvidenceRoute({ stateDir: root, authorize });
+  const { json, status } = await call(route, { path: `/api/acdd-evidence?contract=${ref.id}&sha=${CSHA}` });
+  assert.equal(status, 200);
+  assert.equal(json.view.verificationState, 'verified');
+  const board = projectEvidence(ref, json);
+  assert.match(board.chip, /historical/i);
+  assert.doesNotMatch(board.chip, /passed|valid|accepted|verified/i);
+  assert.equal(board.state, 'pending');
+  assert.deepEqual(board.rows.map(row => row.state), ['pending', 'pending']);
+  for (const [index, revision] of [first, second].entries()) {
+    assert.match(board.rows[index].text, /historical/i);
+    assert.ok(board.rows[index].text.includes(revision));
+  }
+});
+
+test('a rejected record or report overrides earlier signed passes on the board', async () => {
+  const ref = { id: 'W1-pricing', contract_sha256: CSHA };
+  for (const [records, report] of [
+    [[RED, GREEN, sign({ ...GREEN, contract_sha256: '9'.repeat(64) })], acceptance()],
+    [[RED, GREEN], sign(acceptance(), OTHER_KEY)],
+  ]) {
+    const root = stateDir({ records });
+    writeReport(root, report);
+    const { json } = await call(createAcddEvidenceRoute({ stateDir: root, authorize }), {
+      path: `/api/acdd-evidence?contract=${ref.id}&sha=${CSHA}`,
+    });
+    assert.equal(json.view.timeline.at(-1).classification, 'passed');
+    assert.equal(json.view.verificationState, 'rejected');
+    const board = projectEvidence(ref, json);
+    assert.match(board.chip, /rejected/i);
+    assert.equal(board.state, 'error');
+    assert.deepEqual(board.rows, []);
+  }
+});
+
+test('an unreadable report is rejected even when there are no run records', async () => {
+  const root = stateDir({ records: [] });
+  mkdirSync(join(root, 'reports', 'W1-pricing.json'), { recursive: true });
+  const { json } = await call(createAcddEvidenceRoute({ stateDir: root, authorize }), {
+    path: `/api/acdd-evidence?contract=W1-pricing&sha=${CSHA}`,
+  });
+  assert.equal(json.view.verificationState, 'rejected');
+  assert.equal(projectEvidence({ id: 'W1-pricing', contract_sha256: CSHA }, json).state, 'error');
 });
 
 test('a report with a bad signature or mismatched sha yields accepted:false', async () => {

@@ -11,6 +11,7 @@ import { hostSurfaceId, mountHostSurface } from './host-surfaces';
 import {documentSurfaceId} from './technology-surfaces';
 import { bindToolFeed } from "./tool-feed";
 import { bindGrokBots } from "./grokbots-bridge";
+import { bindRailsNavigation } from './rails-shell';
 import type { Pane, PaneKind } from "./model";
 export interface PaneView {
   element: HTMLElement;
@@ -446,7 +447,7 @@ export function createPane(p: Pane, font: number, a: PaneActions): PaneView {
         );
         frame.src = current;
         surface.replaceChildren(frame);
-        if (localApp) { const unbindFeed = bindToolFeed(frame), unbindGrokBots = bindGrokBots(frame); cleanup = () => { unbindFeed(); unbindGrokBots(); }; }
+        if (localApp) { const unbindFeed = bindToolFeed(frame), unbindGrokBots = bindGrokBots(frame), unbindRails = bindRailsNavigation(frame,u,()=>sessionToken); cleanup = () => { unbindFeed(); unbindGrokBots(); unbindRails(); }; }
         zoomFrame();
       } catch (e) {
         surface.replaceChildren(

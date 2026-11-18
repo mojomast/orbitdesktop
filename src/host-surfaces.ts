@@ -64,6 +64,7 @@ export function mountHostSurface(host: HTMLElement, id: HostSurfaceId, token: ()
       root.replaceChildren();
       const paneId = options.paneId || '';
       const view = module.mountCollab({
+        token,
         standalone: true,
         onClose: () => {},
         request: async payload => {

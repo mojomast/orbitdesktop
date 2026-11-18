@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -5,9 +6,9 @@ import path from 'node:path';
 import http from 'node:http';
 import { DATA_ENGINE_FILES, createDataEngineAssets } from '../server/data-engine-assets.mjs';
 import { provisionDataEngine } from '../scripts/provision_data_engine.mjs';
-const fixtureRoot = process.env.ORBIT_DUCKDB_EXTENSIONS_ROOT || '/tmp/opencode/orbit-duckdb-extensions';
+const fixtureRoot = process.env.ORBIT_DUCKDB_EXTENSIONS_ROOT;
 const fixture = kind => path.join(fixtureRoot, 'v1.4.3', 'wasm_eh', DATA_ENGINE_FILES[kind].file);
-const withRoot = async run => { const root = fs.mkdtempSync('/tmp/opencode/orbit-data-assets-'); try { await run(root); } finally { fs.rmSync(root, { recursive: true, force: true }); } };
+const withRoot = async run => { const root = fs.mkdtempSync(scratchPath('orbit-data-assets-')); try { await run(root); } finally { fs.rmSync(root, { recursive: true, force: true }); } };
 
 test('provisioning rejects wrong/oversized bytes and symlinks; URLs are fixed', async () => withRoot(async root => {
   await assert.rejects(provisionDataEngine({ extensionsRoot: root, fetchFile: async url => {
@@ -26,7 +27,7 @@ test('provisioning rejects wrong/oversized bytes and symlinks; URLs are fixed', 
   assert.deepEqual(fs.readdirSync(path.dirname(destination)), []);
 }));
 
-test('real pinned assets provision atomically, reverify offline, and serve verified HTTP bytes', { skip: !Object.keys(DATA_ENGINE_FILES).every(k => fs.existsSync(fixture(k))) && 'Provision pinned fixtures or set ORBIT_DUCKDB_EXTENSIONS_ROOT' }, async () => withRoot(async root => {
+test('real pinned assets provision atomically, reverify offline, and serve verified HTTP bytes', { skip: !fixtureRoot && 'Set ORBIT_DUCKDB_EXTENSIONS_ROOT to run with provisioned pinned fixtures' }, async () => withRoot(async root => {
   const urls = [];
   const report = await provisionDataEngine({ extensionsRoot: root, fetchFile: async url => {
     urls.push(url); const kind = url.includes('/json.') ? 'json' : 'parquet';

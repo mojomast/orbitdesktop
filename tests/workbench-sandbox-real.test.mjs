@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -7,7 +8,7 @@ import {createWorkbenchSandboxProvider} from '../server/workbench-sandbox-provid
 import {runCheck} from '../server/workbench-checks.mjs';
 
 test('operator-gated real rootless runsc transports FD3 and cleans the runtime', {skip:process.env.ORBIT_TEST_GVISOR_REAL!=='1'},async t=>{
-  const root=fs.mkdtempSync('/tmp/opencode/orbit-gvisor-real-');t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+  const root=fs.mkdtempSync(scratchPath('orbit-gvisor-real-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
   const state=path.join(root,'sandbox'),artifacts=path.join(root,'workbench-execution'),candidate=path.join(artifacts,'candidate');
   fs.mkdirSync(state,{mode:0o700});fs.mkdirSync(candidate,{recursive:true,mode:0o700});
   const provider=createWorkbenchSandboxProvider({root:state}),snapshot=provider.describe();

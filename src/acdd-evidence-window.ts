@@ -37,14 +37,14 @@ function escapeText(value: unknown): string {
 
 export function evidenceRequest(token: string, contractId?: string): {
   url: string;
-  init: { method: 'GET'; headers: { Authorization: string } };
+  init: { method: 'GET'; headers: { Authorization: string }; referrerPolicy: 'origin'; redirect: 'error' };
 } {
   const url = contractId === undefined
     ? '/api/acdd-evidence'
     : `/api/acdd-evidence?contract=${encodeURIComponent(contractId)}`;
   return {
     url,
-    init: { method: 'GET', headers: { Authorization: `Bearer ${token}` } },
+    init: { method: 'GET', headers: { Authorization: `Bearer ${token}` }, referrerPolicy: 'origin', redirect: 'error' },
   };
 }
 

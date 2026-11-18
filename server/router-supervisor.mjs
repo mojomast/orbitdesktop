@@ -14,12 +14,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { renderBifrostConfig, renderLiteLLMConfig, renderRouterEnv } from './router-render.mjs';
+import { fileURLToPath } from 'node:url';
+import { renderBifrostConfig, renderRouterEnv, roleEnvName, virtualKeyEntries } from './router-render.mjs';
+import { ROUTER_IMAGES } from './orbit-config.mjs';
+import { roleFileBound } from './router-litellm-policy.mjs';
 
-const DEFAULT_BIFROST_IMAGE = 'maximhq/bifrost:v2.5.1@sha256:5ec9873acaf1687556b6e4dd854b92b539d9debf87a5a683b66338648b84d3c8';
-const DEFAULT_LITELLM_IMAGE = 'litellm/litellm:v1.108.6-lts@sha256:c64fe10f82a1f77906f88574f954317c50f67c617e0c97b70ac8fc61b74d3ec3';
-const PINNED_IMAGE = /@sha256:[a-f0-9]{64}$/;
-const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const ROLE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 const VIRTUAL_KEY_FILE = /^router-vk-.+\.key$/;
 
@@ -54,6 +53,8 @@ function safeKeyFile(value, fallback) {
 
 function readText(file) {
   try {
+    const st = fs.lstatSync(file);
+    if (!st.isFile() || st.size > 2_097_152) throw Error('Invalid router configuration file.');
     return fs.readFileSync(file, 'utf8');
   } catch (error) {
     if (error.code === 'ENOENT') return null;
@@ -62,6 +63,11 @@ function readText(file) {
 }
 
 function readSecret(file) {
+  const dir = fs.lstatSync(path.dirname(file), { throwIfNoEntry: false });
+  if (dir && !dir.isDirectory()) throw Error('Router keys require a private directory.');
+  const st = fs.lstatSync(file, { throwIfNoEntry: false });
+  if (!st) return null;
+  if (!st.isFile() || st.size > 65536 || (st.mode & 0o077)) throw Error('Router key must be a private regular file.');
   const text = readText(file);
   const value = typeof text === 'string' ? text.trim() : '';
   return value || null;
@@ -90,20 +96,17 @@ function sanitizeExternalBase(raw) {
   return `${url.protocol}//${url.host}${url.pathname}`.replace(/\/+$/, '');
 }
 
-function isPrivateHost(hostname) {
-  const host = String(hostname || '').toLowerCase().replace(/^\[|\]$/g, '');
-  if (!host) return true;
-  if (host === 'localhost' || host.endsWith('.localhost')) return true;
-  if (host === '0.0.0.0' || host === '::1' || host === '::') return true;
-  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
-  if (!v4) return false;
-  const [a, b] = [Number(v4[1]), Number(v4[2])];
-  if (a === 10 || a === 127) return true;
-  if (a === 169 && b === 254) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 192 && b === 168) return true;
-  if (a === 100 && b >= 64 && b <= 127) return true;
-  return false;
+// Shared by Compose preparation and the separate operator-only host launcher:
+// the latter must compare the prepared engine config to the current Orbit doc.
+export function builtinRouterPlan(config) {
+  const router = config.router ?? config;
+  const upstreams = (router.upstreams ?? []).map(upstream => {
+    const provider = (config.providers ?? []).find(p => p.id === upstream.providerId);
+    if (!provider || !['openai-compatible', 'openrouter', 'anthropic'].includes(provider.kind)) throw Error('Unsupported router upstream.');
+    return { ...upstream, keyRef: provider.keyRef, baseUrl: provider.baseUrl, type: provider.kind === 'openai-compatible' ? 'custom' : provider.kind, envName: upstreamEnvName(provider.id) };
+  });
+  if (new Set(upstreams.map(p => p.envName)).size !== upstreams.length) throw Error('Router upstream environment names must be distinct.');
+  return { upstreams, rendered: renderBifrostConfig({ ...router, upstreams }) };
 }
 
 export function createRouterSupervisor({
@@ -157,21 +160,21 @@ export function createRouterSupervisor({
 
   function writePrivate(file, content) {
     const directory = path.dirname(file);
-    fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
-    try { fs.chmodSync(directory, 0o700); } catch { /* already private */ }
+    privateDir(directory);
     temporary += 1;
     const staging = path.join(directory, `.${path.basename(file)}.${process.pid}.${temporary}.tmp`);
     fs.writeFileSync(staging, content, { mode: 0o600, flag: 'wx' });
-    try { fs.chmodSync(staging, 0o600); } catch { /* best effort */ }
-    fs.renameSync(staging, file);
-    try { fs.chmodSync(file, 0o600); } catch { /* best effort */ }
+    try { fs.renameSync(staging, file); } finally { fs.rmSync(staging, { force: true }); }
+  }
+
+  function privateDir(directory) {
+    fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
+    if (!fs.lstatSync(directory).isDirectory()) throw Error('Invalid private router directory.');
+    fs.chmodSync(directory, 0o700);
   }
 
   function ensureDirs() {
-    for (const directory of [keysDir(), routerDir(), dataDir()]) {
-      fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
-      try { fs.chmodSync(directory, 0o700); } catch { /* best effort */ }
-    }
+    for (const directory of [runtimeDir, keysDir(), routerDir(), dataDir()]) privateDir(directory);
   }
 
   function modeOf() {
@@ -185,7 +188,7 @@ export function createRouterSupervisor({
 
   function imageFor() {
     const configured = typeof routerConfig().image === 'string' ? routerConfig().image.trim() : '';
-    const fallback = engineOf() === 'litellm' ? DEFAULT_LITELLM_IMAGE : DEFAULT_BIFROST_IMAGE;
+    const fallback = ROUTER_IMAGES[engineOf()];
     return configured || fallback;
   }
 
@@ -239,9 +242,10 @@ export function createRouterSupervisor({
       if (url.protocol !== 'http:' && url.protocol !== 'https:') {
         throw Error('External router must use http or https.');
       }
-      if (url.username || url.password) {
+      if (url.username || url.password || url.search || url.hash) {
         throw Error('External router base URL must not embed credentials.');
       }
+      if (url.protocol !== 'https:' && !['localhost','127.0.0.1','[::1]'].includes(url.hostname)) throw Error('External router requires HTTPS outside loopback.');
       return { engine: null, image: null, mode };
     }
     const engine = router.engine ?? 'bifrost';
@@ -249,47 +253,27 @@ export function createRouterSupervisor({
       throw Error('Router engine must be bifrost or litellm.');
     }
     const image = imageFor();
-    if (!PINNED_IMAGE.test(image) || /:latest(?:$|@)/.test(image)) {
-      throw Error('Router image must be pinned by digest and must not use latest.');
-    }
+    if (image !== ROUTER_IMAGES[engine]) throw Error('Router image does not match the pinned engine.');
     return { engine, image, mode };
   }
 
   function virtualKeyDefs() {
-    return renderBifrostConfig(routerConfig(), {}).virtual_keys;
+    return virtualKeyEntries(routerConfig());
   }
 
-  function collectUpstreamKeys() {
-    const router = routerConfig();
+  function collectUpstreamKeys(upstreams) {
     const values = {};
-    const names = {};
-    const used = new Set(['external-router.key']);
-    const list = Array.isArray(router.upstreams) ? router.upstreams : [];
-    for (const upstream of list) {
-      if (!upstream || typeof upstream !== 'object') continue;
-      const providerId = String(upstream.providerId ?? upstream.id ?? '').trim();
-      if (!providerId) continue;
+    for (const {providerId, keyRef} of upstreams) {
       const envName = upstreamEnvName(providerId);
-      names[providerId] = envName;
-      const file = safeKeyFile(upstream.keyRef?.file, `${providerId}.key`);
-      used.add(file);
+      if (keyRef?.env) throw Error('Built-in router upstreams require private file references.');
+      if (!keyRef) continue;
+      const file = safeKeyFile(keyRef.file);
+      if (VIRTUAL_KEY_FILE.test(file) || file === path.basename(externalKeyPath())) throw Error('Router upstream requires a separate provider key.');
       const value = readSecret(path.join(keysDir(), file));
-      if (value) values[envName] = value;
+      if (!value) throw Error('Configured router upstream key file is missing.');
+      values[envName] = value;
     }
-    let files = [];
-    try {
-      files = fs.readdirSync(keysDir());
-    } catch (error) {
-      if (error.code !== 'ENOENT') throw error;
-    }
-    for (const name of files.sort()) {
-      if (!name.endsWith('.key') || VIRTUAL_KEY_FILE.test(name) || used.has(name)) continue;
-      const value = readSecret(path.join(keysDir(), name));
-      if (!value) continue;
-      const envName = upstreamEnvName(name.slice(0, -4));
-      if (ENV_NAME.test(envName) && values[envName] === undefined) values[envName] = value;
-    }
-    return { values, names };
+    return values;
   }
 
   function randomToken(bytes) {
@@ -301,10 +285,12 @@ export function createRouterSupervisor({
     return `sk-bf-${randomToken(32)}`;
   }
 
-  function composeEnv(image) {
-    const env = { ...process.env, ORBIT_RUNTIME_DIR: runtimeDir };
-    if (typeof image === 'string' && image) env.ORBIT_ROUTER_IMAGE = image;
-    return env;
+  function composeEnv() {
+    return { ORBIT_RUNTIME_DIR: path.resolve(runtimeDir), PATH: process.env.PATH };
+  }
+
+  function composeArgs(...args) {
+    return ['compose', '-f', fileURLToPath(new URL('../docker-compose.yml', import.meta.url)), '--profile', 'router', ...args];
   }
 
   function updateComposeProfile(enabled) {
@@ -364,44 +350,51 @@ export function createRouterSupervisor({
   async function probeExternal() {
     const url = `${baseUrl()}/models`;
     const key = readSecret(externalKeyPath());
+    if (!key && !['localhost', '127.0.0.1', '[::1]'].includes(new URL(url).hostname)) throw Error('Missing external router key.');
     const response = await fetchImpl(url, probeOptions(key));
     try { await response?.body?.cancel?.(); } catch { /* status is enough */ }
     return { ok: response?.ok === true, statusCode: response?.status ?? null, url };
   }
 
-  async function enableBuiltin(validated) {
-    const router = routerConfig();
+  function prepareBuiltin() {
+    const validated = validate();
+    if (validated.mode !== 'builtin') throw Error('External routers have no local configuration.');
+    if (validated.engine !== 'bifrost') throw Error('Automatic LiteLLM installation is unavailable. Use the operator issuer with a provisioned proxy, or External.');
+    if (fs.existsSync(path.join(routerDir(), 'host-run'))) throw Error('Stop the foreground router before reconfiguration.');
+    const { upstreams, rendered } = builtinRouterPlan(config);
     ensureDirs();
-    const { values, names } = collectUpstreamKeys();
+    if (fs.readdirSync(keysDir()).some(file => /^\.litellm-issue-/.test(file))) throw Error('Reconcile LiteLLM role credentials before switching built-in engines.');
+    const values = collectUpstreamKeys(upstreams.filter(upstream => Object.hasOwn(rendered.providers, upstream.providerId)));
     const previous = parseEnv(readText(routerEnvPath()));
-    const generated = {};
-    if (validated.engine === 'litellm') {
-      generated.LITELLM_MASTER_KEY = previous.LITELLM_MASTER_KEY || `sk-litellm-${randomToken(24)}`;
-      generated.LITELLM_SALT_KEY = previous.LITELLM_SALT_KEY || randomToken(32);
-    } else {
-      generated.BIFROST_ENCRYPTION_KEY = previous.BIFROST_ENCRYPTION_KEY || randomToken(32);
-      generated.BIFROST_SETUP_TOKEN = previous.BIFROST_SETUP_TOKEN || `bf-setup-${randomToken(24)}`;
+    const generated = {
+      BIFROST_ENCRYPTION_KEY: previous.BIFROST_ENCRYPTION_KEY || randomToken(32),
+      BIFROST_SETUP_TOKEN: previous.BIFROST_SETUP_TOKEN || randomToken(24),
+      BIFROST_ADMIN_PASSWORD: previous.BIFROST_ADMIN_PASSWORD || randomToken(32),
+    };
+    for (const { id } of rendered.governance.virtual_keys) {
+      const key = readSecret(virtualKeyPath(id)) || makeVirtualKey();
+      if (!/^sk-bf-[A-Za-z0-9_-]{43}$/.test(key)) throw Error('Unexpected existing built-in role credential.');
+      generated[roleEnvName(id)] = key;
+      writePrivate(virtualKeyPath(id), `${key}\n`);
     }
-
-    if (validated.engine === 'litellm') {
-      writePrivate(liteLLMConfigPath(), renderLiteLLMConfig(router, { upstreams: names }));
-    } else {
-      const rendered = renderBifrostConfig(router, { upstreams: names });
-      writePrivate(bifrostConfigPath(), `${JSON.stringify(rendered, null, 2)}\n`);
-    }
+    writePrivate(bifrostConfigPath(), `${JSON.stringify(rendered, null, 2)}\n`);
     writePrivate(routerEnvPath(), renderRouterEnv({ upstreamKeys: values, generated }));
     updateComposeProfile(true);
+    return status();
+  }
 
+  async function enableBuiltin() {
+    prepareBuiltin();
+    if (typeof exec !== 'function') throw Error('Router configuration prepared; host launch requires an explicit operator command.');
     try {
-      await exec('docker', ['compose', '--profile', 'router', 'up', '-d', 'router'], {
+      await exec('docker', composeArgs('up', '-d', 'router'), {
         cwd: runtimeDir,
-        env: composeEnv(validated.image),
+        env: composeEnv(),
       });
-    } catch (error) {
-      const message = redact(error?.message || 'Router start failed.');
+    } catch {
       state.lastError = 'start_failed';
-      safeLog(`router start failed: ${message}`);
-      throw Error(message);
+      safeLog('Router start failed.');
+      throw Error('Router start failed.');
     }
 
     const health = await waitForBuiltinHealth();
@@ -416,23 +409,22 @@ export function createRouterSupervisor({
     state.health = 'healthy';
     state.startedAt = now();
     state.lastError = null;
-    issueVirtualKeys();
     safeLog('router enabled');
     return status();
   }
 
   async function enable() {
     const validated = validate();
-    if (state.running) return status();
+    if (validated.mode === 'external' && fs.existsSync(routerEnvPath())) throw Error('Disable the prepared built-in router before switching to external.');
+    if (state.running && validated.mode === 'builtin') throw Error('Disable the active router before reconfiguration.');
     if (validated.mode === 'external') {
       let probe;
       try {
         probe = await probeExternal();
-      } catch (error) {
-        const message = redact(error?.message || 'External router is unreachable.');
+      } catch {
         state.lastError = 'unreachable';
-        safeLog(`external router health failed: ${message}`);
-        throw Error(message);
+        safeLog('External router health check failed.');
+        throw Error('External router health check failed. Check the endpoint and its key.');
       }
       if (!probe.ok) {
         state.health = 'unhealthy';
@@ -447,7 +439,7 @@ export function createRouterSupervisor({
       safeLog('external router enabled');
       return status();
     }
-    return enableBuiltin(validated);
+    return enableBuiltin();
   }
 
   function markDisabled() {
@@ -465,30 +457,30 @@ export function createRouterSupervisor({
     if (options?.confirm !== true) {
       throw Error('Disabling the router requires confirm: true.');
     }
-    if (modeOf() === 'builtin') {
+    if (fs.existsSync(path.join(routerDir(), 'host-run'))) throw Error('Stop the foreground router before disabling it.');
+    const prepared = fs.existsSync(routerEnvPath());
+    if (typeof exec === 'function' && prepared) {
       try {
-        await exec('docker', ['compose', '--profile', 'router', 'down', 'router'], {
+        await exec('docker', composeArgs('down', 'router'), {
           cwd: runtimeDir,
           env: composeEnv(),
         });
-      } catch (error) {
-        safeLog(`router stop failed: ${redact(error?.message || '')}`);
+      } catch {
+        throw Error('Router stop failed; generated state retained.');
       }
     }
 
-    updateComposeProfile(false);
-    for (const file of [routerEnvPath(), bifrostConfigPath(), liteLLMConfigPath()]) {
-      try { fs.unlinkSync(file); } catch (error) { if (error.code !== 'ENOENT') throw error; }
-    }
-    let names = [];
-    try {
-      names = fs.readdirSync(keysDir());
-    } catch (error) {
-      if (error.code !== 'ENOENT') throw error;
-    }
-    for (const name of names) {
-      if (!VIRTUAL_KEY_FILE.test(name)) continue;
-      try { fs.unlinkSync(path.join(keysDir(), name)); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    if (prepared || modeOf() === 'builtin') {
+      updateComposeProfile(false);
+      for (const file of [routerEnvPath(), bifrostConfigPath(), liteLLMConfigPath()]) {
+        try { fs.unlinkSync(file); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+      }
+      if (fs.existsSync(keysDir())) {
+        if (!fs.lstatSync(keysDir()).isDirectory()) throw Error('Invalid router key directory.');
+        for (const name of fs.readdirSync(keysDir()).filter(name => VIRTUAL_KEY_FILE.test(name))) {
+          fs.unlinkSync(path.join(keysDir(), name));
+        }
+      }
     }
 
     state.running = false;
@@ -501,26 +493,17 @@ export function createRouterSupervisor({
   }
 
   function issueVirtualKeys() {
-    ensureDirs();
-    const issues = [];
-    for (const definition of virtualKeyDefs()) {
-      const role = definition.id;
-      if (!ROLE_ID.test(role)) continue;
-      const file = virtualKeyPath(role);
-      if (!readSecret(file)) writePrivate(file, `${makeVirtualKey()}\n`);
-      issues.push({ role, file: `router-vk-${role}.key`, keySet: true });
-    }
-    return issues;
+    if (validate().mode === 'external') return [];
+    return status().virtualKeys.map(({ role, keySet }) => ({ role, file: `router-vk-${role}.key`, keySet }));
   }
 
   function rotateKey(role) {
+    if (validate().mode !== 'builtin') throw Error('Rotate the external key at the external provider.');
     if (typeof role !== 'string' || !ROLE_ID.test(role)) throw Error('Invalid router role.');
     if (!virtualKeyDefs().some(definition => definition.id === role)) {
       throw Error('Unknown router role.');
     }
-    ensureDirs();
-    writePrivate(virtualKeyPath(role), `${makeVirtualKey()}\n`);
-    return { role, rotated: true };
+    throw Error('Online rotation requires a host launcher to reload and verify the router.');
   }
 
   async function health() {
@@ -540,7 +523,7 @@ export function createRouterSupervisor({
   function status() {
     let definitions = [];
     try {
-      definitions = virtualKeyDefs();
+      definitions = modeOf() === 'external' ? [] : virtualKeyDefs();
     } catch {
       definitions = [];
     }
@@ -554,8 +537,8 @@ export function createRouterSupervisor({
       enabled: state.running,
       configured: routerConfig().enabled === true,
       mode: modeOf(),
-      engine: engineOf(),
-      image: imageFor(),
+      engine: modeOf() === 'external' ? null : engineOf(),
+      image: modeOf() === 'external' ? null : imageFor(),
       bind: routerConfig().bind === 'loopback' ? 'loopback' : 'internal',
       port: routerPort(),
       health: state.running ? state.health : 'disabled',
@@ -573,6 +556,7 @@ export function createRouterSupervisor({
   }
 
   function toRegistryEntries() {
+    if (!routerConfig().enabled) return [];
     const external = modeOf() === 'external';
     const base = external
       ? sanitizeExternalBase(routerConfig().external?.baseUrl)
@@ -582,6 +566,7 @@ export function createRouterSupervisor({
     const entries = [];
     for (const [id, role] of Object.entries(rolesConfig())) {
       if (!role || role.provider !== 'router') continue;
+      if (!external && !roleFileBound(runtimeDir, routerConfig(), id, role)) continue;
       const model = typeof role.model === 'string' ? role.model.trim() : '';
       if (!model) continue;
       entries.push({
@@ -592,23 +577,11 @@ export function createRouterSupervisor({
         model,
       });
     }
-    if (!entries.length) {
-      for (const definition of virtualKeyDefs()) {
-        const model = Array.isArray(definition.allowed_models) ? definition.allowed_models[0] : '';
-        if (!model || model === '*') continue;
-        entries.push({
-          id: definition.id,
-          kind: 'openai-compatible',
-          baseUrl: base,
-          apiKeyFile: apiKeyFile(definition.id),
-          model,
-        });
-      }
-    }
     return entries;
   }
 
   return {
+    prepareBuiltin,
     enable,
     disable,
     status,

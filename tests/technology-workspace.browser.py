@@ -255,7 +255,7 @@ window.__technologyCspViolations.push({uri:event.blockedURI,directive:event.effe
         try:
             page.goto(f['origin'] + ('/?renderer=docking' if args.renderer == 'docking' else '/'), wait_until='networkidle')
             if args.renderer == 'docking':
-                page.wait_for_function("document.documentElement.dataset.dockingRenderer==='docking'")
+                expect(page.locator('html')).to_have_attribute('data-docking-renderer', 'docking', timeout=30000)
             unlock()
             # Authenticate the real owner routes, including bad JSON and unknown fields.
             for route, action in ROUTES.items():
@@ -440,12 +440,17 @@ return hit===node&&hit.matches('canvas.interactive');}''', point), ('Pointer mis
                 copilot.get_by_label('Start / navigation URL').fill(f['gateway_origin'] + '/counter')
                 copilot.get_by_role('button', name='Start disposable browser', exact=True).click()
                 expect(copilot.locator('.bc-snapshot')).to_contain_text('Synthetic browser target', timeout=30000)
+                # Opening renders the snapshot before it finishes selecting the exact target.
+                expect(copilot.get_by_label('Exact target', exact=True)).to_have_value(re.compile('.+'))
                 copilot.get_by_label('Action', exact=True).select_option('click')
                 options = copilot.get_by_label('Snapshot control reference').locator('option')
                 ref = next(o.get_attribute('value') for o in options.all() if 'Increment' in o.inner_text())
                 copilot.get_by_label('Snapshot control reference').select_option(ref)
                 copilot.get_by_role('button', name='Preview action', exact=True).click()
                 expect(copilot.locator('.bc-preview')).to_contain_text('Review exact action', timeout=15000)
+                # Proposal text precedes the asynchronous evidence read. Until the
+                # reviewed screenshot is rendered, the UI rejects a second action as busy.
+                expect(copilot.get_by_role('img', name='Preview / before screenshot of exact target')).to_be_visible(timeout=15000)
                 copilot.get_by_role('button', name='Execute reviewed action once', exact=True).click()
                 expect(copilot.locator('.bc-snapshot')).to_contain_text('Clicked exactly once', timeout=15000)
                 expect(copilot.locator('.bc-evidence img')).to_have_count(2)

@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -8,7 +9,7 @@ import {applyCandidateChanges,candidateHash,createCandidate,previewCandidate,rea
 
 const sha=bytes=>createHash('sha256').update(bytes).digest('hex');
 function fixture(t){
-  const base=fs.mkdtempSync('/tmp/opencode/candidate-changes-');
+  const base=fs.mkdtempSync(scratchPath('candidate-changes-'));
   const projectRoot=path.join(base,'project'),runtime=path.join(base,'runtime');
   fs.mkdirSync(projectRoot);fs.mkdirSync(runtime);
   fs.writeFileSync(path.join(projectRoot,'keep.txt'),'old');

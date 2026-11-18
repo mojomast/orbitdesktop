@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -29,7 +30,7 @@ test('deployed verifier refuses export after a reviewed, passing real RouteTok d
   assert.equal(change.path,'src/net-address.ts');
   assert.equal(sha(original),change.old_hash);
 
-  const root=fs.mkdtempSync('/tmp/opencode/orbit-export-repro-');
+  const root=fs.mkdtempSync(scratchPath('orbit-export-repro-'));
   t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
   const repairRoot=path.join(root,'repair');
   fs.mkdirSync(path.join(repairRoot,'src'),{recursive:true});

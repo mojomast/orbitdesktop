@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 // Independent moving-target regression for the merged patch provider. A reviewed,
 // approved patch preview captures the source base; the owner then changes the
 // original project. Exporting the reviewed patch must refuse (the target moved) and
@@ -18,7 +19,7 @@ import {initial} from '../src/model.ts';
 import {commandIdentity} from '../server/command-identity.mjs';
 
 function fixture(t){
-  const root=fs.mkdtempSync('/tmp/opencode/workbench-moving-'),projectRoot=path.join(root,'source');fs.mkdirSync(projectRoot);
+  const root=fs.mkdtempSync(scratchPath('workbench-moving-')),projectRoot=path.join(root,'source');fs.mkdirSync(projectRoot);
   fs.writeFileSync(path.join(projectRoot,'.gitignore'),'math.js\n');
   fs.writeFileSync(path.join(projectRoot,'.gitattributes'),'*.js -diff\n');
   fs.writeFileSync(path.join(projectRoot,'math.js'),'export const sum = (a,b) => a - b;\n');

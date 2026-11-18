@@ -171,6 +171,13 @@ test('config and register validate ids, marks, capabilities, kinds and shapes', 
   assertInvalid(() => registry.register(definition({ id: 'Not Valid' })));
 });
 
+test('registry admits two explicit adapter kinds without code change', () => {
+  const config = ['adapter-one', 'adapter-two'].map(kind => definition({ id: kind, kind }));
+  const registry = createAgentRegistry({ builtins: [], config, env: {} });
+  assert.deepEqual(registry.list().map(({kind}) => kind), ['adapter-one', 'adapter-two']);
+  assert.equal(registry.describe('missing').configured, false);
+});
+
 test('inline secrets are refused; environment names and key-file names are allowed', () => {
   const secret = 'sk-live-secret-super-private';
   for (const key of ['apiKey', 'token', 'secret', 'password', 'key', 'api_key']) {

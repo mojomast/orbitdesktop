@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -24,7 +25,7 @@ function findPaneUrl(state, url) {
 }
 
 function fixture(t) {
-  const root = fs.mkdtempSync('/tmp/opencode/project-tools-');
+  const root = fs.mkdtempSync(scratchPath('project-tools-'));
   const store = new SqliteWorkspaceStore(path.join(root, 'runtime'));
   const workspace_id = randomUUID();
   store.commit(commandIdentity({workspace_id, action: 'sync', base_revision: 0, state: initial(), operation_id: randomUUID()}, 'owner'), {

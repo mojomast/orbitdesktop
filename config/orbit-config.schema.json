@@ -49,6 +49,27 @@
     "router": {
       "$ref": "#/$defs/router"
     },
+    "observability": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Owner's local repository review list. Empty for new installs; saving it does not start monitoring.",
+      "default": {
+        "repos": []
+      },
+      "properties": {
+        "repos": {
+          "type": "array",
+          "default": [],
+          "maxItems": 50,
+          "uniqueItems": true,
+          "description": "Repository names (owner/name) saved for local review. De-duplicated case-insensitively.",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9-]{0,38}/(?!\\.{1,2}$)[A-Za-z0-9._-]{1,100}$"
+          }
+        }
+      }
+    },
     "appliedAt": {
       "type": "string",
       "format": "date-time"

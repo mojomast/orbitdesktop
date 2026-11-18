@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -7,7 +8,7 @@ import {previewWorktree,revalidateWorktree} from '../server/workbench-worktrees.
 import {openProjectRoot,captureProject,repositorySnapshot} from '../server/project-files.mjs';
 
 function fixture(t){
-  const home=fs.mkdtempSync('/tmp/opencode/worktree-fixture-');
+  const home=fs.mkdtempSync(scratchPath('worktree-fixture-'));
   t.after(()=>fs.rmSync(home,{recursive:true,force:true}));
   const main=path.join(home,'main'),root=path.join(home,'linked space 日本語');
   fs.mkdirSync(main);

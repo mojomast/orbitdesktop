@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -20,7 +21,7 @@ import {commandIdentity} from '../server/command-identity.mjs';
 import {initial} from '../src/model.ts';
 
 test('actual tmux observe lease crosses authenticated context capture and preview; invalid authority never does',async t=>{
-  const root=fs.mkdtempSync('/tmp/opencode/comet-lease-boundary-'),socket='comet-'+randomUUID();
+  const root=fs.mkdtempSync(scratchPath('comet-lease-boundary-')),socket='comet-'+randomUUID();
   const env={PATH:'/usr/bin:/bin',HOME:root,TMUX_TMPDIR:root,TERM:'xterm-256color'};
   const exec=promisify(execFile),tmux=(...args)=>exec('/usr/bin/tmux',['-L',socket,'-f','/dev/null',...args],{env,timeout:5000});
   const store=new SqliteWorkspaceStore(path.join(root,'runtime'));

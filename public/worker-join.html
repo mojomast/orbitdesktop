@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; connect-src 'self'; form-action 'none'; base-uri 'none'">
+<title>Orbit · Local worker inventory</title>
+<main>
+  <h1>Local worker inventory</h1>
+  <p>Owner controls · direct loopback. Grant presence, installed-client checks, or data-only synthetic sum briefs.</p>
+  <form id="unlock"><label>Orbit owner token <input type="password" id="token" autocomplete="off" required></label> <button>Load inventory</button></form>
+  <section id="panel" hidden>
+    <button id="lock">Lock inventory</button> <button id="reload">Refresh inventory</button>
+    <h2>Invite one worker</h2>
+    <form id="invite"><label>Label <input maxlength="48" id="label" required pattern="[A-Za-z0-9][A-Za-z0-9 _.\-]{0,47}"></label>
+      <label><input type="checkbox" id="verify"> Allow installed-client digest checks</label>
+      <label><input type="checkbox" id="sum"> Allow synthetic sum briefs</label> <button>Create invitation</button></form>
+    <p>Give the JSON to the intended worker privately. It is a bearer secret, expires in 15 minutes and can be consumed once.</p>
+    <pre id="payload"></pre><button id="hide" hidden>Hide invitation</button>
+    <h2>Workers</h2>
+    <p>Revoke ends access immediately and quarantines open checks and briefs, even if the worker is offline. It does not rotate listener or SSH keys or remove a mesh node.</p>
+    <ul id="workers"></ul><h2>Installed-client checks</h2>
+    <p>A digest match compares the worker's report with the coordinator's pin. It does not attest a remote host.</p><ul id="tasks"></ul>
+    <h2>Synthetic briefs</h2><p>Reported is pending verification. Accepted names the coordinator’s verified wave commit.</p><ul id="briefs"></ul>
+  </section><p role="status" id="status"></p>
+</main><script type="module" src="/worker-join.js"></script></html>

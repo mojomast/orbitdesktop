@@ -395,8 +395,11 @@ def _record_base(*, key, attempt_id, card_id, run_id, project, role, join_comple
                  verify_of, retry_of, ts_start, ts_end, duration_s, queue_s, trace_id,
                  requested_model, served_model, served_model_source, route, route_source,
                  fallback, fallback_reason, http_429_count, retry_count, error_type,
-                 stop_reason, tool_calls, usage, usage_raw, launcher, harness):
+                 stop_reason, tool_calls, usage, usage_raw, launcher, harness,
+                 observed_partial=False):
     status = _usage_status(usage)
+    if status == "unknown" and observed_partial:
+        status = "partial"
     if status == "unknown":
         usage = {name: None for name in usage}
     provider = _provider_for(route)
@@ -447,6 +450,66 @@ def _record_base(*, key, attempt_id, card_id, run_id, project, role, join_comple
     }
     record.update(_usage_fields(usage))
     return record
+
+
+_HYVV_BUCKETS = {
+    "input_tokens": "input", "output_tokens": "output",
+    "cache_read_input_tokens": "cache_read", "cache_write_input_tokens": "cache_write",
+    "reasoning_output_tokens": "reasoning",
+}
+_HYVV_STOP_REASONS = ("end_turn", "max_tokens", "stop_sequence", "tool_use", "tool_calls",
+                      "content_filter", "length", "stop", "error", "timeout", "aborted",
+                      "cancelled", "canceled", "interrupted", "refusal", "unknown", "other")
+
+
+def _hyvv_count(value):
+    # Hyvv emits JSON integers (including reported zero), never numeric strings.
+    return value if type(value) is int and 0 <= value < 1_000_000_000 else None
+
+
+def hyvv_token_counts(block):
+    """Project only counts from the envelope extension, not a provider receipt."""
+    if not isinstance(block, dict):
+        return {}
+    return {key: count for key in (*_HYVV_BUCKETS.values(), "thinking", "total")
+            if (count := _hyvv_count(block.get(key))) is not None}
+
+
+def record_from_hyvv(attempt_id, data, landed_at, block, counts):
+    """Build an observation from Hyvv's scrubbed counts without receipt inference."""
+    card = _safe_text(data.get("task_id"))
+    run = _safe_text(data.get("job_id"))
+    project = _safe_text(data.get("feature_id"))
+    route = block.get("route")
+    if route not in ("go", "zoo", "deepseek"):
+        route = "unknown"  # bee.usage/v1 cannot represent free or agy
+    model = block.get("model")
+    # Accept short model identifiers (including dotted versions), not free text,
+    # paths, addresses or credential-shaped strings. Do not recover a model
+    # Hyvv scrubbed from the extension via the less restricted data.backend.
+    if not (isinstance(model, str) and len(model) <= 128
+            and re.fullmatch(r"(?:zoo:|go:|deepseek:)?[a-z][a-z0-9-]*(?:\.[0-9][a-z0-9-]*)*", model)
+            and not re.search(r"sk-|xox[baprs]-|[a-z0-9-]{32,}", model)):
+        model = None
+    stop = block.get("stop_reason")
+    backend = data.get("backend")
+    harness = backend.get("harness") if isinstance(backend, dict) else None
+    # The wire counts do not say whether cache/thinking are included in I/O
+    # or provide billing evidence. Keep the observations as named; never sum
+    # them, back-solve from total, or price them using receipt assumptions.
+    return _record_base(
+        key=f"attempt:{attempt_id}", attempt_id=attempt_id, card_id=card or "unknown",
+        run_id=run or "unknown", project=project or "unknown", role="work",
+        join_complete=all(v not in (None, "unknown") for v in (attempt_id, card, run, project)),
+        verify_of=None, retry_of=None, ts_start=None, ts_end=_iso_utc(landed_at),
+        duration_s=None, queue_s=None, trace_id=None, requested_model=model, served_model=None,
+        served_model_source=None, route=route, route_source="inferred" if route == "unknown" else "explicit",
+        fallback=None, fallback_reason=None, http_429_count=None, retry_count=None, error_type=None,
+        stop_reason=stop if stop in _HYVV_STOP_REASONS else None, tool_calls=_hyvv_count(block.get("tool_calls")),
+        usage={bucket: counts.get(key) for bucket, key in _HYVV_BUCKETS.items()}, usage_raw=counts,
+        launcher=None, harness=harness if harness in ("opencode", "agy", "check") else None,
+        observed_partial=True,
+    )
 
 
 def _attempt_record(attempt_id, state, result, prices=None):

@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 // Release boundary regressions: recursive manifest integrity over nested values,
 // complete inventory/required/path/mode/symlink verification, real-SQLite schema
 // compatibility, separated-root enforcement and truthful activation/rollback.
@@ -13,7 +14,7 @@ import {ManifestError,assertCompatComplete,buildManifest,canonicalJson,manifestI
 import {PinError,activate,checkCompatibility,currentSchemaVersion,probeReleaseIdentity,readPointer,resolveLaunch,rollback,startRelease,writePointerAtomic} from '../scripts/release_pin.mjs';
 import {assertSeparatedRoots} from '../scripts/release_roots.mjs';
 
-const root=()=>fs.mkdtempSync('/tmp/opencode/orbit-rel-');
+const root=()=>fs.mkdtempSync(scratchPath('orbit-rel-'));
 const write=(target,text,mode)=>{fs.mkdirSync(path.dirname(target),{recursive:true});fs.writeFileSync(target,text);if(mode)fs.chmodSync(target,mode);};
 const sha=value=>createHash('sha256').update(value).digest('hex');
 const CONTRACTS=['workspace-v1.mjs','workbench-v1.mjs','workbench-result-v1.mjs'];

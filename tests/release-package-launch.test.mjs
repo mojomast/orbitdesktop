@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 // Real disposable release packaging + launch instance test.
 // Cheap checks always run: the packaging allowlist excludes credentials and
 // includes the runtime module closure. The heavy instance test (RELEASE_INSTANCE=1)
@@ -31,6 +32,9 @@ test('packaging allowlist excludes credentials and includes the runtime module c
   assert.ok(inputs.some(file=>file.startsWith('contracts/')));
   assert.ok(inputs.some(file=>file.startsWith('scripts/')),'scripts/ is required by the startup guard');
   assert.ok(inputs.includes('package-lock.json'));
+  for(const file of ['apps/rizzstack-rails/index.html','apps/rizzstack-rails/feedback.js','contrib/rails_server/http.py',
+    'contrib/rizzstack_rails/query.py','contrib/rizzstack_rails/LICENSE','skills/setup-agent/SKILL.md',
+    'docker-compose.yml','compose.router.yml','scripts/worker-join/client.mjs','src/onboarding-github.ts'])assert.ok(inputs.includes(file),file);
   assert.ok(inputs.every(file=>!/(^|\/)\.env(\.|$)/.test(file)),'no dotenv files');
   assert.ok(inputs.every(file=>!/\.(pem|key|p12|pfx)$/.test(file)),'no key material');
   assert.ok(inputs.every(file=>!file.startsWith('tests/')),'no test files');
@@ -48,7 +52,7 @@ function freePort(){return new Promise((resolve,reject)=>{const server=net.creat
 
 test('disposable immutable release packages and launches with external deps and pointer isolation',
   {skip:!INSTANCE,timeout:600000},async t=>{
-  const base=fs.mkdtempSync('/tmp/opencode/orbit-release-instance-');
+  const base=fs.mkdtempSync(scratchPath('orbit-release-instance-'));
   const releases=[];
   t.after(()=>{
     for(const {root,manifest} of releases){try{removeOwnedRelease({root,manifest,scratchBase:base});}catch{}}

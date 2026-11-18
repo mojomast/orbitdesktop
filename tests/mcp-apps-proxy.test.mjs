@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
@@ -12,7 +13,7 @@ const root=fileURLToPath(new URL('../',import.meta.url));
 async function port(){const s=net.createServer();s.listen(0,'127.0.0.1');await once(s,'listening');const p=s.address().port;await new Promise(resolve=>s.close(resolve));return p;}
 function proxyGet(url,host){return new Promise((resolve,reject)=>{http.get(url,{headers:{Host:host}},res=>{res.resume();res.on('end',()=>resolve({status:res.statusCode,headers:res.headers}));}).on('error',reject);});}
 test('public MCP proxy origin can use a loopback listener with exact Host and parent CSP',async t=>{
-  const scratch=await fs.mkdtemp('/tmp/opencode/orbit-mcp-proxy-');
+  const scratch=await fs.mkdtemp(scratchPath('orbit-mcp-proxy-'));
   const hostPort=await port(),sandboxPort=await port(),origin=`http://127.0.0.1:${hostPort}`;
   const sandboxOrigin='https://sandbox.example:8804',token='synthetic-proxy-token-not-a-secret-12345';
   const child=spawn(process.execPath,['--experimental-strip-types',path.join(root,'server/index.mjs')],{cwd:root,env:{PATH:process.env.PATH,HOME:scratch,PORT:String(hostPort),ORBIT_RUNTIME_DIR:path.join(scratch,'runtime'),ORBIT_CWD:scratch,ORBIT_TOKEN:token,ORBIT_MCP_APPS:'1',ORBIT_MCP_APPS_SANDBOX_PORT:String(sandboxPort),ORBIT_MCP_APPS_SANDBOX_ORIGIN:sandboxOrigin,ORBIT_PUBLIC_ORIGIN:'https://host.example:8803'},stdio:'ignore'});

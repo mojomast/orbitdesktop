@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -16,7 +17,7 @@ const reply=(res,status,body)=>{res.writeHead(status,{'Content-Type':'applicatio
 const listen=s=>new Promise(resolve=>s.listen(0,'127.0.0.1',resolve));
 const close=s=>new Promise(resolve=>{s.close(resolve);s.closeAllConnections();});
 export async function normalFixture(t){
-  const root=fs.mkdtempSync('/tmp/opencode/normal-res-'),runs=new Map(),submissions=[];let counter=0,runReadHook=async()=>{};
+  const root=fs.mkdtempSync(scratchPath('normal-res-')),runs=new Map(),submissions=[];let counter=0,runReadHook=async()=>{};
   const gateway=http.createServer(async(req,res)=>{
     let raw='';for await(const chunk of req)raw+=chunk;
     const url=req.url.replace(/^\/other/,'');const profile=req.url.startsWith('/other')?'other':'default';

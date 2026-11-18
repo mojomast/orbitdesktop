@@ -205,11 +205,12 @@ async function readAcceptanceReport(stateDir, contractId) {
   let reportStat;
   try {
     reportStat = await lstat(path);
-  } catch {
-    return { present: false, report: null, unreadable: false };
+  } catch (error) {
+    if (isMissing(error)) return { present: false, report: null, unreadable: false };
+    return { present: true, report: null, unreadable: true };
   }
   if (!reportStat.isFile() || reportStat.size > MAX_REPORT_BYTES) {
-    return { present: false, report: null, unreadable: false };
+    return { present: true, report: null, unreadable: true };
   }
 
   let parsed;
@@ -229,7 +230,7 @@ function skippedRecordReasons(skipped) {
     .map(entry => ({ reason: entry.reason === 'invalid_json' ? 'unreadable' : entry.reason }));
 }
 
-async function readContractView(stateDir, contractId) {
+async function readContractView(stateDir, contractId, pinnedSha) {
   const evidenceExists = await evidenceDirState(stateDir, contractId);
   let records = [];
   let skipped = [];
@@ -241,7 +242,9 @@ async function readContractView(stateDir, contractId) {
 
   const leases = await loadLeaseContracts(stateDir);
   const matches = leases.filter(match => match.contract.id === contractId);
-  const contract = selectContract(matches, newestEvidenceSha(records));
+  const contract = pinnedSha
+    ? matches.find(match => match.contract.review?.contract_sha256 === pinnedSha)?.contract
+    : selectContract(matches, newestEvidenceSha(records));
 
   if (!evidenceExists && !contract) {
     return { status: 404, payload: { error: 'unknown contract' } };
@@ -300,7 +303,9 @@ export function createAcddEvidenceRoute({ stateDir, authorize } = {}) {
         if (!CONTRACT_ID_RE.test(contractId)) {
           return send(res, 400, { error: 'invalid contract id' }, headOnly);
         }
-        const result = await readContractView(stateDir, contractId);
+        const pinnedSha = url.searchParams.get('sha');
+        if (pinnedSha !== null && !/^[a-f0-9]{64}$/.test(pinnedSha)) return send(res, 400, { error: 'invalid contract revision' }, headOnly);
+        const result = await readContractView(stateDir, contractId, pinnedSha);
         return send(res, result.status, result.payload, headOnly);
       }
 

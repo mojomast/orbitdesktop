@@ -20,6 +20,8 @@ export const FAILURE_TEXT = Object.freeze({
   refactor_failed: 'The refactor verification did not pass.',
   integration_failed: 'The integration verification did not pass.',
   review_failed: 'The independent review did not pass.',
+  security_failed: 'The security verification did not pass.',
+  evidence_invalid: 'The evidence record is invalid.',
   evidence_tampered: 'The evidence record failed its integrity check.',
   unrun: 'This required check has not run yet.',
 });
@@ -287,13 +289,13 @@ export function parseEvidence(obj) {
   if (!phase) throw fail('evidence_invalid', 'Evidence record needs a phase.', 'missing_fields');
   const classification = text(obj.classification).trim();
   if (!classification) throw fail('evidence_invalid', 'Evidence record needs a classification.', 'missing_fields');
-  const contractSha256 = text(obj.contract_sha256).trim();
+  const contractSha256 = text(obj.contract_sha256);
   if (!contractSha256) throw fail('evidence_invalid', 'Evidence record needs a contract_sha256.', 'missing_fields');
 
   const producedBy = obj.produced_by && typeof obj.produced_by === 'object' && !Array.isArray(obj.produced_by)
     ? obj.produced_by
     : {};
-  const producedByRole = text(producedBy.role).trim();
+  const producedByRole = text(producedBy.role);
   if (!producedByRole) throw fail('evidence_invalid', 'Evidence record needs a produced_by.role.', 'missing_fields');
 
   const revision = text(obj.revision);
@@ -322,7 +324,7 @@ function recordOk(record) {
 }
 
 function phaseResult(phase, record) {
-  if (!record) return 'unrun';
+  if (!record || ['not_run', 'unrun'].includes(record.classification)) return 'unrun';
   if (phase === 'red') {
     return record.classification === 'behavioral_failure' ? 'valid' : 'red_invalid';
   }
@@ -393,7 +395,7 @@ export function buildEvidenceView(contract, records = [], report = null, options
     };
   }
 
-  const notes = [];
+  const notes = ['These records describe past runs. No current code head is selected.'];
   const failures = [];
   const seenFailures = new Set();
   const addFailure = code => {
@@ -487,9 +489,16 @@ export function buildEvidenceView(contract, records = [], report = null, options
       notes.push(redact(`Only verifier output is authoritative; ignored the ${record.phase} record ${index + 1}.`));
       return;
     }
-    if (parsedContract.sha256 === null || record.contractSha256 !== parsedContract.sha256) {
+    if (!parsedContract.frozen || record.contractSha256 !== parsedContract.sha256 || raw.contract_id !== contract.id) {
       recordResults.push({ index, phase: record.phase, status: 'rejected', reason: 'stale_contract' });
       addFailure('stale_revision');
+      return;
+    }
+    // Only a signed, full Git object ID identifies the commit tested. Neither
+    // the contract's baseline nor a short display prefix can substitute.
+    if (!/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(record.revision)) {
+      recordResults.push({ index, phase: record.phase, status: 'rejected', reason: 'invalid_revision' });
+      addFailure('evidence_invalid');
       return;
     }
     recordResults.push({ index, phase: record.phase, status: 'verified', reason: 'signature_verified' });
@@ -510,6 +519,8 @@ export function buildEvidenceView(contract, records = [], report = null, options
   const timeline = counted.map(record => ({
     phase: record.phase,
     classification: record.classification,
+    result: phaseResult(record.phase, record),
+    revision: record.revision,
     shortRev: record.shortRev,
     at: record.at,
     by: record.by,
@@ -578,10 +589,10 @@ export function buildEvidenceView(contract, records = [], report = null, options
   ));
 
   let verificationState;
-  if (allRecordsInvalid) verificationState = 'invalid';
+  if (verificationAvailable && (hasRejectedRecord || reportRejected)) verificationState = 'rejected';
+  else if (allRecordsInvalid) verificationState = 'invalid';
   else if (!verificationAvailable) verificationState = 'unverified';
   else if (recordResults.length === 0) verificationState = 'unverified';
-  else if (hasRejectedRecord || reportRejected) verificationState = 'rejected';
   else if (!trustedReport || trustedReport.accepted !== true || !requiredPhasesVerified) verificationState = 'incomplete';
   else verificationState = 'verified';
 
@@ -593,6 +604,7 @@ export function buildEvidenceView(contract, records = [], report = null, options
 
   return {
     contractId: parsedContract.id,
+    contractSha256: parsedContract.sha256,
     title: parsedContract.title,
     shortSha: parsedContract.shortSha,
     frozen: parsedContract.frozen,
@@ -611,14 +623,25 @@ export function buildEvidenceView(contract, records = [], report = null, options
 
 export function toActivityItems(view) {
   const items = [];
+  const stateFor = result => result === 'valid' ? 'done' : result === 'unrun' ? 'pending' : 'error';
+  const recorded = new Map();
+  for (const [index, row] of view.timeline.entries()) {
+    recorded.set(row.phase, row.result);
+    items.push({ kind: 'acdd', id: `${view.contractId}:record:${index}`, title: `ACDD ${row.phase}`, state: stateFor(row.result), text: `${row.phase}: ${row.result} (${row.classification}) at ${row.revision}`, at: row.at });
+  }
   for (const [phase, result] of Object.entries(view.phases ?? {})) {
-    const state = result === 'valid' ? 'done' : result === 'unrun' ? 'pending' : 'error';
+    if (recorded.get(phase) === result || (!recorded.has(phase) && result === 'valid')) continue;
+    const state = stateFor(result);
     const text = result === 'valid'
       ? `${phase}: valid`
       : result === 'unrun'
-        ? `${phase}: not run`
+        ? `${phase}: unrun (not run)`
         : `${phase}: ${result} - ${failureText(result)}`;
     items.push({ kind: 'acdd', id: `${view.contractId}:${phase}`, title: `ACDD ${phase}`, state, text });
+  }
+  for (const failure of view.failures) {
+    if (Object.values(view.phases).includes(failure.code)) continue;
+    items.push({ kind: 'acdd', id: `${view.contractId}:failure:${failure.code}`, title: 'ACDD verification', state: 'error', text: `${failure.code}: ${failure.text}` });
   }
   items.push({
     kind: 'acdd',

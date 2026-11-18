@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 // Isolated permission-safety regression for release packaging. Uses only Node
 // builtins and a PRIVATE synthetic dependency tree under scratch: a shared external
 // result must never be chmodded through a symlink or hardlink, unsafe relative paths
@@ -9,7 +10,7 @@ import path from 'node:path';
 import {OWNED_MARKER,PermissionSafetyError,applyReadOnlyOwnedFiles,lockOwnedDirectories,removeOwnedRelease,safeRelative} from '../scripts/release_package.mjs';
 
 const mode=target=>fs.statSync(target).mode&0o777;
-const scratch=()=>fs.mkdtempSync('/tmp/opencode/orbit-perm-');
+const scratch=()=>fs.mkdtempSync(scratchPath('orbit-perm-'));
 function syntheticExternal(base){
   const ext=path.join(base,'external-deps');fs.mkdirSync(ext,{mode:0o700});
   const file=path.join(ext,'dep.js');fs.writeFileSync(file,'dep',{mode:0o600});

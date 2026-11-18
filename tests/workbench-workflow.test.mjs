@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -16,7 +17,7 @@ import {Readable} from 'node:stream';
 import {createWorkspaceService} from '../server/workspace.mjs';
 
 function fixture(t){
-  const root=fs.mkdtempSync('/tmp/opencode/workbench-workflow-'),projectRoot=path.join(root,'source');fs.mkdirSync(projectRoot);
+  const root=fs.mkdtempSync(scratchPath('workbench-workflow-')),projectRoot=path.join(root,'source');fs.mkdirSync(projectRoot);
   fs.writeFileSync(path.join(projectRoot,'math.js'),'export const sum = (a,b) => a - b;\n');
   const store=new SqliteWorkspaceStore(path.join(root,'runtime')),workspace_id=randomUUID();
   store.commit(commandIdentity({workspace_id,action:'sync',base_revision:0,state:initial(),operation_id:randomUUID()},'owner'),{create:()=>({id:workspace_id,revision:1,state:initial(),capability:randomUUID()})});

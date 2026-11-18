@@ -293,7 +293,8 @@ export function breadcrumbPath(laneId, index) {
 export function outcomeClass(outcome) {
   if (outcome === null || outcome === undefined || outcome === '') return 'unknown';
   const normalized = String(outcome).toLowerCase();
-  if (normalized === 'red' || normalized.startsWith('red')) return 'red';
+  if (normalized === 'expected_red' || normalized === 'red' || normalized.startsWith('red')) return 'red';
+  if (normalized === 'not_run') return 'unrun';
   if (/(fail|error|timeout|crash|abort)/.test(normalized)) return 'failure';
   if (/(pass|ok|success|green|done|complete)/.test(normalized)) return 'ok';
   return 'other';

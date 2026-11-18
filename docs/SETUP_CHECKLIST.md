@@ -57,12 +57,13 @@ supervisor. The setup agent never starts the router on its own.
 - **External router:** if `router.mode` is `external`, point router-backed agents
   at the external base URL from the config view. Nothing runs locally.
   - Verify: `curl -fsS <external-base-url>/models`
-- **Built-in router:** wait for the wizard or Settings to report it healthy.
-  - Verify: `curl -fsS http://127.0.0.1:8080/v1/models`
+- **Built-in router:** setup prepares private Bifrost files. A prepared profile
+  does not establish that a router is running, reachable or enforcing limits.
+  See [router availability](ROUTER.md) before claiming an installation.
 
 ### Per-role virtual keys
 
-Give each role its own virtual key, for example `setup`, `chat`, `workers` and
+For built-in configuration, give each role its own virtual key, for example `setup`, `chat`, `workers` and
 `summarize`. Orbit generates the key, stores it as a `0600` file under the
 runtime key directory, injects the matching key into that role, and shows only
 masked status. Never paste a virtual key into chat or a tracked file.
@@ -70,34 +71,12 @@ masked status. Never paste a virtual key into chat or a tracked file.
 OpenCode free models stay direct to OpenCode. They cannot be fronted by the
 router; only paid or self-hosted OpenCode endpoints can use the router base URL.
 
-## Local LiteLLM proxy (documented, advanced, opt-in)
+## LiteLLM (Advanced)
 
-Only follow this section when `components.litellmLocal` is explicitly true. It is
-not the default and it is not started automatically. The setup agent asks first,
-shows these commands, and never asks for a key in chat.
-
-1. Bind only to loopback.
-2. Render `runtime/router/litellm.yaml` from the chosen upstream providers. Keys
-   must be references such as `os.environ/OPENAI_API_KEY`, loaded from `0600`
-   key files under the runtime key directory. Never inline an upstream key.
-3. Generate a master key into a `0600` file under `runtime/router` and load it
-   from the environment. Never put the value on a command line.
-4. Start one of these paths:
-
-   ```sh
-   docker compose --profile router up -d router
-   ```
-
-   or:
-
-   ```sh
-   pipx install 'litellm[proxy]'
-   litellm --config <runtime>/router/litellm.yaml --host 127.0.0.1 --port 4000
-   ```
-
-5. Set `providerMode` to `router` and the base URL to
-   `http://127.0.0.1:4000/v1` in the wizard.
-6. Verify: `curl -fsS http://127.0.0.1:4000/health`
+Orbit records a reviewed image digest. The separate operator issuer requires
+an existing database-backed proxy, protected management socket and explicit
+approval of one role policy. See [ROUTER.md](ROUTER.md). Do not install a proxy for the owner.
+An already-operated LiteLLM endpoint can use External mode.
 
 ## Finish
 

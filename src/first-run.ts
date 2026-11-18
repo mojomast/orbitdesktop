@@ -53,7 +53,8 @@ export async function openSetupWizard(token: TokenSource): Promise<void> {
   const { overlay, body } = shell('Orbit setup', () => { try { sessionStorage.setItem(SKIP_KEY, '1'); } catch { /* storage optional */ } handle?.close(); dismiss(); });
   document.body.append(overlay);
   open = overlay;
-  handle = mountOnboarding(body, await onboardingApi(token));
+  const { createGithubApi } = await import('./onboarding-github');
+  handle = mountOnboarding(body, await onboardingApi(token), createGithubApi({ basePath: '/api/onboarding', getToken: token }));
 }
 
 /** Open Settings (components, providers and keys, models per role, router). */
@@ -64,7 +65,8 @@ export async function openSetupSettings(token: TokenSource): Promise<void> {
   const { overlay, body } = shell('Orbit settings', () => { handle?.close(); dismiss(); });
   document.body.append(overlay);
   open = overlay;
-  handle = mountSettings(body, await onboardingApi(token));
+  const { createGithubApi } = await import('./onboarding-github');
+  handle = mountSettings(body, await onboardingApi(token), createGithubApi({ basePath: '/api/settings', getToken: token }));
 }
 
 /** Open the SSH hosts manager. */

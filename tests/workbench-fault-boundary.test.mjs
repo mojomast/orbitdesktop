@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 // Cross-boundary fault regressions. These do not call a model: they prove the
 // deterministic boundaries that make a model's claims and actions non-authoritative.
 // They must stay green as Sol/Luna add the result channel.
@@ -22,7 +23,7 @@ const WRONG='export const sum = (a,b) => a - b;\n',RIGHT='export const sum = (a,
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
 
 function fixture(t,adapter={}){
-  const root=fs.mkdtempSync('/tmp/opencode/wfb-'),projectRoot=path.join(root,'project');
+  const root=fs.mkdtempSync(scratchPath('wfb-')),projectRoot=path.join(root,'project');
   fs.mkdirSync(projectRoot);fs.writeFileSync(path.join(projectRoot,'math.js'),WRONG);
   const store=new SqliteWorkspaceStore(path.join(root,'r')),workspace_id=randomUUID(),pane_id=randomUUID();
   store.commit(commandIdentity({workspace_id,action:'sync',base_revision:0,state:initial(),operation_id:randomUUID(),intent:'Fault fixture'},'owner'),{create:()=>({id:workspace_id,revision:1,state:initial(),capability:randomUUID(),api:'http://127.0.0.1:4318'})});

@@ -178,22 +178,15 @@ test('router mode points agents at the configured router and role models', () =>
   assert.doesNotMatch(builtinPrompt, /pipx install 'litellm\[proxy\]'/);
 });
 
-test('local LiteLLM is installed only when components.litellmLocal is true', () => {
+test('legacy local LiteLLM input does not authorize a package or container install', () => {
   const on = config({
     providerMode: 'router',
     components: { core: true, pi: false, opencode: false, hermes: false, bundlebees: false, workers: false, colab: false, apps: false, router: true, litellmLocal: true },
     router: { enabled: true, mode: 'builtin', engine: 'litellm', port: 4000 },
   });
   const onPrompt = setupAgentPrompt({ agentLabel: 'Pi', config: on });
-  assert.match(onPrompt, /docker compose --profile router up -d router/);
-  assert.match(onPrompt, /pipx install 'litellm\[proxy\]'/);
-  assert.match(onPrompt, /litellm --config/);
-  assert.match(onPrompt, /127\.0\.0\.1/);
-  assert.match(onPrompt, /4000/);
-  assert.match(onPrompt, /os\.environ\//);
-  assert.match(onPrompt, /0600/);
-  assert.match(onPrompt, /master key/i);
-  assert.ok(setupChecklist(on).some((step) => step.id === 'litellmLocal'));
+  assert.doesNotMatch(onPrompt, /docker compose --profile router up|pipx install|litellm --config/);
+  assert.ok(!setupChecklist(on).some((step) => step.id === 'litellmLocal'));
 
   const off = config({
     components: { core: true, pi: true, opencode: false, hermes: false, bundlebees: true, workers: true, colab: false, apps: false, router: false, litellmLocal: false },
@@ -218,6 +211,6 @@ test('skill and checklist documents mirror the setup plan', () => {
     assertNoPrivateBits(text);
   }
   assert.match(checklist, /OpenCode free models stay direct/i);
-  assert.match(checklist, /os\.environ\//);
+  assert.match(checklist, /digest/i);
   assert.match(checklist, /0600/);
 });

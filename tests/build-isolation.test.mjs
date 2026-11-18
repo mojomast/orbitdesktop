@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 // Structural build-guard regressions: the default build is isolated, nothing is
 // created before the guard passes, the source served dist and configured runtime
 // roots are protected without any manual protect list, and --allow-source-dist is
@@ -10,7 +11,7 @@ import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {BuildGuardError,guardDestination,planBuild,resolveDestination,runBuild} from '../scripts/isolated_build.mjs';
 
-const root=()=>fs.mkdtempSync('/tmp/opencode/orbit-build-');
+const root=()=>fs.mkdtempSync(scratchPath('orbit-build-'));
 const write=(target,text)=>{fs.mkdirSync(path.dirname(target),{recursive:true});fs.writeFileSync(target,text);};
 const script=fileURLToPath(new URL('../scripts/isolated_build.mjs',import.meta.url));
 

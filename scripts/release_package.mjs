@@ -23,6 +23,8 @@ export const RELEASE_DIRS=Object.freeze(['server','contracts','src','scripts','p
 export const RELEASE_FILES=Object.freeze(['index.html','package.json','package-lock.json','tsconfig.json','vite.config.js','AGENTS.md']);
 const EXCLUDE=Object.freeze(['server/mobile-proxy.mjs','hermes-plugin/orbit-source.tar.gz']);
 const SECRET=/^(?:.*\/)?\.env(?:\..*)?$|\.(?:pem|key|p12|pfx)$/;
+const portable=JSON.parse(fs.readFileSync(new URL('./portable-product.json',import.meta.url),'utf8'));
+const required=new Set(portable.required);
 const sha256=value=>createHash('sha256').update(value).digest('hex');
 
 export class PermissionSafetyError extends Error{
@@ -36,20 +38,34 @@ export function protectedRootsFromEnv(env=process.env){
   return roots.map(root=>path.resolve(root));
 }
 
-// Only git-tracked (cached) inputs are eligible; untracked and ignored files are
-// never copied. The manifest binds the actual copied bytes, so a dirty tracked file
-// is bound by digest rather than claimed as a clean commit.
+// Git supplies the default input set. The only working-tree additions for a
+// full Orbit checkout are required product members named by the packer itself.
 function candidateFiles(sourceRoot){
   return execFileSync('/usr/bin/git',['-C',sourceRoot,'ls-files','--cached','-z'],{encoding:'utf8',env:{PATH:'/usr/bin:/bin'}}).split('\0').filter(Boolean);
 }
 function allowed(relative){
-  if(EXCLUDE.includes(relative))return false;
-  if(relative.startsWith('docs/images/'))return false;
+  if(!safeRelative(relative)||EXCLUDE.includes(relative)||portable.excluded.includes(relative))return false;
+  if(relative==='.dockerignore')return true;
+  if(/^(?:credentials?|secrets?|tokens?|passwords?|wallet|transcript|auth|id_rsa|id_ed25519)(?:$|[.-])/i.test(path.posix.basename(relative)))return false;
+  if(relative.startsWith('docs/images/')||relative.split('/').some(p=>p.startsWith('.')||['__pycache__','node_modules','runtime','artifacts','evidence','private','secrets','transcripts','screenshots','credentials'].includes(p.toLowerCase())))return false;
+  if(/\.(?:pyc|sqlite3?|db|token|log|bak)(?:-(?:wal|shm))?$/i.test(relative))return false;
   if(SECRET.test(relative))return false;
+  if(required.has(relative))return true;
   if(RELEASE_FILES.includes(relative))return true;
   return RELEASE_DIRS.some(dir=>relative.startsWith(dir+'/'));
 }
-export function releaseInputs({sourceRoot=REPO_ROOT}={}){return candidateFiles(sourceRoot).filter(allowed).sort();}
+export function releaseInputs({sourceRoot=REPO_ROOT}={}){
+  const inputs=new Set(candidateFiles(sourceRoot).filter(allowed));
+  if(fs.existsSync(path.join(sourceRoot,'scripts/portable-product.json'))){
+    for(const relative of required){
+      if(!allowed(relative))throw new Error('Invalid portable product member');
+      // Fail if anything is missing, a symlink, or past a symlink ancestor.
+      assertWithin(sourceRoot,relative);
+      inputs.add(relative);
+    }
+  }
+  return [...inputs].sort();
+}
 
 // --- strict, symlink-safe path handling -----------------------------------
 
@@ -131,11 +147,17 @@ export function lockOwnedDirectories({root,files}){
 
 function copyFile(sourceRoot,relative,root,owned){
   const source=path.join(sourceRoot,relative);
-  if(!fs.existsSync(source))return false;
+  if(!fs.existsSync(source)){
+    if(required.has(relative))throw new Error('Missing required portable product member');
+    return false;
+  }
+  assertWithin(sourceRoot,relative);
   const stat=fs.lstatSync(source);
   if(stat.isSymbolicLink()||!stat.isFile())throw new PermissionSafetyError('unsafe_input',`Release input must be an ordinary file: ${relative}`,{path:relative});
   const target=path.join(root,relative);fs.mkdirSync(path.dirname(target),{recursive:true});
-  fs.copyFileSync(source,target);owned.push(relative.replaceAll('\\','/'));return true;
+  const fd=openStable(source,stat,{directory:false});
+  try{fs.writeFileSync(target,fs.readFileSync(fd),{flag:'wx'});}finally{fs.closeSync(fd);}
+  owned.push(relative.replaceAll('\\','/'));return true;
 }
 function copyTree(source,root,prefix,owned){
   for(const entry of fs.readdirSync(source)){const absolute=path.join(source,entry),relative=path.posix.join(prefix,entry),stat=fs.lstatSync(absolute);

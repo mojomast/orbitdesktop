@@ -1,10 +1,11 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { openKnowledgeStore } from "../server/knowledge-index-store.mjs";
 const ws = "11111111-1111-1111-1111-111111111111";
 test("real sqlite-vec ranks workspace-contained vectors and rejects late deleted/reset writes", () => {
-  const root = fs.mkdtempSync("/tmp/opencode/knowledge-vector-"),
+  const root = fs.mkdtempSync(scratchPath("knowledge-vector-")),
     db = openKnowledgeStore(root);
   try {
     assert.equal(

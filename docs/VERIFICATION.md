@@ -1,5 +1,44 @@
 # Verification record
 
+## Running the offline regression suite
+
+After installing the locked dependencies, run `npm test` for the Orbit and
+vendored IRC suites, or `npm run check` to also verify generated contracts,
+typecheck and build. Use a full-history checkout: migration tests load source
+from specific historical commits. Use Linux with the Node/npm distribution
+(including its paired npm CLI), Python 3, Git, tmux, and the OpenSSH tools for
+the disposable SSH integration. These are test prerequisites, not requirements
+to open the desktop. `node scripts/check-local.mjs preflight` runs a small
+portable-fixture subset without starting the full suite.
+
+The runner creates a private HOME, temp directory, tmux directory and npm
+cache, and passes an allowlist of environment variables. On Linux it uses
+`unshare` and `ip` to create a loopback-only network, or accepts an existing
+loopback-only environment such as a `--network=none` container. It fails if
+this cannot be established. Use a disposable container without host homes or
+service sockets mounted when filesystem isolation is required; a network
+namespace alone does not hide files. Optional integrations use explicitly
+provisioned fixtures (`ORBIT_TEST_PROVISIONED=1`); the ordinary suite does
+not download a model, provider SDK or other project to run them.
+
+### Rehearse the Node quickstart
+
+Inside a fresh loopback-only Linux namespace with port 4318 free, run:
+
+```sh
+node scripts/smoke-node-quickstart.mjs /absolute/local/source-repo /absolute/disposable/npm-cache /absolute/chromium
+```
+
+Use a **committed local mirror of the intended source**, an npm cache seeded
+with its lockfile's tarballs, a matching Node/npm toolchain and Chromium.
+Native addon builds may also need Python, make, a C++ compiler and matching
+Node headers (`npm_config_nodedir`). The cache is writable; don't supply an
+owner's npm cache. The smoke clones the mirror into a new directory, checks
+for an empty working tree and no dependencies, runtime or build, runs `npm ci`
+offline with install scripts, and runs `npm run up`. It uses the printed
+login URL in a fresh browser, configures a model from a loopback fixture and
+checks that Ctrl+C stops Orbit. It removes the disposable checkout and HOME.
+
 ## Agent content verbs and permission requests — October 7, 2026
 
 The owner asked the agent to complete tasks itself rather than instructing the owner

@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -10,7 +11,7 @@ import { applyOperation } from '../src/workspace-ops.ts';
 import { pluginSelector } from '../src/plugins.ts';
 
 function fixture(t){
- const root=fs.mkdtempSync('/tmp/opencode/plugin-instance-policy-'),workspace_id=randomUUID(),store=new SqliteWorkspaceStore(root);
+ const root=fs.mkdtempSync(scratchPath('plugin-instance-policy-')),workspace_id=randomUUID(),store=new SqliteWorkspaceStore(root);
  t.after(()=>{store.close();fs.rmSync(root,{recursive:true,force:true});});
  store.commit(commandIdentity({workspace_id,action:'sync',base_revision:0,operation_id:randomUUID()},'owner'),{create:()=>({id:workspace_id,revision:1,state:initial(),capability:randomUUID()})});
  const studio=createExtensionStudio({store}),call=body=>studio.dispatch({workspace_id,...body});

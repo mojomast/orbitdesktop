@@ -41,7 +41,7 @@ test('Orbit boots with zero agents configured and serves the workspace', async t
   const cwd = path.join(root, 'cwd');
   const bin = path.join(root, 'bin');
   await Promise.all([mkdir(app), mkdir(runtime), mkdir(home), mkdir(cwd), mkdir(bin)]);
-  for (const name of ['server', 'src', 'contracts', 'scripts', 'public', 'docs', 'apps']) {
+  for (const name of ['server', 'src', 'contracts', 'scripts', 'public', 'docs', 'apps', 'packages'].filter(name => fs.existsSync(path.join(repo,name)))) {
     await cp(path.join(repo, name), path.join(app, name), { recursive: true });
   }
   for (const name of ['index.html', 'package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.js']) {
@@ -53,7 +53,10 @@ test('Orbit boots with zero agents configured and serves the workspace', async t
 
   const port = await freePort();
   const token = `orbit-zero-agents-${process.pid}-${'x'.repeat(24)}`;
-  const child = spawn(process.execPath, ['--experimental-strip-types', 'server/index.mjs'], {
+  // Exercise the documented `npm run up` entrypoint with preinstalled
+  // dependencies and a prepared fixture build. No dependency download.
+  assert.equal(JSON.parse(fs.readFileSync(path.join(app, 'package.json'))).scripts.up, 'node scripts/orbit-up.mjs');
+  const child = spawn(process.execPath, ['scripts/orbit-up.mjs'], {
     cwd: app,
     // No agent credentials or discovery hints. PATH points at an empty directory
     // so a host-installed Pi harness is not discovered either.

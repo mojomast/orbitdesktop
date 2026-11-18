@@ -7,7 +7,8 @@ import {createBrowserCopilot} from '../server/browser-copilot.mjs';
 import {createPlaywrightDriver} from '../server/browser-copilot-driver.mjs';
 import {createBrowserCopilotHandler} from '../server/browser-copilot-route.mjs';
 
-const root=await mkdtemp('/tmp/opencode/browser-copilot-browser-');
+import {scratchPath} from './fixtures/scratch.mjs';
+const root=await mkdtemp(scratchPath('browser-copilot-browser-'));
 const token='synthetic-browser-fixture-token';let workspace,copilot,handler;
 const reply=(res,status,data)=>{res.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify(data));};
 const vite=await viteServer({configFile:false,server:{middlewareMode:true,hmr:false},appType:'custom'});

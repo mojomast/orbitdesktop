@@ -34,14 +34,14 @@ function setChildren(el, kids) {
 
 function htmlEl(doc, tag, className, text) {
   const el = doc.createElement(tag);
-  if (className) el.classList.add(className);
+  if (className) el.classList.add(...className.split(' '));
   if (text !== undefined) el.textContent = String(text);
   return el;
 }
 
 function svgEl(doc, tag, className, text) {
   const el = doc.createElementNS(SVG_NS, tag);
-  if (className) el.classList.add(className);
+  if (className) el.classList.add(...className.split(' '));
   if (text !== undefined) el.textContent = String(text);
   return el;
 }
@@ -74,97 +74,6 @@ function collectSubtree(node, out) {
   for (const child of node.children) collectSubtree(child, out);
   return out;
 }
-
-const SAMPLE_VIEW = {
-  schema: RAILS_VIEW_SCHEMA,
-  generated_at: '2026-11-17T08:57:00.000000Z',
-  lanes: [
-    {
-      lane_id: 'sample-root',
-      parent_lane_id: null,
-      status: 'open',
-      source_status: 'live',
-      marks: [
-        {
-          event_id: 'sample-evt-001',
-          kind: 'test.run',
-          occurred_at: '2026-11-17T08:50:00.000000Z',
-          duration_ms: 1200,
-          timing_quality: 'measured',
-          outcome: 'passed',
-          evidence_refs: ['sample-run-1'],
-          ghost: false,
-        },
-        {
-          event_id: 'sample-evt-002',
-          kind: 'test.run',
-          occurred_at: '2026-11-17T08:52:00.000000Z',
-          duration_ms: 900,
-          timing_quality: 'estimated',
-          outcome: 'red',
-          evidence_refs: ['sample-run-2'],
-          ghost: false,
-        },
-        {
-          event_id: 'sample-evt-003',
-          kind: 'build.compile',
-          occurred_at: null,
-          duration_ms: null,
-          timing_quality: 'unknown',
-          outcome: null,
-          evidence_refs: [],
-          ghost: false,
-        },
-      ],
-    },
-    {
-      lane_id: 'sample-child',
-      parent_lane_id: 'sample-root',
-      status: 'closed',
-      source_status: 'stale',
-      marks: [
-        {
-          event_id: 'sample-evt-101',
-          kind: 'deploy.rollout',
-          occurred_at: '2026-11-17T08:54:00.000000Z',
-          duration_ms: 45000,
-          timing_quality: 'measured',
-          outcome: 'failed',
-          evidence_refs: ['sample-run-3'],
-          ghost: false,
-        },
-      ],
-    },
-    {
-      lane_id: 'sample-ghost',
-      parent_lane_id: 'sample-root',
-      status: 'ghost',
-      source_status: 'live',
-      marks: [
-        {
-          event_id: 'sample-evt-201',
-          kind: 'test.run',
-          occurred_at: '2026-11-16T21:00:00.000000Z',
-          duration_ms: null,
-          timing_quality: 'unknown',
-          outcome: null,
-          evidence_refs: [],
-          ghost: true,
-        },
-      ],
-    },
-    {
-      lane_id: 'sample-orphan',
-      parent_lane_id: 'sample-missing',
-      status: 'orphan',
-      source_status: 'unavailable',
-      marks: [],
-    },
-  ],
-  completeness: 'partial',
-  missing_sources: ['sample-missing-source'],
-  integrity: { status: 'ok', checked_through: 'sample-seq-0042' },
-};
 
 export function createObservatory({
   container,
@@ -393,7 +302,7 @@ export function createObservatory({
         if (t > timeMax) timeMax = t;
       }
     }
-    const hasExtent = Number.isFinite(timeMin) && Number.isFinite(timeMax) && timeMax > timeMin;
+    const hasExtent = Number.isFinite(timeMin) && Number.isFinite(timeMax);
     const unknownX = LABEL_W + PAD + TIMELINE_W + 24;
     const isUnknownTime = (mark) =>
       !hasExtent || mark.occurred_at == null || !Number.isFinite(Date.parse(mark.occurred_at));
@@ -423,6 +332,7 @@ export function createObservatory({
       entry.marks.forEach((mark, markIndex) => {
         const rect = svgEl(document, 'rect', 'rail-mark');
         const classes = [`rail-mark--${outcomeClass(mark.outcome)}`];
+        if(mark.kind==='acceptance.result' && mark.outcome==='PASS')classes.push('rail-mark--accepted');
         if (mark.ghost) classes.push('rail-mark--ghost');
         if (isUnknownTime(mark)) classes.push('rail-mark--unknown-time');
         for (const cls of classes) rect.classList.add(cls);
@@ -624,6 +534,7 @@ export function createObservatory({
     },
     destroy() {
       state.destroyed = true;
+      container.removeEventListener?.('keydown', handleKeydown);
       setChildren(container, []);
     },
   });
@@ -636,32 +547,43 @@ export function bootObservatory() {
   const root = document.getElementById('rails-root');
   if (!root) return null;
   const inspectorHost = document.getElementById('rails-inspector') || root;
-  const inspector = createInspector({ container: inspectorHost, document });
-  const app = createObservatory({
-    container: root,
-    view: SAMPLE_VIEW,
-    document,
-    reducedMotion:
-      typeof window !== 'undefined' && typeof window.matchMedia === 'function'
-        ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
-        : false,
-    onSelect: (ctx) => inspector.show({ lane: ctx.lane, mark: ctx.mark, breadcrumbs: ctx.breadcrumbs }),
-  });
-  const tryLoad = () => {
-    if (typeof fetch !== 'function') return;
-    fetch('rails-view.json')
-      .then((response) => {
-        if (!response.ok) throw new Error(`rails-view fetch failed: ${response.status}`);
-        return response.json();
-      })
-      .then((view) => {
-        app.setView(view);
-      })
-      .catch(() => {
-        app.setView(SAMPLE_VIEW);
-      });
+  root.textContent = 'Open Rails in the connected Orbit shell or select Rails beside an Observatory row.';
+  if (window.parent === window) return null;
+  if (location.pathname !== '/rails-pane/index.html') {
+    const open=htmlEl(document,'button','','Open Rails in Orbit');open.type='button';
+    open.onclick=()=>window.parent.postMessage({type:'orbit-open-rails'},location.origin);
+    window.addEventListener('message',event=>{if(event.source===window.parent&&event.origin===location.origin&&event.data?.type==='orbit-rails-closed')open.focus();});
+    root.append(open);return null;
+  }
+  const channel = new MessageChannel();
+  let app, selected, updating=false;
+  const inspector = createInspector({container:inspectorHost, document, onClose:()=>{
+    if(selected)root.querySelector(`[data-event-id="${CSS.escape(selected)}"]`)?.focus();
+    selected=null;if(!updating)channel.port1.postMessage({selected:null});
+  }});
+  const choose = ctx => {selected=ctx.mark.event_id;inspector.show(ctx);channel.port1.postMessage({selected});};
+  channel.port1.onmessage = event => {
+    const view=event.data?.view;
+    if(!view){app?.destroy();app=null;inspector.close();root.textContent='No view loaded.';return;}
+    if(!validateView(view).ok){app?.destroy();app=null;inspector.close();root.textContent='Unsupported or invalid Rails view.';return;}
+    const previous=selected;updating=true;inspector.close();updating=false;
+    if(app)app.setView(view);
+    else app=createObservatory({container:root, view, document, reducedMotion:matchMedia('(prefers-reduced-motion: reduce)').matches, onSelect:choose});
+    const details=htmlEl(document,'details');details.append(htmlEl(document,'summary','','Event table'));
+    const table=htmlEl(document,'table');details.append(table);
+    for(const entry of boundMarksForView(view,CAPS).lanes)for(const mark of entry.marks){
+      const row=table.insertRow(), button=htmlEl(document,'button','',mark.event_id);row.insertCell().append(button);
+      row.insertCell().textContent=entry.lane.lane_id;row.insertCell().textContent=mark.kind;row.insertCell().textContent=mark.outcome??'unknown';
+      button.onclick=()=>choose({mark,lane:entry.lane});
+    }
+    root.append(details);
+    if(previous){const lane=view.lanes.find(lane=>lane.marks.some(m=>m.event_id===previous));
+      if(lane){selected=previous;inspector.show({lane,mark:lane.marks.find(m=>m.event_id===previous),breadcrumbs:breadcrumbPath(lane.lane_id,buildLaneTree(view).byId)});}}
   };
-  if (typeof window !== 'undefined' && window.RAILS_VIEW) app.setView(window.RAILS_VIEW);
-  else tryLoad();
-  return { app, inspector };
+  // Only the trusted parent receives the document-bound port; no URL, secret
+  // or privileged request travels on this channel.
+  window.parent.postMessage({type:'orbit-rails-renderer-ready'},location.origin,[channel.port2]);
+  return {inspector};
 }
+
+bootObservatory();

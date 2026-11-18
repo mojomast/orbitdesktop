@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -6,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 import { SqliteWorkspaceStore } from '../server/sqlite-workspace-store.mjs';
 
 test('owner bundle retention CLI exercises dry-run without deleting a published artifact', t => {
-  const root = fs.mkdtempSync('/tmp/opencode/orbit-retention-cli-');
+  const root = fs.mkdtempSync(scratchPath('orbit-retention-cli-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const runtime = path.join(root, 'runtime'), build = path.join(root, 'build');
   fs.mkdirSync(build); fs.writeFileSync(path.join(build, 'index.html'), '<h1>Disposable retention fixture</h1>');

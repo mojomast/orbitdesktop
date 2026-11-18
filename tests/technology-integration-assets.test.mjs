@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {fileURLToPath} from 'node:url';
@@ -5,7 +6,7 @@ import {createTechnologyAssets} from '../server/technology-assets.mjs';
 const root=fileURLToPath(new URL('../',import.meta.url));
 async function request(pathname,method='HEAD'){
   let status,headers,body;
-  await createTechnologyAssets({root,runtimeRoot:'/tmp/opencode/technology-assets-no-models',securityHeaders:{'X-Content-Type-Options':'nosniff'}}).handle({method},{writeHead(code,h){status=code;headers=h;},end(bytes){body=bytes;}},pathname);
+  await createTechnologyAssets({root,runtimeRoot:scratchPath('technology-assets-no-models'),securityHeaders:{'X-Content-Type-Options':'nosniff'}}).handle({method},{writeHead(code,h){status=code;headers=h;},end(bytes){body=bytes;}},pathname);
   return {status,headers,body};
 }
 test('installed pinned DuckDB EH serves WASM MIME without cross-origin isolation',async()=>{

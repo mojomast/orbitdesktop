@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -7,7 +8,7 @@ import Database from 'better-sqlite3';
 import {bundleSchemaSql,createBundleRegistry} from '../server/bundle-registry.mjs';
 
 function fixture(t) {
-  const root=fs.mkdtempSync('/tmp/opencode/orbit-bundle-registry-');
+  const root=fs.mkdtempSync(scratchPath('orbit-bundle-registry-'));
   const db=new Database(path.join(root,'workspace.sqlite'));
   db.pragma('foreign_keys = ON');
   db.exec(`CREATE TABLE workspaces(id TEXT PRIMARY KEY,revision INTEGER,record_json TEXT);

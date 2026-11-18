@@ -3,6 +3,8 @@
 Orbit (box) coordinates; OpenCode workers execute in Cua sandboxes on **brrrrrrrr** (Windows 11, Docker Desktop, runc).
 The OpenCode Go key lives only on the PC. Orbit holds a per-launcher API token only.
 
+For scoped, same-machine worker presence and installed-client checks without a launcher, see [local pairing and the throwaway rehearsal](WORKER_JOIN.md). Its join-only mode uses a separate credential store and does not dispatch these Cua tasks.
+
 ## Topology
 ```
 Orbit (box, 127.0.0.1:4318) ─ server/local-workers.mjs (ledger, board sync via collab-board API, key stays on box)

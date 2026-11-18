@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 // Fail-closed external dependency resolution: the declared external node_modules
 // root must be the ACTUAL nearest resolution from the physical entry, installed
 // versions must match the release lockfile, and the ABI must match. No NODE_PATH, no
@@ -8,7 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {resolveExternalDependencies} from '../scripts/release_pin.mjs';
 
-const scratch=()=>fs.mkdtempSync('/tmp/opencode/orbit-extdep-');
+const scratch=()=>fs.mkdtempSync(scratchPath('orbit-extdep-'));
 const write=(target,text)=>{fs.mkdirSync(path.dirname(target),{recursive:true});fs.writeFileSync(target,text);};
 function install(root,version){
   write(path.join(root,'dep-a/package.json'),JSON.stringify({name:'dep-a',version,main:'index.js'}));

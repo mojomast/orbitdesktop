@@ -1,0 +1,24 @@
+/* Connect GitHub and Repos to watch. Dark theme only. */
+.orbit-github-step, .orbit-repos-step { display: grid; gap: 12px; color: var(--theme-textColor, #e8edf5); color-scheme: dark; }
+.orbit-github-step h2, .orbit-repos-step h2, .orbit-github-step h3, .orbit-repos-step h3 { margin: 0; font-size: 18px; }
+.orbit-github-lede { margin: 0; color: #c3ccd8; line-height: 1.45; }
+.orbit-github-body { display: grid; gap: 12px; }
+.orbit-github-card { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid #ffffff1f; border-radius: 10px; background: #ffffff08; }
+.orbit-github-hint, .orbit-github-meta { margin: 0; font-size: 12px; color: #9aa6b5; line-height: 1.4; }
+.orbit-github-field { display: grid; gap: 6px; font-size: 13px; color: #c3ccd8; }
+.orbit-github-input { font: inherit; font-size: 13px; padding: 8px 10px; border-radius: 8px; border: 1px solid #ffffff2e; background: #0b1116; color: #e8edf5; }
+.orbit-github-input:focus-visible, .orbit-github-step button:focus-visible, .orbit-repos-step button:focus-visible, .orbit-github-link:focus-visible { outline: 2px solid #c9a2ff; outline-offset: 2px; }
+.orbit-repos-input { resize: vertical; min-height: 96px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.orbit-github-primary, .orbit-github-secondary, .orbit-github-danger, .orbit-repos-chip { justify-self: start; font: inherit; font-size: 13px; padding: 7px 14px; border-radius: 8px; cursor: pointer; }
+.orbit-github-primary { background: #c9a2ff; color: #140d22; border: 1px solid #c9a2ff; font-weight: 600; }
+.orbit-github-secondary, .orbit-repos-chip { background: #ffffff10; color: #e8edf5; border: 1px solid #ffffff30; }
+.orbit-github-danger { background: transparent; color: #ff9b9b; border: 1px solid #ff9b9b66; }
+.orbit-github-primary:hover { filter: brightness(1.08); }
+.orbit-github-secondary:hover, .orbit-repos-chip:hover { background: #ffffff1c; }
+.orbit-github-code { display: grid; gap: 6px; }
+.orbit-github-user-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 22px; letter-spacing: 2px; }
+.orbit-github-link { color: #c9a2ff; font-size: 13px; }
+.orbit-github-error { margin: 0; min-height: 1em; font-size: 12px; color: #ff9b9b; }
+.orbit-repos-picks { display: grid; gap: 8px; }
+.orbit-repos-list { display: flex; flex-wrap: wrap; gap: 6px; max-height: 220px; overflow: auto; }
+.orbit-repos-chip { padding: 4px 10px; font-size: 12px; }
