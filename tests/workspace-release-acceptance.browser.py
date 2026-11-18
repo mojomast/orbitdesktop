@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from ui_fixture import copy_ui_source
 import secrets
 import shutil
 import socket
@@ -75,7 +76,8 @@ def fixture(renderer):
     try:
         with tempfile.TemporaryDirectory(prefix='orbit-release-acceptance-', dir='/tmp/opencode') as temporary:
             root = Path(temporary)
-            for name in ('server', 'src', 'contracts', 'public', 'docs', 'scripts'):
+            copy_ui_source(ROOT, root)
+            for name in ('server', 'contracts', 'public', 'docs', 'scripts'):
                 shutil.copytree(ROOT / name, root / name)
             for name in ('package.json', 'package-lock.json', 'index.html', 'tsconfig.json', 'vite.config.js'):
                 shutil.copy2(ROOT / name, root / name)

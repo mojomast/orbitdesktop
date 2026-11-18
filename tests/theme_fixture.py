@@ -19,6 +19,7 @@ import time
 import urllib.request
 import uuid
 from pathlib import Path
+from ui_fixture import copy_ui_source
 
 ROOT = Path(__file__).resolve().parents[1]
 ARTIFACTS = Path("/tmp/opencode")
@@ -76,7 +77,8 @@ def theme_fixture(prefix):
     """Yield {root, origin, token} for a disposable isolated server."""
     with tempfile.TemporaryDirectory(prefix=prefix, dir="/tmp/opencode") as temporary:
         root = Path(temporary)
-        for name in ("server", "src", "contracts", "docs", "public", "scripts"):
+        copy_ui_source(ROOT, root)
+        for name in ("server", "contracts", "docs", "public", "scripts"):
             if (ROOT / name).is_dir():
                 shutil.copytree(ROOT / name, root / name)
         for name in ("index.html", "package.json", "package-lock.json", "tsconfig.json", "vite.config.js"):

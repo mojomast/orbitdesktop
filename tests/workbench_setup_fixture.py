@@ -8,6 +8,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+from ui_fixture import copy_ui_source
 import secrets
 import shutil
 import socket
@@ -31,7 +32,8 @@ native.RIGHT = RIGHT
 def setup_fixture():
     with tempfile.TemporaryDirectory(prefix='orbit-goal-setup-', dir='/tmp/opencode') as temporary:
         root = Path(temporary)
-        for name in ('server', 'src', 'contracts', 'docs', 'public', 'scripts', 'hermes-plugin'):
+        copy_ui_source(ROOT, root)
+        for name in ('server', 'contracts', 'docs', 'public', 'scripts', 'hermes-plugin'):
             shutil.copytree(ROOT / name, root / name)
         for name in ('index.html', 'package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.js'):
             shutil.copy2(ROOT / name, root / name)

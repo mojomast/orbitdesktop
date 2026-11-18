@@ -57,8 +57,14 @@ class BundleTest(unittest.TestCase):
                     self.assertFalse(any(part.startswith('.') for part in Path(member.name).parts))
                 self.assertNotIn('node_modules', member.name)
                 if member.name.startswith('apps/'):
-                    self.assertIn(member.name, {'apps/rizzstack-rails/'+n for n in
-                                  ('app.js','index.html','inspector.js','rails.js','styles.css','feedback.js')})
+                    rails = {'apps/rizzstack-rails/'+n for n in ('app.js','index.html','inspector.js','rails.js','styles.css','feedback.js')}
+                    hive = {'apps/rizzstack-hive/'+n for n in ('fixtures.js','host-client.js','index.html','main.js',
+                            'queue-data.js','queue-desk.js','release.js','scene.css','scene.js','snapshot-adapter.js',
+                            'store.js','styles.css','trace-data.js','trace.js','transitions.js','validate-snapshot.js')}
+                    hive.update('apps/rizzstack-hive/'+n for n in ('console.css','inbox.js','inspector.js','operations.css',
+                                'operations.js','recorder.js','workbench.css','workbench.js','public-labels.js',
+                                'queue-provider.js','release-provider.js','triage.css'))
+                    self.assertIn(member.name, rails | hive)
                 self.assertEqual(archive.extractfile(member).read(), (ROOT / member.name).read_bytes(), member.name)
 
     def test_bundle_contains_every_policy_member(self):

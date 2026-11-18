@@ -8,6 +8,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+from ui_fixture import copy_ui_source
 import secrets
 import shutil
 import socket
@@ -27,7 +28,8 @@ args = parser.parse_args()
 
 with tempfile.TemporaryDirectory(prefix='orbit-standalone-arrange-', dir='/tmp/opencode') as temporary:
     root = Path(temporary)
-    for directory in ('src', 'server', 'contracts', 'docs', 'scripts', 'public'):
+    copy_ui_source(ROOT, root)
+    for directory in ('server', 'contracts', 'docs', 'scripts', 'public'):
         shutil.copytree(ROOT / directory, root / directory)
     for name in ('index.html', 'package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.js'):
         shutil.copy2(ROOT / name, root / name)

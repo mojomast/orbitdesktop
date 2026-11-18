@@ -7,6 +7,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+from ui_fixture import copy_ui_source
 import re
 import secrets
 import shutil
@@ -59,7 +60,8 @@ def main(renderer):
 
     with tempfile.TemporaryDirectory(prefix="orbit-workbench-journey-", dir="/tmp/opencode") as temp:
         root = Path(temp)
-        for name in ("server", "src", "contracts", "docs", "public", "scripts"):
+        copy_ui_source(ROOT, root)
+        for name in ("server", "contracts", "docs", "public", "scripts"):
             shutil.copytree(ROOT / name, root / name)
         for name in ("index.html", "package.json", "package-lock.json", "tsconfig.json", "vite.config.js"):
             shutil.copy2(ROOT / name, root / name)

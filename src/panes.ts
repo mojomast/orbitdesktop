@@ -12,6 +12,7 @@ import {documentSurfaceId} from './technology-surfaces';
 import { bindToolFeed } from "./tool-feed";
 import { bindGrokBots } from "./grokbots-bridge";
 import { bindRailsNavigation } from './rails-shell';
+import { bindHiveHost } from './hive-host';
 import type { Pane, PaneKind } from "./model";
 export interface PaneView {
   element: HTMLElement;
@@ -365,7 +366,8 @@ export function createPane(p: Pane, font: number, a: PaneActions): PaneView {
       frame.style.height = `${100 / zoom}%`;
       frame.style.transform = `scale(${zoom})`;
     };
-    function navigate(raw: string) {
+    const hiveReadClock = {last:-Infinity};
+    function navigate(raw: string, revoked=false) {
       cleanup();
       cleanup = () => {};
       head.style.display = "";
@@ -446,8 +448,10 @@ export function createPane(p: Pane, font: number, a: PaneActions): PaneView {
           localApp ? "allow-scripts allow-forms allow-modals allow-downloads" : "allow-scripts allow-forms allow-same-origin allow-popups",
         );
         frame.src = current;
+        const unbindHive = localApp ? bindHiveHost(frame,u,()=>sessionToken,surface,
+          {revoked,clearDocument:()=>navigate(current,true),clock:hiveReadClock}) : ()=>{};
         surface.replaceChildren(frame);
-        if (localApp) { const unbindFeed = bindToolFeed(frame), unbindGrokBots = bindGrokBots(frame), unbindRails = bindRailsNavigation(frame,u,()=>sessionToken); cleanup = () => { unbindFeed(); unbindGrokBots(); unbindRails(); }; }
+        if (localApp) { const unbindFeed = bindToolFeed(frame), unbindGrokBots = bindGrokBots(frame), unbindRails = bindRailsNavigation(frame,u,()=>sessionToken); cleanup = () => { unbindFeed(); unbindGrokBots(); unbindRails(); unbindHive(); }; }
         zoomFrame();
       } catch (e) {
         surface.replaceChildren(
@@ -484,5 +488,5 @@ export function createPane(p: Pane, font: number, a: PaneActions): PaneView {
   } else {
     cleanup = createAgentChat(body, p.id, () => sessionToken, head);
   }
-  return { element: root, resize, setFont, dispose: cleanup };
+  return { element: root, resize, setFont, dispose: () => cleanup() };
 }

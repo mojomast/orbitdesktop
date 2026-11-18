@@ -1,12 +1,14 @@
 """Disposable Vite/browser fixture; synthetic API only, no provider or live runtime."""
 import json, shutil, socket, subprocess, tempfile, time, urllib.request, uuid
 from pathlib import Path
+from ui_fixture import copy_ui_source
 from playwright.sync_api import sync_playwright, expect
 
 ROOT = Path(__file__).resolve().parents[1]
 with tempfile.TemporaryDirectory(prefix='orbit-everyday-ux-', dir='/tmp/opencode') as tmp:
     root = Path(tmp)
-    for name in ('src', 'contracts', 'public'): shutil.copytree(ROOT / name, root / name)
+    copy_ui_source(ROOT, root)
+    for name in ('contracts', 'public'): shutil.copytree(ROOT / name, root / name)
     for name in ('index.html', 'package.json'): shutil.copy2(ROOT / name, root / name)
     (root / 'node_modules').symlink_to(ROOT / 'node_modules', target_is_directory=True)
     (root / 'fixture.html').write_text('<!doctype html><html><body></body></html>')

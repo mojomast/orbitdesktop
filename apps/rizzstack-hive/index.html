@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'none'; img-src 'self'; font-src 'none'; form-action 'none'; base-uri 'none'"
+    />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="referrer" content="no-referrer" />
+    <title>The Hive — Shift control</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./scene.css" />
+    <link rel="stylesheet" href="./workbench.css" />
+    <link rel="stylesheet" href="./console.css" />
+    <link rel="stylesheet" href="./operations.css" />
+    <link rel="stylesheet" href="./triage.css" />
+    <script src="./main.js" type="module"></script>
+  </head>
+  <body>
+    <a class="skip" href="#floor">Skip to factory floor</a>
+    <header class="mast">
+      <div class="brand">
+        <svg viewBox="0 0 48 48" aria-hidden="true">
+          <path
+            fill="none"
+            stroke="currentColor"
+            stroke-width="3"
+            d="M24 3 43 14v20L24 45 5 34V14Z M13 17v14l8 5V24l6-4v17l8-5V16l-8-5-6 4v4l-8 5"
+          />
+        </svg>
+        <div>THE HIVE<small>RIZZSTACK OPERATIONS</small></div>
+      </div>
+      <nav class="mastnav" aria-label="Work surfaces">
+        <button data-nav="floor" aria-label="Factory floor" aria-current="page">
+          Shift control</button
+        ><button data-nav="work" aria-label="Work register">Workbench</button
+        ><button data-nav="release">Release desk</button>
+      </nav>
+      <div class="masttools">
+        <button id="find" title="Search work (/)" aria-label="Search work">
+          Search <kbd>/</kbd></button
+        ><button id="prefs" aria-expanded="false" aria-controls="preferences">
+          Display
+        </button>
+      </div>
+    </header>
+    <div id="preferences" hidden>
+      <label><input type="checkbox" id="static" /> Still transitions</label
+      ><label><input type="checkbox" id="contrast" /> High contrast</label>
+    </div>
+    <main class="shell">
+      <section class="intro">
+        <div>
+          <p class="kicker"><i></i> NIGHTSHIFT &nbsp;/&nbsp; OPERATIONS DESK</p>
+          <h1 id="surface-title">Shift control<span>.</span></h1>
+          <p id="lead">Waiting for the first observation.</p>
+        </div>
+        <div class="mode-box">
+          <label for="scenario" id="mode-label">OBSERVATION SOURCE</label
+          ><select id="scenario">
+            <option value="host">Orbit host</option>
+            <option value="shift">Demo · Working shift</option>
+            <option value="dense">Demo · Full complement</option>
+            <option value="quiet">Demo · Quiet floor</option>
+            <option value="degraded">Demo · Signal loss</option>
+            <option value="replay">Replay · Duplicate receipt</option></select
+          ><span id="source-caption">Awaiting read scope</span>
+        </div>
+      </section>
+      <div class="command-strip">
+        <div class="telemetry" aria-label="Shift readings">
+          <div>
+            <small>01 / EXECUTING</small><b id="flight">—</b
+            ><span>attempts in flight</span>
+          </div>
+          <div>
+            <small>02 / ADMISSION</small><b id="eligible">—</b
+            ><span>eligible work items</span>
+          </div>
+          <div>
+            <small>03 / CAPACITY</small><b id="slots">—</b
+            ><span>scheduler slots free</span>
+          </div>
+          <div>
+            <small>04 / OWNER</small><b id="decisions">—</b
+            ><span>pending decisions</span>
+          </div>
+          <div>
+            <small>05 / USAGE</small><b id="cost">—</b
+            ><span id="cost-label">coverage unknown</span>
+          </div>
+          <button data-nav="release" class="release-chip">
+            <small>06 / RELEASE RECORD</small
+            ><strong id="release-state">—</strong
+            ><span>loaded revision unknown ↗</span>
+          </button>
+        </div>
+        <div class="statusline">
+          <span id="connection" role="status">Awaiting source</span
+          ><button
+            id="source-info"
+            aria-controls="sources"
+            aria-expanded="false"
+          >
+            Sources ↘</button
+          ><button id="refresh">Refresh</button>
+        </div>
+      </div>
+      <section id="sources" hidden aria-label="Source register"></section>
+      <section id="watch" aria-label="Observation channels" hidden><strong>Signal watch</strong><span id="follow-state" role="status"></span><span id="evidence-state"></span></section>
+      <div class="command-grid">
+        <aside class="inbox" aria-labelledby="inbox-head">
+          <div class="desk-cap">
+            <small class="kicker">01 / OPERATOR INBOX</small
+            ><span id="attention-count" class="index-no">—</span>
+          </div>
+          <h2 id="inbox-head">Needs attention</h2>
+          <div id="attention"></div>
+          <button id="stream-ticket" class="ticket" hidden><span class="ticket-meta">SELECTED HISTORY</span><strong>New evidence in Rails</strong><span class="ticket-foot"></span></button>
+          <button class="gate-note" data-nav="release">
+            <small>RELEASE RECORD</small><strong>Promotion held ↗</strong
+            ><span>Inspect outstanding gates</span>
+          </button>
+        </aside>
+        <div class="desk-center">
+          <div id="floor" tabindex="-1">
+            <section class="atlas" aria-labelledby="atlas-title">
+              <button id="assignment-lead" hidden><small>ON SHIFT</small><strong></strong><span></span></button>
+              <header class="sheet-head">
+                <div>
+                  <small class="kicker">02 / PROCESS MAP</small>
+                  <h2 id="atlas-title">Factory floor</h2>
+                </div>
+                <div class="sheet-index">
+                  8 STATIONS <b>·</b> <span id="atlas-count">—</span>
+                </div>
+              </header>
+              <div id="world" aria-label="Factory topology"></div>
+              <div class="map-base">
+                <span><i class="key active"></i> Active</span
+                ><span><i class="key delay"></i> Pressure</span
+                ><span><i class="key gate"></i> Owner gate</span
+                ><span><i class="key unknown"></i> Unknown</span
+                ><button id="focus-b" title="Find measured pressure (B)">
+                  Find pressure <kbd>B</kbd>
+                </button>
+              </div>
+              <details id="board">
+                <summary>Station register <span>Text view</span></summary>
+                <div id="stations"></div>
+              </details>
+            </section>
+            <section id="shift-board" aria-label="Shift assignments"></section>
+          </div>
+          <section
+            id="work"
+            hidden
+            tabindex="-1"
+            aria-label="Operational workbench"
+          ></section>
+          <section
+            id="release"
+            hidden
+            tabindex="-1"
+            aria-label="Release desk"
+          ><div id="report-release"></div><div id="release-history"></div></section>
+        </div>
+        <aside
+          class="inspection"
+          id="inspector"
+          aria-labelledby="inspect-title"
+        >
+          <div class="inspect-cap">
+            <span class="kicker">03 / INVESTIGATION</span
+            ><span id="sel-plate">DOCKET</span>
+          </div>
+          <div id="inspection-body"></div>
+        </aside>
+      </div>
+      <footer class="foot">
+        <span>HIVE <b>/</b> FIELD INSTRUMENTS</span
+        ><span>OBSERVATION CONSOLE &nbsp;·&nbsp; READ ONLY</span>
+      </footer>
+    </main>
+    <p class="sr" id="announcement" aria-live="polite"></p>
+    <noscript
+      >The Hive requires scripting to inspect its observation source.</noscript
+    >
+  </body>
+</html>
