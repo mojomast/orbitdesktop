@@ -1,0 +1,57 @@
+.hive-scene {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: #131e22;
+  isolation: isolate;
+  user-select: none;
+}
+.hive-scene text { pointer-events: none; }
+.hs-survey, .hs-number, .hs-reading, .hs-depth, .hs-register-label {
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+}
+.hs-survey { font-size: 8px; fill: #98aaa1; letter-spacing: 1.3px; }
+.hs-register-label { font-size: 9px; fill: #c5cbbb; letter-spacing: 1px; }
+.hs-station, .hs-worker { cursor: pointer; outline: none; }
+.hs-station { --hs-tone: #b6c1b9; }
+.hs-station[data-tone="active"] { --hs-tone: #88d6c5; }
+.hs-station:is([data-tone="pressure"],[data-tone="delay"],[data-tone="blocked"]) { --hs-tone: #e8b16f; }
+.hs-station[data-tone="gate"] { --hs-tone: #efcd96; }
+.hs-station[data-tone="verified"] { --hs-tone: #abc5ee; }
+.hs-station[data-tone="failure"] { --hs-tone: #f39b8e; }
+.hs-station[data-tone="unknown"] { --hs-tone: #b4bdbb; }
+.hs-hatching { visibility: hidden; }
+.hs-station[data-gap="true"] .hs-hatching { visibility: visible; }
+.hs-signal-land { color: var(--hs-tone); }
+.hs-station:is([data-tone="pressure"],[data-tone="delay"],[data-tone="blocked"],[data-tone="failure"]) .hs-outline { stroke: var(--hs-tone); stroke-width: 1.2; stroke-dasharray: 14 6 2 6; }
+.hs-docket { fill: #142024; fill-opacity: .92; }
+.hs-number { font-size: 11.5px; fill: #bdc9be; font-weight: 600; }
+.hs-name { font-family: system-ui, sans-serif; font-size: 15px; font-weight: 650; fill: #f0eee1; }
+.hs-reading { fill: var(--hs-tone); font-size: 10px; }
+.hs-depth { fill: #bbc6bd; font-size: 9px; letter-spacing: .3px; }
+.hs-station:hover .hs-outline { stroke: #95ada3; stroke-dasharray: 3 4; }
+.hs-station[aria-pressed="true"] .hs-outline { stroke: #93d5c3; stroke-dasharray: none; }
+.hs-station[aria-pressed="true"] .hs-number, .hs-station[aria-pressed="true"] .hs-name { fill: #a7e4ce; }
+.hs-worker-land { stroke: #749188; stroke-width: .8; }
+.hs-worker[data-gap="true"] .hs-worker-land { stroke: #a4aaa5; stroke-dasharray: 2 2; }
+.hs-worker:hover .hs-worker-land { stroke: #c6d0b8; }
+.hs-worker[aria-pressed="true"] .hs-worker-land { stroke: #a5e6cb; stroke-dasharray: none; stroke-width: 2; }
+.hs-station:focus-visible .hs-outline, .hs-worker:focus-visible .hs-worker-land {
+  stroke: #f3d497; stroke-width: 2.5; stroke-dasharray: 5 2;
+}
+/* At narrow widths the semantic register is primary; keep the whole synopsis
+   visible, including the receiver docket, when the parent sets a height cap. */
+@media (max-width: 720px) { #world .hive-scene { max-height: 220px; } }
+.high .hs-reading,.high .hs-number,.high .hs-depth,.high .hs-register-label,.high .hs-survey { fill: #f4f2e7; }
+.high .hs-docket { fill: #091014; fill-opacity: 1; }
+@media (prefers-contrast: more) {
+  .hs-reading, .hs-number, .hs-depth, .hs-register-label, .hs-survey { fill: #f4f2e7; }
+  .hs-docket { fill: #091014; fill-opacity: 1; }
+}
+@media (forced-colors: active) {
+  .hive-scene { forced-color-adjust: none; }
+  .hs-docket { fill: Canvas; fill-opacity: 1; }
+  .hs-name,.hs-reading,.hs-number,.hs-depth,.hs-register-label { fill: CanvasText; }
+  .hs-station[aria-pressed="true"] .hs-outline,.hs-worker[aria-pressed="true"] .hs-worker-land { stroke: Highlight; }
+  .hs-station:focus-visible .hs-outline,.hs-worker:focus-visible .hs-worker-land { stroke: LinkText; }
+}
