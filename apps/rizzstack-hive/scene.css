@@ -14,7 +14,7 @@
 .hs-register-label { font-size: 13px; font-weight: 700; fill: #c8e0d4; letter-spacing: .9px; }
 .hs-register-note { font-size: 10px; fill: #c0ccc6; }
 .hs-die-key { font: 12px ui-monospace, Consolas, monospace; fill: #c3d2c9; }
-.hs-code { font-size: 9px; letter-spacing: -.6px; font-weight: 750; fill: var(--hs-body); }
+.hs-code { font-size: 14px; font-weight: 750; fill: var(--hs-body); }
 .hs-station, .hs-worker { cursor: pointer; outline: none; }
 .hs-station { --hs-tone: #b6c1b9; }
 .hs-station[data-tone="active"] { --hs-tone: #88d6c5; }

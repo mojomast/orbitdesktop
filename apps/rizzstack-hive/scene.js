@@ -12,6 +12,8 @@ const PLATES = [
   ['receiver','Receiver','Receiver aperture',168,353],
 ];
 const CAP = 30;
+const BADGE_CODES={flight:'A',filed:'T',failed:'!',held:'W',last:'H',gap:'?'};
+const BADGE_LABELS={flight:'In flight',filed:'Terminal',failed:'Terminal failure',held:'Waiting',last:'Last observed',gap:'Unknown'};
 let instance = 0;
 const path = (parent,d,attrs) => el(parent,'path',{d,...attrs});
 function el(parent,tag,attrs = {},content) {
@@ -78,11 +80,11 @@ function definitions(defs,ns) {
   const blunt='M-2 0 -12 -8 -14 -3 -10 1 -3 4ZM2 0 12 -8 14 -3 10 1 3 4Z';
   const folded='M-2 -4Q-11 -5 -8 3L-3 8 -2 2ZM2 -4Q11 -5 8 3L3 8 2 2Z';
   const body='M-2 -5 -4 -10 -1 -7Q0 -9 1 -7L4 -10 2 -5Q5 -3 3 0L3 4 0 9 -3 4 -3 0Q-5 -3 -2 -5ZM-2 1H2v1h-4Zm.5 3h3v1h-3Z';
-  for(const [id,wings,code] of [['flight0',swept,'IN'],['flight1',blunt,'IN'],['filed',folded,'END'],['failed',folded,'ERR'],['held',folded,'WAIT'],['last',folded,'OLD'],['gap','M-3 -6 -9 -8 -11 -4 -5 1ZM3 0 8 2 9 6 3 5Z','?']]) {
+  for(const [id,wings,mode] of [['flight0',swept,'flight'],['flight1',blunt,'flight'],['filed',folded,'filed'],['failed',folded,'failed'],['held',folded,'held'],['last',folded,'last'],['gap','M-3 -6 -9 -8 -11 -4 -5 1ZM3 0 8 2 9 6 3 5Z','gap']]) {
     const die=el(defs,'g',{id:ns+id});
     shape(die,wings,'var(--hs-wing)',{transform:'translate(-6 0)'});
     shape(die,body,'var(--hs-body)',{transform:'translate(-6 0)','fill-rule':'evenodd'});
-    label(die,12,4,'hs-code',code).setAttribute('text-anchor','middle');
+    label(die,13,5,'hs-code',BADGE_CODES[mode]).setAttribute('text-anchor','middle');
   }
 }
 
@@ -397,6 +399,7 @@ export function createScene(container,{onSelect}={}) {
     for(const id of visible) {
       const row=attempts.get(id), staged=row.stage==='build';
       let r=marks.get(id);
+      const mounted=!!r;
       if(!r) {let slot=0;while(used.has(slot))slot++;used.add(slot);r=newMark(id,slot);marks.set(id,r);}
       if(staged)build++;else other++;
       r.dock=staged?'build':'register';
@@ -412,19 +415,19 @@ export function createScene(container,{onSelect}={}) {
       set(r.node,'data-gap',gap);set(r.node,'data-posture',mode);
       set(r.node,'data-related',!!selection&&options.relatedIds instanceof Set&&options.relatedIds.has(id));
       set(r.land,'d',BADGE[mode]);set(r.badge,'href','#'+ns+mode+(mode==='flight'?r.die:''));
-      badges.add(mode);maybeFlash(r,id,!gap);
+      badges.add(mode);maybeFlash(r,id,mounted&&!gap);
     }
     const total=attempts.size, overflow=total>CAP?` · ${CAP}/${total} SHOWN`:'';
     set(register,'visibility',build?'visible':'hidden');
     text(detached,other?'ATTEMPT IDS':'');
-    const key={flight:'IN · In flight',held:'WAIT · Waiting',filed:'END · Terminal',failed:'ERR · Terminal failure',last:'OLD · Last observed',gap:'? · Unknown'};
     set(legend,'y',other?437:456);
-    text(legend,Object.keys(key).filter(k=>badges.has(k)).map(k=>key[k]).join('    /    ')+overflow);
-    hydrated=!!view;lastChanges=options.changedIds??null;
+    text(legend,Object.keys(BADGE_CODES).filter(k=>badges.has(k)).map(k=>`${BADGE_CODES[k]} · ${BADGE_LABELS[k]}`).join('    /    ')+overflow);
+    if(flash)lastChanges=options.changedIds;
+    hydrated=!!view;
   }
   return {update,destroy(){
     if(disposed)return;disposed=true;
     for(const off of bindings)off();for(const r of marks.values()){r.unbind();r.pulse?.cancel();}
-    for(const s of stations)s.pulse?.cancel();marks.clear();svg.remove();
+    marks.clear();lastChanges=null;svg.remove();
   }};
 }

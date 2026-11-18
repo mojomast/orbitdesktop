@@ -123,7 +123,7 @@ test('fleet dock is an identity index: terminal, failure, active, waiting, histo
     const die=h.all().find(n=>n.getAttribute('id')===def);
     glyphs.add(die.children.find(n=>n.tagName==='text').textContent);
   }
-  assert.deepEqual(glyphs,new Set(['IN','END','ERR','WAIT','OLD','?']));
+  assert.deepEqual(glyphs,new Set(['A','T','!','W','H','?']));
   h.scene.update({attempts:rows,health:'recorded · partial'});
   assert.equal(h.get('attempt','unit-0').getAttribute('data-posture'),'last');
 });
