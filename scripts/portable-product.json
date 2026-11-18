@@ -1,6 +1,15 @@
 {
   "required": [
     "scripts/portable-product.json",
+    "src/hive-host.ts",
+    "src/hive-follow.ts",
+    "server/hive-reports.mjs",
+    "scripts/hive_public_labels.py",
+    "scripts/hive_release_read.py",
+    "apps/rizzstack-hive/public-labels.js",
+    "apps/rizzstack-hive/queue-provider.js",
+    "apps/rizzstack-hive/release-provider.js",
+    "apps/rizzstack-hive/triage.css",
     "apps/rizzstack-hive/console.css",
     "apps/rizzstack-hive/inbox.js",
     "apps/rizzstack-hive/inspector.js",

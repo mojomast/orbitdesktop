@@ -2,7 +2,7 @@ import {openRailsShell} from './rails-shell';
 
 // Publish with scripts/plugin_publish.py. This exact registry-verified entry is
 // the ONLY app eligible for the operator's per-document read grant.
-const HIVE_ENTRY = '/apps/rizzstack-hive-9f8d7fbe07c98fb7eb74f32b/index.html';
+const HIVE_ENTRY = '/apps/rizzstack-hive-49d03e50c151d218f2542ddf/index.html';
 const PERIOD = 30_000;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$/;
 const sharedOptions = {credentials:'omit', redirect:'error', cache:'no-store', referrerPolicy:'no-referrer'} as const;
@@ -40,19 +40,26 @@ export function bindHiveHost(frame:HTMLIFrameElement, url:URL, token:()=>string,
   frame.src = location.origin + HIVE_ENTRY + '#orbit-hive-document=' + nonce;
   const bar = document.createElement('div'), read = document.createElement('button');
   read.type = 'button'; bar.setAttribute('aria-label','Orbit Hive read access');
-  bar.append(read); controls.before(bar);
+  const reports=document.createElement('button'); reports.type='button';
+  bar.append(read,reports); controls.before(bar);
   let port:MessagePort|undefined, grant:Grant|undefined, request:AbortController|undefined;
   let closeRails:(()=>void)|undefined, timer=0, lastConfirmed=-Infinity;
   let selectors = new Set<string>(), disposed=false, suspended=false, loads=0;
+  type Row={kind:string,id:string,title:string};
+  type PublicView={generatedAt:string,records:Row[]};
+  let confirmed:PublicView|undefined, enrolled=false, lastReport=-Infinity, reportRequest:AbortController|undefined;
   const valid = (g:Grant) => !disposed && frame.isConnected && grant === g && !!port && token() === g.credential;
   const status = (value:Status) => port?.postMessage({type:'status',value});
   function label() {
     read.disabled = !port || !token() || disposed || suspended;
     bar.hidden=suspended;
     read.textContent = grant ? 'Stop sharing Hive overview' : !token() ? 'Unlock Orbit to share Hive overview' : 'Share read-only overview with this Hive pane';
+    reports.hidden=!grant || !confirmed; reports.disabled=!confirmed || !grant || disposed || suspended;
+    reports.textContent=enrolled?'Stop sharing overview and evidence':'Share enrolled evidence with this pane';
   }
   function revoke(value:Status) {
-    grant = undefined; request?.abort(); request=undefined; selectors.clear();
+    grant = undefined; request?.abort(); request=undefined; selectors.clear(); confirmed=undefined;enrolled=false;
+    reportRequest?.abort();reportRequest=undefined;
     clearTimeout(timer); closeRails?.(); closeRails=undefined; status(value); label();
   }
   function withdraw() {
@@ -63,6 +70,39 @@ export function bindHiveHost(frame:HTMLIFrameElement, url:URL, token:()=>string,
     // granted document; the fresh mount has no grant and a new rendezvous.
     if(exposed && !disposed && frame.isConnected) lifecycle.clearDocument();
   }
+  // Only the trusted owner control enrolls this exact document. At most one
+  // bounded report read per cadence; never let a guest choose a source or path.
+  async function evidence(g:Grant, v:PublicView) {
+    if(!enrolled||!valid(g)||v!==confirmed||document.hidden||reportRequest||performance.now()-lastReport<PERIOD)return;
+    lastReport=performance.now();
+    const ctl=reportRequest=new AbortController();const deadline=setTimeout(()=>ctl.abort(),8000);
+    const current=()=>enrolled&&valid(g)&&v===confirmed&&reportRequest===ctl;
+    try {
+      const r=await fetch('/api/rizzstack/hive/reports',{...sharedOptions,method:'GET',headers:{Authorization:'Bearer '+g.credential,Accept:'application/json'},signal:ctl.signal});
+      if(!current())return;if(r.status===401||r.status===403){withdraw();return;}if(!r.ok)throw Error();
+      const packet=await json(r,200*1024);
+      if(!current())return;
+      if(!packet || packet.version!=='hive.reports/1'||Object.keys(packet).sort().join()!=='labels,queue,release,version')throw Error();
+      // @ts-expect-error release-owned portable JS.
+      const {validateQueue}=await import('../apps/rizzstack-hive/queue-provider.js');
+      // @ts-expect-error release-owned portable JS.
+      const {validateRelease}=await import('../apps/rizzstack-hive/release-provider.js');
+      // @ts-expect-error release-owned portable JS.
+      const {validateLabels,applyLabels}=await import('../apps/rizzstack-hive/public-labels.js');
+      const titles:{kind:string,id:string,title:string}[]=[];
+      if(packet.labels && validateLabels(packet.labels)) {
+        const display=await applyLabels(v,packet.labels);
+        for(const row of v.records){const alias=display.records.find((x:Row)=>x.kind===row.kind&&x.id===row.id)?.title;
+          if(typeof alias==='string' && alias!==row.title && alias.length<=160)titles.push({kind:row.kind,id:row.id,title:alias});}
+      }
+      const msg={type:'reports',generatedAt:v.generatedAt,queue:packet.queue&&validateQueue(packet.queue)?packet.queue:null,
+        release:packet.release&&validateRelease(packet.release)?packet.release:null,titles};
+      if(JSON.stringify(msg).includes(g.credential))throw Error();if(current())port?.postMessage(msg);
+    } catch {if(current())port?.postMessage({type:'reports',generatedAt:v.generatedAt,queue:null,release:null,titles:[]});}
+    finally{clearTimeout(deadline);ctl.abort();if(reportRequest===ctl)reportRequest=undefined;}
+  }
+  reports.onclick=e=>{if(!e.isTrusted||!grant||!confirmed||!valid(grant))return;if(enrolled){withdraw();return;}
+    enrolled=true;label();void evidence(grant,confirmed);};
   async function refresh() {
     const g=grant;
     if (!g || !valid(g) || document.hidden || request) return;
@@ -93,18 +133,20 @@ export function bindHiveHost(frame:HTMLIFrameElement, url:URL, token:()=>string,
       // Static, release-owned import; load the schema only for an approved
       // Hive read, never from an app/manifest URL or on ordinary Orbit startup.
       // @ts-expect-error The no-build JS adapter ships without TS declarations.
-      const {project}=await import('../apps/rizzstack-hive/snapshot-adapter.js');
+      const {projectLabelView}=await import('../apps/rizzstack-hive/public-labels.js');
       if (!valid(g)) return;
-      const view=project(snapshot,{now:Date.now()});
+      const view=await projectLabelView(snapshot,{now:Date.now()});
+      if (!valid(g)) return;
       const serialized=JSON.stringify(view);
       if (serialized.includes(g.credential) || new TextEncoder().encode(serialized).length>512*1024) throw Error();
       const next=new Set<string>();
       for (const row of view.attempts) if (ID.test(row.id)) next.add('attempt:'+row.id);
       for (const row of view.records) if (typeof row.jobId==='string' && ID.test(row.jobId)) next.add('job:'+row.jobId);
-      selectors=next; lastConfirmed=performance.now();
+      selectors=next; lastConfirmed=performance.now();confirmed=view;label();
       port!.postMessage({type:'view',view}); status('connected');
+      void evidence(g,view);
     } catch {
-      if (valid(g)) {selectors.clear();status('unavailable');}
+      if (valid(g)) {selectors.clear();confirmed=undefined;label();status('unavailable');}
     } finally {
       controller.abort(); clearTimeout(deadline);
       if (request===controller) request=undefined;
@@ -130,7 +172,11 @@ export function bindHiveHost(frame:HTMLIFrameElement, url:URL, token:()=>string,
       const g=grant;
       closeRails=openRailsShell(token,{kind:data.kind,id:data.id},()=>{
         closeRails=undefined;
-        if(valid(g)) { frame.focus(); port!.postMessage({type:'return-focus'}); }
+        if(valid(g)) { port!.postMessage({type:'follow',signal:'idle',kind:data.kind,id:data.id});frame.focus(); port!.postMessage({type:'return-focus'}); }
+      },signal=>{
+        if(!valid(g)||document.hidden||!selectors.has(data.kind+':'+data.id))return;
+        port!.postMessage({type:'follow',signal,kind:data.kind,id:data.id});
+        if(signal==='invalidated'||signal==='gap')void refresh();
       });
     };
     port.onmessageerror=dispose;

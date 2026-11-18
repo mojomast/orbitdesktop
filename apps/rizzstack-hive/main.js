@@ -4,7 +4,8 @@ import { connectHost } from "./host-client.js";
 import { confirmedChanges } from "./transitions.js";
 import { inboxItems, emptyInbox } from "./inbox.js";
 import { createWorkbench } from "./workbench.js";
-import { createInspector } from "./inspector.js";
+import { createInspector, relatedAttemptIds } from "./inspector.js";
+import { renderReleaseObservation } from './release-provider.js';
 import { renderRelease, controlsFor } from "./operations.js";
 import { createRecorder } from "./recorder.js";
 import { release } from "./release.js";
@@ -62,6 +63,18 @@ let nav = "floor",
   initial = true,
   rendered = null,
   renderedHeld = null;
+let report=null, displayView=null, railFeed=null, railNotice=null, releasePacket;
+const feedLabels={following:'Selected Rails stream live',invalidated:'Selected history changed · overview reread queued',reconnecting:'Selected Rails stream reconnecting',gap:'Selected history gap · reconciling'};
+function discardReports(){report=null;displayView=null;work.setDocket(null);}
+function receiveReport(packet){
+  const raw=store.current.view;
+  if(!raw||store.current.status!=='connected'||packet.generatedAt!==raw.generatedAt)return;
+  report=packet;displayView=raw;
+  if(packet.titles.length){const lookup=new Map(packet.titles.map(t=>[JSON.stringify([t.kind,t.id]),t.title]));
+    const records=raw.records.map(r=>{const title=lookup.get(JSON.stringify([r.kind,r.id]));return title?{...r,title}:r;});
+    displayView={...raw,records};}
+  work.setDocket(report.queue);schedule();
+}
 const scene = createScene($("world"), { onSelect: choose }),
   recorder = createRecorder($("floor"), {
     onFrame(v, e) {
@@ -152,6 +165,7 @@ function openRails(kind, id) {
   return host.openRails(kind, id);
 }
 function clear() {
+  discardReports();railFeed=null;railNotice=null;
   previous = [];
   focusReturn = null;
   rendered = null;
@@ -208,6 +222,7 @@ function rail(v, items) {
       b.append(
         cap,
         node("strong", "", d.title),
+        node('span','ticket-impact',d.impact),
         node("span", "ticket-id", d.target.id),
         node(
           "span",
@@ -242,7 +257,7 @@ const stamp = (t) =>
     : "time unknown";
 function render() {
   const { view, status } = store.current,
-    v = view || unknown,
+    v = displayView || view || unknown,
     m = v.metrics,
     demo = mode !== "host",
     replay = mode === "replay",
@@ -344,6 +359,14 @@ function render() {
     stage && names[stage] ? names[stage].toUpperCase() : "RECORD",
   );
   $("world").classList.toggle("historical", historical);
+  $('watch').hidden=demo||!view;
+  set('follow-state',railFeed?`${feedLabels[railFeed.signal]} · ${railFeed.id}`:'Selected history off');
+  set('evidence-state',report?(report.queue||report.release||report.titles.length?'Enrolled evidence shared':'No valid enrolled observations'):'Companion evidence not shared');
+  const notice=railNotice && !held && view && (railNotice.kind==='attempt'?v.attempts.find(r=>r.id===railNotice.id):v.records.find(r=>r.kind==='job'&&r.jobId===railNotice.id));
+  const ticket=$('stream-ticket');ticket.hidden=!notice;
+  ticket.lastElementChild.textContent=notice?`${railNotice.id} · inspect the updated history; outcome unconfirmed`:'';
+  ticket.onclick=notice?()=>choose({kind:railNotice.kind,id:notice.id},true):null;
+  if(releasePacket!==report?.release){releasePacket=report?.release;renderReleaseObservation($('report-release'),releasePacket??null);}
   if (rendered !== v || renderedHeld !== historical) {
     rail(v, items);
     board(v);
@@ -371,6 +394,7 @@ function render() {
       {
         motion: !$("static").checked && !reduced.matches && !historical,
         changedIds: changes,
+        relatedIds: historical?null:relatedAttemptIds(v,sel),
       },
     );
   changes = null;
@@ -423,11 +447,18 @@ async function setMode(key) {
       onStatus(s) {
         if (g !== gen) return;
         store.transport(s);
+        if(s!=='connected')discardReports();
+        if(!['connected','loading'].includes(s)){railFeed=null;railNotice=null;}
         if (!["connected", "loading"].includes(s))
           continuous = false;
         if (s === "unauthorized") clear();
         schedule();
       },
+      onReports(packet){if(g===gen)receiveReport(packet);},
+      onFollow(data){if(g!==gen)return;railFeed=data.signal==='idle'?null:data;
+        if(data.signal==='invalidated')railNotice=data;
+        if(data.signal==='gap'||data.signal==='reconnecting'){railNotice=null;continuous=false;}
+        schedule();},
       onReturnFocus() {
         if (focusReturn?.isConnected) focusReturn.focus();
         else $("inspect-title")?.focus();
@@ -517,7 +548,7 @@ function sizing() {
 }
 mobile.addEventListener("change", sizing);
 sizing();
-renderRelease($("release"));
+renderRelease($("release-history"));renderReleaseObservation($('report-release'),null);
 const query = new URLSearchParams(location.search).get("demo");
 setMode(
   ["shift", "dense", "quiet", "degraded", "replay"].includes(query)

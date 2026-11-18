@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import { createInspector } from "../apps/rizzstack-hive/inspector.js";
 import { chapters, trace, traceFrame } from "../apps/rizzstack-hive/trace.js";
 import { controlsFor } from "../apps/rizzstack-hive/operations.js";
+import * as api from "../apps/rizzstack-hive/inspector.js";
+import { fixtures, fixtureTime } from '../apps/rizzstack-hive/fixtures.js';
+import { project } from '../apps/rizzstack-hive/snapshot-adapter.js';
 
 // Deterministic DOM host; removing or moving a focused subtree loses focus,
 // just as replacing the original inspector did on every collector refresh.
@@ -243,13 +246,13 @@ test("links use the public job + task pair and pressure record; controls expose 
   ]);
   assert.ok(!h.btn("task:job2:shared"));
   assert.ok(!h.node("img"));
-  assert.ok(h.find("<img src=x>"));
-  assert.ok(h.btn("Retry attempt").disabled);
+  assert.ok(!h.find("<img src=x>"));
+  assert.ok(!h.btn("Retry attempt"));
   assert.ok(h.all().some((n) => n.textContent.includes("Check the fence.")));
   h.update(v, { selection: { kind: "station", id: "verify" } });
   assert.deepEqual(
     h
-      .node("dl")
+      .all().find(n=>n.tag==='dl' && n.className==='facts')
       .children.slice(0, 2)
       .map((n) => n.children.map((c) => [c.tag, c.textContent])),
     [
@@ -269,6 +272,80 @@ test("links use the public job + task pair and pressure record; controls expose 
     kind: "bottleneck",
     id: "bottleneck:verify",
   });
+});
+
+test('highlight uses exact current identities; no stale, ambiguous, cross-repo or stage joins', () => {
+  const v = fixture();
+  v.attempts.push({...v.attempts[0], id:'b', jobId:'job2'});
+  const ids = (kind,id) => [...api.relatedAttemptIds(v,{kind,id})];
+  assert.deepEqual(ids('attempt','a'), ['a']);
+  assert.deepEqual(ids('station','verify'), []);
+  assert.deepEqual(ids('task','task:job1:shared'), ['a']);
+  assert.deepEqual(ids('job','job:job1'), ['a']);
+  v.records[0].repo='team/one'; v.attempts[0].repo='team/two';
+  assert.deepEqual(ids('job','job:job1'), []);
+  delete v.attempts[0].repo;
+  v.records.push({...v.records[0]}); assert.deepEqual(ids('job','job:job1'), []);
+  v.attempts.push({...v.attempts[0],jobId:'job3'});
+  assert.deepEqual(ids('attempt','a'), []);
+  v.attempts.pop(); v.attempts[0].quality='stale'; assert.deepEqual(ids('attempt','a'), []);
+  assert.deepEqual(ids('attempt','../missing'), []);
+});
+
+test('decision dossier distinguishes a queue state from permission and an effect receipt, including after a changed head', () => {
+  const h = host();
+  const snapshot = structuredClone(fixtures.dense);
+  const selection = {kind:'decision',id:'decision:gate_reader'};
+  const render = () => h.update(project(snapshot,{now:fixtureTime}),{selection,mode:'dense'});
+  const fact = label => h.find(label)?.parent.children[1].textContent;
+  render();
+  assert.ok(h.find('Decision readiness'));
+  assert.equal(fact('Current candidate head'),'Unknown');
+  assert.equal(fact('Current contract'),'Unknown');
+  for (const x of ['Permitted options','Current lease','Remaining budget','Owner authority','Effect receipt']) assert.equal(fact(x),'Unknown',x);
+  assert.ok(h.node('ol')); assert.ok(h.node('time'));
+  assert.equal(h.btn('Submit owner decision'),undefined);
+  const job=snapshot.pipeline.jobs.find(j=>j.job_id==='viewer');
+  job.base_rev='1'.repeat(40); render(); job.base_rev='2'.repeat(40); render();
+  assert.equal(fact('Current candidate head'),'Unknown');
+  assert.ok(!h.find('1'.repeat(40)) && !h.find('2'.repeat(40)));
+  const v = project(snapshot,{now:fixtureTime}), row=v.records.find(x=>x.id===selection.id);
+  Object.assign(row,{receipt:'private-unverified',options:['Approve'],head:'3'.repeat(40),authority:'owner'});
+  h.update(v,{selection,status:'conflict'});
+  assert.equal(fact('Owner authority'),'Unknown'); assert.equal(fact('Effect receipt'),'Unknown');
+  assert.ok(!h.find('private-unverified')); assert.ok(!h.find('3'.repeat(40)));
+  assert.ok(h.all().some(x=>/last confirmed|historical/i.test(x.textContent)));
+});
+
+test('a failure highlights its exact named attempt, never other attempts on the same job or IDs in prose', () => {
+  const v = project(fixtures.dense,{now:fixtureTime});
+  const signal = v.attention.find(a=>a.id==='section:verifier-failure');
+  const row = v.records.find(r=>r.id===signal.detail);
+  assert.ok(v.attempts.filter(a=>a.jobId===row.jobId).length>1);
+  const selected = {kind:'attention',id:signal.id};
+  assert.deepEqual([...api.relatedAttemptIds(v,selected)],['att_offset']);
+  v.attempts.find(a=>a.id==='att_offset').taskId='different';
+  row.detail='Matching rows: 1; attempt: att_cursor; fallback: not reported.';
+  assert.deepEqual([...api.relatedAttemptIds(v,selected)],[]);
+  signal.detail='missing'; assert.deepEqual([...api.relatedAttemptIds(v,selected)],[]);
+});
+
+test('suite outcomes stay with the verifier mark at its recorded head and contract',()=>{
+  const h=host(), c=chapters[2], v=traceFrame(c.i), r=v.records.at(-1);
+  const draw=()=>h.update(v,{mode:'replay',selection:{kind:'event',id:r.id}});
+  draw(); assert.ok(h.find('Passed'));
+  r.revision='f'.repeat(40); draw(); assert.ok(!h.find('Passed'));
+  r.revision=trace.runs[r.run].revision; r.contract='f'.repeat(64); draw(); assert.ok(!h.find('Passed'));
+  const worker=v.records.find(x=>x.role==='worker_report' && x.tests);
+  h.update(v,{mode:'replay',selection:{kind:'event',id:worker.id}}); assert.ok(!h.find('Passed'));
+});
+
+test('an archived failure and a ready_for_review queue feature can be inspected without inventing active work or review',()=>{
+  const v = project(fixtures.dense,{now:fixtureTime}); v.attention=[];
+  const h=host(),failure=v.records.find(r=>r.kind==='failure'),feature=v.records.find(r=>r.kind==='backlog');
+  h.update(v,{selection:failure}); assert.ok(h.find('Unknown. No later recovery receipt is linked.'));
+  feature.state='ready_for_review'; h.update(v,{selection:feature});
+  assert.ok(h.find('No reviewer assignment, independent verdict or reviewed revision is supplied.'));
 });
 
 test("recorded test outcomes, provenance and predecessor come from the captured mark, never a future frame", () => {

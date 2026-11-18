@@ -12,7 +12,7 @@ const refusals = {
   register_worker: ['Register worker', 'Worker presence does not grant enrollment or assignment.', 'Verify the worker and ledger identity through the host operator.'],
   reconcile: ['Apply queue suggestion', 'Draft coverage is advisory; there is no queue writer here.', 'Compare the frozen criteria, current PR head and claim in the coordinator.'],
   quality_feedback: ['Sign quality feedback', 'Any enrolled quality signer belongs to the trusted Rails shell.', 'Inspect the exact origin event in Rails; a quality note cannot approve work.'],
-  decision: ['Submit owner decision', 'No human decision writer or consumer is enrolled for Hive.', 'Give the receiver the request ID, exact subject, digest and expected effect.'],
+  decision: ['Submit owner decision', 'Hive has no provider for this decision queue. The Hermes trial-job approval card has a different scope.', 'Ask the owner to compare the sealed request, permitted responses and intended effect in the originating system.'],
   merge: ['Merge or integrate', 'Hive has no merge provider. A component check is not independent review.', 'Verify the base and head, file lease, independent review and combined-tree tests.'],
   deploy: ['Deploy release', 'There is no scoped deployment authority in this pane.', 'Requalify the intended tuple and obtain a dated rollout and recovery grant.'],
   rollback: ['Roll back release', 'No pinned rollback target or authorized rollback provider is attached.', 'Rehearse restoration of the retained prior artifacts on protected copies.'],
@@ -23,9 +23,10 @@ const byStage = {
   build: ['retry', 'verify', 'change_route'], verify: ['verify', 'retry'], review: ['quality_feedback', 'merge'],
   integrate: ['merge', 'verify'], deploy: ['deploy', 'rollback', 'promote'], receiver: ['decision', 'quality_feedback'],
 };
-const safeID = id => typeof id === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$/.test(id);
+const safeID = id => typeof id === 'string' && id.toLowerCase() !== 'unknown' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$/.test(id);
 function selectedTarget(selection, record) {
-  if (!selection || !record || typeof selection.id !== 'string' || selection.id !== record.id) return null;
+  if (!selection || !record || !safeID(selection.id) || selection.id !== record.id ||
+    (record.quality && record.quality !== 'live') || /^last observed:/i.test(record.state)) return null;
   if (selection.kind === 'attempt' && (!record.kind || record.kind === 'attempt') && safeID(record.id)) {
     return {kind: 'attempt', id: record.id};
   }
@@ -39,7 +40,7 @@ function selectedTarget(selection, record) {
 // connectHost handle. The descriptor advertises navigation, never a successful
 // history read. The trusted host checks the grant, latest selector set and age
 // again, and the shell requires a second deliberate Inspect action.
-export function controlsFor({selection, record, mode, connected, providers} = {}) {
+export function controlsFor({selection, record, mode, status, connected, providers} = {}) {
   const stage = selection?.kind === 'station' ? selection.id : record?.stage;
   const intents = selection?.kind === 'backlog' ? ['reconcile', 'dispatch'] :
     byStage[Object.hasOwn(byStage, stage) ? stage : 'build'];
@@ -50,7 +51,7 @@ export function controlsFor({selection, record, mode, connected, providers} = {}
   const target = selectedTarget(selection, record);
   if (target) {
     const hostMode = mode === 'host';
-    const available = hostMode && connected === true && !!providers && Object.hasOwn(providers, 'rails') &&
+    const available = hostMode && connected === true && (!status || status === 'connected') && !!providers && Object.hasOwn(providers, 'rails') &&
       typeof providers.rails?.openRails === 'function';
     controls.unshift({id: 'open_rails', kind: 'navigation', label: 'Open Rails timeline', available, target,
       reason: available ? 'The host can open its reader on this exact public selector.' :
@@ -58,6 +59,29 @@ export function controlsFor({selection, record, mode, connected, providers} = {}
       next: available ? 'Choose Inspect history in Orbit to read the selected scope.' : 'Share the host overview, then select an observed attempt or job.'});
   }
   return controls;
+}
+
+// /1 is a queue observation, not the sealed request/decision documents. Keep
+// these questions separate: a queue marker is evidence of neither consent nor
+// its execution. A job base, a PR in the same repo and a release tuple cannot
+// supply the *current subject-bound* contract or candidate head. Never carry
+// an old head forward across refreshes, nor adopt arbitrary extra row keys.
+export function decisionReadiness(view, row, historical = false) {
+  if (!row || row.kind !== 'decision' || row.source !== 'snapshot/1:decisions' ||
+    view.records.filter(r=>r.id===row.id).length !== 1 || !view.records.includes(row)) return null;
+  const current = !historical && view.sections.some(s=>s.id==='decisions' && s.state==='live') && !/^last observed:/i.test(row.state);
+  const job = safeID(row.jobId) ? row.jobId : null;
+  const report = ['pending','decided','applied','withdrawn','reported applied (time unknown)'].includes(row.state) ? row.state : 'unknown';
+  // Only exact public display subjects already admitted by the adapter. Do
+  // not render opaque subjects or treat any generic subject string as a job.
+  const publicSubjects = ['observability bridge','snapshot adapter','release candidate','receipt replay','integration results','deployment rollback','worker routing','verification evidence','Rails timeline'];
+  const subject = publicSubjects.find(s=>row.detail?.startsWith(`Subject: ${s}. Queue reports `));
+  return {current, report:current ? `Queue reports ${report}` : 'Last observation · current state unknown',
+    rows:[['Subject',job ? `Job ${job}` : subject],['Bound job',job],
+      ['Current contract',null],['Current candidate head',null],['Permitted options',null],['Current lease',null],
+      ['Remaining budget',null],['Owner authority',null],['Effect receipt',null]],
+    next: current ? 'Compare the sealed request and its digest with the current contract and head in the originating system. Look for a separate receipt for any reported effect.' :
+      'Obtain a fresh queue observation before comparing the sealed request with its subject.'};
 }
 
 // A distinct, point-in-time CLI observation; NEVER update release.tuple from

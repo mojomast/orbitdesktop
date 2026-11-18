@@ -2,6 +2,8 @@
 
 ## Start a shift
 
+See [Mission control](../../docs/HIVE_MISSION_CONTROL.md) for the selected Rails event watch, separately granted coordinator/release reports, project aliases, and decision-readiness investigation.
+
 The command strip shows active attempts, eligible work, scheduler slots, pending decisions, the known price subtotal, and the dated release verdict. **Shift control** opens on the highest-ranked observed issue. Read the ticket, then its question, source, ID and timestamp in **Investigation**. A ticket marked *Verification queue* opens the stage measurement: compare dwell and target before treating the queue as stalled. Unknown recovery status is not evidence that a retry is running.
 
 Click **On shift** to inspect an actual execution-associated attempt, or press **/** for the operational workbench. Work, Workers, Queue, Decisions, Evidence and Usage provide different indexes into the same projection. Follow exact job references, use the contextual back link to return, or inspect a selected public attempt/job in the existing trusted Rails shell. The Workbench retains its filters and sort while you inspect a record. No private selection is stored in the URL.

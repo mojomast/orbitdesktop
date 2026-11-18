@@ -1,4 +1,6 @@
 import { trace } from "./trace.js";
+import { evidenceFor, inboxItems, recordFinding } from './inbox.js';
+import { decisionReadiness } from './operations.js';
 
 const stations = new Map([
   [
@@ -53,39 +55,85 @@ const stamp = (s) =>
 const keyOf = (kind, id) => JSON.stringify([kind, id]);
 const label = (r) =>
   r.title && r.title !== r.id ? `${r.title} · ${r.id}` : r.id;
+const only = items => items.length === 1 ? items[0] : null;
+const selectorID = id => typeof id === 'string' && id.toLowerCase() !== 'unknown' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$/.test(id);
 const recorded = (v, { kind, id }) => {
-  if (kind === "station") return v.stations.find((x) => x.id === id);
-  if (kind === "attempt") return v.attempts.find((x) => x.id === id);
-  if (kind === "attention") return v.attention.find((x) => x.id === id);
-  return v.records.find((x) => x.id === id && x.kind === kind);
+  const list = kind === 'station' ? v.stations : kind === 'attempt' ? v.attempts : kind === 'attention' ? v.attention : v.records;
+  const row = only(list.filter(x=>x.id===id));
+  return row && (list !== v.records || row.kind === kind) ? row : null;
 };
+
+// Same source IDs, not a causal claim. No stage, title, route, prose,
+// single-remaining-attempt heuristic or repository-only joins.
+export function relatedAttemptIds(v, selection) {
+  const ids = new Set();
+  if (!v || !selection) return ids;
+  let {kind} = selection, row = recorded(v, selection);
+  if (!row) return ids;
+  if (kind === 'attention') {
+    // A summary points to an example job, not to every worker on that job.
+    if (row.id==='section:failed-tasks' || row.id==='section:failed-features') return ids;
+    row = evidenceFor(v,row); if (!row) return ids; kind = row.kind;
+  }
+  const live = r => sourceSection(v,r)?.state === 'live' && !/^last observed:/i.test(r.state);
+  const counts = new Map();
+  for (const a of v.attempts) counts.set(a.id,(counts.get(a.id) ?? 0)+1);
+  const candidates = v.attempts.filter(a=>selectorID(a.id) && counts.get(a.id)===1);
+  if (kind === 'event' || (kind === 'attempt' && row.source?.startsWith('Rails / '))) {
+    // Replay records are historical and partial. Exact mark/attempt joins
+    // come from the reviewed capture, never from an arbitrary host row.
+    if (!v.sections.some(s=>s.id==='captured Rails view')) return ids;
+    const origin = kind === 'event' && trace.events.find(e=>e.id===row.id && e.time===row.at && e.role===row.source);
+    const target = kind === 'attempt' ? row.id : origin?.attempt;
+    if (candidates.some(a=>a.id===target && a.source?.startsWith('Rails / '))) ids.add(target);
+    return ids;
+  }
+  if (!live(row)) return ids;
+  const attempts = candidates.filter(a=>a.quality==='live' && sourceSection(v,a)?.id==='fleet' && live(a));
+  if (kind === 'attempt') { if (attempts.includes(row)) ids.add(row.id); return ids; }
+  if (!selectorID(row.jobId)) return ids;
+  const jobs = v.records.filter(r=>r.kind==='job' && r.jobId===row.jobId);
+  if (jobs.length>1 || (jobs[0] && (!live(jobs[0]) || jobs[0].source!=='snapshot/1:pipeline' || jobs[0].id!==`job:${row.jobId}`))) return ids;
+  const sameJob = a=>a.jobId===row.jobId && (!a.repo || !jobs[0]?.repo || a.repo===jobs[0].repo) && (!a.repo || !row.repo || a.repo===row.repo);
+  if (kind === 'failure' && row.source === 'snapshot/1:failures') {
+    // /1's public failure key is a documented tuple; unlike detail text it
+    // preserves exact token boundaries (the timestamp is its own prefix).
+    const prefix = `failure:${row.at}:${row.state}:`;
+    const tuple = row.id.startsWith(prefix) ? row.id.slice(prefix.length).split(':') : [];
+    const [attemptId,jobId,taskId] = tuple;
+    if (tuple.length !== 4 || !selectorID(attemptId) || jobId!==row.jobId ||
+      (row.attemptId && row.attemptId!==attemptId) || (row.taskId && row.taskId!==taskId)) return ids;
+    if (attempts.some(a=>a.id===attemptId && sameJob(a) && (!taskId || a.taskId===taskId))) ids.add(attemptId);
+  } else if (kind === 'job' && row.id===`job:${row.jobId}` && row===jobs[0] ||
+    kind === 'task' && row.source==='snapshot/1:pipeline' && selectorID(row.taskId) && row.id===`task:${row.jobId}:${row.taskId}` ||
+    kind === 'decision' && row.source==='snapshot/1:decisions' && jobs.length===1 ||
+    kind === 'backlog' && row.source==='snapshot/1:backlog' && jobs.length===1) {
+    for (const a of attempts) if (sameJob(a) && (kind!=='task' || a.taskId===row.taskId)) ids.add(a.id);
+  }
+  return ids;
+}
 // Task identifiers are scoped to a job. Never infer an edge from a stage,
 // route, title, provider or a mention in prose. Missing rows are normal.
 function linked(v, kind, row) {
   if (kind === "attention")
-    return v.records.filter(
-      (x) =>
-        (x.id === row.id || x.id === row.detail) && x.source === row.source,
-    );
-  if (!row.jobId) return [];
-  const sameJob = (x) => x.jobId === row.jobId;
+    return [evidenceFor(v,row)].filter(Boolean);
+  if (!selectorID(row.jobId)) return [];
+  const sameJob = (x) => x.jobId === row.jobId && (!row.repo || !x.repo || row.repo===x.repo);
   const exactTask = (x) => row.taskId && x.taskId === row.taskId;
-  const jobs = v.records.filter((x) => x.kind === "job" && sameJob(x));
+  const jobs = v.records.filter((x) => x.kind === "job" && x.jobId===row.jobId);
+  if (jobs.length>1 || (jobs[0] && (!sameJob(jobs[0]) || jobs[0].id!==`job:${row.jobId}`))) return [];
   const tasks = v.records.filter(
-    (x) => x.kind === "task" && sameJob(x) && (kind === "job" || exactTask(x)),
+    (x) => x.kind === "task" && sameJob(x) && x.id===`task:${row.jobId}:${x.taskId}` && (kind === "job" || exactTask(x)),
   );
-  const attempts = v.attempts
-    .filter(
-      (x) =>
-        sameJob(x) && (kind === "job" || (kind === "task" && exactTask(x))),
-    )
+  const relevant = relatedAttemptIds(v,{kind,id:row.id});
+  const attempts = v.attempts.filter(a => relevant.has(a.id))
     .map((x) => ({ ...x, kind: "attempt" }));
   return [...jobs, ...tasks, ...attempts].filter(
-    (x) => !(x.kind === kind && x.id === row.id),
+    (x) => !(x.kind === kind && x.id === row.id) && recorded(v,x),
   );
 }
 function railsTarget(v, kind, row) {
-  if (!row) return null;
+  if (!row || !selectorID(row.id)) return null;
   const selector =
     kind === "attempt"
       ? ["attempt", row.id]
@@ -94,8 +142,7 @@ function railsTarget(v, kind, row) {
         ? ["job", row.jobId]
         : null;
   return selector &&
-    typeof selector[1] === "string" &&
-    /^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$/.test(selector[1])
+    selectorID(selector[1])
     ? selector
     : null;
 }
@@ -104,7 +151,7 @@ function sourceSection(v, row) {
   return v.sections.find(
     (x) =>
       row.source === `snapshot/1:${x.id}` ||
-      row.source.startsWith(`snapshot/1:${x.id}:`),
+      (x.id==='fleet' && ['snapshot/1:fleet:cli','snapshot/1:fleet:dispatch_leases'].includes(row.source)),
   );
 }
 const setText = (node, text) => {
@@ -147,13 +194,47 @@ export function createInspector({
     title.id = "inspect-title";
     title.tabIndex = -1;
     title.setAttribute("role", "heading");
-    const facts = el("dl", "facts"),
+    const address = el('p','case-address'), facts = el("dl", "facts"),
       links = el("div", "inspect-links"),
       details = el("details", "authority"),
       actions = el("div");
-    details.append(el("summary", "", "Controls & authority"), actions);
-    root.append(kicker, title, badge, intro, facts, links, details);
-    ui = { kicker, title, badge, intro, facts, links, actions };
+    const brief = el('section','case-brief'), dossier = el('details','case-fold case-dossier'),
+      readiness = el('dl','case-facts'), timeline = el('details','case-fold'), marks = el('ol','case-marks');
+    dossier.append(el('summary','','Decision readiness'),readiness);
+    timeline.append(el('summary','','Observation timeline'),marks);
+    details.className='authority case-fold';
+    details.append(el("summary", "", "Authority limits"), actions);
+    root.append(kicker, title, badge, address, dossier, brief, intro, timeline, facts, links, details);
+    ui = { kicker, title, badge, address, intro, brief, dossier, readiness, timeline, marks, facts, links, actions };
+  }
+  function pairs(rows) {
+    return rows.map(([k,value])=>{ const pair=el('div'); pair.append(el('dt','',k),el('dd','',value ?? 'Unknown')); return pair; });
+  }
+  function caseFile(finding, ready, marks) {
+    const sig=JSON.stringify([finding,ready,marks]);
+    if (ui.caseSig===sig) return;
+    ui.caseSig=sig;
+    ui.brief.hidden=!finding && !ready;
+    ui.dossier.hidden=!ready;
+    ui.timeline.hidden=!marks.length;
+    const copy=[];
+    if (finding || ready) {
+      copy.push(el('small','case-index',finding ? `${finding.signalClass}  /  ${finding.severity}` : 'Owner file  /  Read only'),
+        el('h3','case-impact',finding?.impact ?? ready.report));
+      if (finding) {
+        const list=el('dl','case-analysis');
+        list.append(...pairs([['Reported cause',finding.cause],[ready?'Effect':'Recovery',finding.recovery]]));
+        copy.push(list);
+      }
+      const next=el('div','case-next'); next.append(el('strong','','Next investigation'),el('p','',ready?.next ?? finding.next));
+      copy.push(next);
+    }
+    ui.brief.replaceChildren(...copy);
+    ui.readiness.replaceChildren(...pairs(ready?.rows ?? []));
+    ui.marks.replaceChildren(...marks.map(([at,text])=>{
+      const li=el('li'), time=el('time','',stamp(at)); time.dateTime=at;
+      li.append(time,el('p','',text)); return li;
+    }));
   }
   function facts(rows) {
     // No interactive descendants here. Keep unchanged text selectable, too.
@@ -212,11 +293,8 @@ export function createInspector({
       ),
     ];
     for (const { label, available, reason, next } of caps) {
-      const b = el("button", "act", label);
-      b.type = "button";
-      b.disabled = true;
       nodes.push(
-        b,
+        el('strong','case-limit',label),
         el(
           "p",
           "unavailable",
@@ -274,10 +352,11 @@ export function createInspector({
         run: onChoose && (() => onChoose({ kind, id }, true)),
       });
     const title = isStation ? stageName : kind === "attempt" ? id : row?.title;
-    setText(ui.title, title || id);
+    setText(ui.title, row ? title || id : 'Record unavailable');
+    setText(ui.address,row && !isStation ? `${row.id} · ${stamp(row.at)}` : ''); ui.address.hidden=!row || isStation;
     setText(
       ui.kicker,
-      isStation ? "STATION PROFILE" : `${kind.toUpperCase()} RECORD`,
+      !row ? 'NO MATCHING SOURCE' : isStation ? "STATION PROFILE" : `${kind.toUpperCase()} RECORD`,
     );
     setText(
       ui.badge,
@@ -292,6 +371,29 @@ export function createInspector({
         : "");
     const interrupted =
       mode === "host" && status !== "connected" && v.generatedAt;
+    const finding = row && !isStation ? inboxItems(v,Boolean(interrupted)).find(item =>
+      kind==='attention' ? item.id===id : item.target.kind===kind && item.target.id===id) ?? recordFinding(v,row,Boolean(interrupted)) : null;
+    const ready = decisionReadiness(v,row,Boolean(interrupted));
+    const stale = interrupted || (!isStation && (row?.quality==='stale' || /^last observed:/i.test(row?.state) || section?.state==='stale'));
+    if (stale) { setText(ui.badge,'Last observed'); ui.badge.className='tag'; }
+    const marks=[];
+    const mark=(at,what)=>{if (typeof at==='string' && Number.isFinite(Date.parse(at))) marks.push([at,what]);};
+    const relations=row && !isStation ? linked(v,kind,row) : [];
+    if (row) {
+      mark(row.at,ready ? 'Request state reported by the decision queue.' : 'Time attached to the selected source record.');
+      if (kind==='failure') {
+        const a=relations.find(r=>r.kind==='attempt');
+        if (a) mark(a.at,`Fleet reported ${a.id}: ${a.state}. No recovery is inferred.`);
+      }
+      if (ready) {
+        const job=relations.find(r=>r.kind==='job' && r.source==='snapshot/1:pipeline');
+        if (job) mark(job.at,`Pipeline observed the bound job ${job.jobId}.`);
+      }
+      mark(section?.at,'Source section collected.');
+      if (v.generatedAt!==section?.at) mark(v.generatedAt,mode==='replay'?'Recorded frame boundary.':'Overview generated.');
+    }
+    marks.sort((a,b)=>Date.parse(a[0])-Date.parse(b[0]));
+    caseFile(finding,ready,marks);
     if (interrupted)
       rows.push([
         "Read status",
@@ -303,7 +405,6 @@ export function createInspector({
         ui.intro,
         "This object has no record in the current view. Return to Work to choose an observed object.",
       );
-      rows.push(["Public ID", id]);
     } else if (isStation) {
       setText(ui.intro, station?.[1] || "What does this station report?");
       rows.push(
@@ -333,7 +434,6 @@ export function createInspector({
           run: onRelease,
         });
     } else {
-      const relations = linked(v, kind, row);
       const task = relations.find((x) => x.kind === "task");
       setText(
         ui.intro,
@@ -345,7 +445,7 @@ export function createInspector({
       rows.push(
         [kind === "event" ? "Origin ID" : "Public ID", id],
         ["Stage", stageName],
-        ["Source", row.source],
+        ["Source", section || mode==='replay' ? row.source : null],
         ["Observed at", stamp(row.at)],
       );
       if (row.quality || section)
@@ -387,8 +487,9 @@ export function createInspector({
           // are NOT Windows results. The capture contains no Windows receipt.
           if (row.state === "NOT_RUN")
             rows.push(["Platform evidence", "No Windows run receipt"]);
-          else if (row.tests)
-            for (const [name, result] of Object.entries(row.tests)) {
+          else if (origin.kind==='verification.result' && origin.role==='verifier_record' && origin.time===row.at &&
+            origin.outcome===row.state && origin.run===row.run && row.revision===trace.runs[origin.run]?.revision && row.contract===trace.contract)
+            for (const [name, result] of Object.entries(trace.runs[origin.run]?.tests ?? {})) {
               rows.push([
                 name.replace(/^test_/, ""),
                 result === 0 ? "Passed" : "Failed",

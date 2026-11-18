@@ -64,7 +64,7 @@ export function createWorkbench({ root, shift, onChoose, onRelease }) {
     return line;
   };
   let view = null, historical = false, demo = false, all = [], fleet = [], page = 0, lastPick = null;
-  let desk = desks[0], queueShown = null, queueEpoch = 0;
+  let desk = desks[0], queueShown = null, queueEpoch = 0, docket=null;
   const section = name => view?.sections?.find(r => r.id === name)?.state;
   const old = r => historical || (r.quality && r.quality !== 'live' && r.quality !== 'known') ||
     ['stale', 'unavailable', 'absent'].includes(section(sourceNames[r.kind]));
@@ -101,6 +101,7 @@ export function createWorkbench({ root, shift, onChoose, onRelease }) {
     lastPick = { release: true }; onRelease?.();
   });
   const headers = columns(['Record / public ID', 'Source observation', 'State', 'Observed · UTC']);
+  queue.id='queue-evidence';
   content.append(note, filters, info, headers, list, empty, foot, release, queue);
   root.classList.add('hw-work'); root.replaceChildren(head, tabs, panels);
 
@@ -169,11 +170,14 @@ export function createWorkbench({ root, shift, onChoose, onRelease }) {
   // to a live host, an interrupted read, a degraded fixture or a replay frame.
   function drawQueue() {
     const eligible = demo && !historical && view?.health === 'live' && section('backlog') === 'live' && section('pipeline') === 'live';
-    const mode = desk.scope !== 'queue' ? 'off' : eligible ? 'fixture' : 'unavailable';
+    const mode = desk.scope !== 'queue' ? 'off' : docket && !demo && !historical ? 'enrolled' : eligible ? 'fixture' : 'unavailable';
     if (mode === queueShown) return;
     queueShown = mode; const epoch = ++queueEpoch;
     queue.replaceChildren(); queue.hidden = mode === 'off';
-    if (mode === 'unavailable') {
+    if(mode==='enrolled') {
+      content.insertBefore(queue,note);
+      import('./queue-provider.js').then(({renderQueueDocket})=>{if(epoch===queueEpoch)renderQueueDocket(queue,docket);}).catch(()=>{if(epoch===queueEpoch)write(queue,'Enrolled queue report unavailable.');});
+    } else if (mode === 'unavailable') {
       queue.append(el('h3', '', 'Draft reconciliation'), el('p', '', 'No confirmed queue-evidence reader for this observation.'));
     } else if (mode === 'fixture') {
       import('./queue-desk.js').then(({ renderQueueDesk }) => {
@@ -240,7 +244,7 @@ export function createWorkbench({ root, shift, onChoose, onRelease }) {
     drawShift(); drawRegister();
   }
   function reset() {
-    lastPick = null; view = null; all = []; fleet = []; demo = false; historical = false;
+    lastPick = null; view = null; all = []; fleet = []; demo = false; historical = false;docket=null;queueShown=null;
     search.value = ''; sort.value = 'recent'; setScope('job'); drawShift();
   }
   function restoreFocus() {
@@ -251,5 +255,6 @@ export function createWorkbench({ root, shift, onChoose, onRelease }) {
     target.focus();
   }
   shiftTitle.tabIndex = -1; reset();
-  return { update, reset, setScope, focusSearch: () => search.focus(), restoreFocus };
+  return { update, reset, setScope, focusSearch: () => search.focus(), restoreFocus,
+    setDocket(next){if(next===docket)return;docket=next;queueShown=null;drawQueue();} };
 }

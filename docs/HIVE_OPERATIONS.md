@@ -1,5 +1,7 @@
 # Hive operations desk
 
+**Current integration:** [Mission control](HIVE_MISSION_CONTROL.md) describes the implemented single-subject queue and release publications, labels and selected-history notifications. The source inventory and proposed *general* contract below are retained as design history; `hive.queue/1` is a narrower implemented read contract. See the provider guide for what is actually enrolled.
+
 **Release HOLD.** The decision is the reviewer’s disposition on the four Rails source heads in the [pinned Workflow #92 packet](https://github.com/mojomast/workflow/blob/2d45b5958abed555b910cbddd5bdfe5e8b22144d/evidence/rails-rc/release/DECISION.md). It is not a check on the current Hive build. The docket gives each gate a finding, source, currentness and next step. Reveal the SHA pins to compare specific heads. An unavailable provider does not prevent inspection of this public packet.
 
 ## Reading revision evidence

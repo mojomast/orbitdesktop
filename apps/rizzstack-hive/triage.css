@@ -1,0 +1,71 @@
+/* The inspector is a narrow reading column; the finding and the next check
+   precede the evidence ledger. Disclosures use native pointer/keyboard UI. */
+.case-brief {
+  margin: 14px 0 12px;
+  padding: 12px 0 0;
+  border-top: 2px solid #bda780;
+  overflow-wrap: anywhere;
+}
+.case-index,
+.case-limit,
+.case-next strong,
+.case-marks time {
+  font: 600 10px/1.5 var(--mono);
+  letter-spacing: .045em;
+  color: #e2c99f;
+}
+.case-index,
+.case-next strong { text-transform: uppercase; }
+.case-address { margin: 7px 0 11px; font: 10px/1.45 var(--mono); color: #bdc9c3; overflow-wrap: anywhere; }
+.case-impact {
+  margin: 6px 0 8px;
+  font: 500 clamp(18px, 1.45vw, 23px)/1.13 Georgia, serif;
+  letter-spacing: -.015em;
+  text-wrap: pretty;
+}
+.case-analysis,
+.case-facts { margin: 8px 0; }
+.case-analysis div { margin: 6px 0; }
+.case-analysis dt,
+.case-facts dt { font: 600 11px/1.5 system-ui,sans-serif; color: #c9d4cd; }
+.case-analysis dd,
+.case-facts dd,
+.case-next p,
+.case-marks p { margin: 0; font: 13px/1.45 system-ui,sans-serif; overflow-wrap: anywhere; }
+.case-next {
+  margin: 10px 0;
+  border-inline-start: 2px solid var(--mint);
+  padding: 6px 10px;
+  color: #e5f1e9;
+  background: #203330;
+}
+.case-next strong { color: var(--mint); }
+.case-next p { margin-top: 2px; }
+.case-fold { border-block-start: 1px solid var(--line); }
+.case-fold summary {
+  min-height: 38px;
+  padding: 9px 2px;
+  font: 600 13px/1.45 system-ui,sans-serif;
+  color: #dce7dd;
+  overflow-wrap: anywhere;
+}
+.case-fold[open] summary { color: var(--mint); }
+.case-facts { border-inline-start: 2px solid #758680; padding-inline-start: 9px; }
+.case-facts div { display: grid; grid-template-columns: minmax(0,1.3fr) minmax(0,1fr); gap: 6px; padding-block: 4px; }
+.case-facts dd { font: 12px/1.45 var(--mono); }
+.case-marks { padding-inline-start: 18px; margin: 5px 0 12px 6px; border-inline-start: 1px solid #81978c; }
+.case-marks li { padding: 0 0 10px 3px; }
+.case-marks li:last-child { padding-bottom: 0; }
+.case-marks li::marker { font: 10px var(--mono); color: #d7b680; }
+.case-marks p { color: #d7e0d9; }
+.case-limit { display: block; margin-top: 10px; }
+.case-limit + .unavailable { margin: 4px 0 10px; }
+.ticket .ticket-impact { font: 12px/1.4 system-ui,sans-serif; color: #c0cdc6; }
+@media (max-width:720px) {
+  .case-fold summary { min-height: 44px; padding-block: 12px; }
+  .case-next { padding-block: 9px; }
+  .case-impact { font-size: 21px; }
+}
+@media (forced-colors:active) {
+  .case-brief, .case-next, .case-fold, .case-marks, .case-facts { border-color: CanvasText; }
+}

@@ -2,6 +2,7 @@
 // receive a callback, credential, query result or mutation capability.
 import {el,button} from './dom';
 import {offerSignedReview} from './rails-feedback-review';
+import {HiveFollow,type HiveFollowSignal} from './hive-follow';
 // Reuse the release-owned static validator/preview policy on demand. Neither
 // the main renderer build nor a catalog bundle supplies privileged code here.
 const moduleAt=(name:'rails.js'|'feedback.js')=>import(/* @vite-ignore */ (location.origin+'/rails-pane/'+name));
@@ -44,8 +45,9 @@ async function consumeStream(response:Response, onFrame:(frame:string)=>Promise<
   }}finally{await reader.cancel().catch(()=>{});}
 }
 
-export function openRailsShell(token:()=>string, initial?:Selector, onClose=()=>{}) {
+export function openRailsShell(token:()=>string, initial?:Selector, onClose=()=>{}, onSignal?:(s:HiveFollowSignal)=>void) {
   dismiss?.();
+  const observed=onSignal&&initial&&goodSelector(initial)?{...initial}:undefined;
   const dialog=el('dialog');dialog.setAttribute('aria-label','Rizzstack Rails');dialog.style.cssText='width:min(92vw,1100px);max-height:90vh;overflow:auto;color-scheme:dark';
   const kind=el('select');kind.setAttribute('aria-label','Selector kind');
   for(const name of kinds)kind.add(new Option(name,name));kind.value=initial?.kind||'attempt';
@@ -55,7 +57,7 @@ export function openRailsShell(token:()=>string, initial?:Selector, onClose=()=>
   const iframe=el('iframe');iframe.title='Read-only Rails timeline';iframe.sandbox.add('allow-scripts');iframe.referrerPolicy='no-referrer';iframe.style.cssText='width:100%;height:44vh';
   const inspect=button('Inspect','Inspect history',()=>start());
   const more=button('Next page','Read next page',()=>{if(query&&nextCursor)void load(query,nextCursor);});more.disabled=true;
-  const reset=button('Latest','Return to latest page',()=>start());
+  const reset=button('Latest','Return to latest page',()=>{if(query&&current(query))start(query.selector);});reset.disabled=true;
   const feedback=button('Preview feedback','Preview feedback',()=>preview());feedback.disabled=true;
   const retry=button('Retry unavailable','Retry unavailable: no verified queue attachment',()=>{});retry.disabled=true;
   const previewBox=el('div');
@@ -64,12 +66,12 @@ export function openRailsShell(token:()=>string, initial?:Selector, onClose=()=>
   document.body.append(dialog);
 
   let channel:MessagePort|undefined, view:View|null=null, selected='', nextCursor='', streamCursor='', page='', disposed=false;
-  type Query={controller:AbortController,selector:Selector,credential:string};
+  type Query={controller:AbortController,selector:Selector,credential:string,observer?:HiveFollow};
   let query:Query|undefined, pageRequest=0, pollTimer=0, reconnectTimer=0;
   const current=(q:Query)=>!disposed&&q===query&&!q.controller.signal.aborted&&q.credential===token();
   function clearSelection(){selected='';feedback.disabled=true;selection.textContent='';previewBox.replaceChildren();}
-  function clearView(){view=null;channel?.postMessage({view:null});clearSelection();more.disabled=true;nextCursor='';page='';}
-  function stop(){query?.controller.abort();query=undefined;clearTimeout(pollTimer);pollTimer=0;clearTimeout(reconnectTimer);live.textContent='';health.textContent='';}
+  function clearView(){query?.observer?.gap();view=null;channel?.postMessage({view:null});clearSelection();more.disabled=true;nextCursor='';page='';}
+  function stop(){query?.observer?.close();query?.controller.abort();query=undefined;reset.disabled=true;clearTimeout(pollTimer);pollTimer=0;clearTimeout(reconnectTimer);live.textContent='';health.textContent='';}
   function unauthorized(){stop();clearView();status.textContent='Unauthorized. Connect the Orbit host, then inspect again.';}
   const reconnect=()=>{if(query&&!current(query))unauthorized();};window.addEventListener('orbit-host-connected',reconnect);
   const ready=(event:MessageEvent)=>{
@@ -127,7 +129,13 @@ export function openRailsShell(token:()=>string, initial?:Selector, onClose=()=>
       // Don't remount a focused mark on heartbeats/polls with identical rows.
       const contentChanged=!view||JSON.stringify({...data,generated_at:null})!==JSON.stringify({...view,generated_at:null});
       view=data;page=after;nextCursor=r.headers.get('x-rails-next-cursor')||'';more.disabled=!nextCursor;
-      if(!after)streamCursor=r.headers.get('x-rails-stream-cursor')||'';
+      if(data.integrity.status==='failed')q.observer?.gap();
+      if(!after){
+        streamCursor=r.headers.get('x-rails-stream-cursor')||'';
+        // A visibility refresh may already include an invalidate still in
+        // transit. Advance the watermark only from the validated first page.
+        if(q.observer?.following)q.observer.covered(streamCursor);
+      }
       if(contentChanged){if(!selected||data.integrity.status==='failed'||!view?.lanes.some(l=>l.marks.some(m=>m.event_id===selected)))clearSelection();channel?.postMessage({view});}
       status.textContent=(data.integrity.status==='failed'?'Integrity failed. ': '')+`${q.selector.kind} ${q.selector.id} · ${data.completeness} history`+
         (r.headers.get('x-rails-truncated')==='true'?' · truncated':'')+(nextCursor?' · more pages':'');
@@ -137,39 +145,68 @@ export function openRailsShell(token:()=>string, initial?:Selector, onClose=()=>
   const schedulePoll=(q:Query)=>{clearTimeout(pollTimer);pollTimer=window.setTimeout(async()=>{
     if(!current(q))return;if(!page)await load(q,'',true);if(current(q))schedulePoll(q);
   },document.hidden?30000:5000);};
+  function scheduleReconnect(q:Query,delay:number){
+    if(!current(q))return;
+    q.observer?.disconnected();live.textContent=' · Stream disconnected; polling';
+    // For the observed first page the recovery read doubles as the poll. Use
+    // its high-water cursor rather than waking Hive for an offline replay.
+    if(!q.observer&&!pollTimer)schedulePoll(q);
+    const next=Math.min(30000,delay*2);
+    reconnectTimer=window.setTimeout(async()=>{
+      if(!current(q))return;
+      if(q.observer&&!page && (!await load(q,'',true)||view?.integrity.status==='failed'||!streamCursor))return scheduleReconnect(q,next);
+      if(current(q))void follow(q,next);
+    },document.hidden&&q.observer?30000:Math.min(30000,delay*(1+Math.random()/4)));
+  }
   async function follow(q:Query,delay=1000){
     if(!current(q))return;
+    const observer=q.observer&&!page&&view&&view.integrity.status!=='failed'&&q.observer.begin(streamCursor)?q.observer:undefined;
     try {
       const r=await request(q,'stream',new URLSearchParams(q.selector),streamCursor?{'Last-Event-ID':streamCursor}:{});
       if(!current(q))return;
       if([401,403].includes(r.status)){unauthorized();return;}
-      if(r.status===409){streamCursor='';await load(q);}
+      if(r.status===409){streamCursor='';q.observer?.gap();if(!q.observer||page)await load(q);}
       else if(r.ok){
-        clearTimeout(pollTimer);pollTimer=0;live.textContent=' · Connected to updates';
+        clearTimeout(pollTimer);pollTimer=0;if(!observer)live.textContent=' · Connected to updates';
         await consumeStream(r,async frame=>{
           if(!current(q))return;
-          if(/^event: *invalidate$/m.test(frame)){
+          const action=observer?.frame(frame);
+          if(action==='gap')throw Error();
+          if(action==='skip')return;
+          if(action==='ready')live.textContent=' · Connected to updates for selected history';
+          if(observer?action==='invalidate':/^event: *invalidate$/m.test(frame)){
+            // Following was already established. A wakeup need not wait for
+            // this local refetch; only its validated view can repaint marks.
+            observer?.changed();
             if(page)live.textContent=' · New history available — choose Latest';
             else if(!await load(q,'',true))throw Error();
+            if(!current(q))return;
+            if(observer&&!page){
+              if(!observer.following)throw Error();
+              live.textContent=' · Connected to updates · Selected history refreshed';
+            }
           }
-          const cursor=/^id: *([A-Za-z0-9._~:=+-]{1,1024})$/m.exec(frame)?.[1];if(cursor)streamCursor=cursor;
+          if(!observer){const cursor=/^id: *([A-Za-z0-9._~:=+-]{1,1024})$/m.exec(frame)?.[1];if(cursor)streamCursor=cursor;}
           delay=1000;
         });
       }
     }catch{/* A bounded snapshot remains visible during reconnect. */}
-    if(current(q)){live.textContent=' · Stream disconnected; polling';if(!pollTimer)schedulePoll(q);
-      reconnectTimer=window.setTimeout(()=>void follow(q,Math.min(30000,delay*2)),Math.min(30000,delay*(1+Math.random()/4)));}
+    scheduleReconnect(q,delay);
   }
-  function start(){
+  function start(selector={kind:kind.value,id:input.value.trim()}){
     stop();clearView();streamCursor='';
-    const selector={kind:kind.value,id:input.value.trim()}, credential=token();if(!credential){unauthorized();return;}
+    const credential=token();if(!credential){unauthorized();return;}
     if(!goodSelector(selector)){status.textContent='Enter a valid public selector ID.';return;}
-    const q=query={selector,credential,controller:new AbortController()};
+    const q:Query=query={selector,credential,controller:new AbortController()};reset.disabled=false;
+    kind.value=selector.kind;input.value=selector.id;
+    if(onSignal&&observed?.kind===selector.kind&&observed.id===selector.id){
+      q.observer=new HiveFollow(s=>{if(s==='idle'||current(q))onSignal(s);});
+    }
     void request(q,'health',new URLSearchParams()).then(async r=>{
       if(!current(q))return;if([401,403].includes(r.status)){unauthorized();return;}
       health.textContent=r.ok?'Read service reachable':'Read service unavailable';
     }).catch(()=>{if(current(q))health.textContent='Read service disconnected';});
-    void load(q).then(()=>{if(current(q))void follow(q);});
+    void load(q).then(ok=>{if(!current(q))return;if(q.observer&&(!ok||view?.integrity.status==='failed'||!streamCursor))scheduleReconnect(q,1000);else void follow(q);});
   }
   const visibility=()=>{if(query&&current(query)&&!page&&!document.hidden)void load(query,'',true);};
   document.addEventListener('visibilitychange',visibility);

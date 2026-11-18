@@ -3,7 +3,7 @@
 // requires a new click in Orbit. Navigation destroys both.
 const pairing = /^#orbit-hive-document=([a-f\d-]{36})$/.exec(location.hash)?.[1];
 const unavailable = {openRails:()=>false,refresh:()=>{},close:()=>{}};
-let port, callbacks, watchdog, pending=null, phase='waiting', focusPending=false, expired=false;
+let port, callbacks, watchdog, pending=null, confirmedAt=null, phase='waiting', focusPending=false, expired=false;
 const object=v=>!!v && typeof v==='object' && !Array.isArray(v);
 const keys=(v,names)=>object(v) && Object.keys(v).length===names.length && names.every(k=>Object.hasOwn(v,k));
 // Transport envelope/shape checks. Full snapshot validation, redaction, scope
@@ -34,6 +34,7 @@ function start() {
       // Both halves must match the same ordered read. Do not expose a pending
       // projection, or acknowledge a read the store rejected as old/conflicting.
       const result=data.value==='connected'?callbacks.onView(pending):null;
+      confirmedAt=data.value==='connected' && (result==='new'||result==='duplicate')?pending.generatedAt:null;
       pending=null;
       phase=data.value!=='connected'||result==='new'||result==='duplicate'?data.value:
         result==='conflict'?'conflict':result==='old'?'out of order':'unavailable';
@@ -42,7 +43,13 @@ function start() {
       callbacks.onStatus(phase);
     } else if (data.type==='view' && phase==='loading' && keys(data,['type','view']) && viewShape(data.view)) {
       pending=data.view;phase='projected';arm(65_000);
-    } else if (data.type==='return-focus' && keys(data,['type']) && focusPending) {focusPending=false;callbacks.onReturnFocus();}
+    } else if (phase==='connected' && confirmedAt && data.type==='reports' && keys(data,['type','generatedAt','queue','release','titles']) &&
+      data.generatedAt===confirmedAt && Array.isArray(data.titles) && data.titles.length<=200 && data.titles.every(r=>keys(r,['kind','id','title'])&&typeof r.id==='string'&&typeof r.kind==='string'&&typeof r.title==='string'&&r.title.length<=160)) {
+      callbacks.onReports?.(data);
+    } else if (data.type==='follow' && keys(data,['type','signal','kind','id']) && ['connected','loading','projected'].includes(phase) &&
+      ['attempt','job'].includes(data.kind) && typeof data.id==='string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$/.test(data.id) &&
+      ['following','invalidated','reconnecting','gap','idle'].includes(data.signal))callbacks.onFollow?.(data);
+    else if (data.type==='return-focus' && keys(data,['type']) && focusPending) {focusPending=false;callbacks.onReturnFocus();}
   };
   const dispose=()=>{
     expired=true;pending=null;phase='waiting';focusPending=false;clearTimeout(watchdog);callbacks?.onStatus('unauthorized');callbacks=null;

@@ -15,6 +15,7 @@
     <link rel="stylesheet" href="./workbench.css" />
     <link rel="stylesheet" href="./console.css" />
     <link rel="stylesheet" href="./operations.css" />
+    <link rel="stylesheet" href="./triage.css" />
     <script src="./main.js" type="module"></script>
   </head>
   <body>
@@ -108,6 +109,7 @@
         </div>
       </div>
       <section id="sources" hidden aria-label="Source register"></section>
+      <section id="watch" aria-label="Observation channels" hidden><strong>Signal watch</strong><span id="follow-state" role="status"></span><span id="evidence-state"></span></section>
       <div class="command-grid">
         <aside class="inbox" aria-labelledby="inbox-head">
           <div class="desk-cap">
@@ -116,6 +118,7 @@
           </div>
           <h2 id="inbox-head">Needs attention</h2>
           <div id="attention"></div>
+          <button id="stream-ticket" class="ticket" hidden><span class="ticket-meta">SELECTED HISTORY</span><strong>New evidence in Rails</strong><span class="ticket-foot"></span></button>
           <button class="gate-note" data-nav="release">
             <small>RELEASE RECORD</small><strong>Promotion held ↗</strong
             ><span>Inspect outstanding gates</span>
@@ -162,7 +165,7 @@
             hidden
             tabindex="-1"
             aria-label="Release desk"
-          ></section>
+          ><div id="report-release"></div><div id="release-history"></div></section>
         </div>
         <aside
           class="inspection"

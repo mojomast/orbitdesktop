@@ -8,6 +8,14 @@ const rails = {openRails() { assert.fail('discovery must not invoke a provider')
 const context = {selection: scope, record: {...scope, stage: 'verify'}, mode: 'host', connected: true, providers: {rails}};
 const available = ctx => controlsFor(ctx).filter(row => row.available);
 
+test('an invalid or stale selected record cannot advertise an available reader even when the host is connected',()=>{
+  for(const record of [{...scope,quality:'stale'}, {...scope,state:'last observed: running'},
+    {kind:'task',id:'../invalid',jobId:'job1'}, {kind:'job',id:'job:a',jobId:'unknown'}]) {
+    assert.deepEqual(available({...context,selection:{kind:record.kind,id:record.id},record}),[]);
+  }
+  assert.deepEqual(available({...context,status:'conflict'}),[]);
+});
+
 test('a connected host navigation handle is necessary but not sufficient: the selector must match', () => {
   const [nav] = available(context);
   assert.deepEqual(nav.target, scope);

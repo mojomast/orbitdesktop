@@ -47,6 +47,7 @@ import { createAgentStatus } from './agent-status.mjs';
 import { createCollabBoard } from './collab-board.mjs';
 import { createLocalWorkersRoute } from './local-workers-route.mjs';
 import { createAcddEvidenceRoute } from './acdd-evidence-route.mjs';
+import { createHiveReportsRoute, HIVE_REPORTS_ROUTE } from './hive-reports.mjs';
 import { createRailsProxy } from './rails-proxy.mjs';
 import { ownerRelay, fixedSshExchange } from './rails-owner-relay.mjs';
 const port = Number(process.env.PORT || 4318);
@@ -143,6 +144,7 @@ const colab = createColabOrchestrator({ token, port, devOrigins, reply, root: pa
 const kittyDoom = createKittyDoomService({ token, port, devOrigins, reply });
 // Grok Bots app: capability-scoped list/history/send for the sandboxed app iframe.
 const agentStatus = createAgentStatus({ runtimeRoot });
+const hiveReports = createHiveReportsRoute({dir: process.env.ORBIT_HIVE_REPORT_DIR, token, port, devOrigins, reply});
 const acddEvidence = createAcddEvidenceRoute({ stateDir: process.env.ORBIT_ACDD_STATE_DIR || '', authorize: req => allowedRequest(req, port, devOrigins) && tokenMatches(String(req.headers.authorization || '').replace(/^Bearer /, ''), token) });
 const railsProxy = createRailsProxy({token, port, devOrigins, upstreamPort:process.env.ORBIT_RAILS_PORT,
   readTokenFile:process.env.ORBIT_RAILS_READ_TOKEN_FILE,
@@ -351,6 +353,7 @@ async function handleOrbitRequest(req, res) {
   if (!allowedHosts.has(req.headers.host))
     return reply(res, 403, { error: "Host rejected" });
   const url = new URL(req.url, "http://localhost");
+  if(url.pathname===HIVE_REPORTS_ROUTE) return hiveReports(req,res);
   if(url.pathname.startsWith('/api/rizzstack/rails/')) return railsProxy(req,res);
   if(url.pathname.startsWith('/rails-pane/')) {
     const file=url.pathname.slice('/rails-pane/'.length);
