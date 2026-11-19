@@ -2,10 +2,13 @@ import {validate, type Workspace, type Monitor} from './model.ts';
 import {validateDockingPlacement, prunePlacement, emptyPlacement, type DockingPlacement, type PlacementNode} from './docking-placement.ts';
 import {measuredViewport, type ArrangeViewport} from './workspace-arrange-plan.ts';
 
-const geometryKeys = ['frame','spatial','diagonal','aspect','height','distance','pitch','yaw','offset'] as const;
+const geometryKeys = ['frame','diagonal','aspect','height','distance','pitch','yaw','offset'] as const;
+// Persisted legacy placements may still carry these; they load as windows and are ignored.
+const legacyGeometryKeys = ['spatial','spatialFontSize'] as const;
+const allowedGeometryKeys = [...geometryKeys, ...legacyGeometryKeys];
 export interface SavedLayout {
   version: 1;
-  windows: {id:string; name:string; geometry:Partial<Monitor>}[];
+  windows: {id:string; name:string; geometry:Partial<Monitor> & {spatial?:unknown; spatialFontSize?:number}}[];
   view: 'windows'|'spatial';
   selected: string;
   placement: DockingPlacement;
@@ -14,7 +17,7 @@ export interface SavedLayout {
 export function captureLayout(state:Workspace, placement:DockingPlacement, viewport:ArrangeViewport):SavedLayout {
   if(state.monitors.length>100)throw Error('At most 100 windows can be saved.');
   return {version:1,windows:state.monitors.map(m=>({id:m.id,name:m.name,geometry:Object.fromEntries(geometryKeys.filter(k=>m[k]!==undefined).map(k=>[k,structuredClone(m[k])]))})),
-    view:state.view??'windows',selected:state.selected,placement:validateDockingPlacement(placement,{windowIds:state.monitors.map(m=>m.id)}),viewport:measuredViewport(viewport)};
+    view:'windows',selected:state.selected,placement:validateDockingPlacement(placement,{windowIds:state.monitors.map(m=>m.id)}),viewport:measuredViewport(viewport)};
 }
 export function validateSavedLayout(value:SavedLayout):SavedLayout {
   const only=(v:object,keys:readonly string[])=>{if(!v||typeof v!=='object'||Array.isArray(v)||Object.keys(v).some(k=>!keys.includes(k)))throw Error('Invalid saved layout fields');};
@@ -22,7 +25,7 @@ export function validateSavedLayout(value:SavedLayout):SavedLayout {
   if(value.version!==1||!Array.isArray(value.windows)||!value.windows.length||value.windows.length>100||!['windows','spatial'].includes(value.view))throw Error('Invalid saved layout');
   only(value.viewport,['width','height']);measuredViewport(value.viewport);
   const ids=new Set<string>();
-  for(const w of value.windows){only(w,['id','name','geometry']);only(w.geometry,geometryKeys);if(!/^[a-zA-Z0-9_-]{1,100}$/.test(w.id)||ids.has(w.id)||typeof w.name!=='string'||w.name.length>60)throw Error('Invalid saved window');ids.add(w.id);
+  for(const w of value.windows){only(w,['id','name','geometry']);only(w.geometry,allowedGeometryKeys);if(!/^[a-zA-Z0-9_-]{1,100}$/.test(w.id)||ids.has(w.id)||typeof w.name!=='string'||w.name.length>60)throw Error('Invalid saved window');ids.add(w.id);
     // Reuse the core geometry contract without retaining or accepting pane content.
     validate({version:1,arc:14,selected:w.id,monitors:[{...w.geometry,id:w.id,name:w.name,fontSize:19,layout:{type:'pane',pane:{id:w.id==='validation-pane'?'validation-pane-2':'validation-pane',kind:'browser',url:'orbit://welcome'}}} as Monitor]});
   }
@@ -45,7 +48,7 @@ export function compileSavedLayout(record:{state:Workspace;placement?:DockingPla
   const matched=saved.windows.flatMap(w=>bindings.has(w.id)?[state.monitors.find(m=>m.id===bindings.get(w.id))!]:[]);
   // Reorder matched slots only; unrelated windows retain their order and geometry.
   let index=0;state.monitors=state.monitors.map(m=>used.has(m.id)?matched[index++]:m);
-  state.view=saved.view;state.selected=bindings.get(saved.selected)??state.selected;
+  state.selected=bindings.get(saved.selected)??state.selected;
   const mapped=prunePlacement(saved.placement,[...bindings.keys()]);
   const node=(n:PlacementNode|null):PlacementNode|null=>!n?null:n.type==='group'?{...n,windows:n.windows.map(id=>bindings.get(id)!),...(n.active?{active:bindings.get(n.active)!}:{})}:{...n,first:node(n.first)!,second:node(n.second)!};
   const retained=prunePlacement(record.placement??emptyPlacement(),state.monitors.filter(m=>!used.has(m.id)).map(m=>m.id));

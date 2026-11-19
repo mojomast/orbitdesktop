@@ -13,7 +13,7 @@ export function checkpointChanges(current, checkpoint) {
   const same = (a, b) => canonicalJson(a ?? null) === canonicalJson(b ?? null);
   const fieldsChanged = (before, after, keys) => keys.filter(key => !same(before?.[key], after?.[key]));
   const before = current.state, after = checkpoint.state;
-  const workspaceFields = fieldsChanged(before, after, ['selected', 'arc', 'view', 'sidebarHidden', 'spatialCamera']);
+  const workspaceFields = fieldsChanged(before, after, ['selected', 'arc', 'sidebarHidden']);
   if (!same(before.monitors.map(m => m.id), after.monitors.map(m => m.id))) workspaceFields.push('window order');
   const appearanceFields = [...new Set([...Object.keys(before.appearance ?? {}), ...Object.keys(after.appearance ?? {})])].filter(key => !same(before.appearance?.[key], after.appearance?.[key]));
   if (appearanceFields.length) add('workspace', 'changed', 'Appearance', appearanceFields);
@@ -23,7 +23,7 @@ export function checkpointChanges(current, checkpoint) {
   for (const [id, window] of left) {
     if (!right.has(id)) add('window', 'removed', window.name || 'Window');
     else {
-      const fields = fieldsChanged(window, right.get(id), ['name', 'frame', 'fontSize', 'spatialFontSize', 'opacity', 'diagonal', 'aspect', 'height', 'distance', 'pitch', 'yaw', 'offset', 'spatial', 'layout']);
+      const fields = fieldsChanged(window, right.get(id), ['name', 'frame', 'fontSize', 'opacity', 'diagonal', 'aspect', 'height', 'distance', 'pitch', 'yaw', 'offset', 'layout']);
       if (fields.length) add('window', 'changed', right.get(id).name || 'Window', fields);
     }
   }

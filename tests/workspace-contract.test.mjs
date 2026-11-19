@@ -42,7 +42,7 @@ test('operation count and encoded request byte limits are exposed and enforced',
 test('current command and operation examples validate', () => {
   assert.doesNotThrow(() => validateWorkspaceRequest({ workspace_id: workspaceId, action: 'sync', state: initial() }));
   assert.doesNotThrow(() => validateWorkspaceRequest({ workspace_id: workspaceId, action: 'apply', base_revision: 3, operations: [
-    { action: 'set_view', view: 'spatial' },
+    { action: 'set_arc', arc: 20 },
     { action: 'set_appearance', appearance: { background: '#123456', wallpaper: '/neon-horizon-v1.svg' } },
     { action: 'update_window', window_id: 'window-1', frame: { x: 10, y: 20, width: 700, height: 450, z: 5 } },
   ] }));

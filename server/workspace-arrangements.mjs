@@ -99,7 +99,7 @@ function semanticDiff(before,after,beforePlacement,afterPlacement){
     const from=before.monitors.find(monitor=>monitor.id===before.selected),to=after.monitors.find(monitor=>monitor.id===after.selected);
     diff.push({kind:'select',summary:bounded(`Active window: ${nameOf(from)} → ${nameOf(to)}`),window_id:after.selected});
   }
-  if(before.view!==after.view)diff.push({kind:'view',summary:bounded(`View: ${before.view??'windows'} → ${after.view??'windows'}`)});
+  if((before.view??'windows')!==(after.view??'windows'))diff.push({kind:'view',summary:bounded(`View: ${before.view??'windows'} → ${after.view??'windows'}`)});
   if(!samePlacement(beforePlacement,afterPlacement)){
     const beforeFloats=(beforePlacement??emptyPlacement()).floats.length,afterFloats=(afterPlacement??emptyPlacement()).floats.length;
     const activeId=(afterPlacement??emptyPlacement()).active;
@@ -206,11 +206,11 @@ export function createWorkspaceArrangements({store,records,data,now=Date.now}={}
     if(isReview&&(!Number.isFinite(body.width)||body.width<280||body.width>16000||!Number.isFinite(body.height)||body.height<180||body.height>16000))throw wbError('invalid_request');
     // Record the actually supplied viewport whenever both bounds are measured.
     const viewport=Number.isFinite(body.width)&&Number.isFinite(body.height)?{width:body.width,height:body.height}:null;
-    // Built-ins accept the same optional renderer as saved recipes. A `review`
-    // preview switches to the Windows view by its operations, so a supplied
-    // spatial target is recorded as the effective windows target; docking is
-    // recorded because its operations update the Docking placement.
-    const renderer=isReview?((body.renderer??'windows')==='spatial'?'windows':(body.renderer??'windows')):(body.renderer??'windows');
+    // Built-ins accept the same optional renderer as saved recipes. Legacy
+    // spatial targets load as the windows renderer; docking is recorded because
+    // its operations update the Docking placement.
+    const effectiveRenderer=value=>value==='spatial'?'windows':(value??'windows');
+    const renderer=effectiveRenderer(body.renderer);
     const roles=BUILTIN_ROLES[body.recipe]??[];
     const ids=workspace.state.monitors.map(monitor=>monitor.id);
     const monitorIds=new Set();for(const binding of bindings){const monitor=paneMonitor(workspace.state,binding.pane_id);if(monitor)monitorIds.add(monitor.id);}
@@ -251,7 +251,7 @@ export function createWorkspaceArrangements({store,records,data,now=Date.now}={}
       let x=anchorFrame.x+anchorFrame.width+16;if(x+width>body.width)x=Math.max(0,anchorFrame.x-width-16);x=Math.max(0,Math.min(x,body.width-width));
       const y=Math.max(0,Math.min(anchorFrame.y,body.height-height));
       const z=Math.max(0,...workspace.state.monitors.map(item=>item.frame?.z??0))+1;
-      operations=[{action:'update_window',window_id:target.id,frame:{x,y,width,height,z}},{action:'select',window_id:target.id},{action:'set_view',view:'windows'}];
+      operations=[{action:'update_window',window_id:target.id,frame:{x,y,width,height,z}},{action:'select',window_id:target.id}];
       const oldWindows=placementWindows(placement);
       placement=prunePlacement(placement,oldWindows.filter(id=>id!==target.id));
       placement.floats.push({windows:[target.id],frame:{x,y,width,height},active:target.id});placement.active=target.id;
@@ -272,8 +272,7 @@ export function createWorkspaceArrangements({store,records,data,now=Date.now}={}
 
   function compileSaved(body,{workspace,bindings},recipe){
     if(body.recipe==='return')throw wbError('invalid_request');
-    const roles=recipe.roles??[],layout=recipe.layout,renderer=body.renderer??recipe.renderer;
-    if(renderer==='spatial'&&(layout==='columns'||layout==='rows'))throw Object.assign(wbError('unsupported'),{reason:'spatial_renderer_prioritize_only'});
+    const roles=recipe.roles??[],layout=recipe.layout,renderer=(body.renderer??recipe.renderer)==='spatial'?'windows':(body.renderer??recipe.renderer??'windows');
     const {resolved,unbound}=resolveRoles(roles,bindings,body.role_choices,workspace);
     const ids=workspace.state.monitors.map(monitor=>monitor.id);
     const ordered=[];
@@ -314,7 +313,7 @@ export function createWorkspaceArrangements({store,records,data,now=Date.now}={}
     const state=validate(structuredClone(checkpoint.state));
     // `restore_revision` lets finalize prepend the exact prior revision to the
     // real semantic diff computed against the current workspace.
-    return {recipe:'return',recipe_id:null,recipe_version:null,recipe_source_project_id:null,layout:'prioritize',renderer:body.renderer??'windows',roles:[],role_choices:{},unbound:[],operations:[{action:'set_workspace',state}],state,placement:checkpoint.placement??emptyPlacement(),geometry:'none',viewport:null,return_of:source.id,restore_revision:checkpoint.revision,warning:RETURN_WARNING};
+    return {recipe:'return',recipe_id:null,recipe_version:null,recipe_source_project_id:null,layout:'prioritize',renderer:body.renderer==='spatial'?'windows':(body.renderer??'windows'),roles:[],role_choices:{},unbound:[],operations:[{action:'set_workspace',state}],state,placement:checkpoint.placement??emptyPlacement(),geometry:'none',viewport:null,return_of:source.id,restore_revision:checkpoint.revision,warning:RETURN_WARNING};
   }
 
   function reclaimPreviews(workspaceId,projectId){

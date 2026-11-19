@@ -290,7 +290,7 @@ test('recipes saved in one project are reusable in another project of the same w
   await assert.rejects(f.arrangements.dispatch({action:'recipe_preview',workspace_id:foreignWorkspace,project_id:foreignProject.id,recipe:'investigate',recipe_id:saved.recipe.id},{actor:'owner'}),{code:'stale_resource'});
 });
 
-test('columns and rows produce distinct measured shapes, docking updates only chosen windows and spatial refuses geometry',async t=>{
+test('columns and rows produce distinct measured shapes, docking updates only chosen windows and legacy spatial loads as windows',async t=>{
   const f=fixture(t);f.bind('project_files',f.monitorPane(0),'a.js');f.bind('active_terminal',f.monitorPane(1),'t.js');
   const ids=f.store.read(f.workspace_id).state.monitors.map(monitor=>monitor.id);
   const columns=await f.flow('recipe_save',{name:'Columns',roles:['project_files','active_terminal'],layout:'columns',renderer:'windows'});
@@ -312,7 +312,9 @@ test('columns and rows produce distinct measured shapes, docking updates only ch
   const narrowFrames=narrowPreview.operations.filter(op=>op.action==='update_window');
   assert.equal(narrowFrames[0].frame.width,342,'3 columns would be 225px, so columns narrow to 2 at 342px');
   assert.equal(new Set(narrowFrames.map(op=>op.frame.y)).size,2,'narrow columns wrap into two rows');
-  await assert.rejects(f.flow('recipe_preview',{recipe:'implement',recipe_id:columns.recipe.id,renderer:'spatial',width:1400,height:900}),{code:'unsupported'});
+  const legacySpatial=await f.flow('recipe_preview',{recipe:'implement',recipe_id:columns.recipe.id,renderer:'spatial',width:1400,height:900});
+  assert.equal(legacySpatial.renderer,'windows','legacy spatial loads as windows');
+  assert.equal(legacySpatial.operations.filter(op=>op.action==='update_window').length,2,'legacy spatial still applies windows geometry');
 
   const unrelated={version:1,layout:null,floats:[{windows:[ids[2]],frame:{x:700,y:40,width:320,height:240},active:ids[2]}],active:ids[2]};
   f.store.commit(commandIdentity({workspace_id:f.workspace_id,action:'placement_save',base_revision:f.store.read(f.workspace_id).revision,placement:unrelated,operation_id:randomUUID(),intent:'fixture'},'owner'),{apply:record=>record.state,placement:unrelated,skipUnchanged:true});
