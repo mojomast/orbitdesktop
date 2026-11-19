@@ -163,6 +163,7 @@ def run():
                 'ORBIT_HIVE_REPORT_DIR':str(reports),
                 'ORBIT_TMUX_SOCKET':'hive-'+uuid4().hex[:16],'ORBIT_TMUX_CONFIG':'/dev/null',
                 'ORBIT_RAILS_READ_TOKEN_FILE':str(root/'proxy-read'),'FIXTURE_COLLECTOR_PORT':str(collector_port),
+                'ORBIT_EXT_OBSERVATORY_UPSTREAM':'http://127.0.0.1:'+str(collector_port),
                 'ORBIT_OBS_COLLECTOR_TOKEN':upstream});cleanup.callback(stop,process)
         for _ in range(160):
             if process.poll() is not None: raise RuntimeError('isolated Orbit exited')

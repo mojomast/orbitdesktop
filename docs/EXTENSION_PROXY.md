@@ -2,9 +2,10 @@
 
 `/api/ext/` is the generic, owner-authenticated route that lets an installed
 extension reach a loopback service declared in its own manifest. It replaces
-per-feature hard-coded proxies one at a time; the existing `/obs-snapshot`
-route stays in place until the Observatory has been switched over and verified
-live.
+per-feature hard-coded proxies one at a time. The Orbit Hive host now reads its
+snapshot through this proxy. The existing `/obs-snapshot` route remains only
+for the legacy standalone Observatory app until Kyle verifies it and removes
+it.
 
 ## Route shape
 
@@ -90,7 +91,9 @@ Redirects are never followed. Only `application/json`, `text/plain` and
 
 ## Migration
 
-`/obs-snapshot` and `serveObsSnapshot` remain unchanged for now. The
-Observatory bundle can move to the extension route once the proxy has been
-verified against the live collector; only then should the old route be
-removed.
+The Hive host already uses `/api/ext/rizzstack-observatory/snapshot/snapshot`.
+`/obs-snapshot` and `serveObsSnapshot` remain unchanged for now, serving only
+the legacy standalone Observatory app until Kyle verifies the switch and
+removes it. The standalone bundle can move to the extension route once the
+proxy has been verified against the live collector; only then should the old
+route be removed.
