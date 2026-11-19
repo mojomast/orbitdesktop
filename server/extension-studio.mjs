@@ -13,7 +13,7 @@ import {focusTimerArtifact,bundleDigest,hash} from './extension-studio-artifact.
 import {canonicalJson,commandIdentity} from './command-identity.mjs';
 import {applyOperation} from '../src/workspace-ops.ts';
 import {pluginSelector} from '../src/plugins.ts';
-import {wbError} from './workbench-store.mjs';
+import {serviceError as wbError} from './service-error.mjs';
 
 const valid=new Ajv({strict:true}).compile(studioSchema),execute=promisify(execFile);
 const digest=value=>hash(canonicalJson(value));

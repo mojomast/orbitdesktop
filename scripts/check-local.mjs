@@ -41,10 +41,9 @@ try {
   console.log('Orbit check: loopback only; disposable HOME, temp, tmux and npm cache.');
   if(mode==='check') {
     run(['scripts/generate-workspace-contract.mjs','--check']);
-    run(['--experimental-strip-types','scripts/generate-workbench-contract.mjs','--check']);
     run(['scripts/isolated_build.mjs']);
   }
-  const tests=mode==='preflight'?['runnable-portability.test.mjs','onboarding-wiring.test.mjs','workspace-store-placement.test.mjs','project-files-adversarial.test.mjs']
+  const tests=mode==='preflight'?['runnable-portability.test.mjs','onboarding-wiring.test.mjs','workspace-store-placement.test.mjs']
     :fs.readdirSync(path.join(repo,'tests')).filter(name=>name.endsWith('.test.mjs')).sort();
   run(['--experimental-strip-types','--test','--test-concurrency=1',...tests.map(name=>'tests/'+name)]);
 } finally { fs.rmSync(root,{recursive:true,force:true}); }

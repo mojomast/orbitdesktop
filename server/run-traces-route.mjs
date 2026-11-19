@@ -1,6 +1,6 @@
 import {allowedRequest,tokenMatches} from './security.mjs';
 import {TRACE_LIMITS} from '../contracts/run-trace-v1.mjs';
-import {wbError} from './workbench-store.mjs';
+import {serviceError as wbError} from './service-error.mjs';
 export function createRunTracesHandler({token,port,devOrigins,reply,traces}){
   const handler=async(req,res)=>{
     res.setHeader('Cache-Control','no-store');

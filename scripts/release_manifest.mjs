@@ -27,7 +27,7 @@ export const EXTERNAL_IMMUTABILITY='operator-managed-not-enforced';
 export const DEFAULT_EXCLUDE=Object.freeze(['.git','node_modules','.runtime','active-release.json',MANIFEST_NAME,OWNED_MARKER]);
 export const REQUIRED_COMPONENTS=Object.freeze({
   server:['server/index.mjs'],
-  contracts:['contracts/workspace-v1.mjs','contracts/workbench-v1.mjs','contracts/workbench-result-v1.mjs'],
+  contracts:['contracts/workspace-v1.mjs'],
   served:['dist/index.html'],
   plugin:['hermes-plugin/workbench.py'],
   metadata:['package.json'],

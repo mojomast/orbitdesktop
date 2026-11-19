@@ -48,8 +48,7 @@ kernel-identity limitations are documented in [managed terminals](MANAGED_TERMIN
 `src/workspace-sync.ts` polls and tracks browser acknowledgement. An acknowledged revision does not prove a widget rendered correctly. Local layout persistence and imports remain supported. Offline changes can be saved server-side; display acknowledgement waits for the browser.
 
 The default shell's `src/workspace-arrange.ts` uses owner-only `layout_preview` /
-`layout_apply` commands for existing-window placement, independently of Workbench
-project registration. Their contract is a restricted operation union, not general
+`layout_apply` commands for existing-window placement. Their contract is a restricted operation union, not general
 controller access: no creation/removal, plugin mutation or whole-state replacement.
 Apply requires an operation identity and current base revision. Checkpoint
 `checkpoint_preview` returns a bounded metadata diff through
@@ -58,48 +57,31 @@ Apply requires an operation identity and current base revision. Checkpoint
 `server/workspace-description.mjs` provides authenticated, bounded layout metadata
 and an opt-in operation catalog sourced directly from the workspace contract.
 Normal's workspace adapter can discover this catalog rather than embedding every
-operation in its prompt. Only existing active project bindings produce roles;
-neither role nor pane selection authorizes access to resource content. Project
-paths, credentials, terminal output and conversation content are omitted. This
-owner/controller interface is not exposed to generated frames or native
-Workbench workers. The implementation ledger is
+operation in its prompt. No project bindings are exposed after the Phase 3
+removal; neither role nor pane selection authorizes access to resource content.
+Project paths, credentials, terminal output and conversation content are omitted.
+This owner/controller interface is not exposed to generated frames. The
+implementation ledger is
 [Environment malleability](ENVIRONMENT_MALLEABILITY_LEDGER.md).
 
 Schema 3 adds an indexed bundle registry and workspace-scoped metadata event queries.
 Schema 4 adds transactional docking placement, revision/checkpoint copies, and
 shared workspace-revision CAS. Schema-3 databases upgrade on opening; owner
 runtimes must be backed up and tested in a separate copy before upgrade.
-Schema 5 adds separate project/resource/surface-binding records. The owner-only
-`/api/workbench` and host-owned Project Inspector use those IDs for confined,
-bounded file observations and private Git materialization. Model disclosure and
-execution are not implied by project registration. See [Project Workbench](PROJECT_WORKBENCH.md).
-Schema 6 adds private task/attempt/context/disclosure/submission/candidate/job/
-evidence/review records through `WorkbenchData`, outside layout and metadata
-events. Dedicated owner-only context and execution routes validate independent
-contracts. A shared gate fences legacy queue uncertainty and serial dispatch.
-Exact prepared Hermes payloads are durable before POST; unknown outcomes are not
-replayed. Candidate checks use approved private copies and recorder results, not
-completion markers. Worktrees and owner-UID processes are not sandboxes; reusable
-runtime tools stay blocked pending authenticated request-scope binding.
+Project Workbench was removed in cleanup Phase 3 with its `wb_*` and project-tool
+tables left inert in the database and no schema-version change. Schema 5 added
+separate project/resource/surface-binding records and schema 6 added private
+task, attempt, context, disclosure, submission, candidate, job, evidence and
+review records; those tables remain unused.
 
 Normal chat may overlap independently receipted accepted conversations. Its trusted
 adapter caller supplies a cross-conversation admission predicate that validates
 the other run's private receipt, binding and current profile fingerprint; this
-predicate is never accepted from a browser or model request. Workbench retains
-global exclusion. Preparation/dispatch uses the existing local gate, while active
-Normal runs remain durably recoverable after restart. Same-session and unknown
-outcome fences remain separate from background UI synchronization.
-Schema 7 adds bounded native task grants and authenticated private tool calls.
-Schema 8 adds private result receipts, explicit conversation-card deliveries and
-review-bound patch records. The pinned native Hermes adapter receives its packet
-on FD3 and emits only the public `final_response` through bounded, versioned FD4;
-stdout/stderr are never explanation sources. Result availability, termination,
-recorded checks and human review are independent states. Check provenance records
-the authenticated initiator, approval authority and service recorder separately;
-the recorder build identity is snapshotted at service startup. Host-delivered
-cards remain outside model conversation history and do not invoke a model.
-See [result contracts](WORKBENCH_RESULT_CONTRACT.md) and the
-[increment acceptance ledger](WORKBENCH_RESULT_INCREMENT.md) for current gates.
+predicate is never accepted from a browser or model request. Unknown or
+unresolved submissions retain global exclusion. Preparation/dispatch is
+durable, while active Normal runs remain recoverable after restart. Same-session
+and unknown-outcome fences remain separate from background UI synchronization.
+Schemas 7 and 8 added the remaining private Phase 3 tables; they stay inert.
 Normal reads use indexed asset versions; startup/admin publication refresh performs
 filesystem scanning. Hash-addressed asset responses verify indexed bytes before serving.
 Retention plans include all saved revisions/checkpoints and are dry-run only.
@@ -144,14 +126,6 @@ turns. The source-pinned plugin rejects environment-only/session-only identities
 and delegated child contexts. This local adapter is configured explicitly and does
 not broaden the ordinary workspace controller or generated-plugin authority.
 
-Workbench setup records operation-owned completion manifests beside copied
-candidate trees; exact recovery publishes only verified completed materialization.
-Integration publication manifests similarly permit DB-only settlement after a
-proven rename. Review-only waiting intentions and task-status snapshots reuse
-existing private stores; they do not grant execution or fabricate missed events.
-Committed arrangement replay/Return records form logical history outside active
-preview capacity. Physical compaction and other terminal graph quotas remain.
-
 Trusted built-ins use `src/workspace-extensions.ts`: typed activation entries dynamically load plugin manager, checkpoints, skills catalog, outputs and jobs. Live activity is also loaded on demand. These modules run in the parent page and are reviewed application code. They are not user-installable privileged plugins.
 
 `src/host-surfaces.ts` additionally allowlists the exact browser-pane URLs
@@ -188,13 +162,8 @@ preview-before-insert dialog. It delivers to one chosen chat draft; it neither
 sends a model request nor creates a generated-frame bridge. See
 [Output library](OUTPUT_LIBRARY.md) and [Context handoff](CONTEXT_HANDOFF.md).
 
-Persistent project tools are a closed set of reviewed host modules (notebook and
-recorded checks/review card), selected by an opaque browser-pane URL. Schema 10
-separates their definitions, host-release descriptors, instances, private data and
-authoritative pane bindings. The owner-only `/api/workbench/tools` route does not
-grant controller, model or generated-frame access. Notebook data has an independent
-revision CAS and never enters layout checkpoints or mutation receipts. See
-[Project tools](PROJECT_TOOLS.md) for lifecycle, hold and compatibility semantics.
+Project tools were removed in cleanup Phase 3; their schema-10 tables remain in
+the database, inert.
 
 ## Local technology surfaces
 
@@ -216,7 +185,7 @@ The optional browser copilot controls a separate disposable browser through a
 finite action API. MCP Apps renders owner-imported snapshots through a configured
 separate-origin proxy with closed capabilities. Neither implies automatic Hermes
 tool interoperability. The experimental gVisor check provider preserves the serial
-Workbench gate; its version-2 private approval records are refused by older
+execution gate; its version-2 private approval records are refused by older
 environment implementations. Configuration or runtime failure cannot fall back to
 trusted-host checks. Real containment requires a separately provisioned and tested
 host. See [isolated checks](ISOLATED_CHECKS.md).
@@ -233,14 +202,8 @@ frames receive no host/private-data bridge. See [Studio](EXTENSION_STUDIO.md).
 
 ## Hermes
 
-Goal-first Workbench setup uses `server/workbench-setup.mjs` and the closed
-`contracts/workbench-setup-v1.mjs` owner API. Normal's workspace controller can
-submit only untrusted workspace suggestions; adoption binds an owner draft to the
-live pane recipient. A bounded private, fsynced setup journal records reviews and
-operation identities; preparation uses internal transactional execution step
-receipts and native launch retains its separate exact approval. Setup records do
-not enter layouts, checkpoints or workspace metadata events. See
-[Goal-first setup](WORKBENCH_SETUP.md) for the workflow and recovery boundaries.
+Goal-first setup was removed in cleanup Phase 3; its tables remain in the
+database, inert.
 
 `server/agent.mjs` bridges authenticated runs, bounded server-loaded conversation history, approvals, stop, steering, activity, capabilities, catalog and job controls. `server/workspace.mjs` supplies the active workspace context and reads `docs/AGENT_GUIDE.md` into it at request time. Editing that guide updates subsequent contexts without copying instructions into several prompts. `src/agent-chat.ts` retains per-pane UI state; Hermes is a real runtime, not a chat stub.
 

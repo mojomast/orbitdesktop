@@ -1,6 +1,5 @@
 // Trusted, versioned JSON Schema source. Never load validator code from apps/models.
 // Generated adapters and reference files are checked by --check in CI.
-import {arrangementRequests} from './workbench-workflow-v1.mjs';
 const object = (properties, required = Object.keys(properties)) => ({ type: 'object', properties, required, additionalProperties: false });
 const text = (maxLength = 2048) => ({ type: 'string', maxLength });
 const num = (minimum, maximum) => ({ type: 'number', minimum, maximum });
@@ -112,6 +111,94 @@ function command(name, properties = {}, required = [], effect = 'read', revision
 }
 command('read',{observed_revision:integer(0)});
 command('describe',{project_id:uuid,catalog:bool});
+// Owner-facing arrangement/recipe request contracts (v1). The action and
+// command stay in the trusted schema for legacy clients; no server service is
+// wired to them after cleanup Phase 3.
+const ARRANGEMENT_ROLES = Object.freeze([
+  'primary_agent',
+  'active_terminal',
+  'preview',
+  'candidate_diff',
+  'project_files',
+]);
+const ARRANGEMENT_LAYOUTS = Object.freeze(['prioritize', 'columns', 'rows']);
+const ARRANGEMENT_RENDERERS = Object.freeze(['windows', 'spatial', 'docking']);
+const RECIPE_ENUM = Object.freeze(['project_focus', 'investigate', 'implement', 'review', 'return']);
+const ARRANGEMENT_LIMITS = Object.freeze({
+  maxRecipes: 32,
+  nameMax: 60,
+  rolesMax: 5,
+  roleChoicesMax: 5,
+  ttlMs: 60000,
+  proposalBytes: 2 * 1024 * 1024,
+});
+const arrangementHash = {type: 'string', pattern: '^[a-f0-9]{64}$'};
+const arrangementScope = {workspace_id: uuid, project_id: uuid};
+const arrangementRoles = {
+  type: 'array',
+  items: {enum: [...ARRANGEMENT_ROLES]},
+  minItems: 0,
+  maxItems: ARRANGEMENT_LIMITS.rolesMax,
+  uniqueItems: true,
+};
+const arrangementRoleChoices = {
+  type: 'object',
+  propertyNames: {enum: [...ARRANGEMENT_ROLES]},
+  additionalProperties: uuid,
+  maxProperties: ARRANGEMENT_LIMITS.roleChoicesMax,
+};
+const arrangementRequests = Object.freeze({
+  recipe_list: object({action: {const: 'recipe_list'}, ...arrangementScope}),
+  recipe_save: object({
+    action: {const: 'recipe_save'},
+    ...arrangementScope,
+    name: {type: 'string', minLength: 1, maxLength: ARRANGEMENT_LIMITS.nameMax},
+    roles: arrangementRoles,
+    layout: {enum: [...ARRANGEMENT_LAYOUTS]},
+    renderer: {enum: [...ARRANGEMENT_RENDERERS]},
+    recipe_id: uuid,
+    expected_version: {type: 'integer', minimum: 1},
+    op_id: uuid,
+    intent: {type: 'string', minLength: 1, maxLength: 160},
+  }, ['action', 'workspace_id', 'project_id', 'name', 'roles', 'layout', 'renderer', 'op_id']),
+  recipe_preview: object({
+    action: {const: 'recipe_preview'},
+    ...arrangementScope,
+    recipe: {enum: [...RECIPE_ENUM]},
+    recipe_id: uuid,
+    role_choices: arrangementRoleChoices,
+    renderer: {enum: [...ARRANGEMENT_RENDERERS]},
+    width: {type: 'number', minimum: 280, maximum: 16000},
+    height: {type: 'number', minimum: 180, maximum: 16000},
+  }, ['action', 'workspace_id', 'project_id', 'recipe']),
+  recipe_apply: object({
+    action: {const: 'recipe_apply'},
+    ...arrangementScope,
+    recipe: {enum: [...RECIPE_ENUM]},
+    preview_id: uuid,
+    preview_digest: arrangementHash,
+    op_id: uuid,
+    intent: {type: 'string', minLength: 1, maxLength: 160},
+    viewport: {type: 'object', properties: {width: {type: 'number', minimum: 280, maximum: 16000}, height: {type: 'number', minimum: 180, maximum: 16000}}, required: ['width', 'height'], additionalProperties: false},
+  }, ['action', 'workspace_id', 'project_id', 'recipe', 'preview_id', 'preview_digest', 'op_id']),
+  proposal_list: object({
+    action: {const: 'proposal_list'},
+    ...arrangementScope,
+    recipe: {enum: [...RECIPE_ENUM]},
+    after_id: uuid,
+  }, ['action', 'workspace_id', 'project_id']),
+  proposal_get: object({
+    action: {const: 'proposal_get'},
+    ...arrangementScope,
+    proposal_id: uuid,
+  }),
+  proposal_reject: object({
+    action: {const: 'proposal_reject'},
+    ...arrangementScope,
+    proposal_id: uuid,
+    expected_version: {type: 'integer', minimum: 1},
+  }),
+});
 // Derive the Normal envelope from the exact service schemas, removing only the
 // authenticated workspace field. No second hand-maintained action vocabulary.
 export const arrangementControlRequests=Object.fromEntries(Object.entries(arrangementRequests).map(([name,schema])=>{

@@ -7,8 +7,7 @@ import http from 'node:http';
 import {randomUUID} from 'node:crypto';
 import {initial} from '../src/model.ts';
 import {createWorkspaceService} from '../server/workspace.mjs';
-import {WorkbenchStore} from '../server/workbench-store.mjs';
-import {contract,arrangementControlRequests} from '../contracts/workspace-v1.mjs';
+import {contract} from '../contracts/workspace-v1.mjs';
 import {featureCapabilities} from '../contracts/feature-capabilities.mjs';
 import {observeFeatureReadiness} from '../server/feature-readiness.mjs';
 
@@ -27,18 +26,9 @@ test('description is authenticated, bounded layout metadata with contract-derive
     return {status:response.status,body:await response.json()};
   };
   assert.equal((await request({action:'sync',state:initial()})).status,200);
-  const records=new WorkbenchStore(service.store),project=records.register(id,{root:'/private/project',name:'Debug project',identity:'test'});
-  const workspace=service.store.read(id),pane=workspace.state.monitors[0].layout.pane;
-  const resource=records.resource(project.id,'private-locator',{kind:'terminal',pane_id:pane.id,secret:'never disclose'});
-  records.bind({workspace_id:id,project_id:project.id,resource_id:resource.id,pane_id:pane.id,base_revision:workspace.revision,role:'active_terminal'});
   const before=service.store.read(id);
   assert.equal((await request({action:'describe'},'wrong')).status,403);
   assert.equal((await request({action:'describe',actor:'owner'})).status,400);
-  for(const nested of [
-    {action:'integrate_confirm',project_id:project.id},
-    {action:'recipe_list',project_id:project.id,workspace_id:randomUUID()},
-    {action:'recipe_list',project_id:project.id,actor:'owner'},
-  ])assert.equal((await request({action:'arrangement',request:nested},before.capability,'/control')).status,400);
   const response=await request({action:'describe',catalog:true},before.capability,'/control');
   assert.equal(response.status,200);
   assert.equal(response.body.capabilities.observed_at,new Date(1000).toISOString());
@@ -49,16 +39,12 @@ test('description is authenticated, bounded layout metadata with contract-derive
   assert.ok(ownerDescription.features.every(f=>f.content.availability==='owner_authenticated'));
   assert.deepEqual(response.body.catalog.operations,contract.operations);
   assert.deepEqual(response.body.catalog.$defs,contract.schema.$defs);
-  assert.deepEqual(response.body.catalog.arrangements,arrangementControlRequests);
-  assert.equal(response.body.bindings.length,1);
-  assert.equal(response.body.bindings[0].role,'active_terminal');
-  assert.equal(response.body.bindings[0].available,true);
+  assert.equal(Object.hasOwn(response.body.catalog,'arrangements'),false);
+  assert.deepEqual(response.body.projects,[]);
+  assert.deepEqual(response.body.bindings,[]);
+  assert.deepEqual(response.body.recipes,[]);
   assert.equal(response.body.extension_compatibility.private_frame_data,false);
   const serialized=JSON.stringify(response.body);
-  for(const secret of [before.capability,'/private/project','private-locator','never disclose'])assert.equal(serialized.includes(secret),false);
+  assert.equal(serialized.includes(before.capability),false);
   assert.deepEqual(service.store.read(id),before,'description must not acknowledge a browser or mutate state');
-  records.revoke(id,project.id,project.generation);
-  assert.deepEqual((await request({action:'describe'})).body.projects,[]);
-  assert.deepEqual((await request({action:'describe'})).body.bindings,[]);
-  assert.notEqual((await request({action:'describe',project_id:project.id})).status,200);
 });
