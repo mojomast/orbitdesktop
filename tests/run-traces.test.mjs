@@ -8,11 +8,6 @@ import {randomUUID} from 'node:crypto';
 import {createRunTraces,createRunTraceTee} from '../server/run-traces.mjs';
 import {createRunTracesHandler} from '../server/run-traces-route.mjs';
 import {createAgentHandler} from '../server/agent.mjs';
-import {SqliteWorkspaceStore} from '../server/sqlite-workspace-store.mjs';
-import {WorkbenchStore} from '../server/workbench-store.mjs';
-import {WorkbenchData} from '../server/workbench-data.mjs';
-import {commandIdentity} from '../server/command-identity.mjs';
-import {initial} from '../src/model.ts';
 import {validateTraceSpan,TRACE_LIMITS} from '../contracts/run-trace-v1.mjs';
 
 function fixture(t){const root=fs.mkdtempSync(scratchPath('run-traces-test-'));const workspaces=[randomUUID(),randomUUID()];let clock=1790810000000;
@@ -72,37 +67,6 @@ test('retention is scoped and explicit, removing traces never removes upstream r
   assert.equal(f.request('retention',{dry_run:false}).removed,1);assert.equal(f.request('list').traces.length,0);
   f.event({event:'run.started'},{run_id:'fresh'});const fresh=f.request('list').traces[0];assert.equal(f.request('remove',{trace_id:fresh.trace_id}).removed,true);
   assert.throws(()=>f.request('page',{trace_id:trace.trace_id}),{code:'permission_denied'});
-});
-
-test('Workbench attempt creation is an instant fact and actual native grant lifecycle drives run status',t=>{
-  const f=fixture(t),project_id=randomUUID(),attempt_id=randomUUID(),grant_id=randomUUID();
-  const scope={workspace_id:f.workspaces[0],project_id,attempt_id};
-  const record={...scope,id:attempt_id,revision:1,status:'created',created_at:1790810000000,updated_at:1790810000000};
-  f.service.observe({kind:'attempts',phase:'create',record});let trace=f.request('list').traces[0];assert.equal(trace.status,'partial');assert.equal(f.request('page',{trace_id:trace.trace_id}).spans[0].duration_origin,'instant');
-  const grant={...scope,id:grant_id,revision:1,status:'approved',created_at:1790810000000,updated_at:1790810000000};f.service.observe({kind:'grants',phase:'create',record:grant});
-  f.service.observe({kind:'grants',phase:'update',record:{...grant,revision:2,status:'running',started_at:1790810000100,updated_at:1790810000100}});assert.equal(f.request('list').traces[0].status,'running');
-  f.service.observe({kind:'grants',phase:'update',record:{...grant,revision:3,status:'completed',started_at:1790810000100,ended_at:1790810000500,updated_at:1790810000500}});assert.equal(f.request('list').traces[0].status,'completed');const spans=f.request('page',{trace_id:trace.trace_id}).spans;const run=spans.find(s=>s.name==='grant');assert.equal(run.duration_origin,'observed');assert.equal(run.end_unix_ms-run.start_unix_ms,400);
-  f.service.observe({kind:'grants',phase:'snapshot',record:{...grant,revision:2,status:'failed'}});assert.equal(f.request('list').traces[0].status,'completed','older revisions never replace current lifecycle');
-});
-
-test('real WorkbenchData commit subscription projects actual records and isolates callback failure',t=>{
-  const root=fs.mkdtempSync(scratchPath('run-traces-wb-'));const store=new SqliteWorkspaceStore(root);const workspace=randomUUID();
-  store.commit(commandIdentity({workspace_id:workspace,action:'sync',base_revision:0,state:initial(),operation_id:randomUUID(),intent:'Fixture'},'owner'),{create:()=>({id:workspace,revision:1,state:initial(),capability:randomUUID(),api:'http://127.0.0.1:4318'})});
-  const records=new WorkbenchStore(store);const project=records.register(workspace,{root:path.join(root,'project'),name:'Synthetic',identity:'synthetic'});const data=new WorkbenchData(store);
-  const traces=createRunTraces({root,workspaceRead:id=>store.read(id),workbenchData:data});t.after(()=>{traces.close();store.close();fs.rmSync(root,{recursive:true,force:true});});
-  traces.subscribe(()=>{throw Error('private observer error');});const scope={workspace_id:workspace,project_id:project.id};
-  const attempt=data.create('attempts',{...scope,status:'running',input:'SECRET_PROMPT'});
-  const tool=data.create('toolcalls',{...scope,attempt_id:attempt.id,action:'candidate_read',status:'started',arguments:'SECRET_ARGS'});
-  data.update('toolcalls',workspace,project.id,tool.id,tool.revision,{status:'completed',result:'SECRET_RESULT'});
-  data.update('attempts',workspace,project.id,attempt.id,attempt.revision,{status:'completed'});
-  const trace=traces.dispatch({action:'list',workspace_id:workspace}).traces[0];assert.equal(trace.method,'workbench');assert.equal(trace.status,'completed');
-  const page=traces.dispatch({action:'page',workspace_id:workspace,trace_id:trace.trace_id});assert.equal(page.spans.length,2);assert.equal(page.spans[1].duration_origin,'local_observation');assert.ok(!JSON.stringify(page).includes('SECRET'));assert.equal(traces.sdkExports(),2);
-  // Real execution jobs/evidence often carry provenance rather than attempt_id.
-  const job=data.create('jobs',{...scope,status:'running',started_at:1790810000000,op_id:tool.id,provenance:{initiated_by:{kind:'native_agent',tool_call_id:tool.id}},stdout_preview:'SECRET_LOG'});
-  data.update('jobs',workspace,project.id,job.id,job.revision,{status:'completed',ended_at:1790810000500,exit_code:0});
-  data.create('evidence',{...scope,job_id:job.id,verdict:'pass',test_results:{tests:3,passed:3},stdout_preview:'SECRET_LOG'});
-  const related=traces.dispatch({action:'page',workspace_id:workspace,trace_id:trace.trace_id});assert.equal(related.spans.length,4);const check=related.spans.find(s=>s.name==='job');assert.equal(check.duration_origin,'observed');assert.equal(check.end_unix_ms-check.start_unix_ms,500);assert.equal(related.spans.find(s=>s.name==='evidence').authority,'recorder');assert.ok(!JSON.stringify(related).includes('SECRET'));
-  assert.throws(()=>store.db.transaction(()=>{data.create('jobs',{...scope,attempt_id:attempt.id,status:'running'});throw Error('rollback');})());
 });
 
 test('optional projection failure cannot break an authoritative submit and private symlinks are rejected',t=>{

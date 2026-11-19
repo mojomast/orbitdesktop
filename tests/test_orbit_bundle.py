@@ -28,10 +28,7 @@ class BundleTest(unittest.TestCase):
                 self.assertTrue((target / name).is_file(), name)
             for name in ['server/sqlite-workspace-store.mjs', 'server/bundle-registry.mjs', 'server/workspace-events.mjs', 'src/workspace-events.ts', 'scripts/workspace_bundles.mjs']:
                 self.assertTrue((target / name).is_file(), name)
-            for name in ['server/workspace-arrangements.mjs', 'server/workspace-arrangement-control.mjs', 'server/workspace-description.mjs', 'contracts/workbench-workflow-v1.mjs']:
-                self.assertTrue((target / name).is_file(), name)
-            for name in ['server/workbench-setup.mjs', 'contracts/workbench-setup-v1.mjs', 'src/workbench-setup.ts', 'src/workbench-setup.css', 'docs/WORKBENCH_SETUP.md']:
-                self.assertTrue((target / name).is_file(), name)
+            self.assertTrue((target / 'server/workspace-description.mjs').is_file(), 'server/workspace-description.mjs')
             self.assertEqual(target.stat().st_mode & 0o777, 0o700)
             # Exercise the service's actual import chain from the extracted
             # Orbit root, without a sibling checkout or a running service.

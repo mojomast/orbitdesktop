@@ -9,7 +9,6 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
-import {createWorkbenchBuildIdentity} from '../server/workbench-build-identity.mjs';
 import {serviceBuildId} from '../scripts/release_manifest.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -23,13 +22,9 @@ test('AC-001 a stray mobile-proxy.mjs does not change the build identity', () =>
     for (const sub of ['server', 'contracts']) fs.mkdirSync(path.join(dir, sub));
     fs.writeFileSync(path.join(dir, 'server', 'index.mjs'), 'export {};\n');
     fs.writeFileSync(path.join(dir, 'contracts', 'a.mjs'), 'export const a = 1;\n');
-    const url = sub => pathToFileURL(path.join(dir, sub) + '/');
-    const before = createWorkbenchBuildIdentity(url('server'), url('contracts'))();
     const releaseBefore = serviceBuildId(dir);
     fs.writeFileSync(path.join(dir, 'server', 'mobile-proxy.mjs'), 'stray leftover\n');
-    assert.equal(createWorkbenchBuildIdentity(url('server'), url('contracts'))(), before);
-    assert.equal(serviceBuildId(dir), releaseBefore);
-    assert.equal(before, releaseBefore, 'both identity helpers implement the same definition');
+    assert.equal(serviceBuildId(dir), releaseBefore, 'a stray mobile-proxy.mjs must not change the build identity');
     fs.writeFileSync(path.join(dir, 'server', 'other.mjs'), 'real change\n');
     assert.notEqual(serviceBuildId(dir), releaseBefore, 'other server files still count');
   } finally {

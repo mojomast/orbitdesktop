@@ -20,25 +20,9 @@ import { createWorkspaceLayouts } from './workspace-layouts.mjs';
 import { createOutputLibrary } from './output-library.mjs';
 import { createWorkspaceEvents } from './workspace-events.mjs';
 import { assetCacheControl, loadImmutableAssetManifest } from './static-cache.mjs';
-import { createWorkbench } from './workbench.mjs';
-import {WorkbenchData} from './workbench-data.mjs';
-import {createWorkbenchGate} from './workbench-gate.mjs';
-import {legacyQueueSnapshot} from './workbench-legacy-state.mjs';
-import {workbenchOwnerRoute} from './workbench-owner-route.mjs';
-import {createWorkbenchTerminalSource} from './workbench-terminal-source.mjs';
-import {createWorkbenchContext} from './workbench-context.mjs';
-import {createWorkbenchExecution} from './workbench-execution.mjs';
-import {createWorkbenchEnvironments} from './workbench-environments.mjs';
-import {createWorkbenchWorkflow} from './workbench-workflow.mjs';
-import {createWorkbenchSetup,SETUP_PUBLIC_REASONS} from './workbench-setup.mjs';
-import {createProjectTools} from './project-tools.mjs';
+import {ownerRoute} from './owner-route.mjs';
 import {createExtensionStudio} from './extension-studio.mjs';
-import {createWorkbenchNative} from './workbench-native.mjs';
-import {createWorkbenchLive} from './workbench-live.mjs';
-import {createWorkbenchLiveHandler} from './workbench-live-route.mjs';
-import {createWorkbenchNativeRuntime,nativeRuntimeEnvironmentOptions,nativeRuntimeMetadata} from './workbench-native-runtime.mjs';
 import {technologyOwnerRoute,lazyTechnologyService} from './technology-owner-route.mjs';
-import {createWorkbenchSandboxProvider} from './workbench-sandbox-provider.mjs';
 import { createColabOrchestrator } from './colab-orchestrator.mjs';
 import { createGrokBotsApp } from './grokbots-app.mjs';
 import { createAgentStatus } from './agent-status.mjs';
@@ -102,10 +86,6 @@ if(!process.env.ORBIT_TOKEN){
   renameSync(temporary,path.join(runtimeRoot,'session-token'));
 }
 const workspaceEvents = createWorkspaceEvents({store:workspaceService.store,token,port,devOrigins,reply});
-const workbenchServices={};
-const workbench = createWorkbench({store:workspaceService.store,token,port,devOrigins,reply,services:workbenchServices});
-const workbenchData=new WorkbenchData(workspaceService.store);
-const executionGate=createWorkbenchGate({legacySnapshot:legacyQueueSnapshot(runtimeRoot)});
 let normalResources;
 const repoRoot = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 // Pi is hosted by this process when the harness binary exists: one loopback
@@ -148,7 +128,7 @@ const railsProxy = createRailsProxy({token, port, devOrigins, upstreamPort:proce
 // This renderer is reviewed release source, never a mutable runtime app slug.
 const railsAssets = new Map(Object.entries({'index.html':'text/html','styles.css':'text/css','app.js':'text/javascript','rails.js':'text/javascript','inspector.js':'text/javascript','feedback.js':'text/javascript'}));
 const grokBotsApp = createGrokBotsApp({ runtimeRoot, catalog: () => agentHandler.profileCatalog?.(), agentStatus, chats: () => agentHandler.gatewayChats?.(), workspaceContext: workspaceService.context });
-const agentHandler = createAgentHandler({ token, port, devOrigins, reply, workspaceContext: workspaceService.context, workspaceRead:workspaceService.read, runtimeDirectory:runtimeRoot,executionGate,onRunEvent:event=>observeTechnologyTrace(event,'observeAgentRunEvent'),onNormalAccepted:record=>normalResources?.normalAccepted(record),
+const agentHandler = createAgentHandler({ token, port, devOrigins, reply, workspaceContext: workspaceService.context, workspaceRead:workspaceService.read, runtimeDirectory:runtimeRoot,onRunEvent:event=>observeTechnologyTrace(event,'observeAgentRunEvent'),onNormalAccepted:record=>normalResources?.normalAccepted(record),
   ...(!explicitHermes && discovered.hermes ? { apiUrl: null, apiKey: null, profiles: [{ id: "default", label: discovered.hermes.label, apiUrl: discovered.hermes.apiUrl, apiKey: discovered.hermes.apiKey }] } : {}),
   ...(discovered.grok || piProfile || configuredProfiles.length ? { additionalProfiles: [...(discovered.grok ? [discovered.grok] : []), ...(piProfile ? [piProfile] : []), ...configuredProfiles] } : {}),
 });
@@ -159,10 +139,6 @@ const collabBoard = createCollabBoard({ runtimeRoot, collab: () => agentHandler.
 } });
 // Local workers (Cua/OpenCode on a tailnet PC). Off unless ORBIT_LOCAL_WORKERS=1.
 const localWorkers = process.env.ORBIT_LOCAL_WORKERS === '1' ? createLocalWorkersRoute({ runtimeRoot, port, env: process.env, log: m => console.log(m) }) : null;
-const sandboxProvider=createWorkbenchSandboxProvider({root:path.join(workspaceService.store.root,'workbench-sandbox'),env:process.env});
-const environments=createWorkbenchEnvironments({store:workspaceService.store,records:workbench.records,data:workbenchData,gate:executionGate,sandboxProvider});
-const execution=createWorkbenchExecution({store:workspaceService.store,records:workbench.records,data:workbenchData,gate:executionGate,environments,sandboxProvider});
-workbenchServices.execution=execution;
 // Managed terminals: strictly optional. A failure here (no tmux, readonly runtime,
 // unsupported platform) disables the route; it must never block the host server or
 // touch any existing session/server. Attach mode never creates, kills, respawns or
@@ -220,47 +196,8 @@ const managedTerminalHandler = managedTerminals
 // initialization. Continuity cannot be proven for ANY pane, so the legacy
 // attach/create fallback is refused until an owner recovery restores the ledger.
 const managedLedgerLost = existsSync(managedSentinelPath) && !existsSync(managedLedgerPath);
-const contextSharing=createWorkbenchContext({store:workspaceService.store,records:workbench.records,data:workbenchData,hermes:agentHandler.workbench,execution,gate:executionGate,
-  terminalSource:createWorkbenchTerminalSource({store:workspaceService.store,records:workbench.records,broker:managedTerminals?.broker}),
-  retentionMs:process.env.ORBIT_CONTEXT_RETENTION_MS===undefined?undefined:Number(process.env.ORBIT_CONTEXT_RETENTION_MS)});
-workbenchServices.context=contextSharing;
-const contextHandler=workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:body=>contextSharing.dispatch(body)});
-const executionHandler=workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:body=>execution.dispatch(body)});
-const workflow=createWorkbenchWorkflow({store:workspaceService.store,records:workbench.records,data:workbenchData,execution});
-const projectTools=createProjectTools({store:workspaceService.store,records:workbench.records,data:workbenchData});
-const projectToolsHandler=workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:body=>projectTools.dispatch(body)});
 const extensionStudio=createExtensionStudio({store:workspaceService.store});
-const extensionStudioHandler=workbenchOwnerRoute({token,port,devOrigins,reply,maxBytes:16384,dispatch:body=>extensionStudio.dispatch(body)});
-const nativeOptions=nativeRuntimeEnvironmentOptions({root:path.join(runtimeRoot,'workbench-native-runtime'),gate:executionGate});
-const nativeRuntimes=new Map();
-const nativeQuarantines=new Map();
-const nativeHermes={
-  quarantineNative({grant_id}){if(!nativeQuarantines.has(grant_id))nativeQuarantines.set(grant_id,executionGate.quarantine(`native:${grant_id}`));},
-  acknowledgeNativeUnknown({grant_id}){nativeQuarantines.get(grant_id)?.();nativeQuarantines.delete(grant_id);},
-  async readBinding(body){
-    const binding=await agentHandler.workbench.readBinding(body);
-    if(!nativeOptions||binding.profile_id!==nativeOptions.profile_id)return binding;
-    const native_runtime=nativeRuntimeMetadata(nativeOptions);
-    const config_generation=binding.config_generation+':'+native_runtime.configuration_hash;
-    if(!nativeRuntimes.has(config_generation))nativeRuntimes.set(config_generation,createWorkbenchNativeRuntime({...nativeOptions,config_generation}));
-    return {...binding,config_generation,native_runtime};
-  },
-  async startNative(body){const runtime=nativeRuntimes.get(body.scope.recipient.config_generation);if(!runtime)throw Object.assign(Error('unavailable'),{code:'unavailable',native_outcome:'not_started'});if(agentHandler.workbench.hasActiveConversation({workspace_id:body.scope.workspace_id,pane_id:body.scope.recipient.pane_id}))throw Object.assign(Error('busy'),{code:'busy',native_outcome:'not_started'});return runtime.startNative(body);},
-  async stopNative(body){return Promise.all([...nativeRuntimes.values()].map(runtime=>runtime.stopNative(body)));},
-};
-const native=createWorkbenchNative({store:workspaceService.store,records:workbench.records,data:workbenchData,execution,hermes:nativeOptions?nativeHermes:{readBinding:nativeHermes.readBinding,quarantineNative:nativeHermes.quarantineNative,acknowledgeNativeUnknown:nativeHermes.acknowledgeNativeUnknown}});
-workbenchServices.native=native;workbenchServices.nativeConfigured=!!nativeOptions;
-const nativeHandler=workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:body=>native.dispatch(body)});
-const workbenchSetup=createWorkbenchSetup({store:workspaceService.store,records:workbench.records,data:workbenchData,
-  execution,hermes:agentHandler.workbench,context:contextSharing,native,gate:executionGate,nativeConfigured:!!nativeOptions});
-workspaceService.setWorkbenchSetup(workbenchSetup);
-const setupHandler=workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:body=>workbenchSetup.dispatch(body),publicReasons:SETUP_PUBLIC_REASONS});
-let workbenchLive=null;
-// A damaged observability projection must not prevent authoritative runtime
-// recovery or change the outcome of an existing worker operation.
-try{workbenchLive=createWorkbenchLive({store:workspaceService.store,records:workbench.records,data:workbenchData,gate:executionGate,execution,native});}
-catch{console.warn('Private Workbench activity projection unavailable; durable task controls remain available.');}
-const liveHandler=workbenchLive?createWorkbenchLiveHandler({token,port,devOrigins,reply,live:workbenchLive}):workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:()=>{throw Object.assign(Error('unavailable'),{code:'unavailable'});}});
+const extensionStudioHandler=ownerRoute({token,port,devOrigins,reply,maxBytes:16384,dispatch:body=>extensionStudio.dispatch(body)});
 // Same-origin authenticated proxy for the Rizzstack observability snapshot collector.
 // The bearer token lives server-side (ORBIT_OBS_COLLECTOR_TOKEN in the Orbit env file,
 // 0600) and is injected on every request: no token is ever shipped to or stored by
@@ -287,22 +224,17 @@ const extensionProxy=createExtensionProxy({
   manifests:loadExtensionManifests(fileURLToPath(new URL('../extensions/',import.meta.url))),
   token,port,devOrigins,env:process.env,
 });
-const workflowHandler=workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:body=>workflow.dispatch(body)});
-const environmentHandler=workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:body=>environments.dispatch(body),publicReasons:['dedicated_npm_cache_required','private_npm_cache_required','typescript_test_command_unsupported','typescript_dependency_shape_unsupported','typescript_toolchain_dependencies_required','development_lock_mismatch','registry_lock_entry_unsupported','registry_url_unsupported','registry_artifact_limit']});
 const technologyOptions={root:runtimeRoot,workspaceRead:workspaceService.read};
 const technologyServices={
   '/api/resource-grants':lazyTechnologyService(async()=> normalResources=await (await import('./resource-delegation.mjs')).createResourceDelegation({...technologyOptions,normalBindings:agentHandler.resourceBindings,knowledge:await technologyServices['/api/search'].get(),documents:await technologyServices['/api/documents'].get()})),
   '/api/search':lazyTechnologyService(async()=> (await import('./knowledge-index.mjs')).createKnowledgeSearch(technologyOptions)),
   '/api/interactive-results':lazyTechnologyService(async()=> (await import('./interactive-results.mjs')).createInteractiveResults(technologyOptions)),
   '/api/documents':lazyTechnologyService(async()=> (await import('./documents-store.mjs')).createDocumentsService(technologyOptions)),
-  '/api/run-traces':lazyTechnologyService(async()=> (await import('./run-traces.mjs')).createRunTraces({...technologyOptions,workbenchData,subscribeWorkbench:false})),
+  '/api/run-traces':lazyTechnologyService(async()=> (await import('./run-traces.mjs')).createRunTraces(technologyOptions)),
 };
 // Load the derived projection on its first observed event rather than on shell
 // startup. Limit pending deliveries while an optional module is initializing.
 let pendingTraceObservations=0;
-const unsubscribeTechnologyTraces=workbenchData.subscribe(change=>{
-  observeTechnologyTrace(change,'observer');
-});
 function observeTechnologyTrace(change,method){
   if(pendingTraceObservations>=4000)return;
   pendingTraceObservations++;
@@ -342,16 +274,7 @@ async function handleOrbitRequest(req, res) {
   if(url.pathname.startsWith('/vendor/')){
     try{return (await technologyAssets.get()).handle(req,res,url.pathname);}catch{return reply(res,503,{ok:false,code:'unavailable'});}
   }
-  if(url.pathname==='/api/workbench')return workbench.handle(req,res);
-  if(url.pathname==='/api/workbench/context')return contextHandler(req,res);
-  if(url.pathname==='/api/workbench/execution')return executionHandler(req,res);
-  if(url.pathname==='/api/workbench/native')return nativeHandler(req,res);
-  if(url.pathname==='/api/workbench/setup')return setupHandler(req,res);
-  if(url.pathname==='/api/workbench/live')return liveHandler(req,res);
-  if(url.pathname==='/api/workbench/workflow')return workflowHandler(req,res);
-  if(url.pathname==='/api/workbench/tools')return projectToolsHandler(req,res);
   if(url.pathname==='/api/extension-studio')return extensionStudioHandler(req,res);
-  if(url.pathname==='/api/workbench/environments')return environmentHandler(req,res);
   if (url.pathname === "/api/managed-terminals") return managedTerminalHandler(req, res);
   if(url.pathname==='/api/workspace/events')return workspaceEvents(req,res);
   if(url.pathname==='/api/workspace/control/events')return workspaceEvents(req,res,true);
@@ -668,13 +591,6 @@ for (const signal of ["SIGTERM", "SIGINT"])
     piGateway?.close?.();
     colab.close();
     grokBotsApp.close?.();
-    execution.close();
-    sandboxProvider.close();
-    contextSharing.close?.();
-    native.close();
-    liveHandler.close?.();
-    workbenchLive?.close();
-    unsubscribeTechnologyTraces();
     const technologyClosed=Promise.allSettled([...Object.values(technologyServices).map(service=>service.close()),technologyAssets.close()]);
     for (const ws of wss.clients) ws.terminate();
     server.close(() => {void technologyClosed.finally(()=>{workspaceService.close();process.exit(0);});});

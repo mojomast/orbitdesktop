@@ -11,12 +11,11 @@ import { SqliteWorkspaceStore } from './sqlite-workspace-store.mjs';
 import { commandIdentity } from './command-identity.mjs';
 import { isContentAddressedBundle } from './bundle-registry.mjs';
 import { describeWorkspace, boundedWorkspaceContext } from './workspace-description.mjs';
-import { createArrangementControl } from './workspace-arrangement-control.mjs';
 import { checkpointChanges } from './workspace-diff.mjs';
 
 export const runtimeRoot = path.resolve(process.env.ORBIT_RUNTIME_DIR || fileURLToPath(new URL('../.runtime/', import.meta.url)));
 const slugPattern = /^[a-z0-9][a-z0-9-]{0,60}$/;
-export function createWorkspaceService({ token, port, devOrigins, reply: sendReply, root = runtimeRoot, store = new SqliteWorkspaceStore(root), workbenchSetup = null, capabilityDescription }) {
+export function createWorkspaceService({ token, port, devOrigins, reply: sendReply, root = runtimeRoot, store = new SqliteWorkspaceStore(root), capabilityDescription }) {
   const reply = (res,status,data) => {
     const categories = {400:'INVALID_OPERATION',403:'PERMISSION_REQUIRED',404:'RESOURCE_GONE',409:'REVISION_CONFLICT',413:'REQUEST_TOO_LARGE'};
     const body = status>=400 ? {category:categories[status]||'INVALID_OPERATION',...data} : data;
@@ -26,11 +25,6 @@ export function createWorkspaceService({ token, port, devOrigins, reply: sendRep
   fs.mkdirSync(path.join(root, 'apps'), { recursive: true, mode: 0o700 });
   store.bundles.refresh();
   const read = id => store.read(id);
-  const arrangementControl = createArrangementControl(store);
-  // The proposal-only setup service is created after this service in the
-  // composition root, so it can be attached either at construction or later
-  // through the narrow setter. Only `propose` is ever used.
-  let setupService = workbenchSetup;
   store.reconcileConnections(`http://127.0.0.1:${port}`);
   const appVersions = () => store.bundles.versions();
   const placementSnapshot = r => ({workspace_id:r.id,revision:r.revision,placement:r.placement||emptyPlacement(),placement_revision:r.placement_revision||0,recovery_policy:r.recovery_policy||{held:false,generation:0},observed_revision:r.observed_revision||0,browser_seen:r.browser_seen||null});
@@ -63,17 +57,6 @@ export function createWorkspaceService({ token, port, devOrigins, reply: sendRep
       if(record && !['read','history','shelf'].includes(body.action) && record.state?.version!==1)return reply(res,409,{category:'UPGRADE_REQUIRED',error:'Client cannot write this workspace version'});
       if(recovery && body.action==='read')return reply(res,200,safe(record,false));
       if(body.action==='describe')return reply(res,200,describeWorkspace(store,body,capabilityDescription?.(control?'controller':'owner')));
-      if(body.action==='arrangement')return reply(res,200,await arrangementControl(body,control?`workspace-controller:${body.workspace_id}`:'owner'));
-      // Proposal-only Workbench setup. The authenticated workspace capability may
-      // submit an untrusted suggestion, but this route never grants project/private
-      // reads or task/execution/approval authority. Without the injected setup
-      // service it fails closed rather than inventing authority. The validated
-      // request is spread into the service; it can never override workspace_id.
-      if(body.action==='workbench_setup'){
-        if(!control||recovery)return reply(res,403,{error:'Action unavailable on this route'});
-        if(!setupService||typeof setupService.propose!=='function')return reply(res,503,{error:'Workbench setup is unavailable',category:'STORE_UNAVAILABLE'});
-        return reply(res,200,await setupService.propose({workspace_id:record.id,...body.request}));
-      }
       if (body.action === 'history') return reply(res, 200, { checkpoints: store.checkpointList(record.id), revision: record.revision });
       if (body.action === 'checkpoint_preview') {
         if(body.base_revision!==record.revision)return reply(res,409,{error:'Workspace changed; preview again',...safe(record)});
@@ -198,5 +181,5 @@ export function createWorkspaceService({ token, port, devOrigins, reply: sendRep
       res.end(req.method === 'HEAD' ? undefined : bytes);
     } catch { res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('App file not found'); }
   }
-  return { handle, context, serveApp, read, store, close:()=>store.close(), setWorkbenchSetup:next=>{setupService=next;} };
+  return { handle, context, serveApp, read, store, close:()=>store.close() };
 }

@@ -7,9 +7,6 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createHash, randomUUID } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { initial } from '../src/model.ts';
-import {WorkbenchData} from '../server/workbench-data.mjs';
-import {WorkbenchStore} from '../server/workbench-store.mjs';
-import {openProjectRoot} from '../server/project-files.mjs';
 import { loadSqliteWorkspaceStore, tempRoot, removeRoot } from './fixtures/sqlite-store-helpers.mjs';
 import {archivedSchema11Store} from './fixtures/schema11-store.mjs';
 
@@ -166,15 +163,20 @@ test('genuine schema-7 backup preserves seven, while normal restore upgrades a c
   }finally{db.close();}
 });
 
-test('schema-11 backup/restore retains result, card and patch records and workspace receipts',async t=>{
+test('schema-11 backup/restore retains result, card and patch rows and workspace receipts',async t=>{
   const root=tempRoot('orbit-preserve-eight-'),runtime=path.join(root,'source');t.after(()=>removeRoot(root));
   const ArchivedStore=await archivedSchema11Store(t);
   const store=new ArchivedStore(runtime),workspace_id=seed(store);
-  const projectRoot=path.join(root,'project');fs.mkdirSync(projectRoot);fs.writeFileSync(path.join(projectRoot,'file.txt'),'fixture');
-  const opened=openProjectRoot(projectRoot),records=new WorkbenchStore(store),project=records.register(workspace_id,{root:projectRoot,name:'Backup fixture',identity:opened.identity});opened.close();
-  const data=new WorkbenchData(store),project_id=project.id;
-  for(const [kind,fields] of [['results',{availability:'available',text:'owner explanation',run_id:randomUUID()}],['cards',{result_id:randomUUID(),text:'card fixture',op_id:randomUUID()}],['patches',{status:'available',artifact_hash:'a'.repeat(64),op_id:randomUUID()}]])data.create(kind,{workspace_id,project_id,...fields});
-  const rows=Object.fromEntries(['results','cards','patches'].map(kind=>[kind,data.list(kind,workspace_id,project_id)]));
+  const projectRoot=path.join(root,'project');fs.mkdirSync(projectRoot);
+  const project_id=randomUUID();
+  const project={version:1,id:project_id,workspace_id,root:projectRoot,name:'Backup fixture',identity:'fixture',generation:1,created_at:Date.now()};
+  store.db.prepare('INSERT INTO wb_projects VALUES (?,?,?,?)').run(project_id,workspace_id,projectRoot,JSON.stringify(project));
+  const rows={};
+  for(const [kind,fields] of [['results',{availability:'available',text:'owner explanation',run_id:randomUUID()}],['cards',{result_id:randomUUID(),text:'card fixture',op_id:randomUUID()}],['patches',{status:'available',artifact_hash:'a'.repeat(64),op_id:randomUUID()}]]) {
+    const id=randomUUID(),record={version:1,id,workspace_id,project_id,revision:1,...fields};
+    store.db.prepare(`INSERT INTO wb_${kind} VALUES (?,?,?,?,?)`).run(id,workspace_id,project_id,1,JSON.stringify(record));
+    rows[kind]=store.db.prepare(`SELECT record_json FROM wb_${kind} WHERE workspace_id=? AND project_id=? ORDER BY id`).all(workspace_id,project_id);
+  }
   const receipt=store.db.prepare('SELECT * FROM receipts WHERE workspace_id=?').get(workspace_id);
   const backup=path.join(root,'eight.sqlite');await store.backup(backup);store.close();
   const before=sha256(backup),destination=path.join(root,'restored');
@@ -183,8 +185,7 @@ test('schema-11 backup/restore retains result, card and patch records and worksp
   const restored=new SqliteWorkspaceStore(destination);
   try{
     assert.equal(restored.diagnostics().schema_version,12);
-    const copy=new WorkbenchData(restored);
-    for(const kind of ['results','cards','patches'])assert.deepEqual(copy.list(kind,workspace_id,project_id),rows[kind]);
+    for(const kind of ['results','cards','patches'])assert.deepEqual(restored.db.prepare(`SELECT record_json FROM wb_${kind} WHERE workspace_id=? AND project_id=? ORDER BY id`).all(workspace_id,project_id),rows[kind]);
     assert.deepEqual(restored.db.prepare('SELECT * FROM receipts WHERE workspace_id=?').get(workspace_id),receipt);
   }finally{restored.close();}
   assert.equal(sha256(backup),before);

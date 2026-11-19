@@ -7,9 +7,7 @@ import {validateDockingPlacement,emptyPlacement,placementEqual,prunePlacement} f
 import {applyOperation} from '../src/workspace-ops.ts';
 import {canonicalJson} from './command-identity.mjs';
 import {bundleSchemaSql,createBundleRegistry} from './bundle-registry.mjs';
-import {workbenchSchemaSql} from './workbench-store.mjs';
-import {workbenchExecutionSchemaSql,workbenchOperationSchemaSql,workbenchResultSchemaSql,workbenchProposalSchemaSql,workbenchProposalIndexSql} from './workbench-data.mjs';
-import {projectToolsSchemaSql} from './project-tools-data.mjs';
+import {workbenchSchemaSql,workbenchExecutionSchemaSql,workbenchOperationSchemaSql,workbenchResultSchemaSql,workbenchProposalSchemaSql,workbenchProposalIndexSql,projectToolsSchemaSql} from './workbench-schema.mjs';
 
 const uuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
 const checkId = id => { if(typeof id!=='string'||!uuid.test(id))throw failure('INVALID_OPERATION'); return id; };

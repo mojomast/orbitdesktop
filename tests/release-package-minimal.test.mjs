@@ -23,8 +23,6 @@ function syntheticSource(base){
     'server/index.mjs':'// server\n',
     'server/extra.mjs':'// tracked extra\n',
     'contracts/workspace-v1.mjs':'// contract\n',
-    'contracts/workbench-v1.mjs':'// contract\n',
-    'contracts/workbench-result-v1.mjs':'// contract\n',
     'hermes-plugin/workbench.py':'# plugin\n',
     'package.json':'{"type":"module"}\n',
     'package-lock.json':'{"lockfileVersion":3,"packages":{}}\n',

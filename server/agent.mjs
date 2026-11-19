@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import { randomUUID, createHash } from 'node:crypto';
 import { createSharedChats } from './shared-chats.mjs';
+import { serviceError } from './service-error.mjs';
 import { createConversationPrivateStore } from './conversation-private-store.mjs';
-import { createWorkbenchHermes } from './workbench-hermes.mjs';
 import { automation } from './automation.mjs';
 import { tokenMatches, allowedRequest } from './security.mjs';
 import { createBuildQueue } from './build-queue.mjs';
@@ -23,7 +23,238 @@ const sessionPattern = /^orbit-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[
 const runPattern = /^run_[a-zA-Z0-9_-]{8,100}$/;
 const instructions = 'You are Hermes, accessed through the owner’s Comet/Orbit Desktop agent chat. This pane uses its explicitly selected profile and conversation, which may resume a saved Hermes session. Orbit terminal panes run as the owner on the host. Your agent tools still run in the configured Hermes environment. Use plain text in replies. Do not claim to see screen pixels, iframe contents, or terminal buffers unless supplied. Follow normal tool approval policies.';
 
-export function createAgentHandler({ token, port, devOrigins, reply, workspaceContext, workspaceRead, runtimeDirectory = process.env.ORBIT_RUNTIME_DIR || fileURLToPath(new URL('../.runtime/', import.meta.url)), apiUrl = process.env.HERMES_API_URL, apiKey = process.env.HERMES_API_KEY, profiles, profilesJson = process.env.HERMES_PROFILES_JSON, additionalProfiles, fetchImpl = fetch, executionGate, onRunEvent, onNormalAccepted, grokOptions = {} }) {
+
+// Ordinary Hermes run submission for pane-backed conversations. The exact
+// upstream payload is frozen once, persisted as a receipt, and dispatched
+// verbatim so a lost response can be reconciled instead of duplicated.
+const submissionUuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
+const submissionTerminal = new Set(['completed', 'failed', 'cancelled', 'interrupted']);
+const IDEMPOTENCY_KEY_HEADER = 'Idempotency-Key';
+const MAX_IDEMPOTENCY_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+const MAX_STATUS_OUTPUT_BYTES = 256 * 1024;
+function boundedOutput(value) {
+  if (typeof value !== 'string' || !value) return { output: typeof value === 'string' ? value : '', output_truncated: false };
+  const bytes = Buffer.from(value, 'utf8');
+  if (bytes.length <= MAX_STATUS_OUTPUT_BYTES) return { output: value, output_truncated: false };
+  let end = MAX_STATUS_OUTPUT_BYTES;
+  while (end > 0 && (bytes[end] & 0xc0) === 0x80) end--;
+  return { output: bytes.subarray(0, end).toString('utf8'), output_truncated: true };
+}
+function createHermesSubmission({ configuration, shared, locks, upstreamFor, validatePane }) {
+  const pending = new Map();
+  const key = args => `${args.workspace_id}:${args.pane_id}`;
+  function configured() {
+    if (!configuration) throw serviceError('unavailable');
+  }
+  const generation = profile => createHash('sha256').update(`${profile.id}\0${profile.apiUrl || ''}\0${profile.apiKey || ''}`).digest('hex');
+  function binding(args) {
+    configured();
+    if (!submissionUuid.test(args.workspace_id || '') || !submissionUuid.test(args.pane_id || '')) throw serviceError('invalid_request');
+    try { validatePane(args); } catch (error) { throw serviceError(error.status === 404 ? 'permission_denied' : 'unavailable'); }
+    const current = shared.read(args.workspace_id, args.pane_id);
+    if (!current) throw serviceError('permission_denied');
+    const profile = configuration.get(current.profile_id);
+    return { current, profile, recipient: {
+      pane_id: args.pane_id, profile_id: current.profile_id, session_id: current.session,
+      binding_revision: current.binding_revision,
+      config_generation: generation(profile || { id: current.profile_id }),
+      trusted_host: true, sandbox: false,
+      destination: { trust: 'owner_configured_gateway', known: !!profile },
+    } };
+  }
+  function exact(args, expected) {
+    const result = binding(args);
+    const r = result.recipient;
+    if ((args.profile_id !== undefined && args.profile_id !== r.profile_id) ||
+        (args.session_id !== undefined && args.session_id !== r.session_id) ||
+        (expected && (expected.binding_revision !== r.binding_revision || expected.config_generation !== r.config_generation))) throw serviceError('stale_resource');
+    return result;
+  }
+  function available(profile) { if (!profile) throw serviceError('unavailable'); }
+  async function capabilities(profile) {
+    available(profile);
+    const result = { configured: true, gateway_known: false, version: null, version_supported: false, capability_advertised: false, installation_verified: false, native_continuation: false, idempotent_submit: false, config_generation: generation(profile) };
+    try {
+      const data = await upstreamFor(profile, '/v1/capabilities');
+      if (data && typeof data === 'object' && !Array.isArray(data)) {
+        result.gateway_known = true;
+        const version = typeof data.version === 'string' ? data.version : typeof data.api_version === 'string' ? data.api_version : null;
+        const actualHermes=data.object==='hermes.api_server.capabilities'&&data.platform==='hermes-agent'&&data.runtime?.mode==='server_agent'&&data.runtime?.tool_execution==='server'&&data.features?.run_submission===true&&data.features?.run_status===true&&data.features?.run_stop===true;
+        const versionSupported = actualHermes;
+        result.version = actualHermes?'source-contract:d0288be5':typeof version === 'string' ? version.slice(0, 64) : null;
+        result.version_supported = versionSupported;
+        result.capability_advertised = versionSupported;
+        const features = data.features && typeof data.features === 'object' && !Array.isArray(data.features) ? data.features : {};
+        result.native_continuation = versionSupported && features.session_resources === true&&features.session_continuity_header==='X-Hermes-Session-Id';
+        const retention = Number(features.runs_idempotency?.retention_seconds)*1000;
+        result.idempotent_submit = versionSupported && features.runs_idempotency?.supported === true &&features.runs_idempotency?.durable===true&&
+          Number.isFinite(retention) && retention > 0 && retention <= MAX_IDEMPOTENCY_RETENTION_MS;
+        result.idempotency_retention_ms=result.idempotent_submit?retention:null;
+        result.compatibility_basis=actualHermes?'Pinned upstream source/API contract; advertised fields are not installation acceptance':'Unrecognized gateway; explicit legacy compatibility path';
+      }
+    } catch { /* Unknown capabilities never grant continuation or replay safety. */ }
+    return result;
+  }
+  function transportError(error) {
+    return serviceError(error.status === 429 || error.status === 409 ? 'busy' : 'unavailable');
+  }
+  async function readBinding(args) { return binding(args).recipient; }
+  function panePending(args, paneId) {
+    configured();
+    if (typeof args === 'string') args = { workspace_id: args, pane_id: paneId };
+    if (pending.has(key(args))) return true;
+    try { return !!shared.read(args.workspace_id, args.pane_id)?.submission_pending; } catch { return false; }
+  }
+  function validateInput(args) {
+    if (!validSessionId(args.session_id) || typeof args.profile_id !== 'string' || typeof args.input !== 'string' || !args.input.trim() || args.input.length > 1048576) throw serviceError('invalid_request');
+  }
+  async function prepareSubmission(args, trustedInstructions = instructions, allowConcurrent) {
+    configured();
+    if (typeof trustedInstructions !== 'string' || Buffer.byteLength(trustedInstructions) > 512 * 1024) throw serviceError('limit_exceeded');
+    validateInput(args);
+    const expected = { binding_revision: args.expected_binding_revision, config_generation: args.expected_config_generation };
+    let { current, profile } = exact(args, expected);
+    available(profile);
+    if (current.run) throw serviceError('busy');
+    if (typeof shared.anyActive === 'function' && shared.anyActive(args.workspace_id, args.pane_id, allowConcurrent)) throw serviceError('busy');
+    const caps = await capabilities(profile);
+    exact(args, expected);
+    const payload = { input: args.input, session_id: args.session_id, instructions: trustedInstructions };
+    let history = [];
+    try {
+      const page = await upstreamFor(profile, `/api/sessions/${encodeURIComponent(args.session_id)}/messages?limit=500&offset=0&order=latest`);
+      if (!Array.isArray(page?.data) || page.data.length > 500) throw serviceError('unavailable');
+      for (const row of page.data) {
+        if (!row || typeof row !== 'object' || Array.isArray(row) || typeof row.role !== 'string') throw serviceError('unavailable');
+        if (row.role === 'user' || row.role === 'assistant') {
+          if (typeof row.content !== 'string' && typeof row.text !== 'string' && !(row.role === 'assistant' && Array.isArray(row.tool_calls) && row.tool_calls.length)) throw serviceError('unavailable');
+        }
+      }
+      history = sanitizeHistory(page);
+    } catch (error) {
+      const freshOrbit = error.status === 404 && /^orbit-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(args.session_id) && current.history_unstarted === true;
+      if (freshOrbit && current.orbit_owned === true && Array.isArray(current.messages) && current.messages.length) {
+        history = sanitizeHistory({ data: current.messages.filter(message => message && typeof message.text === 'string' && !message.text.startsWith('Switched to ')).map(message => ({ role: message.role, content: message.text })) });
+      } else if (!freshOrbit || current.messages?.length) {
+        if (error.status === 404) throw Object.assign(serviceError('unavailable'), { status: 409, message: 'Conversation history is unavailable. Select New chat explicitly to start a new conversation.' });
+        throw transportError(error);
+      }
+    }
+    while (history.length && history.at(-1).role !== 'assistant') history.pop();
+    if (!history.length && current.orbit_owned !== true && current.messages?.some(message => message.role === 'user')) throw serviceError('unavailable');
+    payload.conversation_history = history.map(({ role, text }) => ({ role,
+      content: /[\uD800-\uDBFF]$/.test(text) ? text.slice(0, -1) : text }));
+    const latest = exact(args, expected);
+    return { recipient: latest.recipient, caps, payload };
+  }
+  async function dispatchExact(args, allowConcurrent) {
+    configured();
+    const payload = args.payload;
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload) || typeof payload.input !== 'string' || !payload.input.trim()) throw serviceError('invalid_request');
+    const expected = { binding_revision: args.expected_binding_revision, config_generation: args.expected_config_generation };
+    let { current, profile } = exact(args, expected);
+    available(profile);
+    const paneKey = key(args), paneLock = `pane:${paneKey}`, lock = `session:${profile.id}:${current.session}`;
+    const owned = typeof args.submission_id === 'string' && args.submission_id ? args.submission_id : null;
+    const idle = () => {
+      const next = exact(args, expected);
+      const marker = next.current.submission_pending;
+      if (next.current.run || (marker && marker !== owned) || shared.hasActive(profile.id, args.session_id, args.workspace_id, args.pane_id) ||
+           (typeof shared.anyActive === 'function' && shared.anyActive(args.workspace_id, args.pane_id, allowConcurrent))) throw serviceError('busy');
+      return next.current;
+    };
+    if (pending.has(paneKey) || locks.has(lock) || locks.has(paneLock)) throw serviceError('busy');
+    if (pending.size >= 1024) throw serviceError('limit_exceeded');
+    idle();
+    const entry = { lock, profile_id: profile.id, session_id: current.session, submission_id: args.submission_id, inFlight: true };
+    pending.set(paneKey, entry);
+    locks.add(lock);
+    locks.add(paneLock);
+    let ambiguous = false, posting = false;
+    try {
+      if (typeof args.authorize === 'function') args.authorize();
+      current = idle();
+      if (typeof args.submission_id === 'string' && args.submission_id) shared.write(args.workspace_id, args.pane_id, { ...current, submission_pending: args.submission_id });
+      if (typeof args.authorize === 'function') args.authorize();
+      const headers = typeof args.idempotency_key === 'string' && args.idempotency_key ? { [IDEMPOTENCY_KEY_HEADER]: args.idempotency_key } : {};
+      posting = true;
+      const data = await upstreamFor(profile, '/v1/runs', payload, 'POST', headers);
+      entry.run_id = data?.run_id;
+      if (!runPattern.test(data?.run_id || '') || typeof data.status !== 'string') throw serviceError('unavailable');
+      if (typeof args.onAccepted === 'function') args.onAccepted({ run_id: data.run_id, status: data.status });
+      current = idle();
+      shared.write(args.workspace_id, args.pane_id, { ...current, run: data.run_id, submission_pending: args.submission_id || current.submission_pending, messages: [...(current.messages || []), { role: 'user', text: payload.input.slice(0, 16000) }].slice(-100) });
+      return { run_id: data.run_id, status: data.status };
+    } catch (error) {
+      const upstreamStatus = error.upstreamStatus ?? error.status;
+      const explicit = error.ambiguous === true;
+      const uncertain = posting && (!upstreamStatus || upstreamStatus >= 500 || upstreamStatus === 408);
+      ambiguous = explicit || uncertain;
+      const failure = error.code && ['stale_resource', 'busy', 'unavailable', 'permission_denied', 'expired'].includes(error.code) ? error : transportError(error);
+      if (ambiguous) failure.ambiguous = true;
+      throw failure;
+    } finally {
+      entry.inFlight = false;
+      locks.delete(paneLock);
+      if (!ambiguous) {
+        pending.delete(paneKey);
+        locks.delete(lock);
+        try { const latest = shared.read(args.workspace_id, args.pane_id); if (!args.preservePending && latest?.submission_pending) shared.write(args.workspace_id, args.pane_id, { ...latest, submission_pending: undefined }); } catch { /* marker best-effort clear only */ }
+      }
+    }
+  }
+  async function getRun(args) {
+    configured();
+    if (!validSessionId(args.session_id) || typeof args.profile_id !== 'string' || !runPattern.test(args.run_id || '')) throw serviceError('invalid_request');
+    const profile = configuration.get(args.profile_id);
+    available(profile);
+    if (typeof args.expected_config_generation === 'string' && args.expected_config_generation !== generation(profile)) throw serviceError('stale_resource');
+    let run;
+    try { run = await upstreamFor(profile, `/v1/runs/${args.run_id}`); }
+    catch (error) { throw transportError(error); }
+    if (run?.session_id !== args.session_id) throw serviceError('permission_denied');
+    if (typeof run.status !== 'string') throw serviceError('unavailable');
+    return { profile, run };
+  }
+  async function status(args) {
+    configured();
+    const { run } = await getRun(args);
+    const current = shared.read(args.workspace_id, args.pane_id);
+    const boundToOriginal = !!current && current.profile_id === args.profile_id && current.session === args.session_id;
+    const done = submissionTerminal.has(run.status);
+    if (boundToOriginal) {
+      const entry = pending.get(key(args));
+      if (entry && !entry.inFlight && entry.profile_id === args.profile_id && entry.session_id === args.session_id && (!entry.run_id || entry.run_id === args.run_id)) {
+        if (current.run && current.run !== args.run_id) throw serviceError('stale_resource');
+        const known = !args.submission_id || !current.submission_pending || current.submission_pending === args.submission_id || entry.submission_id === args.submission_id;
+        shared.write(args.workspace_id, args.pane_id, { ...current, run: done ? undefined : args.run_id, ...(done && known ? { submission_pending: undefined } : {}) });
+        if (done && known) pending.delete(key(args));
+        if (done) locks.delete(entry.lock);
+      } else if ((current.run === args.run_id || (!current.run && args.submission_id && current.submission_pending === args.submission_id)) && done) {
+        const known = !args.submission_id || !current.submission_pending || current.submission_pending === args.submission_id;
+        shared.write(args.workspace_id, args.pane_id, { ...current, run: undefined, ...(known ? { submission_pending: undefined } : {}), messages: [...(current.messages || []), { role: 'assistant', text: typeof run.output === 'string' ? run.output.slice(0, 16000) : `Run ${run.status}.` }].slice(-100) });
+      } else if (!current.run && args.submission_id && current.submission_pending === args.submission_id) {
+        shared.write(args.workspace_id, args.pane_id, { ...current, run: args.run_id });
+      }
+    }
+    let outputReleased = true;
+    if (typeof args.authorize === 'function') {
+      try { args.authorize(); } catch { outputReleased = false; }
+    }
+    const bounded = outputReleased ? boundedOutput(typeof run.output === 'string' ? run.output : '') : { output: '', output_truncated: false };
+    return { run_id: args.run_id, status: run.status, output: bounded.output, output_released: outputReleased, output_truncated: bounded.output_truncated, last_event: run.last_event, ...(run.error ? { error: 'Hermes reported a run failure.' } : {}) };
+  }
+  function acknowledgeUnknown(args) {
+    const { current } = exact(args, { binding_revision: args.expected_binding_revision, config_generation: args.expected_config_generation });
+    const entry = pending.get(key(args));
+    if (current.run || entry?.inFlight || entry?.run_id || current.submission_pending !== args.submission_id) throw serviceError('busy');
+    shared.write(args.workspace_id, args.pane_id, { ...current, submission_pending: undefined });
+    if (entry) { locks.delete(entry.lock); pending.delete(key(args)); }
+  }
+  return { readBinding, prepareSubmission, dispatchExact, status, panePending, acknowledgeUnknown };
+}
+
+export function createAgentHandler({ token, port, devOrigins, reply, workspaceContext, workspaceRead, runtimeDirectory = process.env.ORBIT_RUNTIME_DIR || fileURLToPath(new URL('../.runtime/', import.meta.url)), apiUrl = process.env.HERMES_API_URL, apiKey = process.env.HERMES_API_KEY, profiles, profilesJson = process.env.HERMES_PROFILES_JSON, additionalProfiles, fetchImpl = fetch, onRunEvent, onNormalAccepted, grokOptions = {} }) {
   // Derived observation only, using the exact run-trace contract. Never await or
   // let an observer alter a receipt, response, approval or dispatch outcome.
   const observeStatus=(binding,run)=>{
@@ -159,12 +390,12 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
   const originalArgs = record => ({ workspace_id: record.workspace_id, ...record.recipient, expected_binding_revision: record.recipient.binding_revision, expected_config_generation: record.recipient.config_generation, submission_id: record.receipt_id, run_id: record.run_id });
   const publicReceipt = record => ({ receipt_id: record.receipt_id, payload_hash: record.payload_hash, submission_state: record.state, ...(record.run_id ? { run_id: record.run_id } : {}), note: 'Never resend an unresolved submission. Inspect the original upstream before acknowledging an unknown outcome.' });
   // Only the trusted Normal-chat caller may relax cross-conversation exclusion.
-  // Durable accepted receipts distinguish ordinary runs from Workbench and
-  // uncertain/legacy work, including after restart. Same-session exclusion stays.
+  // Durable accepted receipts distinguish ordinary runs from uncertain/legacy
+  // work, including after restart. Same-session exclusion stays.
   const concurrentOrdinary = args => (state, workspace_id, pane_id) => {
     const profileId = state.profile_id || 'default';
     if (profileId === args.profile_id && state.session === args.session_id) return false;
-    if (!state.run || !state.ordinary_submission_id || state.workbench_pending !== state.ordinary_submission_id) return false;
+    if (!state.run || !state.ordinary_submission_id || state.submission_pending !== state.ordinary_submission_id) return false;
     const record = readSubmission({workspace_id,pane_id}, state), profile = configuration?.get(profileId);
     return !!profile && record?.state === 'accepted' && record.run_id === state.run &&
       record.recipient.profile_id === profileId && record.recipient.session_id === state.session &&
@@ -252,9 +483,9 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
       if (body.pane_id) {
         if (!/^[a-f0-9-]{36}$/.test(body.workspace_id || '') || !/^[a-f0-9-]{36}$/.test(body.pane_id)) return reply(res,400,{error:'Invalid shared pane'});
         validatePane(body);
-        if (['select_session', 'shared_chat', 'start'].includes(body.action) && agent.workbench.panePending(body)) {
+        if (['select_session', 'shared_chat', 'start'].includes(body.action) && submissions.panePending(body)) {
           const receipt = readSubmission(body);
-          if (!receipt || body.action !== 'shared_chat') return reply(res,409,{error: receipt ? 'This chat submission is unresolved. Use submission_status; do not resend.' : 'A Workbench context submission is unresolved for this pane. Reconcile it before switching conversations.', ...(receipt ? publicReceipt(receipt) : {})});
+          if (!receipt || body.action !== 'shared_chat') return reply(res,409,{error: receipt ? 'This chat submission is unresolved. Use submission_status; do not resend.' : 'A chat submission is unresolved for this pane. Reconcile it before switching conversations.', ...(receipt ? publicReceipt(receipt) : {})});
         }
         const candidateLock = `pane:${body.workspace_id}:${body.pane_id}`;
         if(shared.locks.has(candidateLock)) return reply(res,409,{error:'This pane is busy; retry shortly.'});
@@ -274,8 +505,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
           if(body.replace === true) return reply(res,409,{error:'Use validated session selection to change conversations.'});
           const state = shared.bind(body.workspace_id,body.pane_id,body.initial);
           if (state) { const metadata=conversations.read({workspace_id:body.workspace_id,profile_id:state.profile_id || 'default',session_id:state.session}); if(metadata.title) state.title=metadata.title; }
-          const lane=executionGate?.status?.();
-          return reply(res,200,{state,...(lane?{execution_lane:{agent_busy:!!lane.agent||!!lane.legacy?.active||!!lane.legacy?.enabled,job_busy:!!lane.job,unknown:!!lane.quarantines?.length||!!lane.legacy?.uncertain}}:{})});
+          return reply(res,200,{state});
         }
         const linked = shared.read(body.workspace_id,body.pane_id);
         if (!linked) return reply(res,409,{error:'This chat has not linked yet. Open it on the desktop and reload once.'});
@@ -432,28 +662,28 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
         if (body.action === 'switch_provider') return reply(res, 200, await contextApi.switchProvider(body, linked));
         if (body.action === 'fork_transcript') return reply(res, 200, await contextApi.fork(body, linked));
         const receipt = readSubmission(body, linked);
-        if (linked.workbench_pending && receipt && ['status','stop','steer','approval','events'].includes(body.action) && (!receipt.run_id || body.run_id !== receipt.run_id)) return reply(res,409,{error:'Use submission_status to inspect this pane’s original submission.',...publicReceipt(receipt)});
+        if (linked.submission_pending && receipt && ['status','stop','steer','approval','events'].includes(body.action) && (!receipt.run_id || body.run_id !== receipt.run_id)) return reply(res,409,{error:'Use submission_status to inspect this pane’s original submission.',...publicReceipt(receipt)});
         if (['submission_status', 'acknowledge_submission_unknown'].includes(body.action)) {
           if (!receipt) return reply(res,404,{error:'No ordinary submission receipt for this pane.'});
           if (body.action === 'acknowledge_submission_unknown') {
             if (receipt.run_id || !['prepared','dispatching','submission_unknown'].includes(receipt.state) || body.payload_hash !== receipt.payload_hash || body.upstream_investigated !== true) return reply(res,409,{error:'Acknowledge the exact digest only after investigating the original upstream and confirming no run remains active.'});
-            agent.workbench.acknowledgeUnknown(originalArgs(receipt));
+            submissions.acknowledgeUnknown(originalArgs(receipt));
             receipt.state = 'denied'; receipt.owner_acknowledged = true;
             saveSubmission(receipt);
             return reply(res,200,publicReceipt(receipt));
           }
           if (!receipt.run_id) return reply(res,200,publicReceipt(receipt));
-          const result = await agent.workbench.status(originalArgs(receipt));
+          const result = await submissions.status(originalArgs(receipt));
           observeStatus({workspace_id:receipt.workspace_id,profile_id:receipt.recipient.profile_id,session_id:receipt.recipient.session_id,run_id:receipt.run_id},result);
           return reply(res,200,{...publicReceipt(receipt),...result});
         }
         // Fence every ordinary control request against credential/endpoint changes,
         // before a stored run identifier can be sent to a different gateway.
         if (receipt?.run_id && receipt.run_id === body.run_id) {
-          const recipient = await agent.workbench.readBinding(body);
+          const recipient = await submissions.readBinding(body);
           if (recipient.config_generation !== receipt.recipient.config_generation) return reply(res,409,{error:'The original Hermes configuration changed. Restore it before inspecting this run.'});
           if (body.action === 'status') {
-            const result = await agent.workbench.status(originalArgs(receipt));
+            const result = await submissions.status(originalArgs(receipt));
             observeStatus({workspace_id:receipt.workspace_id,profile_id:receipt.recipient.profile_id,session_id:receipt.recipient.session_id,run_id:receipt.run_id},result);
             let approvals = [];
             if (result.status === 'waiting_for_approval') {
@@ -475,7 +705,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
       }
       if (body.action === 'build_queue') {
         if (profileId !== 'default') return reply(res,409,{error:'Build queue is only available for the default Hermes profile.'});
-        buildQueue ||= createBuildQueue({ directory: path.join(runtimeDirectory,'build-queue'), upstream, context: workspaceContext, executionGate });
+        buildQueue ||= createBuildQueue({ directory: path.join(runtimeDirectory,'build-queue'), upstream, context: workspaceContext });
         try {
           if (body.operation === 'approvals') return reply(res, 200, { approvals: await buildQueue.approvals(body) });
           return reply(res, 200, await buildQueue.action(body));
@@ -555,28 +785,24 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
       }
       if (body.action === 'start') {
         const turnChat = chatFor(profile);
-        if (turnChat) return turnChat.turn(reply, res, { body, profile, shared, workspaceContext, executionGate });
+        if (turnChat) return turnChat.turn(reply, res, { body, profile, shared, workspaceContext });
         if (typeof body.input !== 'string' || !body.input.trim() || body.input.length > 100000) return reply(res, 400, { error: 'Enter a message of 1–100,000 characters.' });
-        // Do not start while the shared agent lane is held or legacy-unknown.
-        // Pane-backed submissions claim it through preparation and dispatch below.
-        if (executionGate && ((typeof executionGate.busy === 'function' && executionGate.busy('agent')) || executionGate.status?.().job)) return reply(res, 409, { error: 'The shared execution lane is busy or unresolved. Wait for active work or reconcile an unknown outcome before starting a new chat turn.' });
         if (body.pane_id) {
           const receiptId = randomUUID();
-          const release = executionGate?.claim('agent', receiptId);
           let record;
           try {
             if (fs.readdirSync(journalDirectory).length >= 1024) return reply(res,409,{error:'Private submission journal is full; archive resolved receipts before continuing.'});
             let context = '';
             try { if (workspaceContext) context = workspaceContext(body.workspace_id); }
             catch { return reply(res,409,{error:'Workspace has not synced yet. Wait for workspace connection and retry.'}); }
-            const recipient = await agent.workbench.readBinding(body);
+            const recipient = await submissions.readBinding(body);
             const args = {workspace_id:body.workspace_id,pane_id:body.pane_id,profile_id:profileId,session_id:body.session_id,input:body.input.trim(),expected_binding_revision:body.expected_binding_revision,expected_config_generation:recipient.config_generation};
             const allowConcurrent = concurrentOrdinary(args);
-            const prepared = await agent.workbench.prepareSubmission(args, instructions + context, allowConcurrent);
+            const prepared = await submissions.prepareSubmission(args, instructions + context, allowConcurrent);
             record = {receipt_id:receiptId,workspace_id:body.workspace_id,recipient:prepared.recipient,payload:prepared.payload,payload_hash:createHash('sha256').update(JSON.stringify(prepared.payload)).digest('hex'),state:'prepared',created_at:new Date().toISOString()};
             saveSubmission(record);
             const current = shared.read(body.workspace_id,body.pane_id);
-            shared.write(body.workspace_id,body.pane_id,{...current,ordinary_submission_id:receiptId,workbench_pending:receiptId});
+            shared.write(body.workspace_id,body.pane_id,{...current,ordinary_submission_id:receiptId,submission_pending:receiptId});
             for (const file of [path.join(runtimeDirectory,'shared-chats',`${body.workspace_id}.${body.pane_id}.json`),path.join(runtimeDirectory,'shared-chats')]) {
               const fd = fs.openSync(file, 'r');
               try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
@@ -585,7 +811,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
             // dispatchExact owns the pane/session locks. Do not take the legacy
             // session lock or carry the request's pane lock into that adapter.
             shared.locks.delete(paneLock); paneLock = undefined;
-            const data = await agent.workbench.dispatchExact({...args,payload:record.payload,submission_id:receiptId,preservePending:true,idempotency_key:prepared.caps.idempotent_submit ? receiptId : undefined,onAccepted: data => {
+            const data = await submissions.dispatchExact({...args,payload:record.payload,submission_id:receiptId,preservePending:true,idempotency_key:prepared.caps.idempotent_submit ? receiptId : undefined,onAccepted: data => {
                record.run_id = data.run_id; record.state = 'accepted'; saveSubmission(record);
                // Host-only observer receives the durable exact receipt, never UI
                // identity assertions. A grant setup failure cannot replay a run.
@@ -599,10 +825,10 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
             try { saveSubmission(record); } catch { record.state = 'submission_unknown'; }
             if (record.state === 'denied') {
               const current = shared.read(body.workspace_id,body.pane_id);
-              if (current?.workbench_pending === receiptId) shared.write(body.workspace_id,body.pane_id,{...current,workbench_pending:undefined});
+              if (current?.submission_pending === receiptId) shared.write(body.workspace_id,body.pane_id,{...current,submission_pending:undefined});
             }
             return reply(res,409,{error:record.state === 'submission_unknown' ? 'Submission outcome is unknown. Inspect submission_status; do not resend.' : 'Submission was not dispatched or was rejected.',...publicReceipt(record)});
-          } finally { release?.(); }
+          }
         }
         const lock = `session:${profileId}:${body.session_id}`;
         if(shared.locks.has(lock)) return reply(res,409,{error:'A message is already starting in this conversation.'});
@@ -698,7 +924,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
       if(paneLock) shared.locks.delete(paneLock);
     }
   };
-  agent.workbench = createWorkbenchHermes({ configuration, shared, locks: shared.locks, upstreamFor, validatePane, workspaceRead, runtimeDirectory });
+  const submissions = createHermesSubmission({ configuration, shared, locks: shared.locks, upstreamFor, validatePane });
   const resourceFailure=code=>{throw Object.assign(Error(code),{code});};
   function resourceRecipient({workspace_id,pane_id}) {
     try{validatePane({workspace_id,pane_id});}catch(error){resourceFailure(error.status===404?'resource_gone':'unavailable');}
@@ -720,7 +946,7 @@ export function createAgentHandler({ token, port, devOrigins, reply, workspaceCo
       if(linked?.ordinary_submission_id&&linked.ordinary_submission_id!==normal.receipt_id)return 'superseded';
       // Only a reconciled accepted receipt with BOTH activity markers cleared
       // proves completion. Unknown/preparing submissions must retain their fence.
-      if(linked?.ordinary_submission_id===normal.receipt_id&&!linked.run&&!linked.workbench_pending&&readSubmission({workspace_id,pane_id:current.pane_id},linked)?.state==='accepted')return 'completed';
+      if(linked?.ordinary_submission_id===normal.receipt_id&&!linked.run&&!linked.submission_pending&&readSubmission({workspace_id,pane_id:current.pane_id},linked)?.state==='accepted')return 'completed';
       return null;
     },
     list(workspace_id){
