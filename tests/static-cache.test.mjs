@@ -17,7 +17,7 @@ import {
 const REPO = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 
 test('only Vite-shaped content-hashed asset names qualify', () => {
-  for (const name of ['index-xiRixi7L.js', 'index-DpbFgL55.css', 'main.esm-BGKzgTMx.js', 'project-workbench-DkO2Xcd-.js', 'chunk-1a2B3c4D5e6F.woff2'])
+  for (const name of ['index-xiRixi7L.js', 'index-DpbFgL55.css', 'main.esm-BGKzgTMx.js', 'settings-DkO2Xcd-.js', 'chunk-1a2B3c4D5e6F.woff2'])
     assert.equal(isContentHashedAssetName(name), true, name);
   for (const name of ['index.js', 'app-1234567.js', 'unhashed.css', 'icon-abcdefgh', 'sub/dir-file-abcdefgh.js', ''])
     assert.equal(isContentHashedAssetName(name), false, name);

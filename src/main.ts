@@ -14,7 +14,6 @@ import { isGatewayProvider, providerLabel } from './agent-providers';
 import { TECHNOLOGY_SURFACES } from './technology-surfaces';
 import {createTechnologyReadiness} from './technology-readiness';
 import { installCommandPalette } from './command-palette';
-import { experimentalEnabled, subscribeExperimental } from './experimental';
 import { showOnboarding, offerOnboarding } from './onboarding';
 window.addEventListener('load', () => offerOnboarding(onboardingActions), { once: true });
 import { installLayoutSwitcher } from './layout-switcher';
@@ -25,7 +24,6 @@ import { showConnectionPasswords } from './connection-passwords';
 import { openAcddEvidence } from './acdd-evidence-window';
 import { workspaceId, ensureWorkspaceSynced } from './workspace-sync';
 import { pluginSelector, type PluginInstance } from './plugins';
-import { readPanePrefs, writePanePrefs } from './pane-prefs';
 import { workspaceFetch } from './workspace-client';
 import { installMinimize } from './minimize';
 import { el, button, select } from "./dom";
@@ -79,16 +77,6 @@ window.addEventListener('orbit-focus-agent', event => {
   const paneId=(event as CustomEvent<string>).detail;
   const monitor=state.monitors.find(m=>leaves(m.layout).some(p=>p.id===paneId));
   if(monitor) {if(focused) unfocus(); choose(monitor.id);}
-});
-// Separate-window launchers. Both create genuine, independent agent panes (no
-// new pane kind or schema); nothing is copied between them.
-window.addEventListener('orbit-open-workbench-window', event => {
-  const detail = (event as CustomEvent<{ paneId?: string }>).detail ?? {};
-  openWorkbenchWindow(detail.paneId);
-});
-window.addEventListener('orbit-open-normal-window', event => {
-  const detail = (event as CustomEvent<{ fromPaneId?: string }>).detail ?? {};
-  openNormalWindow(detail.fromPaneId);
 });
 let saveTimer: ReturnType<typeof setTimeout>;
 let layoutSwitcher: ReturnType<typeof installLayoutSwitcher> | undefined;
@@ -412,7 +400,6 @@ const commands = createWorkspaceCommands((): WorkspaceCommand[] => [
   { id: 'browser-layouts', title: 'Browser layout snapshots', detail: 'Browser-local snapshots — active snapshot auto-updates here', group: 'Layout', run: () => navigation.querySelector<HTMLButtonElement>('[aria-label="Choose browser snapshot"]')?.click() },
   ...state.monitors.map(m => ({ id: `window:${m.id}`, title: m.name, detail: 'Open or restore window', group: 'Windows', run: () => { if (focused) focus(m.id); else choose(m.id); } })),
   { id: 'new-agent', title: 'New agent chat', detail: 'Talk to Hermes', group: 'Create', run: () => addMonitor('agent') },
-  { id: 'new-workbench', title: 'New Workbench window', detail: 'Separate Workbench beside Hermes', group: 'Create', hidden: !experimentalEnabled('workbench'), run: () => openWorkbenchWindow() },
   { id: 'new-terminal', title: 'New terminal', detail: 'Open a host terminal pane', group: 'Create', run: () => addMonitor('terminal') },
   { id: 'new-browser', title: 'New browser', detail: 'Open an app or website', group: 'Create', run: () => addMonitor('browser') },
   { id: 'colab-runtime', title: 'Google Colab', detail: 'GPU and TPU runtimes on colab.research.google.com', group: 'Apps', keywords: ['colab', 'gpu', 'tpu', 'notebook'], disabledReason: !sessionToken ? 'Connect host first to use Google Colab.' : undefined, run: () => openHostSurface('colab-runtime') },
@@ -435,13 +422,12 @@ const commands = createWorkspaceCommands((): WorkspaceCommand[] => [
   { id: 'collab', title: 'Collab', detail: 'Project board for Hermes and Grok Bot', group: 'Hermes', disabledReason: !sessionToken ? 'Connect host first to use Collab.' : undefined, run: () => openHostSurface('collab') },
   ...workspaceExtensions.map(extension => ({
     id: `hermes-${extension.id}`, title: extension.title, detail: extension.label, group: 'Hermes',
-    hidden: extension.id === 'project-workbench' && !experimentalEnabled('workbench'),
     disabledReason: !sessionToken && extension.id !== 'outputs' ? 'Connect host first to use this tool.' : undefined,
     run: () => {
       if (extension.id === 'outputs') { openHostSurface('outputs'); return; }
       const focusedChat = focusedAgentChat();
-      if (isGatewayProvider(focusedChat.profileId) && (extension.id === 'build-queue' || extension.id === 'project-workbench')) {
-        notify(`The build queue and Project Workbench use Hermes workers. ${focusedChat.agentName} does not have those APIs. Switch this chat to Hermes, or use Collab for a shared workspace and approved shell commands.`);
+      if (isGatewayProvider(focusedChat.profileId) && extension.id === 'build-queue') {
+        notify(`The build queue uses Hermes workers. ${focusedChat.agentName} does not have that API. Switch this chat to Hermes, or use Collab for a shared workspace and approved shell commands.`);
         return;
       }
       void extension.activate({ token: () => sessionToken, api: menuAgentApi, agentName: focusedChat.agentName, provider: focusedChat.profileId });
@@ -456,19 +442,7 @@ const hermesMenuItems: OrbitMenuItem[] = workspaceExtensions.map(extension => ({
   icon: hermesIcons[extension.id] || '✦',
   button: button(extension.title, extension.title, () => { void commands.execute(`hermes-${extension.id}`); }),
 }));
-// Experimental Project Workbench surfaces stay hidden until the owner enables
-// them in Orbit settings. The settings entry point itself is always available.
-const workbenchWindowMenuButton = button('New Workbench window', 'New Workbench window', () => { void commands.execute('new-workbench'); });
 const orbitSettingsMenuButton = button('Orbit settings', 'Orbit settings', () => { void commands.execute('settings'); });
-const projectWorkbenchMenuButton = hermesMenuItems.find(item => item.id === 'hermes-project-workbench')?.button;
-function syncExperimentalMenuItems() {
-  const on = experimentalEnabled('workbench');
-  for (const node of [workbenchWindowMenuButton, projectWorkbenchMenuButton]) {
-    if (!node) continue;
-    node.hidden = !on;
-    node.closest<HTMLElement>('.orbit-menu-item-slot')?.toggleAttribute('hidden', !on);
-  }
-}
 function openHermesTools() {
   const target = state.monitors.find(m => m.id === (focused ?? state.selected));
   const agent = target ? leaves(target.layout).find(p => p.kind === 'agent') : undefined;
@@ -538,7 +512,6 @@ function orbitMenuSections(): OrbitMenuSection[] {
     ] },
     { id: 'hermes', title: 'Hermes', detail: 'Hermes runtime tools and conversations, reachable without opening a chat pane.', items: [
       { id: 'hermes-chat', label: 'New Hermes chat', icon: '✧', button: button('New Hermes chat', 'New Hermes chat', () => { void commands.execute('new-agent'); }) },
-      { id: 'hermes-workbench-window', label: 'New Workbench window', icon: '◧', button: workbenchWindowMenuButton },
       { id: 'hermes-tools', label: 'Tools & conversations', icon: '⋯', button: button('Tools & conversations', 'Tools & conversations', () => { void commands.execute('hermes-tools'); }) },
       { id: 'conversation-library', label: 'Conversation library', icon: '☷', button: button('Conversation library', 'Conversation library', () => { void commands.execute('conversation-library'); }) },
       { id: 'send-selection', label: 'Send selected text to conversation', icon: '↗', button: button('Send selected text to conversation', 'Send selected text to conversation', () => { void commands.execute('send-selection'); }) },
@@ -554,9 +527,6 @@ function orbitMenuSections(): OrbitMenuSection[] {
   ];
 }
 const orbitMenu = installOrbitMenu({ toolbar: orbitToolbar, drawerHost: app, logo: logoButton, sections: orbitMenuSections });
-// Place menu items first, then apply and subscribe the experimental gates.
-syncExperimentalMenuItems();
-subscribeExperimental(syncExperimentalMenuItems);
 const toast = el("div", "toast");
 toast.role = "status";
 app.append(toast);
@@ -1299,64 +1269,6 @@ function addMonitor(kind: PaneKind = 'terminal') {
 }
 function paneExists(paneId: string): boolean {
   return state.monitors.some(m => leaves(m.layout).some(p => p.id === paneId && p.kind === 'agent'));
-}
-function focusPane(paneId: string): boolean {
-  const target = state.monitors.find(m => leaves(m.layout).some(p => p.id === paneId));
-  if (!target) return false;
-  if (focused) unfocus();
-  choose(target.id);
-  return true;
-}
-// Opens (or re-focuses) a dedicated Workbench agent pane beside the Normal one.
-// The new pane's mode is persisted before its first render and it starts its own
-// fresh conversation; no chat, draft, context, grant or candidate is copied.
-// The surface is experimental and off until enabled in Orbit settings.
-function openWorkbenchWindow(normalPaneId?: string) {
-  if (!experimentalEnabled('workbench')) {
-    notify('Project Workbench is experimental and off. Enable it in Orbit settings.');
-    openSettings();
-    return;
-  }
-  if (normalPaneId && !paneExists(normalPaneId)) return;
-  if (normalPaneId) {
-    const paired = readPanePrefs(workspaceId, normalPaneId).pairedPaneId;
-    if (paired && paneExists(paired)) { focusPane(paired); return; }
-  }
-  const m = monitor(state.monitors.length + 1, 'agent');
-  m.name = 'Workbench';
-  const workbenchPane = leaves(m.layout)[0];
-  writePanePrefs(workspaceId, workbenchPane.id, { mode: 'workbench', pairedPaneId: normalPaneId ?? null });
-  if (normalPaneId) writePanePrefs(workspaceId, normalPaneId, { pairedPaneId: workbenchPane.id });
-  if (focused) unfocus();
-  state.monitors.push(m);
-  state.selected = m.id;
-  renderMonitor(m);
-  renderInspector();
-  renderTabs();
-  save();
-}
-// Opens (or re-focuses) the Normal chat paired with a Workbench pane. It never
-// silently replaces the original; the opaque pair id is used.
-function openNormalWindow(workbenchPaneId?: string) {
-  if (workbenchPaneId && !paneExists(workbenchPaneId)) return;
-  if (workbenchPaneId) {
-    const paired = readPanePrefs(workspaceId, workbenchPaneId).pairedPaneId;
-    if (paired && paneExists(paired)) { focusPane(paired); return; }
-  }
-  const m = monitor(state.monitors.length + 1, 'agent');
-  m.name = 'Normal chat';
-  const normalPane = leaves(m.layout)[0];
-  if (workbenchPaneId) {
-    writePanePrefs(workspaceId, normalPane.id, { pairedPaneId: workbenchPaneId });
-    writePanePrefs(workspaceId, workbenchPaneId, { pairedPaneId: normalPane.id });
-  }
-  if (focused) unfocus();
-  state.monitors.push(m);
-  state.selected = m.id;
-  renderMonitor(m);
-  renderInspector();
-  renderTabs();
-  save();
 }
 function deleteMonitor() {
   if (state.monitors.length === 1) {
