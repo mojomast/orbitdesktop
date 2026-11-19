@@ -5,7 +5,6 @@ author: mojomast
 homepage: https://github.com/mojomast/orbitdesktop
 provides_tools:
   - orbit_workspace
-  - orbit_workbench
   - orbit_resources
 provides_hooks: []
 provides_middleware: []

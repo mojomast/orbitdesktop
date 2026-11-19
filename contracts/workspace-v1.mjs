@@ -111,118 +111,6 @@ function command(name, properties = {}, required = [], effect = 'read', revision
 }
 command('read',{observed_revision:integer(0)});
 command('describe',{project_id:uuid,catalog:bool});
-// Owner-facing arrangement/recipe request contracts (v1). The action and
-// command stay in the trusted schema for legacy clients; no server service is
-// wired to them after cleanup Phase 3.
-const ARRANGEMENT_ROLES = Object.freeze([
-  'primary_agent',
-  'active_terminal',
-  'preview',
-  'candidate_diff',
-  'project_files',
-]);
-const ARRANGEMENT_LAYOUTS = Object.freeze(['prioritize', 'columns', 'rows']);
-const ARRANGEMENT_RENDERERS = Object.freeze(['windows', 'spatial', 'docking']);
-const RECIPE_ENUM = Object.freeze(['project_focus', 'investigate', 'implement', 'review', 'return']);
-const ARRANGEMENT_LIMITS = Object.freeze({
-  maxRecipes: 32,
-  nameMax: 60,
-  rolesMax: 5,
-  roleChoicesMax: 5,
-  ttlMs: 60000,
-  proposalBytes: 2 * 1024 * 1024,
-});
-const arrangementHash = {type: 'string', pattern: '^[a-f0-9]{64}$'};
-const arrangementScope = {workspace_id: uuid, project_id: uuid};
-const arrangementRoles = {
-  type: 'array',
-  items: {enum: [...ARRANGEMENT_ROLES]},
-  minItems: 0,
-  maxItems: ARRANGEMENT_LIMITS.rolesMax,
-  uniqueItems: true,
-};
-const arrangementRoleChoices = {
-  type: 'object',
-  propertyNames: {enum: [...ARRANGEMENT_ROLES]},
-  additionalProperties: uuid,
-  maxProperties: ARRANGEMENT_LIMITS.roleChoicesMax,
-};
-const arrangementRequests = Object.freeze({
-  recipe_list: object({action: {const: 'recipe_list'}, ...arrangementScope}),
-  recipe_save: object({
-    action: {const: 'recipe_save'},
-    ...arrangementScope,
-    name: {type: 'string', minLength: 1, maxLength: ARRANGEMENT_LIMITS.nameMax},
-    roles: arrangementRoles,
-    layout: {enum: [...ARRANGEMENT_LAYOUTS]},
-    renderer: {enum: [...ARRANGEMENT_RENDERERS]},
-    recipe_id: uuid,
-    expected_version: {type: 'integer', minimum: 1},
-    op_id: uuid,
-    intent: {type: 'string', minLength: 1, maxLength: 160},
-  }, ['action', 'workspace_id', 'project_id', 'name', 'roles', 'layout', 'renderer', 'op_id']),
-  recipe_preview: object({
-    action: {const: 'recipe_preview'},
-    ...arrangementScope,
-    recipe: {enum: [...RECIPE_ENUM]},
-    recipe_id: uuid,
-    role_choices: arrangementRoleChoices,
-    renderer: {enum: [...ARRANGEMENT_RENDERERS]},
-    width: {type: 'number', minimum: 280, maximum: 16000},
-    height: {type: 'number', minimum: 180, maximum: 16000},
-  }, ['action', 'workspace_id', 'project_id', 'recipe']),
-  recipe_apply: object({
-    action: {const: 'recipe_apply'},
-    ...arrangementScope,
-    recipe: {enum: [...RECIPE_ENUM]},
-    preview_id: uuid,
-    preview_digest: arrangementHash,
-    op_id: uuid,
-    intent: {type: 'string', minLength: 1, maxLength: 160},
-    viewport: {type: 'object', properties: {width: {type: 'number', minimum: 280, maximum: 16000}, height: {type: 'number', minimum: 180, maximum: 16000}}, required: ['width', 'height'], additionalProperties: false},
-  }, ['action', 'workspace_id', 'project_id', 'recipe', 'preview_id', 'preview_digest', 'op_id']),
-  proposal_list: object({
-    action: {const: 'proposal_list'},
-    ...arrangementScope,
-    recipe: {enum: [...RECIPE_ENUM]},
-    after_id: uuid,
-  }, ['action', 'workspace_id', 'project_id']),
-  proposal_get: object({
-    action: {const: 'proposal_get'},
-    ...arrangementScope,
-    proposal_id: uuid,
-  }),
-  proposal_reject: object({
-    action: {const: 'proposal_reject'},
-    ...arrangementScope,
-    proposal_id: uuid,
-    expected_version: {type: 'integer', minimum: 1},
-  }),
-});
-// Derive the Normal envelope from the exact service schemas, removing only the
-// authenticated workspace field. No second hand-maintained action vocabulary.
-export const arrangementControlRequests=Object.fromEntries(Object.entries(arrangementRequests).map(([name,schema])=>{
-  const copy=structuredClone(schema);delete copy.properties.workspace_id;
-  copy.required=copy.required.filter(key=>key!=='workspace_id');
-  return [name,copy];
-}));
-command('arrangement',{request:{oneOf:Object.values(arrangementControlRequests)}},['request'],'workspace-proposal','service-validated');
-// Proposal-only Workbench setup suggestion. The authenticated workspace capability
-// may submit an untrusted draft for the owner to review and later adopt into the
-// current live binding. It never grants private project reads or any task,
-// execution or approval authority, and never accepts owner execution verbs,
-// pane/profile/session/actor identity, credentials or root paths. Unknown and
-// additional fields fail closed through the strict request schema.
-const workbenchSetupCheck=enumeration('node-test','host-regression');
-defs.workbenchSetupRequest=object({
-  op_id:uuid,
-  goal:{type:'string',minLength:1,maxLength:4000,pattern:'\\S'},
-  title:{type:'string',minLength:1,maxLength:240,pattern:'\\S'},
-  acceptance_statement:{type:'string',minLength:1,maxLength:4000,pattern:'\\S'},
-  project_id:uuid,
-  check_definition_id:workbenchSetupCheck,
-},['op_id','goal']);
-command('workbench_setup',{request:ref('workbenchSetupRequest')},['request'],'workspace-proposal','service-validated');
 command('history');
 command('checkpoint_preview',{base_revision:integer(0),checkpoint_id:uuid},['base_revision','checkpoint_id'],'read','current-base-revision');
 command('checkpoint',{label:text(limits.maxLabelCharacters)},[],'checkpoint');
@@ -250,17 +138,13 @@ command('shelf');
 commands.read.sideEffect = 'route-dependent-client-observation';
 commands.read.routeEffects = {browser:'client-observation-write',control:'read',recovery:'read'};
 commands.read.idempotency = 'read-only-on-control-and-recovery; browser-overwrites-observation';
-commands.arrangement.idempotency = 'action-specific; recipe_apply requires the exact retained preview identity and op_id, with durable actor-scoped receipt recovery';
 commands.recovery_policy.permission = 'authenticated-owner-on-recovery-route-only';
 commands.recovery_policy.idempotency = 'durable receipt scoped to recovery policy generation; obsolete generation replay rejected';
-commands.workbench_setup.permission = 'authenticated-workspace-capability; proposal-only, never owner, task, execution or approval authority';
-commands.workbench_setup.idempotency = 'durable proposal keyed by authenticated workspace/op_id; returns only the caller-submitted suggestion for owner review, never a setup, authorization or execution receipt';
 defs.recoveryPolicy=object({held:bool,generation:integer(0)});
 defs.snapshot = object({workspace_id:uuid,revision:integer(1),state:ref('workspace'),observed_revision:integer(0),browser_seen:{anyOf:[{type:'number'},{type:'null'}]},app_versions:{type:'object',additionalProperties:{type:'number'}},recovery_policy:ref('recoveryPolicy'),placement:ref('dockingPlacement'),placement_revision:integer(0)},['workspace_id','revision','state','observed_revision','browser_seen']);
 defs.placementSnapshot = object({workspace_id:uuid,revision:integer(1),placement_revision:integer(0),placement:ref('dockingPlacement'),observed_revision:integer(0),browser_seen:{anyOf:[{type:'number'},{type:'null'}]},recovery_policy:ref('recoveryPolicy'),command_receipt:ref('commandReceipt')},['workspace_id','revision','placement_revision','placement','command_receipt']);
 defs.checkpointMetadata = object({id:uuid,created:{type:'number'},label:text(160),revision:integer(1)});
 const outputs = {
-  arrangement:{type:'object',description:'Arrangement service result; structural preview, committed receipt and browser acknowledgement are separate facts'},
   describe:object({workspace_id:uuid,revision:integer(1),version:{const:1},editable_fields:array(text(100),{maxItems:32}),surfaces:array(object({window_id:identifier,pane_id:identifier,kind}),{maxItems:1000}),projects:array(object({id:uuid,name:text(200),generation:integer(1)}),{maxItems:32}),bindings:array(object({id:uuid,project_id:uuid,resource_id:uuid,pane_id:identifier,role:text(40),available:bool}),{maxItems:1000}),extension_compatibility:object({manifest_api:{const:1},multiple_instances:{const:true},private_frame_data:{const:false},network:{const:'legacy-network-capable'}}),unsupported:array(text(200),{maxItems:32}),catalog:{type:'object'}},['workspace_id','revision','version','editable_fields','surfaces','projects','bindings','extension_compatibility','unsupported']),
   read:ref('snapshot'),sync:ref('snapshot'),apply:ref('snapshot'),plugins_apply:ref('snapshot'),restore:ref('snapshot'),recovery_policy:ref('snapshot'),
   placement_save:ref('placementSnapshot'),
@@ -269,15 +153,8 @@ const outputs = {
   checkpoint_preview:object({workspace_id:uuid,base_revision:integer(1),preview:{const:true},checkpoint:ref('checkpointMetadata'),changes:array(object({target:enumeration('workspace','window','pane','plugin','docking'),kind:enumeration('added','removed','changed'),label:text(160),fields:array(text(60),{maxItems:32})}),{maxItems:300}),truncated:bool,warning:text()}),
   preview:object({workspace_id:uuid,base_revision:integer(1),preview:{const:true},state:ref('workspace'),changed_fields:array(text(100)),warning:text()}),
   shelf:object({items:array(object({title:text(),url:text(),kind:enumeration('app/report','output')}),{maxItems:300})}),
-  // The proposal response returns only the server-assigned suggestion id. The
-  // suggestion itself (the caller's own bounded input) is private setup state,
-  // listed to the owner under its live pane binding, never in this tool result.
-  workbench_setup:object({id:uuid},['id']),
 };
 defs.commandReceipt=object({operation_id:{type:'string',pattern:'^[a-zA-Z0-9_.:-]{1,128}$'},legacy:bool});
-outputs.describe.properties.recipes=array(object({id:uuid,version:integer(1),name:text(60),roles:array(text(40),{maxItems:5}),layout:text(40),renderer:text(40)}),{maxItems:1024});
-outputs.describe.properties.recipe_scope=enumeration('selected-project','select-project-to-list');
-outputs.describe.required.push('recipes','recipe_scope');
 defs.snapshot.properties.command_receipt=ref('commandReceipt');
 outputs.checkpoint.properties.command_receipt=ref('commandReceipt');
 outputs.checkpoint.required.push('command_receipt');
