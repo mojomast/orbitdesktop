@@ -10,6 +10,7 @@ const cfg=JSON.parse((await lines.next()).value);
 const secrets=[cfg.owner,cfg.reader,cfg.upstream];
 const hasPrivate=text=>secrets.some(s=>text.includes(s)) || ['PRIVATE-FIXTURE-OMIT','PRIVATE_TEST_MESSAGE'].some(s=>text.includes(s));
 const endpoint='/api/rizzstack/hive/reports';
+const snapshotPath='/api/ext/rizzstack-observatory/snapshot/snapshot';
 const {alias,outside,feature,releaseAt,queueDigest}=cfg.fixture;
 async function control(command) {process.stdout.write(command+'\n');return (await lines.next()).value;}
 const browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_EXECUTABLE,
@@ -45,7 +46,7 @@ try {
       const fetch0=window.fetch.bind(window);
       window.fetch=(input,init)=>{if(typeof input==='string' && ['/api/auth','/api/rizzstack/hive/reports'].includes(input))
         window.readTimes.push({path:input,at:performance.now(),sent:window.reportTransfers});const promise=fetch0(input,init);
-        if(input==='/obs-snapshot/snapshot')promise.then(()=>window.initialSnapshotReady??=performance.now(),()=>{});
+        if(input==='/api/ext/rizzstack-observatory/snapshot/snapshot')promise.then(()=>window.initialSnapshotReady??=performance.now(),()=>{});
         if(input==='/api/rizzstack/hive/reports')promise.then(r=>{window.fixturePacket=r.clone().json().catch(()=>null);},()=>{});
         return promise;};
     } else if(location.pathname.startsWith('/apps/rizzstack-hive')) {
@@ -75,30 +76,30 @@ try {
   await actual.locator('#scenario').selectOption('shift');
   await actual.locator('#flight').filter({hasText:/^4$/}).waitFor();
   await actual.locator('#source-caption').filter({hasText:/synthetic/i}).waitFor();
-  assert.equal(count('/obs-snapshot'),0);
+  assert.equal(count(snapshotPath),0);
   assert.equal(count(endpoint),0);await noEnroll();
   await actual.locator('#scenario').selectOption('host');
   await actual.locator('#connection').filter({hasText:/unauthorized/i}).waitFor();
   assert.equal(await actual.locator('#flight').textContent(),'Unknown');
   await page.getByRole('button',{name:'Connect local host',exact:true}).click();
   await page.getByLabel('Host session token').fill('not-the-fixture-owner');await page.getByRole('button',{name:'Unlock local host',exact:true}).click();
-  await page.getByText(/That token was not accepted/).waitFor();assert.equal(count('/obs-snapshot'),0);
+  await page.getByText(/That token was not accepted/).waitFor();assert.equal(count(snapshotPath),0);
   await page.getByLabel('Host session token').fill(cfg.owner);await page.getByRole('button',{name:'Unlock local host',exact:true}).click();
   await share.waitFor();assert.equal(await share.count(),1);
   const child=page.frames().find(f=>f.url().includes(cfg.entry));
   assert.equal(await child.evaluate(()=>self.origin),'null');
   assert.equal(await child.evaluate(()=>{try{return !!parent.document;}catch{return false;}}),false);
   assert.equal(await child.evaluate(()=>{try{return !!localStorage;}catch{return false;}}),false);
-  await actual.locator('#refresh').click();assert.equal(count('/obs-snapshot'),0);
+  await actual.locator('#refresh').click();assert.equal(count(snapshotPath),0);
   await noEnroll();assert.equal(count(endpoint),0);
-  const firstRead=page.waitForRequest('**/obs-snapshot/snapshot');
+  const firstRead=page.waitForRequest('**'+snapshotPath);
   await page.evaluate(()=>{window.readTimes.length=0;});
   await share.click();
   await firstRead;await noEnroll();assert.equal(count(endpoint),0);
   await actual.locator('#flight').filter({hasText:/^4$/}).waitFor();
-  const snap=requests.filter(r=>new URL(r.url()).pathname.startsWith('/obs-snapshot'));
-  assert.equal(snap.length,1);assert.equal(new URL(snap[0].url()).pathname,'/obs-snapshot/snapshot');
-  assert.equal(snap[0].method(),'GET');assert.equal(snap[0].frame(),page.mainFrame());assert.ok(!snap[0].headers().authorization);
+  const snap=requests.filter(r=>new URL(r.url()).pathname===snapshotPath);
+  assert.equal(snap.length,1);assert.equal(new URL(snap[0].url()).pathname,snapshotPath);
+  assert.equal(snap[0].method(),'GET');assert.equal(snap[0].frame(),page.mainFrame());assert.equal(snap[0].headers().authorization,'Bearer '+cfg.owner);
   assert.equal(count('/api/rizzstack/rails/'),0);
   assert.deepEqual(await child.evaluate(()=>window.workerPulses),[]);
   async function capture(target,name) {
@@ -117,7 +118,7 @@ try {
   });
   const dialog=page.getByRole('dialog',{name:'Rizzstack Rails'});
   await actual.getByRole('button',{name:'Work register',exact:true}).click();
-  assert.equal(await dialog.count(),0);assert.equal(count('/obs-snapshot'),1);
+  assert.equal(await dialog.count(),0);assert.equal(count(snapshotPath),1);
   assert.equal(count(endpoint),0);assert.equal(await child.evaluate(()=>window.seenHive.filter(m=>m.type==='reports').length),0);
   const beforeGrant=await child.evaluate(()=>JSON.stringify(window.seenHive));
   assert.ok([alias,outside,queueDigest,releaseAt].every(value=>!beforeGrant.includes(value)));
@@ -200,9 +201,9 @@ try {
   // interval. The duplicate must not replay the changed attempt animation.
   const pulses=await child.evaluate(()=>window.workerPulses.slice());
   assert.ok(pulses.length<=1 && pulses.every(id=>id==='att-fixture'));
-  const beforeBurst=count('/obs-snapshot');
+  const beforeBurst=count(snapshotPath);
   await child.evaluate(()=>{for(let i=0;i<12;i++)window.fixturePort.postMessage({type:'refresh'});});
-  assert.equal(count('/obs-snapshot'),beforeBurst);
+  assert.equal(count(snapshotPath),beforeBurst);
   await child.waitForFunction(at=>window.seenHive.filter(m=>m.type==='view'&&m.view.generatedAt===at).length>=2,samples.at(-1),{timeout:45_000});
   await child.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
   assert.deepEqual(await child.evaluate(()=>window.workerPulses),pulses);
@@ -210,14 +211,16 @@ try {
   assert.ok(!hasPrivate(recording));assert.ok(!recording.includes('"fleet":') && !recording.includes('"pipeline":'));
   assert.ok(![outside,cfg.event,appended,'hive.public-labels/1'].some(s=>recording.includes(s)));
   assert.equal(await page.evaluate(()=>window.seenHiveBroadcast),false);
-  assert.equal(await child.evaluate(async()=>{try {await fetch('/obs-snapshot/snapshot');return 'allowed';} catch {return 'refused';}}),'refused');
+  const childRead=await child.evaluate(async()=>{try{return (await fetch('/api/ext/rizzstack-observatory/snapshot/snapshot')).status;}catch{return 'refused';}});
+  assert.ok(childRead==='refused'||childRead===401||childRead===403,'child frame never reads the snapshot');
+  assert.notEqual(childRead,200,'child frame must not read the snapshot');
   // Use an actual previously accepted collector response after a newer one
   // and its duplicate. Don't inject requests, alter the pane or fake its ACK.
   // A report retry for the *accepted duplicate* can legitimately run before
   // the stale poll, so observe the boundary at the next owner re-auth start.
   const authBeforeOld=await page.evaluate(()=>window.readTimes.filter(r=>r.path==='/api/auth').length);
   const oldAuth=page.waitForRequest(r=>r.frame()===page.mainFrame()&&new URL(r.url()).pathname==='/api/auth',{timeout:45_000});
-  const oldResponse=page.waitForResponse(r=>r.request().frame()===page.mainFrame()&&new URL(r.url()).pathname==='/obs-snapshot/snapshot',{timeout:45_000});
+  const oldResponse=page.waitForResponse(r=>r.request().frame()===page.mainFrame()&&new URL(r.url()).pathname===snapshotPath,{timeout:45_000});
   assert.equal(await control('replay-old'),'replaying');assert.equal((await oldResponse).status(),200);
   await actual.locator('#connection').filter({hasText:/out of order/i}).waitFor();
   const fromOldPoll=await page.evaluate(n=>window.readTimes.filter(r=>r.path==='/api/auth')[n],authBeforeOld);
@@ -243,14 +246,14 @@ try {
   await actual.locator('#scenario').selectOption('shift');
   await actual.locator('#source-caption').filter({hasText:/synthetic/i}).waitFor();
   await actual.locator('#scenario').selectOption('host');await share.waitFor();
-  const resumedRead=page.waitForResponse(r=>new URL(r.url()).pathname==='/obs-snapshot/snapshot',{timeout:45_000});
+  const resumedRead=page.waitForResponse(r=>new URL(r.url()).pathname===snapshotPath,{timeout:45_000});
   await share.click();assert.equal((await resumedRead).status(),200);
   await actual.locator('#connection').filter({hasText:/out of order/i}).waitFor();
   assert.equal(child.isDetached(),false);assert.equal(await child.evaluate(()=>window.seenHive.filter(m=>m.type==='admission').length),offersBefore);
   await noEnroll();await noRejectedEvidence();await excludes(child,[alias,outside,queueDigest,releaseAt]);
   // Revocation is an actual collector bearer rejection through Orbit. Give the
   // initial 30-second floor time to elapse (not a shortened production timer).
-  const refusal=page.waitForResponse(r=>new URL(r.url()).pathname==='/obs-snapshot/snapshot'&&[401,403].includes(r.status()),{timeout:45_000});
+  const refusal=page.waitForResponse(r=>new URL(r.url()).pathname===snapshotPath&&[401,403].includes(r.status()),{timeout:45_000});
   assert.equal(await control('revoke'),'revoked');await refusal;
   await actual.locator('#connection').filter({hasText:/unauthorized/i}).waitFor({timeout:45_000});
   assert.equal(await actual.locator('#flight').textContent(),'Unknown');assert.ok(!(await actual.locator('body').innerText()).includes('att-fixture'));

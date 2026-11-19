@@ -103,9 +103,10 @@ one `snapshot` proxy, served at
 requires the Orbit owner bearer and injects the server-side collector
 credential (`ORBIT_OBS_COLLECTOR_TOKEN`); the browser never sees that
 credential. See [docs/EXTENSION_PROXY.md](../../docs/EXTENSION_PROXY.md) for the
-route shape, manifest fields and fail-closed rules. The existing
-`/obs-snapshot` route stays until this extension route is switched over and
-verified live.
+route shape, manifest fields and fail-closed rules. The Orbit Hive host now
+reads its snapshot through this proxy. The existing `/obs-snapshot` route
+remains only for the legacy standalone Observatory app until Kyle verifies the
+switch and removes it.
 
 ## Register and open as an Orbit pane
 
