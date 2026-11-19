@@ -1,0 +1,11 @@
+.voice-capture { box-sizing: border-box; height: 100%; overflow: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; color: var(--text, #e5e7eb); background: var(--surface, #161b24); font: 14px/1.45 system-ui, sans-serif; }
+.voice-capture h2, .voice-capture p { margin: 0; }
+.voice-capture label { display: flex; flex-direction: column; gap: 6px; }
+.voice-capture textarea { resize: vertical; min-height: 120px; width: 100%; box-sizing: border-box; color: inherit; background: #0f1420; border: 1px solid #657087; border-radius: 5px; padding: 8px; font: inherit; }
+.voice-capture button { padding: 7px 10px; border: 1px solid #657087; border-radius: 5px; color: inherit; background: #25324a; cursor: pointer; }
+.voice-capture button:disabled { opacity: .55; cursor: default; }
+.voice-controls { display: flex; flex-wrap: wrap; gap: 6px; }
+.voice-capture code { display: block; overflow-wrap: anywhere; user-select: text; }
+.voice-capture .voice-provenance { font-size: 12px; color: #b6c0d2; }
+.voice-capture.is-recording .voice-status { color: #ff7777; }
+.voice-hold { touch-action: none; }

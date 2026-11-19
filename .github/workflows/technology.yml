@@ -20,6 +20,7 @@ on:
       - 'src/run-trace*'
       - 'src/search*'
       - 'src/technology*'
+      - 'src/voice*'
       - 'src/main.ts'
       - 'src/panes.ts'
       - 'src/host-surfaces*'
@@ -34,6 +35,7 @@ on:
       - 'server/knowledge-*'
       - 'server/run-trace*'
       - 'server/technology-*'
+      - 'server/voice*'
       - 'server/*delegation*'
       - 'server/*capabilit*'
       - 'server/feature-readiness.mjs'
@@ -46,6 +48,7 @@ on:
       - 'contracts/*-v1.mjs'
       - 'contracts/feature-capabilities.*'
       - 'scripts/knowledge-model.mjs'
+      - 'scripts/provision_voice_models.mjs'
       - 'scripts/technology-notices.mjs'
       - 'docs/licenses/**'
       - 'tests/documents*'
@@ -56,6 +59,7 @@ on:
       - 'tests/resource-content-verbs*'
       - 'tests/run-trace*'
       - 'tests/technology-*'
+      - 'tests/voice*'
       - 'tests/*delegation*'
       - 'tests/*capabilit*'
       - 'tests/feature-readiness*'
@@ -77,6 +81,7 @@ on:
       - 'src/run-trace*'
       - 'src/search*'
       - 'src/technology*'
+      - 'src/voice*'
       - 'src/main.ts'
       - 'src/panes.ts'
       - 'src/host-surfaces*'
@@ -91,6 +96,7 @@ on:
       - 'server/knowledge-*'
       - 'server/run-trace*'
       - 'server/technology-*'
+      - 'server/voice*'
       - 'server/*delegation*'
       - 'server/*capabilit*'
       - 'server/feature-readiness.mjs'
@@ -103,6 +109,7 @@ on:
       - 'contracts/*-v1.mjs'
       - 'contracts/feature-capabilities.*'
       - 'scripts/knowledge-model.mjs'
+      - 'scripts/provision_voice_models.mjs'
       - 'scripts/technology-notices.mjs'
       - 'docs/licenses/**'
       - 'tests/documents*'
@@ -113,6 +120,7 @@ on:
       - 'tests/resource-content-verbs*'
       - 'tests/run-trace*'
       - 'tests/technology-*'
+      - 'tests/voice*'
       - 'tests/*delegation*'
       - 'tests/*capabilit*'
       - 'tests/feature-readiness*'
@@ -139,7 +147,7 @@ jobs:
       fail-fast: false
       max-parallel: 4
       matrix:
-        suite: [knowledge, interactive, documents, traces, workspace-default, workspace-docking]
+        suite: [knowledge, interactive, documents, traces, voice, workspace-default, workspace-docking]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -178,6 +186,21 @@ jobs:
           install -d -m 700 /tmp/opencode/orbit-knowledge-models /tmp/opencode/orbit-knowledge-models/knowledge-index
           node scripts/knowledge-model.mjs provision /tmp/opencode/orbit-knowledge-models
           node --experimental-strip-types --test tests/knowledge-*.test.mjs
+      - name: Cache pinned public dictation model
+        if: matrix.suite == 'voice'
+        uses: actions/cache@v4
+        with:
+          path: /tmp/opencode/orbit-voice-models
+          key: voice-model-${{ hashFiles('server/voice-model-assets.mjs') }}
+      - name: Verify actual offline dictation engine
+        if: matrix.suite == 'voice'
+        env:
+          ORBIT_VOICE_MODELS_ROOT: /tmp/opencode/orbit-voice-models
+        run: |
+          mkdir -p /tmp/opencode
+          install -d -m 700 /tmp/opencode/orbit-voice-models
+          node scripts/provision_voice_models.mjs --models-root /tmp/opencode/orbit-voice-models
+          node --experimental-strip-types --test tests/voice-*.test.mjs
       - name: Install isolated browser tools
         env:
           PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-technology-browsers
@@ -211,6 +234,9 @@ jobs:
               "$python" tests/document-envelope-ui.browser.py
               ;;
             traces) "$python" tests/run-traces.browser.py ;;
+            voice)
+              ORBIT_VOICE_MODELS_ROOT=/tmp/opencode/orbit-voice-models "$python" tests/voice-capture.browser.py
+              ;;
             workspace-default|workspace-docking)
               export ORBIT_BROWSER_EXECUTABLE="$("$python" -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')"
               if [ "$SUITE" = workspace-docking ]; then "$python" tests/docking-narrow.browser.py; fi

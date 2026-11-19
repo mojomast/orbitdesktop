@@ -3,9 +3,10 @@ import './host-surfaces.css';
 import { workspaceId } from './workspace-sync';
 import { TECHNOLOGY_SURFACES, mountTechnologySurface, type TechnologySurfaceId, type TechnologySurfaceOptions } from './technology-surfaces';
 
-export type HostSurfaceId = 'outputs' | 'activity' | 'collab' | 'colab-runtime' | TechnologySurfaceId;
+export type HostSurfaceId = 'outputs' | 'activity' | 'collab' | 'colab-runtime' | 'voice' | TechnologySurfaceId;
 export const HOST_SURFACE_LABELS = {
   outputs:'Apps and outputs',activity:'Live activity',collab:'Collab','colab-runtime':'Google Colab',
+  voice:'Dictation',
   search:TECHNOLOGY_SURFACES.search.title,
   'interactive-results':TECHNOLOGY_SURFACES['interactive-results'].title,
   documents:TECHNOLOGY_SURFACES.documents.title,trace:TECHNOLOGY_SURFACES.trace.title,
@@ -15,6 +16,7 @@ export const HOST_SURFACE_URLS = {
   activity: 'orbit://surface/activity',
   collab: 'orbit://surface/collab',
   'colab-runtime': 'orbit://surface/colab-runtime',
+  voice: 'orbit://surface/voice',
   search: 'orbit://surface/search',
   'interactive-results': 'orbit://surface/interactive-results',
   documents: 'orbit://surface/documents',
@@ -94,6 +96,11 @@ export function mountHostSurface(host: HTMLElement, id: HostSurfaceId, token: ()
         },
       });
       root.append(view.element);
+      cleanup = () => view.dispose();
+    }) : id === 'voice' ? import('./voice-capture').then(module => {
+      if (disposed) return;
+      root.replaceChildren();
+      const view = module.mountVoiceCapture(root, token, options);
       cleanup = () => view.dispose();
     }) : Promise.resolve().then(()=>{
       if(disposed)return;

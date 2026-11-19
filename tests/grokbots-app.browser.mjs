@@ -266,10 +266,13 @@ test('group handoff controls: give floor, pause/continue, auto handoff and turn 
   await context.close();
 });
 
-test('conversation transfer: text chosen for this window lands in the draft (never sent); no voice mic', async () => {
+test('conversation transfer: the dictation mic opens voice capture and chosen text lands in the draft (never sent)', async () => {
   const { page, app, errors, context } = await open(`&p=grok&a=${AGENT2}`);
   await page.waitForFunction(() => window.__ops.some(o => o.op === 'conversation' && o.available === true && o.title === 'Second Bot'));
-  assert.equal(await app.locator('#micbtn').count(), 0);
+  await app.locator('#micbtn').waitFor();
+  await app.locator('#micbtn').click();
+  await page.waitForFunction(() => window.__ops.some(o => o.op === 'voice'));
+  assert.equal(await page.evaluate(() => window.__ops.filter(o => o.op === 'voice').length), 1);
   await app.locator('#in').fill('Existing draft');
   const sends = fx.seen.filter(s => s.url === '/api/sendPrompt').length;
   await page.evaluate(() => { window.__ops.length = 0; window.__insert('transferred words'); });

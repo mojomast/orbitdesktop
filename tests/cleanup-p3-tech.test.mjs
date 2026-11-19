@@ -3,6 +3,8 @@
 // AC-002: nothing tracked in code, contracts, tests, CI or the agent guide/README still references them.
 // AC-003: the server no longer serves their routes or assets (404), and capabilities no longer advertise them.
 // AC-004: kept technology surfaces (knowledge search, interactive results, documents, run traces) and Grok Bots stay.
+// Amended 2:35 PM ET per Kyle ("Voice: keep the Grok Bots dictation mic"): the voice engine files return for the
+// Grok Bots mic only (tests/cleanup-p3-mic.test.mjs); the standalone Voice transcript surface stays cut.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -19,13 +21,13 @@ const gone = [
   'contracts/browser-copilot-v1.mjs','docs/BROWSER_COPILOT.md',
   'scripts/mcp-apps-fixture.mjs','server/mcp-apps-sandbox.mjs','server/mcp-apps.mjs','src/mcp-apps-host.css','src/mcp-apps-host.ts','tests/mcp-apps-proxy.test.mjs','tests/mcp-apps.browser.py','tests/mcp-apps.test.mjs',
   'contracts/mcp-apps-v1.mjs','docs/MCP_APPS.md',
-  'scripts/provision_voice_models.mjs','server/voice-model-assets.mjs','src/voice-audio.ts','src/voice-capture.css','src/voice-capture.ts','src/voice-transcribe.worker.ts',
-  'tests/voice-audio.test.mjs','tests/voice-capture.browser.py','tests/voice-model-assets.test.mjs','docs/VOICE_DICTATION.md',
+  
+  
   'scripts/provision_data_engine.mjs','server/data-engine-assets.mjs','server/data-recipes.mjs','src/data-published-input.ts','src/data-query.ts','src/data-workbench.css','src/data-workbench.ts','src/duckdb-client.ts',
   'tests/data-published-input.test.mjs','tests/data-workbench-assets.test.mjs','tests/data-workbench.browser.py','tests/data-workbench.test.mjs','contracts/data-recipes-v1.mjs','docs/DATA_LAB.md'];
 const tokens = ['browser-copilot','browserCopilot','BrowserCopilot','browser_copilot','Browser copilot','mcp-apps','mcpApps','McpApps','mcp_apps','mcp_snapshot','MCP Apps',
-  'voice-capture','voice-audio','voice-transcribe','voice-model','VOICE_MODEL','VOICE_FILES','/vendor/voice','mountVoiceCapture','Voice transcript','technology-voice',
-  'data-workbench','dataWorkbench','DataWorkbench','Data workbench','data-recipes','dataRecipes','data-engine','DATA_ENGINE','data-query','data-published','publishedDataInput','duckdb','DuckDB','/vendor/duckdb','provision_voice','provision_data'];
+  'Voice transcript','technology-voice',
+  'data-workbench','dataWorkbench','DataWorkbench','Data workbench','data-recipes','dataRecipes','data-engine','DATA_ENGINE','data-query','data-published','publishedDataInput','duckdb','DuckDB','/vendor/duckdb','provision_data'];
 function walk(dir, out=[]) {
   for (const entry of fs.readdirSync(dir,{withFileTypes:true})) {
     if (['node_modules','.git','dist','docs','experiments','vendor'].includes(entry.name)) continue;
@@ -46,15 +48,13 @@ test('AC-002 nothing tracked references them', () => {
     if (file === self || /tests\/cleanup-[^/]*\.test\.mjs$/.test(file)) continue;
     const rel = path.relative(root,file), text = fs.readFileSync(file,'utf8');
     for (const t of tokens) if (text.includes(t)) hits.push(`${rel}: ${t}`);
-    if (/^(src|server)\//.test(rel) && /\bcase ['"](copilot|voice|data|mcp-apps)['"]|registerGrokBotsOp\(['"]voice['"]|orbit:\/\/surface\/(copilot|voice|data|browser-copilot|mcp-apps)\b/.test(text)) hits.push(`${rel}: surface id`);
+    if (/^(src|server)\//.test(rel) && /\bcase ['"](copilot|data|mcp-apps)['"]|orbit:\/\/surface\/(copilot|data|browser-copilot|mcp-apps)\b/.test(text)) hits.push(`${rel}: surface id`);
   }
   assert.deepEqual(hits, []);
   const scripts = JSON.parse(fs.readFileSync(path.join(root,'package.json'),'utf8')).scripts || {};
-  assert.deepEqual(Object.entries(scripts).filter(([k,v]) => /voice|duckdb|data-engine|mcp-apps|copilot/i.test(k+v)), []);
+  assert.deepEqual(Object.entries(scripts).filter(([k,v]) => /duckdb|data-engine|mcp-apps|copilot/i.test(k+v)), []);
   for (const doc of ['README.md','docs/AGENT_GUIDE.md'])
     assert.ok(!/Browser copilot|MCP Apps|Voice transcript|Data workbench|Data Lab|DuckDB/i.test(fs.readFileSync(path.join(root,doc),'utf8')), `${doc} still mentions a cut feature`);
-  const grok = fs.readFileSync(path.join(root,'apps/grokbots/index.html'),'utf8');
-  assert.ok(!/micbtn|host\(['"]voice['"]|voice capture/i.test(grok), 'Grok Bots must not keep the voice dictation button');
   assert.deepEqual(FEATURE_CAPABILITIES.map(row => row[0]).filter(id => ['browser-copilot','mcp-apps','voice-transcript','data-workbench'].includes(id)), []);
 });
 
