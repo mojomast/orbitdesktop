@@ -48,6 +48,7 @@ import { createAcddEvidenceRoute } from './acdd-evidence-route.mjs';
 import { createHiveReportsRoute, HIVE_REPORTS_ROUTE } from './hive-reports.mjs';
 import { createRailsProxy } from './rails-proxy.mjs';
 import { ownerRelay, fixedSshExchange } from './rails-owner-relay.mjs';
+import { loadExtensionManifests, createExtensionProxy } from './extension-proxy.mjs';
 const port = Number(process.env.PORT || 4318);
 if (!Number.isInteger(port) || port < 1024 || port > 65535)
   throw Error("PORT must be between 1024 and 65535");
@@ -282,6 +283,10 @@ async function serveObsSnapshot(req,res,pathname){
     res.writeHead(502,{'Content-Type':'text/plain'});res.end('snapshot collector unreachable');
   }
 }
+const extensionProxy=createExtensionProxy({
+  manifests:loadExtensionManifests(fileURLToPath(new URL('../extensions/',import.meta.url))),
+  token,port,devOrigins,env:process.env,
+});
 const workflowHandler=workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:body=>workflow.dispatch(body)});
 const environmentHandler=workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:body=>environments.dispatch(body),publicReasons:['dedicated_npm_cache_required','private_npm_cache_required','typescript_test_command_unsupported','typescript_dependency_shape_unsupported','typescript_toolchain_dependencies_required','development_lock_mismatch','registry_lock_entry_unsupported','registry_url_unsupported','registry_artifact_limit']});
 const technologyOptions={root:runtimeRoot,workspaceRead:workspaceService.read};
@@ -379,6 +384,7 @@ async function handleOrbitRequest(req, res) {
   if (url.pathname === '/api/grokbots-app/upload') return grokBotsApp.upload(req, res);
   if (url.pathname === '/api/agent-status') return agentStatus.handle(req, res);
   if (url.pathname === '/api/acdd-evidence') return acddEvidence.handle(req, res, url);
+  if (url.pathname.startsWith('/api/ext/')) return extensionProxy(req, res);
   // /api/approvals deliberately falls through to the API 404. The Orbit
   // bearer is not a workspace-bound BundleBees approval session (SECURITY.md).
   if (url.pathname === '/api/collab-board') return collabBoard.handle(req, res);
