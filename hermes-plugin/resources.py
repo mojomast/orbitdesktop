@@ -9,7 +9,7 @@ import hmac
 import json
 from pathlib import Path
 import threading
-from .workbench import UnixConnection
+from .transport import UnixConnection
 
 SCHEMA = {"name": "orbit_resources", "description": (
     "Act on this conversation's owner-approved scope instead of telling the owner to do it. "

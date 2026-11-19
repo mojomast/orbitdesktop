@@ -62,5 +62,4 @@ ctx=Context(); module.register(ctx); print(ctx.handler(json.loads(sys.argv[4])))
   assert.equal(restored.ok, true);
   assert.equal(Boolean(restored.result.state.sidebarHidden), Boolean(read.result.state.sidebarHidden));
   assert.equal((await call({ action: 'checkpoint', label: 'Verified plugin integration' })).ok, true);
-  assert.deepEqual(description.result.recipes,[]);
 });

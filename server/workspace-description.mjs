@@ -17,7 +17,7 @@ export function describeWorkspace(store, body, capabilities=featureCapabilities(
   return {version:1,workspace_id:workspace.id,revision:workspace.revision,
     capabilities,
     editable_fields:Object.keys(contract.schema.$defs.workspace.properties).filter(key=>key!=='version'),surfaces,
-    projects:[],bindings:[],recipes:[],recipe_scope:body.project_id?'selected-project':'select-project-to-list',
+    projects:[],bindings:[],
     extension_compatibility:{manifest_api:1,multiple_instances:true,private_frame_data:false,network:'legacy-network-capable'},
     unsupported:['Roles do not authorize resource reads','Private application data is not exposed to generated frames','Browser acknowledgement is not visual verification'],
     ...(body.catalog?{catalog:{version:contract.version,limits:contract.limits,operations:contract.operations,$defs:contract.schema.$defs}}:{}),

@@ -42,7 +42,6 @@ test('description is authenticated, bounded layout metadata with contract-derive
   assert.equal(Object.hasOwn(response.body.catalog,'arrangements'),false);
   assert.deepEqual(response.body.projects,[]);
   assert.deepEqual(response.body.bindings,[]);
-  assert.deepEqual(response.body.recipes,[]);
   assert.equal(response.body.extension_compatibility.private_frame_data,false);
   const serialized=JSON.stringify(response.body);
   assert.equal(serialized.includes(before.capability),false);
