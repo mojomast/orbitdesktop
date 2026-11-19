@@ -1,102 +1,91 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
+import { mkdtemp, mkdir, writeFile, symlink, rm, copyFile, open } from 'node:fs/promises';
 import path from 'node:path';
-import { scratchPath } from './fixtures/scratch.mjs';
-import {
-  VOICE_MODEL,
-  VOICE_MODEL_FILES,
-  createVoiceModelAssets,
-  hash,
-  verifyVoiceFiles,
-  verifyVoiceModel,
-} from '../server/voice-model-assets.mjs';
+import { createVoiceModelAssets, modelAssetPrefix, ortAssetPrefix, ORT_VERSION, VOICE_MODEL, VOICE_REVISION, verifyVoiceBytes, assertNoSymlinks, readPinnedVoiceFile, VOICE_FILES } from '../server/voice-model-assets.mjs';
+import { provisionVoiceModels } from '../scripts/provision_voice_models.mjs';
+import { createHash } from 'node:crypto';
 
-const directory = () => {
-  const root = fs.mkdtempSync(scratchPath('orbit-voice-assets-'));
-  fs.chmodSync(root, 0o700);
-  return root;
-};
-
-async function request(assets, pathname, method = 'GET') {
-  let status, headers, body;
-  const res = {
-    headersSent: false,
-    writeHead(code, values) { status = code; headers = values; this.headersSent = true; },
-    end(bytes) { body = bytes; },
-    destroy() { this.destroyed = true; },
-  };
-  await assets.handle({ method }, res, pathname);
-  return { status, headers, body };
-}
-
-test('the reviewed manifest is complete, unique and pinned to exact sizes and SHA-256', () => {
-  assert.equal(typeof VOICE_MODEL.id, 'string');
-  assert.match(VOICE_MODEL.revision, /^[a-f0-9]{40}$/);
-  assert.equal(VOICE_MODEL.sample_rate, 16000);
-  const names = VOICE_MODEL_FILES.map(([name]) => name);
-  assert.equal(new Set(names).size, names.length);
-  for (const [name, size, sha] of VOICE_MODEL_FILES) {
-    assert.ok(!path.isAbsolute(name) && !name.includes('..'), `${name} must stay inside the models root`);
-    assert.ok(Number.isSafeInteger(size) && size > 0, `${name} needs a reviewed size`);
-    assert.match(sha, /^[a-f0-9]{64}$/, `${name} needs a SHA-256 pin`);
+test('exact allowlist, methods, missing assets, checksum and symlink refusal', async () => {
+  const root = await mkdtemp(scratchPath('voice-assets-'));
+  const service = createVoiceModelAssets({ root });
+  async function request(url, method = 'GET') {
+    let status, body, headers;
+    await service.handle({ method }, { writeHead(s, h) { status = s; headers = h; }, end(b) { body = b; } }, url);
+    return { status, body, headers };
   }
+  try {
+    assert.equal((await request(modelAssetPrefix + '../config.json')).status, 404);
+    assert.equal((await request(modelAssetPrefix + 'config.json', 'POST')).status, 405);
+    assert.equal((await request(modelAssetPrefix + 'config.json')).status, 404);
+    const destination = path.join(root, '.runtime/models', VOICE_MODEL, 'resolve', VOICE_REVISION);
+    await mkdir(destination, { recursive: true });
+    await writeFile(path.join(destination, 'special_tokens_map.json'), '{}\n');
+    const get = await request(modelAssetPrefix + 'special_tokens_map.json');
+    assert.equal(get.status, 200);
+    assert.equal(get.headers['Content-Type'], 'application/json');
+    assert.match(get.headers['Cache-Control'], /immutable/);
+    assert.equal(get.body.toString(), '{}\n');
+    const head = await request(modelAssetPrefix + 'special_tokens_map.json', 'HEAD');
+    assert.equal(head.status, 200); assert.equal(head.body, undefined);
+    await writeFile(path.join(destination, 'config.json'), '{}');
+    assert.equal((await request(modelAssetPrefix + 'config.json')).status, 503);
+    const oversized = await open(path.join(destination, 'config.json'), 'w');
+    await oversized.truncate(1024 * 1024 * 1024); await oversized.close();
+    await assert.rejects(readPinnedVoiceFile(path.join(destination, 'config.json'), VOICE_FILES['config.json']), /size mismatch/);
+    assert.equal((await request(modelAssetPrefix + 'config.json')).status, 503);
+    await rm(path.join(destination, 'config.json'));
+    await symlink('/etc/hosts', path.join(destination, 'config.json'));
+    assert.equal((await request(modelAssetPrefix + 'config.json')).status, 503);
+    await assert.rejects(assertNoSymlinks(path.join(destination, 'config.json')), /symlink/);
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test('verifyVoiceFiles checks private paths, sizes and hashes', () => {
-  const root = directory();
-  const files = [['config.json', 7, ''], ['onnx/encoder_model.onnx', 4, '']];
-  fs.mkdirSync(path.join(root, 'onnx'), { mode: 0o700 });
-  const contents = new Map([['config.json', Buffer.from('{"a":1}')], ['onnx/encoder_model.onnx', Buffer.from('onnx')]]);
-  for (const [name] of files) {
-    const file = path.join(root, name);
-    fs.writeFileSync(file, contents.get(name), { mode: 0o600 });
-    fs.chmodSync(file, 0o600);
+test('trusted external linked dependency resolves once; model-root links and corrupted ORT still fail closed', async () => {
+  const scratch = await mkdtemp(scratchPath('voice-release-'));
+  const app = path.join(scratch, 'app'), external = path.join(scratch, 'external');
+  const dependency = path.join(external, 'node_modules/onnxruntime-web');
+  const models = path.join(scratch, 'actual-models');
+  const linkedModels = path.join(scratch, 'linked-models');
+  async function request(service, url) {
+    let status, body;
+    await service.handle({ method: 'GET' }, { writeHead(s) { status = s; }, end(b) { body = b; } }, url);
+    return { status, body };
   }
-  const pinned = files.map(([name, size]) => [name, size, hash(contents.get(name))]);
-  assert.equal(verifyVoiceFiles(root, pinned), true);
-  fs.appendFileSync(path.join(root, 'config.json'), ' ');
-  assert.equal(verifyVoiceFiles(root, pinned), false);
-  fs.rmSync(root, { recursive: true, force: true });
+  try {
+    await mkdir(app, { recursive: true }); await mkdir(path.join(dependency, 'dist'), { recursive: true });
+    await writeFile(path.join(app, 'package.json'), '{}');
+    await writeFile(path.join(dependency, 'package.json'), JSON.stringify({ name: 'onnxruntime-web', version: ORT_VERSION, exports: './dist/ort.node.min.js' }));
+    await writeFile(path.join(dependency, 'dist/ort.node.min.js'), '');
+    const loader = 'ort-wasm-simd-threaded.mjs';
+    await copyFile(new URL('../node_modules/onnxruntime-web/dist/' + loader, import.meta.url), path.join(dependency, 'dist', loader));
+    await symlink(path.join(external, 'node_modules'), path.join(app, 'node_modules'));
+    const modelDirectory = path.join(models, VOICE_MODEL, 'resolve', VOICE_REVISION);
+    await mkdir(modelDirectory, { recursive: true });
+    await writeFile(path.join(modelDirectory, 'special_tokens_map.json'), '{}\n');
+    await symlink(models, linkedModels);
+    const service = createVoiceModelAssets({ root: app, modelsRoot: linkedModels });
+    const valid = await request(service, ortAssetPrefix + loader);
+    assert.equal(valid.status, 200); assert.equal(valid.body.length, 24381);
+    assert.equal((await request(service, modelAssetPrefix + 'special_tokens_map.json')).status, 503);
+    assert.equal((await request(service, ortAssetPrefix + '../package.json')).status, 404);
+    // The original canonical dependency is pinned even if installation linkage changes.
+    await rm(path.join(app, 'node_modules')); await symlink('/missing-release-dependency', path.join(app, 'node_modules'));
+    assert.equal((await request(service, ortAssetPrefix + loader)).status, 200);
+    await writeFile(path.join(dependency, 'dist', loader), Buffer.alloc(24381));
+    assert.equal((await request(service, ortAssetPrefix + loader)).status, 503);
+  } finally { await rm(scratch, { recursive: true, force: true }); }
 });
 
-test('verifyVoiceModel rejects absent, incomplete and non-private model directories', () => {
-  const root = directory();
-  assert.equal(verifyVoiceModel(path.join(root, 'missing')), false);
-  assert.equal(verifyVoiceModel(root), false);
-  fs.writeFileSync(path.join(root, 'model.json'), JSON.stringify({ ...VOICE_MODEL, files: VOICE_MODEL_FILES }), { mode: 0o600 });
-  assert.equal(verifyVoiceModel(root), false);
-  fs.rmSync(root, { recursive: true, force: true });
-});
-
-test('the vendor route serves only exact reviewed names and never a symlink', async () => {
-  const modelsRoot = directory();
-  const assets = createVoiceModelAssets({ modelsRoot, securityHeaders: { 'X-Content-Type-Options': 'nosniff' } });
-  for (const pathname of [
-    '/vendor/voice/model.onnx',
-    '/vendor/voice/unknown.json',
-    '/vendor/voice/../package.json',
-    '/vendor/voice/',
-  ]) {
-    assert.equal((await request(assets, pathname)).status, 404, pathname);
-  }
-  assert.equal((await request(assets, '/vendor/voice/config.json', 'POST')).status, 405);
-  const outside = path.join(modelsRoot, 'outside.json');
-  fs.writeFileSync(outside, '{}', { mode: 0o600 });
-  fs.symlinkSync(outside, path.join(modelsRoot, 'config.json'));
-  const linked = await request(assets, '/vendor/voice/config.json');
-  assert.notEqual(linked.status, 200);
-  assert.equal(linked.body, undefined);
-  assets.close();
-  assert.equal((await request(assets, '/vendor/voice/config.json')).status, 404);
-  fs.rmSync(modelsRoot, { recursive: true, force: true });
-});
-
-test('an absent models root fails closed for every dictation asset', async () => {
-  const assets = createVoiceModelAssets({ modelsRoot: scratchPath('orbit-voice-absent-model-root') });
-  for (const [name] of VOICE_MODEL_FILES) {
-    const result = await request(assets, `/vendor/voice/${name}`, 'HEAD');
-    assert.equal(result.status, 404, name);
-  }
-  assets.close();
+test('provisioning rejects downloaded corruption and symlink parents without publishing bytes', async () => {
+  const root = await mkdtemp(scratchPath('voice-provision-'));
+  try {
+    await assert.rejects(provisionVoiceModels({ modelsRoot: root, fetchFile: async () => new Response('{}') }), /checksum mismatch/);
+    const linked = path.join(root, 'linked'); await symlink(root, linked);
+    await assert.rejects(provisionVoiceModels({ modelsRoot: linked, fetchFile: () => { throw new Error('must not fetch'); } }), /symlink/);
+    const bytes = Buffer.from('example');
+    assert.equal(verifyVoiceBytes(bytes, [bytes.length, createHash('sha256').update(bytes).digest('hex')]), true);
+    assert.equal(verifyVoiceBytes(bytes, [bytes.length + 1, createHash('sha256').update(bytes).digest('hex')]), false);
+  } finally { await rm(root, { recursive: true, force: true }); }
 });

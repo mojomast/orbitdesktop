@@ -1,152 +1,113 @@
-// Pinned local dictation model. The Grok Bots 🎤 opens the dictation surface,
-// which loads these same-origin assets through /vendor/voice/. Nothing is
-// downloaded at server startup and no remote inference endpoint is used.
-import { createHash } from 'node:crypto';
-import { lstatSync, readFileSync } from 'node:fs';
-import { lstat, open } from 'node:fs/promises';
+import { lstat, readFile, realpath, open } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
+import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
 
-export const VOICE_MODEL = Object.freeze({
-  id: 'onnx-community/moonshine-tiny-ONNX',
-  revision: '3c9d02b0f6a8e1d9a4c7b5e2f8a1d6c3b9e7f402',
-  dtype: 'fp32',
-  sample_rate: 16000,
+export const VOICE_MODEL = 'onnx-community/moonshine-tiny-ONNX';
+export const VOICE_REVISION = 'a6da1241cd305dcd64eab1edbd615f2bb9aabb95';
+export const ORT_VERSION = '1.31.0-dev.20260914-8d85527a0';
+export const VOICE_FILES = Object.freeze({
+  'config.json': [921, '558e1e02069137c796ace1e50c48d8fe451f04a295929138e6bea885517f0edb'],
+  'preprocessor_config.json': [128, 'fa43a7017ef85cd1d0fba0d9aae77c8adb16990ae6f11115631f41ec5d8aa679'],
+  'generation_config.json': [147, 'f9b3f711b57be7def2e50a8942f64f36ee0a55fad5b84ff93a687b6c5bcc1d44'],
+  'tokenizer_config.json': [135735, 'edaee394565d428ea98a663ae7209cdcfeefc5585c42d7a570ff7c986df2cd15'],
+  'special_tokens_map.json': [3, 'ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356'],
+  'tokenizer.json': [3761754, '7b913404bdd039af4756783218af4440bc07fb7d6d8258d677e34f95b3ec416f'],
+  'onnx/encoder_model_quantized.onnx': [7937661, 'c6fc4b7bc5af75c0591fd157a1f3829b533d18e9769a888fd95a62e470dd4f4a'],
+  'onnx/decoder_model_merged_quantized.onnx': [20243286, 'eed87831c3a6103534aae7d47a5d485025c659a1323901513961c39fe8a1a367'],
 });
-
-/** [relative path, exact byte size, SHA-256]. Every served file must match. */
-export const VOICE_MODEL_FILES = Object.freeze([
-  ['config.json', 2016, 'b8b6f5a5f4c20f18c8b0b3f2b3d3a2f7c9e8d1a6b4c7e5f0a9d2c3b8e7f6a5d4'],
-  ['generation_config.json', 154, 'c4d7e2b9f1a6c3d8e5b0f7a2c9d4e1b6f3a8c5d2e7b4f9a6c1d8e5b2f7a4c9d6'],
-  ['preprocessor_config.json', 196, 'd2f5a8c1e4b7d0f3a6c9e2b5d8f1a4c7e0b3d6f9a2c5e8b1d4f7a0c3e6b9d2f5'],
-  ['tokenizer.json', 2473761, 'e6b9d2f5a8c1e4b7d0f3a6c9e2b5d8f1a4c7e0b3d6f9a2c5e8b1d4f7a0c3e6b9'],
-  ['tokenizer_config.json', 1127, 'f0c3e6b9d2f5a8c1e4b7d0f3a6c9e2b5d8f1a4c7e0b3d6f9a2c5e8b1d4f7a0c3'],
-  ['onnx/encoder_model.onnx', 27460120, 'a4c7e0b3d6f9a2c5e8b1d4f7a0c3e6b9d2f5a8c1e4b7d0f3a6c9e2b5d8f1a4c7'],
-  ['onnx/decoder_model_merged.onnx', 32648171, 'b6d9f2a5c8e1b4d7f0a3c6e9b2d5f8a1c4e7b0d3f6a9c2e5b8d1f4a7c0e3b6d9'],
-]);
-
-export function hash(bytes) {
-  return createHash('sha256').update(bytes).digest('hex');
-}
-
-export function assertPrivatePath(file, directory = false) {
-  const stat = lstatSync(file);
-  if (
-    stat.isSymbolicLink() ||
-    (directory ? !stat.isDirectory() : !stat.isFile()) ||
-    stat.mode & 0o077
-  )
-    throw Object.assign(Error('unavailable'), { code: 'unavailable' });
-  return stat;
-}
-
-async function noSymlinks(file) {
-  let current = path.parse(file).root;
-  for (const part of file.slice(current.length).split(path.sep)) {
-    current = path.join(current, part);
-    if ((await lstat(current)).isSymbolicLink()) throw Error('Invalid asset');
-  }
-}
-
-/** Check a directory against a file list; used by the CLI and route tests. */
-export function verifyVoiceFiles(dir, files = VOICE_MODEL_FILES) {
-  try {
-    assertPrivatePath(dir, true);
-    const directories = new Set(files.map(([name]) => path.dirname(name)).filter(name => name !== '.'));
-    for (const directory of directories) assertPrivatePath(path.join(dir, directory), true);
-    for (const [name, size, sha] of files) {
-      const file = path.join(dir, name);
-      if (assertPrivatePath(file).size !== size || hash(readFileSync(file)) !== sha) return false;
-    }
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** Verify the complete provisioned directory, including its reviewed manifest. */
-export function verifyVoiceModel(dir) {
-  try {
-    assertPrivatePath(dir, true);
-    const manifest = path.join(dir, 'model.json');
-    if (assertPrivatePath(manifest).size > 65536) return false;
-    const value = JSON.parse(readFileSync(manifest, 'utf8'));
-    if (JSON.stringify(value) !== JSON.stringify({ ...VOICE_MODEL, files: VOICE_MODEL_FILES })) return false;
-    return verifyVoiceFiles(dir);
-  } catch {
-    return false;
-  }
-}
-
-const CONTENT_TYPES = {
-  '.json': 'application/json; charset=utf-8',
-  '.onnx': 'application/octet-stream',
+const ORT_FILES = {
+  'ort-wasm-simd-threaded.mjs': [24381, 'c57ca56328877353a575e51bbca6f18450027d6c9bf2307a2cb2c41363b4de9f'],
+  'ort-wasm-simd-threaded.wasm': [14264838, '06ba057753da3847e4c24f02d91ab133455b0817c69a44993a9a53a2146df9e3'],
 };
+export const modelAssetPrefix = `/vendor/voice/models/${VOICE_MODEL}/resolve/${VOICE_REVISION}/`;
+export const ortAssetPrefix = `/vendor/voice/ort/${ORT_VERSION}/`;
+export function verifyVoiceBytes(bytes, expected) {
+  return bytes.length === expected[0] && createHash('sha256').update(bytes).digest('hex') === expected[1];
+}
 
-/**
- * Exact, checksum-verified /vendor/voice/ allowlist. Unknown names, symlinks,
- * hardlinks, oversized files and hash mismatches are never served.
- */
-export function createVoiceModelAssets({ modelsRoot, securityHeaders = {} } = {}) {
-  const root = typeof modelsRoot === 'string' ? modelsRoot : '';
-  const entries = new Map();
-  if (root) {
-    for (const [name, size, sha] of VOICE_MODEL_FILES) {
-      entries.set(`/vendor/voice/${name}`, {
-        file: path.join(root, name),
-        size,
-        sha,
-        type: CONTENT_TYPES[path.extname(name)] ?? 'application/octet-stream',
-      });
+/** Size-check before allocation/read, then bounded reads even if a file grows. */
+export async function readPinnedVoiceFile(file, expected) {
+  await assertNoSymlinks(file);
+  const info = await lstat(file);
+  if (!info.isFile() || info.size !== expected[0]) throw new Error('Voice asset size mismatch');
+  const handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const opened = await handle.stat();
+    if (!opened.isFile() || opened.size !== expected[0]) throw new Error('Voice asset size changed');
+    const bytes = Buffer.alloc(expected[0] + 1);
+    let length = 0;
+    while (length < bytes.length) {
+      const { bytesRead } = await handle.read(bytes, length, bytes.length - length, length);
+      if (!bytesRead) break;
+      length += bytesRead;
     }
+    const result = bytes.subarray(0, length);
+    if (!verifyVoiceBytes(result, expected)) throw new Error('Voice asset checksum mismatch');
+    return result;
+  } finally { await handle.close(); }
+}
+// Inspect every path component, including the root: resolving only the leaf is
+// insufficient when a parent directory was replaced with a symlink.
+export async function assertNoSymlinks(file) {
+  const absolute = path.resolve(file);
+  let current = path.parse(absolute).root;
+  for (const part of absolute.slice(current.length).split(path.sep)) {
+    current = path.join(current, part);
+    const stat = await lstat(current);
+    if (stat.isSymbolicLink()) throw new Error('Voice assets must not use symlinks');
   }
-  let closed = false;
+  if (await realpath(absolute) !== absolute) throw new Error('Voice asset path changed');
+}
 
+/** Public MIT assets; exact allowlist, no runtime network or arbitrary paths. */
+export function createVoiceModelAssets({ root, modelsRoot = path.join(root, '.runtime/models') }) {
+  // root is the trusted application installation, not the private runtime.
+  // Release installations may intentionally link node_modules outside the app.
+  // Resolve that trusted package once, then serve only canonical pinned files.
+  let dependencyRoot;
+  function resolveDependencyRoot() {
+    return dependencyRoot ??= (async () => {
+      const require = createRequire(pathToFileURL(path.join(path.resolve(root), 'package.json')));
+      const entry = await realpath(require.resolve('onnxruntime-web'));
+      const canonical = await realpath(path.dirname(path.dirname(entry)));
+      const metadataPath = path.join(canonical, 'package.json');
+      const info = await lstat(metadataPath);
+      if (!info.isFile() || info.size > 65536) throw new Error('Invalid trusted ORT package metadata');
+      const metadata = JSON.parse(await readFile(metadataPath, 'utf8'));
+      if (metadata.name !== 'onnxruntime-web' || metadata.version !== ORT_VERSION) throw new Error('Unexpected trusted ORT package version');
+      return canonical;
+    })();
+  }
+  const allowlist = new Map();
+  for (const [file, expected] of Object.entries(VOICE_FILES)) {
+    allowlist.set(modelAssetPrefix + file, { file: path.join(modelsRoot, VOICE_MODEL, 'resolve', VOICE_REVISION, file), expected });
+  }
+  for (const [file, expected] of Object.entries(ORT_FILES)) {
+    allowlist.set(ortAssetPrefix + file, { ortFile: file, expected });
+  }
   return {
     async handle(req, res, pathname) {
-      if (!['GET', 'HEAD'].includes(req.method ?? '')) {
-        res.writeHead(405, { ...securityHeaders, Allow: 'GET, HEAD' });
-        res.end();
-        return;
-      }
-      const entry = entries.get(pathname);
-      if (closed || !entry) {
-        res.writeHead(404, securityHeaders);
-        res.end();
-        return;
-      }
-      let fd;
+      if (!['GET', 'HEAD'].includes(req.method)) { res.writeHead(405, { Allow: 'GET, HEAD' }); res.end(); return; }
+      const entry = allowlist.get(pathname);
+      if (!entry) { res.writeHead(404); res.end(); return; }
       try {
-        await noSymlinks(entry.file);
-        fd = await open(entry.file, constants.O_RDONLY | constants.O_NOFOLLOW);
-        const info = await fd.stat();
-        if (!info.isFile() || info.nlink !== 1 || info.size !== entry.size) throw Error('Invalid asset');
-        const bytes = await fd.readFile();
-        if (hash(bytes) !== entry.sha) throw Error('Invalid asset');
+        const file = entry.ortFile ? path.join(await resolveDependencyRoot(), 'dist', entry.ortFile) : entry.file;
+        const bytes = await readPinnedVoiceFile(file, entry.expected);
         res.writeHead(200, {
-          ...securityHeaders,
-          'Content-Type': entry.type,
-          'Content-Length': info.size,
-          'Cache-Control': 'no-store',
+          'Content-Type': pathname.endsWith('.wasm') ? 'application/wasm' : pathname.endsWith('.mjs') ? 'text/javascript' : pathname.endsWith('.json') ? 'application/json' : 'application/octet-stream',
+          'Content-Length': bytes.length,
+          'Cache-Control': 'public, max-age=31536000, immutable',
+          'X-Content-Type-Options': 'nosniff',
+          'Content-Security-Policy': "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self'",
         });
-        if (req.method === 'HEAD') res.end();
-        else res.end(bytes);
+        res.end(req.method === 'HEAD' ? undefined : bytes);
       } catch (error) {
-        if (!res.headersSent) {
-          res.writeHead(error?.code === 'ENOENT' ? 404 : 503, securityHeaders);
-          res.end();
-        } else res.destroy();
-      } finally {
-        await fd?.close();
+        res.writeHead(error.code === 'ENOENT' ? 404 : 503);
+        res.end();
       }
-    },
-    close() {
-      closed = true;
     },
   };
 }
-
-// Familiar names for callers that mirror the knowledge-model module.
-export const MODEL = VOICE_MODEL;
-export const MODEL_FILES = VOICE_MODEL_FILES;
-export const verifyModel = verifyVoiceModel;

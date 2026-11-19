@@ -15,18 +15,12 @@ export function createTechnologyAssets({root,runtimeRoot,securityHeaders={}}){
     if(!Array.isArray(fonts)||fonts.length>500||fonts.some(name=>typeof name!=='string'||!isPublishedCanvasFont(name)))throw Error();
     for(const name of fonts)files.set(`/vendor/excalidraw-0.18.1/fonts/${name}`,{file:path.join(root,'dist/vendor/excalidraw-0.18.1/fonts',name),immutable:true,font:true});
   }catch{/* No canvas assets in a partial build: exact requests return 404. */}
-  let voiceAssets;
-  async function voice(){
-    voiceAssets??=(await import('./voice-model-assets.mjs')).createVoiceModelAssets({
-      modelsRoot:process.env.ORBIT_VOICE_MODELS_ROOT??path.join(runtimeRoot??path.join(root,'.runtime'),'models'),
-      securityHeaders,
-    });
-    return voiceAssets;
-  }
+  let voice;
   return {async handle(req,res,pathname){
     if(!['GET','HEAD'].includes(req.method)){res.writeHead(405,{...securityHeaders,Allow:'GET, HEAD'});res.end();return;}
     if(pathname.startsWith('/vendor/voice/')){
-      try{return (await voice()).handle(req,res,pathname);}catch{res.writeHead(503,securityHeaders);res.end();return;}
+      voice??=import('./voice-model-assets.mjs').then(module=>module.createVoiceModelAssets({root,modelsRoot:process.env.ORBIT_VOICE_MODELS_ROOT??path.join(runtimeRoot,'models')}));
+      return (await voice).handle(req,res,pathname);
     }
     const entry=files.get(pathname);
     if(!entry){res.writeHead(404,securityHeaders);res.end();return;}
@@ -39,5 +33,5 @@ export function createTechnologyAssets({root,runtimeRoot,securityHeaders={}}){
       if(req.method==='HEAD')res.end();else res.end(await fd.readFile());
     }catch(error){if(!res.headersSent){res.writeHead(error.code==='ENOENT'?404:503,securityHeaders);res.end();}else res.destroy();}
     finally{await fd?.close();}
-  },async close(){await voiceAssets?.close?.();}};
+  }};
 }

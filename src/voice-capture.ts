@@ -1,386 +1,164 @@
-import './voice-capture.css';
-import { el } from './dom';
 import { requestConversationContext } from './conversation-transfer';
-import {
-  MAX_SECONDS,
-  MIN_SECONDS,
-  SAMPLE_RATE,
-  downsample,
-  limitDuration,
-  mergeChunks,
-  rootMeanSquare,
-} from './voice-audio';
+import { mixAudioToMono, VOICE_MAX_BYTES, VOICE_MAX_SECONDS } from './voice-audio';
+import './voice-capture.css';
+export { resampleToMono16k } from './voice-audio';
 
-const TRANSFER_LIMIT = 20000;
-const MAX_FILE_BYTES = 25 * 1024 * 1024;
+export interface VoiceCaptureOptions { paneId?: string; maxSeconds?: number; }
+const REVISION = 'a6da1241cd305dcd64eab1edbd615f2bb9aabb95';
+const MODEL_PREFIX = `/vendor/voice/models/onnx-community/moonshine-tiny-ONNX/resolve/${REVISION}/`;
+const REQUIRED = ['config.json', 'preprocessor_config.json', 'generation_config.json', 'tokenizer_config.json', 'special_tokens_map.json', 'tokenizer.json', 'onnx/encoder_model_quantized.onnx', 'onnx/decoder_model_merged_quantized.onnx'];
 
-type MountOptions = { paneId?: string; surfaceUrl?: string };
-type WorkerReply = { id: number; type: 'progress' | 'result' | 'error'; progress?: number; text?: string };
-
-function messageOf(error: unknown): string {
-  return error instanceof Error && error.message ? error.message : 'Dictation is unavailable.';
-}
-
-/**
- * Grok Bots dictation. The only entry point is the app's 🎤 button, which opens
- * this ordinary host surface. Capture and transcription stay on this device;
- * the transcript is inserted into an already selected conversation draft and is
- * never sent automatically.
- */
-export function mountVoiceCapture(host: HTMLElement, _token: () => string, _options: MountOptions = {}): { dispose(): void } {
-  const root = el('section', 'voice-capture');
-  root.setAttribute('aria-label', 'Dictation');
-  host.replaceChildren(root);
-
-  const title = el('h2', '', 'Dictation');
-  const notice = el(
-    'p',
-    'voice-notice',
-    'Speak or choose an audio file. Recognition runs locally with the separately provisioned Moonshine model; audio is not uploaded and there is no remote fallback. Review the text, then insert it into a selected draft.',
-  );
-  const status = el('p', 'voice-status', 'Checking the local dictation model…');
-  status.setAttribute('role', 'status');
-  const error = el('p', 'voice-error');
-  error.setAttribute('role', 'alert');
-
-  const controls = el('div', 'voice-controls');
-  const record = el('button', 'voice-record', 'Start recording');
-  record.type = 'button';
-  record.setAttribute('aria-pressed', 'false');
-  const level = el('div', 'voice-level');
-  const levelBar = el('div', 'voice-level-bar');
-  level.append(levelBar);
-  level.setAttribute('aria-hidden', 'true');
-
-  const fileLabel = el('label', 'voice-file', 'Audio file ');
-  const file = el('input', 'voice-file-input');
-  file.type = 'file';
-  file.accept = 'audio/*,.wav,.mp3,.m4a,.ogg,.webm';
-  fileLabel.append(file);
-  controls.append(record, level, fileLabel);
-
-  const textLabel = el('label', 'voice-text-label', 'Text');
-  const textArea = el('textarea', 'voice-text');
-  textArea.rows = 10;
-  textArea.maxLength = TRANSFER_LIMIT;
-  textArea.placeholder = 'Your words appear here after local recognition. Edit before inserting.';
-  textArea.setAttribute('aria-label', 'Dictation text');
-  textLabel.append(textArea);
-
-  const actions = el('div', 'voice-actions');
-  const insert = el('button', 'voice-insert', 'Insert into selected draft');
-  insert.type = 'button';
-  const clear = el('button', 'voice-clear', 'Clear');
-  clear.type = 'button';
-  actions.append(insert, clear);
-
-  root.append(title, notice, status, error, controls, textLabel, actions);
-
-  let disposed = false;
-  let recording = false;
-  let busy = false;
-  let modelReady = false;
-  let context: AudioContext | null = null;
-  let captureRate = SAMPLE_RATE;
-  let source: MediaStreamAudioSourceNode | null = null;
-  let processor: ScriptProcessorNode | null = null;
-  let sink: GainNode | null = null;
-  let stream: MediaStream | null = null;
-  let timer: ReturnType<typeof setInterval> | null = null;
-  let started = 0;
-  let captured = 0;
-  let chunks: Float32Array[] = [];
-  let worker: Worker | null = null;
-  let requestId = 0;
-  const pending = new Map<number, { resolve(text: string): void; reject(error: Error): void }>();
-
-  function setStatus(text: string) {
-    if (!disposed) status.textContent = text;
+/** Reviewed host-only surface. The token is never passed to a worker or URL. */
+export function mountVoiceCapture(host: HTMLElement, _token: () => string, options: VoiceCaptureOptions = {}): { dispose(): void } {
+  const maxSeconds = Math.min(VOICE_MAX_SECONDS, Math.max(1, Number.isFinite(options.maxSeconds) ? options.maxSeconds! : VOICE_MAX_SECONDS));
+  const root = document.createElement('section'); root.className = 'voice-capture';
+  root.innerHTML = `<h2>Dictation</h2>
+    <p>Local audio → Moonshine Tiny int8 → editable draft. English speech; review recognition errors. Long clips use 30-second sections; check words at section boundaries.</p>
+    <p class="voice-model-status" role="status">Model not checked. Provision local weights before transcription.</p>
+    <button type="button" class="voice-check">Check local model</button>
+    <details><summary>Model provisioning</summary><p>Run explicitly on the Orbit host (public MIT weights, ~32 MB):</p><code>node scripts/provision_voice_models.mjs --models-root &lt;configured-model-directory&gt;</code><p>Use ORBIT_VOICE_MODELS_ROOT when configured; otherwise use the models directory inside ORBIT_RUNTIME_DIR (default .runtime/models).</p><p>The browser and server never download remote models. Transformers 4.3.0; single-thread WASM. Model revision ${REVISION}.</p></details>
+    <div class="voice-controls"><button type="button" class="voice-hold">Hold to record</button><button type="button" class="voice-record">Start recording</button><button type="button" class="voice-stop" disabled>Stop recording</button><button type="button" class="voice-cancel">Cancel</button></div>
+    <label>Audio file (local only)<input class="voice-file" type="file" accept="audio/*"></label>
+    <p class="voice-status" role="status" aria-live="polite">Ready. Maximum ${maxSeconds} seconds / 30 MiB encoded or decoded audio.</p>
+    <label>Editable transcript<textarea class="voice-transcript" rows="8" placeholder="Your transcript appears here. You can also paste and edit text."></textarea></label>
+    <p class="voice-provenance">No audio or transcript is saved by this surface.</p>
+    <button type="button" class="voice-insert" disabled>Choose draft…</button>`;
+  host.append(root);
+  const get = <T extends HTMLElement>(selector: string) => root.querySelector<T>(selector)!;
+  const status = get('.voice-status'), modelStatus = get('.voice-model-status'), provenance = get('.voice-provenance');
+  const transcript = get<HTMLTextAreaElement>('.voice-transcript');
+  const record = get<HTMLButtonElement>('.voice-record'), hold = get<HTMLButtonElement>('.voice-hold'), stop = get<HTMLButtonElement>('.voice-stop');
+  const insert = get<HTMLButtonElement>('.voice-insert'), file = get<HTMLInputElement>('.voice-file');
+  let disposed = false, generation = 0, worker: Worker | undefined, requestId = 0;
+  let stream: MediaStream | undefined, recorder: MediaRecorder | undefined, timer: ReturnType<typeof setInterval> | undefined;
+  let idle: ReturnType<typeof setTimeout> | undefined, pendingMic = false, busy = false;
+  let controller: AbortController | undefined, audioContext: AudioContext | undefined;
+  let source = 'Edited text in voice surface';
+  let transcriptSource = source;
+  const live = (g: number) => !disposed && generation === g;
+  function controls() { record.disabled = file.disabled = busy || pendingMic || !!recorder; hold.disabled = busy; stop.disabled = !recorder && !pendingMic; insert.disabled = !transcript.value.trim(); }
+  function terminateWorker() { clearTimeout(idle); worker?.terminate(); worker = undefined; }
+  function releaseMic() {
+    clearInterval(timer); timer = undefined;
+    stream?.getTracks().forEach(track => track.stop()); stream = undefined;
+    const old = recorder; recorder = undefined;
+    if (old) { old.ondataavailable = null; old.onstop = null; old.onerror = null; if (old.state !== 'inactive') old.stop(); }
   }
-
-  function setError(text: string) {
-    if (!disposed) error.textContent = text;
+  function cancel(message = 'Cancelled. Your edited transcript is retained.', stopWorker = true) {
+    root.classList.remove('is-recording');
+    generation++; controller?.abort(); controller = undefined;
+    releaseMic(); pendingMic = false; busy = false; if (stopWorker) terminateWorker();
+    void audioContext?.close().catch(() => {}); audioContext = undefined;
+    if (!disposed) { status.textContent = message; controls(); }
   }
-
-  function updateControls() {
-    record.disabled = busy;
-    insert.disabled = busy;
-    file.disabled = busy;
-    record.textContent = recording ? 'Stop recording' : 'Start recording';
-    record.setAttribute('aria-pressed', recording ? 'true' : 'false');
-  }
-
-  function cleanupCapture() {
-    if (timer !== null) clearInterval(timer);
-    timer = null;
-    try { processor?.disconnect(); } catch { /* already disconnected */ }
-    try { source?.disconnect(); } catch { /* already disconnected */ }
-    try { sink?.disconnect(); } catch { /* already disconnected */ }
-    processor = null;
-    source = null;
-    sink = null;
-    for (const track of stream?.getTracks() ?? []) { try { track.stop(); } catch { /* already stopped */ } }
-    stream = null;
-    const closing = context;
-    context = null;
-    if (closing) void closing.close().catch(() => {});
-    levelBar.style.width = '0%';
-  }
-
-  function rejectPending(reason: string) {
-    for (const entry of pending.values()) entry.reject(Error(reason));
-    pending.clear();
-  }
-
-  function ensureWorker(): Worker {
-    if (worker) return worker;
-    if (typeof Worker !== 'function') throw Error('Local dictation is unavailable in this window.');
-    let created: Worker;
+  async function checkModel(g = generation): Promise<boolean> {
+    controller?.abort(); const abort = new AbortController(); controller = abort;
+    modelStatus.textContent = 'Checking local pinned model files…';
     try {
-      created = new Worker(new URL('./voice-transcribe.worker.ts', import.meta.url), { type: 'module' });
-    } catch {
-      throw Error('Local dictation worker could not start.');
-    }
-    worker = created;
-    created.onmessage = (event: MessageEvent<WorkerReply>) => {
-      const reply = event.data;
-      if (!reply || typeof reply.id !== 'number') return;
-      if (reply.type === 'progress') {
-        const percent = Math.round(Math.max(0, Math.min(1, reply.progress ?? 0)) * 100);
-        setStatus(`Loading the local dictation model… ${percent}%`);
-        return;
-      }
-      const entry = pending.get(reply.id);
-      if (!entry) return;
-      pending.delete(reply.id);
-      if (reply.type === 'result') entry.resolve(reply.text ?? '');
-      else entry.reject(Error(reply.text || 'Local dictation failed.'));
-    };
-    created.onerror = () => {
-      created.terminate();
-      if (worker === created) worker = null;
-      rejectPending('Local dictation worker stopped. Reload this window to try again.');
-    };
-    return created;
+      const responses = await Promise.all(REQUIRED.map(name => fetch(MODEL_PREFIX + name, { method: 'HEAD', signal: abort.signal })));
+      if (!live(g)) return false;
+      const available = responses.every(response => response.ok);
+      modelStatus.textContent = available ? 'Local model verified by asset server: Moonshine Tiny q8 (MIT).' : 'model_missing or invalid: provision/re-verify local weights using the command below.';
+      return available;
+    } catch (e) {
+      if (live(g)) modelStatus.textContent = `Local model check failed: ${e instanceof Error ? e.message : String(e)}`;
+      return false;
+    } finally { if (controller === abort) controller = undefined; }
   }
-
-  async function transcribe(samples: Float32Array): Promise<string> {
-    const active = ensureWorker();
-    const id = ++requestId;
-    setStatus('Transcribing on this device…');
-    return await new Promise<string>((resolve, reject) => {
-      pending.set(id, { resolve, reject });
-      try { active.postMessage({ id, audio: samples }); }
-      catch {
-        pending.delete(id);
-        reject(Error('Audio could not be sent to the local worker.'));
-      }
-    });
-  }
-
-  function appendText(text: string) {
-    const value = text.trim();
-    if (!value) {
-      setError('No words were recognized. Try a longer or clearer recording.');
-      return;
-    }
-    const current = textArea.value;
-    const next = current.trim() ? current.replace(/\s+$/, '') + '\n\n' + value : value;
-    if (next.length > TRANSFER_LIMIT) {
-      setError('The dictation would exceed the 20,000-character transfer limit. Shorten the text first.');
-      return;
-    }
-    textArea.value = next;
-    textArea.selectionStart = textArea.selectionEnd = next.length;
-    setError('');
-    setStatus('Review the text, then insert it into a selected draft.');
-  }
-
-  async function stopRecording(cancel: boolean) {
-    if (!recording) return;
-    recording = false;
-    const rate = captureRate;
-    const collected = cancel ? new Float32Array(0) : downsample(mergeChunks(chunks), rate);
-    chunks = [];
-    captured = 0;
-    cleanupCapture();
-    updateControls();
-    if (cancel) {
-      setStatus('Recording cancelled. Nothing was transcribed.');
-      return;
-    }
-    if (collected.length < SAMPLE_RATE * MIN_SECONDS) {
-      setStatus('Ready.');
-      setError('That recording was too short. Hold the button while you speak, then stop.');
-      return;
-    }
-    busy = true;
-    updateControls();
+  async function transcribe(blob: Blob, g: number) {
+    if (!live(g)) return;
+    busy = true; controls(); status.textContent = 'Decoding audio locally…';
     try {
-      appendText(await transcribe(collected));
-    } catch (failure) {
-      setError(messageOf(failure));
-    } finally {
-      busy = false;
-      updateControls();
-    }
+      if (!blob.size || blob.size > VOICE_MAX_BYTES) throw new Error('Audio file exceeds byte limit or is empty');
+      const context = new AudioContext(); audioContext = context;
+      let pcm: Float32Array, sampleRate: number;
+      try {
+        const audio = await context.decodeAudioData(await blob.arrayBuffer());
+        sampleRate = audio.sampleRate; pcm = mixAudioToMono(audio, maxSeconds);
+      }
+      finally { await context.close().catch(() => {}); if (audioContext === context) audioContext = undefined; }
+      if (!live(g)) return;
+      if (!await checkModel(g)) { if (live(g)) { busy = false; controls(); status.textContent = 'model_missing: local model unavailable. See provisioning instructions.'; } return; }
+      if (!live(g)) return;
+      clearTimeout(idle);
+      if (!worker) worker = new Worker(new URL('./voice-transcribe.worker.ts', import.meta.url), { type: 'module' });
+      const activeWorker = worker, id = ++requestId;
+      activeWorker.onmessage = event => {
+        if (!live(g) || worker !== activeWorker || event.data.id !== id) return;
+        const data = event.data;
+        if (data.type === 'progress') { status.textContent = data.message; return; }
+        busy = false;
+        if (data.type === 'result') {
+          transcript.value = data.text;
+          transcriptSource = `${source}; on-device Moonshine Tiny q8 transcript`;
+          status.textContent = data.text ? 'Ready for review. Choose a draft to insert; nothing is sent automatically.' : 'no_speech: no transcript returned. Try clearer English speech.';
+          provenance.textContent = `${source}; on-device Moonshine Tiny q8 / ${REVISION}; WASM, 1 thread; audio ${(data.durationMs / 1000).toFixed(2)} s; inference ${(data.inferMs / 1000).toFixed(2)} s.`;
+          idle = setTimeout(terminateWorker, 60000);
+        } else { status.textContent = `${data.code}: ${data.message}`; terminateWorker(); }
+        controls();
+      };
+      activeWorker.onerror = event => { if (live(g) && worker === activeWorker) { busy = false; status.textContent = `load_failed: ${event.message}`; terminateWorker(); controls(); } };
+      activeWorker.postMessage({ type: 'transcribe', id, pcm, sampleRate }, [pcm.buffer]);
+    } catch (e) { if (live(g)) { busy = false; status.textContent = `Audio/transcription failed: ${e instanceof Error ? e.message : String(e)}`; terminateWorker(); controls(); } }
   }
-
   async function startRecording() {
-    if (disposed || recording || busy) return;
-    setError('');
-    if (!window.isSecureContext) {
-      setError('Microphone capture needs a secure Orbit window.');
-      return;
-    }
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setError('This window cannot open the microphone.');
-      return;
-    }
-    busy = true;
-    updateControls();
+    if (disposed || pendingMic || recorder || busy) return;
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') { status.textContent = 'Microphone capture unavailable. Use an audio file; microphone needs HTTPS or localhost.'; return; }
+    cancel('Requesting microphone permission…', false); const g = generation;
+    pendingMic = true; controls();
     try {
-      const audio = new AudioContext();
-      context = audio;
-      captureRate = audio.sampleRate;
-      const media = await navigator.mediaDevices.getUserMedia({
-        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-      });
-      stream = media;
-      if (audio.state === 'suspended') await audio.resume();
-      const input = audio.createMediaStreamSource(media);
-      source = input;
-      const script = audio.createScriptProcessor(4096, 1, 1);
-      processor = script;
-      const gain = audio.createGain();
-      sink = gain;
-      gain.gain.value = 0;
-      script.onaudioprocess = event => {
-        if (!recording || disposed) return;
-        const data = event.inputBuffer.getChannelData(0);
-        chunks.push(new Float32Array(data));
-        captured += data.length;
-        levelBar.style.width = `${Math.min(100, Math.round(rootMeanSquare(data) * 400))}%`;
-        if (captured >= captureRate * MAX_SECONDS) void stopRecording(false);
+      const acquired = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (!live(g)) { acquired.getTracks().forEach(track => track.stop()); return; }
+      stream = acquired; pendingMic = false;
+      const mime = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/mp4'].find(value => MediaRecorder.isTypeSupported(value));
+      const recording = new MediaRecorder(acquired, mime ? { mimeType: mime } : undefined);
+      recorder = recording; const chunks: Blob[] = []; let bytes = 0;
+      recording.ondataavailable = event => {
+        if (!live(g)) return;
+        bytes += event.data.size;
+        if (bytes > VOICE_MAX_BYTES) { cancel('Recording exceeded the 30 MiB byte limit.'); return; }
+        chunks.push(event.data);
       };
-      input.connect(script);
-      script.connect(gain);
-      gain.connect(audio.destination);
-      started = Date.now();
-      recording = true;
-      busy = false;
-      updateControls();
-      setStatus('Recording… 0s (up to 5 minutes).');
+      recording.onerror = () => { if (live(g)) cancel('Microphone recorder failed. Try an audio file.'); };
+      recording.onstop = () => {
+        if (!live(g)) return;
+        clearInterval(timer); stream?.getTracks().forEach(track => track.stop()); stream = undefined; recorder = undefined;
+        source = 'Microphone recording'; void transcribe(new Blob(chunks, { type: recording.mimeType }), g);
+      };
+      const start = performance.now(); recording.start(250); controls(); root.classList.add('is-recording');
       timer = setInterval(() => {
-        if (!recording) return;
-        const seconds = Math.floor((Date.now() - started) / 1000);
-        setStatus(`Recording… ${seconds}s (up to 5 minutes).`);
-      }, 250);
-    } catch (failure) {
-      cleanupCapture();
-      recording = false;
-      busy = false;
-      updateControls();
-      setError(messageOf(failure));
-      setStatus(modelReady ? 'Ready.' : 'Local dictation model is not provisioned.');
-    }
+        const seconds = (performance.now() - start) / 1000;
+        status.textContent = `● Recording microphone — ${seconds.toFixed(1)} s / ${maxSeconds} s`;
+        if (seconds >= maxSeconds) finishRecording();
+      }, 100);
+    } catch (e) { if (live(g)) { pendingMic = false; releaseMic(); status.textContent = `Microphone failed: ${e instanceof Error ? e.message : String(e)}`; controls(); } }
   }
-
-  async function decodeFile(fileValue: File) {
-    if (fileValue.size > MAX_FILE_BYTES) throw Error('Choose an audio file smaller than 25 MB.');
-    busy = true;
-    updateControls();
-    setStatus('Reading the audio file on this device…');
-    const decoding = new AudioContext();
-    try {
-      const buffer = await decoding.decodeAudioData(await fileValue.arrayBuffer());
-      const mono = new Float32Array(buffer.length);
-      for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
-        const data = buffer.getChannelData(channel);
-        for (let i = 0; i < data.length; i++) mono[i] += data[i] / buffer.numberOfChannels;
-      }
-      const samples = limitDuration(downsample(mono, buffer.sampleRate), SAMPLE_RATE, MAX_SECONDS);
-      if (samples.length < SAMPLE_RATE * MIN_SECONDS) throw Error('That audio file is too short to transcribe.');
-      appendText(await transcribe(samples));
-    } catch (failure) {
-      setError(messageOf(failure));
-    } finally {
-      await decoding.close().catch(() => {});
-      busy = false;
-      updateControls();
-    }
+  function finishRecording() {
+    root.classList.remove('is-recording');
+    if (pendingMic) { cancel('Recording cancelled before microphone permission completed.'); return; }
+    if (recorder?.state === 'recording') { clearInterval(timer); recorder.stop(); stream?.getTracks().forEach(track => track.stop()); status.textContent = 'Finishing recording…'; }
   }
-
-  async function checkModel() {
-    try {
-      const response = await fetch('/vendor/voice/config.json', { method: 'HEAD', cache: 'no-store' });
-      if (disposed) return;
-      modelReady = response.ok;
-      setStatus(modelReady
-        ? 'Local dictation model is ready. Nothing is uploaded.'
-        : 'Local dictation model is not provisioned. Recording opens, but recognition needs the pinned Moonshine assets.');
-    } catch {
-      if (!disposed) {
-        modelReady = false;
-        setStatus('Local dictation model status is unknown. Recognition needs the pinned Moonshine assets.');
-      }
-    }
-  }
-
-  record.onclick = () => {
-    if (recording) void stopRecording(false);
-    else void startRecording();
-  };
-
-  file.onchange = () => {
-    const selected = file.files?.[0] ?? null;
-    file.value = '';
-    if (!selected || disposed || busy || recording) return;
-    void decodeFile(selected);
-  };
-
-  insert.onclick = () => {
-    const text = textArea.value.trim();
-    if (!text) {
-      setError('Record or type some dictation first.');
-      return;
-    }
-    setError('');
-    setStatus('Choosing a draft…');
-    void requestConversationContext({ title: 'Dictation', source: 'Local dictation', text }).then(outcome => {
-      if (disposed) return;
-      const messages: Record<string, string> = {
-        delivered: 'Added to the selected draft; nothing was sent.',
-        cancelled: 'Draft selection was cancelled. The text is still here.',
-        'no-recipient': 'Open a conversation pane or Grok Bots window, then choose its draft.',
-        empty: 'There is no text to insert.',
-        busy: 'Another transfer is open. Finish it before inserting this dictation.',
-      };
-      setStatus(messages[outcome.status] ?? ('reason' in outcome ? outcome.reason : outcome.status) + '.');
-    }).catch(failure => setError(messageOf(failure)));
-  };
-
-  clear.onclick = () => {
-    if (busy || disposed) return;
-    textArea.value = '';
-    setError('');
-    setStatus(modelReady ? 'Ready.' : 'Local dictation model is not provisioned.');
-  };
-
-  updateControls();
-  void checkModel();
-
-  return {
-    dispose() {
-      if (disposed) return;
-      disposed = true;
-      recording = false;
-      cleanupCapture();
-      rejectPending('This dictation window closed.');
-      worker?.terminate();
-      worker = null;
-      chunks = [];
-      host.replaceChildren();
-    },
-  };
+  const listeners = new AbortController(); const signal = listeners.signal;
+  record.addEventListener('click', () => void startRecording(), { signal });
+  stop.addEventListener('click', finishRecording, { signal });
+  hold.addEventListener('pointerdown', event => { if (event.button !== 0) return; hold.setPointerCapture(event.pointerId); void startRecording(); }, { signal });
+  hold.addEventListener('pointerup', finishRecording, { signal });
+  hold.addEventListener('pointercancel', () => cancel(), { signal });
+  hold.addEventListener('keydown', event => { if ((event.key === ' ' || event.key === 'Enter') && !event.repeat) { event.preventDefault(); void startRecording(); } }, { signal });
+  hold.addEventListener('keyup', event => { if (event.key === ' ' || event.key === 'Enter') { event.preventDefault(); finishRecording(); } }, { signal });
+  get('.voice-cancel').addEventListener('click', () => { root.classList.remove('is-recording'); cancel(); }, { signal });
+  get('.voice-check').addEventListener('click', () => { if (!busy) void checkModel(); }, { signal });
+  file.addEventListener('change', () => {
+    const selected = file.files?.[0]; if (!selected) return;
+    cancel(undefined, busy); source = 'Audio file'; void transcribe(selected, generation); file.value = '';
+  }, { signal });
+  transcript.addEventListener('input', controls, { signal });
+  insert.addEventListener('click', () => {
+    void requestConversationContext({ text: transcript.value, title: 'Dictation', source: transcriptSource }).then(result => {
+      if (!disposed) status.textContent = result.status === 'delivered' ? 'Inserted into your chosen draft. Review and send there when ready.' : `Draft insertion: ${result.status}. Your transcript is retained.`;
+    });
+  }, { signal });
+  const dispose = () => { if (disposed) return; disposed = true; cancel(); listeners.abort(); root.remove(); };
+  window.addEventListener('pagehide', dispose, { signal });
+  return { dispose };
 }
