@@ -1,7 +1,4 @@
 """Real pinned download, isolated Orbit API, and browser catalog lifecycle."""
-def _orbit_viewport(target, width, height):
-    getattr(target, 'set_' + 'viewport_size')({'width': width, 'height': height})
-
 import json, os, secrets, socket, subprocess, tempfile, time, urllib.request
 from pathlib import Path
 from playwright.sync_api import sync_playwright, expect
@@ -56,7 +53,7 @@ with tempfile.TemporaryDirectory() as tmp:
                 dialog.get_by_role('button',name='Connect backend orbit-live-telemetry',exact=True).click()
                 expect(page.frame_locator('iframe[src*="/apps/orbit-live-telemetry-"]').get_by_role('heading',name='Live Telemetry')).to_be_visible()
                 page.remove_listener('dialog',disconnect)
-                _orbit_viewport(page, 390, 844)
+                page.set_viewport_size({'width':390,'height':844})
                 assert dialog.evaluate('(e)=>e.scrollWidth<=e.clientWidth+1')
                 page.screenshot(path='/tmp/orbit-backend-catalog-mobile.png')
                 page.once('dialog',lambda d:d.accept())

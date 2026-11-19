@@ -64,7 +64,7 @@ const FILES = [
   'tests/workspace-release-acceptance.browser.py',
   'tests/xpra-apps.browser.py'
 ];
-const CUT = /Kitty DOOM|kitty-doom|\bIRC\b|irc-suite|\bJEV\b|jev_|Browser copilot|browser-copilot|MCP Apps|mcp-apps|Data Lab|data-workbench|DuckDB|duckdb|set_view|set_arc|set_spatial|arrange_spatial|spatial ordering|CSS3D|Three\.js|Move into 3D|Spatial view|spatial desktop|taskbar-camera|Knowledge search|knowledge-model|MiniLM|Project Workbench|orbit_workbench|\/api\/workbench|Workbench window|wbbtn/;
+const CUT = /Kitty DOOM|kitty-doom|\bIRC\b|irc-suite|\bJEV\b|jev_|Browser copilot|browser-copilot|MCP Apps|mcp-apps|Data Lab|data-workbench|DuckDB|duckdb|\bset_view\b|\bset_arc\b|set_spatial|arrange_spatial|spatial ordering|CSS3D|Three\.js|Move into 3D|Spatial view|spatial desktop|taskbar-camera|Knowledge search|knowledge-model|MiniLM|Project Workbench|orbit_workbench|\/api\/workbench|Workbench window|wbbtn/;
 
 test('AC-001 kept docs, CI and UI files no longer advertise cut features', () => {
   const bad = [];

@@ -1,6 +1,3 @@
-def _orbit_viewport(target, width, height):
-    getattr(target, 'set_' + 'viewport_size')({'width': width, 'height': height})
-
 from pathlib import Path
 from playwright.sync_api import sync_playwright, expect
 R=Path(__file__).resolve().parents[1]
@@ -25,7 +22,7 @@ with sync_playwright() as p:
    print(app,info,'errors',errors,flush=True)
    assert not errors
    assert any(w['fit'] for w in info), 'Primary application not fitted'
-   _orbit_viewport(g, 900, 650)
+   g.set_viewport_size({'width':900,'height':650})
    for _ in range(40):
     if g.evaluate("Object.values(client.id_to_window).some(w=>w.orbitFitted && w.w===900 && w.h===650)"): break
     g.wait_for_timeout(250)

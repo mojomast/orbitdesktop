@@ -3,9 +3,6 @@
 Disposable Vite copy and synthetic owner API; no owner runtime/provider/terminal.
 Checks actual pointer hits without force-clicking and live iframe/Lexical identity.
 """
-def _orbit_viewport(target, width, height):
-    getattr(target, 'set_' + 'viewport_size')({'width': width, 'height': height})
-
 import copy
 import json
 from pathlib import Path
@@ -181,7 +178,7 @@ with tempfile.TemporaryDirectory(prefix='orbit-docking-narrow-', dir='/tmp/openc
             identity = snapshot()
             open_card()
             continuity(identity)
-            _orbit_viewport(page, 1400, 1100)
+            page.set_viewport_size({'width': 1400, 'height': 1100})
             page.wait_for_timeout(200)
             bounds()
             open_card()

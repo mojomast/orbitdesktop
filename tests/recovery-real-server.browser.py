@@ -3,9 +3,6 @@
 Run with a pinned Playwright Python environment and isolated browser installation.
 Does not test live terminal continuity, persistent safe mode or broker revocation.
 """
-def _orbit_viewport(target, width, height):
-    getattr(target, 'set_' + 'viewport_size')({'width': width, 'height': height})
-
 import json
 import os
 import re
@@ -179,7 +176,7 @@ with tempfile.TemporaryDirectory(prefix="orbit-recovery-real-") as temporary:
             assert not any("/apps/" in url or "/assets/" in url or "/api/terminal" in url or "/api/agent" in url for url in requests), requests
             assert page.locator("iframe").count() == 0
             assert page.evaluate("localStorage.length + sessionStorage.length") == 0
-            _orbit_viewport(page, 390, 844)
+            page.set_viewport_size({"width": 390, "height": 844})
             page.emulate_media(forced_colors="active", reduced_motion="reduce")
             assert page.evaluate("document.documentElement.scrollWidth <= innerWidth"), "Narrow recovery UI overflows"
             print(f"PASS real Node recovery: broken renderer + bad app; hold persists across reload, blocks enabled checkpoint restore, release keeps app disabled; keyboard/narrow/forced-colors; Chromium {browser.version}")

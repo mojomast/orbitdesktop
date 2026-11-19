@@ -4,9 +4,6 @@ Run with --renderer default|docking. All features share one disposable workspace
 only synthetic screenshots/results survive under /tmp/opencode. No inference,
 terminal panes, owner runtime, environment files, or deployed server are used.
 """
-def _orbit_viewport(target, width, height):
-    getattr(target, 'set_' + 'viewport_size')({'width': width, 'height': height})
-
 import argparse
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -275,11 +272,11 @@ localStorage.setItem('orbit.workspace.id',%s);localStorage.setItem('orbit.worksp
         assert f['panes'][0] in recipient.get_attribute('aria-label')
         recipient.check()
         page.screenshot(path=str(EVIDENCE / f'{renderer}-recipient.png'))
-        _orbit_viewport(page, 390, 844)
+        page.set_viewport_size({'width': 390, 'height': 844})
         assert transfer.evaluate('node=>node.scrollWidth<=node.clientWidth'), 'Recipient chooser overflows at 390px'
         assert radios.evaluate_all('nodes=>nodes.every(node=>node.getBoundingClientRect().width<40)'), 'Radio controls expanded into text columns'
         page.screenshot(path=str(EVIDENCE / f'{renderer}-recipient-small-screen.png'))
-        _orbit_viewport(page, 1600, 1100)
+        page.set_viewport_size({'width': 1600, 'height': 1100})
         expect(transfer).to_contain_text(f['panes'][0])
         expect(transfer.locator('.conversation-transfer-preview')).to_contain_text(before_transfer)
         expect(transfer.locator('.conversation-transfer-preview')).to_contain_text('Release widget reference')
@@ -363,7 +360,7 @@ localStorage.setItem('orbit.workspace.id',%s);localStorage.setItem('orbit.worksp
         assert identities(snapshot()['state']) == expected_ids
 
         # Small-screen keyboard opening/closing and focus-return sanity.
-        _orbit_viewport(page, 390, 844)
+        page.set_viewport_size({'width': 390, 'height': 844})
         page.locator('body').click(position={'x': 3, 'y': 3})
         page.keyboard.press('Control+Alt+p')
         manager = page.get_by_role('dialog', name='Workspace plugins', exact=True)

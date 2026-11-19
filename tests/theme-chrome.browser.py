@@ -1,6 +1,3 @@
-def _orbit_viewport(target, width, height):
-    getattr(target, 'set_' + 'viewport_size')({'width': width, 'height': height})
-
 import os,secrets,subprocess,tempfile,time,urllib.request
 from pathlib import Path
 from playwright.sync_api import sync_playwright,expect
@@ -49,10 +46,10 @@ with tempfile.TemporaryDirectory(prefix='orbit-theme-test-') as runtime:
      assert page.locator('.start-item').count()>0
      page.keyboard.press('Escape')
      expect(page.get_by_role('button',name='Open Start',exact=True)).to_be_focused()
-     _orbit_viewport(page, 390, 844)
+     page.set_viewport_size({'width':390,'height':844})
      page.get_by_role('button',name='Open Start',exact=True).click()
      assert page.locator('.start-panel').evaluate('(e)=>e.getBoundingClientRect().right<=innerWidth')
-     page.keyboard.press('Escape');_orbit_viewport(page, 1440, 1000)
+     page.keyboard.press('Escape');page.set_viewport_size({'width':1440,'height':1000})
      print('PASS XP controls, taskbar, scrollbar, Start search/keyboard and mobile bounds')
     page.screenshot(path=str(R/'.runtime'/('theme-'+theme+'.png')))
     print('PASS rendered, checkpointed, synchronized:',name)
@@ -63,7 +60,7 @@ with tempfile.TemporaryDirectory(prefix='orbit-theme-test-') as runtime:
    page.get_by_role('button',name='Close workspace themes').click();page.reload(wait_until='networkidle')
    expect(page.locator('html')).to_have_attribute('data-orbit-theme','cyberpunk')
    expect(page.locator('.monitor-bar').first).to_have_css('min-height','48px')
-   _orbit_viewport(page, 390, 844);page.get_by_role('button',name='Choose workspace theme',exact=True).click()
+   page.set_viewport_size({'width':390,'height':844});page.get_by_role('button',name='Choose workspace theme',exact=True).click()
    assert page.locator('dialog').evaluate('(e)=>e.scrollWidth<=e.clientWidth+1')
    assert not errors,errors
    browser.close();print('PASS custom override, reload persistence, mobile overflow and no JS errors')

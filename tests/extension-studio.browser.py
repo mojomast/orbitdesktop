@@ -1,7 +1,4 @@
 """Actual finite Studio/publisher/server/iframe journey in disposable storage."""
-def _orbit_viewport(target, width, height):
-    getattr(target, 'set_' + 'viewport_size')({'width': width, 'height': height})
-
 import argparse
 import json
 import uuid
@@ -55,10 +52,10 @@ def main(renderer):
         check_preview()
         expect(dialog.get_by_role('button', name='Retry exact Studio request')).to_be_hidden()
         dialog.locator('iframe.studio-preview').screenshot(path='/tmp/opencode/orbit-studio-preview-' + renderer + '.png')
-        _orbit_viewport(page, 430, 900)
+        page.set_viewport_size({'width': 430, 'height': 900})
         assert dialog.evaluate('e=>e.scrollWidth<=e.clientWidth+1'), 'Studio dialog overflows narrow viewport'
         dialog.screenshot(path='/tmp/opencode/orbit-studio-narrow-' + renderer + '.png')
-        _orbit_viewport(page, 1440, 1000)
+        page.set_viewport_size({'width': 1440, 'height': 1000})
         frame = next(f for f in page.frames if '/apps/' in f.url)
         denied = frame.evaluate("""async()=>{let parentDenied=false,storageDenied=false,networkDenied=false;try{void parent.document.body}catch{parentDenied=true}try{localStorage.setItem('probe','x')}catch{storageDenied=true}try{await fetch('/api/workspace')}catch{networkDenied=true}return {parentDenied,storageDenied,networkDenied}}""")
         assert all(denied.values()), denied

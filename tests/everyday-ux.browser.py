@@ -1,7 +1,4 @@
 """Disposable Vite/browser fixture; synthetic API only, no provider or live runtime."""
-def _orbit_viewport(target, width, height):
-    getattr(target, 'set_' + 'viewport_size')({'width': width, 'height': height})
-
 import json, shutil, socket, subprocess, tempfile, time, urllib.request, uuid
 from pathlib import Path
 from ui_fixture import copy_ui_source
@@ -45,7 +42,7 @@ with tempfile.TemporaryDirectory(prefix='orbit-everyday-ux-', dir='/tmp/opencode
                 expect(page.get_by_role('button', name='Open Start', exact=True)).to_be_focused()
                 page.get_by_role('button', name='Open Start', exact=True).click(); search.press('Enter')
                 assert page.evaluate('window.executed') == ['a']
-                _orbit_viewport(page, 320, 480)
+                page.set_viewport_size({'width': 320, 'height': 480})
                 page.evaluate('''async()=>{const {showOnboarding}=await import('/src/onboarding.ts');
                   window.goalActions=[];window.tour=()=>showOnboarding({connected:()=>false,run:id=>goalActions.push(id)});window.tour();}''')
                 tour = page.get_by_role('dialog', name='What would you like to do?')
@@ -61,7 +58,7 @@ with tempfile.TemporaryDirectory(prefix='orbit-everyday-ux-', dir='/tmp/opencode
                 page.get_by_role('button', name='Previous tour step').click()
                 page.get_by_role('button', name='Connect host:', exact=False).click()
                 assert page.evaluate('goalActions') == ['connect-host']
-                _orbit_viewport(page, 1400, 1000)
+                page.set_viewport_size({'width': 1400, 'height': 1000})
 
                 requests = []; held_pages = []; hold_page = False; reject_selection = False; binding_ready = False; binding = {'session': 'original', 'profile_id': 'B', 'messages': [], 'binding_revision': 1}
                 def api(route):

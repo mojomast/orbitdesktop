@@ -5,9 +5,6 @@ covers every merged personality including Hermes Relay and MS-DOS.
 Isolation: disposable copied source + fresh isolated build, ephemeral port,
 private HOME/runtime/cwd/tmux socket, no owner credentials. See theme_fixture.py.
 """
-def _orbit_viewport(target, width, height):
-    getattr(target, 'set_' + 'viewport_size')({'width': width, 'height': height})
-
 from playwright.sync_api import sync_playwright, expect
 from theme_fixture import ARTIFACTS, THEMES, connect, open_theme_picker, theme_fixture, unlock
 
@@ -97,11 +94,11 @@ def run():
                 page.reload(wait_until='networkidle')
                 expect(page.locator('html')).to_have_attribute('data-orbit-style', style)
                 unlock(page, token)
-                _orbit_viewport(page, 390, 844)
+                page.set_viewport_size({'width': 390, 'height': 844})
                 open_theme_picker(page)
                 assert page.locator('.theme-picker').evaluate('e=>e.scrollWidth<=e.clientWidth+1')
                 page.get_by_role('button', name='Close workspace themes').click()
-                _orbit_viewport(page, 1440, 1000)
+                page.set_viewport_size({'width': 1440, 'height': 1000})
                 print('PASS', name, 'theme icons, wallpaper, persistence and pane preservation')
             assert not errors, errors
             browser.close()

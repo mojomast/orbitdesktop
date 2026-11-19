@@ -2,9 +2,6 @@
 
 Disposable runtime and synthetic data only. No model invocation or owner APIs.
 """
-def _orbit_viewport(target, width, height):
-    getattr(target, 'set_' + 'viewport_size')({'width': width, 'height': height})
-
 from pathlib import Path
 import hashlib
 import json
@@ -146,7 +143,7 @@ process.on('SIGTERM',()=>server.close(()=>{service.close();process.exit(0);}));
                 assert len(context.pages)==1,'Evidence must not need sandbox-disallowed popups'
                 page.frames[1].evaluate('window.scrollTo(0,0)')
                 page.screenshot(path=str(EVIDENCE/'desktop.png'),full_page=True)
-                _orbit_viewport(page, 390, 844)
+                page.set_viewport_size({'width':390,'height':844})
                 frame=page.frames[1]
                 assert frame.evaluate('document.documentElement.scrollWidth <= innerWidth'), 'Narrow viewport overflows'
                 page.screenshot(path=str(EVIDENCE/'mobile.png'),full_page=True)
