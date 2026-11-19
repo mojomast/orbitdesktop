@@ -37,9 +37,6 @@ test('operation count and encoded request byte limits are exposed and enforced',
   const base = { workspace_id: workspaceId, action: 'apply', base_revision: 1 };
   assert.doesNotThrow(() => validateWorkspaceRequest({ ...base, operations: Array(32).fill({ action: 'sidebar', hidden: true }) }));
   assert.throws(() => validateWorkspaceRequest({ ...base, operations: Array(33).fill({ action: 'sidebar', hidden: true }) }));
-  const withinByteLimit = JSON.stringify({ ...base, action: 'jev_suggest', request: 'a'.repeat(12000), api_key: 'k'.repeat(4096), consent: true });
-  assert.ok(Buffer.byteLength(withinByteLimit) < workspaceLimits.maxRequestBytes);
-  assert.ok(Buffer.byteLength(JSON.stringify({ ...base, action: 'jev_suggest', request: 'a'.repeat(150000), api_key: 'k', consent: true })) > workspaceLimits.maxRequestBytes);
 });
 
 test('current command and operation examples validate', () => {

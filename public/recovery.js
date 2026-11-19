@@ -160,7 +160,7 @@
   async function request(body) {
     // The password input is the only persistent location of the owner token.
     const token = tokenInput.value;
-    const mutation = ['sync', 'apply', 'plugins_apply', 'restore', 'checkpoint', 'jev_apply', 'recovery_policy'].includes(body.action);
+    const mutation = ['sync', 'apply', 'plugins_apply', 'restore', 'checkpoint', 'recovery_policy'].includes(body.action);
     const command = mutation ? {
       ...body,
       operation_id: crypto.randomUUID(),

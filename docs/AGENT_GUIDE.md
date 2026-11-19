@@ -155,10 +155,6 @@ artifact URI; opening it and browser acknowledgement are separate operations.
 Owner-facing example prompts are in `docs/WORKSPACE_PROMPTS.md`. Use the feature
 guides for precise contracts rather than inventing generic tool authority.
 
-## Optional Jev quick actions
-
-The user can opt into Hermes tools → Jev quick actions using their TypeSafe API key and explicit external-data consent. This is an experimental separate fast path for view/sidebar and installed plugin enable/disable only. It does not accelerate your ordinary tool calls automatically. Never request keys in chat, read stored secrets to activate it, or send workspace data externally without consent. Complex requests remain your responsibility using normal controller tools. No real provider latency/quality benchmark has been established; do not promise speedups. Read `docs/JEV.md` for the exact payload and boundaries.
-
 ## Viewport control and capability boundaries
 
 Full viewport is now checkpointed workspace state: use `{"action":"patch_appearance","patch":{"fullViewport":true}}` (false restores controls). Read the current revision first, apply through the scoped controller with base_revision, then check browser_applied and inspect the browser if claiming visibility. This preserves other appearance values. It hides header, sidebar and navigation without changing sidebarHidden; exiting restores the previous sidebar preference. The visible Controls button and Ctrl+Alt+F remain escape routes and manual changes synchronize back to workspace state. Old checkpoints without this field restore normal mode. A client must load the new frontend once; subsequent changes are live.
