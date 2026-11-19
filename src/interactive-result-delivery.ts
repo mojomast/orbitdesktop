@@ -14,14 +14,6 @@ export function completeResultActions(text: string, source: { id: string; versio
       if (current()) host.append(el('p', '', `Delivery ${ack.deliveryId}: ${ack.status} in pane ${ack.paneId} (generation ${ack.generation}). Saving remains explicit.`));
     } }));
   }));
-  // An explicit sole-key envelope keeps ordinary prose and HTML out of the adapter.
-  let snapshot: unknown;
-  try { const value = JSON.parse(text); if (Object.keys(value).length === 1 && Object.hasOwn(value, 'mcp_snapshot')) snapshot = value.mcp_snapshot; } catch {}
-  if (snapshot) host.append(button('Stage MCP snapshot', 'Choose an MCP Apps pane; import and execution stay explicit', async () => {
-    const adapter = await import('./mcp-apps-host');
-    if (!current()) return;
-    choose(adapter.mcpSnapshotTargets(), target => adapter.stageMcpSnapshot(snapshot, source, target));
-  }));
   function choose(targets: { paneId: string; generation: string }[], deliver: (target: { paneId: string; generation: string }) => { status: string; reason?: string; deliveryId?: string }) {
     const dialog = el('dialog', 'hermes-tools-dialog'); dialog.setAttribute('aria-label', 'Choose result recipient');
     dialog.append(el('h2', '', 'Choose one result recipient'));

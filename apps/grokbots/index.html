@@ -667,14 +667,12 @@ setTimeout(applyTheme,0);
 })();
 </script>
 <script>
-// ---- Voice input: Orbit's local voice capture (on-device transcription) delivers into this draft ----
+// ---- Conversation transfer target: Orbit's "Choose draft…" delivers text into this draft (never sent on its own) ----
 (function(){
-const b=document.createElement('button');b.id='micbtn';b.type='button';b.textContent='🎤';b.title='Dictate with Orbit voice capture (transcribed locally). Use “Choose draft…” there and pick this Grok Bots window.';$('comp').insertBefore(b,$('in'));
 const inGroup=()=>sel&&sel.profile==='__group';
 function title(){if(!sel)return'';if(inGroup()){const t=$('title').textContent.replace(/^👥\s*/,'');return t}const a=cur();return (a?a.name:sel.agent)+(session?' · '+String((typeof sesList!=='undefined'&&sesList.find(x=>x.id===session)||{}).title||session).slice(0,40):'')}
 let last='';function report(){if(!(window.HOST&&HOST.ready))return;const t=title(),av=!!sel&&!picking;const sig=t+'|'+av;if(sig===last)return;last=sig;hostSend('conversation',{title:t,available:av})}
 setInterval(report,1500);addEventListener('gb-conv',report);addEventListener('gb-host',()=>{last='';report()});
-b.onclick=async()=>{try{await host('voice',{});if(window.toast)toast('Voice capture opened. When the transcript is ready, choose “'+(title()?'Grok Bots · '+title():'Grok Bots')+'” as the draft.')}catch(e){err(e)}};
 addEventListener('gb-host-insert',e=>{const d=e.detail||{};const ack=(accepted,reason)=>hostSend('insert-ack',{ref:d.id,accepted,...(reason?{reason}:{})});
   const text=typeof d.text==='string'?d.text:'';if(!text.trim())return ack(false,'Nothing to insert.');
   if(!sel||picking)return ack(false,'Pick a conversation in Grok Bots first.');

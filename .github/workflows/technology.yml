@@ -13,17 +13,12 @@ on:
       - 'package*.json'
       - 'vite.config.js'
       - 'tsconfig.json'
-      - 'src/*copilot*'
-      - 'src/*data*'
-      - 'src/duckdb*'
       - 'src/document*'
       - 'src/richdoc*'
       - 'src/canvas*'
       - 'src/interactive-result*'
-      - 'src/mcp-apps*'
       - 'src/run-trace*'
       - 'src/search*'
-      - 'src/voice*'
       - 'src/technology*'
       - 'src/main.ts'
       - 'src/panes.ts'
@@ -34,14 +29,10 @@ on:
       - 'src/*delegation*'
       - 'src/*capabilit*'
       - 'src/resource-*'
-      - 'server/*copilot*'
-      - 'server/data-*'
       - 'server/documents*'
       - 'server/interactive-results*'
       - 'server/knowledge-*'
-      - 'server/mcp-apps*'
       - 'server/run-trace*'
-      - 'server/voice-*'
       - 'server/technology-*'
       - 'server/*delegation*'
       - 'server/*capabilit*'
@@ -55,21 +46,15 @@ on:
       - 'contracts/*-v1.mjs'
       - 'contracts/feature-capabilities.*'
       - 'scripts/knowledge-model.mjs'
-      - 'scripts/provision_voice_models.mjs'
-      - 'scripts/provision_data_engine.mjs'
       - 'scripts/technology-notices.mjs'
       - 'docs/licenses/**'
-      - 'tests/*copilot*'
-      - 'tests/data-workbench*'
       - 'tests/documents*'
       - 'tests/document-envelope*'
       - 'tests/canvas*'
       - 'tests/interactive-results*'
       - 'tests/knowledge-*'
       - 'tests/resource-content-verbs*'
-      - 'tests/mcp-apps*'
       - 'tests/run-trace*'
-      - 'tests/voice-*'
       - 'tests/technology-*'
       - 'tests/*delegation*'
       - 'tests/*capabilit*'
@@ -85,17 +70,12 @@ on:
       - 'package*.json'
       - 'vite.config.js'
       - 'tsconfig.json'
-      - 'src/*copilot*'
-      - 'src/*data*'
-      - 'src/duckdb*'
       - 'src/document*'
       - 'src/richdoc*'
       - 'src/canvas*'
       - 'src/interactive-result*'
-      - 'src/mcp-apps*'
       - 'src/run-trace*'
       - 'src/search*'
-      - 'src/voice*'
       - 'src/technology*'
       - 'src/main.ts'
       - 'src/panes.ts'
@@ -106,14 +86,10 @@ on:
       - 'src/*delegation*'
       - 'src/*capabilit*'
       - 'src/resource-*'
-      - 'server/*copilot*'
-      - 'server/data-*'
       - 'server/documents*'
       - 'server/interactive-results*'
       - 'server/knowledge-*'
-      - 'server/mcp-apps*'
       - 'server/run-trace*'
-      - 'server/voice-*'
       - 'server/technology-*'
       - 'server/*delegation*'
       - 'server/*capabilit*'
@@ -127,21 +103,15 @@ on:
       - 'contracts/*-v1.mjs'
       - 'contracts/feature-capabilities.*'
       - 'scripts/knowledge-model.mjs'
-      - 'scripts/provision_voice_models.mjs'
-      - 'scripts/provision_data_engine.mjs'
       - 'scripts/technology-notices.mjs'
       - 'docs/licenses/**'
-      - 'tests/*copilot*'
-      - 'tests/data-workbench*'
       - 'tests/documents*'
       - 'tests/document-envelope*'
       - 'tests/canvas*'
       - 'tests/interactive-results*'
       - 'tests/knowledge-*'
       - 'tests/resource-content-verbs*'
-      - 'tests/mcp-apps*'
       - 'tests/run-trace*'
-      - 'tests/voice-*'
       - 'tests/technology-*'
       - 'tests/*delegation*'
       - 'tests/*capabilit*'
@@ -169,7 +139,7 @@ jobs:
       fail-fast: false
       max-parallel: 4
       matrix:
-        suite: [knowledge, interactive, voice, data, documents, mcp, traces, browser, workspace-default, workspace-docking]
+        suite: [knowledge, interactive, documents, traces, workspace-default, workspace-docking]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -208,32 +178,6 @@ jobs:
           install -d -m 700 /tmp/opencode/orbit-knowledge-models /tmp/opencode/orbit-knowledge-models/knowledge-index
           node scripts/knowledge-model.mjs provision /tmp/opencode/orbit-knowledge-models
           node --experimental-strip-types --test tests/knowledge-*.test.mjs
-      - name: Cache pinned public speech model
-        if: matrix.suite == 'voice' || startsWith(matrix.suite, 'workspace-')
-        uses: actions/cache@v4
-        with:
-          path: /tmp/opencode/orbit-voice-models
-          key: voice-model-${{ hashFiles('server/voice-model-assets.mjs') }}
-      - name: Provision verified offline speech fixtures
-        if: matrix.suite == 'voice' || startsWith(matrix.suite, 'workspace-')
-        run: |
-          mkdir -p /tmp/opencode
-          node scripts/provision_voice_models.mjs --models-root /tmp/opencode/orbit-voice-models
-          python3 - <<'PY'
-          import hashlib, urllib.request
-          from pathlib import Path
-          url = 'https://huggingface.co/datasets/Xenova/transformers.js-docs/resolve/main/jfk.wav'
-          with urllib.request.urlopen(url, timeout=60) as response:
-              data = response.read(8 * 1024 * 1024 + 1)
-          assert len(data) <= 8 * 1024 * 1024
-          assert hashlib.sha256(data).hexdigest() == 'aa81c2552465568567e670f3823117e633900d16bd6202346a72f3c8464c74c8'
-          Path('/tmp/opencode/orbit-voice-jfk.wav').write_bytes(data)
-          PY
-      - name: Provision pinned offline data-engine extensions
-        if: matrix.suite == 'data' || startsWith(matrix.suite, 'workspace-')
-        run: |
-          mkdir -p /tmp/opencode
-          node scripts/provision_data_engine.mjs --extensions-root /tmp/opencode/orbit-duckdb-extensions
       - name: Install isolated browser tools
         env:
           PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-technology-browsers
@@ -261,19 +205,12 @@ jobs:
               "$python" tests/interactive-results.browser.py
               "$python" tests/research-handoffs.browser.py
               ;;
-            voice) "$python" tests/voice-capture.browser.py --models-root /tmp/opencode/orbit-voice-models --audio-file /tmp/opencode/orbit-voice-jfk.wav ;;
-            data) "$python" tests/data-workbench.browser.py ;;
             documents)
               "$python" tests/documents.browser.py
               "$python" tests/canvas.browser.py
               "$python" tests/document-envelope-ui.browser.py
               ;;
-            mcp) "$python" tests/mcp-apps.browser.py ;;
             traces) "$python" tests/run-traces.browser.py ;;
-            browser)
-              export ORBIT_BROWSER_EXECUTABLE="$("$python" -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')"
-              "$python" tests/browser-copilot.browser.py
-              ;;
             workspace-default|workspace-docking)
               export ORBIT_BROWSER_EXECUTABLE="$("$python" -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')"
               if [ "$SUITE" = workspace-docking ]; then "$python" tests/docking-narrow.browser.py; fi

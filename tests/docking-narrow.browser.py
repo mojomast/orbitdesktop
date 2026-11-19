@@ -34,8 +34,8 @@ with tempfile.TemporaryDirectory(prefix='orbit-docking-narrow-', dir='/tmp/openc
     state = {'version': 1, 'selected': windows[6], 'arc': 14, 'view': 'windows', 'monitors': []}
     for i in range(13):
         url = {1: 'https://narrow-identity.invalid/', 3: f'orbit://document/{document_id}',
-               6: 'orbit://surface/interactive-results', 7: 'orbit://surface/voice'}.get(i, 'orbit://welcome')
-        name = {1: 'Narrow iframe', 3: 'Narrow editor', 6: 'Narrow card', 7: 'Adjacent voice'}.get(i, f'Neighbor {i}')
+               6: 'orbit://surface/interactive-results', 7: 'orbit://surface/documents'}.get(i, 'orbit://welcome')
+        name = {1: 'Narrow iframe', 3: 'Narrow editor', 6: 'Narrow card', 7: 'Adjacent documents'}.get(i, f'Neighbor {i}')
         state['monitors'].append({'id': windows[i], 'name': name, 'diagonal': 32, 'aspect': '16:9',
             'height': 0, 'distance': 0, 'pitch': 0, 'yaw': 0, 'offset': 0, 'fontSize': 16,
             'frame': {'x': 20, 'y': 20, 'width': 600, 'height': 700, 'z': i},
@@ -90,7 +90,7 @@ with tempfile.TemporaryDirectory(prefix='orbit-docking-narrow-', dir='/tmp/openc
                 if path.endswith('/api/auth'):
                     return reply({'ok': True})
                 if path.endswith('/api/technology-capabilities'):
-                    return reply({'ok': True, 'browser_copilot': False, 'mcp_apps': False})
+                    return reply({'ok': True})
                 if path.endswith('/api/workspace/events'):
                     return reply({'workspace_id': workspace, 'events': [], 'cursor': 0, 'has_more': False, 'reset_required': False})
                 if path.endswith('/api/interactive-results'):

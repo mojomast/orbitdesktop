@@ -3,11 +3,7 @@ export const FEATURE_CAPABILITIES = Object.freeze([
   ['knowledge-search','search','search/read',['UTF-8 text'],'contracts/resource-tools-v1.mjs'],
   ['documents','documents','create/read/save',['Lexical JSON','Excalidraw JSON'],'contracts/documents-v1.mjs'],
   ['interactive-results','interactive-results','import/read/edit',['A2UI v0.9 JSON','NDJSON'],'contracts/interactive-results-v1.mjs'],
-  ['data-workbench','data','select/query',['CSV','JSON','Parquet'],'contracts/data-recipes-v1.mjs'],
-  ['voice-transcript','voice','transcribe',['audio'],null],
   ['run-traces','traces','read/export',['JSON'],'contracts/run-trace-v1.mjs'],
-  ['browser-copilot','browser-copilot','observe/execute',['bounded browser actions'],'contracts/browser-copilot-v1.mjs'],
-  ['mcp-apps','mcp-apps','import/open',['self-contained HTML snapshot'],'contracts/mcp-apps-v1.mjs'],
 ]);
 export function featureCapabilities({audience='controller',observation=null}={}) {
   return {version:1,generation:'orbit-feature-types-v3',observed_at:observation?.observed_at??null,
