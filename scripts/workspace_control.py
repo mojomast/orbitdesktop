@@ -154,14 +154,14 @@ def main():
             if completed.returncode != 0: raise RuntimeError('Files published, but bundle indexing failed; review the runtime schema and explicitly refresh before opening the app')
         url = '/apps/' + args.slug + '/'
         if args.no_open: print(json.dumps({'published': True, 'url': url, 'opened': False})); return
-        operations = [{'action': 'add_window', 'name': args.title or args.slug, 'kind': 'browser', 'url': url}, {'action': 'set_view', 'view': 'windows'}]
+        operations = [{'action': 'add_window', 'name': args.title or args.slug, 'kind': 'browser', 'url': url}]
         # Updating an already-open app reuses its window rather than duplicating it.
         def contains(layout):
             if layout['type'] == 'pane': return layout['pane'].get('url') == url
             return contains(layout['first']) or contains(layout['second'])
         for m in current['state']['monitors']:
             if contains(m['layout']):
-                operations = [{'action': 'select', 'window_id': m['id']}, {'action': 'set_view', 'view': 'windows'}]
+                operations = [{'action': 'select', 'window_id': m['id']}]
                 break
     if args.command != 'restore':
         base=getattr(args,'base_revision',None)

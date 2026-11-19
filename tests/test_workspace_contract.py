@@ -138,7 +138,7 @@ class WorkspaceContractTest(unittest.TestCase):
 
     def test_adapter_rejects_oversized_utf8_json_before_transport(self):
         # A single operation stays within maxItems, but exceeds the encoded byte budget.
-        payload = {"action": "preview", "base_revision": 1, "operations": [{"action": "set_view", "view": "windows", "note": "é" * plugin.maxRequestBytes}]}
+        payload = {"action": "preview", "base_revision": 1, "operations": [{"action": "sidebar", "hidden": True, "note": "é" * plugin.maxRequestBytes}]}
         self.assertGreater(len(json.dumps({**payload, "workspace_id": WORKSPACE}).encode("utf-8")), plugin.maxRequestBytes)
         with mock.patch.object(plugin.urllib.request, "build_opener") as opener:
             result = json.loads(self.handler(payload))
@@ -147,7 +147,7 @@ class WorkspaceContractTest(unittest.TestCase):
         opener.assert_not_called()
 
     def test_cli_rejects_oversized_utf8_json_before_mutation_transport(self):
-        operations = [{"action": "set_view", "view": "windows", "note": "é" * control.maxRequestBytes}]
+        operations = [{"action": "sidebar", "hidden": True, "note": "é" * control.maxRequestBytes}]
         actions = []
 
         def urlopen(request, timeout=20):

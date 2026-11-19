@@ -14,7 +14,7 @@ def monitor(index):
             "aspect": "16:9", "height": 0, "distance": 0, "pitch": 0, "yaw": 0,
             "offset": 0, "fontSize": 19, "layout": {"type": "pane", "pane": {
                 "id": str(uuid.uuid4()), "kind": "browser", "url": "orbit://welcome"}}}
-state = {"version": 1, "selected": ids[0], "arc": 14, "view": "spatial", "monitors": [monitor(0), monitor(1)]}
+state = {"version": 1, "selected": ids[0], "arc": 14, "monitors": [monitor(0), monitor(1)]}
 class Handler(http.server.SimpleHTTPRequestHandler):
     def log_message(self, *_args): pass
 
@@ -32,7 +32,7 @@ try:
         page.on("websocket", lambda socket: sockets.append(socket.url))
         page.goto(f"http://127.0.0.1:{server.server_port}/", wait_until="networkidle")
         page.keyboard.press("Escape")
-        expect(page.locator("[data-anchor-id]")).to_have_count(2)
+        expect(page.locator("article.monitor")).to_have_count(2)
         def import_state(next_state):
             page.locator('input[type="file"]').set_input_files({"name": "fixture.json", "mimeType": "application/json", "buffer": json.dumps(next_state).encode()})
             page.get_by_role("button", name="Confirm change", exact=True).click()
@@ -42,14 +42,12 @@ try:
                 expect(window).to_be_visible()
                 expect(window.locator(".pane")).to_have_count(1)
         import_state(state)
-        expect(page.locator(".workspace.windows-mode")).to_have_count(0)
-        import_state({**state, "view": "windows"})
         expect(page.locator(".workspace.windows-mode")).to_have_count(1)
-        import_state({**state, "view": "windows", "monitors": state["monitors"][:1]})
-        expect(page.locator(f'[data-anchor-id="{ids[1]}"]')).to_have_count(0)
+        import_state({**state, "monitors": state["monitors"][:1]})
+        expect(page.locator(f'article.monitor[data-monitor-id="{ids[1]}"]')).to_have_count(0)
         assert not errors, errors
         assert not sockets, "Import fixture must not connect a host terminal"
-        print(f"PASS import: same-ID spatial replacement remains visible, Spatial→Windows classes reconcile, removed anchors are pruned in Windows; Chromium {browser.version}")
+        print(f"PASS import: same-ID replacement remains visible, windows classes reconcile, removed windows are pruned; Chromium {browser.version}")
         context.close(); browser.close()
 finally:
     server.shutdown(); server.server_close(); thread.join(timeout=5)

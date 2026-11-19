@@ -24,12 +24,12 @@ const appearance = {
 const settings = {
   name: text(60), diagonal: num(20,Number.MAX_SAFE_INTEGER), aspect: enumeration('16:9','16:10','21:9','32:9','4:3','9:16','1:1'),
   height: num(-2,3), distance: num(-2,4), pitch: num(-35,35), yaw: num(-45,45), offset: num(-3,3),
-  fontSize: num(6,32), spatialFontSize: num(6,96), opacity: num(0.2,1), frame: ref('frame'),
+  fontSize: num(6,32), spatialFontSize: {...num(6,96), description:'Deprecated legacy value; accepted and ignored.'}, opacity: num(0.2,1), frame: ref('frame'),
 };
 const defs = {
   frame: object({ x:num(0,10000), y:num(0,10000), width:num(280,4000), height:num(180,4000), z:num(0,100000) }),
-  spatial: object({ x:num(-10000,10000), y:num(-10000,10000), z:num(-10000,10000), width:num(0.3,200), height:num(0.3,200), yaw:num(-360,360), pitch:num(-89,89), resolution:enumeration(1280,1920,2560,3840) }),
-  camera: object({ x:num(-10000,10000), y:num(-10000,10000), z:num(-10000,10000), azimuth:num(-Math.PI*2,Math.PI*2), elevation:num(-1.5,1.5), distance:num(0.2,2000) }),
+  spatial: { ...object({ x:num(-10000,10000), y:num(-10000,10000), z:num(-10000,10000), width:num(0.3,200), height:num(0.3,200), yaw:num(-360,360), pitch:num(-89,89), resolution:enumeration(1280,1920,2560,3840) }), description:'Deprecated legacy placement; accepted and ignored.' },
+  camera: { ...object({ x:num(-10000,10000), y:num(-10000,10000), z:num(-10000,10000), azimuth:num(-Math.PI*2,Math.PI*2), elevation:num(-1.5,1.5), distance:num(0.2,2000) }), description:'Deprecated legacy camera; accepted and ignored.' },
   // Docking placement adjunct: a versioned, Windows/docking-only projection of
   // transient Dockview placement. It references stable v1 window ids only and is
   // never part of `record.state`, never carries runtime handles/params and never
@@ -47,7 +47,7 @@ const defs = {
   manifest: object({apiVersion:{const:1},id:{type:'string',pattern:'^[a-z][a-z0-9-]{0,47}$'},version:{type:'string',pattern:'^\\d+\\.\\d+\\.\\d+$'},title:{...text(60),minLength:1},entry:{type:'string',pattern:'^/apps/[a-z0-9-]+/[a-zA-Z0-9/_-]+\\.html$'},configSchema:ref('configSchema')},['apiVersion','id','version','title','entry']),
   config: {type:'object',maxProperties:32,propertyNames:{pattern:'^[a-zA-Z][a-zA-Z0-9_-]{0,47}$'},additionalProperties:{anyOf:[text(4096),{type:'number'},bool]}},
   plugin: object({manifest:ref('manifest'),instance_id:uuid,enabled:bool,window:ref('monitor'),config:ref('config'),backendEndpoint:text()},['manifest','enabled','window','config']),
-  workspace: object({version:{const:1},monitors:array(ref('monitor'),{minItems:1}),selected:identifier,arc:num(0,30),view:enumeration('windows','spatial'),sidebarHidden:bool,appearance:ref('appearance'),plugins:array(ref('plugin'),{maxItems:32}),spatialCamera:ref('camera')},['version','monitors','selected','arc']),
+  workspace: object({version:{const:1},monitors:array(ref('monitor'),{minItems:1}),selected:identifier,arc:num(0,30),view:{...enumeration('windows','spatial'),description:'Deprecated legacy view; accepted and ignored, always windows.'},sidebarHidden:bool,appearance:ref('appearance'),plugins:array(ref('plugin'),{maxItems:32}),spatialCamera:ref('camera')},['version','monitors','selected','arc']),
   placementNode: { oneOf: [ref('placementGroup'), ref('placementBranch')] },
   dockingPlacement: object({version:{const:1},layout:{anyOf:[ref('placementNode'),{type:'null'}]},floats:array(ref('placementFloat'),{maxItems:100}),active:{anyOf:[identifier,{type:'null'}]}},['version','layout','floats']),
 };
@@ -68,8 +68,6 @@ const operations = {};
 function op(name, properties = {}, required = Object.keys(properties), effect = 'layout') {
   operations[name] = {input:object({action:{const:name},...properties},['action',...required]),sideEffect:effect,permission:effect==='trusted-backend'?'owner-host-code-confirmation':'workspace-write',revision:'current-base-revision',idempotency:'not-retry-safe-without-durable-receipt'};
 }
-op('set_spatial_camera',{camera:ref('camera')});
-op('arrange_spatial',{window_ids:array(identifier,{minItems:1,uniqueItems:true}),mode:enumeration('grid','row','curve'),columns:integer(1),gap:num(0,20)},[]);
 op('reset_appearance',{keys:array(enumeration(...Object.keys(appearance)))});
 op('set_arc',{arc:num(0,30)});
 op('reorder_windows',{window_ids:array(identifier,{minItems:1,uniqueItems:true})});
@@ -80,7 +78,6 @@ op('set_workspace',{state:ref('workspace')});
 op('patch_appearance',{patch:ref('appearance')});
 op('set_appearance',{appearance:ref('appearance')});
 op('update_split',{...window,path:array(enumeration('first','second'),{maxItems:8}),ratio:num(0.15,0.85),axis:enumeration('row','column'),swap:bool},['window_id','path']);
-op('set_view',{view:enumeration('windows','spatial')});
 op('sidebar',{hidden:bool});
 op('select',window);
 op('add_window',{name:text(60),kind,url:text(),frame:ref('frame')},[]);
@@ -151,7 +148,7 @@ command('preview',batch,Object.keys(batch),'read','current-base-revision');
 // Owner UI composition is deliberately limited to existing-window placement.
 // It cannot create/close panes, install plugins, or replace the whole workspace.
 const layoutOperation = {oneOf:[
-  ...['arrange_windows','arrange_spatial','reorder_windows','select','set_view'].map(name=>operations[name].input),
+  ...['arrange_windows','reorder_windows','select'].map(name=>operations[name].input),
   object({action:{const:'update_window'},window_id:identifier,frame:ref('frame')},['action','window_id','frame']),
 ]};
 const layoutBatch={base_revision:integer(0),operations:array(layoutOperation,{minItems:1,maxItems:limits.maxOperations})};

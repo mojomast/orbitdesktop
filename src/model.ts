@@ -1,6 +1,5 @@
 import { themeKeys, validateTheme } from './theme-tokens.ts';
 import { validatePlugins, validateInstanceConfig, type PluginInstance } from './plugins.ts';
-import { validSpatial, validCamera, type SpatialWindow, type SpatialCamera } from './spatial-layout.ts';
 export type PaneKind = "terminal" | "browser" | "agent";
 export interface Pane {
   id: string;
@@ -16,8 +15,14 @@ export type Layout =
       first: Layout;
       second: Layout;
     };
+// Legacy fields remain accepted on input so existing saved workspaces,
+// checkpoints, recipes and old browser tabs still validate. They are removed
+// from the returned workspace by validate().
+interface LegacySpatialWindow { x:number; y:number; z:number; width:number; height:number; yaw:number; pitch:number; resolution:number }
+interface LegacySpatialCamera { x:number; y:number; z:number; azimuth:number; elevation:number; distance:number }
+type LegacyMonitor = Monitor & { spatial?: LegacySpatialWindow; spatialFontSize?: number };
+type LegacyWorkspace = Workspace & { view?: 'windows'|'spatial'; spatialCamera?: LegacySpatialCamera; monitors: LegacyMonitor[] };
 export interface Monitor {
-  spatial?: SpatialWindow;
   frame?: { x: number; y: number; width: number; height: number; z: number };
   id: string;
   name: string;
@@ -29,15 +34,12 @@ export interface Monitor {
   yaw: number;
   offset: number;
   fontSize: number;
-  spatialFontSize?: number;
   opacity?: number;
   layout: Layout;
 }
 export interface Workspace {
-  spatialCamera?: SpatialCamera;
   plugins?: PluginInstance[];
   appearance?: import('./theme-tokens').ThemeTokens & { background?: string; wallpaper?: string; textColor?: string; cornerRadius?: number; fullViewport?: boolean; headerHeight?: number; sidebarWidth?: number; workspaceGap?: number; accentColor?: string; navigationPosition?: 'top' | 'bottom'; wallpaperFit?: 'cover' | 'contain' | 'auto' };
-  view?: "windows" | "spatial";
   sidebarHidden?: boolean;
   version: 1;
   monitors: Monitor[];
@@ -108,8 +110,22 @@ export function dimensions(m: Monitor) {
 }
 const finite = (n: unknown, min: number, max: number) =>
   typeof n === "number" && Number.isFinite(n) && n >= min && n <= max;
+// Minimal legacy shape checks, inlined so persisted spatial fields keep loading
+// without importing the deleted spatial layout module.
+function validSpatial(s: unknown): boolean {
+  const value = s as LegacySpatialWindow;
+  return !!value && typeof value === 'object' && Object.keys(value).length === 8 &&
+    ['x','y','z'].every(k => Number.isFinite(value[k as keyof LegacySpatialWindow]) && Math.abs(value[k as keyof LegacySpatialWindow]) <= 10000) &&
+    ['width','height'].every(k => Number.isFinite(value[k as keyof LegacySpatialWindow]) && value[k as keyof LegacySpatialWindow] >= 0.3 && value[k as keyof LegacySpatialWindow] <= 200) &&
+    Number.isFinite(value.yaw) && Math.abs(value.yaw) <= 360 && Number.isFinite(value.pitch) && Math.abs(value.pitch) <= 89 && [1280,1920,2560,3840].includes(value.resolution);
+}
+function validCamera(c: unknown): boolean {
+  const value = c as LegacySpatialCamera;
+  return !!value && typeof value === 'object' && ['x','y','z'].every(k => Number.isFinite(value[k as keyof LegacySpatialCamera]) && Math.abs(value[k as keyof LegacySpatialCamera]) <= 10000) &&
+    Number.isFinite(value.azimuth) && Math.abs(value.azimuth) <= Math.PI * 2 && Number.isFinite(value.elevation) && Math.abs(value.elevation) <= 1.5 && Number.isFinite(value.distance) && value.distance >= 0.2 && value.distance <= 2000;
+}
 export function validate(value: unknown): Workspace {
-  const s = value as Workspace;
+  const s = value as LegacyWorkspace;
   const ids = new Set<string>();
   const unique = (v: unknown) => {
     if (
@@ -151,6 +167,7 @@ export function validate(value: unknown): Workspace {
     throw Error("Expected an Orbit v1 workspace with at least one monitor");
   for (const m of s.monitors) {
     if (m.spatial !== undefined && !validSpatial(m.spatial)) throw Error('Invalid spatial window');
+    if (m.spatialFontSize !== undefined && !finite(m.spatialFontSize, 6, 96)) throw Error("Invalid monitor settings");
     if (m.opacity !== undefined && !finite(m.opacity, 0.2, 1)) throw Error("Invalid window opacity");
     if (m.frame && (!finite(m.frame.x, 0, 10000) || !finite(m.frame.y, 0, 10000) || !finite(m.frame.width, 280, 4000) || !finite(m.frame.height, 180, 4000) || !finite(m.frame.z, 0, 100000))) throw Error("Invalid window frame");
     unique(m.id);
@@ -166,18 +183,23 @@ export function validate(value: unknown): Workspace {
       !finite(m.pitch, -35, 35) ||
       !finite(m.yaw, -45, 45) ||
       !finite(m.offset, -3, 3) ||
-      !finite(m.fontSize, 6, 32) ||
-      (m.spatialFontSize !== undefined && !finite(m.spatialFontSize, 6, 96))
+      !finite(m.fontSize, 6, 32)
     )
       throw Error("Invalid monitor settings");
     count = 0;
     layout(m.layout);
     if (count > 8) throw Error("Maximum 8 panes per monitor");
+    delete m.spatial;
+    delete m.spatialFontSize;
   }
   if (!s.monitors.some((m) => m.id === s.selected))
     s.selected = s.monitors[0].id;
   if (s.view !== undefined && !["windows", "spatial"].includes(s.view)) throw Error("Invalid workspace view");
   if (s.spatialCamera !== undefined && !validCamera(s.spatialCamera)) throw Error('Invalid spatial camera');
+  // The spatial view is cut: persisted legacy workspaces load as windows and
+  // the camera never survives.
+  if (s.view === 'spatial') s.view = 'windows';
+  delete (s as Partial<LegacyWorkspace>).spatialCamera;
   if (s.sidebarHidden !== undefined && typeof s.sidebarHidden !== "boolean") throw Error("Invalid sidebar state");
   if (s.appearance !== undefined) {
     const a = s.appearance;

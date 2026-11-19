@@ -4,7 +4,7 @@ import {leaves, type Workspace} from './model.ts';
 const ROLES=['primary_agent','active_terminal','preview','candidate_diff','project_files'] as const;
 type RecipeRole=typeof ROLES[number];
 export type WorkspaceRecipeBinding={id:string;pane_id:string;role:RecipeRole};
-export type PortableWorkspaceRecipe={name:string;roles:RecipeRole[];layout:'prioritize'|'columns'|'rows';renderer:'windows'|'spatial'};
+export type PortableWorkspaceRecipe={name:string;roles:RecipeRole[];layout:'prioritize'|'columns'|'rows';renderer:'windows'};
 export type WorkspaceRecipeImport={definition:PortableWorkspaceRecipe;warnings:string[];omitted_fields:string[];absent_roles:RecipeRole[]};
 
 const ID=/^[A-Za-z0-9_-]{1,100}$/;
@@ -115,7 +115,7 @@ export function importSavedLayoutAsWorkspaceRecipe(
   if(absentRoles.length)warnings.push('Roles without one usable ordered binding remain absent from the imported recipe.');
 
   return {
-    definition:{name:saved.name,roles:ordered.map(entry=>entry.role),layout:'prioritize',renderer:saved.view},
+    definition:{name:saved.name,roles:ordered.map(entry=>entry.role),layout:'prioritize',renderer:'windows'},
     warnings,
     omitted_fields:[...OMITTED_FIELDS],
     absent_roles:absentRoles,

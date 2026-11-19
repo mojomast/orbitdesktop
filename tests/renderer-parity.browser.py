@@ -344,21 +344,14 @@ def main():
                                       "path": [], "ratio": .55, "axis": "column", "swap": False})
                         checkpoint = api("checkpoint", control=True, label="Parity baseline")["checkpoint"]
 
+                        expect(page.locator(".workspace")).to_have_class(re.compile("windows-mode"))
                         for cycle in range(3):
-                            ui(f"{cycle}: spatial", lambda: (
-                                page.get_by_role("button", name="Switch to spatial view", exact=True).click(),
-                                page.wait_for_function("() => JSON.parse(localStorage.getItem('orbit.workspace.v1')).view === 'spatial'"),
-                                expect(page.locator(".workspace")).not_to_have_class(re.compile(r"windows-mode"))))
                             ui(f"{cycle}: focus", lambda: (
                                 page.get_by_role("button", name="Focus selected display", exact=True).click(),
                                 expect(page.locator(".focus-host .monitor")).to_have_count(1)))
                             ui(f"{cycle}: unfocus", lambda: (
                                 page.get_by_role("button", name="Exit focus view", exact=True).click(),
                                 expect(page.locator(".focus-host .monitor")).to_have_count(0)))
-                            ui(f"{cycle}: windows", lambda: (
-                                page.get_by_role("button", name="Switch to movable windows", exact=True).click(),
-                                page.wait_for_function("() => JSON.parse(localStorage.getItem('orbit.workspace.v1')).view === 'windows'"),
-                                expect(page.locator(".workspace")).to_have_class(re.compile("windows-mode"))))
                             first = api("read")["state"]["monitors"][0]["id"]
                             apply(f"{cycle}: metadata", {"action": "update_window", "window_id": first,
                                   "name": f"Parity round {cycle}", "distance": cycle * .1,
@@ -390,7 +383,6 @@ def main():
                                                     "first": target["layout"], "second": source["layout"]}
                         merged["monitors"] = [target]
                         merged["selected"] = target["id"]
-                        merged["view"] = "spatial"
                         apply("source-window removal and runtime reparent", {"action": "set_workspace", "state": merged})
 
                         before = api("read")
@@ -586,7 +578,7 @@ def main():
                                   "placement_revision": docking["placement_revision"]},
                       "rollbackFrameXY": {"default": default["rollback_xy"], "docking": docking["rollback_xy"],
                                            "restored": docking["expected_xy"], "bothMatchRestored": True},
-                      "checks": ["windows/spatial", "focus/unfocus", "minimize/restore", "update_window",
+                      "checks": ["windows", "focus/unfocus", "minimize/restore", "update_window",
                                  "reorder_windows", "update_split", "swap_panes", "patch_appearance",
                                  "source-window removal + reparent", "checkpoint rollback restore",
                                  "URL replacement negative control", "close_pane negative control",

@@ -18,12 +18,12 @@ export function installLayoutSwitcher(host:HTMLElement, key:string, get:()=>Work
   const list=el('div','layout-list');
   const name=el('input','start-search') as HTMLInputElement; name.maxLength=80;name.placeholder='Name this layout';name.setAttribute('aria-label','Layout name');
   const persist=()=>{ try {localStorage.setItem(key,JSON.stringify({active,layouts}));} catch {notify('Layout storage is full or unavailable; changes are session-only.');} };
-  function label(){const current=layouts.find(l=>l.id===active);toggle.textContent=`▦ Browser: ${current?.name || 'Snapshots'} · ${get().view==='spatial'?'3D':'2D'}`;}
+  function label(){const current=layouts.find(l=>l.id===active);toggle.textContent=`▦ Browser: ${current?.name || 'Snapshots'}`;}
   function remember(){if(switching)return;const index=layouts.findIndex(l=>l.id===active);if(index>=0)layouts[index]=captureLayout(get(),layouts[index].name,active,hidden());persist();label();}
   function close(){panel.hidden=true;toggle.setAttribute('aria-expanded','false');}
   function render(){list.replaceChildren(); name.value=layouts.find(l=>l.id===active)?.name||'';
     for(const layout of layouts) {
-      const item=button(`${layout.view==='spatial'?'◈ 3D':'▤ 2D'} · ${layout.name}`,`Switch layout ${layout.name}`,()=>{
+      const item=button(`▤ ${layout.name}`,`Switch layout ${layout.name}`,()=>{
         if(layout.id===active){close();return;} remember();
         try {const next=applyLayout(get(),layout);switching=true;apply(next,layout.minimized);active=layout.id;persist();label();close();toggle.focus();}
         catch {notify('Could not apply that layout.');} finally {switching=false;}
@@ -31,7 +31,7 @@ export function installLayoutSwitcher(host:HTMLElement, key:string, get:()=>Work
     }
   }
   function title(){const value=name.value.trim();if(!value){notify('Enter a layout name.');name.focus();return null;}return value;}
-  panel.append(el('strong','','Browser snapshots — auto-updated here'),el('p','','Browser-local storage · Automatic updates. Changes overwrite the active snapshot here. Positions, text sizes, minimized windows and camera stay in this browser; apps and panes stay shared. For explicit host-saved arrangements, open Start → Saved workspace layouts.'),list,name,
+  panel.append(el('strong','','Browser snapshots — auto-updated here'),el('p','','Browser-local storage · Automatic updates. Changes overwrite the active snapshot here. Positions, text sizes and minimized windows stay in this browser; apps and panes stay shared. For explicit host-saved arrangements, open Start → Saved workspace layouts.'),list,name,
     button('＋ New from current','Create layout from current',()=>{const value=title();if(!value)return;if(layouts.length>=32){notify('Maximum 32 layouts.');return;}remember();active=id();layouts.push(captureLayout(get(),value,active,hidden()));persist();label();render();}),
     button('Rename','Rename current layout',()=>{const value=title();if(!value)return;layouts.find(l=>l.id===active)!.name=value;persist();label();render();}),
     button('Delete','Delete current layout',()=>{if(layouts.length===1){notify('Keep at least one layout.');return;}if(!window.confirm('Delete this saved layout? Open windows and apps will remain.'))return;const remaining=layouts.filter(l=>l.id!==active);const target=remaining[0];try{const next=applyLayout(get(),target);switching=true;apply(next,target.minimized);layouts=remaining;active=target.id;persist();label();render();}finally{switching=false;}}),

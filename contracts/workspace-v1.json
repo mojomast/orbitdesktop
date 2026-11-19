@@ -22,72 +22,6 @@
     "BUNDLE_UNAVAILABLE": "Published bundle is missing, changed or unindexed; verify files and refresh the bundle index"
   },
   "operations": {
-    "set_spatial_camera": {
-      "input": {
-        "type": "object",
-        "properties": {
-          "action": {
-            "const": "set_spatial_camera"
-          },
-          "camera": {
-            "$ref": "#/$defs/camera"
-          }
-        },
-        "required": [
-          "action",
-          "camera"
-        ],
-        "additionalProperties": false
-      },
-      "sideEffect": "layout",
-      "permission": "workspace-write",
-      "revision": "current-base-revision",
-      "idempotency": "receipt belongs to containing command batch"
-    },
-    "arrange_spatial": {
-      "input": {
-        "type": "object",
-        "properties": {
-          "action": {
-            "const": "arrange_spatial"
-          },
-          "window_ids": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "pattern": "^[a-zA-Z0-9_-]{1,100}$"
-            },
-            "minItems": 1,
-            "uniqueItems": true
-          },
-          "mode": {
-            "enum": [
-              "grid",
-              "row",
-              "curve"
-            ]
-          },
-          "columns": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 9007199254740991
-          },
-          "gap": {
-            "type": "number",
-            "minimum": 0,
-            "maximum": 20
-          }
-        },
-        "required": [
-          "action"
-        ],
-        "additionalProperties": false
-      },
-      "sideEffect": "layout",
-      "permission": "workspace-write",
-      "revision": "current-base-revision",
-      "idempotency": "receipt belongs to containing command batch"
-    },
     "reset_appearance": {
       "input": {
         "type": "object",
@@ -417,31 +351,6 @@
       "revision": "current-base-revision",
       "idempotency": "receipt belongs to containing command batch"
     },
-    "set_view": {
-      "input": {
-        "type": "object",
-        "properties": {
-          "action": {
-            "const": "set_view"
-          },
-          "view": {
-            "enum": [
-              "windows",
-              "spatial"
-            ]
-          }
-        },
-        "required": [
-          "action",
-          "view"
-        ],
-        "additionalProperties": false
-      },
-      "sideEffect": "layout",
-      "permission": "workspace-write",
-      "revision": "current-base-revision",
-      "idempotency": "receipt belongs to containing command batch"
-    },
     "sidebar": {
       "input": {
         "type": "object",
@@ -587,7 +496,8 @@
           "spatialFontSize": {
             "type": "number",
             "minimum": 6,
-            "maximum": 96
+            "maximum": 96,
+            "description": "Deprecated legacy value; accepted and ignored."
           },
           "opacity": {
             "type": "number",
@@ -1119,7 +1029,8 @@
               "spatialFontSize": {
                 "type": "number",
                 "minimum": 6,
-                "maximum": 96
+                "maximum": 96,
+                "description": "Deprecated legacy value; accepted and ignored."
               },
               "opacity": {
                 "type": "number",
@@ -2585,44 +2496,6 @@
                   "type": "object",
                   "properties": {
                     "action": {
-                      "const": "arrange_spatial"
-                    },
-                    "window_ids": {
-                      "type": "array",
-                      "items": {
-                        "type": "string",
-                        "pattern": "^[a-zA-Z0-9_-]{1,100}$"
-                      },
-                      "minItems": 1,
-                      "uniqueItems": true
-                    },
-                    "mode": {
-                      "enum": [
-                        "grid",
-                        "row",
-                        "curve"
-                      ]
-                    },
-                    "columns": {
-                      "type": "integer",
-                      "minimum": 1,
-                      "maximum": 9007199254740991
-                    },
-                    "gap": {
-                      "type": "number",
-                      "minimum": 0,
-                      "maximum": 20
-                    }
-                  },
-                  "required": [
-                    "action"
-                  ],
-                  "additionalProperties": false
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "action": {
                       "const": "reorder_windows"
                     },
                     "window_ids": {
@@ -2655,25 +2528,6 @@
                   "required": [
                     "action",
                     "window_id"
-                  ],
-                  "additionalProperties": false
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "action": {
-                      "const": "set_view"
-                    },
-                    "view": {
-                      "enum": [
-                        "windows",
-                        "spatial"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "action",
-                    "view"
                   ],
                   "additionalProperties": false
                 },
@@ -2824,44 +2678,6 @@
                   "type": "object",
                   "properties": {
                     "action": {
-                      "const": "arrange_spatial"
-                    },
-                    "window_ids": {
-                      "type": "array",
-                      "items": {
-                        "type": "string",
-                        "pattern": "^[a-zA-Z0-9_-]{1,100}$"
-                      },
-                      "minItems": 1,
-                      "uniqueItems": true
-                    },
-                    "mode": {
-                      "enum": [
-                        "grid",
-                        "row",
-                        "curve"
-                      ]
-                    },
-                    "columns": {
-                      "type": "integer",
-                      "minimum": 1,
-                      "maximum": 9007199254740991
-                    },
-                    "gap": {
-                      "type": "number",
-                      "minimum": 0,
-                      "maximum": 20
-                    }
-                  },
-                  "required": [
-                    "action"
-                  ],
-                  "additionalProperties": false
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "action": {
                       "const": "reorder_windows"
                     },
                     "window_ids": {
@@ -2894,25 +2710,6 @@
                   "required": [
                     "action",
                     "window_id"
-                  ],
-                  "additionalProperties": false
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "action": {
-                      "const": "set_view"
-                    },
-                    "view": {
-                      "enum": [
-                        "windows",
-                        "spatial"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "action",
-                    "view"
                   ],
                   "additionalProperties": false
                 },
@@ -3268,7 +3065,8 @@
           "pitch",
           "resolution"
         ],
-        "additionalProperties": false
+        "additionalProperties": false,
+        "description": "Deprecated legacy placement; accepted and ignored."
       },
       "camera": {
         "type": "object",
@@ -3312,7 +3110,8 @@
           "elevation",
           "distance"
         ],
-        "additionalProperties": false
+        "additionalProperties": false,
+        "description": "Deprecated legacy camera; accepted and ignored."
       },
       "placementFrame": {
         "type": "object",
@@ -3733,7 +3532,8 @@
           "spatialFontSize": {
             "type": "number",
             "minimum": 6,
-            "maximum": 96
+            "maximum": 96,
+            "description": "Deprecated legacy value; accepted and ignored."
           },
           "opacity": {
             "type": "number",
@@ -3880,7 +3680,8 @@
             "enum": [
               "windows",
               "spatial"
-            ]
+            ],
+            "description": "Deprecated legacy view; accepted and ignored, always windows."
           },
           "sidebarHidden": {
             "type": "boolean"
@@ -4115,60 +3916,6 @@
       },
       "operation": {
         "oneOf": [
-          {
-            "type": "object",
-            "properties": {
-              "action": {
-                "const": "set_spatial_camera"
-              },
-              "camera": {
-                "$ref": "#/$defs/camera"
-              }
-            },
-            "required": [
-              "action",
-              "camera"
-            ],
-            "additionalProperties": false
-          },
-          {
-            "type": "object",
-            "properties": {
-              "action": {
-                "const": "arrange_spatial"
-              },
-              "window_ids": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "pattern": "^[a-zA-Z0-9_-]{1,100}$"
-                },
-                "minItems": 1,
-                "uniqueItems": true
-              },
-              "mode": {
-                "enum": [
-                  "grid",
-                  "row",
-                  "curve"
-                ]
-              },
-              "columns": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 9007199254740991
-              },
-              "gap": {
-                "type": "number",
-                "minimum": 0,
-                "maximum": 20
-              }
-            },
-            "required": [
-              "action"
-            ],
-            "additionalProperties": false
-          },
           {
             "type": "object",
             "properties": {
@@ -4442,25 +4189,6 @@
             "type": "object",
             "properties": {
               "action": {
-                "const": "set_view"
-              },
-              "view": {
-                "enum": [
-                  "windows",
-                  "spatial"
-                ]
-              }
-            },
-            "required": [
-              "action",
-              "view"
-            ],
-            "additionalProperties": false
-          },
-          {
-            "type": "object",
-            "properties": {
-              "action": {
                 "const": "sidebar"
               },
               "hidden": {
@@ -4583,7 +4311,8 @@
               "spatialFontSize": {
                 "type": "number",
                 "minimum": 6,
-                "maximum": 96
+                "maximum": 96,
+                "description": "Deprecated legacy value; accepted and ignored."
               },
               "opacity": {
                 "type": "number",
@@ -5049,7 +4778,8 @@
                   "spatialFontSize": {
                     "type": "number",
                     "minimum": 6,
-                    "maximum": 96
+                    "maximum": 96,
+                    "description": "Deprecated legacy value; accepted and ignored."
                   },
                   "opacity": {
                     "type": "number",
@@ -6270,44 +6000,6 @@
                   "type": "object",
                   "properties": {
                     "action": {
-                      "const": "arrange_spatial"
-                    },
-                    "window_ids": {
-                      "type": "array",
-                      "items": {
-                        "type": "string",
-                        "pattern": "^[a-zA-Z0-9_-]{1,100}$"
-                      },
-                      "minItems": 1,
-                      "uniqueItems": true
-                    },
-                    "mode": {
-                      "enum": [
-                        "grid",
-                        "row",
-                        "curve"
-                      ]
-                    },
-                    "columns": {
-                      "type": "integer",
-                      "minimum": 1,
-                      "maximum": 9007199254740991
-                    },
-                    "gap": {
-                      "type": "number",
-                      "minimum": 0,
-                      "maximum": 20
-                    }
-                  },
-                  "required": [
-                    "action"
-                  ],
-                  "additionalProperties": false
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "action": {
                       "const": "reorder_windows"
                     },
                     "window_ids": {
@@ -6340,25 +6032,6 @@
                   "required": [
                     "action",
                     "window_id"
-                  ],
-                  "additionalProperties": false
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "action": {
-                      "const": "set_view"
-                    },
-                    "view": {
-                      "enum": [
-                        "windows",
-                        "spatial"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "action",
-                    "view"
                   ],
                   "additionalProperties": false
                 },
@@ -6463,44 +6136,6 @@
                   "type": "object",
                   "properties": {
                     "action": {
-                      "const": "arrange_spatial"
-                    },
-                    "window_ids": {
-                      "type": "array",
-                      "items": {
-                        "type": "string",
-                        "pattern": "^[a-zA-Z0-9_-]{1,100}$"
-                      },
-                      "minItems": 1,
-                      "uniqueItems": true
-                    },
-                    "mode": {
-                      "enum": [
-                        "grid",
-                        "row",
-                        "curve"
-                      ]
-                    },
-                    "columns": {
-                      "type": "integer",
-                      "minimum": 1,
-                      "maximum": 9007199254740991
-                    },
-                    "gap": {
-                      "type": "number",
-                      "minimum": 0,
-                      "maximum": 20
-                    }
-                  },
-                  "required": [
-                    "action"
-                  ],
-                  "additionalProperties": false
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "action": {
                       "const": "reorder_windows"
                     },
                     "window_ids": {
@@ -6533,25 +6168,6 @@
                   "required": [
                     "action",
                     "window_id"
-                  ],
-                  "additionalProperties": false
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "action": {
-                      "const": "set_view"
-                    },
-                    "view": {
-                      "enum": [
-                        "windows",
-                        "spatial"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "action",
-                    "view"
                   ],
                   "additionalProperties": false
                 },

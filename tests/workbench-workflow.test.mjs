@@ -166,14 +166,14 @@ test('Review targets only the bound trusted window, floats it beside the agent, 
   f.records.bind({workspace_id:f.workspace_id,project_id:f.project.id,resource_id:file.id,pane_id:pane(before.state.monitors[1]),base_revision:before.revision,role:'candidate_diff'});
   f.records.bind({workspace_id:f.workspace_id,project_id:f.project.id,resource_id:agent.id,pane_id:pane(before.state.monitors[0]),base_revision:before.revision,role:'primary_agent'});
   const preview=await f.flow('recipe_preview',{recipe:'review',width:1400,height:900});
-  assert.deepEqual(preview.operations.map(operation=>operation.action),['update_window','select','set_view']);
+  assert.deepEqual(preview.operations.map(operation=>operation.action),['update_window','select']);
   assert.deepEqual(f.store.read(f.workspace_id).state,priorState,'preview does not mutate owner state');
   assert.deepEqual(f.store.read(f.workspace_id).placement,priorPlacement,'preview does not mutate Docking placement');
   await assert.rejects(f.flow('recipe_preview',{recipe:'review'}),{code:'invalid_request'});
   const applied=await f.flow('recipe_apply',{recipe:'review',preview_id:preview.preview_id,preview_digest:preview.preview_digest,op_id:randomUUID()});
   assert.equal(applied.workspace.state.monitors[0].id,ids[0]);assert.equal(applied.workspace.state.monitors[1].id,ids[1]);
   const targetFrame=applied.workspace.state.monitors[1].frame;assert.ok(targetFrame.x>=560&&targetFrame.x<1400);assert.ok(targetFrame.y>=0&&targetFrame.y+targetFrame.height<=900);
-  assert.equal(applied.workspace.state.selected,ids[1]);assert.equal(applied.workspace.state.view,'windows');
+  assert.equal(applied.workspace.state.selected,ids[1]);assert.notEqual(applied.workspace.state.view,'spatial');
   assert.equal(pane(applied.workspace.state.monitors[1]),reviewPane);
   assert.deepEqual(applied.workspace.placement.floats.find(item=>item.windows.includes(ids[1])).frame,{x:targetFrame.x,y:targetFrame.y,width:targetFrame.width,height:targetFrame.height});
   assert.deepEqual(applied.workspace.placement.floats.find(item=>item.windows.includes(ids[2])),priorPlacement.floats[0],'unrelated owner float remains exact');

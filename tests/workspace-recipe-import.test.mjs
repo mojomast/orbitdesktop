@@ -66,7 +66,7 @@ test('adapter validates without mutating inputs and ignores stale saved windows 
   saved.view='spatial';saved.camera={x:0,y:0,z:0,azimuth:0,elevation:0,distance:10};
   const savedBefore=structuredClone(saved),bindings=[binding('binding-real',leaves(workspace.monitors[0].layout)[0].id,'project_files')],bindingsBefore=structuredClone(bindings);
   const output=importSavedLayoutAsWorkspaceRecipe(freeze(saved),freeze(workspace),freeze(bindings));
-  assert.deepEqual(output.definition,{name:'Legacy arrangement',roles:['project_files'],layout:'prioritize',renderer:'spatial'});
+  assert.deepEqual(output.definition,{name:'Legacy arrangement',roles:['project_files'],layout:'prioritize',renderer:'windows'});
   assert.ok(output.warnings.some(warning=>warning.includes('stale')));
   const serialized=JSON.stringify(output);
   for(const identifier of ['stale-window-id',...workspace.monitors.map(monitor=>monitor.id),...bindings.map(item=>item.id)])assert.equal(serialized.includes(identifier),false);

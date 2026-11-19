@@ -2,7 +2,7 @@
    theme-chrome.css themes the primary chrome (top bar, monitors, panes, chat,
    dialogs, controls). This file extends the same --theme-* token set to the
    remaining surfaces — Start menu, layout switcher, desktop shortcuts,
-   minimised tray, spatial tools, plugin manager, Hermes tools, activity strips,
+   minimised tray, plugin manager, Hermes tools, activity strips,
    inline tool cards, viewport escape hatch, toasts, inspector and scrollbars —
    so a workspace theme is applied consistently across the whole UI.
    Every declaration keeps the pre-theme value as a fallback, so an unthemed
@@ -109,38 +109,6 @@ html[data-orbit-theme] .minimized-tray button {
 }
 html[data-orbit-theme] #app .display-tabs button.minimized {
   border-bottom-color: var(--theme-mutedColor, #a3b3ce);
-}
-
-/* ------------------------------------------------------ spatial tools ------ */
-html[data-orbit-theme] .spatial-toolbar button {
-  background: var(--theme-menuColor, var(--theme-panelColor, #17232ef2));
-  color: var(--theme-textColor, #e7f1ff);
-  border: 1px solid var(--theme-borderColor, #60788c);
-  border-radius: var(--theme-controlRadius, 8px);
-}
-html[data-orbit-theme] .spatial-toolbar button[aria-pressed="true"] {
-  background: var(--theme-accentColor, #b5f268);
-  color: var(--theme-surfaceColor, #10141c);
-}
-html[data-orbit-theme] .spatial-dialog {
-  background: var(--theme-panelColor, #16212d);
-  color: var(--theme-textColor, #e7f1ff);
-  border: 1px solid var(--theme-borderColor, #60788c);
-  border-radius: var(--theme-controlRadius, 16px);
-}
-html[data-orbit-theme] .spatial-dialog p {
-  color: var(--theme-mutedColor, #bacbdc);
-}
-html[data-orbit-theme] .spatial-dialog button {
-  background: var(--theme-buttonColor, #2e4555);
-  color: var(--theme-buttonTextColor, #fff);
-  border: 1px solid var(--theme-borderColor, #60788c);
-  border-radius: var(--theme-controlRadius, 8px);
-}
-html[data-orbit-theme] .spatial-dialog :is(input, select) {
-  background: var(--theme-surfaceColor, #0f1721);
-  color: var(--theme-textColor, #fff);
-  border: 1px solid var(--theme-borderColor, #60788c);
 }
 
 /* ---------------------------------------------------- plugin manager ------- */

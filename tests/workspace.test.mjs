@@ -62,11 +62,11 @@ test('workspace operations validate geometry and support targeted changes withou
  assert.equal(next.monitors[0].name,'Host Workshop');assert.notEqual(s.monitors[0].name,'Host Workshop');
  assert.throws(()=>applyOperation(s,{action:'update_window',window_id:id,frame:{x:-10,y:0,width:2,height:2,z:1}}));
  assert.equal(applyOperation(s,{action:'sidebar',hidden:true}).sidebarHidden,true);
- assert.equal(applyOperation(s,{action:'set_view',view:'windows'}).view,'windows');
+ assert.equal(applyOperation(s,{action:'set_arc',arc:20}).arc,20);
  const split=applyOperation(s,{action:'split_pane',window_id:id,pane_id:leaves(s.monitors[0].layout)[0].id,kind:'browser'});
  assert.equal(leaves(split.monitors[0].layout).length,2);
 });
-test('large spatial windows and small text survive validation while unsafe numbers fail',()=>{
+test('large windows and small text survive validation while unsafe numbers fail',()=>{
  const s=initial(),window_id=s.monitors[0].id;
  const next=applyOperation(s,{action:'update_window',window_id,diagonal:1200,fontSize:6});
  assert.equal(next.monitors[0].diagonal,1200); assert.equal(next.monitors[0].fontSize,6);
@@ -108,7 +108,7 @@ test('workspace polling reports explicitly reindexed app assets without a layout
 test('operation batches are atomic when a later operation is invalid',async t=>{
   const {id,req,service}=await setup(t);await req({action:'sync',state:initial()});
   const cap=service.store.read(id).capability;
- assert.equal((await req({action:'apply',base_revision:1,operations:[{action:'sidebar',hidden:true},{action:'set_view',view:'INVALID'}]},true,cap)).status,400);
+ assert.equal((await req({action:'apply',base_revision:1,operations:[{action:'sidebar',hidden:true},{action:'set_arc',arc:99}]},true,cap)).status,400);
  const state=await req({action:'read'});assert.equal(state.body.revision,1);assert.notEqual(state.body.state.sidebarHidden,true);
 });
 test('app preview is CSP-sandboxed, supports modules, and blocks hidden files and symlink escapes',async t=>{
