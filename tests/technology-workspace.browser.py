@@ -11,7 +11,6 @@ import importlib.util
 import hashlib
 import json
 import os
-import re
 from pathlib import Path
 import secrets
 import shutil
@@ -30,7 +29,7 @@ spec = importlib.util.spec_from_file_location('release_acceptance', ROOT / 'test
 release = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(release)
 EVIDENCE = Path('/tmp/opencode/orbit-tech-acceptance')
-SURFACES = {'search': 'Knowledge search', 'documents': 'Document library',
+SURFACES = {'search': 'Shared sources', 'documents': 'Document library',
             'interactive-results': 'Interactive results', 'trace': 'Run traces'}
 ROUTES = {'/api/search': 'status', '/api/documents': 'list',
           '/api/interactive-results': 'list', '/api/run-traces': 'list'}
@@ -106,14 +105,6 @@ def fixture(args, dist, configured):
                    'ORBIT_TMUX_SOCKET': 'tech-' + str(uuid.uuid4()), 'ORBIT_TMUX_CONFIG': '/dev/null',
                    'TMUX_TMPDIR': str(root / 'tmux'), 'HERMES_API_URL': gateway_origin,
                    'HERMES_API_KEY': 'synthetic-only'}
-            if configured:
-                model = args.search_models / 'knowledge-index/model'
-                if not model.is_dir():
-                    raise RuntimeError('Search fixture expects knowledge-index/model under --search-models')
-                # copytree copies the model's mode, but implicit parent creation
-                # follows the runner umask. The feature root must be private too.
-                (root / 'runtime/knowledge-index').mkdir(mode=0o700)
-                shutil.copytree(model, root / 'runtime/knowledge-index/model')
             (root / 'widget/index.html').write_text('<!doctype html><title>Synthetic widget</title><h1>Unrelated synthetic widget</h1><label>Widget draft<input id="draft"></label>')
             manifest = json.loads(subprocess.check_output(['python3', str(root / 'scripts/plugin_publish.py'),
                 str(root / 'widget'), '--id', 'technology-sentinel', '--version', '1.0.0',
@@ -265,8 +256,8 @@ window.__technologyCspViolations.push({uri:event.blockedURI,directive:event.effe
             record('real conversation library and independent durable drafts')
             if not configured:
                 search = surface('search')
-                expect(search.get_by_role('status')).to_contain_text('Semantic off', timeout=20000)
-                record('absent search-model availability remains explicit')
+                expect(search.get_by_role('status')).to_contain_text('Keyword index ready', timeout=20000)
+                record('shared sources opens with the keyword-only index')
             else:
                 # Unrelated generated widget must survive all subsequent host features.
                 api('/api/workspace', 'plugins_apply', base_revision=snapshot()['revision'],
@@ -282,18 +273,17 @@ window.__technologyCspViolations.push({uri:event.blockedURI,directive:event.effe
                 assert all(m['layout']['pane']['kind'] != 'terminal' for m in snapshot()['state']['monitors'])
 
                 search = surface('search')
-                expect(search.get_by_role('status')).to_contain_text('Semantic on', timeout=20000)
+                expect(search.get_by_role('status')).to_contain_text('Keyword index ready', timeout=20000)
                 search.get_by_label('Source title').fill('Synthetic astronomy')
                 search.get_by_label('Source text', exact=True).fill('Observatory telescope studies distant planets. Synthetic acceptance source.')
                 search.get_by_role('button', name='Add text', exact=True).click()
                 expect(search.get_by_role('status')).to_contain_text('1 sources', timeout=180000)
-                search.get_by_label('Search query').fill('planets')
-                search.get_by_role('button', name='Search', exact=True).click()
-                expect(search.get_by_label('Passage from Synthetic astronomy')).to_have_value(re.compile('Observatory'), timeout=180000)
-                assert api('/api/search', 'search', query='planets', mode='hybrid')['semantic_used'] is True
+                found = api('/api/search', 'search', query='planets', mode='keyword')
+                assert found['mode'] == 'keyword' and found['semantic_used'] is False
+                assert len(found['results']) == 1
                 search_sources_before_reload = api('/api/search', 'list_sources')['sources']
                 assert len(search_sources_before_reload) == 1
-                record('real full-server local embeddings and keyword/hybrid source discovery')
+                record('real full-server keyword source index and source listing')
 
                 documents = surface('documents')
                 documents.get_by_label('Document title').fill('Synthetic rich acceptance')
@@ -422,7 +412,7 @@ window.__techEditors=window.__techNodes.map(n=>n.querySelector('.richdoc-content
 const host=document.querySelector('[data-host-surface="search"]');
 const status=host?.querySelector('.knowledge-status')?.textContent||'';
 const error=host?.querySelector('.knowledge-error')?.textContent;
-return /^1 sources.*Semantic on \\(local MiniLM\\)/.test(status)&&error!==undefined&&error.trim()===''
+return /^1 sources.*Keyword index ready/.test(status)&&error!==undefined&&error.trim()===''
 &&[...host.querySelectorAll('.knowledge-source strong')].some(n=>n.textContent==='Synthetic astronomy');
 }''', timeout=15000)
                 search = page.locator('[data-host-surface="search"]')
@@ -433,7 +423,7 @@ return /^1 sources.*Semantic on \\(local MiniLM\\)/.test(status)&&error!==undefi
                 search_sources_after_reload = api('/api/search', 'list_sources')['sources']
                 assert [{k: s[k] for k in ('source_id', 'title', 'content_sha256')} for s in search_sources_after_reload] == [
                     {k: s[k] for k in ('source_id', 'title', 'content_sha256')} for s in search_sources_before_reload]
-                record('search automatically recovers within 15s on its ordinary 10s poll, clears locked error and restores the saved source/model status')
+                record('shared sources automatically recovers within 15s on its ordinary 10s poll, clears locked error and restores the saved source status')
                 expect(chat(0).get_by_label('Message to Hermes', exact=True)).to_have_value(final_draft, timeout=20000)
                 expect(chat(1).get_by_label('Message to Hermes', exact=True)).to_have_value('Untouched durable draft', timeout=20000)
                 expect(page.locator(f'[data-document-id="{rich_id}"] .richdoc-content')).to_contain_text('Durable synthetic rich document', timeout=45000)
@@ -486,7 +476,6 @@ def main():
     parser.add_argument('--dist', type=Path, help='Previously isolated production build; copied, never modified')
     parser.add_argument('--capabilities', choices=('both', 'configured', 'off'), default='both')
     parser.add_argument('--browser-executable', default=os.environ.get('ORBIT_BROWSER_EXECUTABLE', '/tmp/opencode/orbit-evolution-browsers/chromium-1208/chrome-linux64/chrome'))
-    parser.add_argument('--search-models', type=Path, default=Path('/tmp/opencode/orbit-knowledge-model-test-20260930'))
     args = parser.parse_args()
     EVIDENCE.mkdir(parents=True, exist_ok=True)
     if not Path(args.browser_executable).is_file():

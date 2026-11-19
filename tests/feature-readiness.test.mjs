@@ -5,20 +5,18 @@ import os from 'node:os';
 import path from 'node:path';
 import {observeFeatureReadiness} from '../server/feature-readiness.mjs';
 import {featureCapabilities} from '../contracts/feature-capabilities.mjs';
-import {MODEL_FILES} from '../server/knowledge-model.mjs';
 import {createTechnologyReadiness} from '../src/technology-readiness.ts';
 
-test('request-time metadata observes assets/config without private libraries or claiming execution',()=>{
+test('request-time metadata observes config without private libraries or claiming execution',()=>{
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'orbit-readiness-'));
   try{
     const options={root,runtimeRoot:root,now:()=>1000};
     const before=observeFeatureReadiness(options);
-    assert.equal(before.features['knowledge-search'].prerequisites[0].state,'missing_or_invalid');
-    const sized=(file,size)=>{fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,'');fs.truncateSync(file,size);};
-    for(const [name,size] of MODEL_FILES)sized(path.join(root,'knowledge-index/model',name),size);
+    assert.equal(before.features['knowledge-search'].state,'unknown');
+    assert.deepEqual(before.features['knowledge-search'].prerequisites,[]);
     const after=observeFeatureReadiness({...options,now:()=>2000});
     assert.equal(after.features['knowledge-search'].state,'unknown');
-    assert.equal(after.features['knowledge-search'].prerequisites[0].state,'present_unverified');
+    assert.deepEqual(after.features['knowledge-search'].prerequisites,[]);
     assert.notEqual(before.observed_at,after.observed_at);
     const owner=featureCapabilities({audience:'owner',observation:after}), controller=featureCapabilities({observation:after});
     assert.deepEqual(owner.features.map(x=>x.readiness),controller.features.map(x=>x.readiness));

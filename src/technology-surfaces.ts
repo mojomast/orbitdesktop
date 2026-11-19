@@ -1,5 +1,5 @@
 export const TECHNOLOGY_SURFACES = {
-  search: {title:'Knowledge search',detail:'Search explicitly indexed local sources',auth:true},
+  search: {title:'Shared sources',detail:'Sources you choose to share with bots',auth:true},
   'interactive-results': {title:'Interactive results',detail:'Import, edit and save reviewed result cards',auth:true},
   documents: {title:'Document library',detail:'Open rich documents and canvases',auth:true},
   trace: {title:'Run traces',detail:'Inspect observed run timing and export traces',auth:true},

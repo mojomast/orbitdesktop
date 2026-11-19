@@ -97,7 +97,7 @@ below; it does not enable every upstream Hermes integration.
 
 | Technology | What the agent can do with it | Example request | Access / setup |
 | --- | --- | --- | --- |
-| **SQLite FTS5 + sqlite-vec + MiniLM** | Search granted snapshots by keyword and compare exact cited passages. The owner search surface also supports local hybrid semantic retrieval and sharing its passages with the agent. | “Find the budget and delivery constraints in these sources, and distinguish binding requirements from informal estimates.” | Owner imports snapshots. Delegated search is keyword-only; hybrid search in the owner surface needs the pinned local MiniLM model. Citations bind exact bytes and text ranges. [Knowledge search](docs/KNOWLEDGE_SEARCH.md) |
+| **SQLite FTS5 keyword index** | The owner adds explicit source snapshots in **Shared sources** and delegates selected ones to bots, which search and read them only through their resource grant. | “Find the budget and delivery constraints in these sources, and distinguish binding requirements from informal estimates.” | Owner imports snapshots and chooses sources in Shared sources. Delegated search is keyword-only and grant-scoped. [Resource delegation](docs/RESOURCE_DELEGATION.md) |
 | **`orbit_resources` — scoped source research and brief creation** | Search/read the granted sources and create a **new, saved, cited, editable document**. Then use workspace control to open its returned URI. | “Use the sources granted to this run to create a cited decision brief. Explain disagreements and open the saved brief beside our chat.” | Requires the configured pinned local Normal adapter or supported dedicated channel. Normal grants bind the selected conversation's **next accepted run**; another run needs a fresh grant. [Resource delegation](docs/RESOURCE_DELEGATION.md) |
 | **Lexical — rich-text documents** | Author text/Markdown/editor-state deliverables and revision-bound whole-document proposals; help refine a brief while preserving concurrent owner edits. | “Turn this shared outline into a project brief. Propose changes against the current document revision and draft digest.” | Complete-result/import proposals create or change an editable draft for owner review, Undo and Save. Delegated **new** document creation uses `orbit_resources`; existing-document editing uses the reviewed proposal path. [Documents](docs/DOCUMENTS.md) |
 | **Excalidraw — editable diagrams and whiteboards** | Produce supported scene JSON for architecture diagrams, deployment plans and visual explanations that remain editable. | “Create an editable diagram of these services, with arrows for data flow and labels for trust boundaries.” | Use the canvas contract and supported fonts; owner reviews/imports and saves the scene. The agent needs explicitly shared source content. [Canvas](docs/CANVAS.md) |
@@ -243,9 +243,9 @@ upgrading an existing runtime.
 
 Open these tools from **Start** or the command palette:
 
-- **Knowledge search:** import explicit source snapshots, search them locally and
-  send an exact cited passage to a selected conversation draft. Keyword search
-  works immediately; semantic search needs the provisioned local model.
+- **Shared sources:** import explicit source snapshots, then delegate selected
+  sources to bots through resource grants. The index is keyword-only and local;
+  bots reach sources only through the grants you approve.
 - **Interactive results:** import A2UI v0.9 cards, edit, save, pin and export them.
 - **Document library:** create rich-text documents and Excalidraw whiteboards,
   explicitly save revisions, recover drafts and export your work.
