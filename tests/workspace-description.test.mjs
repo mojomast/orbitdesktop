@@ -18,8 +18,8 @@ test('description is authenticated, bounded layout metadata with contract-derive
   const server=http.createServer((req,res)=>service.handle(req,res,req.url==='/control'));
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
   const port=server.address().port,origin=`http://127.0.0.1:${port}`;
-  let configured=false,clock=1000;
-  const capabilityDescription=audience=>featureCapabilities({audience,observation:observeFeatureReadiness({root,runtimeRoot:root,env:{},mcpConfigured:configured,now:()=>clock})});
+  let clock=1000;
+  const capabilityDescription=audience=>featureCapabilities({audience,observation:observeFeatureReadiness({root,runtimeRoot:root,now:()=>clock})});
   service=createWorkspaceService({root,port,token,devOrigins:[],capabilityDescription,reply:(res,status,body)=>{res.writeHead(status,{'Content-Type':'application/json'});res.end(JSON.stringify(body));}});
   t.after(async()=>{await new Promise(resolve=>server.close(resolve));service.close();fs.rmSync(root,{recursive:true,force:true});});
   const request=async(body,credential=token,route='/workspace')=>{
@@ -43,12 +43,10 @@ test('description is authenticated, bounded layout metadata with contract-derive
   assert.equal(response.status,200);
   assert.equal(response.body.capabilities.observed_at,new Date(1000).toISOString());
   assert.ok(response.body.capabilities.features.every(f=>f.content.availability==='not_granted'));
-  assert.equal(response.body.capabilities.features.find(f=>f.feature_id==='mcp-apps').readiness.state,'missing_prerequisite');
-  configured=true;clock=2000;
+  clock=2000;
   const ownerDescription=(await request({action:'describe'})).body.capabilities;
   assert.equal(ownerDescription.observed_at,new Date(2000).toISOString());
   assert.ok(ownerDescription.features.every(f=>f.content.availability==='owner_authenticated'));
-  assert.equal(ownerDescription.features.find(f=>f.feature_id==='mcp-apps').readiness.state,'unknown');
   assert.deepEqual(response.body.catalog.operations,contract.operations);
   assert.deepEqual(response.body.catalog.$defs,contract.schema.$defs);
   assert.deepEqual(response.body.catalog.arrangements,arrangementControlRequests);

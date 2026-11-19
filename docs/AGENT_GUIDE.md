@@ -55,12 +55,8 @@ successful inference or execution. Invocation rechecks the actual prerequisites.
 | Google Colab | `orbit://surface/colab-runtime` | GPU and TPU runtimes on colab.research.google.com; `docs/COLAB_ORCHESTRATOR.md` |
 | Knowledge search | `orbit://surface/search` | Explicit source snapshots and exact citations; keyword search without a model, optional pinned local embeddings; `docs/KNOWLEDGE_SEARCH.md` |
 | Interactive results | `orbit://surface/interactive-results` | Import actual A2UI v0.9 JSON/NDJSON, edit/save/pin/export; `docs/INTERACTIVE_RESULTS.md` |
-| Voice transcript | `orbit://surface/voice` | Explicit microphone/audio selection, local transcription, editable text and chosen draft; `docs/VOICE_DICTATION.md` |
-| Data workbench | `orbit://surface/data` | Owner-selected CSV/JSON/Parquet, local SELECT queries, exact-input recipes and bounded exports; `docs/DATA_LAB.md` |
 | Document library | `orbit://surface/documents` | Create rich text or canvas; open returned `orbit://document/<uuid>` identities; `docs/DOCUMENTS.md`, `docs/CANVAS.md` |
 | Run traces | `orbit://surface/traces` | Redacted timing of observed events, not authoritative receipts; `docs/RUN_TRACES.md` |
-| Browser copilot | `orbit://surface/browser-copilot` | Configured disposable Chromium and explicit staged owner actions; `docs/BROWSER_COPILOT.md` |
-| MCP Apps | `orbit://surface/mcp-apps` | Configured separate-origin host for imported self-contained snapshots; `docs/MCP_APPS.md` |
 
 Owner-only feature APIs are not added to `orbit_workspace` or the scoped
 controller. Use the documented owner UI or an explicitly supported trusted
@@ -68,15 +64,12 @@ adapter; never extract owner credentials to bypass that boundary. Layout context
 does not reveal source text, documents, queries, transcripts or page contents.
 Search imports are explicit snapshots, not permission to crawl the filesystem or
 conversation archive. Complete authenticated replies can offer explicit reviewed
-A2UI, document and self-contained MCP snapshot actions through the documented
-producer envelopes; plain prose and cached history are not automatically imported.
-Hermes does not automatically discover MCP servers or their resources.
-Browser copilot is not an autonomous planner or the Shared Chromium profile;
-it does not support logged-in sessions, WebSockets, uploads, downloads or passwords.
+A2UI and document actions through the documented producer envelopes; plain prose
+and cached history are not automatically imported. Hermes does not automatically
+discover MCP servers or their resources.
 
-Local MiniLM/Moonshine models and DuckDB JSON/Parquet extensions need explicit
-hash-verified provisioning. Read capability/error results instead of inferring
-availability from a menu item. gVisor checks are experimental, off by default,
+Local MiniLM models need explicit hash-verified provisioning. Read capability/error
+results instead of inferring availability from a menu item. gVisor checks are experimental, off by default,
 limited to the approved `node-test` backend and require tested rootless support;
 no fallback to trusted-host execution is permitted. See `docs/ISOLATED_CHECKS.md`.
 
@@ -94,8 +87,8 @@ no fallback to trusted-host execution is permitted. See `docs/ISOLATED_CHECKS.md
   neither sends nor grants execution authority. Do not claim the model received
   it until the owner submits it. The single review shows the exact final draft,
   including existing text; source and recipient changes can refuse insertion.
-  Knowledge citations and selected Data Lab values are in the actual inserted
-  text, not just preview labels. See `docs/CONTEXT_HANDOFF.md`.
+  Knowledge citations are in the actual inserted text, not just preview labels.
+  See `docs/CONTEXT_HANDOFF.md`.
 - **Saved workspace layouts:** preserve existing-window geometry/order/view and
   Docking placement, with explicit mapping of missing IDs. They do not create or
   close panes, save contents or capture shell state. They are distinct from the
@@ -125,19 +118,9 @@ no fallback to trusted-host execution is permitted. See `docs/ISOLATED_CHECKS.md
   unknown element fields are still refused. When a canvas cannot be delivered Orbit
   prints `Document not created` with the reason — read it instead of resending blind.
   See `docs/DOCUMENTS.md`.
-- **Result handoffs:** use A2UI for finite interactive decisions, documents/canvas
-  for editable durable artifacts, and compatible self-contained MCP snapshots for
-  SDK UI. A2UI/MCP delivery requires a mounted chosen pane; queued/rendered/saved
-  outcomes are distinct. Data and browser JSON suggestions only populate reviewed
-  controls; query Run and browser Preview/Execute remain separate owner actions.
-- **Published CSV:** for owner-requested public/synthetic data, publish an immutable
-  CSV bundle and open `orbit://surface/data?input=<slug>/<filename.csv>&sha256=<64-hex>`
-  through the normal layout controller. The reviewed Data workbench loads up to
-  5 MiB of same-origin public bytes after hash verification, as `input_1`, without
-  a manual file picker. No SQL runs automatically. See `docs/DATA_LAB.md` for the
-  exact route restrictions. Prefer a new pane over replacing an unknown in-memory
-  analysis. Publication/layout authority does not grant private source access;
-  acknowledgement of the layout is not proof that the input finished loading.
+- **Result handoffs:** use A2UI for finite interactive decisions and
+  documents/canvas for editable durable artifacts. A2UI delivery requires a
+  mounted chosen pane; queued/rendered/saved outcomes are distinct.
 - **Diagnostics:** a selected trace can share a bounded redacted timing summary
   into a draft. Preserve gap/open/local-observation labels; summed span durations
   are not wall-clock runtime, and trace state is not authoritative completion.

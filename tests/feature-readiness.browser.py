@@ -61,8 +61,8 @@ with tempfile.TemporaryDirectory(prefix='orbit-readiness-browser-', dir='/tmp/op
                 if path.endswith('/api/technology-capabilities'):
                     reads.append(path)
                     return reply({'descriptors': {'observed_at': datetime.now(timezone.utc).isoformat(), 'features': [
-                        {'surface_uri': 'orbit://surface/voice', 'formats': ['audio'], 'delegated': {'availability': 'unsupported'}, 'readiness': {'detail': 'Model files present; browser audio unknown.' if configured else 'Voice model files missing; provision voice models.'}},
-                        {'surface_uri': 'orbit://surface/mcp-apps', 'formats': ['HTML snapshot'], 'readiness': {'detail': 'MCP Apps is off or proxy configuration unavailable.'}}]}})
+                        {'surface_uri': 'orbit://surface/search', 'formats': ['UTF-8 text'], 'delegated': {'availability': 'not_granted'}, 'readiness': {'detail': 'Semantic model files present.' if configured else 'Semantic model files missing or invalid.'}},
+                        {'surface_uri': 'orbit://surface/traces', 'formats': ['JSON'], 'delegated': {'availability': 'unsupported'}, 'readiness': {'detail': 'Owner read/export; trace availability checked on action.'}}]}})
                 if path.endswith('/api/workspace/events'):
                     return reply({'workspace_id': workspace, 'events': [], 'cursor': 0, 'has_more': False, 'reset_required': False})
                 return reply({'state': state, 'revision': 1, 'observed_revision': 1})
@@ -73,32 +73,31 @@ with tempfile.TemporaryDirectory(prefix='orbit-readiness-browser-', dir='/tmp/op
             page.get_by_role('button', name='Unlock local host', exact=True).click()
             page.get_by_role('button', name='Open Start', exact=True).click()
             start = page.get_by_role('region', name='Start launcher')
-            voice = start.get_by_role('button', name='Voice transcript', exact=True)
-            expect(voice).to_contain_text('Voice model files missing')
-            expect(voice).to_contain_text('Agent tools unsupported')
-            expect(start.get_by_role('button', name='MCP Apps', exact=True)).to_contain_text('MCP Apps is off')
+            search = start.get_by_role('button', name='Knowledge search', exact=True)
+            expect(search).to_contain_text('Semantic model files missing')
+            expect(start.get_by_role('button', name='Run traces', exact=True)).to_be_visible()
             expect(start.get_by_role('button', name='New Workbench window', exact=True)).to_have_count(0)
             page.keyboard.press('Escape')
             configured = True
             page.get_by_role('button', name='Open Start', exact=True).focus()
             page.keyboard.press('Control+k')
             palette = page.get_by_role('dialog', name='Workspace commands', exact=True)
-            palette.get_by_role('combobox').fill('Voice transcript')
-            expect(palette.get_by_role('option')).to_contain_text('Model files present; browser audio unknown')
+            palette.get_by_role('combobox').fill('Knowledge search')
+            expect(palette.get_by_role('option')).to_contain_text('Semantic model files present.')
             expect(palette.get_by_role('option')).to_contain_text('Checked ')
-            expect(palette.get_by_role('option')).to_contain_text('Formats: audio')
+            expect(palette.get_by_role('option')).to_contain_text('Formats: UTF-8 text')
             page.keyboard.press('Escape')
             page.get_by_role('button', name='Open Start', exact=True).click()
-            expect(voice).to_contain_text('Model files present; browser audio unknown')
-            voice.focus()
+            expect(search).to_contain_text('Semantic model files present.')
+            search.focus()
             configured = False
             page.evaluate("window.dispatchEvent(new Event('orbit-command-discovery'))")
-            expect(voice).to_contain_text('Voice model files missing')
-            expect(voice).to_be_focused()
+            expect(search).to_contain_text('Semantic model files missing')
+            expect(search).to_be_focused()
             assert len(reads) >= 3, reads
             assert not errors, errors
             browser.close()
-            print('PASS: real Start/palette shared detail, request-time refresh, optional setup, off-default Workbench')
+            print('PASS: real Start/palette shared detail, request-time refresh, off-default Workbench')
     finally:
         server.terminate()
         server.wait(timeout=10)

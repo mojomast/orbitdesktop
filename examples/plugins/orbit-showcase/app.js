@@ -5,12 +5,8 @@ const surfaces = [
   ["Google Colab","orbit://surface/colab-runtime","GPU/TPU runtimes on Colab"],
   ["Knowledge search","orbit://surface/search","Explicit source snapshots + exact citations"],
   ["Interactive results","orbit://surface/interactive-results","A2UI v0.9 import/edit/pin/export"],
-  ["Voice transcript","orbit://surface/voice","Local transcription + editable text"],
-  ["Data workbench","orbit://surface/data","CSV/JSON/Parquet SELECT + recipes"],
   ["Document library","orbit://surface/documents","Rich text + canvas artifacts"],
   ["Run traces","orbit://surface/traces","Redacted timing of observed events"],
-  ["Browser copilot","orbit://surface/browser-copilot","Disposable Chromium + staged actions"],
-  ["MCP Apps","orbit://surface/mcp-apps","Imported self-contained UI snapshots"],
 ];
 const tbody = document.getElementById('surfaces');
 for (const [n,u,d] of surfaces) {

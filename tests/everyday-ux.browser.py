@@ -46,7 +46,7 @@ with tempfile.TemporaryDirectory(prefix='orbit-everyday-ux-', dir='/tmp/opencode
                 page.evaluate('''async()=>{const {showOnboarding}=await import('/src/onboarding.ts');
                   window.goalActions=[];window.tour=()=>showOnboarding({connected:()=>false,run:id=>goalActions.push(id)});window.tour();}''')
                 tour = page.get_by_role('dialog', name='What would you like to do?')
-                expect(tour.get_by_text('Readiness not checked.', exact=False)).to_be_visible()
+                expect(tour.get_by_role('button', name='Connect host:', exact=False)).to_be_visible()
                 assert tour.evaluate('(e)=>e.scrollWidth<=e.clientWidth'), 'Onboarding must reflow at 320 CSS pixels'
                 tour.get_by_role('button', name='Next tour step', exact=True).click()
                 page.get_by_role('button', name='Close getting started', exact=True).click()
@@ -56,8 +56,8 @@ with tempfile.TemporaryDirectory(prefix='orbit-everyday-ux-', dir='/tmp/opencode
                 page.evaluate('()=>{window.tour();}')
                 expect(page.get_by_role('heading', name='Your everyday controls')).to_be_visible()
                 page.get_by_role('button', name='Previous tour step').click()
-                page.get_by_role('button', name='Transcribe audio:', exact=False).click()
-                assert page.evaluate('goalActions') == ['technology-voice']
+                page.get_by_role('button', name='Connect host:', exact=False).click()
+                assert page.evaluate('goalActions') == ['connect-host']
                 page.set_viewport_size({'width': 1400, 'height': 1000})
 
                 requests = []; held_pages = []; hold_page = False; reject_selection = False; binding_ready = False; binding = {'session': 'original', 'profile_id': 'B', 'messages': [], 'binding_revision': 1}

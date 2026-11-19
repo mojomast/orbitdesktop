@@ -195,7 +195,7 @@ export async function createResourceDelegation({root,workspaceRead,knowledge,doc
       r=fence();r.permission_requests??={};r.permission_requests[body.op_id]=request;persist(r);
       return {ok:true,request:publicRequest(request),verb_needed:verb,instruction:verb
         ?'The owner must approve this in Knowledge search -> Delegate selected sources. Re-check with describe afterwards; approval widens verbs on this run grant only.'
-        :'This capability has no delegated implementation. Use the documented surface: Data workbench for queries, Document library to open saved artifacts.'};
+        :'This capability has no delegated implementation. Use the documented query surface, or Document library to open saved artifacts.'};
     },
   };
   function publicRequest(q){return {op_id:q.op_id,need:q.need,reason:q.reason,verb:q.verb??null,state:q.state,created_at:q.created_at,decided_at:q.decided_at??null};}

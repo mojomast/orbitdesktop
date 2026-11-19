@@ -99,23 +99,18 @@ below; it does not enable every upstream Hermes integration.
 | --- | --- | --- | --- |
 | **SQLite FTS5 + sqlite-vec + MiniLM** | Search granted snapshots by keyword and compare exact cited passages. The owner search surface also supports local hybrid semantic retrieval and sharing its passages with the agent. | “Find the budget and delivery constraints in these sources, and distinguish binding requirements from informal estimates.” | Owner imports snapshots. Delegated search is keyword-only; hybrid search in the owner surface needs the pinned local MiniLM model. Citations bind exact bytes and text ranges. [Knowledge search](docs/KNOWLEDGE_SEARCH.md) |
 | **`orbit_resources` — scoped source research and brief creation** | Search/read the granted sources and create a **new, saved, cited, editable document**. Then use workspace control to open its returned URI. | “Use the sources granted to this run to create a cited decision brief. Explain disagreements and open the saved brief beside our chat.” | Requires the configured pinned local Normal adapter or supported dedicated channel. Normal grants bind the selected conversation's **next accepted run**; another run needs a fresh grant. [Resource delegation](docs/RESOURCE_DELEGATION.md) |
-| **DuckDB-Wasm — Data workbench** | Propose bounded SQL over shared CSV/JSON/Parquet schemas, interpret explicitly shared result rows and help prepare reproducible exact-input recipes. | “Using the schema I shared, write a SELECT for monthly revenue and explain outliers in the result rows I send back.” | SQL proposals fill the editor; the owner runs the query. Input files stay in the browser engine until explicitly shared. JSON/Parquet need provisioned extensions. [Data Lab](docs/DATA_LAB.md) |
-| **Hash-pinned published CSV inputs** | Publish public/synthetic data and open the exact CSV in the existing Data workbench without a file picker. | “Publish this synthetic manifest, open it with its SHA-256, and prepare a query that totals cost by supplier.” | Strict same-origin immutable CSV route, up to 5 MiB; hash verification precedes loading `input_1`. Query execution remains explicit. [Published-input contract](docs/DATA_LAB.md) |
 | **Lexical — rich-text documents** | Author text/Markdown/editor-state deliverables and revision-bound whole-document proposals; help refine a brief while preserving concurrent owner edits. | “Turn this shared outline into a project brief. Propose changes against the current document revision and draft digest.” | Complete-result/import proposals create or change an editable draft for owner review, Undo and Save. Delegated **new** document creation uses `orbit_resources`; existing-document editing uses the reviewed proposal path. [Documents](docs/DOCUMENTS.md) |
 | **Excalidraw — editable diagrams and whiteboards** | Produce supported scene JSON for architecture diagrams, deployment plans and visual explanations that remain editable. | “Create an editable diagram of these services, with arrows for data flow and labels for trust boundaries.” | Use the canvas contract and supported fonts; owner reviews/imports and saves the scene. The agent needs explicitly shared source content. [Canvas](docs/CANVAS.md) |
 | **A2UI v0.9 / official Lit renderer** | Generate structured comparison cards, choices, checkboxes, sliders, text fields and notes; compatible complete replies offer an explicit result-delivery action. | “Make an editable three-option comparison with cost, risks, a choice field and decision notes.” | Reviewed JSON/NDJSON catalog; choose a mounted results pane, review and save. Its finite summary action prepares a draft. Input bindings alone do not implement domain calculations or execute arbitrary tools. [Interactive results](docs/INTERACTIVE_RESULTS.md) |
-| **Transformers.js + ONNX Runtime WASM + Moonshine** | Work from a locally transcribed voice request after you review and submit the text. | “Open Voice transcript so I can dictate a revised requirement; once I send it, update your proposed plan.” | Explicit microphone/audio selection; separately provisioned Moonshine model. Transcription runs in a browser worker. Review/edit and draft insertion precede Send. [Voice dictation](docs/VOICE_DICTATION.md) |
 | **Asteria shared scenario model / interactive simulator** | Build a domain-specific tool in which controls, comparisons, constraint checks and exported briefs use the same deterministic calculation model. | “Build a simulator where changing the budget, upgrades or relay timing updates the actual mission tradeoffs and exported brief.” | Working source example, separately published as a sandboxed plugin. Its bundled data is synthetic; scenario edits are page-local and exports are explicit downloads. [Asteria Mission Control](docs/ASTERIA_MISSION_CONTROL.md) |
 
 ### Browser, desktop and application integration
 
 | Technology | What the agent can do with it | Example request | Access / setup |
 | --- | --- | --- | --- |
-| **Playwright / Browser copilot** | Prepare finite browser actions and reason over an explicitly shared observation from a disposable Chromium session. | “Help me inspect this allowed page and stage a click on its documentation link after reviewing the snapshot.” | Requires a configured Chromium executable and origin policy. Owner Preview/Execute controls each action; the session is signed out. This surface is separate from upstream Hermes browser tools. [Browser copilot](docs/BROWSER_COPILOT.md) |
 | **Shared Chromium / Chrome DevTools Protocol** | Navigate, inspect text, click, fill, press keys and take screenshots in the same separately configured browser the owner views. | “Open the project documentation in our shared browser and show me the section that describes configuration.” | Dedicated Docker browser profile and host-side `scripts/shared_browser.py`; shared focus/session needs coordination. [Shared Chromium](docs/SHARED_BROWSER.md) |
 | **Shared Linux desktop / XFCE / X11** | Inspect windows, capture screenshots, launch supported applications and interact through clicks/keys/text with the host-side desktop helper. | “Open the editor in our shared Linux desktop and walk me through this configuration file.” | Separately provisioned container/viewer and `scripts/shared_desktop.py`; distinct from the host desktop and Shared Chromium. [Shared desktop](docs/SHARED_DESKTOP.md) |
 | **Xpra HTML5 / native Linux applications** | Open configured Chromium, OpenOffice Writer/Calc/Impress, file manager, editor and terminal viewers alongside the conversation; prepare files for those apps using authorized file tools. | “Prepare a CSV and document outline for the shared Documents folder, then open Calc and Writer beside chat.” | Optional per-app containers, persistent homes and shared Documents volume. Xpra provides the viewer; GUI automation needs separately configured controls. [Linux apps](docs/XPRA_APPS.md) |
-| **MCP Apps / `@modelcontextprotocol/ext-apps` AppBridge** | Author a self-contained SDK-compatible report/visualization snapshot with exact arguments and results for Orbit to display. | “Prepare an MCP App snapshot with local controls for exploring this supplied report result.” | Requires MCP Apps configuration and a separate sandbox origin. Owner stages/imports/opens the snapshot. This integration hosts snapshots; live MCP tool/server access comes from separately configured upstream tools. [MCP Apps](docs/MCP_APPS.md) |
 
 ### Custom software, supervised coding and diagnostics
 
@@ -162,15 +157,6 @@ and remote-access plumbing where configured; ordinary local operation also works
 
 Select/import the sources and grant the intended conversation's next run first.
 The agent can then read repeatedly and create the brief within that scope.
-
-**A reproducible analysis — published CSV + DuckDB + reviewed result sharing**
-
-> “Publish this synthetic CSV and open it in Data workbench with its hash. Propose
-> a supplier-cost query. After I run it and share the selected rows, explain the
-> concentration risks and prepare a comparison card.”
-
-The published route handles input loading; explicit query execution and selected
-result sharing connect the browser's analysis to the agent's reasoning.
 
 **An interactive decision tool — JavaScript model + plugin lifecycle + browser tests**
 
@@ -261,25 +247,18 @@ Open these tools from **Start** or the command palette:
   send an exact cited passage to a selected conversation draft. Keyword search
   works immediately; semantic search needs the provisioned local model.
 - **Interactive results:** import A2UI v0.9 cards, edit, save, pin and export them.
-- **Voice transcript:** record or choose audio, transcribe with the provisioned
-  local model, edit the text and insert it into a draft.
-- **Data workbench:** query chosen CSV/JSON/Parquet files locally with DuckDB;
-  save recipes and export bounded results. JSON/Parquet require local extensions.
 - **Document library:** create rich-text documents and Excalidraw whiteboards,
   explicitly save revisions, recover drafts and export your work.
 - **Run traces:** inspect timing for events Orbit actually observed and explicitly
   export the redacted projection.
 
-Optional **Browser copilot** uses a configured disposable browser with reviewed
-owner actions; **MCP Apps** hosts imported self-contained snapshots on a separate
-sandbox origin. Neither automatically discovers Hermes tools or runs an agent
-planner. Experimental **gVisor isolated checks** require a suitable separately
+Experimental **gVisor isolated checks** require a suitable separately
 provisioned host. Setup, persistence and capability boundaries are in the
 [technology guide](docs/TECHNOLOGY_FEATURES.md).
 
 The [agency evolution](docs/AGENCY_EVOLUTION.md) connects these existing tools:
-one exact draft review carries citations and selected data values; complete replies
-can offer explicit interactive-card, document and MCP snapshot actions. Documents
+one exact draft review carries citations; complete replies can offer explicit
+interactive-card and document actions. Documents
 support reviewed imports, digest-bound edit proposals, native Undo and discoverable
 same-tab recovery after closing a dirty pane. Opening tools preserves Spatial view.
 Selected-source grants use the supported authenticated recipient channels described
