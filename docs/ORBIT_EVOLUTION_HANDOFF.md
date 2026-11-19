@@ -90,7 +90,8 @@ docking adoption, new private-data delivery, grant enablement or a live migratio
 - `ses_f25ca6774ffeUkYzRVd3qrqucK`: opt-in standalone Dockview/Orbit integration
   under `experiments/orbit-docking/`, using actual pane/model/spatial modules and
   a disposable real-PTY browser fixture. Production entrypoints/dependencies remain
-  outside its edit scope. Complete; descendants done.
+  outside its edit scope. Complete; descendants done. The spike was removed in the
+  cleanup; product docking is `src/docking-*.ts`.
 - `ses_f25ca0d4bffe1zGH0JE6JxLKF0`: internal terminal registration/lookup prerequisite
   in new, currently unwired modules with isolated tests. No grants, output capture,
   server route, schema migration or existing provider startup changes are authorized.

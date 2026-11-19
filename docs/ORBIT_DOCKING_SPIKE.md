@@ -2,6 +2,8 @@
 
 Status: isolated experiment. The implementation contract is
 [`experiments/orbit-docking/CONTRACT.md`](../experiments/orbit-docking/CONTRACT.md).
+The spike was removed in the cleanup; product docking is `src/docking-*.ts`, so the
+experiment paths below are historical only.
 This experiment evaluates Dockview placement against real Orbit PaneView browser
 and terminal surfaces and the v1 workspace model; it is not a production renderer
 or a normalized persistence migration.

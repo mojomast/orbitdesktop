@@ -3,6 +3,8 @@
 Status: **isolated browser adapter experiment, not a production selection**.
 Measured September 25, 2026 in disposable Chromium fixtures. Dependencies were
 installed only under `/tmp/opencode`; no production package or renderer changed.
+The `experiments/docking/` spike was removed in the cleanup; product docking is
+`src/docking-*.ts`.
 
 ## Reproduce and measured outcome
 

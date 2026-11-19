@@ -22,7 +22,8 @@ Orbit is a single-owner agent-customizable workspace. It separates trusted core/
 
 `experiments/orbit-docking/` is an isolated opt-in integration fixture importing real
 pane/model/spatial modules; it does not replace the production entrypoint or extend
-v1 persistence. `server/terminal-resource-registry.mjs` is a process-local
+v1 persistence. That spike was removed in the cleanup; product docking is
+`src/docking-*.ts`. `server/terminal-resource-registry.mjs` is a process-local
 identity primitive used by the managed-terminal broker, not itself a grant service or tmux adapter. See
 [docking spike](ORBIT_DOCKING_SPIKE.md) and [registry](TERMINAL_RESOURCE_REGISTRY.md)
 for the historical spike evidence and current identity boundaries.
