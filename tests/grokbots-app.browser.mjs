@@ -266,20 +266,18 @@ test('group handoff controls: give floor, pause/continue, auto handoff and turn 
   await context.close();
 });
 
-test('voice: the mic opens Orbit voice capture, and a transcript lands in the draft (never sent)', async () => {
+test('conversation transfer: text chosen for this window lands in the draft (never sent); no voice mic', async () => {
   const { page, app, errors, context } = await open(`&p=grok&a=${AGENT2}`);
-  await app.locator('#micbtn').waitFor();
   await page.waitForFunction(() => window.__ops.some(o => o.op === 'conversation' && o.available === true && o.title === 'Second Bot'));
-  await app.locator('#micbtn').click();
-  await page.waitForFunction(() => window.__ops.some(o => o.op === 'voice'));
+  assert.equal(await app.locator('#micbtn').count(), 0);
   await app.locator('#in').fill('Existing draft');
   const sends = fx.seen.filter(s => s.url === '/api/sendPrompt').length;
-  await page.evaluate(() => { window.__ops.length = 0; window.__insert('dictated words'); });
+  await page.evaluate(() => { window.__ops.length = 0; window.__insert('transferred words'); });
   await page.waitForFunction(() => window.__ops.some(o => o.op === 'insert-ack'));
   const ack = await page.evaluate(() => window.__ops.find(o => o.op === 'insert-ack'));
   assert.deepEqual([ack.ref, ack.accepted], ['ins1', true]);
-  assert.equal(await app.locator('#in').inputValue(), 'Existing draft\n\ndictated words');
-  await page.screenshot({ path: process.env.GB_SHOTS ? process.env.GB_SHOTS + '/10-voice-draft.png' : '/tmp/gb-10.png' });
+  assert.equal(await app.locator('#in').inputValue(), 'Existing draft\n\ntransferred words');
+  await page.screenshot({ path: process.env.GB_SHOTS ? process.env.GB_SHOTS + '/10-transfer-draft.png' : '/tmp/gb-10.png' });
   await page.waitForTimeout(700);
   assert.equal(fx.seen.filter(s => s.url === '/api/sendPrompt').length, sends);
   assert.deepEqual(errors, []);
