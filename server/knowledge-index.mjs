@@ -1,8 +1,6 @@
-import path from "node:path";
 import Ajv from "ajv";
 import { openKnowledgeStore, LIMITS, fail } from "./knowledge-index-store.mjs";
 import { decode, EXTRACTOR } from "./knowledge-chunker.mjs";
-import { createEmbedder } from "./knowledge-embedder.mjs";
 import { allowedRequest, tokenMatches } from "./security.mjs";
 export const KNOWLEDGE_MAX_BODY_BYTES = 400 * 1024;
 // Optional parent integration adapter: preserves CAS detail, unlike the generic Workbench wrapper.
@@ -83,7 +81,7 @@ const shapes = {
   list_sources: {},
   search: {
     query: { type: "string", minLength: 1, maxLength: 500 },
-    mode: { enum: ["keyword", "hybrid"] },
+    mode: { enum: ["keyword"] },
     limit: { type: "integer", minimum: 1, maximum: 50 },
     kinds: {
       type: "array",
@@ -144,69 +142,11 @@ const valid = new Ajv({ strict: true }).compile({
 });
 export function createKnowledgeSearch({ root, workspaceRead }) {
   let store = null,
-    embedder = null,
-    closed = false,
-    running = false;
-  const queue = [],
-    seen = new Set(),
-    jobs = new Set();
+    closed = false;
   function open() {
     if (closed) throw fail("unavailable");
-    if (!store) {
-      store = openKnowledgeStore(root);
-      embedder = createEmbedder({ modelDir: path.join(store.dir, "model") });
-    }
+    if (!store) store = openKnowledgeStore(root);
     return store;
-  }
-  function enqueue(workspace, id) {
-    if (
-      !store.vector ||
-      !embedder.status().present ||
-      seen.has(id) ||
-      queue.length >= 128
-    )
-      return false;
-    seen.add(id);
-    queue.push({ workspace, id, fence: store.generation(workspace) });
-    if (!running) {
-      const job = drain();
-      jobs.add(job);
-      void job.finally(() => jobs.delete(job));
-    }
-    return true;
-  }
-  async function drain() {
-    running = true;
-    try {
-      while (queue.length && !closed) {
-        const item = queue.shift();
-        try {
-          const rows = store.chunks(item.workspace, item.id);
-          for (let i = 0; i < rows.length; i += 16) {
-            if (closed || store.generation(item.workspace) !== item.fence)
-              break;
-            const batch = rows.slice(i, i + 16),
-              vectors = await embedder.embed(batch.map((r) => r.text));
-            if (
-              closed ||
-              !store.commitVectors(
-                item.workspace,
-                item.id,
-                item.fence,
-                batch,
-                vectors,
-              )
-            )
-              break;
-          }
-        } catch {
-        } finally {
-          seen.delete(item.id);
-        }
-      }
-    } finally {
-      running = false;
-    }
   }
   async function dispatch(body, authorize = () => {}) {
     if (!valid(body)) throw fail("invalid_request");
@@ -220,10 +160,6 @@ export function createKnowledgeSearch({ root, workspaceRead }) {
     authorize();
     const db = open();
     db.reconcile(ws);
-    // Resume interrupted/missing derived embeddings only from current authoritative snapshots.
-    if (embedder.status().present)
-      for (const s of db.sources(ws))
-        if (db.needsEmbedding(ws, s.source_id)) enqueue(ws, s.source_id);
     const ok = (data) => {authorize();return { ok: true, workspace_id: ws, ...data };};
     switch (body.action) {
       case "status":
@@ -231,22 +167,14 @@ export function createKnowledgeSearch({ root, workspaceRead }) {
           source_count: db.sources(ws).length,
           ...db.stats(ws),
           consent_generation: db.generation(ws),
-          semantic: { ...embedder.status(), vector_available: db.vector },
           index_schema: 1,
           limits: LIMITS,
-          indexing: running,
         });
       case "list_sources":
         return ok({
           sources: db
             .sources(ws)
-            .map((s) => ({
-              ...s,
-              status:
-                db.vector && !db.needsEmbedding(ws, s.source_id)
-                  ? "semantic_ready"
-                  : "keyword_ready",
-            })),
+            .map((s) => ({ ...s, status: "keyword_ready" })),
           consent_generation: db.generation(ws),
         });
       case "ingest_text":
@@ -287,7 +215,6 @@ export function createKnowledgeSearch({ root, workspaceRead }) {
           version: 1,
           chunks: db.chunks(ws, row.id).length,
           idempotent: !fresh,
-          semantic_queued: enqueue(ws, row.id),
         });
       }
       case "get_source": {
@@ -306,33 +233,19 @@ export function createKnowledgeSearch({ root, workspaceRead }) {
       }
       case "search": {
         const fence = db.generation(ws);
-        let embedding = null;
-        if (body.mode !== "keyword" && db.vector && embedder.status().present) {
-          try {
-            [embedding] = await embedder.embed([body.query]);
-          } catch {}
-        }
         if (closed) throw fail("unavailable");
         authorize();
         if (db.generation(ws) !== fence)
           throw fail("conflict", {
             current: { consent_generation: db.generation(ws) },
           });
-        const results = db.search(
-          ws,
-          body.query,
-          body.limit ?? 20,
-          embedding,
-          body,
-        );
+        const results = db.search(ws, body.query, body.limit ?? 20, body);
         return ok({
           query: body.query,
-          mode: embedding ? "hybrid" : "keyword",
-          semantic_used: !!embedding,
+          mode: "keyword",
+          semantic_used: false,
           results,
-          note: embedding
-            ? "Local MiniLM + FTS reciprocal rank fusion"
-            : "FTS keyword fallback; semantic unavailable or explicitly off",
+          note: "Keyword index over owner-shared sources",
         });
       }
       case "delete_source":
@@ -347,16 +260,6 @@ export function createKnowledgeSearch({ root, workspaceRead }) {
                 body.base_consent_generation,
                 body.action === "purge_snapshots",
               );
-        for (let i = queue.length - 1; i >= 0; i--)
-          if (queue[i].workspace === ws) {
-            seen.delete(queue[i].id);
-            queue.splice(i, 1);
-          }
-        await embedder.cancel();
-        if (body.action === "reset_index") {
-          await Promise.allSettled([...jobs]);
-          for (const s of db.sources(ws)) enqueue(ws, s.source_id);
-        }
         return ok(data);
       }
     }
@@ -374,9 +277,6 @@ export function createKnowledgeSearch({ root, workspaceRead }) {
     maxBodyBytes: KNOWLEDGE_MAX_BODY_BYTES,
     async close() {
       closed = true;
-      queue.length = 0;
-      await embedder?.dispose();
-      await Promise.allSettled([...jobs]);
       store?.close();
       store = null;
     },

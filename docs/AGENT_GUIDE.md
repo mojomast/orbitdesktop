@@ -53,7 +53,7 @@ successful inference or execution. Invocation rechecks the actual prerequisites.
 | Workspace Activity | `orbit://surface/activity` | Observed live activity; `docs/HERMES_LIVE_VIEW.md` |
 | Collab | `orbit://surface/collab` | Hermes and Grok Bot project board, approvals, orchestrator, and subagents; `docs/COLLAB.md` |
 | Google Colab | `orbit://surface/colab-runtime` | GPU and TPU runtimes on colab.research.google.com; `docs/COLAB_ORCHESTRATOR.md` |
-| Knowledge search | `orbit://surface/search` | Explicit source snapshots and exact citations; keyword search without a model, optional pinned local embeddings; `docs/KNOWLEDGE_SEARCH.md` |
+| Shared sources | `orbit://surface/search` | Owner-added source snapshots; delegate selected sources to bots through keyword-scoped resource grants |
 | Interactive results | `orbit://surface/interactive-results` | Import actual A2UI v0.9 JSON/NDJSON, edit/save/pin/export; `docs/INTERACTIVE_RESULTS.md` |
 | Document library | `orbit://surface/documents` | Create rich text or canvas; open returned `orbit://document/<uuid>` identities; `docs/DOCUMENTS.md`, `docs/CANVAS.md` |
 | Run traces | `orbit://surface/traces` | Redacted timing of observed events, not authoritative receipts; `docs/RUN_TRACES.md` |
@@ -68,8 +68,9 @@ A2UI and document actions through the documented producer envelopes; plain prose
 and cached history are not automatically imported. Hermes does not automatically
 discover MCP servers or their resources.
 
-Local MiniLM models need explicit hash-verified provisioning. Read capability/error
-results instead of inferring availability from a menu item. gVisor checks are experimental, off by default,
+Shared sources keeps only a local keyword index and exposes sources to bots only
+through the resource grants the owner approves. Read capability/error results
+instead of inferring availability from a menu item. gVisor checks are experimental, off by default,
 limited to the approved `node-test` backend and require tested rootless support;
 no fallback to trusted-host execution is permitted. See `docs/ISOLATED_CHECKS.md`.
 
@@ -87,7 +88,7 @@ no fallback to trusted-host execution is permitted. See `docs/ISOLATED_CHECKS.md
   neither sends nor grants execution authority. Do not claim the model received
   it until the owner submits it. The single review shows the exact final draft,
   including existing text; source and recipient changes can refuse insertion.
-  Knowledge citations are in the actual inserted text, not just preview labels.
+  Shared-source citations are in the actual inserted text, not just preview labels.
   See `docs/CONTEXT_HANDOFF.md`.
 - **Saved workspace layouts:** preserve existing-window geometry/order/view and
   Docking placement, with explicit mapping of missing IDs. They do not create or

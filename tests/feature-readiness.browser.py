@@ -47,7 +47,6 @@ with tempfile.TemporaryDirectory(prefix='orbit-readiness-browser-', dir='/tmp/op
             context = browser.new_context(viewport={'width': 1500, 'height': 1000})
             context.add_init_script("if(window===window.top){localStorage.setItem('orbit.onboarding.v1','done');localStorage.setItem('orbit.workspace.id',%s);localStorage.setItem('orbit.workspace.v1',%s);}" % (json.dumps(workspace), json.dumps(json.dumps(state))))
             page = context.new_page()
-            configured = False
             reads = []
             errors = []
             page.on('pageerror', lambda error: errors.append(str(error)))
@@ -61,7 +60,7 @@ with tempfile.TemporaryDirectory(prefix='orbit-readiness-browser-', dir='/tmp/op
                 if path.endswith('/api/technology-capabilities'):
                     reads.append(path)
                     return reply({'descriptors': {'observed_at': datetime.now(timezone.utc).isoformat(), 'features': [
-                        {'surface_uri': 'orbit://surface/search', 'formats': ['UTF-8 text'], 'delegated': {'availability': 'not_granted'}, 'readiness': {'detail': 'Semantic model files present.' if configured else 'Semantic model files missing or invalid.'}},
+                        {'surface_uri': 'orbit://surface/search', 'formats': ['UTF-8 text'], 'delegated': {'availability': 'not_granted'}, 'readiness': {'detail': 'Keyword-only shared-source index; source consent checked on action.'}},
                         {'surface_uri': 'orbit://surface/traces', 'formats': ['JSON'], 'delegated': {'availability': 'unsupported'}, 'readiness': {'detail': 'Owner read/export; trace availability checked on action.'}}]}})
                 if path.endswith('/api/workspace/events'):
                     return reply({'workspace_id': workspace, 'events': [], 'cursor': 0, 'has_more': False, 'reset_required': False})
@@ -73,26 +72,24 @@ with tempfile.TemporaryDirectory(prefix='orbit-readiness-browser-', dir='/tmp/op
             page.get_by_role('button', name='Unlock local host', exact=True).click()
             page.get_by_role('button', name='Open Start', exact=True).click()
             start = page.get_by_role('region', name='Start launcher')
-            search = start.get_by_role('button', name='Knowledge search', exact=True)
-            expect(search).to_contain_text('Semantic model files missing')
+            search = start.get_by_role('button', name='Shared sources', exact=True)
+            expect(search).to_contain_text('Keyword-only shared-source index')
             expect(start.get_by_role('button', name='Run traces', exact=True)).to_be_visible()
             expect(start.get_by_role('button', name='New Workbench window', exact=True)).to_have_count(0)
             page.keyboard.press('Escape')
-            configured = True
             page.get_by_role('button', name='Open Start', exact=True).focus()
             page.keyboard.press('Control+k')
             palette = page.get_by_role('dialog', name='Workspace commands', exact=True)
-            palette.get_by_role('combobox').fill('Knowledge search')
-            expect(palette.get_by_role('option')).to_contain_text('Semantic model files present.')
+            palette.get_by_role('combobox').fill('Shared sources')
+            expect(palette.get_by_role('option')).to_contain_text('Keyword-only shared-source index')
             expect(palette.get_by_role('option')).to_contain_text('Checked ')
             expect(palette.get_by_role('option')).to_contain_text('Formats: UTF-8 text')
             page.keyboard.press('Escape')
             page.get_by_role('button', name='Open Start', exact=True).click()
-            expect(search).to_contain_text('Semantic model files present.')
+            expect(search).to_contain_text('Keyword-only shared-source index')
             search.focus()
-            configured = False
             page.evaluate("window.dispatchEvent(new Event('orbit-command-discovery'))")
-            expect(search).to_contain_text('Semantic model files missing')
+            expect(search).to_contain_text('Keyword-only shared-source index')
             expect(search).to_be_focused()
             assert len(reads) >= 3, reads
             assert not errors, errors

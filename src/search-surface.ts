@@ -4,12 +4,8 @@ import {
   SearchError,
   type SearchStatus,
   type SearchSource,
-  type SearchResult,
   type SourceSnapshot,
 } from "./search-client";
-import { requestConversationContext } from "./conversation-transfer";
-import { sourceSelectionOffsets, formatKnowledgeExcerpt } from './search-evidence';
-import { workspaceId } from './workspace-sync';
 import "./search-surface.css";
 import { mountResourceGrants } from './resource-grants';
 
@@ -22,18 +18,17 @@ export function mountSearchSurface(
     request = createSearchClient(token, controller.signal);
   let disposed = false,
     busy = false,
-    generation = 0,
-    queryVersion = 0;
+    generation = 0;
   const root = el("section", "knowledge-search");
   const grantsHost=el('div');
   const grants=mountResourceGrants(grantsHost,token);
-  root.setAttribute("aria-label", "Local source search");
+  root.setAttribute("aria-label", "Shared sources");
   const status = el("p", "knowledge-status", "Connecting…");
   status.setAttribute("role", "status");
   const notice = el(
     "p",
     "knowledge-notice",
-    "Only text and files you explicitly add are indexed. Snapshots stay private to this workspace. Semantic inference is local; no model request is sent.",
+    "Only text and files you explicitly add are indexed. Snapshots stay private to this workspace until you delegate selected sources to bots. The index is keyword-only and local.",
   );
   const error = el("p", "knowledge-error");
   error.setAttribute("role", "alert");
@@ -129,38 +124,8 @@ export function mountSearchSurface(
     ".txt,.md,.csv,.json,text/plain,text/markdown,text/csv,application/json";
   file.setAttribute("aria-label", "Choose source file");
   const sourceList = el("div", "knowledge-sources");
-  const resultList = el("div", "knowledge-results");
-  resultList.setAttribute("aria-label", "Search results");
   const snapshotHost = el("div", "knowledge-snapshot");
-  const query = el("input");
-  query.type = "search";
-  query.maxLength = 500;
-  query.setAttribute("aria-label", "Search query");
-  query.placeholder = "Search your added sources";
-  const mode = select(
-    [
-      ["hybrid", "Hybrid (semantic when available)"],
-      ["keyword", "Keyword only"],
-    ],
-    "hybrid",
-    () => {},
-  );
-  mode.setAttribute("aria-label", "Search mode");
-  const filter = select(
-    [
-      ["", "All source kinds"],
-      ["owner_text", "Owner text"],
-      ["selected_text", "Pasted selection"],
-      ["conversation_excerpt", "Conversation excerpts"],
-      ["file", "Files"],
-    ],
-    "",
-    () => {},
-  );
-  filter.setAttribute("aria-label", "Source kind filter");
   function invalidate() {
-    queryVersion++;
-    resultList.replaceChildren();
     snapshotHost.replaceChildren();
   }
   async function refresh() {
@@ -173,7 +138,7 @@ export function mountSearchSurface(
     if (disposed) return;
     generation = list.consent_generation;
     grants.updateSources(list.sources);
-    status.textContent = `${info.source_count} sources · ${info.semantic_chunk_count}/${info.chunk_count} passages embedded · Semantic ${info.semantic.present && info.semantic.vector_available && !info.semantic.error ? "on (local MiniLM)" : "off"}${info.indexing ? " · Indexing…" : ""}. ${info.semantic.note}`;
+    status.textContent = `${info.source_count} sources · ${info.chunk_count} passages · Keyword index ready.`;
     sourceList.replaceChildren();
     for (const s of list.sources) {
       const item = el("div", "knowledge-source");
@@ -246,97 +211,6 @@ export function mountSearchSurface(
       pre,
     );
   }
-  function renderResult(r: SearchResult) {
-    const item = el("article", "knowledge-result");
-    const citation = `${r.source_id} · ${r.extractor_version} · UTF-16 [${r.char_start}, ${r.char_end}) · text SHA256 ${r.text_sha256}`;
-    const passage = el("textarea", "knowledge-passage");
-    passage.value = r.snippet;
-    passage.readOnly = true;
-    passage.rows = 5;
-    passage.setAttribute("aria-label", `Passage from ${r.title}`);
-    item.append(
-      el("h3", "", r.title),
-      el("small", "", `${r.source_kind} · ${r.matched} · ${r.location}`),
-      passage,
-      el("small", "knowledge-citation", citation),
-    );
-    item.append(
-      action(
-        "Open exact snapshot",
-        () => void run(() => openSnapshot(r.source_id)),
-      ),
-      action(
-        "Preview passage into draft",
-        () =>
-          void run(async () => {
-            // Revalidate citation bytes at delivery time; a removed source is never silently reused.
-            const credential = token(), scope = localStorage.getItem('orbit.workspace.id') || workspaceId;
-            const current = () => !disposed && credential === token() && scope === workspaceId && scope === (localStorage.getItem('orbit.workspace.id') || workspaceId);
-            const snap = await request<SourceSnapshot>("get_source", {
-              source_id: r.source_id,
-            });
-            if (!current()) return;
-            if (
-              snap.text_sha256 !== r.text_sha256 ||
-              snap.content_sha256 !== r.content_sha256 || snap.extractor_version !== r.extractor_version ||
-              snap.text.slice(r.char_start, r.char_end) !== r.snippet
-            )
-              throw Error("Citation snapshot changed; search again.");
-            const [start, end] = sourceSelectionOffsets(r.snippet, passage.selectionStart, passage.selectionEnd);
-            const selected = r.snippet.slice(start, end);
-            const result = await requestConversationContext({
-              text: formatKnowledgeExcerpt(selected, { sourceId: r.source_id, extractor: r.extractor_version, textSha256: r.text_sha256, contentSha256: snap.content_sha256, start: r.char_start + start, end: r.char_start + end }),
-              validate: async () => {
-                const fresh = await request<SourceSnapshot>('get_source', { source_id: r.source_id });
-                if (!current() || fresh.text_sha256 !== r.text_sha256 || fresh.content_sha256 !== snap.content_sha256 || fresh.extractor_version !== r.extractor_version || fresh.text.slice(r.char_start, r.char_end) !== r.snippet)
-                  throw Error('Citation snapshot changed or was removed; search again.');
-              },
-              title: r.title,
-              source: `Snapshot ${r.source_id.slice(0, 16)} · UTF-16 [${r.char_start + (end > start ? start : 0)}, ${r.char_start + (end > start ? end : r.snippet.length)})`,
-            });
-            if (
-              !disposed &&
-              result.status !== "delivered" &&
-              result.status !== "cancelled"
-            )
-              error.textContent = `Draft transfer: ${result.status}`;
-          }),
-      ),
-    );
-    return item;
-  }
-  async function search() {
-    if (!query.value.trim()) throw Error("Enter a search query.");
-    const version = ++queryVersion;
-    const response = await request<{ results: SearchResult[]; note: string }>(
-      "search",
-      {
-        query: query.value,
-        mode: mode.value,
-        ...(filter.value ? { kinds: [filter.value] } : {}),
-      },
-    );
-    if (disposed || version !== queryVersion) return;
-    resultList.replaceChildren(
-      el("p", "", response.note),
-      ...response.results.map(renderResult),
-    );
-    if (!response.results.length)
-      resultList.append(
-        el("p", "", "No matching passages. Add a source or try other words."),
-      );
-  }
-  const searchForm = el("form", "knowledge-query");
-  searchForm.append(
-    field("Query", query),
-    field("Mode", mode),
-    field("Kind", filter),
-    action("Search", () => void run(search)),
-  );
-  searchForm.onsubmit = (e) => {
-    e.preventDefault();
-    void run(search);
-  };
   const add = el("details", "knowledge-add");
   add.open = true;
   add.append(
@@ -407,7 +281,7 @@ export function mountSearchSurface(
         void run(async () => {
           if (
             !confirm(
-              "Rebuild this workspace’s derived search index from preserved authoritative snapshots?",
+              "Rebuild this workspace’s derived keyword index from preserved authoritative snapshots?",
             )
           )
             return;
@@ -425,7 +299,7 @@ export function mountSearchSurface(
         void run(async () => {
           if (
             !confirm(
-              "Delete ALL ingested snapshots for this workspace and exclude them from search? Original files and drafts are untouched; physical erasure is not guaranteed.",
+              "Delete ALL ingested snapshots for this workspace and exclude them from the index? Original files and drafts are untouched; physical erasure is not guaranteed.",
             )
           )
             return;
@@ -439,13 +313,11 @@ export function mountSearchSurface(
     ),
   );
   root.append(
-    el("h2", "", "Local source search"),
+    el("h2", "", "Shared sources"),
     notice,
     status,
     error,
     add,
-    searchForm,
-    resultList,
     snapshotHost,
     manage,
     grantsHost,
@@ -458,7 +330,6 @@ export function mountSearchSurface(
   return {
     dispose() {
       disposed = true;
-      queryVersion++;
       clearInterval(timer);
       controller.abort();
       grants.dispose();

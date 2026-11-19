@@ -147,7 +147,7 @@ new cited editable briefs. To use it in Normal, the local gateway must match the
 reviewed Hermes source pin and have `normal_resource_directory` configured for its
 actual Orbit profile; the Orbit host separately configures
 `ORBIT_RESOURCE_NORMAL_PROFILES`. Choose the real linked conversation and sources
-in Knowledge search, then grant its **next accepted run**. Private keys are created
+in Shared sources, then grant its **next accepted run**. Private keys are created
 per run and never placed in model input or tool arguments. The adapter verifies
 actual gateway ContextVars; session strings or environment values cannot substitute.
 See [Resource delegation](../docs/RESOURCE_DELEGATION.md) for exact setup, limits,

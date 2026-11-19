@@ -3,7 +3,7 @@ const surfaces = [
   ["Workspace Activity","orbit://surface/activity","Observed live activity feed"],
   ["Collab","orbit://surface/collab","Project board, approvals, orchestrator, subagents"],
   ["Google Colab","orbit://surface/colab-runtime","GPU/TPU runtimes on Colab"],
-  ["Knowledge search","orbit://surface/search","Explicit source snapshots + exact citations"],
+  ["Shared sources","orbit://surface/search","Sources you choose to share with bots"],
   ["Interactive results","orbit://surface/interactive-results","A2UI v0.9 import/edit/pin/export"],
   ["Document library","orbit://surface/documents","Rich text + canvas artifacts"],
   ["Run traces","orbit://surface/traces","Redacted timing of observed events"],

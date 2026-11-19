@@ -194,7 +194,7 @@ export async function createResourceDelegation({root,workspaceRead,knowledge,doc
       // self-bump would make every later authorization stale_resource.
       r=fence();r.permission_requests??={};r.permission_requests[body.op_id]=request;persist(r);
       return {ok:true,request:publicRequest(request),verb_needed:verb,instruction:verb
-        ?'The owner must approve this in Knowledge search -> Delegate selected sources. Re-check with describe afterwards; approval widens verbs on this run grant only.'
+        ?'The owner must approve this in Shared sources -> Delegate selected sources. Re-check with describe afterwards; approval widens verbs on this run grant only.'
         :'This capability has no delegated implementation. Use the documented query surface, or Document library to open saved artifacts.'};
     },
   };
