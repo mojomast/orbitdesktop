@@ -88,7 +88,7 @@ Two bounded, independent workstreams are complete. Neither authorizes production
 docking adoption, new private-data delivery, grant enablement or a live migration.
 
 - `ses_f25ca6774ffeUkYzRVd3qrqucK`: opt-in standalone Dockview/Orbit integration
-  under `experiments/orbit-docking/`, using actual pane/model/spatial modules and
+  in a since-removed experiments fixture, using actual pane/model/spatial modules and
   a disposable real-PTY browser fixture. Production entrypoints/dependencies remain
   outside its edit scope. Complete; descendants done. The spike was removed in the
   cleanup; product docking is `src/docking-*.ts`.

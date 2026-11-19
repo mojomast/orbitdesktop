@@ -3,17 +3,13 @@
 Status: **isolated browser adapter experiment, not a production selection**.
 Measured September 25, 2026 in disposable Chromium fixtures. Dependencies were
 installed only under `/tmp/opencode`; no production package or renderer changed.
-The `experiments/docking/` spike was removed in the cleanup; product docking is
+The docking evaluation spike was removed in the rizzstack cleanup; product docking is
 `src/docking-*.ts`.
 
 ## Reproduce and measured outcome
 
-```sh
-bash experiments/docking/setup.sh /tmp/opencode/orbit-docking-deps
-PLAYWRIGHT_BROWSERS_PATH=/tmp/opencode/orbit-evolution-browsers \
-  /tmp/opencode/orbit-evolution-browser-venv/bin/python \
-  tests/docking-adapters.browser.py --move-control
-```
+Not reproducible from this tree: the spike's setup script and browser test were removed
+in the cleanup (they remain in git history before it).
 
 The script starts a disposable loopback HTTP fixture and creates a new Playwright
 context for each candidate/capability control. It serves the existing
