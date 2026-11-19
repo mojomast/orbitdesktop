@@ -88,13 +88,13 @@ function walk(root){
 }
 
 // Mirrors the service Doctor identity: SHA-256 over sorted server/*.mjs and
-// contracts/*.mjs names/bytes (excluding the owner-specific mobile proxy).
+// contracts/*.mjs names/bytes.
 export function serviceBuildId(root){
   const hash=createHash('sha256');
   for(const [prefix,directory] of [['./','server'],['../contracts/','contracts']]){
     const absolute=path.join(root,directory);
     if(!fs.existsSync(absolute))continue;
-    for(const name of fs.readdirSync(absolute).filter(name=>name.endsWith('.mjs')&&name!=='mobile-proxy.mjs').sort()){
+    for(const name of fs.readdirSync(absolute).filter(name=>name.endsWith('.mjs')).sort()){
       hash.update(prefix+name+'\0');hash.update(fs.readFileSync(path.join(absolute,name)));
     }
   }

@@ -104,14 +104,11 @@
     "server/worker-join-store.mjs"
   ],
   "excluded": [
-    "server/mobile-proxy.mjs",
-    "server/mobile-security.mjs",
     "scripts/token_widget_export.py",
     "scripts/test-onboarding-hermetic.mjs",
     "scripts/check-local.mjs",
     "scripts/smoke-node-quickstart.mjs",
     "scripts/ci-offline-check.sh",
-    "server/approvals-route.test.mjs",
     "docs/REAL_PROJECT_EVALUATION.md",
     "docs/REAL_PROJECT_EVALUATION_PREFLIGHT.md",
     "docs/HERMES_RELEASE_ACCEPTANCE.md",
