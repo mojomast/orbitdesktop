@@ -47,5 +47,4 @@ try {
   const tests=mode==='preflight'?['runnable-portability.test.mjs','onboarding-wiring.test.mjs','workspace-store-placement.test.mjs','project-files-adversarial.test.mjs','data-workbench-assets.test.mjs']
     :fs.readdirSync(path.join(repo,'tests')).filter(name=>name.endsWith('.test.mjs')).sort();
   run(['--experimental-strip-types','--test','--test-concurrency=1',...tests.map(name=>'tests/'+name)]);
-  if(mode!=='preflight') run(['vendor/irc-suite/scripts/run-tests.js']);
 } finally { fs.rmSync(root,{recursive:true,force:true}); }

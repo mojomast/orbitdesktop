@@ -39,9 +39,7 @@ import {createWorkbenchLiveHandler} from './workbench-live-route.mjs';
 import {createWorkbenchNativeRuntime,nativeRuntimeEnvironmentOptions,nativeRuntimeMetadata} from './workbench-native-runtime.mjs';
 import {technologyOwnerRoute,lazyTechnologyService} from './technology-owner-route.mjs';
 import {createWorkbenchSandboxProvider} from './workbench-sandbox-provider.mjs';
-import { createIrcService } from './irc.mjs';
 import { createColabOrchestrator } from './colab-orchestrator.mjs';
-import { createKittyDoomService } from './kitty-doom.mjs';
 import { createGrokBotsApp } from './grokbots-app.mjs';
 import { createAgentStatus } from './agent-status.mjs';
 import { createCollabBoard } from './collab-board.mjs';
@@ -138,10 +136,7 @@ const orbitSetup = createOrbitSetup({ runtimeDir: runtimeRoot, env: process.env,
 let configuredProfiles = [];
 try { configuredProfiles = await orbitSetup.agentProfiles(); }
 catch { console.error('Configured agents from orbit-config.json did not start.'); }
-const irc = createIrcService({ token, orbitPort: port, devOrigins, reply, repoRoot });
 const colab = createColabOrchestrator({ token, port, devOrigins, reply, root: path.join(runtimeRoot, 'colab-orchestrator') });
-// Kitty DOOM: one kitty-graphics PTY session per websocket window on this origin.
-const kittyDoom = createKittyDoomService({ token, port, devOrigins, reply });
 // Grok Bots app: capability-scoped list/history/send for the sandboxed app iframe.
 const agentStatus = createAgentStatus({ runtimeRoot });
 const hiveReports = createHiveReportsRoute({dir: process.env.ORBIT_HIVE_REPORT_DIR, token, port, devOrigins, reply});
@@ -402,9 +397,7 @@ async function handleOrbitRequest(req, res) {
   if (url.pathname === "/obs-snapshot" || url.pathname.startsWith("/obs-snapshot/")) return serveObsSnapshot(req, res, url.pathname);
   if (url.pathname.startsWith("/apps/")) return workspaceService.serveApp(req, res, url.pathname);
   if (url.pathname === "/api/agent") return agentHandler(req, res);
-  if (url.pathname === "/api/irc") return irc.handle(req, res);
   if (url.pathname === '/api/colab-runtime' || url.pathname.startsWith('/api/colab-runtime/')) return colab.handle(req, res, url);
-  if (url.pathname === '/api/kitty-doom') return kittyDoom.handle(req, res);
   if (url.pathname === '/api/grokbots-app/launch') {
     // Host-only: hands the Orbit page the capability URL for the sandboxed Grok Bots pane.
     if (req.method !== 'POST' || !allowedRequest(req, port, devOrigins) || !tokenMatches(String(req.headers.authorization || '').replace(/^Bearer /, ''), token)) return reply(res, 403, { error: 'Orbit authentication required' });
@@ -507,15 +500,6 @@ const wss = new WebSocketServer({
   perMessageDeflate: false,
 });
 server.on("upgrade", (req, socket, head) => {
-  const upgradePath = String(req.url || '').split('?')[0];
-  if (upgradePath === '/api/irc') {
-    irc.upgrade(req, socket, head);
-    return;
-  }
-  if (upgradePath === '/api/kitty-doom') {
-    kittyDoom.upgrade(req, socket, head);
-    return;
-  }
   if (
     req.url !== "/api/terminal" ||
     !allowedRequest(req, port, devOrigins) ||
@@ -703,10 +687,8 @@ server.listen(port, listenHost, () => {
 });
 for (const signal of ["SIGTERM", "SIGINT"])
   process.on(signal, () => {
-    irc.close();
     piGateway?.close?.();
     colab.close();
-    kittyDoom.close();
     grokBotsApp.close?.();
     execution.close();
     sandboxProvider.close();

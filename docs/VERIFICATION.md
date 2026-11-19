@@ -2,8 +2,8 @@
 
 ## Running the offline regression suite
 
-After installing the locked dependencies, run `npm test` for the Orbit and
-vendored IRC suites, or `npm run check` to also verify generated contracts,
+After installing the locked dependencies, run `npm test` for the Orbit suite,
+or `npm run check` to also verify generated contracts,
 typecheck and build. Use a full-history checkout: migration tests load source
 from specific historical commits. Use Linux with the Node/npm distribution
 (including its paired npm CLI), Python 3, Git, tmux, and the OpenSSH tools for
