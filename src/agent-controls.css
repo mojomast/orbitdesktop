@@ -1,5 +1,5 @@
 /* Shared agent controls only; no element-wide reset or theme authority. */
-:where(.chat-body, .agent-inspector, .pane-workbench, .agent-meta) {
+:where(.chat-body, .agent-inspector, .agent-meta) {
   --agent-space-1: 4px;
   --agent-space-2: 8px;
   --agent-space-3: 12px;
@@ -38,6 +38,6 @@
   min-width: 0;
   box-shadow: none;
 }
-#app .chat-body .chat-form :is(.agent-ui-secondary, .chat-composer-action) { background: var(--theme-buttonColor, #263338) !important; color: var(--theme-buttonTextColor, #e6eeed) !important; box-shadow: none; }
+#app .chat-body .chat-form .agent-ui-secondary { background: var(--theme-buttonColor, #263338) !important; color: var(--theme-buttonTextColor, #e6eeed) !important; box-shadow: none; }
 #app .chat-body .chat-form :is(.agent-ui-ghost, .agent-ui-icon) { background: transparent !important; color: var(--theme-textColor, #c2cfce) !important; }
 #app .chat-body .chat-form .agent-ui-danger { background: #47272c !important; color: #ffd4d8 !important; }

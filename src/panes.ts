@@ -4,8 +4,6 @@ import "@xterm/xterm/css/xterm.css";
 import { el, button, select } from "./dom";
 import { createAgentChat } from "./agent-chat";
 import { mountSharedBrowser } from './shared-browser';
-import {mountWorkbenchReviewHost,REVIEW_URL} from './workbench-review-host';
-import {mountProjectToolHost,PROJECT_TOOL_URL_PREFIX,projectToolId} from './project-tool-host';
 import { mountManagedTerminalControls } from './managed-terminals';
 import { hostSurfaceId, mountHostSurface } from './host-surfaces';
 import {documentSurfaceId} from './technology-surfaces';
@@ -333,14 +331,6 @@ export function createPane(p: Pane, font: number, a: PaneActions): PaneView {
       dispose=()=>mounted.dispose();
     }).catch(()=>{if(!disposed)body.textContent='Document surface unavailable';});
     cleanup=()=>{disposed=true;dispose();};
-  } else if (p.kind === 'browser' && p.url === REVIEW_URL) {
-    body.style.overflow='auto';
-    body.style.padding='.75rem';
-    cleanup=mountWorkbenchReviewHost(body,p.id,()=>sessionToken);
-  } else if (p.kind === 'browser' && p.url.startsWith(PROJECT_TOOL_URL_PREFIX)) {
-    body.style.overflow='auto';
-    body.style.padding='.75rem';
-    cleanup=mountProjectToolHost(body,p.id,()=>sessionToken,projectToolId(p.url)??undefined);
   } else if (p.kind === 'browser' && p.url === 'orbit://shared-browser') {
     head.style.display='none';
     cleanup=mountSharedBrowser(body,()=>sessionToken,p.id);

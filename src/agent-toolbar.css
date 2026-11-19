@@ -21,18 +21,6 @@
   overflow: hidden; text-overflow: ellipsis;
 }
 #app .agent-pane-head .agent-human-status{background:transparent;border:0;padding:2px 4px;font-weight:400;color:inherit}
-#app .agent-pane-head .agent-mode-control {
-  flex: 0 0 auto; display: flex; flex-wrap: nowrap; gap: 2px;
-}
-#app .agent-pane-head .agent-mode-button {
-  flex: 0 0 auto; display: inline-flex; align-items: center; flex-direction: row;
-  min-width: 0; max-width: none; padding: 4px 5px; font-size: 11px;
-  line-height: 1.1; white-space: nowrap;
-}
-#app .agent-pane-head .agent-mode-button-status { font-size: 0; }
-#app .agent-pane-head .agent-mode-button-status:not(:empty)::before { content: '●'; font-size: 8px; color:var(--theme-accentColor,#91bfa2); }
-#app .agent-pane-head .agent-mode-button[aria-pressed=true] .agent-mode-button-status { display:none; }
-#app .agent-pane-head .agent-mode-button-status:empty { display: none; }
 #app .agent-pane-head .agent-menu-trigger { flex: 0 0 auto; font-size: 16px; padding: 2px 7px; }
 .agent-overflow-menu {
   position: fixed; z-index: 10000;
@@ -49,7 +37,6 @@
   /* Narrow heads (any renderer): provider details stay reachable from the
      overflow menu and the inspector instead of overflowing the pane head. */
   #app .agent-pane-head .agent-toolbar-meta .agent-provider { display: none; }
-  #app .agent-pane-head .agent-mode-button { padding: 4px 3px; }
 }
 
 .agent-settings { display: grid; gap: 10px; min-width: 0; }
@@ -74,11 +61,6 @@
 .agent-sync-notice { padding: 6px 12px; font-size: 12px; color: var(--theme-mutedColor, #bdc9c3); }
 .agent-history-recovery { align-self: flex-start; margin: 0 12px 6px; }
 .agent-history-recovery[hidden] { display: none; }
-/* Experimental-surface gate notice: only when this pane's stored mode is
-   Workbench while the feature is off in Orbit settings. */
-.agent-experimental-notice { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 12px; padding: 8px 10px; border: 1px solid var(--theme-borderColor, #3a4a52); border-left-width: 4px; border-radius: 8px; background: color-mix(in srgb, var(--accent, #b5f268) 7%, transparent); font-size: 12px; }
-.agent-experimental-notice[hidden] { display: none; }
-.agent-experimental-notice span { flex: 1 1 220px; min-width: 0; }
 .agent-chat-normal .agent-activity-strip { flex-wrap: wrap; }
 .agent-chat-normal .agent-activity-strip > button { min-height: 28px; }
 
@@ -91,11 +73,6 @@
   flex: 1 1 auto; width: 0; min-width: 0; min-height: 64px;
   max-height: 96px; height: 64px; overflow-y: auto; resize: none;
   box-sizing: border-box;
-}
-#app .agent-chat-normal .chat-form .chat-composer-action {
-  flex: 0 0 auto; width: auto; min-width: 0; min-height: 32px;
-  padding: 4px 7px; font-size: 11px; font-weight: 500;
-  align-self: flex-end; white-space: normal; max-width: 84px;
 }
 #app .agent-chat-normal .chat-form .chat-send {
   flex: 0 0 auto; min-width: 48px; min-height: 36px; padding: 5px 8px;

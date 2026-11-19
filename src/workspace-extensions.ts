@@ -17,5 +17,4 @@ export const workspaceExtensions: readonly WorkspaceExtension[] = [
  {id:'catalog',title:'Skills and tools',label:'Browse skills and tools for the selected agent',activate:async c=>(await import('./hermes-catalog')).showCatalog(c.api, c.agentName)},
  {id:'outputs',title:'Apps and outputs',label:'Open published apps and outputs',activate:async c=>{await (await import('./hermes-surfaces')).showShelf(c.token);}},
  {id:'jobs',title:'Scheduled tasks',label:'Open scheduled tasks for the selected agent',activate:async c=>(await import('./hermes-jobs')).showHermesJobs(c.api, c.agentName, c.provider)},
- {id:'project-workbench',title:'Project Workbench',label:'Open Comet Project Workbench',activate:async c=>(await import('./project-workbench')).showProjectWorkbench(c.token)},
 ];
