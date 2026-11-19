@@ -1,3 +1,8 @@
+> **SUPERSEDED (Nov 18, 2026).** This plan is replaced by the rizzstack cleanup plan.
+> Workbench is being deleted and the rizzstack screens move to an extension,
+> so nothing here is protected core any more; do not follow its waves. The rest of
+> this document is kept as history.
+
 # Orbit decomposition — keep, extract, retire (inventory + plan only)
 
 Base: `da8201617a55f8187642f7e03d6b30b6c3c294e5` (main). This document and
