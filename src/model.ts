@@ -198,7 +198,7 @@ export function validate(value: unknown): Workspace {
   if (s.spatialCamera !== undefined && !validCamera(s.spatialCamera)) throw Error('Invalid spatial camera');
   // The spatial view is cut: persisted legacy workspaces load as windows and
   // the camera never survives.
-  s.view = 'windows';
+  if (s.view === 'spatial') s.view = 'windows';
   delete (s as Partial<LegacyWorkspace>).spatialCamera;
   if (s.sidebarHidden !== undefined && typeof s.sidebarHidden !== "boolean") throw Error("Invalid sidebar state");
   if (s.appearance !== undefined) {
