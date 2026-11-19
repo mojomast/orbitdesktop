@@ -14,6 +14,12 @@ const gone = ['server/host-api.mjs','server/approvals-route.mjs','server/approva
   'server/mobile-proxy.mjs','server/mobile-security.mjs','server/workspace-store.mjs','tests/host-api.test.mjs','tests/approvals.test.mjs'];
 const names = ['host-api.mjs','approvals-route','ssh-bootstrap','mobile-proxy','mobile-security','JsonWorkspaceStore',"/workspace-store.mjs'"];
 
+// The build identity deliberately excludes a stray mobile-proxy.mjs left in a deploy directory
+// (review fix, Nov 18 2026); these files name it only for that exclusion and its test.
+const identityExclusion = new Set(['server/workbench-build-identity.mjs','scripts/release_manifest.mjs']);
+// The review-fix test names the deleted paths to assert they are gone, like this file does.
+const alsoAboutDeletions = new Set(['tests/cleanup-review.test.mjs']);
+
 function walk(dir, out=[]) {
   for (const entry of fs.readdirSync(dir,{withFileTypes:true})) {
     if (['node_modules','.git','dist','vendor','experiments'].includes(entry.name)) continue;
@@ -34,7 +40,9 @@ test('AC-002 nothing tracked references the deleted modules', () => {
   for (const file of walk(root)) {
     if (file === self) continue;
     const text = fs.readFileSync(file,'utf8');
-    for (const name of names) if (text.includes(name)) hits.push(`${path.relative(root,file)}: ${name}`);
+    const rel = path.relative(root,file);
+    if (alsoAboutDeletions.has(rel)) continue;
+    for (const name of names) if (text.includes(name) && !(name === 'mobile-proxy' && identityExclusion.has(rel))) hits.push(`${rel}: ${name}`);
   }
   assert.deepEqual(hits, []);
 });

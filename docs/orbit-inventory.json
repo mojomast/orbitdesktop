@@ -5,10 +5,10 @@
  "generated": "2026-11-16",
  "plan_only": true,
  "counts": {
-  "server_modules": 151,
+  "server_modules": 146,
   "apps": 4,
   "src_files": 226,
-  "server_loc": 37581,
+  "server_loc": 36473,
   "src_loc": 35336,
   "docs_files": 115
  },
@@ -115,7 +115,7 @@
   "acdd-evidence.mjs": {
    "classification": "KEEP-PLATFORM",
    "family": "agent-ops-surfaces",
-   "evidence": "Read-only ACDD evidence view (contracts, verifier records, acceptance) \u2014 campaign evidence display; never decides acceptance.",
+   "evidence": "Read-only ACDD evidence view (contracts, verifier records, acceptance) — campaign evidence display; never decides acceptance.",
    "loc": 716,
    "reachable_from_index": true,
    "consumers": [
@@ -643,8 +643,8 @@
   "collab.mjs": {
    "classification": "KEEP-CORE",
    "family": "collab",
-   "evidence": "Orbit Collab: board, approvals (shell.write/review verdicts), orchestrator engine, budget gates \u2014 the operator approval flow for multi-agent work (2,081 LOC, 7 test refs).",
-   "route": "/api/irc? no \u2014 collab surface via host-surfaces + agent APIs",
+   "evidence": "Orbit Collab: board, approvals (shell.write/review verdicts), orchestrator engine, budget gates — the operator approval flow for multi-agent work (2,081 LOC, 7 test refs).",
+   "route": "/api/irc? no — collab surface via host-surfaces + agent APIs",
    "loc": 2081,
    "reachable_from_index": true,
    "consumers": [
@@ -988,18 +988,6 @@
    ],
    "docs": []
   },
-  "host-api.mjs": {
-   "classification": "RETIRE-PROPOSAL",
-   "family": "ssh-hosts",
-   "evidence": "843 LOC agent-facing hosts.run/put/deploy API: unreachable from index.mjs; imported only by tests/host-api.test.mjs; onboarding-wiring mentions it in a comment but never imports it \u2014 host actions actually flow through ssh-hosts.",
-   "loc": 843,
-   "reachable_from_index": false,
-   "consumers": [],
-   "tests": [
-    "host-api.test.mjs"
-   ],
-   "docs": []
-  },
   "host-audit.mjs": {
    "classification": "KEEP-PLATFORM",
    "family": "ssh-hosts",
@@ -1007,7 +995,6 @@
    "loc": 239,
    "reachable_from_index": true,
    "consumers": [
-    "server/host-api.mjs",
     "server/host-recipes.mjs",
     "server/onboarding-wiring.mjs"
    ],
@@ -1023,9 +1010,7 @@
    "evidence": "Idempotent worker-install recipes: unreachable from index.mjs, imported only by host-api.mjs and its test (dead with host-api).",
    "loc": 291,
    "reachable_from_index": false,
-   "consumers": [
-    "server/host-api.mjs"
-   ],
+   "consumers": [],
    "tests": [
     "host-api.test.mjs"
    ],
@@ -1206,7 +1191,7 @@
   "kitty-doom.mjs": {
    "classification": "RETIRE-PROPOSAL",
    "family": "entertainment",
-   "evidence": "Kitty DOOM bridge (615 LOC): entertainment \u2014 out of mission, not operator mission; no contract doc; wired unconditionally (/api/kitty-doom + WS upgrade) with a dedicated 226-line verify script. Owner decision required to remove the surface.",
+   "evidence": "Kitty DOOM bridge (615 LOC): entertainment — out of mission, not operator mission; no contract doc; wired unconditionally (/api/kitty-doom + WS upgrade) with a dedicated 226-line verify script. Owner decision required to remove the surface.",
    "route": "/api/kitty-doom",
    "loc": 615,
    "reachable_from_index": true,
@@ -1526,30 +1511,6 @@
    "docs": [
     "MCP_APPS.md"
    ]
-  },
-  "mobile-proxy.mjs": {
-   "classification": "RETIRE-PROPOSAL",
-   "family": "mobile",
-   "evidence": "Standalone TLS proxy for one phone: hardcodes a private workspace UUID, a tailnet origin and runtime TLS paths; explicitly excluded from the portable bundle by scripts/bundle_hermes.py; not wired into index.mjs.",
-   "loc": 77,
-   "reachable_from_index": false,
-   "consumers": [],
-   "tests": [
-    "test_orbit_bundle.py"
-   ],
-   "docs": []
-  },
-  "mobile-security.mjs": {
-   "classification": "RETIRE-PROPOSAL",
-   "family": "mobile",
-   "evidence": "Pixel/tailnet identity checks for mobile-proxy only (hardcoded node id + addresses).",
-   "loc": 14,
-   "reachable_from_index": false,
-   "consumers": [
-    "server/mobile-proxy.mjs"
-   ],
-   "tests": [],
-   "docs": []
   },
   "onboarding-apply.mjs": {
    "classification": "KEEP-CORE",
@@ -2144,18 +2105,6 @@
    ],
    "docs": []
   },
-  "ssh-bootstrap.mjs": {
-   "classification": "RETIRE-PROPOSAL",
-   "family": "ssh-hosts",
-   "evidence": "Host bootstrap script generator: unreachable from index.mjs; imported only by tests/ssh-hosts.test.mjs; the /api/hosts action surface never sends the generated script (verified against onboarding-wiring hostAction).",
-   "loc": 149,
-   "reachable_from_index": false,
-   "consumers": [],
-   "tests": [
-    "ssh-hosts.test.mjs"
-   ],
-   "docs": []
-  },
   "ssh-config.mjs": {
    "classification": "KEEP-PLATFORM",
    "family": "ssh-hosts",
@@ -2495,7 +2444,7 @@
   "workbench-gate.mjs": {
    "classification": "KEEP-CORE",
    "family": "workbench",
-   "evidence": "The execution gate: serial dispatch, legacy-lane fencing, quarantine \u2014 the approval authority for agent work.",
+   "evidence": "The execution gate: serial dispatch, legacy-lane fencing, quarantine — the approval authority for agent work.",
    "loc": 26,
    "reachable_from_index": true,
    "consumers": [
@@ -3157,78 +3106,6 @@
     "SAVED_WORKSPACE_LAYOUTS.md"
    ]
   },
-  "workspace-store.mjs": {
-   "classification": "RETIRE-PROPOSAL",
-   "family": "workspace-state",
-   "evidence": "Legacy JSON store: unreachable from index.mjs, imported only by tests/recovery.test.mjs; SQLite is authoritative and loadLegacy/exportLegacy in sqlite-workspace-store.mjs handle legacy bytes directly. Keep until legacy export parity is re-verified, then remove.",
-   "loc": 25,
-   "reachable_from_index": false,
-   "consumers": [],
-   "tests": [
-    "agent-store.test.mjs",
-    "bundle-schema.test.mjs",
-    "extension-studio.test.mjs",
-    "fixtures/schema11-store.mjs",
-    "fixtures/sqlite-crash-worker.mjs",
-    "fixtures/sqlite-store-helpers.mjs",
-    "plugin-instances-policy.test.mjs",
-    "project-files-adversarial.test.mjs",
-    "project-tools-migration.test.mjs",
-    "project-tools-review.test.mjs",
-    "project-tools.test.mjs",
-    "project-workbench.test.mjs",
-    "recovery-policy-storage.test.mjs",
-    "recovery-policy.test.mjs",
-    "recovery.test.mjs",
-    "release-operations.test.mjs",
-    "release-package-launch.test.mjs",
-    "run-traces.test.mjs",
-    "saved-workspace-layouts.test.mjs",
-    "sqlite-backup-safety.test.mjs",
-    "sqlite-contention.test.mjs",
-    "sqlite-migration.test.mjs",
-    "sqlite-workspace-store.test.mjs",
-    "test_orbit_bundle.py",
-    "workbench-authority.test.mjs",
-    "workbench-ci-scope.test.mjs",
-    "workbench-context.test.mjs",
-    "workbench-data.test.mjs",
-    "workbench-dependency-export-current.test.mjs",
-    "workbench-dependency-export-real.test.mjs",
-    "workbench-environments.test.mjs",
-    "workbench-evaluation-families.test.mjs",
-    "workbench-execution.test.mjs",
-    "workbench-fault-boundary.test.mjs",
-    "workbench-findings.test.mjs",
-    "workbench-live-diff.test.mjs",
-    "workbench-live.test.mjs",
-    "workbench-loop-execution.test.mjs",
-    "workbench-native.test.mjs",
-    "workbench-patch-moving-target.test.mjs",
-    "workbench-patch.test.mjs",
-    "workbench-provenance.test.mjs",
-    "workbench-real-project-native.test.mjs",
-    "workbench-recovery-boundary.test.mjs",
-    "workbench-registry-profile.test.mjs",
-    "workbench-reliability-browser-fixture.mjs",
-    "workbench-result-boundary.test.mjs",
-    "workbench-result.test.mjs",
-    "workbench-setup-route.test.mjs",
-    "workbench-setup.test.mjs",
-    "workbench-status.test.mjs",
-    "workbench-terminal-boundary.test.mjs",
-    "workbench-workflow.test.mjs",
-    "workspace-arrangements-migration.test.mjs",
-    "workspace-arrangements-retention.test.mjs",
-    "workspace-arrangements.test.mjs",
-    "workspace-event-page.test.mjs",
-    "workspace-schema12.test.mjs",
-    "workspace-store-preserve-schema.test.mjs"
-   ],
-   "docs": [
-    "WORKSPACE_STORE.md"
-   ]
-  },
   "workspace.mjs": {
    "classification": "KEEP-CORE",
    "family": "workspace-state",
@@ -3448,13 +3325,8 @@
  "unreachable_from_index": [
   "browser-copilot-route.mjs",
   "checkpoints.mjs",
-  "host-api.mjs",
   "host-recipes.mjs",
-  "mobile-proxy.mjs",
-  "mobile-security.mjs",
-  "run-traces-route.mjs",
-  "ssh-bootstrap.mjs",
-  "workspace-store.mjs"
+  "run-traces-route.mjs"
  ],
  "apps": [
   {
@@ -3463,7 +3335,7 @@
    "protected": true,
    "builtin": false,
    "classification": "KEEP-CORE",
-   "evidence": "Deployed Observatory: static catalog-admissible viewer for rizzstack.observability/snapshot/1 (fleet, usage, pipeline, backlog, health, alerts). Source in extensions/rizzstack-observatory; registration documented in its README; PROTECTED by owner directive \u2014 never modified or retired by this decomposition."
+   "evidence": "Deployed Observatory: static catalog-admissible viewer for rizzstack.observability/snapshot/1 (fleet, usage, pipeline, backlog, health, alerts). Source in extensions/rizzstack-observatory; registration documented in its README; PROTECTED by owner directive — never modified or retired by this decomposition."
   },
   {
    "slug": "grokbots",
@@ -3487,7 +3359,7 @@
    "protected": false,
    "builtin": false,
    "classification": "KEEP-PLATFORM",
-   "evidence": "Static token-telemetry viewer; scripts/token_widget_export.py (operator-host script reading the Hermes state DB) writes usage.json beside the deployed copy. Load-bearing on the deployed host, but its export script carries a hardcoded personal DB path \u2014 extraction candidate for owner tooling."
+   "evidence": "Static token-telemetry viewer; scripts/token_widget_export.py (operator-host script reading the Hermes state DB) writes usage.json beside the deployed copy. Load-bearing on the deployed host, but its export script carries a hardcoded personal DB path — extraction candidate for owner tooling."
   }
  ],
  "areas": [
@@ -3509,7 +3381,7 @@
   {
    "area": "contracts",
    "classification": "KEEP-CORE",
-   "note": "35 reviewed contract modules/schemas (13,108 LOC) \u2014 the API surface every family validates against."
+   "note": "35 reviewed contract modules/schemas (13,108 LOC) — the API surface every family validates against."
   },
   {
    "area": "contrib",
@@ -3539,7 +3411,7 @@
   {
    "area": "extensions",
    "classification": "PROTECTED",
-   "note": "extensions/rizzstack-observatory \u2014 Observatory source."
+   "note": "extensions/rizzstack-observatory — Observatory source."
   },
   {
    "area": "hermes-plugin",
@@ -3574,7 +3446,7 @@
   {
    "area": "server",
    "classification": "MIXED",
-   "note": "151 modules \u2014 classified per module in server_modules."
+   "note": "151 modules — classified per module in server_modules."
   },
   {
    "area": "skills",
@@ -3584,7 +3456,7 @@
   {
    "area": "src",
    "classification": "MIXED",
-   "note": "226 modules in six areas \u2014 classified per area in src_areas."
+   "note": "226 modules in six areas — classified per area in src_areas."
   },
   {
    "area": "tests",
@@ -3594,7 +3466,7 @@
   {
    "area": "vendor",
    "classification": "KEEP-PLATFORM",
-   "note": "vendored irc-suite (3.7k LOC) \u2014 travels with the IRC surface extraction."
+   "note": "vendored irc-suite (3.7k LOC) — travels with the IRC surface extraction."
   }
  ],
  "src_areas": [
@@ -3763,7 +3635,7 @@
   "decision_queue": {
    "status": "protected-external",
    "in_repo": false,
-   "evidence": "Campaign receiver decision lives in the workflow/repository evidence per docs/ACDD_EVIDENCE.md \u00a7Campaign closeout; verified absent from this tree."
+   "evidence": "Campaign receiver decision lives in the workflow/repository evidence per docs/ACDD_EVIDENCE.md §Campaign closeout; verified absent from this tree."
   }
  }
 }
