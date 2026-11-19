@@ -266,7 +266,7 @@ Checkpoints are not filesystem backups. They do not restore documents, shell pro
 
 ## Hermes plugin integration
 
-Orbit includes a native Hermes agent plugin in [`hermes-plugin/`](hermes-plugin/README.md). Its ordinary `orbit_workspace` tool provides scoped workspace reads, contract-derived discovery, setup suggestions, previews, revision-checked edits, history, checkpoints and confirmed restores. It defaults to read-only and requires an explicitly configured local workspace; no credentials are pasted into chat and no services start automatically.
+Orbit includes a native Hermes agent plugin in [`hermes-plugin/`](hermes-plugin/README.md). Its ordinary `orbit_workspace` tool provides scoped workspace reads, contract-derived discovery, previews, revision-checked edits, history, checkpoints and confirmed restores. It defaults to read-only and requires an explicitly configured local workspace; no credentials are pasted into chat and no services start automatically.
 
 One additional interface is available with its specific configuration:
 `orbit_resources` for granted source research and new saved cited briefs. See the
