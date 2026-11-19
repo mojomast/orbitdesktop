@@ -161,16 +161,12 @@ commands.layout_preview.permission=commands.layout_apply.permission='authenticat
 command('plugins_apply',batch,Object.keys(batch),'plugin-registration','current-base-revision');
 command('sync',{state:ref('workspace'),base_revision:integer(0),observed_revision:integer(0),client_features:array(enumeration('plugin-instances-v1','plugin-config-schema-v1'),{maxItems:2,uniqueItems:true})},['state'],'layout','required-after-initial-connect');
 command('shelf');
-command('jev_suggest',{request:text(12000),api_key:text(4096),consent:bool},['request','api_key','consent'],'external-model-request');
-command('jev_apply',{action_id:text(100),base_revision:integer(0),confirm:bool},['action_id','base_revision'],'layout','current-base-revision');
 // Ordinary browser polling persists last-seen/observed metadata, unlike control
 // and recovery reads. Do not describe all routes as side-effect-free reads.
 commands.read.sideEffect = 'route-dependent-client-observation';
 commands.read.routeEffects = {browser:'client-observation-write',control:'read',recovery:'read'};
 commands.read.idempotency = 'read-only-on-control-and-recovery; browser-overwrites-observation';
 commands.arrangement.idempotency = 'action-specific; recipe_apply requires the exact retained preview identity and op_id, with durable actor-scoped receipt recovery';
-commands.jev_suggest.permission = 'authenticated-owner-with-external-data-consent';
-commands.jev_suggest.idempotency = 'external-provider-request-not-retry-safe';
 commands.recovery_policy.permission = 'authenticated-owner-on-recovery-route-only';
 commands.recovery_policy.idempotency = 'durable receipt scoped to recovery policy generation; obsolete generation replay rejected';
 commands.workbench_setup.permission = 'authenticated-workspace-capability; proposal-only, never owner, task, execution or approval authority';
@@ -182,7 +178,7 @@ defs.checkpointMetadata = object({id:uuid,created:{type:'number'},label:text(160
 const outputs = {
   arrangement:{type:'object',description:'Arrangement service result; structural preview, committed receipt and browser acknowledgement are separate facts'},
   describe:object({workspace_id:uuid,revision:integer(1),version:{const:1},editable_fields:array(text(100),{maxItems:32}),surfaces:array(object({window_id:identifier,pane_id:identifier,kind}),{maxItems:1000}),projects:array(object({id:uuid,name:text(200),generation:integer(1)}),{maxItems:32}),bindings:array(object({id:uuid,project_id:uuid,resource_id:uuid,pane_id:identifier,role:text(40),available:bool}),{maxItems:1000}),extension_compatibility:object({manifest_api:{const:1},multiple_instances:{const:true},private_frame_data:{const:false},network:{const:'legacy-network-capable'}}),unsupported:array(text(200),{maxItems:32}),catalog:{type:'object'}},['workspace_id','revision','version','editable_fields','surfaces','projects','bindings','extension_compatibility','unsupported']),
-  read:ref('snapshot'),sync:ref('snapshot'),apply:ref('snapshot'),plugins_apply:ref('snapshot'),restore:ref('snapshot'),jev_apply:ref('snapshot'),recovery_policy:ref('snapshot'),
+  read:ref('snapshot'),sync:ref('snapshot'),apply:ref('snapshot'),plugins_apply:ref('snapshot'),restore:ref('snapshot'),recovery_policy:ref('snapshot'),
   placement_save:ref('placementSnapshot'),
   checkpoint:object({checkpoint:uuid}),
   history:object({revision:integer(1),checkpoints:array(ref('checkpointMetadata'))}),
@@ -204,8 +200,8 @@ outputs.checkpoint.required.push('command_receipt');
 defs.committedSnapshot=structuredClone(defs.snapshot);
 defs.committedSnapshot.required.push('command_receipt');
 outputs.layout_preview=outputs.preview;
-for(const action of ['sync','apply','layout_apply','plugins_apply','restore','jev_apply','recovery_policy'])outputs[action]=ref('committedSnapshot');
-for(const name of ['sync','apply','layout_apply','plugins_apply','restore','checkpoint','jev_apply']) {
+for(const action of ['sync','apply','layout_apply','plugins_apply','restore','recovery_policy'])outputs[action]=ref('committedSnapshot');
+for(const name of ['sync','apply','layout_apply','plugins_apply','restore','checkpoint']) {
   const command=commands[name];
   Object.assign(command.input.properties,{
     operation_id:{type:'string',pattern:'^[a-zA-Z0-9_.:-]{1,128}$'},
@@ -219,7 +215,7 @@ for(const operation of Object.values(operations))operation.idempotency='receipt 
 // New owner composition clients always retain an exact retry identity.
 commands.layout_apply.input.required.push('operation_id','intent');
 for(const [name,command] of Object.entries(commands)) {
-  command.output = outputs[name] || {type:'object',description:'Legacy optional Jev result; provider output validation remains in server/jev.mjs'};
+  command.output = outputs[name] || {type:'object',description:'Legacy optional command result'};
 }
 export const contract = {
   version:1,limits,errors:{INVALID_OPERATION:'Request does not match the workspace contract',REVISION_CONFLICT:'Workspace changed; read and reconsider',IDEMPOTENCY_CONFLICT:'Operation key was already used with a different request',RECOVERY_HOLD:'Recovery hold prevents active registered plugins',RECOVERY_POLICY_CHANGED:'Recovery policy generation changed since receipt',RESOURCE_BUSY:'Workspace store is busy; retry only with the same operation key and payload',STORE_UNAVAILABLE:'Workspace store unavailable',MIGRATION_REQUIRED:'Explicit legacy store migration required',PERMISSION_REQUIRED:'Workspace authentication required',RESOURCE_GONE:'Workspace or resource unavailable',UPGRADE_REQUIRED:'Client cannot write this workspace version',REQUEST_TOO_LARGE:'Workspace request exceeds the byte budget'},

@@ -9,7 +9,6 @@ import {initial} from '../src/model.ts';
 import {applyOperation} from '../src/workspace-ops.ts';
 import {validateWorkspaceRequest} from '../server/workspace-contract.mjs';
 import {checkpointChanges} from '../server/workspace-diff.mjs';
-import {jevCandidates} from '../server/jev.mjs';
 
 const manifest = {apiVersion:1,id:'notes',version:'1.0.0',title:'Notes',entry:'/apps/notes-v1/index.html'};
 const features = ['plugin-instances-v1','plugin-config-schema-v1'];
@@ -89,7 +88,4 @@ test('checkpoint comparisons and quick actions distinguish two instances of the 
   const changes=checkpointChanges({state},{state:one}).changes;
   assert.equal(changes.filter(change=>change.target==='plugin'&&change.kind==='removed').length,1);
   assert.equal(changes.find(change=>change.target==='plugin'&&change.kind==='removed').label,'Second notes');
-  const candidates=jevCandidates(state);
-  assert.deepEqual(candidates.plugin_0.operations,[{action:'plugin_enable',plugin_id:'notes'}]);
-  assert.equal(candidates.plugin_1.operations[0].instance_id,state.plugins[1].instance_id);
 });
