@@ -669,6 +669,7 @@ setTimeout(applyTheme,0);
 <script>
 // ---- Conversation transfer target: Orbit's "Choose draft…" delivers text into this draft (never sent on its own) ----
 (function(){
+const mb=document.createElement('button');mb.type='button';mb.id='micbtn';mb.title='Dictate with the local voice model';mb.textContent='🎤';mb.onclick=()=>{host('voice',{},600000).catch(e=>{if(window.toast)toast(e.message);else err(e)})};$('comp').insertBefore(mb,$('send'));
 const inGroup=()=>sel&&sel.profile==='__group';
 function title(){if(!sel)return'';if(inGroup()){const t=$('title').textContent.replace(/^👥\s*/,'');return t}const a=cur();return (a?a.name:sel.agent)+(session?' · '+String((typeof sesList!=='undefined'&&sesList.find(x=>x.id===session)||{}).title||session).slice(0,40):'')}
 let last='';function report(){if(!(window.HOST&&HOST.ready))return;const t=title(),av=!!sel&&!picking;const sig=t+'|'+av;if(sig===last)return;last=sig;hostSend('conversation',{title:t,available:av})}

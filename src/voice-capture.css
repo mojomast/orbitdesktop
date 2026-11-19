@@ -1,0 +1,108 @@
+.voice-capture {
+  box-sizing: border-box;
+  height: 100%;
+  overflow: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  color: inherit;
+  font: 13px/1.5 system-ui, sans-serif;
+  min-width: 0;
+}
+.voice-capture h2,
+.voice-capture p {
+  margin: 0;
+}
+.voice-capture h2 {
+  font-size: 18px;
+}
+.voice-capture button,
+.voice-capture input,
+.voice-capture textarea {
+  font: inherit;
+  color: inherit;
+}
+.voice-capture button {
+  background: var(--panel-bg, #303641);
+  border: 1px solid #8886;
+  border-radius: 5px;
+  padding: 6px 10px;
+  cursor: pointer;
+  margin-right: 6px;
+}
+.voice-capture button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+.voice-capture .voice-record[aria-pressed="true"] {
+  background: #5c2230;
+  border-color: #b85b6e;
+}
+.voice-capture button:focus-visible,
+.voice-capture input:focus-visible,
+.voice-capture textarea:focus-visible {
+  outline: 2px solid var(--accent-color, #72b4ff);
+  outline-offset: 2px;
+}
+.voice-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+.voice-level {
+  flex: 1 1 120px;
+  min-width: 90px;
+  max-width: 260px;
+  height: 8px;
+  border: 1px solid #8885;
+  border-radius: 999px;
+  overflow: hidden;
+  background: #0004;
+}
+.voice-level-bar {
+  width: 0;
+  height: 100%;
+  background: #6a9ee7;
+  transition: width 80ms linear;
+}
+.voice-file {
+  font-size: 12px;
+  opacity: 0.9;
+}
+.voice-file-input {
+  max-width: 100%;
+}
+.voice-notice,
+.voice-status {
+  font-size: 12px;
+  opacity: 0.85;
+}
+.voice-error {
+  color: #ff9c9c;
+  white-space: pre-wrap;
+}
+.voice-text-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.voice-text {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 160px;
+  resize: vertical;
+  padding: 8px;
+  border: 1px solid #8886;
+  border-radius: 6px;
+  background: var(--panel-bg, #20242c);
+  font-weight: 400;
+}
+.voice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}

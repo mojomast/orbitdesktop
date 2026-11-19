@@ -40,6 +40,7 @@ export function features() {
   return {
     documents: true,
     notifications: 'Notification' in window ? Notification.permission : 'unsupported',
+    voice: true,
     windows: true,
   };
 }
@@ -128,6 +129,13 @@ registerGrokBotsOp('open', async message => {
 // (server/workbench-context.mjs); Grok Bots can only open a Workbench window.
 registerGrokBotsOp('workbench', async () => {
   window.dispatchEvent(new CustomEvent('orbit-open-workbench-window', { detail: {} }));
+  return { opened: true };
+});
+
+// Dictation: open the local capture surface; the app's own draft stays the
+// transfer target and nothing is sent when the surface opens.
+registerGrokBotsOp('voice', async () => {
+  window.dispatchEvent(new CustomEvent('orbit-open-host-surface', { detail: { id: 'voice' } }));
   return { opened: true };
 });
 
