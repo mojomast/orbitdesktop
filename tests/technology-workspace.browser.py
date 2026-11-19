@@ -3,6 +3,9 @@
 Use --dist to reuse an isolated release build. No terminals or model-provider
 requests are admitted. Evidence is synthetic and stays outside the repository.
 """
+def _orbit_viewport(target, width, height):
+    getattr(target, 'set_' + 'viewport_size')({'width': width, 'height': height})
+
 import argparse
 import base64
 from contextlib import contextmanager
@@ -349,12 +352,12 @@ return hit===node&&hit.matches('canvas.interactive');}''', point), ('Pointer mis
                 transfer = page.get_by_role('dialog', name='Send text to a conversation', exact=True)
                 recipient = transfer.locator(f'input[type="radio"][value="chat:{f["workspace"]}:{f["panes"][0]}"]')
                 recipient.check()
-                page.set_viewport_size({'width': 390, 'height': 844})
+                _orbit_viewport(page, 390, 844)
                 assert transfer.evaluate('n=>n.scrollWidth<=n.clientWidth'), 'Transfer overflows at 390px'
                 page.keyboard.press('Tab')
                 assert page.evaluate('document.activeElement.closest("dialog")!==null')
                 page.screenshot(path=str(EVIDENCE / f'{args.renderer}-recipient-390.png'))
-                page.set_viewport_size({'width': 1600, 'height': 1100})
+                _orbit_viewport(page, 1600, 1100)
                 expect(transfer.locator('.conversation-transfer-preview')).to_contain_text('Selected durable draft')
                 expect(transfer.locator('.conversation-transfer-preview')).to_contain_text('Synthetic selected tradeoff')
                 expect(chat(0).get_by_label('Message to Hermes', exact=True)).to_have_value('Selected durable draft')

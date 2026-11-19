@@ -1,8 +1,8 @@
 # Evolution handoff — September 25, 2026
 
 > Archived chronological handoff. Its per-increment constraints/results apply to
-> the commits described, not today's implementation. Current Project Workbench
-> work is tracked in [PROJECT_WORKBENCH_LEDGER.md](PROJECT_WORKBENCH_LEDGER.md);
+> the commits described, not today's implementation. Project Workbench was removed
+> in cleanup Phase 3; its old ledger remains historical only;
 > the reviewed 78b6a8f capabilities are in [TESTING_BRANCH.md](TESTING_BRANCH.md).
 
 ## Testing branch publication
@@ -45,8 +45,8 @@ See [optional docking](OPTIONAL_DOCKING.md).
 
 Lead browser review found a critical false-green: opaque Dockview backgrounds hid
 intact panes. Transparent chrome backgrounds plus an actual screenshot-pixel probe
-now verify paint. A second fix clears inactive-tab visibility on entering Spatial.
-Windows focus/unfocus and hidden-tab-to-Spatial regressions were added. Acknowledgement
+now verify paint. A second fix clears inactive-tab visibility on entering Spatial. (removed in cleanup Phase 3)
+Windows focus/unfocus and hidden-tab-to-Spatial regressions were added. Acknowledgement (removed in cleanup Phase 3)
 now checks the server's `observed_revision`, not only localStorage state.
 
 **Managed provider:** an unwired Linux-only lifecycle prototype creates sessions in
@@ -63,7 +63,7 @@ adopt existing terminals, and does not complete the grant/observation gate.
 Fresh verification:
 - `npm run check`: build and **209/209 Node tests**, no skips.
 - Optional renderer: **85 numbered checks / 73 layout transitions**, plus paint,
-  Windows focus and inactive-tab Spatial regressions; **one PTY WebSocket**, fresh
+  Windows focus and inactive-tab Spatial regressions; **one PTY WebSocket**, fresh (removed in cleanup Phase 3)
   full marker/variable/PID output, real sync/ack/checkpoint, plugin lifecycle and
   hold rejection, missing-moveBefore refusal, keyboard focus and 45 px pointer drag.
 - Default renderer: **94/94 PTY transitions** and import regressions passed.
@@ -167,7 +167,7 @@ the drag. Waiting for animation frames alone had not fixed the original failure.
 The harness now requires actual pointer width change, not just a hit-testable handle.
 
 **No production selection:** these are library API/fixture operations, not Orbit's
-model, PTY, spatial mode, checkpoints or Hermes integration. Golden keyboard
+model, PTY, spatial mode, checkpoints or Hermes integration. Golden keyboard (removed in cleanup Phase 3)
 accessibility remains a gap; Dockview core does not include advertised Enterprise
 keyboard docking features. Neither Firefox/WebKit nor popouts were measured.
 See [docking evaluation](DOCKING_EVALUATION.md) for methods, timings and limits.
@@ -179,7 +179,7 @@ Delegation ledger:
 - `ses_f25e0767affeValQFTg1LVyz4I`: isolated docking adapters — complete, descendants done.
 
 All descendants are complete. Next implementation gates: a candidate adapter behind
-an opt-in isolated Orbit layout/runtime interface with real PTY/spatial/accessibility
+an opt-in isolated Orbit layout/runtime interface with real PTY/spatial/accessibility (removed in cleanup Phase 3)
 tests, and approved authority policy plus trusted provider incarnation registration.
 The docking fixture and authority design are not authorization to enable either in
 the owner's runtime.
@@ -193,11 +193,11 @@ service was restarted and nothing was pushed or deployed.
 - Stable pane-ID views now move between connected layout slots, with connected
   parking before old containers are removed. Native `Element.moveBefore` preserves
   connected iframe documents; the explicit fallback cannot promise that behavior.
-- CSS3D anchors connect before accepting retained views and are pruned in Windows
-  mode too. Pane callbacks find their current monitor rather than a captured one.
+- CSS3D anchors (removed in cleanup Phase 3) connect before accepting retained
+  views and are pruned in Windows mode too. Pane callbacks find their current monitor rather than a captured one.
   Runtime replacement is keyed on kind and browser URL, not irrelevant terminal URLs.
 - Explicit imports/presets still replace views. Import now reconciles view classes,
-  existing same-ID spatial anchors, camera and appearance. Confirmation text no
+  existing same-ID spatial anchors, camera and appearance. Confirmation text no (removed in cleanup Phase 3)
   longer incorrectly claims a detached persistent tmux shell has been terminated.
 - `ORBIT_TMUX_SOCKET` and `ORBIT_TMUX_CONFIG` allow isolated server/PTY tests; history
   capture uses the provider's same socket. Production defaults are unchanged.
@@ -206,7 +206,7 @@ service was restarted and nothing was pushed or deployed.
   bake-off; `Element.moveBefore` is not a cross-browser compatibility guarantee.
 
 Verification: `npm run check` builds and passes **181/181 Node
-tests**. `tests/runtime-import.browser.py` passes same-ID spatial import, imported
+tests**. `tests/runtime-import.browser.py` passes same-ID spatial import, imported (removed in cleanup Phase 3)
 Windows visibility and removed-anchor cleanup. Existing Chromium recovery fixture
 **13/13**, real-server recovery/hold, and built-UI scoped events/indexed bundle
 restore tests pass. Eight Python suites pass **55/55 tests** after regenerating the

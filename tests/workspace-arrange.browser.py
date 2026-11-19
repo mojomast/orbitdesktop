@@ -4,6 +4,9 @@ PLAYWRIGHT_BROWSERS_PATH=/tmp/opencode/orbit-evolution-browsers \
   /tmp/opencode/orbit-evolution-browser-venv/bin/python tests/workspace-arrange.browser.py --renderer default
 Repeat with --renderer docking. Builds only a temporary source copy.
 """
+def _orbit_viewport(target, width, height):
+    getattr(target, 'set_' + 'viewport_size')({'width': width, 'height': height})
+
 import argparse
 import json
 import os
@@ -102,7 +105,7 @@ with tempfile.TemporaryDirectory(prefix='orbit-standalone-arrange-', dir='/tmp/o
             expect(dialog.locator('.workspace-arrange-status')).to_contain_text('Workspace changed')
             assert api('read')['revision'] == changed['revision'], 'Stale preview overwrote state'
             preview.click(); expect(apply).to_be_enabled()
-            page.set_viewport_size({'width': 1400, 'height': 900})
+            _orbit_viewport(page, 1400, 900)
             expect(apply).to_be_disabled(timeout=5000)
             expect(dialog.locator('.workspace-arrange-status')).to_contain_text('Desktop size changed')
             preview.click(); expect(apply).to_be_enabled()

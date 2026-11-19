@@ -16,7 +16,6 @@ separately. A library license does not license every model it can load.
 | --- | --- | --- |
 | A2UI Lit and web core | 0.12.0 | Apache-2.0; packaged `LICENSE` |
 | A2UI markdown-it | 0.2.0 | Apache-2.0; packaged `LICENSE` |
-| DuckDB-Wasm | 1.32.0 | MIT; upstream notice reproduced below |
 | Transformers.js | 4.3.0 | Apache-2.0; ONNX Runtime and other dependencies retain separate notices |
 | sqlite-vec | 0.1.9 | MIT OR Apache-2.0; MIT option reproduced below |
 | Lexical and `@lexical/*` | 0.52.0 | MIT; Meta Platforms, Inc. and affiliates |
@@ -37,12 +36,10 @@ The MIT notices below cover the specified upstream projects. Their published npm
 archives omit a root license file, so the notices were retrieved from the exact
 upstream release tags:
 
-- [DuckDB-Wasm v1.32.0](https://github.com/duckdb/duckdb-wasm/blob/v1.32.0/LICENSE)
 - [Excalidraw v0.18.1](https://github.com/excalidraw/excalidraw/blob/v0.18.1/LICENSE)
 - [sqlite-vec v0.1.9, MIT option](https://github.com/asg017/sqlite-vec/blob/v0.1.9/LICENSE-MIT)
 
 ```text
-DuckDB-Wasm: Copyright 2018-2025 Stichting DuckDB Foundation
 Excalidraw: Copyright (c) 2020 Excalidraw
 sqlite-vec: Copyright (c) 2024 Alex Garcia
 Lexical, React and React DOM: Copyright (c) Meta Platforms, Inc. and affiliates.

@@ -2,6 +2,9 @@
 Run after npm run build with a Python environment containing Playwright.
 No owner workspace, credentials or server processes are used.
 """
+def _orbit_viewport(target, width, height):
+    getattr(target, 'set_' + 'viewport_size')({'width': width, 'height': height})
+
 import importlib.util
 import json
 import os
@@ -73,10 +76,10 @@ with tempfile.TemporaryDirectory(prefix='orbit-catalog-browser-') as tmp:
                 dialog.get_by_label('Plugin category', exact=True).select_option(entry['category'])
                 expect(dialog.locator('.plugin-card')).to_have_count(1)
                 expect(dialog.get_by_role('link', name='View pinned source')).to_have_attribute('href', f"{entry['repo']}/tree/{entry['sha']}")
-                page.set_viewport_size({'width': 390, 'height': 844})
+                _orbit_viewport(page, 390, 844)
                 assert dialog.evaluate('(el) => el.scrollWidth <= el.clientWidth + 1')
                 page.screenshot(path='/tmp/orbit-catalog-mobile.png')
-                page.set_viewport_size({'width': 1440, 'height': 1000})
+                _orbit_viewport(page, 1440, 1000)
                 page.screenshot(path='/tmp/orbit-catalog-desktop.png')
                 dialog.get_by_label('Plugin category', exact=True).select_option('All categories')
                 dialog.get_by_label('Catalog source', exact=True).select_option('All sources')

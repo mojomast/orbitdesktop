@@ -6,11 +6,6 @@ revocation rules supplement this existing v1 lifecycle.
 
 This is a working sandboxed-app lifecycle and trusted built-in extension registry, not a complete conversion of Orbit into plugins.
 
-For persistent private notebooks and evidence cards, see [Project tools](PROJECT_TOOLS.md).
-These use separate project-scoped instances and trusted host rendering. They do not
-add private storage or a privileged bridge to generated v1 app frames. Existing
-v1 manifests, IDs and content-addressed bundles retain their original lifecycle.
-
 ## Partial configuration and window customization
 
 `plugin_patch_config` with `plugin_id` and `patch` merges individual primitive-valued settings while preserving omitted fields. Example: `{"action":"plugin_patch_config","plugin_id":"notes","patch":{"message":"Updated"}}`. Use `plugin_configure` only when replacing the whole config is intended.
@@ -105,7 +100,7 @@ All operations can be batched in the controller's existing atomic validated appl
 
 API v1: `{"apiVersion":1,"id":"notes","version":"1.0.0","title":"Workspace notes","entry":"/apps/notes-HASH/index.html"}`. Optional `configSchema` is supported as described above. Supported fields only; arbitrary permissions, backend hooks and executable host code are rejected. Maximum 32 installed instances, also subject to existing maximum window count.
 
-Plugins render through existing sandboxed browser panes in Windows or Spatial view. They do not receive host tokens, parent DOM access or a privileged postMessage bridge. Network access remains allowed under the existing app CSP; this is NOT a network-denying sandbox. Static published files are not private credential storage. Entry existence and app behavior must be tested before activation; manifest validation alone does not verify them. Config changes can reload the affected iframe; its in-memory state is not preserved. Workspace checkpoints do not snapshot plugin internal application data.
+Plugins render through existing sandboxed browser panes in desktop windows or Docking panes. They do not receive host tokens, parent DOM access or a privileged postMessage bridge. Network access remains allowed under the existing app CSP; this is NOT a network-denying sandbox. Static published files are not private credential storage. Entry existence and app behavior must be tested before activation; manifest validation alone does not verify them. Config changes can reload the affected iframe; its in-memory state is not preserved. Workspace checkpoints do not snapshot plugin internal application data.
 
 Read config in the plugin with `JSON.parse(decodeURIComponent(location.hash.replace(/^#orbit-config=/,'')))`, using a try/catch and defaults. Render configuration text with textContent, not innerHTML. The sample demonstrates this.
 

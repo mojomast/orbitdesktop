@@ -4,9 +4,9 @@ Primary documentation consulted 19 September 2026. These are implementation choi
 
 ## Interactive surfaces in 3D
 
-Three.js CSS3DRenderer transforms DOM nodes and can be combined with WebGL content. It does not share WebGL materials/geometries and documents a 100% browser/display zoom limitation. This led to DOM-based panes, separate rendering layers, and a flat focus mode. Canvas-texture terminals were rejected here because text selection and native input matter more than physically accurate screen lighting.
+Three.js CSS3DRenderer transforms DOM nodes and can be combined with WebGL content; this spatial rendering path was removed in cleanup Phase 3. It does not share WebGL materials/geometries and documents a 100% browser/display zoom limitation. This led to DOM-based panes, separate rendering layers, and a flat focus mode. Canvas-texture terminals were rejected here because text selection and native input matter more than physically accurate screen lighting.
 
-Source: [Three.js CSS3DRenderer](https://threejs.org/docs/pages/CSS3DRenderer.html).
+Source: [Three.js CSS3DRenderer](https://threejs.org/docs/pages/CSS3DRenderer.html) (the spatial path was removed in cleanup Phase 3).
 
 ## Terminal transport and backpressure
 

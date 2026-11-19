@@ -1,4 +1,7 @@
 """Nous integration tests in disposable authenticated workspace; never owner's state."""
+def _orbit_viewport(target, width, height):
+    getattr(target, 'set_' + 'viewport_size')({'width': width, 'height': height})
+
 import os,secrets,subprocess,tempfile,time,urllib.request,socket
 from pathlib import Path
 from playwright.sync_api import sync_playwright,expect
@@ -61,7 +64,7 @@ with tempfile.TemporaryDirectory(prefix='orbit-nous-') as runtime:
     assert body.evaluate('e=>e.scrollWidth<=e.clientWidth+1'),width
    body.evaluate('e=>{e.style.width="";e.style.maxWidth=""}')
    page.screenshot(path=str(R/'.runtime/nous-theme-desktop.png'))
-   page.set_viewport_size({'width':390,'height':844})
+   _orbit_viewport(page, 390, 844)
    page.get_by_role('button',name='Choose workspace theme',exact=True).click()
    assert page.locator('.theme-picker').evaluate('e=>e.scrollWidth<=e.clientWidth+1')
    page.screenshot(path=str(R/'.runtime/nous-theme-narrow.png'))

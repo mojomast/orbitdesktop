@@ -382,10 +382,10 @@ function renderHand(){let h=$('hand');if(!h){h=mk('div');h.id='hand';bar.after(h
 // wrap existing app flows for groups
 const _rt=renderTop;renderTop=function(){if(!isG()){bar.classList.remove('on');if($('hand'))$('hand').style.display='none';return _rt()}const g=gcur()||gview;$('title').textContent=g?'👥 '+g.name:'Group';
  $('st').textContent=groom&&(groom.working||(groom.running?[groom.running]:[])).length?(groom.working||(groom.running?[groom.running]:[])).map(x=>'@'+x).join(', ')+' working…':'';$('stop').hidden=true;$('back').hidden=true;$('in').disabled=false;$('send').disabled=false;$('send').textContent='Send';
- for(const id of ['meter','cost','mode','ctxbtn','expbtn','toolsTog','wbbtn'])if($(id))$(id).style.display='none';$('wk').textContent=''};
+ for(const id of ['meter','cost','mode','ctxbtn','expbtn','toolsTog'])if($(id))$(id).style.display='none';$('wk').textContent=''};
 const _lh=loadHist;loadHist=function(...a){if(isG())return refreshGroup();return _lh(...a)};
 const _pa=pollAct;pollAct=async function(){if(isG()){setTimeout(pollAct,4000);return}return _pa()};
-const _pick=pick;pick=function(...a){bar.classList.remove('on');for(const id of ['meter','cost','ctxbtn','expbtn','toolsTog','wbbtn'])if($(id))$(id).style.display='';if($('mode'))$('mode').style.display='';return _pick(...a)};
+const _pick=pick;pick=function(...a){bar.classList.remove('on');for(const id of ['meter','cost','ctxbtn','expbtn','toolsTog'])if($(id))$(id).style.display='';if($('mode'))$('mode').style.display='';return _pick(...a)};
 const _title=$('title').ondblclick;$('title').ondblclick=async e=>{if(!isG())return _title&&_title(e);const n=prompt('Rename group',gview?gview.name:'');if(n&&n.trim()){try{await gapi({op:'update',group:gview.id,name:n.trim()});await loadGroups();refreshGroup()}catch(x){err(x)}}};
 const prevSend=$('send').onclick;
 async function gsend(){const t=$('in').value.trim();const hasAtt=!!(window.gbPendingAttachments&&gbPendingAttachments().length);if((!t&&!hasAtt)||!gview)return;if(window.gbAttachBusy&&gbAttachBusy()){err('Wait for the uploads to finish.');return}$('in').value='';ac.style.display='none';const att=hasAtt?gbTakeAttachments():null;
@@ -621,12 +621,10 @@ addEventListener('keydown',e=>{if(e.key==='Escape'&&lib.classList.contains('on')
 (function(){
 const st=document.createElement('style');st.textContent=`#ctxbtn.on{background:#24315f;border-color:#4f6bf0;color:#dfe5ff}#ctxbtn{white-space:nowrap}.m .ctxnote{font-size:10px;color:#8fa2ff;margin-top:3px}`;document.head.append(st);
 const b=document.createElement('button');b.id='ctxbtn';b.type='button';$('actbtn').before(b);
-const wb=document.createElement('button');wb.id='wbbtn';wb.type='button';wb.textContent='◧';wb.title='Open a Workbench window (Workbench context stays owner-approved inside Workbench panes)';$('actbtn').before(wb);
 const on=()=>{const k=window.convKey&&convKey();return !!(k&&window.gbPrefs&&gbPrefs.context&&gbPrefs.context[k])};
 function render(){const ok=!!(window.HOST&&HOST.ready&&HOST.workspaceId);const v=on();b.classList.toggle('on',v&&ok);b.textContent=v?'🧭 Context on':'🧭 Context';
-  b.title=!ok?'Workspace context is available when Grok Bots runs inside Orbit':v?'This conversation gets the Orbit workspace operator block (once) so the agent can read and change your workspace. Click to stop.':'Give this conversation the Orbit workspace context (operator block and guide path), like the agent chat';b.disabled=!ok&&!v;wb.hidden=!(window.HOST&&HOST.ready)}
+  b.title=!ok?'Workspace context is available when Grok Bots runs inside Orbit':v?'This conversation gets the Orbit workspace operator block (once) so the agent can read and change your workspace. Click to stop.':'Give this conversation the Orbit workspace context (operator block and guide path), like the agent chat';b.disabled=!ok&&!v}
 b.onclick=()=>{const k=window.convKey&&convKey();if(!k)return;if(!gbPrefs.context)gbPrefs.context={};const v=!on();if(v)gbPrefs.context[k]=true;else delete gbPrefs.context[k];gbSavePref('context',k,v?true:null);render();if(window.toast)toast(v?'Workspace context will be attached to the next message':'Workspace context off for this conversation')};
-wb.onclick=async()=>{try{await host('workbench',{})}catch(e){err(e)}};
 window.gbSendExtras=()=>on()&&window.HOST&&HOST.workspaceId?{context:true,workspace:HOST.workspaceId}:{};
 addEventListener('gb-conv',render);addEventListener('gb-host',render);addEventListener('gb-host-hello',render);setTimeout(render,0);
 })();

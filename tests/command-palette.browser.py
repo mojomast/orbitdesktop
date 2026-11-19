@@ -118,23 +118,12 @@ with tempfile.TemporaryDirectory(prefix='orbit-command-palette-', dir='/tmp/open
             page.keyboard.press('Enter')
             settings = page.get_by_role('dialog', name='Orbit settings', exact=True)
             expect(settings).to_be_visible()
-            settings.get_by_role('checkbox', name='Project Workbench (experimental)').check()
             page.keyboard.press('Control+k')
             expect(palette).to_have_count(0)
             settings.get_by_role('button', name='Selected window settings', exact=True).click()
             options = page.get_by_role('dialog', name='Window options', exact=True)
             expect(options).to_be_visible()
             options.get_by_role('button', name='Close window options').click()
-            trigger.focus()
-            page.keyboard.press('Control+k')
-            search.fill('Workbench')
-            expect(palette.get_by_role('option')).to_have_count(2)
-            page.keyboard.press('Escape')
-            # Shared Start registry exposes the same commands and gate.
-            trigger.click()
-            page.get_by_role('searchbox', name='Search Start').fill('Workbench')
-            expect(page.locator('.start-results button')).to_have_count(2)
-            page.keyboard.press('Escape')
             trigger.focus()
             page.keyboard.press('Control+k')
             search.fill('new browser')
@@ -148,7 +137,7 @@ with tempfile.TemporaryDirectory(prefix='orbit-command-palette-', dir='/tmp/open
             expect(page.locator('.monitor')).to_have_count(3)
             page.wait_for_function("() => JSON.parse(localStorage.getItem('orbit.workspace.v1')).monitors.some(m=>m.layout.pane?.url==='orbit://surface/outputs')")
             # Real owner connection: merely opening, previewing and cancelling
-            # arrangements from Spatial/Focus must never commit view changes.
+            # arrangements from Focus must never commit view changes.
             page.get_by_role('button', name='Connect local host', exact=True).click()
             page.get_by_role('textbox', name='Host session token').fill(token)
             page.get_by_role('button', name='Unlock local host', exact=True).click()
@@ -195,40 +184,13 @@ with tempfile.TemporaryDirectory(prefix='orbit-command-palette-', dir='/tmp/open
                 '(host) => ({width:host.clientWidth,height:host.clientHeight})')
             assert size['width'] >= 280 and size['height'] >= 180, size
             settled_workspace()
-            # Hold the first Spatial save beyond the old 1 s sleep. The browser
-            # has switched while the server still has Windows; the barrier must
-            # wait for release, commit and a subsequent browser acknowledgement.
-            delayed_sync = {}
-
-            def hold_spatial_sync(route):
-                request = route.request.post_data_json
-                if (request.get('action') == 'sync' and request.get('state', {}).get('view') == 'spatial'
-                        and not delayed_sync):
-                    delayed_sync.update(route=route, started=time.monotonic())
-                else:
-                    route.continue_()
-
-            def release_spatial_sync():
-                if not delayed_sync or 'released' in delayed_sync:
-                    return
-                assert read_workspace()['state']['view'] == 'windows'
-                if time.monotonic() - delayed_sync['started'] >= 1.5:
-                    delayed_sync['route'].continue_()
-                    delayed_sync['released'] = time.monotonic()
-
-            page.route(origin + '/api/workspace', hold_spatial_sync)
-            palette_command('Spatial view')
-            expect(page.locator('.workspace')).not_to_have_class(re.compile(r'.*windows-mode.*'))
-            assert settled_workspace(release_spatial_sync)['state']['view'] == 'spatial'
-            assert delayed_sync['released'] - delayed_sync['started'] >= 1.5
-            page.unroute(origin + '/api/workspace', hold_spatial_sync)
             for focused_mode in (False, True):
                 if focused_mode:
                     palette_command('Focus selected window')
                     expect(page.locator('.workspace')).to_have_class(re.compile(r'.*is-focused.*'))
                 for entrypoint in ('menu', 'palette', 'settings'):
                     before = settled_workspace()
-                    assert before['state']['view'] == 'spatial'
+                    assert before['state']['view'] == 'windows'
                     page.evaluate("() => {const pane=window.fixturePane;window.arrangeIdentity={pane,frame:pane.querySelector('iframe'),document:pane.querySelector('iframe').contentWindow};}")
                     if entrypoint == 'palette':
                         palette_command('Arrange workspace')
@@ -256,7 +218,7 @@ with tempfile.TemporaryDirectory(prefix='orbit-command-palette-', dir='/tmp/open
                     if page.locator('.orbit-menu').is_visible():
                         page.get_by_role('button', name='Close orbit menu', exact=True).click()
             # The shell opens the durable preset dialog with real measured
-            # geometry, including while Spatial/Focus hides the desktop host.
+            # geometry, including while Focus hides the desktop host.
             before_saved = settled_workspace()
             palette_command('Saved workspace layouts')
             saved = page.get_by_role('dialog', name='Saved workspace layouts', exact=True)
@@ -295,7 +257,7 @@ with tempfile.TemporaryDirectory(prefix='orbit-command-palette-', dir='/tmp/open
             assert after_transfer['state'] == before_transfer['state']
             assert not errors, errors
             browser.close()
-        print(f'PASS ({args.renderer}): palette keyboard/accessibility, safe focus, disabled reasons, experimental gate, shared Start, settings navigation, host-surface reuse; owner-connected menu/palette/settings arrange preview/cancel preserves Spatial/Focus revision, state and pane identity')
+        print(f'PASS ({args.renderer}): palette keyboard/accessibility, safe focus, disabled reasons, settings navigation, host-surface reuse; owner-connected menu/palette/settings arrange preview/cancel preserves Focus revision, state and pane identity')
     finally:
         server.terminate()
         try:

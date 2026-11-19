@@ -200,8 +200,6 @@ test('workspace context toggle is saved per conversation and sends the workspace
   await app.locator('#ctxbtn:not(.on)').waitFor();
   await app.locator('.bot', { hasText: 'Second Bot' }).click();
   await app.locator('#ctxbtn.on').waitFor();
-  await app.locator('#wbbtn').click();
-  await page.waitForFunction(() => window.__ops.some(o => o.op === 'workbench'));
   assert.deepEqual(errors, []);
   await context.close();
 });

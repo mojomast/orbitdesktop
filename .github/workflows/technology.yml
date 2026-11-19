@@ -18,7 +18,6 @@ on:
       - 'src/canvas*'
       - 'src/interactive-result*'
       - 'src/run-trace*'
-      - 'src/search*'
       - 'src/technology*'
       - 'src/voice*'
       - 'src/main.ts'
@@ -32,7 +31,6 @@ on:
       - 'src/resource-*'
       - 'server/documents*'
       - 'server/interactive-results*'
-      - 'server/knowledge-*'
       - 'server/run-trace*'
       - 'server/technology-*'
       - 'server/voice*'
@@ -47,7 +45,6 @@ on:
       - 'server/security.mjs'
       - 'contracts/*-v1.mjs'
       - 'contracts/feature-capabilities.*'
-      - 'scripts/knowledge-model.mjs'
       - 'scripts/provision_voice_models.mjs'
       - 'scripts/technology-notices.mjs'
       - 'docs/licenses/**'
@@ -55,7 +52,6 @@ on:
       - 'tests/document-envelope*'
       - 'tests/canvas*'
       - 'tests/interactive-results*'
-      - 'tests/knowledge-*'
       - 'tests/resource-content-verbs*'
       - 'tests/run-trace*'
       - 'tests/technology-*'
@@ -79,7 +75,6 @@ on:
       - 'src/canvas*'
       - 'src/interactive-result*'
       - 'src/run-trace*'
-      - 'src/search*'
       - 'src/technology*'
       - 'src/voice*'
       - 'src/main.ts'
@@ -93,7 +88,6 @@ on:
       - 'src/resource-*'
       - 'server/documents*'
       - 'server/interactive-results*'
-      - 'server/knowledge-*'
       - 'server/run-trace*'
       - 'server/technology-*'
       - 'server/voice*'
@@ -108,7 +102,6 @@ on:
       - 'server/security.mjs'
       - 'contracts/*-v1.mjs'
       - 'contracts/feature-capabilities.*'
-      - 'scripts/knowledge-model.mjs'
       - 'scripts/provision_voice_models.mjs'
       - 'scripts/technology-notices.mjs'
       - 'docs/licenses/**'
@@ -116,7 +109,6 @@ on:
       - 'tests/document-envelope*'
       - 'tests/canvas*'
       - 'tests/interactive-results*'
-      - 'tests/knowledge-*'
       - 'tests/resource-content-verbs*'
       - 'tests/run-trace*'
       - 'tests/technology-*'
@@ -147,7 +139,7 @@ jobs:
       fail-fast: false
       max-parallel: 4
       matrix:
-        suite: [knowledge, interactive, documents, traces, voice, workspace-default, workspace-docking]
+        suite: [interactive, documents, traces, voice, workspace-default, workspace-docking]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -160,32 +152,6 @@ jobs:
         with:
           python-version: '3.11'
       - run: npm ci
-      - uses: astral-sh/setup-uv@v6
-        if: matrix.suite == 'knowledge'
-        with:
-          version: '0.11.2'
-      - name: Prepare pinned local gateway for source-grant acceptance
-        if: matrix.suite == 'knowledge'
-        run: |
-          mkdir -p /tmp/opencode
-          git clone --no-checkout https://github.com/NousResearch/hermes-agent /tmp/opencode/orbit-hermes-native
-          git -C /tmp/opencode/orbit-hermes-native checkout --detach d0288be5b3330d2442e3907185b8e9d0958297bb
-          uv sync --project /tmp/opencode/orbit-hermes-native --frozen --python 3.14 --no-default-groups
-      - name: Cache pinned public embedding model
-        if: matrix.suite == 'knowledge' || startsWith(matrix.suite, 'workspace-')
-        uses: actions/cache@v4
-        with:
-          path: /tmp/opencode/orbit-knowledge-models/knowledge-index/model
-          key: knowledge-model-${{ hashFiles('server/knowledge-model.mjs') }}
-      - name: Verify actual offline embedding engine
-        if: matrix.suite == 'knowledge' || startsWith(matrix.suite, 'workspace-')
-        env:
-          ORBIT_TEST_MODEL_DIR: /tmp/opencode/orbit-knowledge-models/knowledge-index/model
-        run: |
-          mkdir -p /tmp/opencode
-          install -d -m 700 /tmp/opencode/orbit-knowledge-models /tmp/opencode/orbit-knowledge-models/knowledge-index
-          node scripts/knowledge-model.mjs provision /tmp/opencode/orbit-knowledge-models
-          node --experimental-strip-types --test tests/knowledge-*.test.mjs
       - name: Cache pinned public dictation model
         if: matrix.suite == 'voice'
         uses: actions/cache@v4
@@ -217,13 +183,6 @@ jobs:
           set -euo pipefail
           python=/tmp/opencode/orbit-technology-venv/bin/python
           case "$SUITE" in
-            knowledge)
-              "$python" tests/feature-readiness.browser.py
-              "$python" tests/knowledge-search.browser.py
-              "$python" tests/resource-grants.browser.py
-              HERMES_PINNED_SOURCE=/tmp/opencode/orbit-hermes-native HERMES_PINNED_PYTHON=/tmp/opencode/orbit-hermes-native/.venv/bin/python "$python" tests/resource-grants.browser.py --normal
-              node --test tests/resource-content-verbs.test.mjs tests/resource-delegation.test.mjs
-              ;;
             interactive)
               "$python" tests/interactive-results.browser.py
               "$python" tests/research-handoffs.browser.py
@@ -240,7 +199,7 @@ jobs:
             workspace-default|workspace-docking)
               export ORBIT_BROWSER_EXECUTABLE="$("$python" -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')"
               if [ "$SUITE" = workspace-docking ]; then "$python" tests/docking-narrow.browser.py; fi
-              "$python" tests/technology-workspace.browser.py --renderer "${SUITE#workspace-}" --search-models /tmp/opencode/orbit-knowledge-models
+              "$python" tests/technology-workspace.browser.py --renderer "${SUITE#workspace-}"
               ;;
             *) exit 2 ;;
           esac

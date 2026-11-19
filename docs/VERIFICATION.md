@@ -122,13 +122,13 @@ remains **12**, and no release/tag publication is implied by this plugin deliver
 
 ## Published CSV handoff — October 2, 2026
 
-Data workbench accepts a strict, same-origin published CSV identity plus SHA-256
+Data workbench accepts a strict, same-origin published CSV identity plus SHA-256 (removed in cleanup Phase 3)
 through its built-in surface URL. The browser bounds downloads, verifies bytes
-before loading the existing DuckDB engine, and leaves query execution explicit.
-See [Data Lab](DATA_LAB.md) for the route and publication contract.
+before loading the existing DuckDB engine, and leaves query execution explicit. (removed in cleanup Phase 3).
+See [Data Lab](DATA_LAB.md) for the route and publication contract. (removed in cleanup Phase 3).
 
 - `npm run check`: **1,011 tests, 1,000 passed, 11 optional skips, zero failures**.
-- Real Chromium/DuckDB tests passed auto-loading without a file picker, explicit
+- Real Chromium/DuckDB tests passed auto-loading without a file picker, explicit (removed in cleanup Phase 3)
   query results, hash mismatch refusal, recovery with manual input, cancellation
   versus replacement, and narrow-screen wrapping. The existing CSV/JSON/Parquet,
   recipe, exact numeric sharing and external-access confinement journeys passed.
@@ -150,13 +150,13 @@ workspace schema is **12**, and no new tag or published release is implied.
 Agency application-source validation at `611d3a9e5ca98af94a696815f53ba7c845a626d8`:
 
 - Local `npm run check`: **1,007 tests, 998 passed, nine optional skips, zero
-  failures**, with real MiniLM assets and pinned Hermes context acceptance enabled.
+  failures**, with real MiniLM assets and pinned Hermes context acceptance enabled. (removed in cleanup Phase 3).
 - Hermes adapter 18/18, resource-cache lifecycle 3/3, publisher 9/9 and regenerated
   source archive parity 3/3 passed; 292 relative documentation links resolved.
-- Real browser feature, document/canvas recovery, Normal cited-brief, Workbench
+- Real browser feature, document/canvas recovery, Normal cited-brief, Workbench (removed in cleanup Phase 3)
   recovery, command-palette and integrated technology/release journeys passed.
   Default and Docking were exercised in disposable synthetic workspaces.
-- Exact-head PR-event CI passed: Workbench
+- Exact-head PR-event CI passed: Workbench (removed in cleanup Phase 3)
   [37020536916](https://github.com/mojomast/orbitdesktop/actions/runs/37020536916),
   technology [37020536886](https://github.com/mojomast/orbitdesktop/actions/runs/37020536886),
   plugin [37020537199](https://github.com/mojomast/orbitdesktop/actions/runs/37020537199)
@@ -187,9 +187,9 @@ are required by [Deployment](DEPLOYMENT.md).
   provisioned compatible test gateway rather than weakening source checks.
 - gVisor remains unavailable on this host: user-namespace creation is denied and
   approved runsc/rootfs are absent. No real containment acceptance is claimed.
-- Browser copilot uses disposable signed-out browsers; logged-in Discord and
+- Browser copilot uses disposable signed-out browsers; logged-in Discord and (removed in cleanup Phase 3)
   autonomous provider quality are separate acceptance trials. MCP snapshots retain
-  closed capabilities. Workbench remains experimental and off by default.
+  closed capabilities. Workbench remains experimental and off by default. (removed in cleanup Phase 3)
 - Upstream catalog admission, version selection, tags and release publication are
   separate from this authorized source merge and testing deployment.
 
@@ -197,7 +197,7 @@ are required by [Deployment](DEPLOYMENT.md).
 
 The follow-up documentation update adds feature workflows, refreshed injected
 agent guidance, three revised/new chat shortcuts and an eight-step onboarding
-tour. Local `npm run check` with the provisioned MiniLM passed: 969 total, 960
+tour. Local `npm run check` with the provisioned MiniLM passed: 969 total, 960 (removed in cleanup Phase 3)
 passed, zero failed, nine optional skips. Publisher 9/9, Hermes adapter 16/16,
 regenerated source archive parity 3/3 and 104 relative documentation links passed.
 A disposable copy of the real built frontend exercised the three shortcut drafts
@@ -222,11 +222,11 @@ not retroactively inherit this exact-head CI result.
   [36926014752](https://github.com/mojomast/orbitdesktop/actions/runs/36926014752),
   plugin [36926014768](https://github.com/mojomast/orbitdesktop/actions/runs/36926014768),
   technology [36926014794](https://github.com/mojomast/orbitdesktop/actions/runs/36926014794)
-  (10/10), and Workbench
+  (10/10), and Workbench (removed in cleanup Phase 3)
   [36926014812](https://github.com/mojomast/orbitdesktop/actions/runs/36926014812)
   (7/7 plus aggregate). Expensive browser coverage remains scope-gated with
   weekly/manual coverage; workspace continuity and composition run separately.
-- `npm run check` with real MiniLM assets: 969 tests, 960 passed, zero failed,
+- `npm run check` with real MiniLM assets: 969 tests, 960 passed, zero failed, (removed in cleanup Phase 3)
   nine optional skips. Publisher 9/9, Hermes plugin 16/16 and regenerated archive
   parity 3/3 passed. These counts belong to that run, not all future environments.
 - Packaged Default/Docking × optional capabilities off/configured journeys passed.
@@ -253,9 +253,9 @@ Reproduction: [Technology acceptance](TECHNOLOGY_ACCEPTANCE.md),
   disposable automated acceptance does not establish that.
 - gVisor remains off on this host: the unprivileged user-namespace probe is denied,
   and approved runsc/rootfs are absent. No real containment acceptance is claimed.
-- Browser copilot/MCP Apps are configured on the testing deployment; browsers are
+- Browser copilot/MCP Apps are configured on the testing deployment; browsers are (removed in cleanup Phase 3)
   disposable/signed out, and imported MCP snapshots have closed capabilities.
-- Upstream Hermes catalog admission was pending and Workbench was experimental/off
+- Upstream Hermes catalog admission was pending and Workbench was experimental/off (removed in cleanup Phase 3)
   by default. The committed-arrangement capacity limit recorded then is superseded
   by the agency retention implementation above.
 - Merge was subsequently authorized; version selection, tag and release publication
@@ -291,9 +291,9 @@ Tests start a temporary loopback server on port 14318 with an explicitly test-on
 
 ### Interactive browser checks
 
-Verified startup, monitor selection, flat focus, aspect changes, split creation, keyboard splitter resize, chat stub messaging, adding displays, pitch changes, and restoring saved layout after reload. Also verified preset replacement with confirmation and return from focus to the same spatial monitor.
+Verified startup, monitor selection, flat focus, aspect changes, split creation, keyboard splitter resize, chat stub messaging, adding displays, pitch changes, and restoring saved layout after reload. Also verified preset replacement with confirmation and return from focus to the same spatial monitor. (removed in cleanup Phase 3)
 
-The cloud test browser has WebGL disabled. Three.js CSS3D monitor transforms and the functional DOM fallback were exercised; the WebGL grid/room could not be visually verified in that browser. Actual terminal commands were verified through the production backend integration tests; credential entry and live xterm typing were not exercised through the cloud browser.
+The cloud test browser has WebGL disabled. Three.js CSS3D monitor transforms and the functional DOM fallback were exercised; the WebGL grid/room could not be visually verified in that browser. Actual terminal commands were verified through the production backend integration tests; credential entry and live xterm typing were not exercised through the cloud browser. (removed in cleanup Phase 3).
 
 Optional WebMCP registration is feature-detected. The test browser did not provide modelContext, so calls to those optional tools could not be validated. No dependency on WebMCP is required for the UI.
 
