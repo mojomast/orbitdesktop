@@ -23,7 +23,7 @@ must identify which actions actually completed.
 | Evidence handoffs | Citations and selected data values in the actual draft, one exact insertion review, explicit interactive-result delivery |
 | Documents | Reachable recovery after closing a dirty pane, reviewed imports and revision-bound collaborative editing |
 | Scoped agency | Accurate capability discovery and authenticated selected-resource search/read/create authority |
-| Durable workflows | Sustained arrangement history, interrupted-work reconciliation and reconnectable pending/review state |
+| Durable workflows | Sustained operation history, interrupted-work reconciliation and reconnectable pending/review state |
 
 Feature guides describe the implemented contracts. This page records the common
 goals and acceptance method; an intended outcome is not a claim that a deployed
@@ -42,7 +42,7 @@ Hermes profile supports it.
   provenance for granted sources. Final source/draft/recipient changes refuse
   stale insertion.
 - **Use complete results:** authenticated completed replies offer reviewed A2UI,
-  document and self-contained MCP snapshot actions. Queues are ephemeral and
+  document and self-contained interactive card actions. Queues are ephemeral and
   mount-bound; creating a document draft is distinct from saving its imported body.
 - **Recover and edit:** whole-window and split-pane closes honor dirty-document
   review. Original-pane drafts and journalled uncertain creations are recoverable
@@ -52,10 +52,9 @@ Hermes profile supports it.
   adapter binds selected sources and finite create-new-brief authority to the next
   accepted run of an actual conversation. A dedicated-local fallback remains
   separate. Source bodies and saved document contents stay outside layout snapshots.
-- **Recover durable work:** committed arrangements no longer consume active-preview
-  capacity. Complete operation-owned candidate copies and retained publication
-  manifests can settle without repeating side effects. The former Project
-  Workbench and its task surfaces were removed in cleanup Phase 3.
+- **Recover durable work:** complete operation-owned candidate copies and retained
+  publication manifests can settle without repeating side effects. The former
+  Project Workbench and its task surfaces were removed in cleanup Phase 3.
 
 See [Resource delegation](RESOURCE_DELEGATION.md), [Documents](DOCUMENTS.md),
 [Context handoff](CONTEXT_HANDOFF.md) and
