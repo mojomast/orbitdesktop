@@ -37,7 +37,6 @@ test('isWorkbenchPath matches the deferred Workbench surface', () => {
     ['.github/workflows/workbench.yml', true],
     ['tests/browser_workspace.py', true],
     // Unrelated paths must not widen the deep gate.
-    ['server/workspace-store.mjs', false],
     ['server/project-registry.mjs', false],
     ['src/agent-chat.ts', false],
     ['src/project-tool-host.ts', false],

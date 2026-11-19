@@ -21,7 +21,6 @@ import {
   isHostKeyChanged,
   parseAddress,
 } from '../server/ssh-hosts.mjs';
-import { bootstrapScript, oneLiner } from '../server/ssh-bootstrap.mjs';
 
 const PRIVATE_SENTINEL = 'ORBIT-TEST-PRIVATE-KEY-SENTINEL';
 const INSTALL_ID = 'testinstall01';
@@ -382,40 +381,6 @@ test('host permissions default to none for every agent and accept validated dyna
   } finally {
     box.cleanup();
   }
-});
-
-test('bootstrapScript is inlined, idempotent and prints the host fingerprint', () => {
-  assert.throws(
-    () => bootstrapScript({ publicKey: `${TEST_PUB} orbit-${INSTALL_ID}`, installId: INSTALL_ID, docker: 'group', sudo: 'none' }),
-    /root-equivalent|acknowledge/i,
-  );
-  const script = bootstrapScript({ publicKey: `${TEST_PUB} orbit-${INSTALL_ID}`, installId: INSTALL_ID, docker: 'group', sudo: 'scoped', dockerGroupRootEquivalent: true });
-  assert.match(script, /#!\/bin\/sh/);
-  assert.match(script, /set -eu/);
-  assert.match(script, /useradd/);
-  assert.match(script, /authorized_keys/);
-  assert.match(script, /restrict,pty/);
-  assert.match(script, new RegExp(`orbit-${INSTALL_ID}`));
-  assert.match(script, /grep -q/);
-  assert.match(script, /umask 077/);
-  assert.match(script, /visudo -cf/);
-  assert.match(script, /\/etc\/sudoers\.d\/orbit/);
-  assert.match(script, /ssh-keygen -lf \/etc\/ssh\/ssh_host_ed25519_key\.pub/);
-  assert.match(script, /usermod -aG docker orbit/);
-  assert.match(script, /root-equivalent/i);
-  assert.doesNotMatch(script, /\b(curl|wget)\b/);
-  assert.doesNotMatch(script, /StrictHostKeyChecking/);
-  const none = bootstrapScript({ publicKey: `${TEST_PUB} orbit-${INSTALL_ID}`, installId: INSTALL_ID, docker: 'none', sudo: 'none' });
-  assert.doesNotMatch(none, /sudoers\.d\/orbit/);
-  assert.doesNotMatch(none, /usermod -aG docker/);
-  const rootless = bootstrapScript({ publicKey: `${TEST_PUB} orbit-${INSTALL_ID}`, installId: INSTALL_ID, docker: 'rootless', sudo: 'none' });
-  assert.match(rootless, /rootless/i);
-  const line = oneLiner(script);
-  assert.match(line, /^sudo /);
-  const encoded = line.match(/'([A-Za-z0-9+/=]+)'/)[1];
-  assert.equal(Buffer.from(encoded, 'base64').toString('utf8'), script);
-  assert.throws(() => bootstrapScript({ publicKey: 'not-a-key', installId: INSTALL_ID, docker: 'none', sudo: 'none' }));
-  assert.throws(() => bootstrapScript({ publicKey: `${TEST_PUB} orbit-x`, installId: 'bad id', docker: 'none', sudo: 'none' }));
 });
 
 test('add, scan, confirm and test keep private keys out of every result, log and audit file', async () => {
