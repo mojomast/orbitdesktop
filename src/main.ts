@@ -172,7 +172,6 @@ desktopHost.setAttribute('aria-label', 'Movable workspace windows');
 const desktopIcons = installDesktopIcons(desktopHost, () => [
   {id:'colab-runtime',title:'Google Colab',icon:'▣',pinned:true,run:()=>{void commands.execute('colab-runtime');}},
   {id:'grokbots',title:'Grok Bots',icon:'🤖',pinned:true,run:()=>{void commands.execute('grokbots');}},
-  {id:'kitty-doom',title:'Kitty DOOM',icon:'👾',run:()=>{void commands.execute('kitty-doom');}},
   ...xpraApps.map(a=>({id:`xpra-${a.id}`,title:a.title,icon:a.icon,run:()=>{
     if(focused)unfocus();
     const existing=state.monitors.find(m=>leaves(m.layout).some(p=>p.kind==='browser'&&p.url===a.url));
@@ -443,7 +442,6 @@ const commands = createWorkspaceCommands((): WorkspaceCommand[] => [
   { id: 'new-browser', title: 'New browser', detail: 'Open an app or website', group: 'Create', run: () => addMonitor('browser') },
   { id: 'colab-runtime', title: 'Google Colab', detail: 'GPU and TPU runtimes on colab.research.google.com', group: 'Apps', keywords: ['colab', 'gpu', 'tpu', 'notebook'], disabledReason: !sessionToken ? 'Connect host first to use Google Colab.' : undefined, run: () => openHostSurface('colab-runtime') },
   { id: 'grokbots', title: 'Grok Bots', detail: 'Chat with Grok Bot, Pi and Hermes agents, alone or in group rooms', group: 'Apps', keywords: ['grok', 'bots', 'agents', 'chat', 'group', 'pi', 'hermes'], disabledReason: !sessionToken ? 'Connect host first to use Grok Bots.' : undefined, run: () => { void openGrokBots(); } },
-  { id: 'kitty-doom', title: 'Kitty DOOM', detail: 'Play kitty-doom (Freedoom) in a Kitty-graphics window', group: 'Apps', keywords: ['doom', 'game', 'kitty', 'freedoom', 'play'], disabledReason: !sessionToken ? 'Connect host first to use Kitty DOOM.' : undefined, run: () => openHostSurface('kitty-doom') },
   { id: 'windows', title: 'Windows view', detail: 'Movable desktop windows', group: 'Layout', run: () => windowsButton.click() },
   { id: 'spatial', title: 'Spatial view', detail: 'Explore your 3D workspace', group: 'Layout', run: () => sceneButton.click() },
   { id: 'focus', title: 'Focus selected window', detail: 'Expand the selected display', group: 'Layout', run: () => flatButton.click() },
@@ -462,7 +460,6 @@ const commands = createWorkspaceCommands((): WorkspaceCommand[] => [
   { id: 'acdd-evidence', title: 'ACDD evidence', detail: 'Read-only contracts, RED/GREEN evidence and acceptance from bundlebees', group: 'Hermes', disabledReason: !sessionToken ? 'Connect host first to view ACDD evidence.' : undefined, run: () => { void openAcddEvidence(sessionToken); } },
   { id:'rizzstack-rails', title:'Rizzstack Rails', detail:'Inspect activity by attempt, job, campaign, session or event ID', group:'Hermes', disabledReason:!sessionToken?'Connect host first to inspect activity.':undefined, run:async()=>{(await import('./rails-shell')).openRailsShell(()=>sessionToken);} },
   { id: 'collab', title: 'Collab', detail: 'Project board for Hermes and Grok Bot', group: 'Hermes', disabledReason: !sessionToken ? 'Connect host first to use Collab.' : undefined, run: () => openHostSurface('collab') },
-  { id: 'irc', title: 'IRC', detail: 'IRC server and channel window', group: 'Apps', disabledReason: !sessionToken ? 'Connect host first to use IRC.' : undefined, run: () => openHostSurface('irc') },
   ...workspaceExtensions.map(extension => ({
     id: `hermes-${extension.id}`, title: extension.title, detail: extension.label, group: 'Hermes',
     hidden: extension.id === 'project-workbench' && !experimentalEnabled('workbench'),
@@ -554,9 +551,6 @@ function orbitMenuSections(): OrbitMenuSection[] {
     { id: 'grokbots', title: 'Grok Bots', detail: 'Multi-agent chat with your bots.', items: [
       { id: 'grokbots', label: 'Grok Bots', icon: '🤖', button: button('Grok Bots', 'Chat with your agents and group rooms', () => { void commands.execute('grokbots'); }) },
     ] },
-    { id: 'games', title: 'Games', detail: 'Play a game inside your workspace.', items: [
-      { id: 'kitty-doom', label: 'Kitty DOOM', icon: '👾', button: button('Kitty DOOM', 'Play kitty-doom with Freedoom', () => { void commands.execute('kitty-doom'); }) },
-    ] },
     { id: 'view', title: 'Workspace view', detail: 'Choose how your windows are arranged.', items: [
       { id: 'windows', label: 'Windows', icon: '▤', button: windowsButton },
       { id: 'spatial', label: 'Spatial', icon: '◈', button: sceneButton },
@@ -580,7 +574,6 @@ function orbitMenuSections(): OrbitMenuSection[] {
       { id: 'activity', label: 'Live activity', icon: '↻', button: button('Live activity', 'Live activity', () => { void commands.execute('activity'); }) },
       { id: 'acdd-evidence', label: 'ACDD evidence', icon: '✓', button: button('ACDD evidence', 'ACDD evidence', () => { void commands.execute('acdd-evidence'); }) },
       { id: 'collab', label: 'Collab', icon: '▦', button: button('Collab', 'Collab', () => { void commands.execute('collab'); }) },
-      { id: 'irc', label: 'IRC', icon: '#', button: button('IRC', 'IRC', () => { void commands.execute('irc'); }) },
       ...hermesMenuItems,
     ] },
     { id: 'settings', title: 'Settings', detail: 'Preferences saved in this browser.', items: [

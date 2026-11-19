@@ -12,7 +12,6 @@
     "start": "node --experimental-strip-types server/index.mjs",
     "up": "node scripts/orbit-up.mjs",
     "test": "node scripts/check-local.mjs test",
-    "test:irc": "npm test --prefix vendor/irc-suite",
     "check": "node scripts/check-local.mjs check",
     "format": "prettier --write src server tests docs README.md package.json index.html vite.config.js tsconfig.json"
   },

@@ -2,7 +2,6 @@ const surfaces = [
   ["Outputs","orbit://surface/outputs","Published files, aliases, pins, tags, draft refs"],
   ["Workspace Activity","orbit://surface/activity","Observed live activity feed"],
   ["Collab","orbit://surface/collab","Project board, approvals, orchestrator, subagents"],
-  ["IRC","orbit://surface/irc","Loopback ircd behind Orbit auth"],
   ["Google Colab","orbit://surface/colab-runtime","GPU/TPU runtimes on Colab"],
   ["Knowledge search","orbit://surface/search","Explicit source snapshots + exact citations"],
   ["Interactive results","orbit://surface/interactive-results","A2UI v0.9 import/edit/pin/export"],
