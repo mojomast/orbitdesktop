@@ -173,6 +173,11 @@ class TransportTest(unittest.TestCase):
         self.assertFalse(self.call(action="read")["ok"])
         self.assertFalse(self.calls)
 
+    def test_retired_native_worker_profile_registers_nothing(self):
+        ctx = Context({"workspace_id": WORKSPACE, "runtime_dir": self.temp.name, "native_channel_file": "channel.json"})
+        plugin.register(ctx)
+        self.assertEqual(ctx.tools, {})
+
 
 if __name__ == "__main__":
     unittest.main()

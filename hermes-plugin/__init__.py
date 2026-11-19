@@ -284,6 +284,10 @@ def register(ctx):
         from .resources import register as register_resources
         register_resources(ctx)
         return
+    if ctx.get_config("native_channel_file", ""):
+        # Native worker profiles were retired in cleanup Phase 3; a profile still configured
+        # as one registers nothing rather than gaining the workspace tool.
+        return
 
     if ctx.get_config("normal_resource_directory", ""):
         from .normal_resources import register as register_normal_resources

@@ -29,7 +29,7 @@ export const REQUIRED_COMPONENTS=Object.freeze({
   server:['server/index.mjs'],
   contracts:['contracts/workspace-v1.mjs'],
   served:['dist/index.html'],
-  plugin:['hermes-plugin/workbench.py'],
+  plugin:['hermes-plugin/__init__.py'],
   metadata:['package.json'],
   lock:['package-lock.json'],
 });

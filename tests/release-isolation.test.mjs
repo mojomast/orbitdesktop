@@ -24,7 +24,7 @@ function fakeRelease(base,release_id,{compat={schema_min:7,schema_max:7},lock={l
   write(path.join(dir,'dist/index.html'),'<h1>served</h1>');
   write(path.join(dir,'server/index.mjs'),`// server ${release_id}\n`);
   for(const name of CONTRACTS)write(path.join(dir,'contracts',name),`// contract ${name}\n`);
-  write(path.join(dir,'hermes-plugin/workbench.py'),'# plugin\n');
+  write(path.join(dir,'hermes-plugin/__init__.py'),'# plugin\n');
   write(path.join(dir,'package.json'),'{}');
   write(path.join(dir,'package-lock.json'),JSON.stringify(lock));
   const manifest=buildManifest({root:dir,release_id,compat,revision:'test',created_at:1});
@@ -233,7 +233,7 @@ test('external Node dependencies are bound by lock hash and ABI',async t=>{
   write(path.join(dir,'dist/index.html'),'x');
   write(path.join(dir,'server/index.mjs'),'// s');
   for(const name of CONTRACTS)write(path.join(dir,'contracts',name),'// c');
-  write(path.join(dir,'hermes-plugin/workbench.py'),'# p');
+  write(path.join(dir,'hermes-plugin/__init__.py'),'# p');
   write(path.join(dir,'package.json'),'{}');
   write(path.join(dir,'package-lock.json'),'{"lockfileVersion":3,"packages":{}}');
   const lockHash=sha(fs.readFileSync(path.join(dir,'package-lock.json')));
