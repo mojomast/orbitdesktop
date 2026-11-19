@@ -60,9 +60,15 @@ export function allowedRequest(req, port, devOrigins = []) {
   const { hosts, origins } = acceptedHosts(port, devOrigins);
   if (!hosts.has(req.headers.host)) return false;
   // A same-origin browser GET omits Origin. Only the read-only evidence
-  // endpoint accepts this alternative; still require the owner bearer in
-  // its authorizer, same-origin fetch metadata, and an exact allowed origin.
-  if (req.method === 'GET' && req.url?.split('?')[0] === '/api/acdd-evidence' &&
+  // endpoint and the extension proxy accept this alternative; still require
+  // the owner bearer in their authorizer, same-origin fetch metadata, and an
+  // exact allowed origin.
+  const requestPath = req.url?.split('?')[0];
+  const sameOriginReadAllowed =
+    (req.method === 'GET' && requestPath === '/api/acdd-evidence') ||
+    ((req.method === 'GET' || req.method === 'HEAD') &&
+      typeof requestPath === 'string' && requestPath.startsWith('/api/ext/'));
+  if (sameOriginReadAllowed &&
       req.headers.origin === undefined && req.headers['sec-fetch-site'] === 'same-origin') {
     try {
       const ref = new URL(req.headers.referer);
