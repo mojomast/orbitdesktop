@@ -34,12 +34,13 @@ Hermes profile supports it.
 - **Discover and resume:** Start skips unavailable actions for keyboard execution;
   Start/palette and controller discovery share timestamped content-free prerequisite
   observations, exact surface URIs and supported formats without launching engines;
-  built-in tools preserve Spatial view. Conversation selection is acknowledged,
+  built-in tools preserve the current desktop layout; the former Spatial view was removed in cleanup Phase 3. Conversation selection is acknowledged,
   initial-link waiting is cancellable, and older-title search is bounded and explicit.
 - **Share exact evidence:** one recipient review includes the existing draft and
-  exact inserted text. Knowledge keeps full citation/hash/range provenance; Data Lab
-  shares selected values and numeric precision, with schema-only and SQL-proposal
-  paths. Final source/draft/recipient changes refuse stale insertion.
+  exact inserted text. Knowledge search and Data Lab were removed in cleanup
+  Phase 3; the keyword-only Shared sources index keeps citation/hash/range
+  provenance for granted sources. Final source/draft/recipient changes refuse
+  stale insertion.
 - **Use complete results:** authenticated completed replies offer reviewed A2UI,
   document and self-contained MCP snapshot actions. Queues are ephemeral and
   mount-bound; creating a document draft is distinct from saving its imported body.
@@ -53,16 +54,12 @@ Hermes profile supports it.
   separate. Source bodies and saved document contents stay outside layout snapshots.
 - **Recover durable work:** committed arrangements no longer consume active-preview
   capacity. Complete operation-owned candidate copies and retained publication
-  manifests can settle without repeating side effects. Review-only waiting and
-  authoritative current task state reuse the existing Workbench authority. Setup
-  exposes waiting/review/cancel controls; the existing task chooser embeds the
-  status inbox, capacity diagnostics and exact read acknowledgments, while the
-  workflow surface offers retained-publication receipt finalization.
+  manifests can settle without repeating side effects. The former Project
+  Workbench and its task surfaces were removed in cleanup Phase 3.
 
 See [Resource delegation](RESOURCE_DELEGATION.md), [Documents](DOCUMENTS.md),
-[Context handoff](CONTEXT_HANDOFF.md), [Interactive results](INTERACTIVE_RESULTS.md),
-[Data Lab](DATA_LAB.md), [Workbench setup](WORKBENCH_SETUP.md) and
-[Project Workbench](PROJECT_WORKBENCH.md) for precise controls and limits.
+[Context handoff](CONTEXT_HANDOFF.md) and
+[Interactive results](INTERACTIVE_RESULTS.md) for precise controls and limits.
 
 This increment does not add autonomous browser planning, arbitrary MCP resource
 connections, recurring unattended dispatch, physical task/history garbage
@@ -79,9 +76,8 @@ and unaffected work, not just final assistant prose or a sequence of tool calls.
 | Owner task | Required evidence |
 | --- | --- |
 | Navigate Start past an unavailable action | Keyboard focus reaches enabled actions, Enter executes an actionable result, Escape remains available |
-| Open a built-in tool from Spatial | Chosen view remains Spatial; existing pane identities survive |
+| Open a built-in tool from the desktop | Chosen desktop/docking mode remains; existing pane identities survive |
 | Share an exact source passage | The actual recipient draft contains the passage and full source/hash/range citation; no message is sent |
-| Explain selected query results | Shared rows/columns contain real bounded values with provenance and preserved numeric precision |
 | Recover a closed dirty document | Reopen through the library and recover exact content from the original pane without conflating divergent drafts |
 | Switch conversation during linking | The selection succeeds visibly or retains an actionable failure; cancellation prevents a later surprise switch |
 | Open an interactive assistant result | A complete valid result reaches its intended pane, edits persist, and duplicate delivery does not overwrite unrelated results |
@@ -89,7 +85,6 @@ and unaffected work, not just final assistant prose or a sequence of tool calls.
 | Delegate selected sources | Repeated permitted reads need one delegation; unselected sources and revoked/changed recipients cannot be read |
 | Save a cited brief | The intended document exists with correct content and revision; save and browser acknowledgement are reported separately |
 | Review a proposed document edit | Concurrent owner edits invalidate the old proposal; accepted edits can be undone and saved explicitly |
-| Continue sustained Workbench use | New previews and revision-valid Return remain possible after retained history grows; original exact retry identities remain valid |
 | Recover interrupted work | Proven effects finalize without duplicate execution; unprovable effects remain explicitly unknown |
 
 Measure manual transfers, navigation actions, correction turns and elapsed time

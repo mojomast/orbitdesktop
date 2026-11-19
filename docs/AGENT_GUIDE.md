@@ -93,7 +93,7 @@ no fallback to trusted-host execution is permitted. See `docs/ISOLATED_CHECKS.md
 - **Saved workspace layouts:** preserve existing-window geometry/order/view and
   Docking placement, with explicit mapping of missing IDs. They do not create or
   close panes, save contents or capture shell state. They are distinct from the
-  older browser-local layout collection and Workbench role recipes. See
+  older browser-local layout collection. See
   `docs/SAVED_WORKSPACE_LAYOUTS.md`.
 - **Widget instances:** stateless widgets can have independent instance/window/
   pane IDs and configuration. Updates affect the definition; lifecycle/config
@@ -155,10 +155,9 @@ continuity through explicit import/preset replacement.
 These use normal scoped `apply` with current base_revision and automatic pre-change checkpoints. Read state first; never fabricate IDs or viewport dimensions.
 
 - `arrange_windows`: width/height are the measured available desktop-host pixels, columns is a positive integer, gap defaults to 8 (0–100). Optional window_ids selects a subset; otherwise all windows. Tiles into a grid and switches to Windows view. Rejects cells smaller than 280×180. Does not auto-retile on resize; measure again. Existing pane IDs survive.
-- `reorder_windows`: window_ids must contain every current window ID exactly once. Changes stored/navigation/spatial ordering, not window contents.
+- `reorder_windows`: window_ids must contain every current window ID exactly once. Changes stored/navigation ordering, not window contents.
 - `swap_panes`: window_id/pane_id and other_window_id/other_pane_id exchange two existing panes within or between windows. IDs and model contents survive, but UI reconstruction may reconnect terminals/reload browser apps; do not promise preservation of unsaved iframe state.
 - `layout_panes`: window_id plus layout template containing `{pane_id: ID}` leaves and `{axis:'row'|'column',ratio:0.5,first:...,second:...}` splits. Every existing pane of that window must appear exactly once. Rebuilds arrangement without discarding panes or inventing new IDs.
-- `set_arc`: arc uses the existing validated spatial arc bounds.
 - `reset_appearance`: keys array deletes only those named overrides, e.g. `["fullViewport","headerHeight"]`, restoring defaults while preserving other settings.
 
 Generated applications still use the versioned sandboxed plugin publishing/lifecycle workflow. Building arbitrary backend features requires trusted source edits, tests and deployment—not an unsafe eval operation. Workspace checkpoints do not snapshot arbitrary files or external side effects. Full customization coverage is incremental, not a claim of universal hot swapping.
@@ -206,8 +205,7 @@ Without `catalog`, the bounded description reports editable fields and actual
 project/pane bindings. Optional `--project-id` narrows it to one active project.
 Descriptions omit project paths, resource contents and credentials. A selected
 pane or reported role does not authorize reading its terminal, conversation or
-files. Workbench workers retain their separately admitted task capabilities;
-generated apps do not receive the owner's description or operation catalog.
+files. Generated apps do not receive the owner's description or operation catalog.
 
 For project arrangements, use `arrangement '<request JSON>'` in the controller
 or `orbit_workspace` with `action:"arrangement"` and a `request` object. Discover
@@ -230,49 +228,6 @@ When changing the workspace, act on the workspace ID supplied by the Orbit conve
 
 Commands are relative to the repository; context supplies an absolute controller path. Hermes tools must have access to this repository/runtime. A remote gateway needs an explicitly provisioned adapter; do not assume its filesystem is the terminal host.
 
-## Collaborative Workbench setup
-
-Project Workbench is experimental and **off by default**; the owner enables it in
-**Orbit settings** (◉ orbit menu → Orbit settings → Project Workbench). Until it
-is enabled, the Set up task / Workbench surfaces are hidden. You may still record
-a bounded `workbench_setup` suggestion, but say it will appear after the owner
-enables Project Workbench in Orbit settings; never claim the surface is already
-available or running.
-
-When the owner wants a tracked project task, help turn the goal into a concise
-work brief: what to accomplish, what success means, and where to stop. Reuse
-facts already provided. Ask only for missing project or outcome information.
-Ordinary questions and small workspace changes do not need a Workbench task.
-
-The setup UI can save a durable review-only waiting intention, cancel it and
-refresh its state. This neither queues unattended execution nor inherits approval.
-The task chooser's Task status inbox shows current authoritative records and
-links to Live/Checks/Result; marking an exact status read is not approval. An
-observed runtime exit, an available explanation, passing recorded checks and human
-review remain independent. Proven publication journals can be finalized without
-repeating checks or publication; preserve the exact recovery digest.
-
-The `orbit_workspace` action `workbench_setup` proposes a bounded **workspace
-suggestion** with a stable `request.op_id`, `goal`, and optional `title`,
-`acceptance_statement`, `project_id` and `check_definition_id`. Do not invent a
-project ID or check. Omit an unknown project so the owner can choose it. A proposal
-does not register a project, create a task, share context, approve a grant or start
-work. Tell the owner to review the suggestion in **Set up task**; do not claim it
-is already running. Reuse the exact operation key/payload after an uncertain
-proposal response. Never pass a pane/profile/session identity or owner token.
-
-If the installed tool schema does not yet list this action, the scoped controller
-supports the same proposal through
-`python3 scripts/workspace_control.py --workspace WORKSPACE_ID setup '<request JSON>'`.
-Generate and retain a UUID `op_id`; the response identifies the suggestion only.
-Use the absolute controller path supplied by the conversation context.
-
-Only suggest `node-test` when it fits the project. `host-regression` is Orbit's
-host regression check, not evidence that arbitrary user code meets its goal.
-Check support and execution readiness are validated by the host. If the existing
-executor does not support the requested work, explain that and keep discussing
-rather than fabricate commands or approval.
-
 ## New widgets: plugin-first
 
 Build a static app using relative assets in a new source folder. Never package tokens, credentials, private reports or personal data in public app files. Read `docs/PLUGINS.md`.
@@ -293,7 +248,7 @@ For an update, publish changed files, use `plugin_update` with `plugin_id` and t
 
 ## Partial plugin edits
 
-Prefer `plugin_patch_config` with `plugin_id` and `patch` for individual config settings; it retains omitted keys. Use `plugin_window` with `plugin_id` and `settings` for saved name/fontSize/frame/spatial geometry, including disabled plugins. Both automatically checkpoint. Config updates preserve existing split panes and terminal IDs. Read `docs/PLUGINS.md` for examples.
+Prefer `plugin_patch_config` with `plugin_id` and `patch` for individual config settings; it retains omitted keys. Use `plugin_window` with `plugin_id` and `settings` for saved name/fontSize/frame geometry, including disabled plugins. Both automatically checkpoint. Config updates preserve existing split panes and terminal IDs. Read `docs/PLUGINS.md` for examples.
 
 ## Precise layout edits
 
@@ -305,7 +260,7 @@ Use `update_split` to resize, rotate or swap an existing split without replacing
 
 `set_appearance` replaces the entire object: preserve existing fields when adjusting one. Supported: six-digit hex `background` and `textColor`, local `wallpaper` path (empty string means none), numeric `cornerRadius` 0–40. `{}` removes overrides. Text color is inherited monitor text, not terminal or iframe internal styling.
 
-Layout operations: `add_window`, `update_window`, `close_window`, `split_pane`, `set_pane`, `close_pane`, `select`, `set_view`, `sidebar`, `set_workspace`. Read `docs/WORKSPACE_CONTROL.md` for shapes and limits. Prefer targeted updates; replacing the workspace is not a shortcut for adding a widget.
+Layout operations: `add_window`, `update_window`, `close_window`, `split_pane`, `set_pane`, `close_pane`, `select`, `sidebar`, `set_workspace`. Read `docs/WORKSPACE_CONTROL.md` for shapes and limits. Prefer targeted updates; replacing the workspace is not a shortcut for adding a widget.
 
 ## Persistence and recovery
 

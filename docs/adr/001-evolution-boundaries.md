@@ -2,7 +2,7 @@
 
 Status: accepted for incremental implementation.
 
-Keep Hermes, TypeScript/Vite/Three.js, Node, tmux and immutable app publication.
+Keep Hermes, TypeScript/Vite, Node, tmux and immutable app publication. The Three.js spatial renderer was removed in cleanup Phase 3.
 Separate stable surface/resource identity from layout and grants. Retain legacy
 pane IDs in migration; unknown providers remain unavailable descriptors, not deletion.
 No v2 write path may coexist with lossy writable v1 snapshot synchronization.

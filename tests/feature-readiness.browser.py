@@ -75,7 +75,6 @@ with tempfile.TemporaryDirectory(prefix='orbit-readiness-browser-', dir='/tmp/op
             search = start.get_by_role('button', name='Shared sources', exact=True)
             expect(search).to_contain_text('Keyword-only shared-source index')
             expect(start.get_by_role('button', name='Run traces', exact=True)).to_be_visible()
-            expect(start.get_by_role('button', name='New Workbench window', exact=True)).to_have_count(0)
             page.keyboard.press('Escape')
             page.get_by_role('button', name='Open Start', exact=True).focus()
             page.keyboard.press('Control+k')
@@ -94,7 +93,7 @@ with tempfile.TemporaryDirectory(prefix='orbit-readiness-browser-', dir='/tmp/op
             assert len(reads) >= 3, reads
             assert not errors, errors
             browser.close()
-            print('PASS: real Start/palette shared detail, request-time refresh, off-default Workbench')
+            print('PASS: real Start/palette shared detail, request-time refresh, off-default gating')
     finally:
         server.terminate()
         server.wait(timeout=10)

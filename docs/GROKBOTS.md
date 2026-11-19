@@ -92,14 +92,13 @@ and the host accepts messages only from that frame's window.
 | 5 | Inline tool cards and the activity timeline | Done | History returns redacted, truncated tool calls/results (Grok/Pi transcript entries, Hermes `tool_calls` + `tool` rows) anchored to the message they followed; shown as collapsible cards (status, duration, input, output, copy) with a 🔧 toggle. Activity panel: filter, hide finished, jump to first failure, copy id. |
 | 6 | Conversation library, open in new window, export | Done | 📚 / Ctrl+Shift+O lists every gateway bot and Hermes session with search and "Search older sessions"; Open, New window (bridge `open` → `orbit-grokbots-open` → a new Grok Bots window with `p/a/s`), ⤓ Markdown / JSON (messages + tool calls). ⤓ in the top bar exports the current conversation. Group rooms are not in the library yet. |
 | 7 | Orbit workspace context | Done | 🧭 per-conversation toggle; the server attaches the agent chat's operator block + guide path once per conversation (checked against the transcript), for gateway agents and Hermes. History hides the block. |
-| 7b | Workbench context | Partial | Workbench context is owner-approved and bound to Workbench/Hermes panes (`server/workbench-context.mjs`); it is not exposed to the app. ◧ opens a Workbench window through the bridge. Task setup, submissions and candidate review stay in Workbench. |
 | 8 | Notifications and colour themes | Done | Desktop notification (bridge `notify`, Notification API) when a roster bot finishes or needs input while unseen, or a Hermes run ends while hidden; toast fallback; global toggle, permission request, per-conversation mute, click opens the conversation. Per-conversation colour, sidebar dot. Group-room turns do not notify yet. |
 | 9 | Shared-agent handoff | Done | Group rooms pass through the shared-agents operations: give the floor (speak), pause/continue, auto handoff, next speaker, 1–8 turn limit, delegated tasks with Cancel. |
 | 10 | Voice input | Done | 🎤 opens Orbit's voice surface (local Moonshine transcription). Each Grok Bots window registers as a conversation-transfer recipient, so "Choose draft…" appends the transcript to the draft; nothing is sent automatically. |
 
 Still different from the agent chat: several panes side by side on different
 sessions work by opening more Grok Bots windows (library → New window) rather
-than split panes; Workbench submissions/receipts remain Workbench-only.
+than split panes.
 
 ### Tests
 

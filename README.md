@@ -6,6 +6,8 @@ Orbit is an agent-customizable browser desktop powered by the agent you choose: 
 
 Conversations, persistent host terminals, web apps, and optional Linux applications share one workspace. Start with the tools you have. Ask for the tools you wish you had. Keep changing the desktop as your needs change.
 
+Built-in features include movable desktop windows and opt-in **docking**, **themes** with per-element customization, managed **SSH hosts**, **Google Colab** runtimes, and **Grok Bots** with collab chat and dictation. Optional Xpra Linux applications and sandboxed plugins extend the same workspace.
+
 **Local-first · Single-owner · Agent-operated · Yours to shape.**
 
 ![Orbit desktop with Linux application launchers](docs/images/desktop-launchers.png)
@@ -16,9 +18,8 @@ Conversations, persistent host terminals, web apps, and optional Linux applicati
 command, then the onboarding screen. No agent runtime is assumed.
 
 **Package version 0.3.1:** see the [release notes](docs/RELEASE_0.3.1.md) and
-[Hermes plugin installation guide](hermes-plugin/README.md). Project Workbench is
-experimental and off by default; enable it in Orbit settings. Optional Docking is
-also off by default. Read the [deployment guide](docs/DEPLOYMENT.md) before upgrading
+[Hermes plugin installation guide](hermes-plugin/README.md). Optional Docking is
+off by default. Read the [deployment guide](docs/DEPLOYMENT.md) before upgrading
 an existing runtime. The [evolution testing guide](docs/TESTING_BRANCH.md) records
 the integration's historical development and acceptance evidence.
 
@@ -28,17 +29,6 @@ published release. Start with the [feature guide](docs/TECHNOLOGY_FEATURES.md)
 and [example prompts](docs/WORKSPACE_PROMPTS.md). See the
 [candidate verification record](docs/VERIFICATION.md) for exact-head evidence
 and outstanding owner acceptance.
-
-**Comet Project Workbench (experimental, off by default):** enable it in
-**Orbit settings** (◉ orbit menu → Orbit settings) and then describe a goal,
-review an editable brief and prepare a tracked task through
-[guided setup](docs/WORKBENCH_SETUP.md). Preparation is separate from approving
-execution. Project inspection, scoped context sharing, configured native workers,
-recorded candidate checks and human review have distinct authority boundaries.
-[Current capabilities and limits](docs/PROJECT_WORKBENCH.md) describe supported
-profiles and configuration; a working chat connection alone does not configure
-native Workbench execution. Disabling the experimental surface hides its controls
-without deleting stored tasks, candidates or results.
 
 **Choosing a layout:** [Desktop and experimental Docking](docs/RENDERER_COMPARISON.md)
 arrange the same chats, terminals and apps in different ways. The default Desktop
@@ -54,7 +44,7 @@ is documented separately from local fixture results.
 
 Most AI interfaces end at an answer. Orbit gives the agent a workspace in which to act: create a small application, place it beside your work, configure its behavior, and help you use it. You remain in control of the files, services, credentials, and deployment.
 
-Use familiar movable windows or switch to a spatial view. Keep an editor next to your terminal and your conversation. Desktop shortcuts bring applications back without requiring you to reconstruct the workspace.
+Use familiar movable windows or switch to opt-in tiled Docking. Keep an editor next to your terminal and your conversation. Desktop shortcuts bring applications back without requiring you to reconstruct the workspace.
 
 Orbit is actively developed software, not a finished operating system or a multi-user cloud desktop. Some integrations require separate setup. The boundaries below are part of the product, not fine print.
 
@@ -69,8 +59,8 @@ An agent has three ways to work with Orbit:
 
 - **Act directly:** use its configured Hermes tools, the scoped Orbit workspace
   controller, or an explicitly configured host-side helper.
-- **Work on selected resources:** use a grant for specific source snapshots or an
-  approved Workbench candidate. The tool's returned scope determines access.
+- **Work on selected resources:** use a grant for specific source snapshots.
+  The tool's returned scope determines access.
 - **Produce something for review:** generate a document, diagram, SQL query,
   interactive card or browser-action proposal that Orbit presents through the
   relevant built-in tool. The table identifies the owner action that completes it.
@@ -86,7 +76,6 @@ below; it does not enable every upstream Hermes integration.
 | --- | --- | --- | --- |
 | **Hermes gateway, profiles and skills** | Research, write code, calculate, use configured tools, and continue a conversation in a chosen runtime profile. Supported gateways also accept guidance during a run. | “Inspect this repository, explain the failing test, and fix the cause. Keep me informed as you work.” | Requires a configured Hermes API connection and the relevant upstream tools. Available skills/toolsets are discoverable in the read-only catalog. [Hermes guide](docs/HERMES.md) |
 | **`orbit_workspace` — typed workspace controller** | Discover actual capabilities, read window/pane identities, preview a batch, open tools, arrange panes, customize appearance and inspect operation history. | “Put my existing terminal, our conversation and the document library side by side. Preserve their identities and other windows.” | Explicit workspace binding; read-only by default. Changes require `allow_mutations`. [Controller](docs/WORKSPACE_CONTROL.md), [adapter setup](hermes-plugin/README.md) |
-| **Three.js / CSS3D spatial desktop** | Arrange real HTML panes in a spatial scene; adjust supported placement, depth, rotation, arc and appearance through validated workspace operations. | “Make a curved research workspace with the sources on the left and the plan in the center.” | Uses the existing workspace controller and measured workspace state. Embedded controls remain normal DOM/iframes. [Architecture](docs/ARCHITECTURE.md), [operations](docs/WORKSPACE_OPERATIONS.generated.md) |
 | **Dockview, saved layouts and arrangement recipes** | Help organize tiled panels/tab groups, preview reusable role-based arrangements and recover a prior arrangement without inventing new resource identities. | “Prepare a Review arrangement around this project's candidate diff, checks and conversation; keep my other work available.” | Docking is opt-in. Saved layouts store placement; controller arrangement recipes resolve existing project/pane roles. [Renderers](docs/RENDERER_COMPARISON.md), [saved layouts](docs/SAVED_WORKSPACE_LAYOUTS.md), [recipes](docs/WORKSPACE_ARRANGEMENTS_API.md) |
 | **xterm.js + node-pty + tmux** | Open persistent host terminal panes and, with configured Hermes terminal tools, run builds, scripts and diagnostics on the authorized host. | “Run the project tests and leave a terminal beside the code discussion so I can inspect the output.” | A terminal pane and an agent's shell tool have separate identities/access. tmux survives browser detach/reload, not host reboot. [Managed terminals](docs/MANAGED_TERMINALS.md) |
 | **Conversation library and host-backed drafts** | Continue work in the selected Hermes session; help locate prior conversations by title/ID and prepare follow-up text. | “Help me resume ‘Release research’ without losing this draft.” | Owner selects the bound conversation. Library search covers titles/IDs, not all transcript contents. [Conversation library](docs/CONVERSATION_LIBRARY.md) |
@@ -121,9 +110,6 @@ below; it does not enable every upstream Hermes integration.
 | **GitHub-pinned plugin catalog** | Prepare a reviewed catalog submission or help install/update an admitted app pinned to an exact upstream commit. | “Package this tested widget for the catalog and document its configuration and update procedure.” | Catalog admission requires maintainer review; sync/publication and local activation are separate. [Catalog guide](plugin-catalog/README.md) |
 | **Trusted Python backend extensions** | Stage, health-check, activate, inspect logs, restart or roll back a separately authorized host service using the extension runner. | “Build a local service for this dashboard, stage it for review, and verify health before promoting the new version.” | Explicit trusted host-code activation and a separate loopback port. Backend-connected catalog apps have their own connection/setup flow. [Extensions](docs/EXTENSIONS.md), [catalog backends](docs/CATALOG_BACKENDS.md) |
 | **Extension Studio — finite focus-timer generator** | Help choose the timer's public title, duration and accent, then guide the exact-artifact preview/install workflow. | “Help me create and preview a 25-minute focus timer in Extension Studio.” | Owner-operated built-in generator; no general Hermes-authored code admission through Studio. For arbitrary apps, use the plugin publisher above. [Extension Studio](docs/EXTENSION_STUDIO.md) |
-| **Project Workbench / `orbit_workbench` / Git candidates** | Propose a task brief in Normal chat; an approved native worker can inspect and modify its private candidate, request supported checks and produce a reviewable result. | “Prepare a task to fix this failing Node test. Define success, work on the approved candidate, and present the exact diff and check evidence.” | Experimental, off by default; separate registered project, native worker configuration and attempt grant. Candidate checks and human review remain distinct. Supported profiles include locked Node/TypeScript test projects. [Guided setup](docs/WORKBENCH_SETUP.md), [Workbench](docs/PROJECT_WORKBENCH.md) |
-| **gVisor / runsc isolated checks** | Have an approved candidate's supported Node test run checked in an offline rootless sandbox, when the host supports it. | “Use the configured isolated Node-test backend to verify this candidate and show its recorded result.” | Experimental; separately provisioned runsc/rootfs and working rootless namespaces. It isolates the check job, not the entire Hermes agent or dependency preparation. [Isolated checks](docs/ISOLATED_CHECKS.md) |
-| **Private project notebooks and evidence cards** | Prepare notes from shared project context and help interpret the project's recorded checks/review facts. | “Help me summarize this investigation in a project notebook and explain the recorded evidence card.” | Owner-operated finite Workbench tools with independent private storage; not a generic agent content API. [Project tools](docs/PROJECT_TOOLS.md) |
 | **OpenTelemetry / local Run traces / live activity** | Help diagnose time spent in observed runs and tools using an explicitly shared redacted timing summary; produce widgets that consume the existing sanitized tool-event feed. | “Explain which observed tool calls dominated this run, and distinguish missing events from confirmed completion.” | Trace summaries are shared deliberately. Owner live/saved tool details may contain richer private content; traces and plugin feeds carry narrower observations. [Run traces](docs/RUN_TRACES.md), [inline tool activity](docs/INLINE_TOOLS.md), [plugin event feed](docs/PLUGINS.md) |
 | **SQLite workspace store, receipts and checkpoints** | Preview changes, record/recover exact operation outcomes, compare checkpoints and restore a requested workspace layout/plugin state. | “Checkpoint this layout before rearranging it. If I ask to go back, compare the changes and restore that checkpoint.” | Revision-checked controller operations; document/source/conversation stores and external effects have separate lifecycles. [Workspace store](docs/WORKSPACE_STORE.md), [checkpoints](docs/CHECKPOINTS.md) |
 
@@ -171,16 +157,15 @@ sets a **$1,700,000** cap and exposes a **$437,000** gap. Its evidence viewer an
 exports use the same source/model identities; unresolved engineering evidence
 stays visible.
 
-**A supervised code change — Hermes + Workbench + candidate checks + review**
+**A supervised code change — Hermes + persistent terminal + diff review**
 
-> “Prepare a bounded repair task for this registered project. After I approve the
-> candidate and execution, fix the failure, request the supported checks, explain
-> the exact changes and prepare the reviewed patch for transfer.”
+> “Inspect this repository, explain the failing test, and propose a bounded fix.
+> After I approve, make the change, run the relevant checks, and show me the exact
+> diff before I decide whether to keep it.”
 
-Workbench retains candidate/check/review identities. The owner reviews the result
-and explicitly exports/transfers it; its private candidate is separate from the
-original working tree. More ready-to-adapt examples:
-[workspace prompts](docs/WORKSPACE_PROMPTS.md).
+The owner reviews the diff and check evidence; the persistent terminal keeps the
+build output available while the conversation continues. More ready-to-adapt
+examples: [workspace prompts](docs/WORKSPACE_PROMPTS.md).
 
 ## What you can do
 
@@ -227,7 +212,7 @@ Move, resize, split, reorder, and arrange windows. Adjust supported colors, wall
 The current usability development branch adds a searchable command palette,
 pinnable Outputs and Activity panels, typed plugin settings, a normal-workspace
 arranger and checkpoint comparisons. These build on the existing workspace
-operations; Project Workbench remains experimental and off by default. See
+operations. See
 [workspace usability](docs/WORKSPACE_USABILITY.md) for scope and compatibility.
 
 The current development candidate includes [reusable saved layouts](docs/SAVED_WORKSPACE_LAYOUTS.md),
@@ -260,17 +245,16 @@ The [agency evolution](docs/AGENCY_EVOLUTION.md) connects these existing tools:
 one exact draft review carries citations; complete replies can offer explicit
 interactive-card and document actions. Documents
 support reviewed imports, digest-bound edit proposals, native Undo and discoverable
-same-tab recovery after closing a dirty pane. Opening tools preserves Spatial view.
+same-tab recovery after closing a dirty pane. Opening tools preserves the current desktop layout.
 Selected-source grants use the supported authenticated recipient channels described
 in [Resource delegation](docs/RESOURCE_DELEGATION.md); opening a surface alone does
 not let an agent read its private contents.
 
-**Project Workbench → Workspace arrangements** previews a named, semantic diff
+**Workspace arrangements** preview a named, semantic diff
 before changing the desktop. Save a portable Debug recipe, resolve its roles
 against another project's existing panes, and reuse it after reload or server
 restart. Exact proposals and operation receipts are durable; a newer owner edit
 makes an old preview stale, and Undo refuses to overwrite intervening work.
-Workbench's Changes tab keeps these controls in a compact disclosure below review.
 Recipes save role order and measured grid intent, not arbitrary application data
 or a full geometry snapshot. Existing browser-local layouts can be imported as
 role order with explicit omissions while retaining the originals. See
@@ -298,12 +282,10 @@ Checkpoints are not filesystem backups. They do not restore documents, shell pro
 
 Orbit includes a native Hermes agent plugin in [`hermes-plugin/`](hermes-plugin/README.md). Its ordinary `orbit_workspace` tool provides scoped workspace reads, contract-derived discovery, durable project arrangements, setup suggestions, previews, revision-checked edits, history, checkpoints and confirmed restores. It defaults to read-only and requires an explicitly configured local workspace; no credentials are pasted into chat and no services start automatically.
 
-Two additional interfaces are available with their specific configuration:
-`orbit_resources` for granted source research/new saved cited briefs, and
-`orbit_workbench` for approved attempt-scoped native workers. An approved worker
-gets its candidate interface instead of the ordinary workspace controller. See
-the [agent technology guide](#agent-technology-guide) for concrete examples and
-the access required by each workflow.
+One additional interface is available with its specific configuration:
+`orbit_resources` for granted source research and new saved cited briefs. See the
+[agent technology guide](#agent-technology-guide) for concrete examples and the
+access required by each workflow.
 
 The Hermes catalog submission is pending review. The plugin now bundles Orbit's reviewed source and an explicit setup/start CLI: no separate repository clone is needed. See the [activation guide](hermes-plugin/README.md) for installation, two-command setup/start, prerequisites and trust boundaries. Orbit opens in a browser, not inside the Hermes Desktop Electron renderer. Xpra and its Linux desktop shortcuts remain optionally provisioned integrations; their source and deployment instructions are included.
 
@@ -350,7 +332,7 @@ The OmniVoice app organizes a voice-production workflow around editable text and
 
 ![Agent-built OmniVoice experiment bench with voice controls, A/B listening desk and completed COCS announcer takes](docs/images/omnivoice-agent-example.png)
 
-This example uses a separately configured voice backend. Orbit itself does not bundle the voice model or promise generation speed or exact seed reproducibility. The same pattern can support an analysis workbench, a review queue, or a purpose-built editor: describe the job, build a small tool, test it, and refine it together.
+This example uses a separately configured voice backend. Orbit itself does not bundle the voice model or promise generation speed or exact seed reproducibility. The same pattern can support an analysis tool, a review queue, or a purpose-built editor: describe the job, build a small tool, test it, and refine it together.
 
 ## Community plugin catalog
 
@@ -398,7 +380,7 @@ Pi is a third profile: the Pi agent harness. It appears when `PI_GATEWAY_URL` an
 
 In an agent chat pane, **Shared agents** opens one group transcript for you and every configured agent: Hermes, Grok Bot, and Pi when it is present. Address someone with `@hermes`, `@grok`, `@pi`, or `@all`; the pane lists the participants that are actually in the room. Either agent can delegate a task to the other with a fenced `delegate` block or hand them the floor with an @mention. Grok Bot speaks there as a separate Orbit shared chat, not the main Grok Bot conversation. **Collab**, in Start and the Orbit menu, is the project board for a goal: one orchestrator (Hermes or Grok Bot) decomposes the work, Orbit assigns roles per task, keeps a git workspace plus the budget, and asks you to approve the plan, a multi-subagent fan-out, and the result. `/collab` in the shared room opens that app. See [docs/GROK.md](docs/GROK.md) and [docs/COLLAB.md](docs/COLLAB.md).
 
-Jobs, the skills and tool catalog, tool approvals, follow-up guidance, tool activity, and the live event stream use the Grok Bot gateway when that profile is selected. They do not fall through to Hermes. Collab shell commands that the gateway cannot run are executed by Orbit after the same approval inbox. The build queue, Project Workbench, and non-local automation delivery have no Grok Bot API. The full matrix is [docs/GROK_PARITY.md](docs/GROK_PARITY.md).
+Jobs, the skills and tool catalog, tool approvals, follow-up guidance, tool activity, and the live event stream use the Grok Bot gateway when that profile is selected. They do not fall through to Hermes. Collab shell commands that the gateway cannot run are executed by Orbit after the same approval inbox. The build queue and non-local automation delivery have no Grok Bot API. The full matrix is [docs/GROK_PARITY.md](docs/GROK_PARITY.md).
 
 ## Optional: remote access
 
@@ -448,7 +430,7 @@ Shared Chromium and the full shared Linux desktop remain separate integrations; 
 
 ## Architecture
 
-The browser frontend uses TypeScript, Vite, and Three.js/CSS3D. The Node.js server provides authenticated host access, workspace state, and integration routes. Hermes supplies the agent runtime through its API bridge.
+The browser frontend uses TypeScript and Vite. The Node.js server provides authenticated host access, workspace state, and integration routes. Hermes supplies the agent runtime through its API bridge.
 
 Workspace operations manage revisioned layout and checkpoints. Sandboxed plugins supply static tools. Host terminals connect through node-pty and tmux. Optional Xpra services deliver containerized Linux applications through separate authenticated browser viewers.
 

@@ -2,7 +2,7 @@
 
 This development candidate supports **one-run Normal conversation grants through
 the pinned local Hermes gateway**, plus a dedicated-local recipient fallback.
-In Knowledge search, choose an actual linked conversation, select exact source
+In Shared sources, choose an actual linked conversation, select exact source
 snapshots, optionally permit creation of new editable briefs and canvases, and
 optionally permit reading or revising existing workspace documents. A Normal grant
 attaches only to that binding's next accepted run; granting does not start inference
@@ -40,8 +40,8 @@ Saving is not opening and not visual acceptance. Results always report
 `saved:true`, `opened:false`, `browser_acknowledged:false`, and the agent must not
 claim the owner is looking at an artifact it only saved.
 
-**When a capability genuinely does not exist** — for example executing a Data
-workbench query, which has no server-side engine — the agent calls
+**When a capability genuinely does not exist** — for example a query with no
+delegated engine — the agent calls
 `request_permission`. The request records an owner-facing `reason` and returns an
 `instruction`. For an unimplemented capability the returned `verb_needed` is
 `null`, and the instruction names the supported surface instead of implying an
@@ -75,10 +75,6 @@ The inspected upstream checkout is Hermes
   contexts and environment-only identity. Actual pinned thread/context propagation
   and registry dispatch are exercised by the acceptance test; no handler kwargs or
   model-provided identity can select a grant.
-- The existing native Workbench adapter uses a dedicated local process and private
-  socket precisely because generic gateway plugin registration is not attempt
-  authorization. This implementation reuses that transport pattern without
-  modifying Workbench authority or execution.
 
 After `server/agent.mjs` durably saves the accepted submission receipt, a trusted
 callback consumes the exact pending grant and publishes a private per-run channel

@@ -42,7 +42,6 @@ Gateway commands below are the host commands Orbit already calls (`listAgents`, 
 | Capabilities flag for live events | Hermes advertises `run_events_sse` | Reported true. The stream is the host `/events` feed | Partial |
 | Assistant token streaming | The pane polls until the run completes | The pane polls until a finished transcript entry exists. `streaming: true` entries are ignored until they finish | Equal gap |
 | Chat attachments on Send | `start` accepts text only | `start` accepts text only | Equal gap |
-| Project Workbench and pane workbench | Hermes `/v1/runs` workers, native workers, submission receipts | The Grok Bot pane shows an unavailable state and does not call those APIs | Impossible. The gateway has no Hermes run, workbench, or resource API |
 | App build (agent chat) | Full workspace context: operator commands and `docs/AGENT_GUIDE.md` | The first turn of a conversation, and a follow-up when that block is missing, sends the full operator block untruncated: repository path, `workspace_control.py` `read` / `apply` / `publish`, `plugin_publish.py`, `plugin_install`, `plugin_enable`, and workspace metadata. The prompt tells Grok Bot to read `docs/AGENT_GUIDE.md` from disk. Shell and publish still need the owner's approval | Parity |
 | Build queue | Default Hermes profile only | 409: `The build queue uses Hermes workers. Grok Bot has no build-queue API.` | Impossible |
 | Durable submission journal and resource delegation | Pane `start` writes a receipt and can delegate workspace resources into a Hermes run | Grok Bot `start` is `sendPrompt` plus a local run record under `grok-runs` | Impossible. There is no `/v1/runs` receipt to reconcile |
@@ -53,11 +52,10 @@ Gateway commands below are the host commands Orbit already calls (`listAgents`, 
 A Grok Bot profile never receives:
 
 - `build_queue`
-- Project Workbench or pane-workbench routes (the pane does not mount them)
 - a non-local automation `deliver` value
 - a Hermes `/v1/runs` body, including durable submission receipts and resource delegation
 
-The menu says so when the focused chat is Grok Bot and the owner opens the build queue or Project Workbench.
+The menu says so when the focused chat is Grok Bot and the owner opens the build queue.
 
 ## Collab shell bridge
 
