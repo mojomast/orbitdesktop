@@ -2,10 +2,10 @@
 
 ## Baseline and scope
 
-Started 2026-09-28 on `workbench/next-integration` at (removed in cleanup Phase 3)
-`d35142f812619c1a2492f0223fce2798cf105b6d`, with a clean working tree.
-The first independently useful release is M1–M2: durable arrangement proposals,
-receipt recovery, strict revision-bound Return, and portable project recipes.
+Started 2026-09-28 on the former `workbench/next-integration` branch (removed in
+cleanup Phase 3) at `d35142f812619c1a2492f0223fce2798cf105b6d`, with a clean
+working tree. The first independently useful M1–M2 arrangement release was
+removed in cleanup Phase 3; its schema-9 through schema-12 tables remain inert.
 M3–M6 remain later dependencies until their preceding journeys are verified.
 No deployment, owner runtime migration, or paid provider acceptance is part of
 the development fixtures. Hermes remains the runtime; layout remains v1.
@@ -437,8 +437,8 @@ This timing precedes the new Studio browser cases.
 
 Deployment follow-on: the separately authorized goal-first release
 `orbit-4fec70f` now includes Studio and the inline-tool chat improvements.
-[Goal-first deployment evidence](MILESTONE_GOAL_FIRST_WORKBENCH.md#deployment-record) (removed in cleanup Phase 3)
-records the schema-11 backup/migration, exact-head CI and preserved owner data.
+Goal-first deployment evidence was removed in cleanup Phase 3; the former record
+covered the schema-11 backup/migration, exact-head CI and preserved owner data.
 The original implementation-only evidence below remains historical.
 
 The owner selected a finite local focus-timer generator as the first end-to-end

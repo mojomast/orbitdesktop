@@ -122,16 +122,12 @@ remains **12**, and no release/tag publication is implied by this plugin deliver
 
 ## Published CSV handoff — October 2, 2026
 
-Data workbench accepts a strict, same-origin published CSV identity plus SHA-256 (removed in cleanup Phase 3)
-through its built-in surface URL. The browser bounds downloads, verifies bytes
-before loading the existing DuckDB engine, and leaves query execution explicit. (removed in cleanup Phase 3).
-See [Data Lab](DATA_LAB.md) for the route and publication contract. (removed in cleanup Phase 3).
+The Data Lab workbench was removed in cleanup Phase 3; its published CSV handoff, DuckDB engine and publication route no longer exist.
 
 - `npm run check`: **1,011 tests, 1,000 passed, 11 optional skips, zero failures**.
-- Real Chromium/DuckDB tests passed auto-loading without a file picker, explicit (removed in cleanup Phase 3)
-  query results, hash mismatch refusal, recovery with manual input, cancellation
-  versus replacement, and narrow-screen wrapping. The existing CSV/JSON/Parquet,
-  recipe, exact numeric sharing and external-access confinement journeys passed.
+- The former Data Lab browser fixtures were removed in cleanup Phase 3; the
+  CSV/JSON/Parquet, exact numeric sharing and external-access confinement journeys
+  are no longer part of this surface.
 - Publisher tests **9/9** and regenerated Hermes source archive parity **3/3**
   passed. This feature retains schema **12** and package metadata **0.3.1**.
 - Browser-local input state is separate from the layout acknowledgement. These
@@ -166,7 +162,7 @@ Normal adapter tests used actual pinned gateway lifecycle, registry and thread
 context with a deterministic agent body; they do not establish provider inference
 quality. [Agency evolution](AGENCY_EVOLUTION.md) describes implemented outcomes;
 [resource delegation](RESOURCE_DELEGATION.md) describes compatible gateway setup.
-Committed arrangements, completed channels and successful adapter operations no
+Completed channels and successful adapter operations no
 longer consume active capacity indefinitely; physical history garbage collection
 remains separate work.
 
@@ -185,8 +181,8 @@ are required by [Deployment](DEPLOYMENT.md).
 - Normal delegation requires the source-pinned local gateway and explicit profile
   mapping. The owner's existing gateway is not source-compatible; use a separately
   provisioned compatible test gateway rather than weakening source checks.
-- gVisor remains unavailable on this host: user-namespace creation is denied and
-  approved runsc/rootfs are absent. No real containment acceptance is claimed.
+- The gVisor isolated-check provider was removed in cleanup Phase 3; no real
+  containment acceptance is claimed.
 - Browser copilot uses disposable signed-out browsers; logged-in Discord and (removed in cleanup Phase 3)
   autonomous provider quality are separate acceptance trials. MCP snapshots retain
   closed capabilities. Workbench remains experimental and off by default. (removed in cleanup Phase 3)
@@ -251,12 +247,12 @@ Reproduction: [Technology acceptance](TECHNOLOGY_ACCEPTANCE.md),
 
 - Owner walkthrough and visual acceptance of the actual workspace remain pending;
   disposable automated acceptance does not establish that.
-- gVisor remains off on this host: the unprivileged user-namespace probe is denied,
-  and approved runsc/rootfs are absent. No real containment acceptance is claimed.
+- The gVisor isolated-check provider was removed in cleanup Phase 3; no real
+  containment acceptance is claimed.
 - Browser copilot/MCP Apps are configured on the testing deployment; browsers are (removed in cleanup Phase 3)
   disposable/signed out, and imported MCP snapshots have closed capabilities.
 - Upstream Hermes catalog admission was pending and Workbench was experimental/off (removed in cleanup Phase 3)
-  by default. The committed-arrangement capacity limit recorded then is superseded
+  by default. The former arrangement capacity limit recorded then is superseded
   by the agency retention implementation above.
 - Merge was subsequently authorized; version selection, tag and release publication
   remain separate owner decisions.

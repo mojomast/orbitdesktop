@@ -261,7 +261,7 @@ pinned. Physical history removal is not automatic. A failed history move reports
 ## Discovery and verification
 
 `contracts/feature-capabilities.mjs` is shared by owner capability discovery,
-the Knowledge consent surface, and controller `describe`. It describes feature
+the capability consent surface, and controller `describe`. It describes feature
 types and surface-opening authority separately from owner content verbs and
 delegated readiness. It enumerates no private sources/documents. Baseline discovery
 does not initialize services or provision assets. Availability is advisory and

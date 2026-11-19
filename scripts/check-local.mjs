@@ -29,7 +29,7 @@ try {
   // Only explicitly provisioned opt-in test inputs, never provider keys,
   // service URLs, SSH agents, setup configs, NPM tokens or personal profiles.
   if(process.env.ORBIT_TEST_PROVISIONED === '1') {
-    for(const name of ['HERMES_NATIVE_SOURCE','HERMES_PINNED_SOURCE','HERMES_PINNED_PYTHON','ORBIT_ROUTETOK_TEST_SOURCE','ORBIT_ROUTETOK_TEST_CACHE','ORBIT_DUCKDB_EXTENSIONS_ROOT','ORBIT_TEST_MODEL_DIR','ORBIT_TEST_CUA_PYTHON']) {
+    for(const name of ['HERMES_NATIVE_SOURCE','HERMES_PINNED_SOURCE','HERMES_PINNED_PYTHON','ORBIT_ROUTETOK_TEST_SOURCE','ORBIT_ROUTETOK_TEST_CACHE','ORBIT_TEST_MODEL_DIR','ORBIT_TEST_CUA_PYTHON']) {
       if(process.env[name]) env[name]=process.env[name];
     }
   }

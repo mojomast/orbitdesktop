@@ -104,8 +104,7 @@ stopped-writer migration; keep the complete runtime/configuration backup. These
 new features are not a newly published catalog release.
 
 The bundled `docs/WORKSPACE_PROMPTS.md` contains workflows for saved layouts,
-conversations/drafts, widgets, search, A2UI, voice, data, documents/canvases, traces
-and optional browser/MCP Apps. `docs/AGENT_GUIDE.md` supplies workspace-aware chat
+conversations/drafts, widgets, search, A2UI, voice, data, documents/canvases and traces. `docs/AGENT_GUIDE.md` supplies workspace-aware chat
 instructions. The adapter's `orbit_workspace` tool retains its scoped operation
 contract; owner-only feature APIs are not exposed through it. Opening a surface
 does not authorize private-data access or execution. See `docs/TECHNOLOGY_FEATURES.md`

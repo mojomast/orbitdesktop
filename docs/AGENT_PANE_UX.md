@@ -6,15 +6,14 @@ change execution authority or the meaning of a recorded outcome.
 
 ## Visibility budget
 
-Workspace arrangements are a compact disclosure below the primary Changes review
-surface and a host-owned card in the Project Inspector. Preview shows named
-semantic changes; exact operations, revision, digest and viewport live in
-Advanced details. Recipe editing, legacy role-order import and proposal history
-are further disclosures. Apply saves an exact staged proposal; the UI then waits
-for browser acknowledgement without calling that visual verification. Reloaded
-pending save/apply identities are reconciled explicitly against durable records;
-opening an arrangement never submits a model request or releases an execution
-lane. See [arrangement contracts](WORKSPACE_ARRANGEMENTS_API.md).
+The Workspace arrange dialog applies Grid, Focus and Compare placement to
+existing windows and is available from the Docking disclosure. Saved workspace
+layouts name a placement preset for those existing windows; exact operations,
+revision and viewport live in Advanced details. Apply waits for browser
+acknowledgement without calling that visual verification. Reloaded pending
+save/apply identities are reconciled explicitly against durable records; opening
+the dialog never submits a model request or releases an execution lane. See
+[saved workspace layouts](SAVED_WORKSPACE_LAYOUTS.md).
 
 Normal mode keeps the conversation title, one concise runtime status, and an
 overflow control in its permanent header. The composer has one primary Send

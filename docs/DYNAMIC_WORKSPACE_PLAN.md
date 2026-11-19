@@ -1,6 +1,6 @@
 # Dynamic workspace architecture proposal
 
-Status: historical broad research/design; not an implementation contract. Current source schema is 9 (schema 8 is the historical pre-arrangements baseline) and serialized workspace layout remains v1. The scoped M1/M2 arrangement release has passed its frontend/browser acceptance; see [current evidence](ENVIRONMENT_MALLEABILITY_LEDGER.md). The broader extension vision below remains unimplemented unless explicitly identified as current behavior in the plugin documentation.
+Status: historical broad research/design; not an implementation contract. Current source schema is 12 and serialized workspace layout remains v1. The former M1/M2 arrangement increment was removed in cleanup Phase 3; its tables remain inert. The broader extension vision below remains unimplemented unless explicitly identified as current behavior in the plugin documentation.
 
 ## Recommendation
 
@@ -51,12 +51,10 @@ Test concurrent user/agent edits, offline mutations, iframe privilege escalation
 
 Metrics: committed-to-observed latency, failure-free activation rate, checkpoint restoration success, regressions caught before promotion, lost session count, orphaned resources after disposal, snapshot storage growth. Establish baseline measurements before setting numeric SLOs.
 
-## Scoped arrangement increment and later extension work
+## Former arrangement increment and later extension work
 
-1. **M1/M2 backend implemented:** durable preview digest over exact staged state and placement; authenticated apply revalidates project/recovery generations, bindings/resource identities, proposal and recipe revisions under the transaction; state, placement, checkpoint, proposal and receipt commit atomically. Return is checkpoint-derived and fenced to the exact resulting workspace revision. Recipes are source-owned portable definitions that resolve role constraints against target project bindings; ambiguity requires an explicit choice. Direct small workspace operations remain supported. See [Workspace arrangements API](WORKSPACE_ARRANGEMENTS_API.md).
-2. Limits are 32 recipes per workspace, 200 proposals per project with pages of 32, and 512 append-only actor-scoped recipe-save receipts per workspace. Measured viewport belongs to preview identity. Windows/Docking support measured frames; spatial supports ordering only and rejects columns/rows geometry. Focused backend and default/Docking browser/PTY journeys passed; exact evidence and limits are in the current malleability ledger.
-3. Legacy layout import is only an adapter from saved window order to portable role-order constraints. It explicitly omits pixel frames, scaling, minimized/selected state and camera, leaving those only in the retained local layout; it does not claim exact geometry migration.
-4. **M3/M4 later and narrowed:** finite trusted components/private data remain host-owned; no general dependency solver, capability registry expansion, or broad contribution types in the initial release. No full extension model or private plugin-data feature is shipped. Any later staged artifact or extension work requires a separate frozen contract and acceptance evidence.
+1. **The M1/M2 arrangement increment was removed in cleanup Phase 3.** Its schema-9 through schema-12 proposal and recipe tables remain in the database unused, with no migration and the same `user_version`. Direct small workspace operations and saved workspace layouts remain supported.
+2. **M3/M4 later and narrowed:** finite trusted components/private data remain host-owned; no general dependency solver, capability registry expansion, or broad contribution types in the initial release. No full extension model or private plugin-data feature is shipped. Any later staged artifact or extension work requires a separate frozen contract and acceptance evidence.
 
 Acceptance scenario: owner asks for compact dark workspace plus token widget; Hermes stages a revision, builds only the widget, tests it, publishes a checkpointed commit; open client updates without losing terminal/chat. Owner restores the prior checkpoint; layout/theme/widget version revert after reload too. A deliberately broken plugin must not break recovery.
 

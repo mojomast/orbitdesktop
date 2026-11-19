@@ -70,9 +70,8 @@ discover MCP servers or their resources.
 
 Shared sources keeps only a local keyword index and exposes sources to bots only
 through the resource grants the owner approves. Read capability/error results
-instead of inferring availability from a menu item. gVisor checks are experimental, off by default,
-limited to the approved `node-test` backend and require tested rootless support;
-no fallback to trusted-host execution is permitted. See `docs/ISOLATED_CHECKS.md`.
+instead of inferring availability from a menu item. Isolated candidate checks
+were removed in cleanup Phase 3; do not claim a sandboxed execution path.
 
 ## Everyday persistence and sharing
 
@@ -102,7 +101,7 @@ no fallback to trusted-host execution is permitted. See `docs/ISOLATED_CHECKS.md
   `docs/WIDGET_CONFIGURATION.md` and `docs/PLUGINS.md`.
 - **Checkpoint comparison:** compare before a confirmed full restore; it is not
   selective undo. Documents/canvases use explicit saves and their own revisions;
-  sources, conversations/drafts, result edits, recipes and traces are private data
+  sources, conversations/drafts, result edits and traces are private data
   outside layout checkpoints. Full runtime backups must include those stores.
 - **Document recovery and review:** closing a dirty built-in document offers Keep
   editing, Save and close, or Retain draft and close. Recover retained drafts in
@@ -206,18 +205,6 @@ project/pane bindings. Optional `--project-id` narrows it to one active project.
 Descriptions omit project paths, resource contents and credentials. A selected
 pane or reported role does not authorize reading its terminal, conversation or
 files. Generated apps do not receive the owner's description or operation catalog.
-
-For project arrangements, use `arrangement '<request JSON>'` in the controller
-or `orbit_workspace` with `action:"arrangement"` and a `request` object. Discover
-the exact per-action shapes in `describe --catalog` → `catalog.arrangements`;
-the workspace scope and author are assigned by the server. List recipes and
-actual bindings, resolve missing/ambiguous roles explicitly, stage a preview and
-show its semantic diff before applying a material change. Retain its exact
-`preview_id`, `preview_digest` and apply `op_id` to recover a lost response; a new
-key is not a retry. Proposals and recipes can be read after reload/restart.
-Return stages an inverse only at the exact committed revision; a newer owner
-edit must produce a conflict. Saved state, browser acknowledgement, and visual
-inspection remain separate. See [arrangement contracts](WORKSPACE_ARRANGEMENTS_API.md).
 
 When changing the workspace, act on the workspace ID supplied by the Orbit conversation context. Never choose another workspace by scanning runtime records. Run the controller yourself rather than instructing the owner to paste commands. Read current state before a mutation. The CLI keeps capability credentials private; never print runtime JSON or `.env` files.
 

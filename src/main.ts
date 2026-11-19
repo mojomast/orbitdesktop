@@ -261,7 +261,7 @@ function menuAgentApi(payload: Record<string, unknown>): Promise<any> {
     return data;
   });
 }
-const hermesIcons: Record<string, string> = { 'shared-browser': '🖥', 'build-queue': '🛠', jev: '⚡', plugins: '🧩', checkpoints: '⛁', catalog: '✦', outputs: '🗂', jobs: '⏱' };
+const hermesIcons: Record<string, string> = { 'shared-browser': '🖥', 'build-queue': '🛠', plugins: '🧩', checkpoints: '⛁', catalog: '✦', outputs: '🗂', jobs: '⏱' };
 setOrbitSettingsNavigation({
     appearance: [
       { title: 'Themes', detail: 'Workspace colors and appearance', run: () => commands.execute('themes') },

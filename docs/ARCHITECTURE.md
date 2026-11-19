@@ -6,8 +6,8 @@ Pane views are keyed by stable pane IDs, with kind and browser URL determining
 runtime replacement. Layout reconciliation creates connected slots and parks
 surviving views in a connected host before removing old containers; native
 `Element.moveBefore` preserves iframe document state during same-document moves.
-CSS3D anchors are connected before accepting existing views and are pruned even
-in Windows mode. The non-native fallback warns and **does not guarantee iframe
+Anchors are connected before accepting existing views and are pruned even
+when a view is not currently displayed. The non-native fallback warns and **does not guarantee iframe
 continuity**. Explicit imports/presets intentionally replace views; checkpoints
 cannot resurrect a disposed document. See [runtime continuity](RUNTIME_CONTINUITY.md)
 for measured coverage and [docking evaluation](DOCKING_EVALUATION.md) for candidate
@@ -167,28 +167,19 @@ the database, inert.
 
 ## Local technology surfaces
 
-Reviewed, lazy host surfaces add source-backed knowledge search, A2UI interactive
-results, local voice dictation, DuckDB data analysis, documents/whiteboards and run
-traces. They use stable browser-kind pane identities and owner-authenticated APIs;
+Reviewed, lazy host surfaces add A2UI interactive results, local voice
+dictation, documents/whiteboards and run traces. They use stable browser-kind
+pane identities and owner-authenticated APIs;
 generated app frames receive no new private-data bridge. Explicit context transfer
 still previews text for one selected draft without sending it. Hermes remains the
 agent runtime and the workspace store remains the layout transaction authority.
 
-Source snapshots, rich documents, result edits, recipes and app snapshots have
+Source snapshots, rich documents, result edits and app snapshots have
 private stores independent of layout checkpoints. Search indices are rebuildable;
-the ingested snapshots they cite are authoritative. Voice models and DuckDB
-extensions are explicitly provisioned with integrity pins. Browser-side engines
+the ingested snapshots they cite are authoritative. Voice models are explicitly
+provisioned with integrity pins. Browser-side engines
 load local assets on demand, without global COOP/COEP. See
 [technology surfaces](TECHNOLOGY_FEATURES.md) and the feature-specific contracts.
-
-The optional browser copilot controls a separate disposable browser through a
-finite action API. MCP Apps renders owner-imported snapshots through a configured
-separate-origin proxy with closed capabilities. Neither implies automatic Hermes
-tool interoperability. The experimental gVisor check provider preserves the serial
-execution gate; its version-2 private approval records are refused by older
-environment implementations. Configuration or runtime failure cannot fall back to
-trusted-host checks. Real containment requires a separately provisioned and tested
-host. See [isolated checks](ISOLATED_CHECKS.md).
 
 ## Exact-artifact Studio
 
@@ -224,9 +215,9 @@ Transport retains input/resize/data/ack/exit/error messages, bounded output, hea
 
 ## Rendering
 
-Three.js PerspectiveCamera drives WebGL decoration plus CSS3DRenderer HTML monitor surfaces. Text, xterm and iframe controls remain native DOM. Stable pane IDs preserve views where possible. Focus mode moves a monitor element to a flat layer; iframe reparenting can reload embedded content. CSS3D is not a browser engine or WebXR layer. Spatial units express relative layout, not real-world calibrated dimensions.
+Windows mode positions native DOM panes; text, xterm and iframe controls remain native DOM. Stable pane IDs preserve views where possible. Focus mode moves the selected window to a flat layer; iframe reparenting can reload embedded content.
 
-`src/scene.ts`, `src/windows.ts`, `src/main.ts` and `src/panes.ts` still contain the core renderer/pane coordination. These have not been replaced by plugins. Appearance tokens apply through `src/workspace-appearance.ts`; built stylesheet swapping is separate from plugin lifecycle and does not hot-replace production JavaScript.
+`src/windows.ts`, `src/main.ts` and `src/panes.ts` contain the core renderer/pane coordination. These have not been replaced by plugins. Appearance tokens apply through `src/workspace-appearance.ts`; built stylesheet swapping is separate from plugin lifecycle and does not hot-replace production JavaScript.
 
 ## Source map
 
@@ -236,7 +227,6 @@ Three.js PerspectiveCamera drives WebGL decoration plus CSS3DRenderer HTML monit
 | Workspace persistence / context | `server/workspace.mjs`, `src/workspace-sync.ts` |
 | Checkpoints / recovery policy | `server/sqlite-workspace-store.mjs`, `src/workspace-history.ts`, `public/recovery.js` |
 | Trusted extensions | `src/workspace-extensions.ts` |
-| Persistent project tools | `server/project-tools.mjs`, `server/project-tools-data.mjs`, `src/project-tool-host.ts`, `src/project-tool-manager.ts` |
 | Plugin management / publishing | `src/plugin-manager.ts`, `scripts/plugin_publish.py` |
 | Agent bridge / UI | `server/agent.mjs`, `src/agent-chat.ts` |
 | Host PTYs | `server/local-host.mjs`, `server/index.mjs`, `src/panes.ts` |

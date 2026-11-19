@@ -76,7 +76,7 @@ below; it does not enable every upstream Hermes integration.
 | --- | --- | --- | --- |
 | **Hermes gateway, profiles and skills** | Research, write code, calculate, use configured tools, and continue a conversation in a chosen runtime profile. Supported gateways also accept guidance during a run. | “Inspect this repository, explain the failing test, and fix the cause. Keep me informed as you work.” | Requires a configured Hermes API connection and the relevant upstream tools. Available skills/toolsets are discoverable in the read-only catalog. [Hermes guide](docs/HERMES.md) |
 | **`orbit_workspace` — typed workspace controller** | Discover actual capabilities, read window/pane identities, preview a batch, open tools, arrange panes, customize appearance and inspect operation history. | “Put my existing terminal, our conversation and the document library side by side. Preserve their identities and other windows.” | Explicit workspace binding; read-only by default. Changes require `allow_mutations`. [Controller](docs/WORKSPACE_CONTROL.md), [adapter setup](hermes-plugin/README.md) |
-| **Dockview, saved layouts and arrangement recipes** | Help organize tiled panels/tab groups, preview reusable role-based arrangements and recover a prior arrangement without inventing new resource identities. | “Prepare a Review arrangement around this project's candidate diff, checks and conversation; keep my other work available.” | Docking is opt-in. Saved layouts store placement; controller arrangement recipes resolve existing project/pane roles. [Renderers](docs/RENDERER_COMPARISON.md), [saved layouts](docs/SAVED_WORKSPACE_LAYOUTS.md), [recipes](docs/WORKSPACE_ARRANGEMENTS_API.md) |
+| **Docking and saved layouts** | Help organize tiled panels/tab groups and recover a saved placement without inventing new resource identities. | “Dock the terminal and chat together, then save this layout so I can reuse it for this project.” | Docking is opt-in. Saved layouts store placement for existing panes. [Renderers](docs/RENDERER_COMPARISON.md), [saved layouts](docs/SAVED_WORKSPACE_LAYOUTS.md) |
 | **xterm.js + node-pty + tmux** | Open persistent host terminal panes and, with configured Hermes terminal tools, run builds, scripts and diagnostics on the authorized host. | “Run the project tests and leave a terminal beside the code discussion so I can inspect the output.” | A terminal pane and an agent's shell tool have separate identities/access. tmux survives browser detach/reload, not host reboot. [Managed terminals](docs/MANAGED_TERMINALS.md) |
 | **Conversation library and host-backed drafts** | Continue work in the selected Hermes session; help locate prior conversations by title/ID and prepare follow-up text. | “Help me resume ‘Release research’ without losing this draft.” | Owner selects the bound conversation. Library search covers titles/IDs, not all transcript contents. [Conversation library](docs/CONVERSATION_LIBRARY.md) |
 | **Context handoffs and Outputs** | Publish public app/report files and prepare precise references, citations or selected result values for a chosen conversation. | “Open Outputs beside chat and help me include the report reference and these exact result rows in my next question.” | Owner reviews insertion into one draft; insertion never sends. Output aliases/pins/tags use the owner library. [Outputs](docs/OUTPUT_LIBRARY.md), [handoffs](docs/CONTEXT_HANDOFF.md) |
@@ -237,10 +237,6 @@ Open these tools from **Start** or the command palette:
 - **Run traces:** inspect timing for events Orbit actually observed and explicitly
   export the redacted projection.
 
-Experimental **gVisor isolated checks** require a suitable separately
-provisioned host. Setup, persistence and capability boundaries are in the
-[technology guide](docs/TECHNOLOGY_FEATURES.md).
-
 The [agency evolution](docs/AGENCY_EVOLUTION.md) connects these existing tools:
 one exact draft review carries citations; complete replies can offer explicit
 interactive-card and document actions. Documents
@@ -249,16 +245,6 @@ same-tab recovery after closing a dirty pane. Opening tools preserves the curren
 Selected-source grants use the supported authenticated recipient channels described
 in [Resource delegation](docs/RESOURCE_DELEGATION.md); opening a surface alone does
 not let an agent read its private contents.
-
-**Workspace arrangements** preview a named, semantic diff
-before changing the desktop. Save a portable Debug recipe, resolve its roles
-against another project's existing panes, and reuse it after reload or server
-restart. Exact proposals and operation receipts are durable; a newer owner edit
-makes an old preview stale, and Undo refuses to overwrite intervening work.
-Recipes save role order and measured grid intent, not arbitrary application data
-or a full geometry snapshot. Existing browser-local layouts can be imported as
-role order with explicit omissions while retaining the originals. See
-[arrangement contracts and limits](docs/WORKSPACE_ARRANGEMENTS_API.md).
 
 ### Recover workspace changes deliberately
 
@@ -280,7 +266,7 @@ Checkpoints are not filesystem backups. They do not restore documents, shell pro
 
 ## Hermes plugin integration
 
-Orbit includes a native Hermes agent plugin in [`hermes-plugin/`](hermes-plugin/README.md). Its ordinary `orbit_workspace` tool provides scoped workspace reads, contract-derived discovery, durable project arrangements, setup suggestions, previews, revision-checked edits, history, checkpoints and confirmed restores. It defaults to read-only and requires an explicitly configured local workspace; no credentials are pasted into chat and no services start automatically.
+Orbit includes a native Hermes agent plugin in [`hermes-plugin/`](hermes-plugin/README.md). Its ordinary `orbit_workspace` tool provides scoped workspace reads, contract-derived discovery, previews, revision-checked edits, history, checkpoints and confirmed restores. It defaults to read-only and requires an explicitly configured local workspace; no credentials are pasted into chat and no services start automatically.
 
 One additional interface is available with its specific configuration:
 `orbit_resources` for granted source research and new saved cited briefs. See the

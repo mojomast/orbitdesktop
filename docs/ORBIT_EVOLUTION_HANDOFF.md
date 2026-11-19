@@ -478,7 +478,7 @@ power loss and disk-full behavior are not proven. Logs:
 3. Deterministic normalized v2 surfaces/resources/placements migration with retained
    unknown-provider descriptors, plus gesture undo grouping and per-client view state.
 4. Renderer spike and real 50-transition iframe/PTY/draft continuity tests; then
-   accessible tabs/dock/float/roles/project recipes.
+   accessible tabs/dock/float/roles.
 5. Grants/observations/leases, broker egress policy, Project Inspector, app data storage,
    persistent exact drafts/promotions, and evidence-backed tasks. Both full product
    scenarios remain incomplete. No unrestricted private-data bridge was introduced.

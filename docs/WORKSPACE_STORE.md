@@ -81,37 +81,11 @@ path is distinct from the broader terminal WebSocket's interactive input/history
 protocol and from the resource-authority proposal below; do not infer a general
 resource broker or plugin/model grant from either.
 
-## Durable workspace arrangements (schema 9)
+## Former Workbench and arrangement tables (schema 9 through 12)
 
-Schema 8 → 9 adds durable arrangement proposals, portable recipes and append-only
-recipe-save receipts. The workspace layout representation remains v1. The
-arrangement API is implemented; see [Workspace arrangements API](WORKSPACE_ARRANGEMENTS_API.md).
-Recipes store only source-owned name/role/layout/renderer constraints and are
-reusable against another project only through that target project's current
-bindings. They do not store pane/window/binding IDs or project content.
-
-Limits: 32 recipes per workspace; 200 proposals per project, listed newest-first
-in pages of 32; 512 append-only recipe-save receipts per workspace. Exact recipe
-save retries are scoped by workspace, authenticated actor and operation ID.
-Proposal apply revalidates active project authorization, project and recovery
-generations, proposal/revision state, saved-recipe revision and live binding/resource
-identity under the commit transaction. The exact staged workspace state and
-placement, checkpoint, proposal status, and actor-scoped command receipt commit or
-roll back together. The staged output digest binds the preview inputs/result.
-
-Measured viewport is part of preview identity and commit reconciliation. Windows
-and Docking may use measured frames; other layouts support priority ordering only
-and reject columns/rows geometry. `Return` proposes restoring the checkpoint
-captured by the prior arrangement and succeeds only at its exact committed
-revision; intervening edits make it stale. Ordinary small direct workspace
-operations remain supported alongside recipes.
-
-This is an arrangement/recipe API, not a general extension model or durable private
-plugin-data feature. Legacy local-layout import is only a pure adapter from saved
-window order to portable role-order constraints: it does not convert exact geometry.
-Pixel frames, scaling, minimized/selected state and camera remain only in the
-original local layout. Keep that layout, preview the imported recipe, and report
-success only after durable save; the frontend/browser import journey is separate.
+The schema-9 through schema-12 Workbench and arrangement tables remain in the
+database unused since cleanup Phase 3. There is no migration, and `user_version`
+is unchanged; SQLite backups still carry the inert tables.
 
 ## Private Workbench execution records (version 6; removed in cleanup Phase 3)
 
