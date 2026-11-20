@@ -68,8 +68,10 @@ Responses never carry `Access-Control-*` or `Set-Cookie`; they are marked
 The same-origin-GET exception in `allowedRequest` covers `GET`/`HEAD` requests
 whose path starts with `/api/ext/` under the same conditions as the read-only
 evidence route: no `Origin` header, `sec-fetch-site: same-origin`, and a
-`Referer` whose host equals `Host` and whose origin is allowed. The owner
-bearer is still required.
+`Referer` whose origin is allowed and whose host equals `Host`. The one
+exception is a `Referer` origin that is exactly `ORBIT_PUBLIC_ORIGIN`: a reverse
+or framing proxy in front of Orbit rewrites `Host` to the loopback upstream, so
+that origin may differ from `Host`. The owner bearer is still required.
 
 ## Fail-closed rules
 

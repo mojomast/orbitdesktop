@@ -72,7 +72,12 @@ export function allowedRequest(req, port, devOrigins = []) {
       req.headers.origin === undefined && req.headers['sec-fetch-site'] === 'same-origin') {
     try {
       const ref = new URL(req.headers.referer);
-      return ref.host === req.headers.host && origins.has(ref.origin);
+      // Same origin as the Host Orbit sees, or the exact configured public
+      // origin: a reverse/framing proxy in front of Orbit (live: tailnet ->
+      // orbit-framing-proxy) rewrites Host to the loopback upstream, so the
+      // browser's same-origin Referer host can only differ for that origin.
+      return origins.has(ref.origin) &&
+        (ref.host === req.headers.host || (publicOrigin !== "" && ref.origin === publicOrigin));
     } catch { return false; }
   }
   return (
