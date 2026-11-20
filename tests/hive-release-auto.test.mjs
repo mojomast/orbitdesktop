@@ -5,7 +5,7 @@ import {chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync} 
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {observeLocalRelease} from '../server/hive-reports.mjs';
+import {observeLocalRelease, releaseCheckouts} from '../server/hive-reports.mjs';
 import {validateRelease} from '../apps/rizzstack-hive/release-provider.js';
 
 const orbitRoot = fileURLToPath(new URL('..', import.meta.url));
@@ -73,4 +73,37 @@ test('a staging directory that is not private makes the producer refuse (fail cl
   mkdirSync(d.dir, {mode: 0o755});
   chmodSync(d.dir, 0o755);
   assert.equal(observeLocalRelease({dir: d.dir, repoRoot: d.root, env: {PATH: '/usr/bin:/bin'}}), 'failed');
+});
+
+test('ORBIT_HIVE_RELEASE_CHECKOUTS names checkouts that live elsewhere; the rest stay unknown', t => {
+  const d = deployment(t);
+  const bb = mkdtempSync(join(tmpdir(), 'hra-bb-'));
+  t.after(() => rmSync(bb, {recursive: true, force: true}));
+  writeFileSync(join(bb, 'x.txt'), 'x\n');
+  git(bb, 'init', '-q', '-b', 'main'); git(bb, 'add', '.'); git(bb, 'commit', '-q', '-m', 'bb');
+  assert.equal(observeLocalRelease({dir: d.dir, repoRoot: d.root,
+    env: {PATH: '/usr/bin:/bin', ORBIT_HIVE_RELEASE_CHECKOUTS: `bundlebees=${bb}`}}), 'written');
+  const report = read(d.dir);
+  assert.equal(validateRelease(report), true);
+  const sha = name => report.repos.find(r => r.repo === 'mojomast/' + name).main.sha;
+  assert.equal(sha('bundlebees'), git(bb, 'rev-parse', 'HEAD'));
+  assert.equal(sha('orbitdesktop'), d.head());
+  assert.equal(sha('workflow'), null);
+  assert.equal(sha('hyvv'), null);
+});
+
+test('a malformed ORBIT_HIVE_RELEASE_CHECKOUTS refuses the observation without running the producer', t => {
+  const d = deployment(t);
+  const calls = [];
+  const spawn = (...args) => { calls.push(args); return {status: 0}; };
+  for (const bad of ['bundlebees=relative/path', 'evil=/tmp/x', '=/tmp/x', 'bundlebees', 'bundlebees=/a,bundlebees=/b',
+    'bundlebees=/a/../b', 'bundlebees=/a\nb', 'x'.repeat(5000)]) {
+    assert.equal(releaseCheckouts(bad), null, bad.slice(0, 40));
+    assert.equal(observeLocalRelease({dir: d.dir, repoRoot: d.root, env: {ORBIT_HIVE_RELEASE_CHECKOUTS: bad}, spawn}), 'failed');
+  }
+  assert.equal(calls.length, 0);
+  assert.deepEqual(releaseCheckouts(undefined), []);
+  assert.deepEqual(releaseCheckouts('workflow=/srv/wf, bundlebees=/srv/bb'), ['workflow=/srv/wf', 'bundlebees=/srv/bb']);
+  assert.equal(observeLocalRelease({dir: d.dir, repoRoot: d.root, env: {ORBIT_HIVE_RELEASE_CHECKOUTS: 'workflow=/srv/wf'}, spawn}), 'written');
+  assert.deepEqual(calls[0][1].slice(-2), ['--repo', 'workflow=/srv/wf']);
 });
