@@ -1,7 +1,7 @@
 // Approved test for cleanup P3-OBS2: the Orbit Hive host reads the Observatory
 // snapshot through the owner-authenticated extension proxy (P3-OBS1), not the
-// unauthenticated /obs-snapshot route. /obs-snapshot itself stays in the server
-// until the new path is verified live (Kyle's decision 4).
+// unauthenticated /obs-snapshot route. /obs-snapshot stayed in the server until
+// the new path was verified live (Kyle's decision 4); OBS-3 then removed it.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -31,8 +31,8 @@ test('AC-003 the browser integration test follows the new path', () => {
   assert.ok(b.includes(EXT));
 });
 
-test('AC-004 the legacy route is still served until live verification', () => {
+test('AC-004 the legacy route is gone after live verification (OBS-3); /api/ext stays', () => {
   const index = read('server/index.mjs');
-  assert.match(index, /serveObsSnapshot/);
+  assert.doesNotMatch(index, /serveObsSnapshot/);
   assert.match(index, /\/api\/ext\//);
 });

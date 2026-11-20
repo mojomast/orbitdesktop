@@ -2,10 +2,10 @@
 
 `/api/ext/` is the generic, owner-authenticated route that lets an installed
 extension reach a loopback service declared in its own manifest. It replaces
-per-feature hard-coded proxies one at a time. The Orbit Hive host now reads its
-snapshot through this proxy. The existing `/obs-snapshot` route remains only
-for the legacy standalone Observatory app until Kyle verifies it and removes
-it.
+per-feature hard-coded proxies one at a time. The Orbit Hive host and the
+Observatory pane's trusted host (`src/observatory-host.ts`) read the collector
+snapshot through this proxy. The old unauthenticated `/obs-snapshot` route has
+been removed (it now returns 404).
 
 ## Route shape
 
@@ -93,9 +93,11 @@ Redirects are never followed. Only `application/json`, `text/plain` and
 
 ## Migration
 
-The Hive host already uses `/api/ext/rizzstack-observatory/snapshot/snapshot`.
-`/obs-snapshot` and `serveObsSnapshot` remain unchanged for now, serving only
-the legacy standalone Observatory app until Kyle verifies the switch and
-removes it. The standalone bundle can move to the extension route once the
-proxy has been verified against the live collector; only then should the old
-route be removed.
+Done. The Hive host and the Observatory pane host use
+`/api/ext/rizzstack-observatory/snapshot/snapshot` with the owner bearer.
+`/obs-snapshot` and `serveObsSnapshot` were removed after the proxy was
+verified against the live collector (loopback and public origin). The
+Observatory pane is a sandboxed catalog app and never holds a credential: when
+Orbit opens the exact reviewed entry (`OBSERVATORY_ENTRY`), it pairs over a
+private MessagePort and the trusted host performs the authenticated read
+(`tests/cleanup-obs3-retire-legacy.test.mjs`).

@@ -10,6 +10,7 @@ import {documentSurfaceId} from './technology-surfaces';
 import { bindToolFeed } from "./tool-feed";
 import { bindGrokBots } from "./grokbots-bridge";
 import { bindRailsNavigation } from './rails-shell';
+import { bindObservatoryHost } from './observatory-host';
 import { bindHiveHost } from './hive-host';
 import type { Pane, PaneKind } from "./model";
 export interface PaneView {
@@ -440,8 +441,9 @@ export function createPane(p: Pane, font: number, a: PaneActions): PaneView {
         frame.src = current;
         const unbindHive = localApp ? bindHiveHost(frame,u,()=>sessionToken,surface,
           {revoked,clearDocument:()=>navigate(current,true),clock:hiveReadClock}) : ()=>{};
+        const unbindObservatory = localApp ? bindObservatoryHost(frame,u,()=>sessionToken) : ()=>{};
         surface.replaceChildren(frame);
-        if (localApp) { const unbindFeed = bindToolFeed(frame), unbindGrokBots = bindGrokBots(frame), unbindRails = bindRailsNavigation(frame,u,()=>sessionToken); cleanup = () => { unbindFeed(); unbindGrokBots(); unbindRails(); unbindHive(); }; }
+        if (localApp) { const unbindFeed = bindToolFeed(frame), unbindGrokBots = bindGrokBots(frame), unbindRails = bindRailsNavigation(frame,u,()=>sessionToken); cleanup = () => { unbindFeed(); unbindGrokBots(); unbindRails(); unbindHive(); unbindObservatory(); }; }
         zoomFrame();
       } catch (e) {
         surface.replaceChildren(
