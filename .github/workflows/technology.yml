@@ -167,6 +167,16 @@ jobs:
           install -d -m 700 /tmp/opencode/orbit-voice-models
           node scripts/provision_voice_models.mjs --models-root /tmp/opencode/orbit-voice-models
           node --experimental-strip-types --test tests/voice-*.test.mjs
+          python3 - <<'PY'
+          import hashlib, urllib.request
+          from pathlib import Path
+          url = 'https://huggingface.co/datasets/Xenova/transformers.js-docs/resolve/main/jfk.wav'
+          with urllib.request.urlopen(url, timeout=60) as response:
+              data = response.read(8 * 1024 * 1024 + 1)
+          assert len(data) <= 8 * 1024 * 1024
+          assert hashlib.sha256(data).hexdigest() == 'aa81c2552465568567e670f3823117e633900d16bd6202346a72f3c8464c74c8'
+          Path('/tmp/opencode/orbit-voice-jfk.wav').write_bytes(data)
+          PY
       - name: Install isolated browser tools
         env:
           PLAYWRIGHT_BROWSERS_PATH: /tmp/opencode/orbit-technology-browsers
@@ -193,9 +203,7 @@ jobs:
               "$python" tests/document-envelope-ui.browser.py
               ;;
             traces) "$python" tests/run-traces.browser.py ;;
-            voice)
-              ORBIT_VOICE_MODELS_ROOT=/tmp/opencode/orbit-voice-models "$python" tests/voice-capture.browser.py
-              ;;
+            voice) "$python" tests/voice-capture.browser.py --models-root /tmp/opencode/orbit-voice-models --audio-file /tmp/opencode/orbit-voice-jfk.wav ;;
             workspace-default|workspace-docking)
               export ORBIT_BROWSER_EXECUTABLE="$("$python" -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')"
               if [ "$SUITE" = workspace-docking ]; then "$python" tests/docking-narrow.browser.py; fi
