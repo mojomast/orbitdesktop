@@ -255,6 +255,23 @@ const stamp = (t) =>
   Number.isFinite(Date.parse(t))
     ? new Date(t).toISOString().replace("T", " ").slice(0, 19) + " UTC"
     : "time unknown";
+function releaseSummary() {
+  const chip = $("release-state"), detail = chip?.nextElementSibling;
+  if (!chip) return;
+  const current = report?.release;
+  if (current && Array.isArray(current.repos)) {
+    const known = current.repos.filter((r) => typeof r.main?.sha === "string");
+    const unknown = current.repos.length - known.length;
+    chip.textContent = `${known.length}/${current.repos.length} observed`;
+    if (detail) {
+      const labels = known.map((r) => `${String(r.repo).split("/").at(-1)} ${r.main.sha.slice(0, 7)}`);
+      detail.textContent = `${labels.join(" · ") || "no revisions observed"}${unknown ? ` · ${unknown} unknown` : ""} ↗`;
+    }
+    return;
+  }
+  chip.textContent = release.decision;
+  if (detail) detail.textContent = "loaded revision unknown ↗";
+}
 function render() {
   const { view, status } = store.current,
     v = displayView || view || unknown,
@@ -306,7 +323,7 @@ function render() {
       ? `${held ? "last " : ""}subtotal · ${m.costCoverage || "coverage unknown"}`
       : m.costCoverage || "coverage unknown",
   );
-  set("release-state", release.decision);
+  releaseSummary();
   set(
     "source-caption",
     replay

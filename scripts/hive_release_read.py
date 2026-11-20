@@ -9,6 +9,7 @@ import re
 import secrets
 import signal
 import stat
+import subprocess
 from datetime import datetime, timezone
 
 
@@ -24,6 +25,7 @@ QUERY = 'check-runs?filter=latest&per_page=50&page=1'
 MAX_INPUT = 2 * 1024 * 1024
 MAX_OUTPUT = 16 * 1024
 DEADLINE = 90
+LOCAL_TIMEOUT = 5
 
 
 def require(ok, reason):
@@ -165,13 +167,113 @@ def collect(include_hive=False):
     return dict(schema='hive-release-read/1', startedAt=_timestamp(started), observedAt=stamp(), repos=repos)
 
 
-def publish(directory, include_hive=False):
+def _default_checkouts(deployment_root=None):
+    root = os.path.abspath(deployment_root or os.path.join(os.path.dirname(__file__), '..'))
+    bases = (root, os.path.dirname(root))
+
+    def choose(name):
+        for base in bases:
+            candidate = os.path.join(base, name)
+            if os.path.isdir(candidate):
+                return candidate
+        return os.path.join(root, name)
+
+    return {
+        'mojomast/workflow': choose('workflow'),
+        'mojomast/bundlebees': choose('bundlebees'),
+        'mojomast/hyvv': choose('hyvv'),
+        'mojomast/orbitdesktop': root if os.path.isdir(os.path.join(root, '.git')) else choose('orbitdesktop'),
+    }
+
+
+def _revision(checkout):
+    # A deployment checkout is read only through rev-parse. No fetch, hooks,
+    # aliases, pagers, ambient Git configuration or network transports run.
+    if not isinstance(checkout, str) or not os.path.isabs(checkout):
+        return None
+    checkout = os.path.realpath(checkout)
+    if not os.path.isdir(checkout):
+        return None
+    git = '/usr/bin/git'
+    if not (os.path.isfile(git) and os.access(git, os.X_OK)):
+        return None
+    env = {
+        'PATH': '/usr/bin:/bin',
+        'HOME': '/nonexistent',
+        'GIT_CONFIG_GLOBAL': os.devnull,
+        'GIT_CONFIG_NOSYSTEM': '1',
+        'GIT_TERMINAL_PROMPT': '0',
+        'GIT_ALLOW_PROTOCOL': 'never',
+        'GIT_OPTIONAL_LOCKS': '0',
+    }
+    command = [git, '-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false',
+               '-c', 'protocol.allow=never', '-c', 'safe.directory=' + checkout,
+               '-C', checkout, 'rev-parse', '--verify', 'HEAD^{commit}']
+    try:
+        result = subprocess.run(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                stderr=subprocess.DEVNULL, timeout=LOCAL_TIMEOUT, env=env)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    try:
+        value = result.stdout.decode('ascii').strip()
+    except UnicodeDecodeError:
+        return None
+    return value if re.fullmatch('[a-f0-9]{40}', value) and value != '0' * 40 else None
+
+
+def collect_git(repositories=None, include_hive=False, deployment_root=None):
+    """Read the deployment's own Git checkouts. Missing revisions stay unknown."""
+    if isinstance(repositories, str) and deployment_root is None:
+        repositories, deployment_root = None, repositories
+    started = previous = datetime.now(timezone.utc)
+    mapping = _default_checkouts(deployment_root)
+    if repositories is not None:
+        require(isinstance(repositories, dict), 'repositories must be a mapping')
+        for repo, checkout in repositories.items():
+            require(repo in ENROLLED, 'unenrolled Git checkout')
+            mapping[repo] = checkout
+
+    def stamp():
+        nonlocal previous
+        now = datetime.now(timezone.utc)
+        require(previous <= now and (now - started).total_seconds() <= DEADLINE, 'invalid capture window')
+        previous = now
+        return _timestamp(now)
+
+    repos = []
+    for repo, (rid, _) in ENROLLED.items():
+        at = stamp()
+        sha = _revision(mapping.get(repo))
+        # A revision-only observation carries no invented CI sample or PR state.
+        repos.append(dict(repo=repo, repoId=rid, at=at,
+                          main=dict(at=at, sha=sha, checks=None), prs=[]))
+    return dict(schema='hive-release-read/1', startedAt=_timestamp(started), observedAt=stamp(), repos=repos)
+
+
+collect_local = collect_git
+
+
+def _repository_map(items, deployment_root=None):
+    mapping = _default_checkouts(deployment_root)
+    for item in items:
+        repo, separator, checkout = item.partition('=')
+        require(separator == '=' and checkout and os.path.isabs(checkout), 'expected enrolled/repo=absolute-path')
+        if repo in {r.split('/', 1)[1] for r in ENROLLED}:
+            repo = 'mojomast/' + repo
+        require(repo in ENROLLED, 'unenrolled Git checkout')
+        mapping[repo] = checkout
+    return mapping
+
+
+def publish(directory, include_hive=False, local=False, repositories=None, deployment_root=None):
     # Open the selected directory once; use that fd for all subsequent operations.
     dfd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
         ds = os.fstat(dfd)
         require(ds.st_uid == os.geteuid() and stat.S_IMODE(ds.st_mode) == 0o700, 'expected private staging directory (0700)')
-        value = collect(include_hive)
+        value = collect_git(repositories, include_hive, deployment_root) if local else collect(include_hive)
         raw = (json.dumps(value, allow_nan=False, indent=2) + '\n').encode('ascii')
         require(len(raw) <= MAX_OUTPUT, 'projection exceeds byte limit')
         name = '.release-' + secrets.token_hex(16)
@@ -197,6 +299,11 @@ def main():
     cli = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     cli.add_argument('--staging-dir', required=True, help='existing owner-only staging directory (0700)')
     cli.add_argument('--include-hive', action='store_true', help='also observe Orbit Hive PR #48')
+    cli.add_argument('--local', '--local-git', action='store_true', help='read Git revisions from local deployment checkouts (no network)')
+    cli.add_argument('--deployment-root', '--repo-root', '--git-root', '--checkout-root', dest='deployment_root',
+                     help='directory containing workflow, bundlebees, hyvv and orbitdesktop checkouts')
+    cli.add_argument('--repo', '--repository', '--checkout', action='append', default=[], metavar='REPO=PATH',
+                     help='override one enrolled checkout for --local (repeatable)')
     args = cli.parse_args()
 
     def deadline(*_):
@@ -205,7 +312,9 @@ def main():
     signal.signal(signal.SIGALRM, deadline)
     signal.alarm(DEADLINE)
     try:
-        at = publish(args.staging_dir, args.include_hive)
+        repositories = _repository_map(args.repo, args.deployment_root) if args.local else None
+        at = publish(args.staging_dir, args.include_hive, local=args.local,
+                     repositories=repositories, deployment_root=args.deployment_root)
     except (ValueError, KeyError, OSError, TypeError, RecursionError, http.client.HTTPException) as e:
         # No API payload, local path or caller-provided value in diagnostics.
         reason = str(e) if type(e) is ValueError and str(e).startswith('GitHub HTTP ') else type(e).__name__

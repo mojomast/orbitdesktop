@@ -1,6 +1,9 @@
 // No discovery, directory listing, retained packets or background refresh. The
-// only writer is an independently enrolled operator publication process.
-import {constants as F} from 'node:fs';
+// writers are an independently enrolled operator publication process and, once
+// at Orbit startup, observeLocalRelease's revision-only release.json.
+import {spawnSync} from 'node:child_process';
+import {constants as F, existsSync, lstatSync, mkdirSync, readFileSync} from 'node:fs';
+import path from 'node:path';
 import fs from 'node:fs/promises';
 import {acceptedHosts, allowedRequest, tokenMatches} from './security.mjs';
 
@@ -159,4 +162,36 @@ export function createHiveReportsRoute({dir, token, port, devOrigins = [], reply
       return reply(res, 200, await Promise.race([work, timeout]));
     } finally { clearTimeout(timer); }
   };
+}
+
+// A revision-only observation (scripts/hive_release_read.py --local) has no PR
+// or check-run evidence. Only such a file is ever replaced; an operator-published
+// report (or anything unreadable) is left exactly as it is.
+function localObservation(file) {
+  try {
+    const info = lstatSync(file);
+    if (!info.isFile() || info.size > 16 * 1024) return false;
+    const value = JSON.parse(readFileSync(file, {encoding: 'utf8', flag: F.O_RDONLY | F.O_NOFOLLOW}));
+    return value?.schema === 'hive-release-read/1' && Array.isArray(value.repos) && value.repos.length > 0 &&
+      value.repos.every(r => Array.isArray(r?.prs) && r.prs.length === 0 && r.main?.checks === null);
+  } catch { return false; }
+}
+
+// Startup-only, read-only release observation of this deployment's own Git
+// checkouts. Returns 'off' | 'kept' | 'written' | 'failed'. No network, no git
+// writes, no credentials in the child environment.
+export function observeLocalRelease({dir, repoRoot, env = {}, spawn = spawnSync} = {}) {
+  if (!components(dir) || env.ORBIT_HIVE_RELEASE_AUTO === '0' || typeof repoRoot !== 'string') return 'off';
+  const target = path.join(dir, 'release.json');
+  if (existsSync(target) && !localObservation(target)) return 'kept';
+  try {
+    mkdirSync(dir, {recursive: true, mode: 0o700});
+    const producer = path.join(repoRoot, 'scripts', 'hive_release_read.py');
+    if (!existsSync(producer)) return 'failed';
+    const run = spawn(env.ORBIT_PYTHON || 'python3',
+      [producer, '--staging-dir', dir, '--local', '--deployment-root', repoRoot],
+      {cwd: repoRoot, timeout: 20_000, stdio: 'ignore',
+        env: {PATH: env.PATH || '/usr/bin:/bin', HOME: env.HOME || '/nonexistent', PYTHONDONTWRITEBYTECODE: '1'}});
+    return run.error || run.status !== 0 ? 'failed' : 'written';
+  } catch { return 'failed'; }
 }
