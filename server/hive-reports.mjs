@@ -177,6 +177,24 @@ function localObservation(file) {
   } catch { return false; }
 }
 
+// Optional ORBIT_HIVE_RELEASE_CHECKOUTS="bundlebees=/abs/path,workflow=/abs/path"
+// names the checkouts a deployment actually runs when they are not next to the
+// Orbit checkout. Anything malformed refuses the whole observation (null).
+const RELEASE_REPOS = new Set(['workflow', 'bundlebees', 'hyvv', 'orbitdesktop']);
+export function releaseCheckouts(value) {
+  if (value === undefined || value === '') return [];
+  if (typeof value !== 'string' || value.length > 4096) return null;
+  const items = value.split(',').map(item => item.trim());
+  const seen = new Set();
+  for (const item of items) {
+    const at = item.indexOf('='), name = item.slice(0, at), where = item.slice(at + 1);
+    if (at < 1 || !RELEASE_REPOS.has(name) || seen.has(name) || !path.isAbsolute(where) ||
+        path.normalize(where) !== where || /[\u0000-\u001f]/.test(where)) return null;
+    seen.add(name);
+  }
+  return items;
+}
+
 // Startup-only, read-only release observation of this deployment's own Git
 // checkouts. Returns 'off' | 'kept' | 'written' | 'failed'. No network, no git
 // writes, no credentials in the child environment.
@@ -188,8 +206,10 @@ export function observeLocalRelease({dir, repoRoot, env = {}, spawn = spawnSync}
     mkdirSync(dir, {recursive: true, mode: 0o700});
     const producer = path.join(repoRoot, 'scripts', 'hive_release_read.py');
     if (!existsSync(producer)) return 'failed';
+    const checkouts = releaseCheckouts(env.ORBIT_HIVE_RELEASE_CHECKOUTS);
+    if (!checkouts) return 'failed';
     const run = spawn(env.ORBIT_PYTHON || 'python3',
-      [producer, '--staging-dir', dir, '--local', '--deployment-root', repoRoot],
+      [producer, '--staging-dir', dir, '--local', '--deployment-root', repoRoot, ...checkouts.flatMap(c => ['--repo', c])],
       {cwd: repoRoot, timeout: 20_000, stdio: 'ignore',
         env: {PATH: env.PATH || '/usr/bin:/bin', HOME: env.HOME || '/nonexistent', PYTHONDONTWRITEBYTECODE: '1'}});
     return run.error || run.status !== 0 ? 'failed' : 'written';
