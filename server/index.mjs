@@ -29,7 +29,7 @@ import { createAgentStatus } from './agent-status.mjs';
 import { createCollabBoard } from './collab-board.mjs';
 import { createLocalWorkersRoute } from './local-workers-route.mjs';
 import { createAcddEvidenceRoute } from './acdd-evidence-route.mjs';
-import { createHiveReportsRoute, HIVE_REPORTS_ROUTE } from './hive-reports.mjs';
+import { createHiveReportsRoute, HIVE_REPORTS_ROUTE, observeLocalRelease } from './hive-reports.mjs';
 import { createRailsProxy } from './rails-proxy.mjs';
 import { ownerRelay, fixedSshExchange } from './rails-owner-relay.mjs';
 import { loadExtensionManifests, createExtensionProxy } from './extension-proxy.mjs';
@@ -120,7 +120,12 @@ catch { console.error('Configured agents from orbit-config.json did not start.')
 const colab = createColabOrchestrator({ token, port, devOrigins, reply, root: path.join(runtimeRoot, 'colab-orchestrator') });
 // Grok Bots app: capability-scoped list/history/send for the sandboxed app iframe.
 const agentStatus = createAgentStatus({ runtimeRoot });
-const hiveReports = createHiveReportsRoute({dir: process.env.ORBIT_HIVE_REPORT_DIR, token, port, devOrigins, reply});
+// The configured evidence directory is also the delivery path for a read-only
+// observation of this deployment's own Git checkouts (server/hive-reports.mjs).
+const hiveReportDir = process.env.ORBIT_HIVE_REPORT_DIR;
+if (observeLocalRelease({dir: hiveReportDir, repoRoot, env: process.env}) === 'failed')
+  console.warn('Hive local release observation unavailable.');
+const hiveReports = createHiveReportsRoute({dir: hiveReportDir, token, port, devOrigins, reply});
 const acddEvidence = createAcddEvidenceRoute({ stateDir: process.env.ORBIT_ACDD_STATE_DIR || '', authorize: req => allowedRequest(req, port, devOrigins) && tokenMatches(String(req.headers.authorization || '').replace(/^Bearer /, ''), token) });
 const railsProxy = createRailsProxy({token, port, devOrigins, upstreamPort:process.env.ORBIT_RAILS_PORT,
   readTokenFile:process.env.ORBIT_RAILS_READ_TOKEN_FILE,
