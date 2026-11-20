@@ -15,7 +15,11 @@ const PROXY_KEYS = new Set([
   "allow_query",
   "max_response_bytes",
   "timeout_ms",
+  "cache_ttl_ms",
+  "cache_stale_ms",
 ]);
+const MAX_CACHE_TTL_MS = 10 * 60 * 1000;
+const MAX_CACHE_STALE_MS = 60 * 60 * 1000;
 const ALLOWED_METHODS = new Set(["GET", "HEAD"]);
 const ALLOWED_CONTENT_TYPES = new Set([
   "application/json",
@@ -58,6 +62,12 @@ function validateManifest(raw, directoryName) {
     if (typeof proxy.allow_query !== "boolean") return null;
     if (!Number.isSafeInteger(proxy.max_response_bytes) || proxy.max_response_bytes < 1 || proxy.max_response_bytes > 64 * 1024 * 1024) return null;
     if (!Number.isSafeInteger(proxy.timeout_ms) || proxy.timeout_ms < 1 || proxy.timeout_ms > 120000) return null;
+    // Optional response cache: a short TTL plus a bounded stale-while-revalidate window.
+    if (proxy.cache_ttl_ms !== undefined &&
+        (!Number.isSafeInteger(proxy.cache_ttl_ms) || proxy.cache_ttl_ms < 1 || proxy.cache_ttl_ms > MAX_CACHE_TTL_MS)) return null;
+    if (proxy.cache_stale_ms !== undefined &&
+        (proxy.cache_ttl_ms === undefined || !Number.isSafeInteger(proxy.cache_stale_ms) ||
+         proxy.cache_stale_ms < 0 || proxy.cache_stale_ms > MAX_CACHE_STALE_MS)) return null;
     proxies[name] = {
       ...proxy,
       methods: [...new Set(proxy.methods)],
@@ -179,14 +189,88 @@ async function readLimited(response, limit) {
 }
 
 /**
- * Build the `/api/ext/` handler for validated extension manifests. The owner
- * bearer and browser origin are checked before anything touches an upstream;
- * only declared proxies, methods, paths and queries are forwarded.
+ * One upstream read. Resolves to `{ status, contentType, body }` for a usable response or
+ * `{ error: [status, message] }`; it never rejects. The credential lives only in the request.
  */
-export function createExtensionProxy({ manifests, token, port, devOrigins = [], env = process.env } = {}) {
+async function readUpstream(target, method, headers, proxy) {
+  let response;
+  try {
+    response = await fetch(target, {
+      method,
+      headers,
+      redirect: "manual",
+      signal: AbortSignal.timeout(proxy.timeout_ms),
+    });
+  } catch {
+    return { error: [502, "extension upstream unavailable"] };
+  }
+  if (response.status >= 300 && response.status < 400) {
+    try { await response.body?.cancel(); } catch { /* already closed */ }
+    return { error: [502, "extension upstream redirect refused"] };
+  }
+  const contentType = responseContentType(response.headers.get("content-type")) || "application/octet-stream";
+  if (method === "HEAD") return { status: response.status, contentType, body: null };
+  let body;
+  try {
+    body = await readLimited(response, proxy.max_response_bytes);
+  } catch {
+    return { error: [502, "extension upstream unavailable"] };
+  }
+  if (body === null) return { error: [502, "extension response too large"] };
+  return { status: response.status, contentType, body };
+}
+
+function sendUpstream(res, result, cacheState) {
+  if (result.error) {
+    const [status, message] = result.error;
+    res.writeHead(status, {
+      "Content-Type": "text/plain",
+      "Cache-Control": "no-store",
+      "X-Content-Type-Options": "nosniff",
+      ...(cacheState ? { "X-Orbit-Cache": cacheState } : {}),
+    });
+    return res.end(message);
+  }
+  res.writeHead(result.status, {
+    "Content-Type": result.contentType,
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
+    ...(cacheState ? { "X-Orbit-Cache": cacheState } : {}),
+  });
+  return result.body === null ? res.end() : res.end(result.body);
+}
+
+/**
+ * Build the `/api/ext/` handler for validated extension manifests. The owner
+ * bearer and browser origin are checked before anything touches an upstream
+ * or the cache; only declared proxies, methods, paths and queries are forwarded.
+ *
+ * A proxy that declares `cache_ttl_ms` keeps the last good (HTTP 200) GET
+ * response per path in memory (query-string and HEAD requests are never cached).
+ * Within the TTL it is served as-is; for `cache_stale_ms` after that it is served
+ * stale while one background refresh runs; beyond that the read waits for the
+ * upstream, like an uncached proxy. Concurrent misses share one upstream read, and
+ * a read whose client went away still fills the cache. The cache entry holds only
+ * the status, content type and body, never a credential.
+ */
+export function createExtensionProxy({ manifests, token, port, devOrigins = [], env = process.env, now = () => performance.now() } = {}) {
   const byId = new Map(
     (Array.isArray(manifests) ? manifests : []).map(manifest => [manifest.id, manifest]),
   );
+  const cache = new Map(); // key -> { at, result }
+  const inflight = new Map(); // key -> Promise<result>
+
+  function refresh(key, start) {
+    let pending = inflight.get(key);
+    if (!pending) {
+      pending = start().then(result => {
+        if (!result.error && result.status === 200) cache.set(key, { at: now(), result });
+        return result;
+      }).finally(() => inflight.delete(key));
+      inflight.set(key, pending);
+    }
+    return pending;
+  }
 
   return async function extensionProxy(req, res) {
     const request = parseExtensionRequest(req.url);
@@ -232,44 +316,20 @@ export function createExtensionProxy({ manifests, token, port, devOrigins = [], 
     if (typeof req.headers.accept === "string" && req.headers.accept.length > 0) {
       headers.accept = req.headers.accept;
     }
+    const start = () => readUpstream(target, req.method, headers, proxy);
 
-    let response;
-    try {
-      response = await fetch(target, {
-        method: req.method,
-        headers,
-        redirect: "manual",
-        signal: AbortSignal.timeout(proxy.timeout_ms),
-      });
-    } catch {
-      return sendText(res, 502, "extension upstream unavailable");
+    const cacheable = proxy.cache_ttl_ms !== undefined && req.method === "GET" && !request.hasQuery;
+    if (!cacheable) return sendUpstream(res, await start());
+
+    // Keyed by everything that selects the upstream response (the credential is not part of it).
+    const key = JSON.stringify([request.id, request.proxy, upstream, requestPath, headers.accept || ""]);
+    const entry = cache.get(key);
+    const age = entry ? now() - entry.at : Infinity;
+    if (age < proxy.cache_ttl_ms) return sendUpstream(res, entry.result, "hit");
+    if (age < proxy.cache_ttl_ms + (proxy.cache_stale_ms || 0)) {
+      void refresh(key, start);
+      return sendUpstream(res, entry.result, "stale");
     }
-
-    if (response.status >= 300 && response.status < 400) {
-      try { await response.body?.cancel(); } catch { /* already closed */ }
-      return sendText(res, 502, "extension upstream redirect refused");
-    }
-
-    const responseHeaders = {
-      "Content-Type": responseContentType(response.headers.get("content-type")) || "application/octet-stream",
-      "Cache-Control": "no-store",
-      "X-Content-Type-Options": "nosniff",
-    };
-
-    if (req.method === "HEAD") {
-      res.writeHead(response.status, responseHeaders);
-      return res.end();
-    }
-
-    let body;
-    try {
-      body = await readLimited(response, proxy.max_response_bytes);
-    } catch {
-      return sendText(res, 502, "extension upstream unavailable");
-    }
-    if (body === null) return sendText(res, 502, "extension response too large");
-
-    res.writeHead(response.status, responseHeaders);
-    return res.end(body);
+    return sendUpstream(res, await refresh(key, start), "miss");
   };
 }
