@@ -1,4 +1,3 @@
-import { jevSuggest, jevCandidates } from './jev.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
@@ -12,12 +11,11 @@ import { SqliteWorkspaceStore } from './sqlite-workspace-store.mjs';
 import { commandIdentity } from './command-identity.mjs';
 import { isContentAddressedBundle } from './bundle-registry.mjs';
 import { describeWorkspace, boundedWorkspaceContext } from './workspace-description.mjs';
-import { createArrangementControl } from './workspace-arrangement-control.mjs';
 import { checkpointChanges } from './workspace-diff.mjs';
 
 export const runtimeRoot = path.resolve(process.env.ORBIT_RUNTIME_DIR || fileURLToPath(new URL('../.runtime/', import.meta.url)));
 const slugPattern = /^[a-z0-9][a-z0-9-]{0,60}$/;
-export function createWorkspaceService({ token, port, devOrigins, reply: sendReply, root = runtimeRoot, store = new SqliteWorkspaceStore(root), workbenchSetup = null, capabilityDescription }) {
+export function createWorkspaceService({ token, port, devOrigins, reply: sendReply, root = runtimeRoot, store = new SqliteWorkspaceStore(root), capabilityDescription }) {
   const reply = (res,status,data) => {
     const categories = {400:'INVALID_OPERATION',403:'PERMISSION_REQUIRED',404:'RESOURCE_GONE',409:'REVISION_CONFLICT',413:'REQUEST_TOO_LARGE'};
     const body = status>=400 ? {category:categories[status]||'INVALID_OPERATION',...data} : data;
@@ -27,11 +25,6 @@ export function createWorkspaceService({ token, port, devOrigins, reply: sendRep
   fs.mkdirSync(path.join(root, 'apps'), { recursive: true, mode: 0o700 });
   store.bundles.refresh();
   const read = id => store.read(id);
-  const arrangementControl = createArrangementControl(store);
-  // The proposal-only setup service is created after this service in the
-  // composition root, so it can be attached either at construction or later
-  // through the narrow setter. Only `propose` is ever used.
-  let setupService = workbenchSetup;
   store.reconcileConnections(`http://127.0.0.1:${port}`);
   const appVersions = () => store.bundles.versions();
   const placementSnapshot = r => ({workspace_id:r.id,revision:r.revision,placement:r.placement||emptyPlacement(),placement_revision:r.placement_revision||0,recovery_policy:r.recovery_policy||{held:false,generation:0},observed_revision:r.observed_revision||0,browser_seen:r.browser_seen||null});
@@ -64,21 +57,6 @@ export function createWorkspaceService({ token, port, devOrigins, reply: sendRep
       if(record && !['read','history','shelf'].includes(body.action) && record.state?.version!==1)return reply(res,409,{category:'UPGRADE_REQUIRED',error:'Client cannot write this workspace version'});
       if(recovery && body.action==='read')return reply(res,200,safe(record,false));
       if(body.action==='describe')return reply(res,200,describeWorkspace(store,body,capabilityDescription?.(control?'controller':'owner')));
-      if(body.action==='arrangement')return reply(res,200,await arrangementControl(body,control?`workspace-controller:${body.workspace_id}`:'owner'));
-      // Proposal-only Workbench setup. The authenticated workspace capability may
-      // submit an untrusted suggestion, but this route never grants project/private
-      // reads or task/execution/approval authority. Without the injected setup
-      // service it fails closed rather than inventing authority. The validated
-      // request is spread into the service; it can never override workspace_id.
-      if(body.action==='workbench_setup'){
-        if(!control||recovery)return reply(res,403,{error:'Action unavailable on this route'});
-        if(!setupService||typeof setupService.propose!=='function')return reply(res,503,{error:'Workbench setup is unavailable',category:'STORE_UNAVAILABLE'});
-        return reply(res,200,await setupService.propose({workspace_id:record.id,...body.request}));
-      }
-      if (!control && body.action === 'jev_suggest') {
-        const result = await jevSuggest(record.state, body.request, body.api_key, body.consent);
-        return reply(res, 200, { ...result, base_revision: record.revision });
-      }
       if (body.action === 'history') return reply(res, 200, { checkpoints: store.checkpointList(record.id), revision: record.revision });
       if (body.action === 'checkpoint_preview') {
         if(body.base_revision!==record.revision)return reply(res,409,{error:'Workspace changed; preview again',...safe(record)});
@@ -92,14 +70,14 @@ export function createWorkspaceService({ token, port, devOrigins, reply: sendRep
         for (const op of body.operations) next = applyOperation(next, op);
         return reply(res,200,{workspace_id:record.id,base_revision:record.revision,preview:true,state:next,changed_fields:Object.keys(next).filter(key=>JSON.stringify(next[key])!==JSON.stringify(record.state[key])),warning:'Validation only; no files, browser rendering or external effects were tested. Reapply operations against this base revision to commit.'});
       }
-      if(['sync','apply','layout_apply','plugins_apply','restore','checkpoint','jev_apply','recovery_policy','placement_save'].includes(body.action)) {
+      if(['sync','apply','layout_apply','plugins_apply','restore','checkpoint','recovery_policy','placement_save'].includes(body.action)) {
         if((control && !['apply','restore','checkpoint','placement_save'].includes(body.action)) || (!control && body.action==='apply'))return reply(res,403,{error:'Action unavailable on this route'});
-        if(['restore','jev_apply'].includes(body.action)&&body.confirm!==true)return reply(res,409,{error:'Explicit confirmation against the current revision is required'});
+        if(body.action==='restore'&&body.confirm!==true)return reply(res,409,{error:'Explicit confirmation against the current revision is required'});
         if(body.action==='plugins_apply'&&body.operations.some(op=>!op.action.startsWith('plugin_')))throw Error('Expected plugin operations');
         const identity=commandIdentity(body,control?`workspace-controller:${body.workspace_id}`:'owner');
         // Filesystem indexing is still legacy here, but never runs under a write lock.
         const versions=recovery?null:appVersions();
-        const labels={sync:'Before browser workspace change',apply:'Before agent layout change',layout_apply:'Before workspace arrangement',plugins_apply:'Before plugin change',restore:'Before restore',jev_apply:'Before confirmed Jev quick action',checkpoint:body.label||'Checkpoint',recovery_policy:'Before recovery policy change',placement_save:'Before docking placement change'};
+        const labels={sync:'Before browser workspace change',apply:'Before agent layout change',layout_apply:'Before workspace arrangement',plugins_apply:'Before plugin change',restore:'Before restore',checkpoint:body.label||'Checkpoint',recovery_policy:'Before recovery policy change',placement_save:'Before docking placement change'};
         const change={
           authorize:current=>!control||tokenMatches(credential,current?.capability),
           create:body.action==='sync'?()=>({id:body.workspace_id,capability:randomBytes(32).toString('base64url'),revision:1,state:validate(structuredClone(body.state)),api:`http://127.0.0.1:${port}`,observed_revision:1,browser_seen:Date.now()}):undefined,
@@ -124,11 +102,6 @@ export function createWorkspaceService({ token, port, devOrigins, reply: sendRep
             }
             if(body.action==='recovery_policy')return body.held?applyOperation(current.state,{action:'plugin_disable_all'}):current.state;
             let operations=body.operations;
-            if(body.action==='jev_apply') {
-              const candidates=jevCandidates(current.state);
-              if(!Object.hasOwn(candidates,body.action_id)||body.action_id==='hermes')throw Error('Unsupported quick action');
-              operations=candidates[body.action_id].operations;
-            }
             let state=current.state;
             for(const operation of operations)state=applyOperation(state,operation);
             return state;
@@ -208,5 +181,5 @@ export function createWorkspaceService({ token, port, devOrigins, reply: sendRep
       res.end(req.method === 'HEAD' ? undefined : bytes);
     } catch { res.writeHead(404, { 'Content-Type': 'text/plain' }); res.end('App file not found'); }
   }
-  return { handle, context, serveApp, read, store, close:()=>store.close(), setWorkbenchSetup:next=>{setupService=next;} };
+  return { handle, context, serveApp, read, store, close:()=>store.close() };
 }

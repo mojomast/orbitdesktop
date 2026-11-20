@@ -19,13 +19,16 @@ is enabled by default. Demo data is an explicit independent selection.
   Subsequent loads do not inherit the port. The frame is scripts-only and the
   client installs `connect-src 'none'` before offering the port.
 * Each enabled read revalidates the in-memory Orbit credential with the existing
-  `/api/auth` check. Only the host then GETs `/obs-snapshot/snapshot`, without
-  credentials, redirects, caching, or owner-selected query parameters. The
-  existing proxy strips the prefix: Workflow's qualified collector serves
-  `/snapshot` (also `/` and `/obs-snapshot`), **not** `/snapshot.json`.
-  Only the server holds the upstream read credential. No second collector is
-  started. The host caps/validates the response and runs the same reviewed
-  `project(snapshot,{now})` adapter locally before delivering the bounded view.
+  `/api/auth` check, then the host GETs
+  `/api/ext/rizzstack-observatory/snapshot/snapshot` with the owner bearer. The
+  extension proxy checks that bearer plus same-origin request metadata, forwards
+  only the declared path to the loopback collector, and injects the server-side
+  collector credential. Redirects, caching and owner-selected query parameters
+  are not used. Workflow's qualified collector serves `/snapshot` (also `/`),
+  **not** `/snapshot.json`. Only the server holds the upstream read credential.
+  No second collector is started. The host caps/validates the response and runs
+  the same reviewed `project(snapshot,{now})` adapter locally before delivering
+  the bounded view.
   Errors and raw source records do not leave the host. A credential rejection
   revokes the grant and replaces the entire previously granted document (including
   hidden register rows, search text and accessibility announcements); interrupted transport is labeled
@@ -38,14 +41,14 @@ is enabled by default. Demo data is an explicit independent selection.
   Returning to Hive uses the same document port. No Rails query data, authority,
   stream, signer, writer, arbitrary URL or generic API is granted to Hive.
 
-**Existing perimeter limitation:** in this Orbit base, `serveObsSnapshot` is
-a legacy CORS-enabled proxy which injects the collector credential and does
-**not** enforce an Orbit owner check itself. The document CSP and host grant
-protect this integration; they cannot retrofit authentication for unrelated
-clients of that route. Do not enable the legacy proxy on an untrusted network
-or claim it is an owner-authenticated service perimeter. Hardening that shared
-route requires separate coordinated review; no production route/config change
-is part of the pane integration.
+**Legacy route perimeter:** `serveObsSnapshot` remains in this Orbit base for
+the legacy standalone Observatory app only. It is a CORS-enabled proxy which
+injects the collector credential and does **not** enforce an Orbit owner check
+itself. The Hive host no longer uses it; it reads through the
+owner-authenticated extension proxy described above. Do not enable the legacy
+route on an untrusted network or claim it is an owner-authenticated service
+perimeter. Removing it requires separate coordinated review once the legacy
+standalone app is verified and retired.
 
 ## Fixture proof and release packaging
 

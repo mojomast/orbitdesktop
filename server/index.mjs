@@ -20,28 +20,10 @@ import { createWorkspaceLayouts } from './workspace-layouts.mjs';
 import { createOutputLibrary } from './output-library.mjs';
 import { createWorkspaceEvents } from './workspace-events.mjs';
 import { assetCacheControl, loadImmutableAssetManifest } from './static-cache.mjs';
-import { createWorkbench } from './workbench.mjs';
-import {WorkbenchData} from './workbench-data.mjs';
-import {createWorkbenchGate} from './workbench-gate.mjs';
-import {legacyQueueSnapshot} from './workbench-legacy-state.mjs';
-import {workbenchOwnerRoute} from './workbench-owner-route.mjs';
-import {createWorkbenchTerminalSource} from './workbench-terminal-source.mjs';
-import {createWorkbenchContext} from './workbench-context.mjs';
-import {createWorkbenchExecution} from './workbench-execution.mjs';
-import {createWorkbenchEnvironments} from './workbench-environments.mjs';
-import {createWorkbenchWorkflow} from './workbench-workflow.mjs';
-import {createWorkbenchSetup,SETUP_PUBLIC_REASONS} from './workbench-setup.mjs';
-import {createProjectTools} from './project-tools.mjs';
+import {ownerRoute} from './owner-route.mjs';
 import {createExtensionStudio} from './extension-studio.mjs';
-import {createWorkbenchNative} from './workbench-native.mjs';
-import {createWorkbenchLive} from './workbench-live.mjs';
-import {createWorkbenchLiveHandler} from './workbench-live-route.mjs';
-import {createWorkbenchNativeRuntime,nativeRuntimeEnvironmentOptions,nativeRuntimeMetadata} from './workbench-native-runtime.mjs';
 import {technologyOwnerRoute,lazyTechnologyService} from './technology-owner-route.mjs';
-import {createWorkbenchSandboxProvider} from './workbench-sandbox-provider.mjs';
-import { createIrcService } from './irc.mjs';
 import { createColabOrchestrator } from './colab-orchestrator.mjs';
-import { createKittyDoomService } from './kitty-doom.mjs';
 import { createGrokBotsApp } from './grokbots-app.mjs';
 import { createAgentStatus } from './agent-status.mjs';
 import { createCollabBoard } from './collab-board.mjs';
@@ -50,6 +32,7 @@ import { createAcddEvidenceRoute } from './acdd-evidence-route.mjs';
 import { createHiveReportsRoute, HIVE_REPORTS_ROUTE } from './hive-reports.mjs';
 import { createRailsProxy } from './rails-proxy.mjs';
 import { ownerRelay, fixedSshExchange } from './rails-owner-relay.mjs';
+import { loadExtensionManifests, createExtensionProxy } from './extension-proxy.mjs';
 const port = Number(process.env.PORT || 4318);
 if (!Number.isInteger(port) || port < 1024 || port > 65535)
   throw Error("PORT must be between 1024 and 65535");
@@ -88,7 +71,7 @@ function reply(res, status, data) {
   });
   res.end(JSON.stringify(data));
 }
-const capabilityDescription=audience=>featureCapabilities({audience,observation:observeFeatureReadiness({root:fileURLToPath(new URL('../',import.meta.url)),runtimeRoot,mcpConfigured:!!mcpSandbox})});
+const capabilityDescription=audience=>featureCapabilities({audience,observation:observeFeatureReadiness({root:fileURLToPath(new URL('../',import.meta.url)),runtimeRoot})});
 // Built-in apps (Grok Bots) ship in apps/ and are installed before the bundle index refresh.
 installBuiltinApps({ runtimeRoot, log: message => console.log(message) });
 const workspaceService = createWorkspaceService({ token, port, devOrigins, reply, capabilityDescription });
@@ -103,10 +86,6 @@ if(!process.env.ORBIT_TOKEN){
   renameSync(temporary,path.join(runtimeRoot,'session-token'));
 }
 const workspaceEvents = createWorkspaceEvents({store:workspaceService.store,token,port,devOrigins,reply});
-const workbenchServices={};
-const workbench = createWorkbench({store:workspaceService.store,token,port,devOrigins,reply,services:workbenchServices});
-const workbenchData=new WorkbenchData(workspaceService.store);
-const executionGate=createWorkbenchGate({legacySnapshot:legacyQueueSnapshot(runtimeRoot)});
 let normalResources;
 const repoRoot = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 // Pi is hosted by this process when the harness binary exists: one loopback
@@ -138,10 +117,7 @@ const orbitSetup = createOrbitSetup({ runtimeDir: runtimeRoot, env: process.env,
 let configuredProfiles = [];
 try { configuredProfiles = await orbitSetup.agentProfiles(); }
 catch { console.error('Configured agents from orbit-config.json did not start.'); }
-const irc = createIrcService({ token, orbitPort: port, devOrigins, reply, repoRoot });
 const colab = createColabOrchestrator({ token, port, devOrigins, reply, root: path.join(runtimeRoot, 'colab-orchestrator') });
-// Kitty DOOM: one kitty-graphics PTY session per websocket window on this origin.
-const kittyDoom = createKittyDoomService({ token, port, devOrigins, reply });
 // Grok Bots app: capability-scoped list/history/send for the sandboxed app iframe.
 const agentStatus = createAgentStatus({ runtimeRoot });
 const hiveReports = createHiveReportsRoute({dir: process.env.ORBIT_HIVE_REPORT_DIR, token, port, devOrigins, reply});
@@ -152,7 +128,7 @@ const railsProxy = createRailsProxy({token, port, devOrigins, upstreamPort:proce
 // This renderer is reviewed release source, never a mutable runtime app slug.
 const railsAssets = new Map(Object.entries({'index.html':'text/html','styles.css':'text/css','app.js':'text/javascript','rails.js':'text/javascript','inspector.js':'text/javascript','feedback.js':'text/javascript'}));
 const grokBotsApp = createGrokBotsApp({ runtimeRoot, catalog: () => agentHandler.profileCatalog?.(), agentStatus, chats: () => agentHandler.gatewayChats?.(), workspaceContext: workspaceService.context });
-const agentHandler = createAgentHandler({ token, port, devOrigins, reply, workspaceContext: workspaceService.context, workspaceRead:workspaceService.read, runtimeDirectory:runtimeRoot,executionGate,onRunEvent:event=>observeTechnologyTrace(event,'observeAgentRunEvent'),onNormalAccepted:record=>normalResources?.normalAccepted(record),
+const agentHandler = createAgentHandler({ token, port, devOrigins, reply, workspaceContext: workspaceService.context, workspaceRead:workspaceService.read, runtimeDirectory:runtimeRoot,onRunEvent:event=>observeTechnologyTrace(event,'observeAgentRunEvent'),onNormalAccepted:record=>normalResources?.normalAccepted(record),
   ...(!explicitHermes && discovered.hermes ? { apiUrl: null, apiKey: null, profiles: [{ id: "default", label: discovered.hermes.label, apiUrl: discovered.hermes.apiUrl, apiKey: discovered.hermes.apiKey }] } : {}),
   ...(discovered.grok || piProfile || configuredProfiles.length ? { additionalProfiles: [...(discovered.grok ? [discovered.grok] : []), ...(piProfile ? [piProfile] : []), ...configuredProfiles] } : {}),
 });
@@ -163,10 +139,6 @@ const collabBoard = createCollabBoard({ runtimeRoot, collab: () => agentHandler.
 } });
 // Local workers (Cua/OpenCode on a tailnet PC). Off unless ORBIT_LOCAL_WORKERS=1.
 const localWorkers = process.env.ORBIT_LOCAL_WORKERS === '1' ? createLocalWorkersRoute({ runtimeRoot, port, env: process.env, log: m => console.log(m) }) : null;
-const sandboxProvider=createWorkbenchSandboxProvider({root:path.join(workspaceService.store.root,'workbench-sandbox'),env:process.env});
-const environments=createWorkbenchEnvironments({store:workspaceService.store,records:workbench.records,data:workbenchData,gate:executionGate,sandboxProvider});
-const execution=createWorkbenchExecution({store:workspaceService.store,records:workbench.records,data:workbenchData,gate:executionGate,environments,sandboxProvider});
-workbenchServices.execution=execution;
 // Managed terminals: strictly optional. A failure here (no tmux, readonly runtime,
 // unsupported platform) disables the route; it must never block the host server or
 // touch any existing session/server. Attach mode never creates, kills, respawns or
@@ -224,47 +196,8 @@ const managedTerminalHandler = managedTerminals
 // initialization. Continuity cannot be proven for ANY pane, so the legacy
 // attach/create fallback is refused until an owner recovery restores the ledger.
 const managedLedgerLost = existsSync(managedSentinelPath) && !existsSync(managedLedgerPath);
-const contextSharing=createWorkbenchContext({store:workspaceService.store,records:workbench.records,data:workbenchData,hermes:agentHandler.workbench,execution,gate:executionGate,
-  terminalSource:createWorkbenchTerminalSource({store:workspaceService.store,records:workbench.records,broker:managedTerminals?.broker}),
-  retentionMs:process.env.ORBIT_CONTEXT_RETENTION_MS===undefined?undefined:Number(process.env.ORBIT_CONTEXT_RETENTION_MS)});
-workbenchServices.context=contextSharing;
-const contextHandler=workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:body=>contextSharing.dispatch(body)});
-const executionHandler=workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:body=>execution.dispatch(body)});
-const workflow=createWorkbenchWorkflow({store:workspaceService.store,records:workbench.records,data:workbenchData,execution});
-const projectTools=createProjectTools({store:workspaceService.store,records:workbench.records,data:workbenchData});
-const projectToolsHandler=workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:body=>projectTools.dispatch(body)});
 const extensionStudio=createExtensionStudio({store:workspaceService.store});
-const extensionStudioHandler=workbenchOwnerRoute({token,port,devOrigins,reply,maxBytes:16384,dispatch:body=>extensionStudio.dispatch(body)});
-const nativeOptions=nativeRuntimeEnvironmentOptions({root:path.join(runtimeRoot,'workbench-native-runtime'),gate:executionGate});
-const nativeRuntimes=new Map();
-const nativeQuarantines=new Map();
-const nativeHermes={
-  quarantineNative({grant_id}){if(!nativeQuarantines.has(grant_id))nativeQuarantines.set(grant_id,executionGate.quarantine(`native:${grant_id}`));},
-  acknowledgeNativeUnknown({grant_id}){nativeQuarantines.get(grant_id)?.();nativeQuarantines.delete(grant_id);},
-  async readBinding(body){
-    const binding=await agentHandler.workbench.readBinding(body);
-    if(!nativeOptions||binding.profile_id!==nativeOptions.profile_id)return binding;
-    const native_runtime=nativeRuntimeMetadata(nativeOptions);
-    const config_generation=binding.config_generation+':'+native_runtime.configuration_hash;
-    if(!nativeRuntimes.has(config_generation))nativeRuntimes.set(config_generation,createWorkbenchNativeRuntime({...nativeOptions,config_generation}));
-    return {...binding,config_generation,native_runtime};
-  },
-  async startNative(body){const runtime=nativeRuntimes.get(body.scope.recipient.config_generation);if(!runtime)throw Object.assign(Error('unavailable'),{code:'unavailable',native_outcome:'not_started'});if(agentHandler.workbench.hasActiveConversation({workspace_id:body.scope.workspace_id,pane_id:body.scope.recipient.pane_id}))throw Object.assign(Error('busy'),{code:'busy',native_outcome:'not_started'});return runtime.startNative(body);},
-  async stopNative(body){return Promise.all([...nativeRuntimes.values()].map(runtime=>runtime.stopNative(body)));},
-};
-const native=createWorkbenchNative({store:workspaceService.store,records:workbench.records,data:workbenchData,execution,hermes:nativeOptions?nativeHermes:{readBinding:nativeHermes.readBinding,quarantineNative:nativeHermes.quarantineNative,acknowledgeNativeUnknown:nativeHermes.acknowledgeNativeUnknown}});
-workbenchServices.native=native;workbenchServices.nativeConfigured=!!nativeOptions;
-const nativeHandler=workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:body=>native.dispatch(body)});
-const workbenchSetup=createWorkbenchSetup({store:workspaceService.store,records:workbench.records,data:workbenchData,
-  execution,hermes:agentHandler.workbench,context:contextSharing,native,gate:executionGate,nativeConfigured:!!nativeOptions});
-workspaceService.setWorkbenchSetup(workbenchSetup);
-const setupHandler=workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:body=>workbenchSetup.dispatch(body),publicReasons:SETUP_PUBLIC_REASONS});
-let workbenchLive=null;
-// A damaged observability projection must not prevent authoritative runtime
-// recovery or change the outcome of an existing worker operation.
-try{workbenchLive=createWorkbenchLive({store:workspaceService.store,records:workbench.records,data:workbenchData,gate:executionGate,execution,native});}
-catch{console.warn('Private Workbench activity projection unavailable; durable task controls remain available.');}
-const liveHandler=workbenchLive?createWorkbenchLiveHandler({token,port,devOrigins,reply,live:workbenchLive}):workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:()=>{throw Object.assign(Error('unavailable'),{code:'unavailable'});}});
+const extensionStudioHandler=ownerRoute({token,port,devOrigins,reply,maxBytes:16384,dispatch:body=>extensionStudio.dispatch(body)});
 // Same-origin authenticated proxy for the Rizzstack observability snapshot collector.
 // The bearer token lives server-side (ORBIT_OBS_COLLECTOR_TOKEN in the Orbit env file,
 // 0600) and is injected on every request: no token is ever shipped to or stored by
@@ -287,66 +220,37 @@ async function serveObsSnapshot(req,res,pathname){
     res.writeHead(502,{'Content-Type':'text/plain'});res.end('snapshot collector unreachable');
   }
 }
-const workflowHandler=workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:body=>workflow.dispatch(body)});
-const environmentHandler=workbenchOwnerRoute({token,port,devOrigins,reply,dispatch:body=>environments.dispatch(body),publicReasons:['dedicated_npm_cache_required','private_npm_cache_required','typescript_test_command_unsupported','typescript_dependency_shape_unsupported','typescript_toolchain_dependencies_required','development_lock_mismatch','registry_lock_entry_unsupported','registry_url_unsupported','registry_artifact_limit']});
+const extensionProxy=createExtensionProxy({
+  manifests:loadExtensionManifests(fileURLToPath(new URL('../extensions/',import.meta.url))),
+  token,port,devOrigins,env:process.env,
+});
 const technologyOptions={root:runtimeRoot,workspaceRead:workspaceService.read};
-// An optional static proxy uses its own loopback origin and never serves owner APIs.
-// A supplied external proxy origin is configuration, not an arbitrary request target.
-const mcpSandbox=await (async()=>{
-  if(process.env.ORBIT_MCP_APPS!=='1')return null;
-  try{
-    const hostOrigins=[`http://127.0.0.1:${port}`,`http://localhost:${port}`,`http://[::1]:${port}`,...devOrigins,...(process.env.ORBIT_PUBLIC_ORIGIN?[process.env.ORBIT_PUBLIC_ORIGIN]:[])];
-    const configured=process.env.ORBIT_MCP_APPS_SANDBOX_ORIGIN;
-    if(configured){const url=new URL(configured);if(url.origin!==configured||!['http:','https:'].includes(url.protocol)||url.username||url.password||hostOrigins.includes(configured))throw Error();if(!process.env.ORBIT_MCP_APPS_SANDBOX_PORT)return {origin:configured,close(){}};}
-    const sandboxPort=Number(process.env.ORBIT_MCP_APPS_SANDBOX_PORT);
-    if(!Number.isInteger(sandboxPort)||sandboxPort<1024||sandboxPort>65535||sandboxPort===port)throw Error();
-    const {createMcpAppsSandbox}=await import('./mcp-apps-sandbox.mjs');
-    const proxy=createMcpAppsSandbox({hostOrigins});
-    const listener=http.createServer((req,res)=>{
-      if(!new Set([`127.0.0.1:${sandboxPort}`,...(configured?[new URL(configured).host]:[])]).has(req.headers.host)){res.writeHead(403);res.end();return;}
-      proxy.handler(req,res);
-    });
-    await new Promise((resolve,reject)=>{listener.once('error',reject);listener.listen(sandboxPort,'127.0.0.1',resolve);});
-    return {origin:configured||`http://127.0.0.1:${sandboxPort}`,close:()=>new Promise(resolve=>listener.close(resolve))};
-  }catch{console.warn('MCP Apps sandbox unavailable');return null;}
-})();
 const technologyServices={
   '/api/resource-grants':lazyTechnologyService(async()=> normalResources=await (await import('./resource-delegation.mjs')).createResourceDelegation({...technologyOptions,normalBindings:agentHandler.resourceBindings,knowledge:await technologyServices['/api/search'].get(),documents:await technologyServices['/api/documents'].get()})),
   '/api/search':lazyTechnologyService(async()=> (await import('./knowledge-index.mjs')).createKnowledgeSearch(technologyOptions)),
   '/api/interactive-results':lazyTechnologyService(async()=> (await import('./interactive-results.mjs')).createInteractiveResults(technologyOptions)),
-  '/api/data-recipes':lazyTechnologyService(async()=> (await import('./data-recipes.mjs')).createDataRecipes(technologyOptions)),
   '/api/documents':lazyTechnologyService(async()=> (await import('./documents-store.mjs')).createDocumentsService(technologyOptions)),
-  '/api/run-traces':lazyTechnologyService(async()=> (await import('./run-traces.mjs')).createRunTraces({...technologyOptions,workbenchData,subscribeWorkbench:false})),
-  '/api/browser-copilot':lazyTechnologyService(async()=> (await import('./browser-copilot.mjs')).createBrowserCopilot({...technologyOptions,runtimeDirectory:runtimeRoot})),
-  '/api/mcp-apps':lazyTechnologyService(async()=> (await import('./mcp-apps.mjs')).createMcpApps({...technologyOptions,sandboxOrigin:mcpSandbox?.origin??''})),
+  '/api/run-traces':lazyTechnologyService(async()=> (await import('./run-traces.mjs')).createRunTraces(technologyOptions)),
 };
 // Load the derived projection on its first observed event rather than on shell
 // startup. Limit pending deliveries while an optional module is initializing.
 let pendingTraceObservations=0;
-const unsubscribeTechnologyTraces=workbenchData.subscribe(change=>{
-  observeTechnologyTrace(change,'observer');
-});
 function observeTechnologyTrace(change,method){
   if(pendingTraceObservations>=4000)return;
   pendingTraceObservations++;
   void technologyServices['/api/run-traces'].get().then(traces=>traces[method](change)).catch(()=>{}).finally(()=>{pendingTraceObservations--;});
 }
 const technologyHandlers=Object.fromEntries(Object.entries(technologyServices).map(([route,service])=>[route,technologyOwnerRoute({token,port,devOrigins,reply,
-  maxBytes:route==='/api/documents'?4*1024*1024:route==='/api/mcp-apps'?2*1024*1024:['/api/browser-copilot','/api/run-traces'].includes(route)?16384:route==='/api/search'?400*1024:1024*1024,
-  maxResponseBytes:route==='/api/run-traces'?4*1024*1024+65536:route==='/api/browser-copilot'?3*1024*1024:2*1024*1024,
+  maxBytes:route==='/api/documents'?4*1024*1024:route==='/api/run-traces'?16384:route==='/api/search'?400*1024:1024*1024,
+  maxResponseBytes:route==='/api/run-traces'?4*1024*1024+65536:2*1024*1024,
   publicReasons:['recovery_hold','operation_mismatch'],dispatch:body=>service.dispatch(body),
   publicDetail:route==='/api/search',
-  conflictDetails:route==='/api/data-recipes'?error=>{
-    const current=error.current;
-    // The service constructs this owner-only snapshot after validating stored recipes.
-    if(!current||!Number.isSafeInteger(current.revision)||current.revision<0||!Array.isArray(current.recipes)||current.recipes.length>500||typeof current.workspace_id!=='string'||!/^[a-f0-9-]{36}$/.test(current.workspace_id))return {};
-    return {current:{workspace_id:current.workspace_id,revision:current.revision,recipes:current.recipes}};
-  }:route==='/api/search'?error=>Number.isSafeInteger(error.current?.consent_generation)&&error.current.consent_generation>=0?{current:{consent_generation:error.current.consent_generation}}:{}:undefined,
+  conflictDetails:route==='/api/search'?error=>Number.isSafeInteger(error.current?.consent_generation)&&error.current.consent_generation>=0?{current:{consent_generation:error.current.consent_generation}}:{}:undefined,
 })]));
 const technologyAssets=lazyTechnologyService(async()=> (await import('./technology-assets.mjs')).createTechnologyAssets({root:path.resolve(fileURLToPath(new URL('../',import.meta.url))),runtimeRoot,securityHeaders}));
 const technologyCapabilities=technologyOwnerRoute({token,port,devOrigins,reply,maxBytes:256,dispatch:async body=>{
   if(!body||typeof body!=='object'||Array.isArray(body)||Object.keys(body).length!==1||body.action!=='capabilities')throw {code:'invalid_request'};
-  return {browser_copilot:!!process.env.ORBIT_BROWSER_EXECUTABLE&&!!process.env.ORBIT_BROWSER_ALLOWED_ORIGINS,mcp_apps:!!mcpSandbox,descriptors:capabilityDescription('owner')};
+  return {descriptors:capabilityDescription('owner')};
 }});
 async function handleOrbitRequest(req, res) {
   const allowedHosts = acceptedHosts(port, devOrigins, listenHost).hosts;
@@ -370,16 +274,7 @@ async function handleOrbitRequest(req, res) {
   if(url.pathname.startsWith('/vendor/')){
     try{return (await technologyAssets.get()).handle(req,res,url.pathname);}catch{return reply(res,503,{ok:false,code:'unavailable'});}
   }
-  if(url.pathname==='/api/workbench')return workbench.handle(req,res);
-  if(url.pathname==='/api/workbench/context')return contextHandler(req,res);
-  if(url.pathname==='/api/workbench/execution')return executionHandler(req,res);
-  if(url.pathname==='/api/workbench/native')return nativeHandler(req,res);
-  if(url.pathname==='/api/workbench/setup')return setupHandler(req,res);
-  if(url.pathname==='/api/workbench/live')return liveHandler(req,res);
-  if(url.pathname==='/api/workbench/workflow')return workflowHandler(req,res);
-  if(url.pathname==='/api/workbench/tools')return projectToolsHandler(req,res);
   if(url.pathname==='/api/extension-studio')return extensionStudioHandler(req,res);
-  if(url.pathname==='/api/workbench/environments')return environmentHandler(req,res);
   if (url.pathname === "/api/managed-terminals") return managedTerminalHandler(req, res);
   if(url.pathname==='/api/workspace/events')return workspaceEvents(req,res);
   if(url.pathname==='/api/workspace/control/events')return workspaceEvents(req,res,true);
@@ -402,9 +297,7 @@ async function handleOrbitRequest(req, res) {
   if (url.pathname === "/obs-snapshot" || url.pathname.startsWith("/obs-snapshot/")) return serveObsSnapshot(req, res, url.pathname);
   if (url.pathname.startsWith("/apps/")) return workspaceService.serveApp(req, res, url.pathname);
   if (url.pathname === "/api/agent") return agentHandler(req, res);
-  if (url.pathname === "/api/irc") return irc.handle(req, res);
   if (url.pathname === '/api/colab-runtime' || url.pathname.startsWith('/api/colab-runtime/')) return colab.handle(req, res, url);
-  if (url.pathname === '/api/kitty-doom') return kittyDoom.handle(req, res);
   if (url.pathname === '/api/grokbots-app/launch') {
     // Host-only: hands the Orbit page the capability URL for the sandboxed Grok Bots pane.
     if (req.method !== 'POST' || !allowedRequest(req, port, devOrigins) || !tokenMatches(String(req.headers.authorization || '').replace(/^Bearer /, ''), token)) return reply(res, 403, { error: 'Orbit authentication required' });
@@ -414,6 +307,7 @@ async function handleOrbitRequest(req, res) {
   if (url.pathname === '/api/grokbots-app/upload') return grokBotsApp.upload(req, res);
   if (url.pathname === '/api/agent-status') return agentStatus.handle(req, res);
   if (url.pathname === '/api/acdd-evidence') return acddEvidence.handle(req, res, url);
+  if (url.pathname.startsWith('/api/ext/')) return extensionProxy(req, res);
   // /api/approvals deliberately falls through to the API 404. The Orbit
   // bearer is not a workspace-bound BundleBees approval session (SECURITY.md).
   if (url.pathname === '/api/collab-board') return collabBoard.handle(req, res);
@@ -507,15 +401,6 @@ const wss = new WebSocketServer({
   perMessageDeflate: false,
 });
 server.on("upgrade", (req, socket, head) => {
-  const upgradePath = String(req.url || '').split('?')[0];
-  if (upgradePath === '/api/irc') {
-    irc.upgrade(req, socket, head);
-    return;
-  }
-  if (upgradePath === '/api/kitty-doom') {
-    kittyDoom.upgrade(req, socket, head);
-    return;
-  }
   if (
     req.url !== "/api/terminal" ||
     !allowedRequest(req, port, devOrigins) ||
@@ -703,19 +588,10 @@ server.listen(port, listenHost, () => {
 });
 for (const signal of ["SIGTERM", "SIGINT"])
   process.on(signal, () => {
-    irc.close();
     piGateway?.close?.();
     colab.close();
-    kittyDoom.close();
     grokBotsApp.close?.();
-    execution.close();
-    sandboxProvider.close();
-    contextSharing.close?.();
-    native.close();
-    liveHandler.close?.();
-    workbenchLive?.close();
-    unsubscribeTechnologyTraces();
-    const technologyClosed=Promise.allSettled([...Object.values(technologyServices).map(service=>service.close()),technologyAssets.close(),mcpSandbox?.close()]);
+    const technologyClosed=Promise.allSettled([...Object.values(technologyServices).map(service=>service.close()),technologyAssets.close()]);
     for (const ws of wss.clients) ws.terminate();
     server.close(() => {void technologyClosed.finally(()=>{workspaceService.close();process.exit(0);});});
     setTimeout(() => process.exit(0), 2000).unref();

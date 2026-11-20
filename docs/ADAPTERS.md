@@ -67,15 +67,14 @@ The OpenAI-compatible adapter reports:
   "skills": false,
   "automations": false,
   "collab": true,
-  "buildQueue": false,
-  "projectWorkbench": false
+  "buildQueue": false
 }
 ```
 
 `collab` is true only when the adapter behaves as a conversation participant. It
 does not imply that the runtime can run shell commands, edit files, expose an
-approval inbox, or join the build queue. Build queue and Project Workbench still
-require Hermes worker APIs.
+approval inbox, or join the build queue. The build queue still requires Hermes
+worker APIs.
 
 ## Error codes
 

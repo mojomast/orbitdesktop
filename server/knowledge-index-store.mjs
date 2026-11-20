@@ -2,8 +2,17 @@ import fs from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
 import * as sqliteVec from "sqlite-vec";
-import { assertPrivatePath } from "./knowledge-model.mjs";
 import { hash, chunk, EXTRACTOR } from "./knowledge-chunker.mjs";
+export function assertPrivatePath(file, directory = false) {
+  const stat = fs.lstatSync(file);
+  if (
+    stat.isSymbolicLink() ||
+    (directory ? !stat.isDirectory() : !stat.isFile()) ||
+    stat.mode & 0o077
+  )
+    throw Object.assign(Error("unavailable"), { code: "unavailable" });
+  return stat;
+}
 export const LIMITS = {
   sourceBytes: 262144,
   textChars: 100000,
@@ -319,39 +328,6 @@ export function openKnowledgeStore(root) {
     for (const s of sources(workspace)) build(source(workspace, s.source_id));
     return { consent_generation: current + 1, snapshots_preserved: true };
   }
-  function commitVectors(workspace, id, fence, rows, vectors) {
-    return index.transaction(() => {
-      if (
-        generation(workspace) !== fence ||
-        !authority
-          .prepare("SELECT 1 FROM sources WHERE workspace=? AND id=?")
-          .get(workspace, id)
-      )
-        return false;
-      for (const row of rows)
-        if (
-          !index
-            .prepare(
-              "SELECT 1 FROM chunks WHERE workspace=? AND source=? AND id=?",
-            )
-            .get(workspace, id, row.id)
-        )
-          return false;
-      for (let i = 0; i < rows.length; i++) {
-        const v = vectors[i];
-        if (v?.length !== 384 || !v.every(Number.isFinite))
-          throw fail("unavailable");
-        index.prepare("DELETE FROM vectors WHERE id=?").run(BigInt(rows[i].id));
-        index
-          .prepare("INSERT INTO vectors(id,embedding) VALUES (?,?)")
-          .run(
-            BigInt(rows[i].id),
-            Buffer.from(v.buffer, v.byteOffset, v.byteLength),
-          );
-      }
-      return true;
-    })();
-  }
   function chunks(workspace, id) {
     return index
       .prepare(
@@ -359,31 +335,14 @@ export function openKnowledgeStore(root) {
       )
       .all(workspace, id);
   }
-  function needsEmbedding(workspace, id) {
-    return (
-      vector &&
-      !!index
-        .prepare(
-          "SELECT 1 FROM chunks c LEFT JOIN vectors v ON v.id=c.id WHERE c.workspace=? AND c.source=? AND v.id IS NULL LIMIT 1",
-        )
-        .get(workspace, id)
-    );
-  }
   function stats(workspace) {
     return {
       chunk_count: index
         .prepare("SELECT count(*) n FROM chunks WHERE workspace=?")
         .get(workspace).n,
-      semantic_chunk_count: vector
-        ? index
-            .prepare(
-              "SELECT count(*) n FROM chunks c JOIN vectors v ON v.id=c.id WHERE c.workspace=?",
-            )
-            .get(workspace).n
-        : 0,
     };
   }
-  function search(workspace, query, limit, embedding, filters = {}) {
+  function search(workspace, query, limit, filters = {}) {
     const allowed = sources(workspace)
       .filter(
         (s) =>
@@ -410,31 +369,9 @@ export function openKnowledgeStore(root) {
           )
           .all(terms.map((t) => `"${t}"`).join(" OR "), workspace, ...allowed)
       : [];
-    // Exact vector distance on a bounded workspace-only candidate set avoids global KNN starvation.
-    const semantic =
-      embedding && vector
-        ? index
-            .prepare(
-              "SELECT c.*,vec_distance_cosine(v.embedding,?) distance FROM vectors v JOIN chunks c ON c.id=v.id WHERE c.workspace=?" +
-                restriction +
-                " ORDER BY distance LIMIT 500",
-            )
-            .all(
-              Buffer.from(
-                embedding.buffer,
-                embedding.byteOffset,
-                embedding.byteLength,
-              ),
-              workspace,
-              ...allowed,
-            )
-        : [];
     const scores = new Map(),
       verified = new Map();
-    for (const [type, list] of [
-      ["keyword", keyword],
-      ["semantic", semantic],
-    ])
+    for (const [type, list] of [["keyword", keyword]])
       for (let rank = 0; rank < list.length; rank++) {
         const row = list[rank];
         let s;
@@ -468,7 +405,7 @@ export function openKnowledgeStore(root) {
             matched: type,
           };
           scores.set(row.id, item);
-        } else item.matched = "both";
+        }
         item.score += 1 / (60 + rank + 1);
       }
     return [...scores.values()]
@@ -486,9 +423,7 @@ export function openKnowledgeStore(root) {
     reset,
     reconcile,
     chunks,
-    needsEmbedding,
     stats,
-    commitVectors,
     search,
     close() {
       index.close();

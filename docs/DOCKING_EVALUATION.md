@@ -3,15 +3,13 @@
 Status: **isolated browser adapter experiment, not a production selection**.
 Measured September 25, 2026 in disposable Chromium fixtures. Dependencies were
 installed only under `/tmp/opencode`; no production package or renderer changed.
+The docking evaluation spike was removed in the rizzstack cleanup; product docking is
+`src/docking-*.ts`.
 
 ## Reproduce and measured outcome
 
-```sh
-bash experiments/docking/setup.sh /tmp/opencode/orbit-docking-deps
-PLAYWRIGHT_BROWSERS_PATH=/tmp/opencode/orbit-evolution-browsers \
-  /tmp/opencode/orbit-evolution-browser-venv/bin/python \
-  tests/docking-adapters.browser.py --move-control
-```
+Not reproducible from this tree: the spike's setup script and browser test were removed
+in the cleanup (they remain in git history before it).
 
 The script starts a disposable loopback HTTP fixture and creates a new Playwright
 context for each candidate/capability control. It serves the existing
@@ -74,7 +72,7 @@ inside an iframe, text selection, touch or real user DnD gestures.
 
 The sampled operations are library API calls, not Orbit UI commands. Dockview
 hide/show and Golden floating windows were not implemented by these adapters;
-neither adapter measures Orbit minimize, spatial focus, CSS3D, cross-window
+neither adapter measures Orbit minimize, cross-window
 movement, normalized v1 persistence/checkpoints, live terminal/xterm, reconnect,
 or plugin/Hermes ownership. **PTY was not tested**: these results are not
 equivalent to Orbit's 94-transition private-socket PTY gate. No cross-document
@@ -108,7 +106,7 @@ considered styling/accessibility path. Golden virtual components give explicit
 application-owned surface placement, and tested load reconciliation retained
 documents. Its initial pointer-resize gap was resolved with adapter pointer capture;
 keyboard accessibility still needs an explicit design and implementation.
-Both still need Orbit model mapping, real app/PTY and spatial-mode acceptance,
+Both still need Orbit model mapping and real app/PTY acceptance (Orbit's spatial view was removed in cleanup Phase 3),
 browser-engine coverage, accessibility, and a measured cost study before a
 production replacement decision. Keep the current 93-browser/94-PTY renderer
 gate as the shipping evidence, not this fixture.
@@ -117,9 +115,9 @@ gate as the shipping evidence, not this fixture.
 
 | Candidate | Exact package metadata checked | Documented continuity approach | Open questions for an Orbit spike |
 |---|---|---|---|
-| Existing Orbit renderer | Checked-in Three.js/CSS3D, vanilla TypeScript, v1 layout | Pane views keyed by ID; 93 browser/94 PTY transitions passed separately | Fallback browsers; focus and accessibility; no new docking tabs yet |
-| Dockview core | `dockview-core@8.3.1`, packaged MIT | Official rendering guide requires `renderer: 'always'` for iframe panels; default `onlyWhenVisible` removes hidden panel DOM | Sandbox iframe moves measured above; xterm and Orbit spatial/focus modes, model mapping remain |
-| Golden Layout | `golden-layout@2.6.0`, packaged MIT | Virtual components use application-owned root elements and rectangle/visibility/z-index events | Virtual binding and adapter pointer capture measured above; focus accessibility and spatial coordinates remain |
+| Existing Orbit renderer | Checked-in desktop renderer, vanilla TypeScript, v1 layout | Pane views keyed by ID; 93 browser/94 PTY transitions passed separately | Fallback browsers; focus and accessibility; no new docking tabs yet |
+| Dockview core | `dockview-core@8.3.1`, packaged MIT | Official rendering guide requires `renderer: 'always'` for iframe panels; default `onlyWhenVisible` removes hidden panel DOM | Sandbox iframe moves measured above; xterm, Focus and model mapping remain (Orbit's spatial mode was removed in cleanup Phase 3) |
+| Golden Layout | `golden-layout@2.6.0`, packaged MIT | Virtual components use application-owned root elements and rectangle/visibility/z-index events | Virtual binding and adapter pointer capture measured above; focus accessibility remains (Orbit's spatial coordinates were removed in cleanup Phase 3) |
 
 Metadata commands:
 
@@ -158,8 +156,8 @@ Sources:
 ## Remaining comparison gates before selection
 
 Follow-up: the separate [Orbit integration spike](ORBIT_DOCKING_SPIKE.md) now
-imports real PaneViews/model/scene with Dockview and passes 84 isolated PTY/spatial
-transitions. That is stronger but still experimental evidence; it does not modify
+imports real PaneViews/model/scene with Dockview and passes 84 isolated PTY
+transitions (the spatial view was removed in cleanup Phase 3). That is stronger but still experimental evidence; it does not modify
 the standalone comparison above or establish production acknowledgement, general
 v1 graph support, persistent tabs, Hermes ownership or complete accessibility.
 

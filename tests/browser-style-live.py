@@ -8,17 +8,12 @@ with sync_playwright() as p:
  errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
  page.goto('https://kimi.tailec998.ts.net:4325/',wait_until='networkidle')
  page.evaluate('window.keepAliveProof = 123')
- page.get_by_role('button',name='Switch to spatial view',exact=True).click()
  page.get_by_role('button',name='Settings for Display 01',exact=True).click(force=True)
- before=page.locator('.monitor').first.bounding_box()
- page.get_by_role('spinbutton',name='Diagonal',exact=True).fill('120')
- page.get_by_role('slider',name='Text size',exact=True).fill('6')
+ page.get_by_role('slider',name='Desktop text size',exact=True).fill('6')
  page.wait_for_timeout(500)
- after=page.locator('.monitor').first.bounding_box()
- assert after['width']>before['width']*2,(before,after)
  state=page.evaluate("JSON.parse(localStorage.getItem('orbit.workspace.v1'))")
- assert state['monitors'][0]['diagonal']==120 and state['monitors'][0]['fontSize']==6
- print('120-inch spatial window visibly grows without camera auto-shrink; 6px text: passed',flush=True)
+ assert state['monitors'][0]['fontSize']==6
+ print('6px desktop text: passed',flush=True)
  # Real Vite build, using a visually inert rule. Observe the new stylesheet in the existing page.
  css=ROOT/'src/style.css';original=css.read_text()
  try:

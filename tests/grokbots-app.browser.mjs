@@ -200,8 +200,6 @@ test('workspace context toggle is saved per conversation and sends the workspace
   await app.locator('#ctxbtn:not(.on)').waitFor();
   await app.locator('.bot', { hasText: 'Second Bot' }).click();
   await app.locator('#ctxbtn.on').waitFor();
-  await app.locator('#wbbtn').click();
-  await page.waitForFunction(() => window.__ops.some(o => o.op === 'workbench'));
   assert.deepEqual(errors, []);
   await context.close();
 });
@@ -266,20 +264,21 @@ test('group handoff controls: give floor, pause/continue, auto handoff and turn 
   await context.close();
 });
 
-test('voice: the mic opens Orbit voice capture, and a transcript lands in the draft (never sent)', async () => {
+test('conversation transfer: the dictation mic opens voice capture and chosen text lands in the draft (never sent)', async () => {
   const { page, app, errors, context } = await open(`&p=grok&a=${AGENT2}`);
-  await app.locator('#micbtn').waitFor();
   await page.waitForFunction(() => window.__ops.some(o => o.op === 'conversation' && o.available === true && o.title === 'Second Bot'));
+  await app.locator('#micbtn').waitFor();
   await app.locator('#micbtn').click();
   await page.waitForFunction(() => window.__ops.some(o => o.op === 'voice'));
+  assert.equal(await page.evaluate(() => window.__ops.filter(o => o.op === 'voice').length), 1);
   await app.locator('#in').fill('Existing draft');
   const sends = fx.seen.filter(s => s.url === '/api/sendPrompt').length;
-  await page.evaluate(() => { window.__ops.length = 0; window.__insert('dictated words'); });
+  await page.evaluate(() => { window.__ops.length = 0; window.__insert('transferred words'); });
   await page.waitForFunction(() => window.__ops.some(o => o.op === 'insert-ack'));
   const ack = await page.evaluate(() => window.__ops.find(o => o.op === 'insert-ack'));
   assert.deepEqual([ack.ref, ack.accepted], ['ins1', true]);
-  assert.equal(await app.locator('#in').inputValue(), 'Existing draft\n\ndictated words');
-  await page.screenshot({ path: process.env.GB_SHOTS ? process.env.GB_SHOTS + '/10-voice-draft.png' : '/tmp/gb-10.png' });
+  assert.equal(await app.locator('#in').inputValue(), 'Existing draft\n\ntransferred words');
+  await page.screenshot({ path: process.env.GB_SHOTS ? process.env.GB_SHOTS + '/10-transfer-draft.png' : '/tmp/gb-10.png' });
   await page.waitForTimeout(700);
   assert.equal(fx.seen.filter(s => s.url === '/api/sendPrompt').length, sends);
   assert.deepEqual(errors, []);

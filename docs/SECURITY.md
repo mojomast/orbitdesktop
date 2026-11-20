@@ -31,16 +31,7 @@ environment signing key in the Orbit server would not be Hermes secret scope and
 could be inherited by child processes. Do not configure that key here or use a
 prototype receipt to start a job. Use the authenticated BundleBees owner flow.
 
-`server/approvals-route.mjs` is exercised only with a synthetic key, private
-per-fixture directory and owner bearer. It validates the bounded journal against
-the decision files before appending one line and fsyncing the journal and its
-directory, then publishes a complete receipt without replacement. Concurrent
-writers cannot decide the same request twice. After a lost response, inspect the
-decision: an intact pair reports `already_decided` on retry. I/O errors, torn or
-inconsistent history, and a crashed writer's lock block new decisions. The store
-does not repair, truncate, re-sign or complete an ambiguous decision automatically;
-inspect both files offline with writers stopped and recover from trusted evidence.
-This local-filesystem protocol is not tamper-proof storage or a multi-user boundary.
+The disabled approvals prototype was deleted; the real approval flow is BundleBees’. Do not configure a prototype signing key here or use a prototype receipt to start a job.
 
 Implemented controls:
 

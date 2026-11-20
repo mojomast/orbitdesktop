@@ -5,7 +5,7 @@ import Database from 'better-sqlite3';
 import {ROOT_CONTEXT,trace,SpanStatusCode} from '@opentelemetry/api';
 import {BasicTracerProvider,SimpleSpanProcessor} from '@opentelemetry/sdk-trace-base';
 import {TRACE_LIMITS,validateTraceSpan} from '../contracts/run-trace-v1.mjs';
-import {wbError} from './workbench-store.mjs';
+import {serviceError as wbError} from './service-error.mjs';
 import {traceId,terminal} from './run-trace-project.mjs';
 
 const ns=time=>String(BigInt(Math.round(time*1000))*1000n);

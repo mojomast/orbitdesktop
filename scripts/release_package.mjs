@@ -21,7 +21,7 @@ export {OWNED_MARKER};
 export const PACKAGE_VERSION=1;
 export const RELEASE_DIRS=Object.freeze(['server','contracts','src','scripts','public','hermes-plugin','docs']);
 export const RELEASE_FILES=Object.freeze(['index.html','package.json','package-lock.json','tsconfig.json','vite.config.js','AGENTS.md']);
-const EXCLUDE=Object.freeze(['server/mobile-proxy.mjs','hermes-plugin/orbit-source.tar.gz']);
+const EXCLUDE=Object.freeze(['hermes-plugin/orbit-source.tar.gz']);
 const SECRET=/^(?:.*\/)?\.env(?:\..*)?$|\.(?:pem|key|p12|pfx)$/;
 const portable=JSON.parse(fs.readFileSync(new URL('./portable-product.json',import.meta.url),'utf8'));
 const required=new Set(portable.required);

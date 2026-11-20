@@ -76,8 +76,8 @@ never lower `user_version`.
 Studio was initially source-only. The separately authorized goal-first rollout
 now includes it in schema-11 release `orbit-4fec70f`; existing layouts and plugin
 configuration were preserved. Deployment makes the Studio workflow available but
-does not install a timer into the owner's workspace. See
-[the rollout evidence](MILESTONE_GOAL_FIRST_WORKBENCH.md#deployment-record).
+does not install a timer into the owner's workspace. The former goal-first
+rollout evidence is retained in the repository history.
 
 ## Verification
 

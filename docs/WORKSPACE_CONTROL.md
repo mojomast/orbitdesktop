@@ -1,24 +1,5 @@
 # Comet/Orbit workspace control
 
-## Propose a Workbench task
-
-`orbit_workspace` action `workbench_setup` accepts a closed `request` with a UUID
-`op_id`, a `goal`, and optional `title`, `acceptance_statement`, `project_id` and
-`check_definition_id`. The scoped CLI equivalent is:
-
-```sh
-python3 scripts/workspace_control.py --workspace UUID setup '{"op_id":"RETAINED_UUID","goal":"Fix addition and verify the existing Node tests"}'
-```
-
-Use an actual generated UUID and retain the exact request for uncertain-response
-recovery. `setup @request.json` and the `workbench_setup` subcommand alias are also
-supported. This writes a private untrusted suggestion, not a layout operation or
-an approved task. The response contains its ID only. The owner adopts it through
-**Set up task** and separately reviews preparation and execution. Pane identities,
-owner tokens, filesystem paths and execution verbs are not accepted. Discovery:
-`describe` with `catalog:true` includes `catalog.workbench_setup`. See
-[Goal-first Workbench setup](WORKBENCH_SETUP.md).
-
 ## Existing split and partial appearance edits
 
 `update_split` takes `window_id`, a `path` array of `first`/`second` steps (empty for root), and optional `ratio` (0.15–0.85), `axis` (`row` or `column`) and boolean `swap`. It changes the existing split without recreating pane IDs. Read state first and recalculate nested paths after swapping. `patch_appearance` with a `patch` object merges validated appearance fields, retaining omitted settings. Both use normal controller apply/revision/checkpoint handling. Exact examples are in the injected `docs/AGENT_GUIDE.md`. Live browser test: `tests/browser-layout-customization-live.py`.
@@ -62,7 +43,7 @@ The current workspace UUID and controller command are supplied in the chat's ser
 ```sh
 python3 scripts/workspace_control.py --workspace UUID read
 python3 scripts/workspace_control.py --workspace UUID apply '{"action":"sidebar","hidden":true}'
-python3 scripts/workspace_control.py --workspace UUID apply '[{"action":"set_view","view":"windows"},{"action":"update_window","window_id":"EXISTING_ID","name":"My tools","frame":{"x":30,"y":40,"width":700,"height":480,"z":10}}]'
+python3 scripts/workspace_control.py --workspace UUID apply '{"action":"update_window","window_id":"EXISTING_ID","name":"My tools","frame":{"x":30,"y":40,"width":700,"height":480,"z":10}}'
 ```
 
 Use the absolute controller path from the injected instructions when your current directory is not this repository. `apply` also accepts `@/path/operations.json`. Read the workspace first to obtain current window and pane IDs. Controller calls use optimistic revision checks: on a 409, reread and adapt the change; don't overwrite intervening user edits blindly.
@@ -70,10 +51,9 @@ Use the absolute controller path from the injected instructions when your curren
 Supported operations:
 
 - `sidebar`: `hidden` boolean.
-- `set_view`: `view` = `windows` or `spatial`.
 - `select`: `window_id`, raises/selects the window in the browser.
 - `add_window`: optional `name`, `kind` (`browser`, `terminal`, `agent`), `url`, and `frame`.
-- `update_window`: `window_id`, any of `name`, `frame`, `diagonal`, `aspect`, `height`, `distance`, `pitch`, `yaw`, `offset`, `fontSize`.
+- `update_window`: `window_id`, any of `name`, `frame`, `fontSize`.
 - `close_window`: `window_id`. This closes its panes and active terminals; use only when the user's request calls for it.
 - `set_pane`: `window_id`, `pane_id`, optional `kind`, `url`. Changing pane kind/URL disposes that pane.
 - `split_pane`: `window_id`, `pane_id`, `axis` (`row`/`column`), optional `ratio` (0.15–0.85), `kind`.
@@ -84,7 +64,7 @@ The semantic model validator is `src/model.ts`; the authoritative request JSON S
 
 ## Build an app and display it
 
-For workspace wallpaper/style changes, edit the workspace stylesheet and run `npm run build`. Connected pages hot-swap the resulting stylesheet without reloading the document. Preserve existing user styling. Give changed image assets a new/versioned CSS URL. Do not restart the service for a CSS-only change. Spatial diagonals no longer have the old 55-inch maximum; text sizes support 6–32 px.
+For workspace wallpaper/style changes, edit the workspace stylesheet and run `npm run build`. Connected pages hot-swap the resulting stylesheet without reloading the document. Preserve existing user styling. Give changed image assets a new/versioned CSS URL. Do not restart the service for a CSS-only change. Text sizes support 6–32 px.
 
 Create a static app/build directory containing `index.html` and its assets. You can use HTML/CSS/JS or a compiled framework. For Vite, build with `--base=./` so assets resolve beneath the app route. Do not start a public development server merely to preview a static app.
 

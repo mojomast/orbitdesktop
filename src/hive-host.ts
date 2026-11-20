@@ -127,16 +127,21 @@ export function bindHiveHost(frame:HTMLIFrameElement, url:URL, token:()=>string,
     const opts={...sharedOptions,signal:controller.signal};
     confirmed=undefined;offered=undefined;selectors.clear();reportRequest?.abort();reportRequest=undefined;clearTimeout(reportTimer);label();status('loading');
     try {
-      // Legacy snapshot proxy does not validate an owner bearer. Recheck the
-      // in-memory owner session on the real Orbit auth route for *each* read.
+      // Recheck the in-memory owner session on the real Orbit auth route for
+      // each read. The extension proxy below independently requires the owner
+      // bearer, so a stale or revoked credential is refused there too.
       const auth=await fetch('/api/auth',{...opts,method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:g.credential})});
       if (!valid(g)) return;
       if (auth.status===401 || auth.status===403) {withdraw();return;}
       if (!auth.ok || (await json(auth,512))?.ok!==true) throw Error();
       if (!valid(g)) return;
-      // Orbit strips /obs-snapshot. Workflow collector.py accepts /snapshot;
-      // /snapshot.json is not a route in the qualified collector.
-      const response=await fetch('/obs-snapshot/snapshot',{...opts,method:'GET',headers:{Accept:'application/json'}});
+      // Read through the owner-authenticated extension proxy. The server checks
+      // the owner bearer and same-origin metadata, forwards only /snapshot to
+      // the loopback collector, and injects the collector credential. A
+      // same-origin GET needs an allowed Referer, so use origin rather than the
+      // shared no-referrer policy for this owner-bearer request only.
+      const response=await fetch('/api/ext/rizzstack-observatory/snapshot/snapshot',
+        {...opts,referrerPolicy:'origin',method:'GET',headers:{Accept:'application/json',Authorization:`Bearer ${g.credential}`}});
       if (!valid(g)) return;
       if (response.status===401 || response.status===403) {withdraw();return;}
       if (!response.ok) throw Error();

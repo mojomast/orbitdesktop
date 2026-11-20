@@ -11,7 +11,6 @@ import importlib.util
 import hashlib
 import json
 import os
-import re
 from pathlib import Path
 import secrets
 import shutil
@@ -30,14 +29,10 @@ spec = importlib.util.spec_from_file_location('release_acceptance', ROOT / 'test
 release = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(release)
 EVIDENCE = Path('/tmp/opencode/orbit-tech-acceptance')
-SURFACES = {'search': 'Knowledge search', 'documents': 'Document library',
-            'interactive-results': 'Interactive results', 'voice': 'Voice transcript',
-            'data': 'Data workbench', 'trace': 'Run traces',
-            'copilot': 'Browser copilot', 'mcp-apps': 'MCP Apps'}
+SURFACES = {'search': 'Shared sources', 'documents': 'Document library',
+            'interactive-results': 'Interactive results', 'trace': 'Run traces'}
 ROUTES = {'/api/search': 'status', '/api/documents': 'list',
-          '/api/interactive-results': 'list', '/api/data-recipes': 'list',
-          '/api/run-traces': 'list', '/api/browser-copilot': 'capability',
-          '/api/mcp-apps': 'capabilities'}
+          '/api/interactive-results': 'list', '/api/run-traces': 'list'}
 
 
 @contextmanager
@@ -95,7 +90,6 @@ def fixture(args, dist, configured):
             for name in ('runtime', 'home', 'cwd', 'tmux', 'widget'):
                 (root / name).mkdir(mode=0o700)
             origin = f'http://127.0.0.1:{release.free_port()}'
-            sandbox_origin = f'http://127.0.0.1:{release.free_port()}'
             gateway_origin = f'http://127.0.0.1:{gateway.server_port}'
             token, workspace = secrets.token_urlsafe(36), str(uuid.uuid4())
             panes, windows = [str(uuid.uuid4()) for _ in range(2)], [str(uuid.uuid4()) for _ in range(2)]
@@ -110,19 +104,7 @@ def fixture(args, dist, configured):
                    'ORBIT_RUNTIME_DIR': str(root / 'runtime'), 'ORBIT_CWD': str(root / 'cwd'),
                    'ORBIT_TMUX_SOCKET': 'tech-' + str(uuid.uuid4()), 'ORBIT_TMUX_CONFIG': '/dev/null',
                    'TMUX_TMPDIR': str(root / 'tmux'), 'HERMES_API_URL': gateway_origin,
-                   'HERMES_API_KEY': 'synthetic-only', 'ORBIT_VOICE_MODELS_ROOT': str(args.voice_models.resolve()),
-                   'ORBIT_DUCKDB_EXTENSIONS_ROOT': str(args.duckdb_extensions.resolve())}
-            if configured:
-                env.update(ORBIT_BROWSER_EXECUTABLE=args.browser_executable,
-                           ORBIT_BROWSER_ALLOWED_ORIGINS=gateway_origin, ORBIT_MCP_APPS='1',
-                           ORBIT_MCP_APPS_SANDBOX_PORT=sandbox_origin.rsplit(':', 1)[1])
-                model = args.search_models / 'knowledge-index/model'
-                if not model.is_dir():
-                    raise RuntimeError('Search fixture expects knowledge-index/model under --search-models')
-                # copytree copies the model's mode, but implicit parent creation
-                # follows the runner umask. The feature root must be private too.
-                (root / 'runtime/knowledge-index').mkdir(mode=0o700)
-                shutil.copytree(model, root / 'runtime/knowledge-index/model')
+                   'HERMES_API_KEY': 'synthetic-only'}
             (root / 'widget/index.html').write_text('<!doctype html><title>Synthetic widget</title><h1>Unrelated synthetic widget</h1><label>Widget draft<input id="draft"></label>')
             manifest = json.loads(subprocess.check_output(['python3', str(root / 'scripts/plugin_publish.py'),
                 str(root / 'widget'), '--id', 'technology-sentinel', '--version', '1.0.0',
@@ -144,7 +126,7 @@ def fixture(args, dist, configured):
                             time.sleep(.05)
                     else:
                         raise RuntimeError('Disposable full server readiness timeout')
-                    yield dict(root=root, origin=origin, sandbox_origin=sandbox_origin, gateway_origin=gateway_origin,
+                    yield dict(root=root, origin=origin, gateway_origin=gateway_origin,
                                token=token, workspace=workspace, panes=panes, windows=windows,
                                state=state, calls=calls, manifest=manifest)
                 finally:
@@ -163,7 +145,7 @@ def journey(args, dist, configured=True):
     suffix = 'configured' if configured else 'off'
     result = {'renderer': args.renderer, 'capabilities': suffix, 'status': 'RUNNING', 'coverage': [],
               'dist': str(dist.resolve()), 'index_sha256': hashlib.sha256((dist / 'index.html').read_bytes()).hexdigest()}
-    errors, external, console_errors, feature_requests = [], [], [], []
+    errors, external, console_errors = [], [], []
     with fixture(args, dist, configured) as f, sync_playwright() as pw:
         result['server_source_sha256'] = {name: hashlib.sha256((f['root'] / name).read_bytes()).hexdigest()
             for name in ('server/index.mjs', 'server/technology-assets.mjs', 'src/main.ts', 'src/host-surfaces.ts')}
@@ -179,8 +161,6 @@ document.addEventListener('securitypolicyviolation',event=>{
 if(/^https?:/.test(event.blockedURI)&&!event.blockedURI.startsWith(location.origin+'/'))
 window.__technologyCspViolations.push({uri:event.blockedURI,directive:event.effectiveDirective});});''')
         allowed = [f['origin']]
-        if configured:
-            allowed.append(f['sandbox_origin'])
 
         def guard(route):
             url = route.request.url
@@ -195,11 +175,6 @@ window.__technologyCspViolations.push({uri:event.blockedURI,directive:event.effe
         page.on('pageerror', lambda error: errors.append(str(error)))
         page.on('console', lambda message: console_errors.append(message.text) if message.type == 'error' else None)
         page.on('dialog', lambda dialog: dialog.accept())
-        def observe_feature_request(request):
-            if request.url in (f['origin'] + '/api/browser-copilot', f['origin'] + '/api/mcp-apps') and request.method == 'POST':
-                feature_requests.append({'route': request.url.removeprefix(f['origin']),
-                                         'action': (request.post_data_json or {}).get('action')})
-        page.on('request', observe_feature_request)
         headers = {'Origin': f['origin'], 'Authorization': 'Bearer ' + f['token']}
 
         def request(route, action, **fields):
@@ -268,7 +243,7 @@ window.__technologyCspViolations.push({uri:event.blockedURI,directive:event.effe
                 assert response.status == 400, (route, response.status, response.text())
                 response = request(route, action, unexpected=True)
                 assert response.status == 400, (route, response.status, response.text())
-            record('seven real owner routes: missing/wrong token, forged origin, malformed JSON and unknown-field rejection')
+            record('real owner routes: missing/wrong token, forged origin, malformed JSON and unknown-field rejection')
             for index, session in enumerate(('release-chat', 'other-chat')):
                 page.evaluate('(paneId)=>window.dispatchEvent(new CustomEvent("orbit-open-conversation-library",{detail:{paneId}}))', f['panes'][index])
                 library = page.get_by_role('dialog', name='Conversation library', exact=True)
@@ -280,22 +255,9 @@ window.__technologyCspViolations.push({uri:event.blockedURI,directive:event.effe
                 expect(chat(index).locator('.conversation-draft-status')).to_contain_text('Draft saved on host', timeout=15000)
             record('real conversation library and independent durable drafts')
             if not configured:
-                assert api('/api/browser-copilot', 'capability')['available'] is False
-                assert api('/api/mcp-apps', 'capabilities')['available'] is False
-                for key in ('copilot', 'mcp-apps'):
-                    page.get_by_role('button', name='Open Start', exact=True).focus()
-                    page.keyboard.press('Control+k')
-                    palette = page.get_by_role('dialog', name='Workspace commands', exact=True)
-                    palette.get_by_role('combobox', name='Search workspace commands').fill(SURFACES[key])
-                    option = palette.get_by_role('option')
-                    expect(option).to_have_count(1)
-                    expect(option).to_have_attribute('aria-disabled', 'false')
-                    expect(option).to_contain_text('Configure browser executable and allowed origins' if key == 'copilot' else 'MCP Apps is off or proxy configuration unavailable')
-                    expect(option).to_contain_text('Checked ')
-                    page.keyboard.press('Escape')
                 search = surface('search')
-                expect(search.get_by_role('status')).to_contain_text('Semantic off', timeout=20000)
-                record('unconfigured browser/MCP remain discoverable with observed setup reasons but unavailable backends; absent search-model availability')
+                expect(search.get_by_role('status')).to_contain_text('Keyword index ready', timeout=20000)
+                record('shared sources opens with the keyword-only index')
             else:
                 # Unrelated generated widget must survive all subsequent host features.
                 api('/api/workspace', 'plugins_apply', base_revision=snapshot()['revision'],
@@ -311,18 +273,17 @@ window.__technologyCspViolations.push({uri:event.blockedURI,directive:event.effe
                 assert all(m['layout']['pane']['kind'] != 'terminal' for m in snapshot()['state']['monitors'])
 
                 search = surface('search')
-                expect(search.get_by_role('status')).to_contain_text('Semantic on', timeout=20000)
+                expect(search.get_by_role('status')).to_contain_text('Keyword index ready', timeout=20000)
                 search.get_by_label('Source title').fill('Synthetic astronomy')
                 search.get_by_label('Source text', exact=True).fill('Observatory telescope studies distant planets. Synthetic acceptance source.')
                 search.get_by_role('button', name='Add text', exact=True).click()
                 expect(search.get_by_role('status')).to_contain_text('1 sources', timeout=180000)
-                search.get_by_label('Search query').fill('planets')
-                search.get_by_role('button', name='Search', exact=True).click()
-                expect(search.get_by_label('Passage from Synthetic astronomy')).to_have_value(re.compile('Observatory'), timeout=180000)
-                assert api('/api/search', 'search', query='planets', mode='hybrid')['semantic_used'] is True
+                found = api('/api/search', 'search', query='planets', mode='keyword')
+                assert found['mode'] == 'keyword' and found['semantic_used'] is False
+                assert len(found['results']) == 1
                 search_sources_before_reload = api('/api/search', 'list_sources')['sources']
                 assert len(search_sources_before_reload) == 1
-                record('real full-server local embeddings and keyword/hybrid source discovery')
+                record('real full-server keyword source index and source listing')
 
                 documents = surface('documents')
                 documents.get_by_label('Document title').fill('Synthetic rich acceptance')
@@ -406,84 +367,11 @@ return hit===node&&hit.matches('canvas.interactive');}''', point), ('Pointer mis
                 expect(chat(1).get_by_label('Message to Hermes', exact=True)).to_have_value('Untouched durable draft')
                 record('real A2UI edit/save and selected-recipient preview/confirmed durable draft transfer')
 
-                voice = surface('voice')
-                voice.locator('.voice-file').set_input_files(args.audio_file)
-                expect(voice.locator('.voice-status')).to_contain_text('Ready for review', timeout=180000)
-                transcript = voice.locator('.voice-transcript').input_value()
-                assert 'ask not' in transcript.lower() and 'country' in transcript.lower(), transcript
-                expect(voice.locator('.voice-provenance')).to_contain_text('WASM, 1 thread')
-                result['voice_transcript'] = transcript
-                record('real local Moonshine ASR using pinned model/audio and production CSP')
-
-                data = surface('data')
-                data.locator('.data-files').set_input_files({'name': 'synthetic.csv', 'mimeType': 'text/csv',
-                    'buffer': b'group,amount\nA,10\nA,20\nB,5\n'})
-                expect(data.locator('.data-status')).to_contain_text('Inputs ready.', timeout=60000)
-                data.locator('.data-sql').fill('SELECT "group", sum(amount) AS total FROM input_1 GROUP BY "group" ORDER BY "group"')
-                data.get_by_role('button', name='Run SELECT', exact=True).click()
-                expect(data.locator('.data-status')).to_contain_text('2 bounded rows', timeout=30000)
-                assert data.locator('tbody tr').evaluate_all('(rows)=>rows.map(row=>[...row.cells].slice(1).map(cell=>cell.textContent))') == [['A', '30'], ['B', '5']]
-                data.get_by_role('button', name='Refresh recipes', exact=True).click()
-                expect(data.locator('.data-status')).to_contain_text('Private recipes loaded.')
-                data.get_by_role('button', name='Save recipe', exact=True).click()
-                expect(data.locator('.data-status')).to_contain_text('Recipe saved privately')
-                record('real production DuckDB worker CSV aggregation and private recipe save')
-
                 traces = surface('trace')
                 expect(traces.get_by_role('status')).to_contain_text('No locally observed traces yet.', timeout=20000)
                 traces.get_by_role('button', name='Retention preview', exact=True).click()
                 expect(traces.get_by_role('status')).to_contain_text('eligible for removal')
                 record('real scoped trace API empty/retention state without dispatching inference')
-
-                copilot = surface('copilot')
-                expect(copilot.get_by_role('status')).to_contain_text('Playwright', timeout=20000)
-                copilot.get_by_label('Start / navigation URL').fill(f['gateway_origin'] + '/counter')
-                copilot.get_by_role('button', name='Start disposable browser', exact=True).click()
-                expect(copilot.locator('.bc-snapshot')).to_contain_text('Synthetic browser target', timeout=30000)
-                # Opening renders the snapshot before it finishes selecting the exact target.
-                expect(copilot.get_by_label('Exact target', exact=True)).to_have_value(re.compile('.+'))
-                copilot.get_by_label('Action', exact=True).select_option('click')
-                options = copilot.get_by_label('Snapshot control reference').locator('option')
-                ref = next(o.get_attribute('value') for o in options.all() if 'Increment' in o.inner_text())
-                copilot.get_by_label('Snapshot control reference').select_option(ref)
-                copilot.get_by_role('button', name='Preview action', exact=True).click()
-                expect(copilot.locator('.bc-preview')).to_contain_text('Review exact action', timeout=15000)
-                # Proposal text precedes the asynchronous evidence read. Until the
-                # reviewed screenshot is rendered, the UI rejects a second action as busy.
-                expect(copilot.get_by_role('img', name='Preview / before screenshot of exact target')).to_be_visible(timeout=15000)
-                copilot.get_by_role('button', name='Execute reviewed action once', exact=True).click()
-                expect(copilot.locator('.bc-snapshot')).to_contain_text('Clicked exactly once', timeout=15000)
-                expect(copilot.locator('.bc-evidence img')).to_have_count(2)
-                for index, image in enumerate(copilot.locator('.bc-evidence img').all()):
-                    expect(image).to_be_visible()
-                    expect(image).to_have_js_property('complete', True)
-                    assert image.evaluate('n=>n.complete&&n.naturalWidth>0'), 'Browser evidence image did not decode'
-                    encoded = image.get_attribute('src')
-                    assert encoded.startswith('data:image/png;base64,'), 'Expected bounded private PNG evidence'
-                    (EVIDENCE / f'{args.renderer}-browser-evidence-{index}.png').write_bytes(
-                        base64.b64decode(encoded.split(',', 1)[1], validate=True))
-                browser_session_id = copilot.get_by_label('Disposable session', exact=True).input_value()
-                assert browser_session_id
-                copilot.get_by_role('button', name='Close disposable session', exact=True).click()
-                expect(copilot.get_by_role('status')).to_contain_text('closed · revision', timeout=15000)
-                sessions_before_reload = api('/api/browser-copilot', 'list')['sessions']
-                assert len(sessions_before_reload) == 1 and sessions_before_reload[0]['session_id'] == browser_session_id
-                assert sessions_before_reload[0]['state'] == 'closed'
-                record('real isolated Playwright driver exact-target preview/action and before/after screenshots')
-
-                saved_mcp_title = 'Synthetic saved acceptance snapshot'
-                mcp_snapshot = {'title': saved_mcp_title, 'resource_uri': 'ui://orbit/acceptance-snapshot',
-                    'html': '<h1>Synthetic stored snapshot; do not auto-launch.</h1>', 'arguments': {},
-                    'result': {'content': [{'type': 'text', 'text': 'Synthetic immutable stored result'}]}}
-                saved_mcp = api('/api/mcp-apps', 'import', snapshot=mcp_snapshot,
-                                expected_revision=api('/api/mcp-apps', 'list')['revision'])
-                mcp = surface('mcp-apps')
-                expect(mcp.locator('p[role="status"]')).to_contain_text('Ready to import', timeout=20000)
-                expect(mcp.get_by_role('button', name='Open ' + saved_mcp_title, exact=True)).to_have_count(1)
-                expect(mcp.locator('.mcp-apps-view iframe')).to_have_count(0)
-                assert api('/api/mcp-apps', 'capabilities')['available'] is True
-                assert api('/api/browser-copilot', 'capability')['available'] is True
-                record('configured separate-origin MCP capability and stored snapshot library without launching an app; protocol behavior covered by standalone SDK fixture')
 
                 baseline = snapshot()
                 expected_ids = release.identities(baseline['state'])
@@ -514,7 +402,6 @@ window.__techEditors=window.__techNodes.map(n=>n.querySelector('.richdoc-content
                 record('arrange preserves document/editor nodes, pane/widget identities and unrelated drafts')
                 result['pre_reload_csp_violations'] = page.evaluate('window.__technologyCspViolations')
 
-                reload_request_start = len(feature_requests)
                 page.reload(wait_until='networkidle')
                 unlock()
                 search_recovery_started = time.monotonic()
@@ -525,7 +412,7 @@ window.__techEditors=window.__techNodes.map(n=>n.querySelector('.richdoc-content
 const host=document.querySelector('[data-host-surface="search"]');
 const status=host?.querySelector('.knowledge-status')?.textContent||'';
 const error=host?.querySelector('.knowledge-error')?.textContent;
-return /^1 sources.*Semantic on \\(local MiniLM\\)/.test(status)&&error!==undefined&&error.trim()===''
+return /^1 sources.*Keyword index ready/.test(status)&&error!==undefined&&error.trim()===''
 &&[...host.querySelectorAll('.knowledge-source strong')].some(n=>n.textContent==='Synthetic astronomy');
 }''', timeout=15000)
                 search = page.locator('[data-host-surface="search"]')
@@ -536,36 +423,13 @@ return /^1 sources.*Semantic on \\(local MiniLM\\)/.test(status)&&error!==undefi
                 search_sources_after_reload = api('/api/search', 'list_sources')['sources']
                 assert [{k: s[k] for k in ('source_id', 'title', 'content_sha256')} for s in search_sources_after_reload] == [
                     {k: s[k] for k in ('source_id', 'title', 'content_sha256')} for s in search_sources_before_reload]
-                record('search automatically recovers within 15s on its ordinary 10s poll, clears locked error and restores the saved source/model status')
+                record('shared sources automatically recovers within 15s on its ordinary 10s poll, clears locked error and restores the saved source status')
                 expect(chat(0).get_by_label('Message to Hermes', exact=True)).to_have_value(final_draft, timeout=20000)
                 expect(chat(1).get_by_label('Message to Hermes', exact=True)).to_have_value('Untouched durable draft', timeout=20000)
                 expect(page.locator(f'[data-document-id="{rich_id}"] .richdoc-content')).to_contain_text('Durable synthetic rich document', timeout=45000)
                 expect(page.locator(f'[data-document-id="{canvas_id}"] .excalidraw__canvas.interactive')).to_have_count(1, timeout=45000)
                 assert api('/api/documents', 'read', document_id=canvas_id)['data'] == saved_canvas['data']
                 assert api('/api/interactive-results', 'list')['items']
-                assert api('/api/data-recipes', 'list')['recipes']
-                # Restored mounts start locked. Unlock itself must refresh these
-                # existing views; no reopen/remount, Refresh click or launch helps.
-                copilot = page.locator('[data-host-surface="copilot"]')
-                expect(copilot.get_by_role('status')).to_contain_text('Playwright', timeout=20000)
-                expect(copilot.get_by_role('status')).to_contain_text('ready · operator-approved origins:')
-                expect(copilot.get_by_label('Disposable session', exact=True).locator(
-                    f'option[value="{browser_session_id}"]')).to_have_text(browser_session_id + ' · closed')
-                expect(copilot.get_by_label('Disposable session', exact=True)).to_have_value('')
-                expect(copilot.get_by_label('Exact target', exact=True).locator('option')).to_have_count(0)
-                assert api('/api/browser-copilot', 'list')['sessions'] == sessions_before_reload
-                mcp = page.locator('[data-host-surface="mcp-apps"]')
-                expect(mcp.locator('p[role="status"]')).to_contain_text('Ready to import', timeout=20000)
-                expect(mcp.get_by_role('button', name='Import snapshot', exact=True)).to_be_enabled()
-                expect(mcp.get_by_role('button', name='Open ' + saved_mcp_title, exact=True)).to_have_count(1)
-                expect(mcp.locator('.mcp-apps-view iframe')).to_have_count(0)
-                assert api('/api/mcp-apps', 'get', id=saved_mcp['id'])['snapshot'] == mcp_snapshot
-                automatic_requests = feature_requests[reload_request_start:]
-                for route in ('/api/browser-copilot', '/api/mcp-apps'):
-                    assert any(r['route'] == route and r['action'] == 'list' for r in automatic_requests), automatic_requests
-                assert not any(r['action'] in ('open', 'execute', 'import', 'get') for r in automatic_requests), automatic_requests
-                result['automatic_reload_feature_requests'] = automatic_requests
-                record('unlock automatically restores browser capability/closed session list and MCP capability/saved library, without launching a browser or app')
                 interactive = surface('interactive-results')
                 expect(interactive.locator('.interactive-result-library').get_by_role('button', name='Editable comparison', exact=True)).to_have_count(1, timeout=15000)
                 interactive.get_by_role('button', name='Editable comparison', exact=True).click()
@@ -573,7 +437,7 @@ return /^1 sources.*Semantic on \\(local MiniLM\\)/.test(status)&&error!==undefi
                 assert api('/api/agent', 'draft_read', profile_id='default', session_id='release-chat')['record']['draft'] == final_draft
                 assert api('/api/agent', 'draft_read', profile_id='default', session_id='other-chat')['record']['draft'] == 'Untouched durable draft'
                 assert release.identities(snapshot()['state']) == expected_ids
-                record('reload restores pane URLs, rich/canvas data, saved results/recipes and both host drafts')
+                record('reload restores pane URLs, rich/canvas data, saved results and both host drafts')
                 page.screenshot(path=str(EVIDENCE / f'{args.renderer}-reload.png'))
             assert not errors, errors
             assert not external, external
@@ -586,7 +450,7 @@ return /^1 sources.*Semantic on \\(local MiniLM\\)/.test(status)&&error!==undefi
             result.update(status='PASS', pageerrors=errors, external_requests=external, gateway_posts=0,
                           gateway_get_count=len(f['calls']), console_errors=console_errors,
                           screenshots=[str(EVIDENCE / f'{args.renderer}-{name}.png') for name in
-                              ('recipient-390', 'canvas', 'browser-evidence-0', 'browser-evidence-1', 'integrated', 'reload')]
+                              ('recipient-390', 'canvas', 'integrated', 'reload')]
                               if configured else [])
         except Exception:
             result.update(status='FAIL', failure=traceback.format_exc(), pageerrors=errors,
@@ -612,10 +476,6 @@ def main():
     parser.add_argument('--dist', type=Path, help='Previously isolated production build; copied, never modified')
     parser.add_argument('--capabilities', choices=('both', 'configured', 'off'), default='both')
     parser.add_argument('--browser-executable', default=os.environ.get('ORBIT_BROWSER_EXECUTABLE', '/tmp/opencode/orbit-evolution-browsers/chromium-1208/chrome-linux64/chrome'))
-    parser.add_argument('--voice-models', type=Path, default=Path('/tmp/opencode/orbit-voice-models'))
-    parser.add_argument('--audio-file', type=Path, default=Path('/tmp/opencode/orbit-voice-jfk.wav'))
-    parser.add_argument('--duckdb-extensions', type=Path, default=Path('/tmp/opencode/orbit-duckdb-extensions'))
-    parser.add_argument('--search-models', type=Path, default=Path('/tmp/opencode/orbit-knowledge-model-test-20260930'))
     args = parser.parse_args()
     EVIDENCE.mkdir(parents=True, exist_ok=True)
     if not Path(args.browser_executable).is_file():

@@ -46,7 +46,7 @@ with tempfile.TemporaryDirectory(prefix='orbit-everyday-ux-', dir='/tmp/opencode
                 page.evaluate('''async()=>{const {showOnboarding}=await import('/src/onboarding.ts');
                   window.goalActions=[];window.tour=()=>showOnboarding({connected:()=>false,run:id=>goalActions.push(id)});window.tour();}''')
                 tour = page.get_by_role('dialog', name='What would you like to do?')
-                expect(tour.get_by_text('Readiness not checked.', exact=False)).to_be_visible()
+                expect(tour.get_by_role('button', name='Connect host:', exact=False)).to_be_visible()
                 assert tour.evaluate('(e)=>e.scrollWidth<=e.clientWidth'), 'Onboarding must reflow at 320 CSS pixels'
                 tour.get_by_role('button', name='Next tour step', exact=True).click()
                 page.get_by_role('button', name='Close getting started', exact=True).click()
@@ -56,8 +56,8 @@ with tempfile.TemporaryDirectory(prefix='orbit-everyday-ux-', dir='/tmp/opencode
                 page.evaluate('()=>{window.tour();}')
                 expect(page.get_by_role('heading', name='Your everyday controls')).to_be_visible()
                 page.get_by_role('button', name='Previous tour step').click()
-                page.get_by_role('button', name='Transcribe audio:', exact=False).click()
-                assert page.evaluate('goalActions') == ['technology-voice']
+                page.get_by_role('button', name='Connect host:', exact=False).click()
+                assert page.evaluate('goalActions') == ['connect-host']
                 page.set_viewport_size({'width': 1400, 'height': 1000})
 
                 requests = []; held_pages = []; hold_page = False; reject_selection = False; binding_ready = False; binding = {'session': 'original', 'profile_id': 'B', 'messages': [], 'binding_revision': 1}
@@ -128,12 +128,12 @@ with tempfile.TemporaryDirectory(prefix='orbit-everyday-ux-', dir='/tmp/opencode
                 assert not errors, errors
                 context.close()
 
-                # Full shell: both renderers retain Spatial and the same connected iframe.
+                # Full shell: both renderers retain the same connected iframe in the default view.
                 for renderer in ('default', 'docking'):
                     ctx = browser.new_context(viewport={'width': 1400, 'height': 1000})
                     ctx.route('**/api/**', lambda route: route.fulfill(status=401, json={'error': 'Locked synthetic fixture'}))
                     wid, pane, workspace = (str(uuid.uuid4()) for _ in range(3))
-                    state = {'version': 1, 'selected': wid, 'arc': 14, 'view': 'spatial', 'monitors': [{'id': wid, 'name': 'Continuity fixture', 'diagonal': 32, 'aspect': '16:9', 'height': 0, 'distance': 0, 'pitch': 0, 'yaw': 0, 'offset': 0, 'fontSize': 19, 'frame': {'x': 20, 'y': 20, 'width': 700, 'height': 500, 'z': 0}, 'layout': {'type': 'pane', 'pane': {'id': pane, 'kind': 'browser', 'url': 'about:blank'}}}]}
+                    state = {'version': 1, 'selected': wid, 'arc': 14, 'view': 'windows', 'monitors': [{'id': wid, 'name': 'Continuity fixture', 'diagonal': 32, 'aspect': '16:9', 'height': 0, 'distance': 0, 'pitch': 0, 'yaw': 0, 'offset': 0, 'fontSize': 19, 'frame': {'x': 20, 'y': 20, 'width': 700, 'height': 500, 'z': 0}, 'layout': {'type': 'pane', 'pane': {'id': pane, 'kind': 'browser', 'url': 'about:blank'}}}]}
                     state['monitors'][0]['layout']['pane']['url'] = 'https://fixture.invalid/'
                     ctx.route('https://fixture.invalid/**', lambda route: route.fulfill(content_type='text/html', body='<p>Synthetic persistent frame</p>'))
                     ctx.add_init_script("if(window===window.top){localStorage.setItem('orbit.onboarding.v1','done');localStorage.setItem('orbit.workspace.id',%s);localStorage.setItem('orbit.workspace.v1',%s);}" % (json.dumps(workspace), json.dumps(json.dumps(state))))
@@ -144,14 +144,14 @@ with tempfile.TemporaryDirectory(prefix='orbit-everyday-ux-', dir='/tmp/opencode
                     for _ in range(2):
                         shell.evaluate("window.dispatchEvent(new CustomEvent('orbit-open-host-surface',{detail:{id:'data'}}))")
                         shell.wait_for_function("JSON.parse(localStorage.getItem('orbit.workspace.v1')).monitors.length===2")
-                        assert shell.evaluate("JSON.parse(localStorage.getItem('orbit.workspace.v1')).view") == 'spatial'
+                        assert shell.evaluate("JSON.parse(localStorage.getItem('orbit.workspace.v1')).view") == 'windows'
                     shell.evaluate("window.dispatchEvent(new CustomEvent('orbit-open-document',{detail:{id:'00000000-0000-4000-8000-000000000001',name:'Fixture document'}}))")
                     shell.wait_for_function("JSON.parse(localStorage.getItem('orbit.workspace.v1')).monitors.length===3")
-                    assert shell.evaluate("JSON.parse(localStorage.getItem('orbit.workspace.v1')).view") == 'spatial'
+                    assert shell.evaluate("JSON.parse(localStorage.getItem('orbit.workspace.v1')).view") == 'windows'
                     assert shell.evaluate("originalFrame.isConnected && originalFrame===document.querySelector('iframe')")
                     assert frame.evaluate("window.continuityMarker==='preserved'")
                     ctx.close()
                 browser.close()
-                print('PASS: Start traversal/Enter/escape; active profile; page-three title search; cancelled initial-link choice never selects; acknowledged selection once; Spatial new/existing tool + document with iframe continuity in both renderers')
+                print('PASS: Start traversal/Enter/escape; active profile; page-three title search; cancelled initial-link choice never selects; acknowledged selection once; new/existing tool + document with iframe continuity in both renderers')
         finally:
             server.terminate(); server.wait(timeout=15)

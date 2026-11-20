@@ -36,6 +36,6 @@ Raw provider transcripts are not deleted.
 
 Fork and Grok compact use that same summary. A Hermes fork is a new Orbit session whose first pane message is the summary. The next Hermes run sends that summary as history only when the new session has no upstream transcript yet.
 
-## Orchestration and IRC
+## Orchestration
 
-Collab keeps agents-as-tools as the default, a required subagent brief, one worktree per coding subagent, and the depth, budget, and span limits in [Orchestration](COLLAB_ORCHESTRATION.md). IRC bind, origin, target, and approval rules are in [IRC](IRC.md).
+Collab keeps agents-as-tools as the default, a required subagent brief, one worktree per coding subagent, and the depth, budget, and span limits in [Orchestration](COLLAB_ORCHESTRATION.md).

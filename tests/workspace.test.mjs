@@ -40,13 +40,6 @@ test('agent context includes live operator guide and never workspace capability'
  const context=service.context(id);for(const word of ['plugin_install','plugin_update','browser_applied','tmux','base_revision']) assert.ok(context.includes(word),word);
   const record=service.store.read(id);assert.ok(!context.includes(record.capability));assert.ok(context.includes(id));
 });
-test('Jev quick actions require confirmation, reject stale revisions and create checkpoints',async t=>{
- const {req}=await setup(t);await req({action:'sync',state:initial()});
- assert.equal((await req({action:'jev_apply',action_id:'spatial',base_revision:1})).status,409);
- assert.equal((await req({action:'jev_apply',action_id:'spatial',base_revision:0,confirm:true})).status,409);
- assert.equal((await req({action:'jev_suggest',request:'3d',api_key:'test-key',consent:false})).status,400);
- const result=await req({action:'jev_apply',action_id:'spatial',base_revision:1,confirm:true});assert.equal(result.status,200);assert.equal(result.body.state.view,'spatial');assert.equal((await req({action:'history'})).body.checkpoints.length,1);
-});
 test('plugin browser mutations require current revision and checkpoint before commit',async t=>{
  const {req}=await setup(t);await req({action:'sync',state:initial()});
  const operations=[{action:'plugin_install',manifest:{apiVersion:1,id:'notes',title:'Notes',version:'1.0.0',entry:'/apps/notes/index.html'}},{action:'plugin_enable',plugin_id:'notes'}];
@@ -69,11 +62,11 @@ test('workspace operations validate geometry and support targeted changes withou
  assert.equal(next.monitors[0].name,'Host Workshop');assert.notEqual(s.monitors[0].name,'Host Workshop');
  assert.throws(()=>applyOperation(s,{action:'update_window',window_id:id,frame:{x:-10,y:0,width:2,height:2,z:1}}));
  assert.equal(applyOperation(s,{action:'sidebar',hidden:true}).sidebarHidden,true);
- assert.equal(applyOperation(s,{action:'set_view',view:'windows'}).view,'windows');
+ assert.equal(applyOperation(s,{action:'set_arc',arc:20}).arc,20);
  const split=applyOperation(s,{action:'split_pane',window_id:id,pane_id:leaves(s.monitors[0].layout)[0].id,kind:'browser'});
  assert.equal(leaves(split.monitors[0].layout).length,2);
 });
-test('large spatial windows and small text survive validation while unsafe numbers fail',()=>{
+test('large windows and small text survive validation while unsafe numbers fail',()=>{
  const s=initial(),window_id=s.monitors[0].id;
  const next=applyOperation(s,{action:'update_window',window_id,diagonal:1200,fontSize:6});
  assert.equal(next.monitors[0].diagonal,1200); assert.equal(next.monitors[0].fontSize,6);
@@ -115,7 +108,7 @@ test('workspace polling reports explicitly reindexed app assets without a layout
 test('operation batches are atomic when a later operation is invalid',async t=>{
   const {id,req,service}=await setup(t);await req({action:'sync',state:initial()});
   const cap=service.store.read(id).capability;
- assert.equal((await req({action:'apply',base_revision:1,operations:[{action:'sidebar',hidden:true},{action:'set_view',view:'INVALID'}]},true,cap)).status,400);
+ assert.equal((await req({action:'apply',base_revision:1,operations:[{action:'sidebar',hidden:true},{action:'set_arc',arc:99}]},true,cap)).status,400);
  const state=await req({action:'read'});assert.equal(state.body.revision,1);assert.notEqual(state.body.state.sidebarHidden,true);
 });
 test('app preview is CSP-sandboxed, supports modules, and blocks hidden files and symlink escapes',async t=>{

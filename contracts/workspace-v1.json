@@ -22,72 +22,6 @@
     "BUNDLE_UNAVAILABLE": "Published bundle is missing, changed or unindexed; verify files and refresh the bundle index"
   },
   "operations": {
-    "set_spatial_camera": {
-      "input": {
-        "type": "object",
-        "properties": {
-          "action": {
-            "const": "set_spatial_camera"
-          },
-          "camera": {
-            "$ref": "#/$defs/camera"
-          }
-        },
-        "required": [
-          "action",
-          "camera"
-        ],
-        "additionalProperties": false
-      },
-      "sideEffect": "layout",
-      "permission": "workspace-write",
-      "revision": "current-base-revision",
-      "idempotency": "receipt belongs to containing command batch"
-    },
-    "arrange_spatial": {
-      "input": {
-        "type": "object",
-        "properties": {
-          "action": {
-            "const": "arrange_spatial"
-          },
-          "window_ids": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "pattern": "^[a-zA-Z0-9_-]{1,100}$"
-            },
-            "minItems": 1,
-            "uniqueItems": true
-          },
-          "mode": {
-            "enum": [
-              "grid",
-              "row",
-              "curve"
-            ]
-          },
-          "columns": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 9007199254740991
-          },
-          "gap": {
-            "type": "number",
-            "minimum": 0,
-            "maximum": 20
-          }
-        },
-        "required": [
-          "action"
-        ],
-        "additionalProperties": false
-      },
-      "sideEffect": "layout",
-      "permission": "workspace-write",
-      "revision": "current-base-revision",
-      "idempotency": "receipt belongs to containing command batch"
-    },
     "reset_appearance": {
       "input": {
         "type": "object",
@@ -417,31 +351,6 @@
       "revision": "current-base-revision",
       "idempotency": "receipt belongs to containing command batch"
     },
-    "set_view": {
-      "input": {
-        "type": "object",
-        "properties": {
-          "action": {
-            "const": "set_view"
-          },
-          "view": {
-            "enum": [
-              "windows",
-              "spatial"
-            ]
-          }
-        },
-        "required": [
-          "action",
-          "view"
-        ],
-        "additionalProperties": false
-      },
-      "sideEffect": "layout",
-      "permission": "workspace-write",
-      "revision": "current-base-revision",
-      "idempotency": "receipt belongs to containing command batch"
-    },
     "sidebar": {
       "input": {
         "type": "object",
@@ -587,7 +496,8 @@
           "spatialFontSize": {
             "type": "number",
             "minimum": 6,
-            "maximum": 96
+            "maximum": 96,
+            "description": "Deprecated legacy value; accepted and ignored."
           },
           "opacity": {
             "type": "number",
@@ -1119,7 +1029,8 @@
               "spatialFontSize": {
                 "type": "number",
                 "minimum": 6,
-                "maximum": 96
+                "maximum": 96,
+                "description": "Deprecated legacy value; accepted and ignored."
               },
               "opacity": {
                 "type": "number",
@@ -1551,59 +1462,6 @@
           },
           "catalog": {
             "type": "object"
-          },
-          "recipes": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "id": {
-                  "type": "string",
-                  "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-                },
-                "version": {
-                  "type": "integer",
-                  "minimum": 1,
-                  "maximum": 9007199254740991
-                },
-                "name": {
-                  "type": "string",
-                  "maxLength": 60
-                },
-                "roles": {
-                  "type": "array",
-                  "items": {
-                    "type": "string",
-                    "maxLength": 40
-                  },
-                  "maxItems": 5
-                },
-                "layout": {
-                  "type": "string",
-                  "maxLength": 40
-                },
-                "renderer": {
-                  "type": "string",
-                  "maxLength": 40
-                }
-              },
-              "required": [
-                "id",
-                "version",
-                "name",
-                "roles",
-                "layout",
-                "renderer"
-              ],
-              "additionalProperties": false
-            },
-            "maxItems": 1024
-          },
-          "recipe_scope": {
-            "enum": [
-              "selected-project",
-              "select-project-to-list"
-            ]
           }
         },
         "required": [
@@ -1615,9 +1473,7 @@
           "projects",
           "bindings",
           "extension_compatibility",
-          "unsupported",
-          "recipes",
-          "recipe_scope"
+          "unsupported"
         ],
         "additionalProperties": false
       },
@@ -1625,379 +1481,6 @@
       "permission": "authenticated-workspace",
       "revision": "none",
       "idempotency": "read-only"
-    },
-    "arrangement": {
-      "input": {
-        "type": "object",
-        "properties": {
-          "workspace_id": {
-            "type": "string",
-            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-          },
-          "action": {
-            "const": "arrangement"
-          },
-          "request": {
-            "oneOf": [
-              {
-                "type": "object",
-                "properties": {
-                  "action": {
-                    "const": "recipe_list"
-                  },
-                  "project_id": {
-                    "type": "string",
-                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-                  }
-                },
-                "required": [
-                  "action",
-                  "project_id"
-                ],
-                "additionalProperties": false
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "action": {
-                    "const": "recipe_save"
-                  },
-                  "project_id": {
-                    "type": "string",
-                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-                  },
-                  "name": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 60
-                  },
-                  "roles": {
-                    "type": "array",
-                    "items": {
-                      "enum": [
-                        "primary_agent",
-                        "active_terminal",
-                        "preview",
-                        "candidate_diff",
-                        "project_files"
-                      ]
-                    },
-                    "minItems": 0,
-                    "maxItems": 5,
-                    "uniqueItems": true
-                  },
-                  "layout": {
-                    "enum": [
-                      "prioritize",
-                      "columns",
-                      "rows"
-                    ]
-                  },
-                  "renderer": {
-                    "enum": [
-                      "windows",
-                      "spatial",
-                      "docking"
-                    ]
-                  },
-                  "recipe_id": {
-                    "type": "string",
-                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-                  },
-                  "expected_version": {
-                    "type": "integer",
-                    "minimum": 1
-                  },
-                  "op_id": {
-                    "type": "string",
-                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-                  },
-                  "intent": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 160
-                  }
-                },
-                "required": [
-                  "action",
-                  "project_id",
-                  "name",
-                  "roles",
-                  "layout",
-                  "renderer",
-                  "op_id"
-                ],
-                "additionalProperties": false
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "action": {
-                    "const": "recipe_preview"
-                  },
-                  "project_id": {
-                    "type": "string",
-                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-                  },
-                  "recipe": {
-                    "enum": [
-                      "project_focus",
-                      "investigate",
-                      "implement",
-                      "review",
-                      "return"
-                    ]
-                  },
-                  "recipe_id": {
-                    "type": "string",
-                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-                  },
-                  "role_choices": {
-                    "type": "object",
-                    "propertyNames": {
-                      "enum": [
-                        "primary_agent",
-                        "active_terminal",
-                        "preview",
-                        "candidate_diff",
-                        "project_files"
-                      ]
-                    },
-                    "additionalProperties": {
-                      "type": "string",
-                      "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-                    },
-                    "maxProperties": 5
-                  },
-                  "renderer": {
-                    "enum": [
-                      "windows",
-                      "spatial",
-                      "docking"
-                    ]
-                  },
-                  "width": {
-                    "type": "number",
-                    "minimum": 280,
-                    "maximum": 16000
-                  },
-                  "height": {
-                    "type": "number",
-                    "minimum": 180,
-                    "maximum": 16000
-                  }
-                },
-                "required": [
-                  "action",
-                  "project_id",
-                  "recipe"
-                ],
-                "additionalProperties": false
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "action": {
-                    "const": "recipe_apply"
-                  },
-                  "project_id": {
-                    "type": "string",
-                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-                  },
-                  "recipe": {
-                    "enum": [
-                      "project_focus",
-                      "investigate",
-                      "implement",
-                      "review",
-                      "return"
-                    ]
-                  },
-                  "preview_id": {
-                    "type": "string",
-                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-                  },
-                  "preview_digest": {
-                    "type": "string",
-                    "pattern": "^[a-f0-9]{64}$"
-                  },
-                  "op_id": {
-                    "type": "string",
-                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-                  },
-                  "intent": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 160
-                  },
-                  "viewport": {
-                    "type": "object",
-                    "properties": {
-                      "width": {
-                        "type": "number",
-                        "minimum": 280,
-                        "maximum": 16000
-                      },
-                      "height": {
-                        "type": "number",
-                        "minimum": 180,
-                        "maximum": 16000
-                      }
-                    },
-                    "required": [
-                      "width",
-                      "height"
-                    ],
-                    "additionalProperties": false
-                  }
-                },
-                "required": [
-                  "action",
-                  "project_id",
-                  "recipe",
-                  "preview_id",
-                  "preview_digest",
-                  "op_id"
-                ],
-                "additionalProperties": false
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "action": {
-                    "const": "proposal_list"
-                  },
-                  "project_id": {
-                    "type": "string",
-                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-                  },
-                  "recipe": {
-                    "enum": [
-                      "project_focus",
-                      "investigate",
-                      "implement",
-                      "review",
-                      "return"
-                    ]
-                  },
-                  "after_id": {
-                    "type": "string",
-                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-                  }
-                },
-                "required": [
-                  "action",
-                  "project_id"
-                ],
-                "additionalProperties": false
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "action": {
-                    "const": "proposal_get"
-                  },
-                  "project_id": {
-                    "type": "string",
-                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-                  },
-                  "proposal_id": {
-                    "type": "string",
-                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-                  }
-                },
-                "required": [
-                  "action",
-                  "project_id",
-                  "proposal_id"
-                ],
-                "additionalProperties": false
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "action": {
-                    "const": "proposal_reject"
-                  },
-                  "project_id": {
-                    "type": "string",
-                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-                  },
-                  "proposal_id": {
-                    "type": "string",
-                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-                  },
-                  "expected_version": {
-                    "type": "integer",
-                    "minimum": 1
-                  }
-                },
-                "required": [
-                  "action",
-                  "project_id",
-                  "proposal_id",
-                  "expected_version"
-                ],
-                "additionalProperties": false
-              }
-            ]
-          }
-        },
-        "required": [
-          "workspace_id",
-          "action",
-          "request"
-        ],
-        "additionalProperties": false
-      },
-      "output": {
-        "type": "object",
-        "description": "Arrangement service result; structural preview, committed receipt and browser acknowledgement are separate facts"
-      },
-      "sideEffect": "workspace-proposal",
-      "permission": "authenticated-workspace",
-      "revision": "service-validated",
-      "idempotency": "action-specific; recipe_apply requires the exact retained preview identity and op_id, with durable actor-scoped receipt recovery"
-    },
-    "workbench_setup": {
-      "input": {
-        "type": "object",
-        "properties": {
-          "workspace_id": {
-            "type": "string",
-            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-          },
-          "action": {
-            "const": "workbench_setup"
-          },
-          "request": {
-            "$ref": "#/$defs/workbenchSetupRequest"
-          }
-        },
-        "required": [
-          "workspace_id",
-          "action",
-          "request"
-        ],
-        "additionalProperties": false
-      },
-      "output": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-          }
-        },
-        "required": [
-          "id"
-        ],
-        "additionalProperties": false
-      },
-      "sideEffect": "workspace-proposal",
-      "permission": "authenticated-workspace-capability; proposal-only, never owner, task, execution or approval authority",
-      "revision": "service-validated",
-      "idempotency": "durable proposal keyed by authenticated workspace/op_id; returns only the caller-submitted suggestion for owner review, never a setup, authorization or execution receipt"
     },
     "history": {
       "input": {
@@ -2585,44 +2068,6 @@
                   "type": "object",
                   "properties": {
                     "action": {
-                      "const": "arrange_spatial"
-                    },
-                    "window_ids": {
-                      "type": "array",
-                      "items": {
-                        "type": "string",
-                        "pattern": "^[a-zA-Z0-9_-]{1,100}$"
-                      },
-                      "minItems": 1,
-                      "uniqueItems": true
-                    },
-                    "mode": {
-                      "enum": [
-                        "grid",
-                        "row",
-                        "curve"
-                      ]
-                    },
-                    "columns": {
-                      "type": "integer",
-                      "minimum": 1,
-                      "maximum": 9007199254740991
-                    },
-                    "gap": {
-                      "type": "number",
-                      "minimum": 0,
-                      "maximum": 20
-                    }
-                  },
-                  "required": [
-                    "action"
-                  ],
-                  "additionalProperties": false
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "action": {
                       "const": "reorder_windows"
                     },
                     "window_ids": {
@@ -2655,25 +2100,6 @@
                   "required": [
                     "action",
                     "window_id"
-                  ],
-                  "additionalProperties": false
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "action": {
-                      "const": "set_view"
-                    },
-                    "view": {
-                      "enum": [
-                        "windows",
-                        "spatial"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "action",
-                    "view"
                   ],
                   "additionalProperties": false
                 },
@@ -2824,44 +2250,6 @@
                   "type": "object",
                   "properties": {
                     "action": {
-                      "const": "arrange_spatial"
-                    },
-                    "window_ids": {
-                      "type": "array",
-                      "items": {
-                        "type": "string",
-                        "pattern": "^[a-zA-Z0-9_-]{1,100}$"
-                      },
-                      "minItems": 1,
-                      "uniqueItems": true
-                    },
-                    "mode": {
-                      "enum": [
-                        "grid",
-                        "row",
-                        "curve"
-                      ]
-                    },
-                    "columns": {
-                      "type": "integer",
-                      "minimum": 1,
-                      "maximum": 9007199254740991
-                    },
-                    "gap": {
-                      "type": "number",
-                      "minimum": 0,
-                      "maximum": 20
-                    }
-                  },
-                  "required": [
-                    "action"
-                  ],
-                  "additionalProperties": false
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "action": {
                       "const": "reorder_windows"
                     },
                     "window_ids": {
@@ -2894,25 +2282,6 @@
                   "required": [
                     "action",
                     "window_id"
-                  ],
-                  "additionalProperties": false
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "action": {
-                      "const": "set_view"
-                    },
-                    "view": {
-                      "enum": [
-                        "windows",
-                        "spatial"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "action",
-                    "view"
                   ],
                   "additionalProperties": false
                 },
@@ -3167,105 +2536,6 @@
       "permission": "authenticated-workspace",
       "revision": "none",
       "idempotency": "read-only"
-    },
-    "jev_suggest": {
-      "input": {
-        "type": "object",
-        "properties": {
-          "workspace_id": {
-            "type": "string",
-            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-          },
-          "action": {
-            "const": "jev_suggest"
-          },
-          "request": {
-            "type": "string",
-            "maxLength": 12000
-          },
-          "api_key": {
-            "type": "string",
-            "maxLength": 4096
-          },
-          "consent": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "workspace_id",
-          "action",
-          "request",
-          "api_key",
-          "consent"
-        ],
-        "additionalProperties": false
-      },
-      "output": {
-        "type": "object",
-        "description": "Legacy optional Jev result; provider output validation remains in server/jev.mjs"
-      },
-      "sideEffect": "external-model-request",
-      "permission": "authenticated-owner-with-external-data-consent",
-      "revision": "none",
-      "idempotency": "external-provider-request-not-retry-safe"
-    },
-    "jev_apply": {
-      "input": {
-        "type": "object",
-        "properties": {
-          "workspace_id": {
-            "type": "string",
-            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-          },
-          "action": {
-            "const": "jev_apply"
-          },
-          "action_id": {
-            "type": "string",
-            "maxLength": 100
-          },
-          "base_revision": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 9007199254740991
-          },
-          "confirm": {
-            "type": "boolean"
-          },
-          "operation_id": {
-            "type": "string",
-            "pattern": "^[a-zA-Z0-9_.:-]{1,128}$"
-          },
-          "intent": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 160
-          }
-        },
-        "required": [
-          "workspace_id",
-          "action",
-          "action_id",
-          "base_revision"
-        ],
-        "additionalProperties": false,
-        "dependencies": {
-          "operation_id": [
-            "intent",
-            "base_revision"
-          ],
-          "intent": [
-            "operation_id"
-          ]
-        }
-      },
-      "output": {
-        "$ref": "#/$defs/committedSnapshot"
-      },
-      "sideEffect": "layout",
-      "permission": "authenticated-workspace",
-      "revision": "current-base-revision",
-      "idempotency": "durable receipt by authenticated actor/workspace/operation_id within recovery policy generation; obsolete generation replay rejected; legacy missing keys are not retry-safe"
     }
   },
   "schema": {
@@ -3367,7 +2637,8 @@
           "pitch",
           "resolution"
         ],
-        "additionalProperties": false
+        "additionalProperties": false,
+        "description": "Deprecated legacy placement; accepted and ignored."
       },
       "camera": {
         "type": "object",
@@ -3411,7 +2682,8 @@
           "elevation",
           "distance"
         ],
-        "additionalProperties": false
+        "additionalProperties": false,
+        "description": "Deprecated legacy camera; accepted and ignored."
       },
       "placementFrame": {
         "type": "object",
@@ -3832,7 +3104,8 @@
           "spatialFontSize": {
             "type": "number",
             "minimum": 6,
-            "maximum": 96
+            "maximum": 96,
+            "description": "Deprecated legacy value; accepted and ignored."
           },
           "opacity": {
             "type": "number",
@@ -3979,7 +3252,8 @@
             "enum": [
               "windows",
               "spatial"
-            ]
+            ],
+            "description": "Deprecated legacy view; accepted and ignored, always windows."
           },
           "sidebarHidden": {
             "type": "boolean"
@@ -4214,60 +3488,6 @@
       },
       "operation": {
         "oneOf": [
-          {
-            "type": "object",
-            "properties": {
-              "action": {
-                "const": "set_spatial_camera"
-              },
-              "camera": {
-                "$ref": "#/$defs/camera"
-              }
-            },
-            "required": [
-              "action",
-              "camera"
-            ],
-            "additionalProperties": false
-          },
-          {
-            "type": "object",
-            "properties": {
-              "action": {
-                "const": "arrange_spatial"
-              },
-              "window_ids": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "pattern": "^[a-zA-Z0-9_-]{1,100}$"
-                },
-                "minItems": 1,
-                "uniqueItems": true
-              },
-              "mode": {
-                "enum": [
-                  "grid",
-                  "row",
-                  "curve"
-                ]
-              },
-              "columns": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 9007199254740991
-              },
-              "gap": {
-                "type": "number",
-                "minimum": 0,
-                "maximum": 20
-              }
-            },
-            "required": [
-              "action"
-            ],
-            "additionalProperties": false
-          },
           {
             "type": "object",
             "properties": {
@@ -4541,25 +3761,6 @@
             "type": "object",
             "properties": {
               "action": {
-                "const": "set_view"
-              },
-              "view": {
-                "enum": [
-                  "windows",
-                  "spatial"
-                ]
-              }
-            },
-            "required": [
-              "action",
-              "view"
-            ],
-            "additionalProperties": false
-          },
-          {
-            "type": "object",
-            "properties": {
-              "action": {
                 "const": "sidebar"
               },
               "hidden": {
@@ -4682,7 +3883,8 @@
               "spatialFontSize": {
                 "type": "number",
                 "minimum": 6,
-                "maximum": 96
+                "maximum": 96,
+                "description": "Deprecated legacy value; accepted and ignored."
               },
               "opacity": {
                 "type": "number",
@@ -5148,7 +4350,8 @@
                   "spatialFontSize": {
                     "type": "number",
                     "minimum": 6,
-                    "maximum": 96
+                    "maximum": 96,
+                    "description": "Deprecated legacy value; accepted and ignored."
                   },
                   "opacity": {
                     "type": "number",
@@ -5333,48 +4536,6 @@
             "additionalProperties": false
           }
         ]
-      },
-      "workbenchSetupRequest": {
-        "type": "object",
-        "properties": {
-          "op_id": {
-            "type": "string",
-            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-          },
-          "goal": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 4000,
-            "pattern": "\\S"
-          },
-          "title": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 240,
-            "pattern": "\\S"
-          },
-          "acceptance_statement": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 4000,
-            "pattern": "\\S"
-          },
-          "project_id": {
-            "type": "string",
-            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-          },
-          "check_definition_id": {
-            "enum": [
-              "node-test",
-              "host-regression"
-            ]
-          }
-        },
-        "required": [
-          "op_id",
-          "goal"
-        ],
-        "additionalProperties": false
       },
       "recoveryPolicy": {
         "type": "object",
@@ -5656,350 +4817,6 @@
         "required": [
           "workspace_id",
           "action"
-        ],
-        "additionalProperties": false
-      },
-      {
-        "type": "object",
-        "properties": {
-          "workspace_id": {
-            "type": "string",
-            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-          },
-          "action": {
-            "const": "arrangement"
-          },
-          "request": {
-            "oneOf": [
-              {
-                "type": "object",
-                "properties": {
-                  "action": {
-                    "const": "recipe_list"
-                  },
-                  "project_id": {
-                    "type": "string",
-                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-                  }
-                },
-                "required": [
-                  "action",
-                  "project_id"
-                ],
-                "additionalProperties": false
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "action": {
-                    "const": "recipe_save"
-                  },
-                  "project_id": {
-                    "type": "string",
-                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-                  },
-                  "name": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 60
-                  },
-                  "roles": {
-                    "type": "array",
-                    "items": {
-                      "enum": [
-                        "primary_agent",
-                        "active_terminal",
-                        "preview",
-                        "candidate_diff",
-                        "project_files"
-                      ]
-                    },
-                    "minItems": 0,
-                    "maxItems": 5,
-                    "uniqueItems": true
-                  },
-                  "layout": {
-                    "enum": [
-                      "prioritize",
-                      "columns",
-                      "rows"
-                    ]
-                  },
-                  "renderer": {
-                    "enum": [
-                      "windows",
-                      "spatial",
-                      "docking"
-                    ]
-                  },
-                  "recipe_id": {
-                    "type": "string",
-                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-                  },
-                  "expected_version": {
-                    "type": "integer",
-                    "minimum": 1
-                  },
-                  "op_id": {
-                    "type": "string",
-                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-                  },
-                  "intent": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 160
-                  }
-                },
-                "required": [
-                  "action",
-                  "project_id",
-                  "name",
-                  "roles",
-                  "layout",
-                  "renderer",
-                  "op_id"
-                ],
-                "additionalProperties": false
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "action": {
-                    "const": "recipe_preview"
-                  },
-                  "project_id": {
-                    "type": "string",
-                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-                  },
-                  "recipe": {
-                    "enum": [
-                      "project_focus",
-                      "investigate",
-                      "implement",
-                      "review",
-                      "return"
-                    ]
-                  },
-                  "recipe_id": {
-                    "type": "string",
-                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-                  },
-                  "role_choices": {
-                    "type": "object",
-                    "propertyNames": {
-                      "enum": [
-                        "primary_agent",
-                        "active_terminal",
-                        "preview",
-                        "candidate_diff",
-                        "project_files"
-                      ]
-                    },
-                    "additionalProperties": {
-                      "type": "string",
-                      "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-                    },
-                    "maxProperties": 5
-                  },
-                  "renderer": {
-                    "enum": [
-                      "windows",
-                      "spatial",
-                      "docking"
-                    ]
-                  },
-                  "width": {
-                    "type": "number",
-                    "minimum": 280,
-                    "maximum": 16000
-                  },
-                  "height": {
-                    "type": "number",
-                    "minimum": 180,
-                    "maximum": 16000
-                  }
-                },
-                "required": [
-                  "action",
-                  "project_id",
-                  "recipe"
-                ],
-                "additionalProperties": false
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "action": {
-                    "const": "recipe_apply"
-                  },
-                  "project_id": {
-                    "type": "string",
-                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-                  },
-                  "recipe": {
-                    "enum": [
-                      "project_focus",
-                      "investigate",
-                      "implement",
-                      "review",
-                      "return"
-                    ]
-                  },
-                  "preview_id": {
-                    "type": "string",
-                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-                  },
-                  "preview_digest": {
-                    "type": "string",
-                    "pattern": "^[a-f0-9]{64}$"
-                  },
-                  "op_id": {
-                    "type": "string",
-                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-                  },
-                  "intent": {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 160
-                  },
-                  "viewport": {
-                    "type": "object",
-                    "properties": {
-                      "width": {
-                        "type": "number",
-                        "minimum": 280,
-                        "maximum": 16000
-                      },
-                      "height": {
-                        "type": "number",
-                        "minimum": 180,
-                        "maximum": 16000
-                      }
-                    },
-                    "required": [
-                      "width",
-                      "height"
-                    ],
-                    "additionalProperties": false
-                  }
-                },
-                "required": [
-                  "action",
-                  "project_id",
-                  "recipe",
-                  "preview_id",
-                  "preview_digest",
-                  "op_id"
-                ],
-                "additionalProperties": false
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "action": {
-                    "const": "proposal_list"
-                  },
-                  "project_id": {
-                    "type": "string",
-                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-                  },
-                  "recipe": {
-                    "enum": [
-                      "project_focus",
-                      "investigate",
-                      "implement",
-                      "review",
-                      "return"
-                    ]
-                  },
-                  "after_id": {
-                    "type": "string",
-                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-                  }
-                },
-                "required": [
-                  "action",
-                  "project_id"
-                ],
-                "additionalProperties": false
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "action": {
-                    "const": "proposal_get"
-                  },
-                  "project_id": {
-                    "type": "string",
-                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-                  },
-                  "proposal_id": {
-                    "type": "string",
-                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-                  }
-                },
-                "required": [
-                  "action",
-                  "project_id",
-                  "proposal_id"
-                ],
-                "additionalProperties": false
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "action": {
-                    "const": "proposal_reject"
-                  },
-                  "project_id": {
-                    "type": "string",
-                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-                  },
-                  "proposal_id": {
-                    "type": "string",
-                    "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-                  },
-                  "expected_version": {
-                    "type": "integer",
-                    "minimum": 1
-                  }
-                },
-                "required": [
-                  "action",
-                  "project_id",
-                  "proposal_id",
-                  "expected_version"
-                ],
-                "additionalProperties": false
-              }
-            ]
-          }
-        },
-        "required": [
-          "workspace_id",
-          "action",
-          "request"
-        ],
-        "additionalProperties": false
-      },
-      {
-        "type": "object",
-        "properties": {
-          "workspace_id": {
-            "type": "string",
-            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-          },
-          "action": {
-            "const": "workbench_setup"
-          },
-          "request": {
-            "$ref": "#/$defs/workbenchSetupRequest"
-          }
-        },
-        "required": [
-          "workspace_id",
-          "action",
-          "request"
         ],
         "additionalProperties": false
       },
@@ -6369,44 +5186,6 @@
                   "type": "object",
                   "properties": {
                     "action": {
-                      "const": "arrange_spatial"
-                    },
-                    "window_ids": {
-                      "type": "array",
-                      "items": {
-                        "type": "string",
-                        "pattern": "^[a-zA-Z0-9_-]{1,100}$"
-                      },
-                      "minItems": 1,
-                      "uniqueItems": true
-                    },
-                    "mode": {
-                      "enum": [
-                        "grid",
-                        "row",
-                        "curve"
-                      ]
-                    },
-                    "columns": {
-                      "type": "integer",
-                      "minimum": 1,
-                      "maximum": 9007199254740991
-                    },
-                    "gap": {
-                      "type": "number",
-                      "minimum": 0,
-                      "maximum": 20
-                    }
-                  },
-                  "required": [
-                    "action"
-                  ],
-                  "additionalProperties": false
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "action": {
                       "const": "reorder_windows"
                     },
                     "window_ids": {
@@ -6439,25 +5218,6 @@
                   "required": [
                     "action",
                     "window_id"
-                  ],
-                  "additionalProperties": false
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "action": {
-                      "const": "set_view"
-                    },
-                    "view": {
-                      "enum": [
-                        "windows",
-                        "spatial"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "action",
-                    "view"
                   ],
                   "additionalProperties": false
                 },
@@ -6562,44 +5322,6 @@
                   "type": "object",
                   "properties": {
                     "action": {
-                      "const": "arrange_spatial"
-                    },
-                    "window_ids": {
-                      "type": "array",
-                      "items": {
-                        "type": "string",
-                        "pattern": "^[a-zA-Z0-9_-]{1,100}$"
-                      },
-                      "minItems": 1,
-                      "uniqueItems": true
-                    },
-                    "mode": {
-                      "enum": [
-                        "grid",
-                        "row",
-                        "curve"
-                      ]
-                    },
-                    "columns": {
-                      "type": "integer",
-                      "minimum": 1,
-                      "maximum": 9007199254740991
-                    },
-                    "gap": {
-                      "type": "number",
-                      "minimum": 0,
-                      "maximum": 20
-                    }
-                  },
-                  "required": [
-                    "action"
-                  ],
-                  "additionalProperties": false
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "action": {
                       "const": "reorder_windows"
                     },
                     "window_ids": {
@@ -6632,25 +5354,6 @@
                   "required": [
                     "action",
                     "window_id"
-                  ],
-                  "additionalProperties": false
-                },
-                {
-                  "type": "object",
-                  "properties": {
-                    "action": {
-                      "const": "set_view"
-                    },
-                    "view": {
-                      "enum": [
-                        "windows",
-                        "spatial"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "action",
-                    "view"
                   ],
                   "additionalProperties": false
                 },
@@ -6835,86 +5538,6 @@
           "action"
         ],
         "additionalProperties": false
-      },
-      {
-        "type": "object",
-        "properties": {
-          "workspace_id": {
-            "type": "string",
-            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-          },
-          "action": {
-            "const": "jev_suggest"
-          },
-          "request": {
-            "type": "string",
-            "maxLength": 12000
-          },
-          "api_key": {
-            "type": "string",
-            "maxLength": 4096
-          },
-          "consent": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "workspace_id",
-          "action",
-          "request",
-          "api_key",
-          "consent"
-        ],
-        "additionalProperties": false
-      },
-      {
-        "type": "object",
-        "properties": {
-          "workspace_id": {
-            "type": "string",
-            "pattern": "^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$"
-          },
-          "action": {
-            "const": "jev_apply"
-          },
-          "action_id": {
-            "type": "string",
-            "maxLength": 100
-          },
-          "base_revision": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 9007199254740991
-          },
-          "confirm": {
-            "type": "boolean"
-          },
-          "operation_id": {
-            "type": "string",
-            "pattern": "^[a-zA-Z0-9_.:-]{1,128}$"
-          },
-          "intent": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 160
-          }
-        },
-        "required": [
-          "workspace_id",
-          "action",
-          "action_id",
-          "base_revision"
-        ],
-        "additionalProperties": false,
-        "dependencies": {
-          "operation_id": [
-            "intent",
-            "base_revision"
-          ],
-          "intent": [
-            "operation_id"
-          ]
-        }
       }
     ]
   }

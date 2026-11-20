@@ -2,10 +2,10 @@
 
 ## Baseline and scope
 
-Started 2026-09-28 on `workbench/next-integration` at
-`d35142f812619c1a2492f0223fce2798cf105b6d`, with a clean working tree.
-The first independently useful release is M1–M2: durable arrangement proposals,
-receipt recovery, strict revision-bound Return, and portable project recipes.
+Started 2026-09-28 on the former `workbench/next-integration` branch (removed in
+cleanup Phase 3) at `d35142f812619c1a2492f0223fce2798cf105b6d`, with a clean
+working tree. The first independently useful M1–M2 arrangement release was
+removed in cleanup Phase 3; its schema-9 through schema-12 tables remain inert.
 M3–M6 remain later dependencies until their preceding journeys are verified.
 No deployment, owner runtime migration, or paid provider acceptance is part of
 the development fixtures. Hermes remains the runtime; layout remains v1.
@@ -16,12 +16,12 @@ the development fixtures. Hermes remains the runtime; layout remains v1.
 | --- | --- | --- |
 | Workspace operations | Strict bounded v1 operations, CAS, checkpoints and durable command receipts | Persist exact proposed result before approval; semantic diff |
 | Structural preview | Uncommitted reducer output; new IDs can differ on later apply | Stage IDs once; bind renderer/viewport and exact digest |
-| Workbench arrangements | Project bindings and Investigate/Implement/Review; process-local preview/Return maps | Durable proposals and Return across restart |
+| Workbench arrangements | Project bindings and Investigate/Implement/Review; process-local preview/Return maps | Durable proposals and Return across restart | (removed in cleanup Phase 3)
 | Saved layouts | Browser-local geometry keyed to existing window IDs | Add server recipes without changing legacy geometry-only meaning |
 | Runtime continuity | Stable pane views; native moveBefore supports same-document moves | Verify both renderers; state fallback limits explicitly |
 | Plugins | Disabled-first v1 registration, retained content-addressed bundles | Instances/data/declarative contributions are later M3 work |
 | Execution | Private candidates, independent check evidence, shared lane | Artifact-producing Studio profile is later M4 work |
-| Store | Source schema 8; v1 layout plus separate placement and Workbench tables | Additive migration; never a competing writable store |
+| Store | Source schema 8; v1 layout plus separate placement and Workbench tables | Additive migration; never a competing writable store | (removed in cleanup Phase 3)
 
 Older schema-3/6 prose and unimplemented-authority proposals are historical
 design context, not current behavior or authority to extend generated frames.
@@ -31,14 +31,14 @@ design context, not current behavior or authority to extend generated frames.
 Frozen implementation direction:
 
 1. `server/workspace-arrangements.mjs` extracts arrangement compilation/persistence
-   from `server/workbench-workflow.mjs`, retaining `recipe_preview` /
+   from `server/workbench-workflow.mjs`, retaining `recipe_preview` / (removed in cleanup Phase 3)
    `recipe_apply`, `preview_id` and `preview_digest` compatibility. Schema 9 in
-   `server/sqlite-workspace-store.mjs` / `server/workbench-data.mjs` adds private
+   `server/sqlite-workspace-store.mjs` / `server/workbench-data.mjs` adds private (removed in cleanup Phase 3)
    proposals and versioned recipes. Exact staged state/placement is committed;
    Return stages an inverse from the pre-change checkpoint only at the exact
    applied revision. Proposal disposition and workspace receipt share a transaction.
-2. `src/workbench-workflow.ts`, `src/project-workbench.ts` and
-   `src/pane-workbench.ts` supply the compact semantic preview and retained retry
+2. `src/workbench-workflow.ts`, `src/project-workbench.ts` and (removed in cleanup Phase 3)
+   `src/pane-workbench.ts` supply the compact semantic preview and retained retry (removed in cleanup Phase 3)
    key. Advanced identities stay in Details; saved and browser-acknowledged states
    stay distinct. Existing verified patch/integration controls retain their scope.
 3. `server/workspace-description.mjs`, `server/workspace-arrangement-control.mjs`,
@@ -49,7 +49,7 @@ Frozen implementation direction:
 4. Focused migration/receipt/auth tests plus
    `tests/workspace-arrangements.browser.py` establish restart, stale/undo,
    second-project portability and actual renderer continuity. Then run the full
-   check, publisher, relevant Workbench/browser regressions and portable parity.
+   check, publisher, relevant Workbench/browser regressions and portable parity. (removed in cleanup Phase 3)
 
 Named recipe definitions store role constraints and renderer/layout preferences,
 not copied resource UUIDs. Missing and duplicate roles require explicit handling.
@@ -74,7 +74,7 @@ inspection are separate facts. No preview attaches or creates live resources.
 ## Fresh evidence
 
 - Baseline: `node --experimental-strip-types --test --test-concurrency=1
-  tests/workbench-workflow.test.mjs tests/workspace-receipts.test.mjs
+  tests/workbench-workflow.test.mjs tests/workspace-receipts.test.mjs (removed in cleanup Phase 3)
   tests/sqlite-workspace-store.test.mjs`: **28 passed**, no failures/skips.
   Disposable local fixtures, real SQLite and local Git; no model request.
 - Confirmed isolated old-wrapper defect: first recipe apply commits revision 2;
@@ -94,7 +94,7 @@ inspection are separate facts. No preview attaches or creates live resources.
   testing the real Python transport, no Hermes/model invocation.
 - Migration: `tests/workspace-arrangements-migration.test.mjs`: **2 passed**.
   Real archived `d35142f` schema-8 store creates the fixture; upgrade preserves
-  state/checkpoint/receipt/bundle and Workbench identities. Schema-9 backup/restore
+  state/checkpoint/receipt/bundle and Workbench identities. Schema-9 backup/restore (removed in cleanup Phase 3)
   passes; old schema-8 code refuses schema 9; both readers refuse schema 10.
   This does not authorize mixed-version writers or an owner-runtime upgrade.
 - Final dependency-enabled `npm run check`: **695 tests, 693 passed, 0 failed,
@@ -135,7 +135,7 @@ inspection are separate facts. No preview attaches or creates live resources.
   exact Return, a pending preview across server restart, independent-browser
   retrieval, durable save/apply response recovery, and original local-layout
   bytes retained through import. No new model execution is requested.
-- Existing `tests/workbench-results-ui.browser.py` passed under **default and
+- Existing `tests/workbench-results-ui.browser.py` passed under **default and (removed in cleanup Phase 3)
   Docking** after adapting its selectors to the new disclosed arrangement slot.
   Exact patch round trips, Review visibility, Return/stale-owner-edit refusal,
   unrelated-pane continuity and disclosure revocation remain asserted. Both runs
@@ -173,14 +173,14 @@ are actual fixture observations, not projected success percentages.
 
 Published `e695db36cca5097911884aa8f94cdf898e647f67`. Plugin CI
 [`36461741968`](https://github.com/mojomast/orbitdesktop/actions/runs/36461741968)
-passed. Workbench CI
+passed. Workbench CI (removed in cleanup Phase 3)
 [`36461742038`](https://github.com/mojomast/orbitdesktop/actions/runs/36461742038)
 passed its dependency-enabled Node gate, Python/portable parity, real release
 instance, both new arrangement/PTY journeys, continuity/recovery, live timeline,
 candidate diff and result/review boundaries, but failed three existing browser
 fixture gates. This is a failed CI run, not a release-wide green result.
 
-Confirmed fixture mismatches: Project Workbench's Doctor assertion still expected
+Confirmed fixture mismatches: Project Workbench's Doctor assertion (that feature was removed in cleanup Phase 3) still expected
 schema 8 rather than 9; the delayed-load fixture's strict read allowlist omitted
 `recipe_list` and `proposal_list`. The native browser failure was diagnosed using its
 separately captured diagnostic log. Corrections and their focused reruns are
@@ -210,7 +210,7 @@ failed run as passing.
 
 The corrected exact head `ae14c4f327765dc5ff8786070dedc9eb7e9b3abe` subsequently
 passed both [plugin CI](https://github.com/mojomast/orbitdesktop/actions/runs/36466650831)
-and [Workbench/browser CI](https://github.com/mojomast/orbitdesktop/actions/runs/36466650882).
+and [Workbench/browser CI](https://github.com/mojomast/orbitdesktop/actions/runs/36466650882). (removed in cleanup Phase 3)
 These completed runs establish the M1–M2 baseline, not the later M3 source.
 
 ## Milestones
@@ -257,7 +257,7 @@ These increments have not been deployed to an owner runtime.
 - Recipes retain portable role order, renderer and grid intent. Current-layout
   capture/import does not save arbitrary pixels, theme, camera, minimized state,
   instance data or resource authority. The legacy local layout stays intact.
-- Windows and opt-in Docking support measured grids; Spatial supports role
+- Windows and opt-in Docking support measured grids; Spatial supports role (removed in cleanup Phase 3)
   ordering. A viewport that cannot meet minimum sizes reports deferred geometry.
   The staged semantic preview is not a disposable rendered-layout preview;
   `rendered:false` and `tested:false` remain distinct from commit and browser ack.
@@ -336,7 +336,7 @@ Local integrated verification:
   recovery hold/release, placement undo and late-response revocation are covered.
   Both runs report zero page errors, zero terminal WebSockets, and unchanged
   unrelated terminal/conversation pane identities.
-- Existing Project Workbench browser coverage passes in all four variants
+- Existing Project Workbench browser coverage (removed in cleanup Phase 3) passed in all four variants
   (Default/Docking × ordinary/linked projects); the delayed-load binding-race
   positive control also passes. Chromium **145.0.7632.6**, zero page errors.
 - Live-PTY continuity passes **94 transitions per renderer**, preserving retained
@@ -378,7 +378,7 @@ history. See [Hermes](HERMES.md) for bounds and delivery/wake tradeoffs.
 The separate schema-8 backport passed **658 tests, 656 passed, 2 gated skips** and
 both real-server browser context and cross-mode journeys. The context fixture
 advertises native continuation, sends an identical Normal prompt twice, verifies
-the earlier completed turn in the second exact Runs body, then verifies Workbench
+the earlier completed turn in the second exact Runs body, then verifies Workbench (removed in cleanup Phase 3)
 retains both turns without the unsent draft. Gateway/model endpoints are synthetic;
 the cross-mode fixture uses the pinned actual Hermes runtime with a local model.
 
@@ -405,10 +405,10 @@ Combined-source local acceptance:
 - Both project-tool renderers preserve the exact notebook editor DOM node,
   unsaved draft and saved data revision/text while applying Relay and MS-DOS.
   Lead inspected synthetic themed notebook/manager screenshots; artifacts stay
-  outside Git. The theme fixtures are included in the Workbench CI workflow.
+  outside Git. The theme fixtures are included in the Workbench CI workflow. (removed in cleanup Phase 3)
 - The conversation-context browser journey passes again on the combined source
   in Default and Docking, including repeated Normal submissions and bounded
-  Workbench handoff without the unsent draft.
+  Workbench handoff without the unsent draft. (removed in cleanup Phase 3)
 
 These are local results; publication must obtain new exact-head remote CI rather
 than treating the M1–M2 baseline runs as validation of this merge.
@@ -417,7 +417,7 @@ than treating the M1–M2 baseline runs as validation of this merge.
 
 The combined `a15d7eb947d0c5936ce7ac66b5cda0ce49b5fea3` passed both
 [plugin CI](https://github.com/mojomast/orbitdesktop/actions/runs/36475557044) and
-[Workbench CI](https://github.com/mojomast/orbitdesktop/actions/runs/36475556992).
+[Workbench CI](https://github.com/mojomast/orbitdesktop/actions/runs/36475556992). (removed in cleanup Phase 3)
 The authorized release `orbit-a15d7eb` then upgraded the owner runtime from schema
 8 to 10 after a private rehearsal and stopped-writer full backup. Activation took
 1.6 seconds. All 30 existing tables' rows survived migration; all 79 saved layouts
@@ -437,8 +437,8 @@ This timing precedes the new Studio browser cases.
 
 Deployment follow-on: the separately authorized goal-first release
 `orbit-4fec70f` now includes Studio and the inline-tool chat improvements.
-[Goal-first deployment evidence](MILESTONE_GOAL_FIRST_WORKBENCH.md#deployment-record)
-records the schema-11 backup/migration, exact-head CI and preserved owner data.
+Goal-first deployment evidence was removed in cleanup Phase 3; the former record
+covered the schema-11 backup/migration, exact-head CI and preserved owner data.
 The original implementation-only evidence below remains historical.
 
 The owner selected a finite local focus-timer generator as the first end-to-end

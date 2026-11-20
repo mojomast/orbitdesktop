@@ -10,7 +10,7 @@ and the actual selected commit's tooling when upgrading this branch.
 The published `hermes-plugin-v0.3.0` release includes its reviewed source archive.
 The historical 0.3.1 baseline at `b404cf1` prepared on `release/0.3.1` used SQLite schema 11, v1
 workspace contract and sandboxed app-manifest format, plus the off-by-default
-experimental Project Workbench gate. It has **no published tag or release page
+experimental Project Workbench gate (removed in cleanup Phase 3). It has **no published tag or release page
 yet**, so select a version by its full commit pin only after its release page
 exists; do not install an untagged prepared package as though it were published.
 Use that pin and the
@@ -56,10 +56,10 @@ Older browsers also need the separate browser feature fence on the new server.
 Schema 11 remains the preceding fence for Studio release revocations;
 no tables or existing rows were rewritten by the 10→11 migration. Backups must
 include private `extension-studio/` proposals as well as retained `apps/` bundles.
-Goal-first setup additionally stores its bounded private journal in
-`workbench-setup/`; back it up with the Workbench database, candidate directories
-and execution journals. Preparation step receipts and setup launch identities
-must remain together. An unknown setup/start is not authorization to replay work.
+The former goal-first Project Workbench was removed in cleanup Phase 3; it wrote
+a bounded private journal under `workbench-setup/`, and its database tables remain
+inert. Retain existing backups, but do not expect new setup or
+execution journals.
 The historical goal-first rollout served `orbit-4fec70f` on schema 11. It
 preserved all 41 existing tables, 20 conversation files and three tmux panes after
 a verified stopped-writer full backup. See the goal-first milestone deployment
@@ -90,23 +90,17 @@ candidate directories, and integration publication manifests. Preserve these wit
 their associated database and source trees so exact recovery remains possible.
 Ephemeral authenticated channels do not survive server restart. Unsaved document
 recovery is browser-tab storage, separate from server backups and saved documents.
-See [Resource delegation](RESOURCE_DELEGATION.md) and
-[Workbench setup](WORKBENCH_SETUP.md) for the current lifecycle and writer limits.
+See [Resource delegation](RESOURCE_DELEGATION.md) for the current lifecycle and
+writer limits.
 
 Back up the **entire** private runtime, not just `workspace.sqlite`. This includes
 conversation bindings/drafts/library metadata, output metadata, saved layouts,
-knowledge source snapshots and index sidecars, document/canvas records and
-revisions, interactive results, data recipes, trace stores and MCP snapshots,
-alongside existing Workbench journals and published bundles. Preserve configured
-external model/engine asset roots and private integration environment files too.
-Layout checkpoints do not restore these private contents. Storage details and
-setup commands are indexed in [Technology features](TECHNOLOGY_FEATURES.md).
-
-Browser copilot requires a durable executable and origin policy. MCP Apps requires
-`ORBIT_MCP_APPS=1` and a distinct reachable sandbox origin; for HTTPS reverse proxy
-deployments set both its public origin and explicit loopback listener port.
-Preserve existing reverse-proxy routes and verify that the sandbox does not serve
-owner APIs. Configuration and engine availability are separate checks.
+shared-source snapshots and keyword-index sidecars, document/canvas records and
+revisions, interactive results, trace stores and published bundles. Preserve
+configured external model/engine asset roots and private integration environment
+files too. Layout checkpoints do not restore these private contents. Storage
+details and setup commands are indexed in
+[Technology features](TECHNOLOGY_FEATURES.md).
 
 The current testing activation and exact-head CI evidence are recorded in
 [Verification](VERIFICATION.md). It preserved six terminal identities and 22
@@ -115,11 +109,6 @@ to restart a busy service. Recheck active and unresolved work before every cutov
 Do not edit immutable packages to update prompts: package the updated agent guide
 and frontend together, verify them, then use an authorized session-preserving
 activation. The injected guide is read from the running package.
-
-gVisor remains an optional separately tested backend. Its version-2 private
-approval records must remain with their compatible implementation. Failed rootless
-namespace probes or absent approved runtime/rootfs leave it unavailable; never
-substitute trusted-host execution. See [Isolated checks](ISOLATED_CHECKS.md).
 
 ## Provisioning the RouteTok TypeScript cache
 
@@ -130,13 +119,6 @@ via `npm ci --ignore-scripts --include=dev --no-audit --no-fund
 --registry=https://registry.npmjs.org`. This operator step requires download
 authorization and must never use an owner's node_modules or npm credentials.
 Keep the lock byte-identical. Do not run npm audit/fix or update tool versions.
-
-Set `ORBIT_WORKBENCH_NPM_CACHE` to the persistent private cache root for the
-isolated service before its authorized activation. Workbench preparation copies
-only cache content and runs offline with scripts disabled. Missing cached
-artifacts fail rather than causing network requests. The cache is a provisioning
-input, not a guarantee of dependency integrity: lockfile integrity plus hashed
-private prepared trees and executable modes establish the execution identity.
 
 The real-profile regression is enabled with `ORBIT_ROUTETOK_TEST_SOURCE` (a clean
 disposable RouteTok checkout pinned at `5982efe845f99528b2facde08991d951269ec4ab`)
@@ -204,7 +186,7 @@ after a crash, orphan cleanup is an operator task, never automatic replay.
 
 Temporary implementation paths are not deployment prerequisites that survive a
 host/container change. Recreate the test runtime from the same upstream and
-lockfile used in `.github/workflows/workbench.yml`. The pinned commit belongs to
+lockfile used in `.github/workflows/technology.yml`. The pinned commit belongs to
 **https://github.com/NousResearch/hermes-agent**, not the owner's Hermes fork.
 Use a new private directory; do not overwrite an existing Hermes installation.
 
@@ -234,8 +216,7 @@ Schema 7→8 adds private result receipts, host-card delivery records and review
 patch-export records. Native explanations are separate from runtime termination,
 recorded checks and human acceptance. Backups must also include
 `native-result-journal/` and
-`workbench-execution/patch-verification-pending/` alongside candidate generations, job and
-ordinary-submission journals, dependency environments, private Hermes homes and
+`native-result-journal/` alongside dependency environments, private Hermes homes and
 integration/patch artifacts. SQLite alone is not a complete backup.
 
 Take a consistent backup with all writers excluded before a separately authorized
@@ -248,7 +229,7 @@ It does not refresh a served checkout's `dist/`. Explicit build destinations are
 validated before writes against source, runtime and configured protected roots.
 Release selection, verified process activation, database migration and rollback
 are separate operator operations. No operator deployment or activation was
-performed by this increment. See `WORKBENCH_RESULT_INCREMENT.md` for current
+performed by this increment. See [Verification](VERIFICATION.md) for current
 integration and acceptance status.
 
 ### Isolated builds and pinned releases
@@ -303,8 +284,8 @@ and session-preservation steps below before a separately approved activation.
 
 ## Agent-loop candidate (schema 7; not deployed by implementation)
 
-Use the [current ledger](WORKBENCH_AGENT_LOOP_LEDGER.md) for exact source and
-verification evidence. Schema 6→7 is additive but rejects duplicate scoped job
+The former Workbench agent-loop ledger was removed in cleanup Phase 3; use
+[Verification](VERIFICATION.md) for exact source and verification evidence. Schema 6→7 is additive but rejects duplicate scoped job
 operation keys; investigate a restored copy rather than deleting receipts. A
 separately authorized upgrade requires writer exclusion and a consistent schema-6
 backup plus candidate generations, job/finalization journals, ordinary chat
@@ -317,9 +298,8 @@ new runtime with `restore --preserve-schema`; never lower `user_version`. Any
 post-backup execution receipts must be reconciled explicitly before admitting new
 work. No owner/test credential rotation or deployed-runtime change is implied.
 
-The native adapter additionally requires the explicitly configured pinned local
-Hermes source/Python/model endpoint/profile described in `PROJECT_WORKBENCH.md`.
-Deterministic runtime compatibility does not authorize external inference spending.
+The native Workbench adapter was removed in cleanup Phase 3. Deterministic runtime
+compatibility does not authorize external inference spending.
 
 This is an owner-operated, single-writer deployment. **Local loopback operation is
 supported without Tailscale.** An ordinary reverse proxy or Tailscale Serve may
@@ -381,16 +361,17 @@ Hermes chat uses the API server in `~/.hermes` when `HERMES_API_URL`, `HERMES_AP
 - Schema 4 adds docking placement adjuncts to schema 3. Layout/plugin manifests
   stay v1. See [Docking persistence](DOCKING_PERSISTENCE.md) and
   [Store operations](WORKSPACE_STORE.md) for the implementation contract.
-- Schema 5 adds Project Workbench project/resource/surface-binding metadata outside
-  layout state. See [Project Workbench](PROJECT_WORKBENCH.md). Backup includes these
-  tables, but layout checkpoints do not restore them. Return to a schema-4 build
-  using its compatible pre-upgrade backup, never by lowering `user_version`.
-- Schema 6 adds private context/task/attempt/candidate/job/evidence/review records.
-  Stop writers under an authorized operator plan and retain a consistent schema-5
-  backup before upgrade. Back up candidate/log directories separately with the
-  database for complete evidence preservation. Unknown run/job records do not
-  authorize automatic retries. Context approvals and runtime grants are not
-  revived by restart or layout recovery. See [Project Workbench](PROJECT_WORKBENCH.md).
+- Schema 5 added Project Workbench metadata (removed in cleanup Phase 3) outside
+  layout state; the tables remain inert.
+  Backup includes these tables, but layout checkpoints do not restore them.
+  Return to a schema-4 build using its compatible pre-upgrade backup, never by
+  lowering `user_version`.
+- Schema 6 added private context/task/attempt/candidate/job/evidence/review
+  records (removed in cleanup Phase 3; the tables remain inert). Stop writers
+  under an authorized operator plan and retain a consistent schema-5 backup
+  before upgrade. Unknown run/job records do not authorize automatic retries.
+  Context approvals and runtime grants are not revived by restart or layout
+  recovery.
 - **No mixed-version rolling upgrade.** Old binaries must refuse a newer schema;
   a newer binary is not permission to run alongside an older writer.
 
@@ -452,24 +433,6 @@ technology-candidate public frontend/sandbox checks and pending owner walkthroug
 are distinguished in [Verification](VERIFICATION.md); historical pending notes
 must not substitute for the evidence of the exact build being activated.
 No command in this document authorizes migration/restart of an owner runtime.
-## Private Hermes live-activity projection
-
-The owner-only `POST /api/workbench/live` route supports authenticated fetch-SSE
-and bounded read-only replay/detail/tail requests. Reverse proxies must allow
-streaming responses without buffering; bearer/origin checks and `no-store`
-remain required. No token is placed in a query string.
-
-`workbench-live.sqlite` and its SQLite sidecars belong in the private runtime,
-alongside but separate from the authoritative workspace database. Do not publish
-them, live output, or conversation snapshots in `/apps`, release archives or Git.
-Projection startup failure degrades live activity rather than preventing worker
-recovery. Rebuilding a projection restores honest current-state snapshots, not
-missing historical transitions, and never restarts execution.
-
-See [Hermes live view](HERMES_LIVE_VIEW.md) for durable versus live-only records,
-privacy, replay limits and the Normal stream's lack of exact replay. Deploy and
-test in a separate runtime before changing a service with live terminals.
-
 ## Built-in token router in Docker mode
 
 The opt-in built-in router is not yet supported end to end when Orbit itself runs

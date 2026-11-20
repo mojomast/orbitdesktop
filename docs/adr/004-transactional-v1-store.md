@@ -27,7 +27,7 @@ revision validation, state change, applicable pre-change checkpoint, receipt, an
 event row atomic. A failed transaction leaves those changes uncommitted. No network
 request or other asynchronous work is allowed inside a write transaction: callbacks
 that produce state and responses are synchronous, and promise-like results are
-rejected. For example, Jev/provider work and filesystem app indexing happen before
+rejected. For example, provider work and filesystem app indexing happen before
 the command commit path.
 
 The connection enables `foreign_keys`, requires WAL mode, and selects

@@ -262,7 +262,7 @@ export async function installDockingRenderer(options: DockingOptions): Promise<D
   }
 
   function placeCurrent() {
-    if (lastElements && options.getState().view !== 'spatial' && options.host.offsetWidth > 0) {
+    if (lastElements && options.host.offsetWidth > 0) {
       placeWindows(lastElements, lastMonitors, lastSelected, lastFocused);
     }
   }

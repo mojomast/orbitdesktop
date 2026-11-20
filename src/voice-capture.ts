@@ -12,7 +12,7 @@ const REQUIRED = ['config.json', 'preprocessor_config.json', 'generation_config.
 export function mountVoiceCapture(host: HTMLElement, _token: () => string, options: VoiceCaptureOptions = {}): { dispose(): void } {
   const maxSeconds = Math.min(VOICE_MAX_SECONDS, Math.max(1, Number.isFinite(options.maxSeconds) ? options.maxSeconds! : VOICE_MAX_SECONDS));
   const root = document.createElement('section'); root.className = 'voice-capture';
-  root.innerHTML = `<h2>Voice transcript</h2>
+  root.innerHTML = `<h2>Dictation</h2>
     <p>Local audio → Moonshine Tiny int8 → editable draft. English speech; review recognition errors. Long clips use 30-second sections; check words at section boundaries.</p>
     <p class="voice-model-status" role="status">Model not checked. Provision local weights before transcription.</p>
     <button type="button" class="voice-check">Check local model</button>
@@ -154,7 +154,7 @@ export function mountVoiceCapture(host: HTMLElement, _token: () => string, optio
   }, { signal });
   transcript.addEventListener('input', controls, { signal });
   insert.addEventListener('click', () => {
-    void requestConversationContext({ text: transcript.value, title: 'Voice transcript', source: transcriptSource }).then(result => {
+    void requestConversationContext({ text: transcript.value, title: 'Dictation', source: transcriptSource }).then(result => {
       if (!disposed) status.textContent = result.status === 'delivered' ? 'Inserted into your chosen draft. Review and send there when ready.' : `Draft insertion: ${result.status}. Your transcript is retained.`;
     });
   }, { signal });

@@ -29,7 +29,7 @@ when the corresponding action is requested. Metadata alone grants no resource ac
 Use **Arrange workspace** for Grid/Focus/Compare. **Saved workspace layouts** saves
 geometry and placement; preview before applying and explicitly map missing windows.
 **Browser layout snapshots** auto-update locally and are separate from host Saved
-layouts and Workbench role recipes. Opening a built-in tool preserves Spatial view.
+layouts. Opening a built-in tool preserves the current desktop layout.
 **Workspace checkpoints** compares before restoring the full checkpoint; it does
 not undo file edits, messages or processes.
 
@@ -66,18 +66,16 @@ Guides: [Conversations](CONVERSATION_LIBRARY.md), [Outputs](OUTPUT_LIBRARY.md),
 
 ## Search and cited research
 
-> Open Knowledge search beside our conversation. I will import the source files
-> I want searched. Help me search for deployment constraints and insert an exact
+> Open Shared sources beside our conversation. I will import the source files I
+> want searched. Help me search for deployment constraints and insert an exact
 > cited passage into my chosen draft for review.
 
-Import explicit text/excerpts or UTF-8 files. Keyword search needs no model;
-semantic search needs the provisioned MiniLM assets. Citations bind exact snapshot
-bytes and text ranges and are included in the actual draft text. The single review
-shows the existing draft plus the excerpt and exact citation. Importing one file
-does not authorize directory or transcript crawling. Selected-resource delegation
-has its own authenticated channel and explicit scope; see
-[Resource delegation](RESOURCE_DELEGATION.md) for supported recipient types.
-Guide: [Knowledge search](KNOWLEDGE_SEARCH.md).
+Import explicit text/excerpts or UTF-8 files. The local index is keyword-only and
+needs no model. Citations bind exact snapshot bytes and text ranges and are
+included in the actual draft text. The single review shows the existing draft plus
+the excerpt and exact citation. Importing one file does not authorize directory or
+transcript crawling. Selected-resource delegation has its own authenticated channel
+and explicit scope; see [Resource delegation](RESOURCE_DELEGATION.md).
 
 > Use the sources I delegated to this conversation's next run to write a cited
 > project brief. Read only that scope, create a new saved editable document, and
@@ -101,8 +99,8 @@ into Document library when these verbs are granted.
 
 Check `describe` for `revise_document`. If the grant lacks it, call
 `request_permission` with the specific need rather than telling the owner what to
-click. Queries over the Data workbench have no delegated engine: ask, and if the
-answer is that no delegated implementation exists, say which surface to use.
+click. Data queries have no delegated engine: ask, and if no delegated
+implementation exists, say which surface to use.
 
 ## Interactive result cards
 
@@ -138,32 +136,6 @@ The [Asteria simulator](ASTERIA_MISSION_CONTROL.md) is a separately published
 synthetic example with local deterministic calculations and a shared scenario
 model. Its controls recalculate results directly. Exports are downloads; its
 in-page state and outputs are distinct from private Orbit documents and grants.
-
-> Publish the synthetic CSV you just authored and open it in Data workbench for me
-> using its exact SHA-256. Use a new pane if an existing analysis might be lost.
-> Check layout acknowledgement and distinguish it from verified input loading.
-
-The supported pinned-publication route downloads an already-public, same-origin
-CSV (up to 5 MiB), verifies its hash and loads `input_1` in the built-in workbench.
-It needs no file picker or OpenCode Desktop connection. It runs no SQL and sends
-no message; use **Run SELECT** after reviewing the query. Restoring this route
-reloads its exact public input. See [Data Lab](DATA_LAB.md) for the URI contract.
-
-> Open Data workbench for the CSV files I will choose. Once I provide the displayed
-> table and column names, help write a SELECT that totals revenue by month. Help me
-> save the recipe and export the bounded result.
-
-> I will share the Data workbench schema and selected result rows into this draft.
-> Explain the actual values, preserve their numeric precision, and propose another
-> bounded SELECT using the exact input fingerprint. Leave running it to me.
-
-Data stays in the browser engine; choosing files does not attach them to Hermes.
-Use the actual assigned `input_1`, `input_2`, … names. Saved recipes bind exact file
-hashes and table identities, not file bytes; reselect inputs when reopening.
-**Ask about schema** shares table/column/type metadata without sample rows.
-Selected-result sharing includes actual values, input/result identities and explicit
-omission bounds. A reviewed SQL proposal fills the editor without running it.
-JSON/Parquet require pinned local extensions. Guide: [Data Lab](DATA_LAB.md).
 
 ## Rich documents and whiteboards
 
@@ -209,32 +181,7 @@ provider-cost report or proof of unobserved work. Guide: [Run traces](RUN_TRACES
 **Share diagnostic summary** previews redacted aggregate observations in a selected
 draft, with gap/open-state and timing caveats; it never sends automatically.
 
-## Optional browser and MCP Apps
-
-> Check whether Browser copilot is configured and open its surface. Help me stage
-> a navigation to an allowed site, inspect the snapshot and review the next action
-> before I execute it.
-
-The context is disposable and signed out. Operator rules control exact origins,
-wildcard subdomains and explicit local access; opening the panel grants no extra
-network access. WebSockets, uploads, downloads and password entry are blocked.
-It is distinct from Shared Chromium. Guide: [Browser Copilot](BROWSER_COPILOT.md).
-Selected observation sharing includes exact captured provenance and labels page
-text as untrusted historical evidence. A finite action suggestion can populate
-controls; the existing fresh Preview and Execute-once checks still decide action.
-
-> Open MCP Apps if configured. Help me prepare a self-contained report snapshot
-> using Orbit's documented import envelope, then I will import and open it and
-> check its local controls.
-
-MCP Apps needs the server gate and separate sandbox origin. Imports are snapshots
-with closed capabilities, not arbitrary MCP server connections or tool execution.
-The application must bundle its SDK and assets inline; network dependencies are
-blocked. Guide: [MCP Apps](MCP_APPS.md).
-Compatible complete-result snapshot envelopes can stage into an empty mounted MCP
-import editor. Import and Open are separate; staging does not fetch `ui://` resources.
-
-## Custom widgets and experimental Workbench
+## Custom widgets
 
 > Build a self-contained focus timer with typed duration settings. Publish and
 > test the content-addressed plugin, then add two independent instances without
@@ -243,24 +190,3 @@ import editor. Import and Open are separate; staging does not fetch `ui://` reso
 Prefer supported instance/configuration operations over duplicate source copies.
 Generated frames do not gain a host API bridge.
 Guides: [Plugins](PLUGINS.md), [Widget configuration](WIDGET_CONFIGURATION.md).
-
-> Help me prepare a Workbench task brief for this project, with clear acceptance
-> criteria and a stopping point. Propose setup for my review; preparation is not
-> approval to execute.
-
-> Save this prepared task for later review while the execution lane is busy.
-> When I return, show its current task status, checks and review state. Keep
-> starting work separate from saving the waiting intention.
-
-Setup offers **Save for later review**, status, cancellation and fresh review.
-The existing Workbench task chooser includes a **Task status inbox** with exact
-read acknowledgment and Live/Checks/Result links. Completion labels mean observed
-runtime exit, not passing checks or human approval. A retained publication with a
-complete verified journal can use **Finalize integration receipt** to settle its
-metadata without rerunning work; unknown or tampered effects remain unresolved.
-
-Workbench remains experimental and off by default in Orbit settings. Optional
-gVisor runs only approved `node-test` checks on a separately provisioned compatible
-host. A displayed capability is not approval; unavailable isolation cannot fall
-back to trusted-host execution. Guides: [Setup](WORKBENCH_SETUP.md),
-[Isolated checks](ISOLATED_CHECKS.md).

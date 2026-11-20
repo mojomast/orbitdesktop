@@ -1,0 +1,17 @@
+{
+  "id": "rizzstack-observatory",
+  "title": "Rizzstack Observatory",
+  "version": 1,
+  "proxies": {
+    "snapshot": {
+      "upstream_env": "ORBIT_EXT_OBSERVATORY_UPSTREAM",
+      "default_upstream": "http://127.0.0.1:8787",
+      "token_env": "ORBIT_OBS_COLLECTOR_TOKEN",
+      "methods": ["GET", "HEAD"],
+      "paths": ["/", "/snapshot"],
+      "allow_query": true,
+      "max_response_bytes": 8388608,
+      "timeout_ms": 20000
+    }
+  }
+}

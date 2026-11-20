@@ -94,6 +94,20 @@ string or `{reason}`; `backlog.board` may be a column list, a
   Authorization`) unless it is served same-origin. Requests use
   `cache: no-store` and `credentials: omit`.
 
+## Proxy
+
+The Observatory can read its snapshot through Orbit's generic extension proxy
+instead of a hard-coded route. The manifest at `orbit-extension.json` declares
+one `snapshot` proxy, served at
+`/api/ext/rizzstack-observatory/snapshot/snapshot` and its root path. The proxy
+requires the Orbit owner bearer and injects the server-side collector
+credential (`ORBIT_OBS_COLLECTOR_TOKEN`); the browser never sees that
+credential. See [docs/EXTENSION_PROXY.md](../../docs/EXTENSION_PROXY.md) for the
+route shape, manifest fields and fail-closed rules. The Orbit Hive host now
+reads its snapshot through this proxy. The existing `/obs-snapshot` route
+remains only for the legacy standalone Observatory app until Kyle verifies the
+switch and removes it.
+
 ## Register and open as an Orbit pane
 
 The supported path is the workspace-plugin lifecycle

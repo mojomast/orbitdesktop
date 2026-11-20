@@ -13,8 +13,6 @@ Mutations with `operation_id`, `intent` and `base_revision` commit durable recei
 
 | Operation | Required fields (besides action) | Optional fields | Effect |
 |---|---|---|---|
-| set_spatial_camera | camera |  | layout |
-| arrange_spatial |  | window_ids, mode, columns, gap | layout |
 | reset_appearance | keys |  | layout |
 | set_arc | arc |  | layout |
 | reorder_windows | window_ids |  | layout |
@@ -25,7 +23,6 @@ Mutations with `operation_id`, `intent` and `base_revision` commit durable recei
 | patch_appearance | patch |  | layout |
 | set_appearance | appearance |  | layout |
 | update_split | window_id, path | ratio, axis, swap | layout |
-| set_view | view |  | layout |
 | sidebar | hidden |  | layout |
 | select | window_id |  | layout |
 | add_window |  | name, kind, url, frame | layout |

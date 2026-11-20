@@ -27,9 +27,9 @@ export const EXTERNAL_IMMUTABILITY='operator-managed-not-enforced';
 export const DEFAULT_EXCLUDE=Object.freeze(['.git','node_modules','.runtime','active-release.json',MANIFEST_NAME,OWNED_MARKER]);
 export const REQUIRED_COMPONENTS=Object.freeze({
   server:['server/index.mjs'],
-  contracts:['contracts/workspace-v1.mjs','contracts/workbench-v1.mjs','contracts/workbench-result-v1.mjs'],
+  contracts:['contracts/workspace-v1.mjs'],
   served:['dist/index.html'],
-  plugin:['hermes-plugin/workbench.py'],
+  plugin:['hermes-plugin/__init__.py'],
   metadata:['package.json'],
   lock:['package-lock.json'],
 });
@@ -88,7 +88,7 @@ function walk(root){
 }
 
 // Mirrors the service Doctor identity: SHA-256 over sorted server/*.mjs and
-// contracts/*.mjs names/bytes (excluding the owner-specific mobile proxy).
+// contracts/*.mjs names/bytes (excluding a stray owner-specific mobile-proxy.mjs).
 export function serviceBuildId(root){
   const hash=createHash('sha256');
   for(const [prefix,directory] of [['./','server'],['../contracts/','contracts']]){

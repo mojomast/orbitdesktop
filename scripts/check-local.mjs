@@ -29,7 +29,7 @@ try {
   // Only explicitly provisioned opt-in test inputs, never provider keys,
   // service URLs, SSH agents, setup configs, NPM tokens or personal profiles.
   if(process.env.ORBIT_TEST_PROVISIONED === '1') {
-    for(const name of ['HERMES_NATIVE_SOURCE','HERMES_PINNED_SOURCE','HERMES_PINNED_PYTHON','ORBIT_ROUTETOK_TEST_SOURCE','ORBIT_ROUTETOK_TEST_CACHE','ORBIT_DUCKDB_EXTENSIONS_ROOT','ORBIT_TEST_MODEL_DIR','ORBIT_TEST_CUA_PYTHON']) {
+    for(const name of ['HERMES_NATIVE_SOURCE','HERMES_PINNED_SOURCE','HERMES_PINNED_PYTHON','ORBIT_ROUTETOK_TEST_SOURCE','ORBIT_ROUTETOK_TEST_CACHE','ORBIT_TEST_MODEL_DIR','ORBIT_TEST_CUA_PYTHON']) {
       if(process.env[name]) env[name]=process.env[name];
     }
   }
@@ -41,11 +41,9 @@ try {
   console.log('Orbit check: loopback only; disposable HOME, temp, tmux and npm cache.');
   if(mode==='check') {
     run(['scripts/generate-workspace-contract.mjs','--check']);
-    run(['--experimental-strip-types','scripts/generate-workbench-contract.mjs','--check']);
     run(['scripts/isolated_build.mjs']);
   }
-  const tests=mode==='preflight'?['runnable-portability.test.mjs','onboarding-wiring.test.mjs','workspace-store-placement.test.mjs','project-files-adversarial.test.mjs','data-workbench-assets.test.mjs']
+  const tests=mode==='preflight'?['runnable-portability.test.mjs','onboarding-wiring.test.mjs','workspace-store-placement.test.mjs']
     :fs.readdirSync(path.join(repo,'tests')).filter(name=>name.endsWith('.test.mjs')).sort();
   run(['--experimental-strip-types','--test','--test-concurrency=1',...tests.map(name=>'tests/'+name)]);
-  if(mode!=='preflight') run(['vendor/irc-suite/scripts/run-tests.js']);
 } finally { fs.rmSync(root,{recursive:true,force:true}); }

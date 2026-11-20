@@ -6,22 +6,18 @@ change execution authority or the meaning of a recorded outcome.
 
 ## Visibility budget
 
-Workspace arrangements are a compact disclosure below the primary Changes review
-surface and a host-owned card in the Project Inspector. Preview shows named
-semantic changes; exact operations, revision, digest and viewport live in
-Advanced details. Recipe editing, legacy role-order import and proposal history
-are further disclosures. Apply saves an exact staged proposal; the UI then waits
-for browser acknowledgement without calling that visual verification. Reloaded
-pending save/apply identities are reconciled explicitly against durable records;
-opening an arrangement never submits a model request or releases an execution
-lane. See [arrangement contracts](WORKSPACE_ARRANGEMENTS_API.md).
+The Workspace arrange dialog applies Grid, Focus and Compare placement to
+existing windows and is available from the Docking disclosure. Saved workspace
+layouts name a placement preset for those existing windows; exact operations,
+revision and viewport live in Advanced details. Apply waits for browser
+acknowledgement without calling that visual verification. Reloaded pending
+save/apply identities are reconciled explicitly against durable records; opening
+the dialog never submits a model request or releases an execution lane. See
+[saved workspace layouts](SAVED_WORKSPACE_LAYOUTS.md).
 
 Normal mode keeps the conversation title, one concise runtime status, and an
-overflow control in its permanent header. When **Project Workbench** is enabled
-in Orbit settings, the header also keeps the Normal/Workbench switch; otherwise
-the switch, goal handoff, separate Workbench window and task-result cards stay
-hidden while the pane keeps its stored preference and remains a normal chat. The
-composer has one primary Send control and compact secondary actions. Profile and
+overflow control in its permanent header. The composer has one primary Send
+control and compact secondary actions. Profile and
 session binding, rename/color, notification preferences, workspace-agent overview,
 healthy submission receipts belong in secondary surfaces.
 
@@ -66,11 +62,9 @@ unknown result, or release the shared execution lane. An offline activity stream
 does not imply that execution has stopped. Successful completion returns to the
 quiet Ready presentation; actual approvals and unknown outcomes remain actionable.
 
-Workbench presents project/task names and the selected candidate generation before
-technical identifiers. Exact task, attempt, grant, candidate and receipt identities
-remain available in Details. Selection is not authorization: all execution and
-handoff previews still use their existing server-validated records and immutable
-context captures. The Changes and Review surfaces retain the same exact historical
+Selection is not authorization: all execution and handoff previews still use their
+existing server-validated records and immutable context captures. The Review surface
+retains the same exact historical
 diff component and independent recorder evidence.
 
 Selecting live or retained job output is a view choice independent of whether
@@ -108,10 +102,9 @@ workspaces and synthetic states; screenshots and private source stay outside Git
 DOM assertions alone are insufficient: header/composer height, visible message
 area, exceptional-state prominence and code-review placement are reviewed visually.
 
-The production-build visual fixture covers 56 combinations: seven states × two
-renderers × 1326×947, 1000×800, 760×700 and 520×700. The states are Normal idle,
-running, approval, Workbench running, Result review, exact diff, and unknown
-execution. It uses intercepted synthetic authority responses, with deliberately
+The production-build visual fixture covers Normal idle, running, approval, exact
+diff, and unknown execution states across two renderers and four sizes. Earlier
+Workbench-specific states were removed in cleanup Phase 3. It uses intercepted synthetic authority responses, with deliberately
 offline live-stream fallback in running examples, and never dispatches a model.
 Twenty-four additional idle/accessibility cases cover Paper, XP and Classic.
 
@@ -125,16 +118,15 @@ kept under `/tmp/opencode/orbit-agent-ux-qa`, outside Git.
 Real-server regressions separately cover both-renderer mode independence,
 immutable context and authority handoff, shared execution fences, historical diffs,
 scope clearing, project revocation, result review/placement and reload. The
-separate trusted Review window is covered there; the visual fixture's “review”
-state represents Workbench Result, not that independent window.
+separate trusted Review window is covered there.
 
 The pane header’s provider menu, the **Sessions** history sidecar, the context
 meter, and Compact are specified in [AGENT_CONTEXT.md](AGENT_CONTEXT.md). History
 in the conversation action row still opens the tools dialog. Sessions is the
 searchable sidecar. Those controls do not start a run by themselves.
 
-Binding invalidation releases the superseded Workbench load's busy ownership
-before launching its replacement. The accepted chat binding is installed first.
+Binding invalidation releases the superseded load's busy ownership before
+launching its replacement. The accepted chat binding is installed first.
 A deterministic delayed-import regression covers this reload interleaving: the
 replacement must reconnect retained activity without a manual refresh or replaying
 execution. Old asynchronous loads remain fenced by their epoch checks.

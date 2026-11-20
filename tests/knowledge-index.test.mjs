@@ -55,12 +55,12 @@ test("strict dispatch scope, exact bytes/citations, idempotency, deletion and re
     { code: "unavailable" },
   );
   const source = await f.call("ingest_text", textFields);
-  assert.equal(source.semantic_queued, false);
   assert.equal((await f.call("ingest_text", textFields)).idempotent, true);
   const found = await f.call("search", {
     query: 'planets" OR unknown : *',
     mode: "keyword",
   });
+  assert.equal(found.mode, "keyword");
   assert.equal(found.semantic_used, false);
   assert.equal(found.results.length, 1);
   const citation = found.results[0];

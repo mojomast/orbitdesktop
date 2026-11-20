@@ -25,7 +25,7 @@ PANE = '22222222-2222-4222-8222-222222222222'
 MONITOR = '33333333-3333-4333-8333-333333333333'
 SESSION = 'orbit-44444444-4444-4444-8444-444444444444'
 SIZES = [(1326, 947), (1000, 800), (760, 700), (520, 700)]
-STATES = ['idle', 'running', 'approval', 'workbench-running', 'review', 'diff', 'unknown']
+STATES = ['idle', 'running', 'approval', 'unknown']
 NOW = 1790596800000
 
 
@@ -43,22 +43,13 @@ def install_fixture(context, origin, name, width, height, theme=None):
     layout = state_for(width, height)
     if theme:
         layout['appearance']['theme'] = theme
-    wb = name in ('workbench-running', 'review', 'diff')
     chat = {'session': SESSION, 'profile_id': 'default', 'binding_revision': 1,
             'title': 'Design review', 'messages': [
                 {'role': 'user', 'text': 'Help me simplify the agent pane. Keep the conversation easy to follow.'},
                 {'role': 'assistant', 'text': 'I’ll keep the conversation central, move detailed activity into the inspector, and preserve explicit controls for approval and review.'}]}
     if name in ('running', 'approval'):
         chat['run'] = 'fixture-run'
-    prefs = {'version': 1, 'mode': 'workbench' if wb else 'normal',
-             'projectId': 'fixture-project' if wb else None,
-             'taskId': 'fixture-task' if wb else None,
-             'candidateId': 'fixture-candidate' if wb else None,
-             'attemptId': 'fixture-attempt' if wb else None,
-             'grantId': 'fixture-grant' if wb else None, 'resultId': None, 'reviewId': None}
     storage = {'orbit.workspace.id': WORKSPACE, 'orbit.workspace.v1': json.dumps(layout),
-               f'orbit-pane-prefs:{WORKSPACE}:{PANE}': json.dumps(prefs),
-               'orbit.experimental.v1': json.dumps({'version': 1, 'workbench': True}),
                'orbit.onboarded': 'true'}
     context.add_init_script('''(function() { const storage = %s;
       for (const [key,value] of Object.entries(storage)) localStorage.setItem(key,value);
@@ -68,11 +59,11 @@ def install_fixture(context, origin, name, width, height, theme=None):
     candidate = {'id': 'fixture-candidate', 'task_id': 'fixture-task', 'generation': 2,
                  'hash': 'b' * 64, 'status': 'ready', 'changed_files': 1, 'project_generation': 1}
     grant = {'id': 'fixture-grant', 'attempt_id': 'fixture-attempt',
-             'candidate_id': candidate['id'], 'status': 'running' if name == 'workbench-running' else 'finalized',
+             'candidate_id': candidate['id'], 'status': 'finalized',
              'model': 'Fixture model (no requests)', 'calls_used': 3, 'checks_used': 1,
              'repairs_used': 0, 'budget': {'calls': 8, 'checks': 3, 'repair_iterations': 1},
              'started_at': NOW - 65000, 'expires_at': NOW + 600000}
-    lane = {'agent_busy': name == 'workbench-running', 'job_busy': False, 'unknown': name == 'unknown'}
+    lane = {'agent_busy': False, 'job_busy': False, 'unknown': name == 'unknown'}
     result = {'id': 'fixture-result', 'availability': 'available', 'candidate_id': candidate['id'],
               'candidate_hash': candidate['hash'], 'candidate_generation': 2, 'grant_id': grant['id'],
               'text': 'The candidate is ready for your review. No owner files were changed.',
@@ -112,34 +103,6 @@ def install_fixture(context, origin, name, width, height, theme=None):
                     route.fulfill(content_type='text/event-stream', body=''.join('data: ' + json.dumps(event) + '\n\n' for event in events)); return
                 data.update(events=[])
             else: requests_unknown.append((path, action))
-        elif path == '/api/workbench': data.update(projects=[{'id': 'fixture-project', 'name': 'Orbit UX', 'active': True}])
-        elif path == '/api/workbench/context': data.update(attempts=[{'id': 'fixture-attempt', 'task_id': 'fixture-task'}], contexts=[], packets=[])
-        elif path == '/api/workbench/execution':
-            if action == 'candidate_get': data.update(candidate=candidate)
-            else: data.update(execution)
-        elif path == '/api/workbench/native':
-            data.update(grants=[grant] if wb else [], cards=[], grant=grant, result=result)
-        elif path == '/api/workbench/live':
-            if action == 'stream':
-                route.fulfill(status=503, json={'ok': False, 'code': 'fixture_page_transport'}); return
-            if action == 'detail':
-                data = {'ok': True, 'mode': 'candidate_generation_diff', 'available': True, 'comparison': 'previous',
-                    'from': {'candidate_id': candidate['id'], 'generation': 1, 'candidate_hash': 'a'*64},
-                    'to': {'candidate_id': candidate['id'], 'generation': 2, 'candidate_hash': 'b'*64},
-                    'changed_files': 1, 'truncated': False, 'files': [{'path': 'src/example.ts', 'old_hash': 'a'*64,
-                    'new_hash': 'b'*64, 'old_mode': '100644', 'new_mode': '100644', 'text_available': True,
-                    'old_text': "export const title = 'Agent';\n", 'new_text': "export const title = 'Hermes';\n"}]}
-            else:
-                events = [] if body.get('after_sequence', 0) else [{
-                    'version': 1, 'id': 'fixture-live-event', 'sequence': 1, 'at': NOW - 12000,
-                    'authority': 'observed', 'category': 'agent', 'kind': 'grant',
-                    'summary': 'Inspecting the private candidate' if name == 'workbench-running' else 'Candidate available for human review',
-                    'status': 'running' if name == 'workbench-running' else 'completed',
-                }]
-                data.update(version=1, events=events, after_sequence=max(1, body.get('after_sequence', 0)), reset_required=False,
-                    has_more=False, project_generation=1, lane=lane,
-                    snapshot={'scope': 'attempt', 'candidate': candidate, 'grant': grant, 'result': result,
-                              'active_grants': int(name == 'workbench-running'), 'active_jobs': 0, 'results': int(bool(result))})
         elif path.endswith('/events'): data.update(events=[], after_sequence=0, cursor=0, has_more=False)
         route.fulfill(json=data)
 
@@ -149,8 +112,6 @@ def install_fixture(context, origin, name, width, height, theme=None):
 
 def audit_idle(page, inspector_screenshot):
     pane = page.locator(f'.pane[data-pane-id="{PANE}"]')
-    expect(pane.get_by_role('button', name='Normal Hermes mode', exact=True)).to_be_visible()
-    expect(pane.get_by_role('button', name='Workbench Hermes mode', exact=True)).to_be_visible()
     metrics = pane.evaluate('''root => {
       const h = s => root.querySelector(s).getBoundingClientRect().height;
       const composer = root.querySelector('.chat-form').getBoundingClientRect();
@@ -193,11 +154,7 @@ def audit_idle(page, inspector_screenshot):
     tool_view.get_by_text('Arguments · read_file', exact=True).click()
     expect(tool_view.get_by_text('SYNTHETIC_TOOL_ARGUMENT', exact=True)).to_be_visible()
     page.evaluate("window.__qaToolNode = document.querySelector('.inline-tools')")
-    pane.get_by_role('button', name='Workbench Hermes mode', exact=True).click()
-    expect(tool_view).to_be_hidden()
-    pane.get_by_role('button', name='Normal Hermes mode', exact=True).click()
-    expect(tool_view).to_be_visible()
-    assert page.evaluate("window.__qaToolNode === document.querySelector('.inline-tools')"), 'Tool DOM replaced on mode switch'
+    assert page.evaluate("window.__qaToolNode === document.querySelector('.inline-tools')"), 'Tool DOM replaced while settings changed'
     expect(message).to_have_value('A private fixture draft survives settings and mode changes.')
     assert page.evaluate("localStorage.getItem('orbit-inline-tools:' + %s)" % json.dumps(PANE)) == 'on'
     assert page.evaluate("JSON.stringify(localStorage).includes('SYNTHETIC_TOOL_ARGUMENT')") is False
@@ -247,8 +204,6 @@ def audit_idle(page, inspector_screenshot):
     page.get_by_role('menuitem', name='Activity', exact=True).click()
     assert page.evaluate('''() => [...document.querySelectorAll('.agent-inspector-panel')].every((panel, i) => panel.firstElementChild === window.__qaInspectorNodes[i])'''), 'Inspector moved/rebuilt registered content'
     page.keyboard.press('Escape')
-    pane.get_by_role('button', name='Workbench Hermes mode', exact=True).click()
-    pane.get_by_role('button', name='Normal Hermes mode', exact=True).click()
     expect(message).to_have_value('A private fixture draft survives settings and mode changes.')
     message.fill('')
     # The preference survives a real page reload; tool payloads remain memory-only.
@@ -275,7 +230,7 @@ def main(args):
             shutil.copy2(args.source / file, root / file)
         (root / 'node_modules').symlink_to(ROOT / 'node_modules', target_is_directory=True)
         # A production bundle avoids Vite dependency-discovery reloads resetting
-        # the in-memory host session midway through Workbench fixture loading.
+        # the in-memory host session during fixture loading.
         # This bridge exposes only the existing setToken function in this copy.
         (root / 'src/qa-entry.js').write_text("import './main.ts'; import { setToken } from './panes.ts'; window.__qaUnlock = () => setToken('synthetic-fixture-token');\n")
         index = root / 'index.html'
@@ -311,22 +266,6 @@ def main(args):
                                 pane = page.locator(f'.pane[data-pane-id="{PANE}"]')
                                 expect(pane).to_be_visible()
                                 page.wait_for_timeout(1300)
-                                if name in ('workbench-running', 'review', 'diff'):
-                                    try:
-                                        expect(pane.locator('.pane-workbench-scope-line')).to_contain_text('Orbit UX', timeout=15000)
-                                    except AssertionError:
-                                        print('FIXTURE DIAGNOSTIC', json.dumps({'calls': calls, 'errors': errors, 'pane': pane.text_content()}), flush=True)
-                                        raise
-                                    expect(pane.locator('.pane-workbench-scope-line')).to_contain_text('Simplify the agent pane')
-                                if name == 'workbench-running':
-                                    expect(pane.get_by_role('button', name='Workbench Hermes mode', exact=True)).to_contain_text('Running')
-                                if name == 'diff':
-                                    pane.get_by_role('tab', name='Changes workbench view', exact=True).click()
-                                    if not args.baseline: expect(pane.locator('.candidate-diff-viewer')).to_be_visible()
-                                if name == 'workbench-running':
-                                    pane.get_by_role('tab', name='Live workbench view', exact=True).click()
-                                if name == 'review':
-                                    pane.get_by_role('tab', name='Result workbench view', exact=True).click()
                                 label = f'{"before" if args.baseline else "after"}-{renderer}-{name}-{width}x{height}'
                                 page.screenshot(path=str(out / f'{label}.png'))
                                 metrics = None

@@ -1,38 +1,30 @@
 import { el } from './dom';
 import './host-surfaces.css';
-import { publishedDataInput } from './data-published-input';
 import { workspaceId } from './workspace-sync';
 import { TECHNOLOGY_SURFACES, mountTechnologySurface, type TechnologySurfaceId, type TechnologySurfaceOptions } from './technology-surfaces';
 
-export type HostSurfaceId = 'outputs' | 'activity' | 'collab' | 'irc' | 'colab-runtime' | 'kitty-doom' | TechnologySurfaceId;
+export type HostSurfaceId = 'outputs' | 'activity' | 'collab' | 'colab-runtime' | 'voice' | TechnologySurfaceId;
 export const HOST_SURFACE_LABELS = {
-  outputs:'Apps and outputs',activity:'Live activity',collab:'Collab',irc:'IRC','colab-runtime':'Google Colab','kitty-doom':'Kitty DOOM',
+  outputs:'Apps and outputs',activity:'Live activity',collab:'Collab','colab-runtime':'Google Colab',
+  voice:'Dictation',
   search:TECHNOLOGY_SURFACES.search.title,
   'interactive-results':TECHNOLOGY_SURFACES['interactive-results'].title,
-  data:TECHNOLOGY_SURFACES.data.title,voice:TECHNOLOGY_SURFACES.voice.title,
   documents:TECHNOLOGY_SURFACES.documents.title,trace:TECHNOLOGY_SURFACES.trace.title,
-  copilot:TECHNOLOGY_SURFACES.copilot.title,'mcp-apps':TECHNOLOGY_SURFACES['mcp-apps'].title,
 } satisfies Record<HostSurfaceId,string>;
 export const HOST_SURFACE_URLS = {
   outputs: 'orbit://surface/outputs',
   activity: 'orbit://surface/activity',
   collab: 'orbit://surface/collab',
-  irc: 'orbit://surface/irc',
   'colab-runtime': 'orbit://surface/colab-runtime',
-  'kitty-doom': 'orbit://surface/kitty-doom',
+  voice: 'orbit://surface/voice',
   search: 'orbit://surface/search',
   'interactive-results': 'orbit://surface/interactive-results',
-  data: 'orbit://surface/data',
-  voice: 'orbit://surface/voice',
   documents: 'orbit://surface/documents',
   trace: 'orbit://surface/traces',
-  copilot: 'orbit://surface/browser-copilot',
-  'mcp-apps': 'orbit://surface/mcp-apps',
 } as const satisfies Record<HostSurfaceId,string>;
 
 /** Exact reviewed routes only: persisted URLs carry identity, never credentials. */
 export function hostSurfaceId(url: string): HostSurfaceId | null {
-  if (publishedDataInput(url)) return 'data';
   for (const id of Object.keys(HOST_SURFACE_URLS) as HostSurfaceId[]) if(url===HOST_SURFACE_URLS[id]) return id;
   return null;
 }
@@ -105,28 +97,10 @@ export function mountHostSurface(host: HTMLElement, id: HostSurfaceId, token: ()
       });
       root.append(view.element);
       cleanup = () => view.dispose();
-    }) : id === 'kitty-doom' ? import('./kitty-doom').then(module => {
+    }) : id === 'voice' ? import('./voice-capture').then(module => {
       if (disposed) return;
       root.replaceChildren();
-      const view = module.mountKittyDoom(root, token, options);
-      cleanup = () => view.dispose();
-    }) : id === 'irc' ? import('./irc').then(module => {
-      if (disposed) return;
-      root.replaceChildren();
-      const view = module.mountIrc({
-        token,
-        request: async payload => {
-          const response = await fetch('/api/irc', {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-          });
-          const data = await response.json().catch(() => ({}));
-          if (!response.ok) throw Error(data.error || 'IRC request failed');
-          return data;
-        },
-      });
-      root.append(view.element);
+      const view = module.mountVoiceCapture(root, token, options);
       cleanup = () => view.dispose();
     }) : Promise.resolve().then(()=>{
       if(disposed)return;

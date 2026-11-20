@@ -3,7 +3,7 @@
  * orbit-config.json (server/orbit-config.mjs), the onboarding wizard and
  * Settings routes (server/onboarding.mjs, server/onboarding-apply.mjs), the
  * opt-in token router (server/router-supervisor.mjs), the setup agent
- * (server/setup-agent.mjs), SSH hosts (server/ssh-hosts.mjs, server/host-api.mjs,
+ * (server/setup-agent.mjs), SSH hosts (server/ssh-hosts.mjs,
  * server/host-audit.mjs) and the generic OpenAI-compatible adapter
  * (server/openai-compat-gateway.mjs).
  *

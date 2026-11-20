@@ -471,19 +471,12 @@ def run_browser(args, origin, token, workspace, state, windows, panes,
             settle()
             expect(page.locator('.focus-host .monitor')).to_have_count(0)
             verify('Windows unfocus')
-            # Hidden tab visibility must not leak into the spatial renderer.
+            # Hidden docking tabs stay hidden while the windows renderer is active.
             toolbar.get_by_role('combobox', name='Docking window', exact=True).select_option(windows[0])
             toolbar.get_by_role('combobox', name='Docking target', exact=True).select_option(windows[1])
             toolbar.get_by_role('button', name='Tab to target', exact=True).click()
             settle()
             assert page.locator('.docking-surfaces > .monitor').evaluate_all("nodes => nodes.some(n => getComputedStyle(n).visibility === 'hidden')"), 'Must exercise a genuinely hidden tab'
-            page.get_by_role('button', name='Switch to spatial view', exact=True).click()
-            settle()
-            for wid in windows:
-                expect(page.locator(f'.monitor[data-monitor-id="{wid}"]')).to_be_visible()
-            verify('Spatial reveals inactive docking tabs')
-            page.get_by_role('button', name='Switch to movable windows', exact=True).click()
-            settle()
             toolbar.get_by_role('button', name='Dock left', exact=True).click()
             settle()
             verify('Restore grid after hidden-tab regression')
@@ -498,16 +491,13 @@ def run_browser(args, origin, token, workspace, state, windows, panes,
                 command("Select window", wid, target, activation)
                 for name in ("Tab to target", "Dock left", "Dock right", "Float window", "Return to grid"):
                     command(name, wid, target, activation)
-                for name, label in (("Switch to spatial view", "Spatial"), ("Focus selected display", "Focus"),
-                                    ("Exit focus view", "Exit focus"), ("Switch to movable windows", "Windows")):
+                for name, label in (("Focus selected display", "Focus"), ("Exit focus view", "Exit focus")):
                     page.get_by_role("button", name=name, exact=True).click()
                     if label == "Focus":
                         expect(page.locator(".focus-host .monitor")).to_have_count(1)
                         expect(page.locator(".focus-host .monitor")).to_be_visible()
-                    elif label == "Exit focus":
-                        expect(page.locator(".focus-host .monitor")).to_have_count(0)
                     else:
-                        page.wait_for_function("v=>JSON.parse(localStorage.getItem('orbit.workspace.v1')).view===v", arg="spatial" if label == "Spatial" else "windows")
+                        expect(page.locator(".focus-host .monitor")).to_have_count(0)
                     passed(f"round {cycle + 1}: {label}")
                 apply(f"round {cycle + 1}: update_window name/frame", {"action": "update_window", "window_id": windows[0],
                     "name": f"Docking round {cycle + 1}", "frame": {"x": 25 + cycle, "y": 26 + cycle, "width": 620 + cycle, "height": 510, "z": cycle + 3}})
@@ -606,15 +596,13 @@ def run_browser(args, origin, token, workspace, state, windows, panes,
                 expect(refused.locator(".desktop-host > .desktop-window")).to_have_count(len(windows))
                 for wid in windows:
                     expect(refused.locator(f'.desktop-window[data-monitor-id="{wid}"]')).to_be_visible()
-                refused.get_by_role("button", name="Switch to spatial view", exact=True).click()
-                refused.get_by_role("button", name="Switch to movable windows", exact=True).click()
                 expect(refused.locator(".desktop-host > .desktop-window")).to_have_count(len(windows))
                 assert not refusal_errors, refusal_errors
             finally:
                 unsupported.close()
             passed("separate-context moveBefore refusal; default placement operational")
 
-            assert count == 83, f"Expected 83 continuity/compatibility checks before destructive controls, got {count}"
+            assert count == 73, f"Expected 73 continuity/compatibility checks before destructive controls, got {count}"
             # Negative controls exclude ONLY the deliberately replaced/closed pane.
             retained.remove(panes[0])
             current = api("read", control=True)["state"]
@@ -629,7 +617,7 @@ def run_browser(args, origin, token, workspace, state, windows, panes,
             apply("close_pane negative control", {"action": "close_pane", "window_id": owner, "pane_id": panes[0]})
             expect(page.locator(f'.pane[data-pane-id="{panes[0]}"]')).to_have_count(0)
             assert page.evaluate("!window.__replacementPane.isConnected")
-            assert count == 85
+            assert count == 75
             print(json.dumps({"result": "PASS", "checks": count, "layoutTransitions": 73,
                 "terminalWebSockets": len(sockets), "pty": args.pty, "browser": browser.version,
                 "acknowledgement": "normal main.ts state matched (frame.z excluded) and server observed_revision reached the committed revision",

@@ -1,6 +1,5 @@
 // Trusted, versioned JSON Schema source. Never load validator code from apps/models.
 // Generated adapters and reference files are checked by --check in CI.
-import {arrangementRequests} from './workbench-workflow-v1.mjs';
 const object = (properties, required = Object.keys(properties)) => ({ type: 'object', properties, required, additionalProperties: false });
 const text = (maxLength = 2048) => ({ type: 'string', maxLength });
 const num = (minimum, maximum) => ({ type: 'number', minimum, maximum });
@@ -24,12 +23,12 @@ const appearance = {
 const settings = {
   name: text(60), diagonal: num(20,Number.MAX_SAFE_INTEGER), aspect: enumeration('16:9','16:10','21:9','32:9','4:3','9:16','1:1'),
   height: num(-2,3), distance: num(-2,4), pitch: num(-35,35), yaw: num(-45,45), offset: num(-3,3),
-  fontSize: num(6,32), spatialFontSize: num(6,96), opacity: num(0.2,1), frame: ref('frame'),
+  fontSize: num(6,32), spatialFontSize: {...num(6,96), description:'Deprecated legacy value; accepted and ignored.'}, opacity: num(0.2,1), frame: ref('frame'),
 };
 const defs = {
   frame: object({ x:num(0,10000), y:num(0,10000), width:num(280,4000), height:num(180,4000), z:num(0,100000) }),
-  spatial: object({ x:num(-10000,10000), y:num(-10000,10000), z:num(-10000,10000), width:num(0.3,200), height:num(0.3,200), yaw:num(-360,360), pitch:num(-89,89), resolution:enumeration(1280,1920,2560,3840) }),
-  camera: object({ x:num(-10000,10000), y:num(-10000,10000), z:num(-10000,10000), azimuth:num(-Math.PI*2,Math.PI*2), elevation:num(-1.5,1.5), distance:num(0.2,2000) }),
+  spatial: { ...object({ x:num(-10000,10000), y:num(-10000,10000), z:num(-10000,10000), width:num(0.3,200), height:num(0.3,200), yaw:num(-360,360), pitch:num(-89,89), resolution:enumeration(1280,1920,2560,3840) }), description:'Deprecated legacy placement; accepted and ignored.' },
+  camera: { ...object({ x:num(-10000,10000), y:num(-10000,10000), z:num(-10000,10000), azimuth:num(-Math.PI*2,Math.PI*2), elevation:num(-1.5,1.5), distance:num(0.2,2000) }), description:'Deprecated legacy camera; accepted and ignored.' },
   // Docking placement adjunct: a versioned, Windows/docking-only projection of
   // transient Dockview placement. It references stable v1 window ids only and is
   // never part of `record.state`, never carries runtime handles/params and never
@@ -47,7 +46,7 @@ const defs = {
   manifest: object({apiVersion:{const:1},id:{type:'string',pattern:'^[a-z][a-z0-9-]{0,47}$'},version:{type:'string',pattern:'^\\d+\\.\\d+\\.\\d+$'},title:{...text(60),minLength:1},entry:{type:'string',pattern:'^/apps/[a-z0-9-]+/[a-zA-Z0-9/_-]+\\.html$'},configSchema:ref('configSchema')},['apiVersion','id','version','title','entry']),
   config: {type:'object',maxProperties:32,propertyNames:{pattern:'^[a-zA-Z][a-zA-Z0-9_-]{0,47}$'},additionalProperties:{anyOf:[text(4096),{type:'number'},bool]}},
   plugin: object({manifest:ref('manifest'),instance_id:uuid,enabled:bool,window:ref('monitor'),config:ref('config'),backendEndpoint:text()},['manifest','enabled','window','config']),
-  workspace: object({version:{const:1},monitors:array(ref('monitor'),{minItems:1}),selected:identifier,arc:num(0,30),view:enumeration('windows','spatial'),sidebarHidden:bool,appearance:ref('appearance'),plugins:array(ref('plugin'),{maxItems:32}),spatialCamera:ref('camera')},['version','monitors','selected','arc']),
+  workspace: object({version:{const:1},monitors:array(ref('monitor'),{minItems:1}),selected:identifier,arc:num(0,30),view:{...enumeration('windows','spatial'),description:'Deprecated legacy view; accepted and ignored, always windows.'},sidebarHidden:bool,appearance:ref('appearance'),plugins:array(ref('plugin'),{maxItems:32}),spatialCamera:ref('camera')},['version','monitors','selected','arc']),
   placementNode: { oneOf: [ref('placementGroup'), ref('placementBranch')] },
   dockingPlacement: object({version:{const:1},layout:{anyOf:[ref('placementNode'),{type:'null'}]},floats:array(ref('placementFloat'),{maxItems:100}),active:{anyOf:[identifier,{type:'null'}]}},['version','layout','floats']),
 };
@@ -68,8 +67,6 @@ const operations = {};
 function op(name, properties = {}, required = Object.keys(properties), effect = 'layout') {
   operations[name] = {input:object({action:{const:name},...properties},['action',...required]),sideEffect:effect,permission:effect==='trusted-backend'?'owner-host-code-confirmation':'workspace-write',revision:'current-base-revision',idempotency:'not-retry-safe-without-durable-receipt'};
 }
-op('set_spatial_camera',{camera:ref('camera')});
-op('arrange_spatial',{window_ids:array(identifier,{minItems:1,uniqueItems:true}),mode:enumeration('grid','row','curve'),columns:integer(1),gap:num(0,20)},[]);
 op('reset_appearance',{keys:array(enumeration(...Object.keys(appearance)))});
 op('set_arc',{arc:num(0,30)});
 op('reorder_windows',{window_ids:array(identifier,{minItems:1,uniqueItems:true})});
@@ -80,7 +77,6 @@ op('set_workspace',{state:ref('workspace')});
 op('patch_appearance',{patch:ref('appearance')});
 op('set_appearance',{appearance:ref('appearance')});
 op('update_split',{...window,path:array(enumeration('first','second'),{maxItems:8}),ratio:num(0.15,0.85),axis:enumeration('row','column'),swap:bool},['window_id','path']);
-op('set_view',{view:enumeration('windows','spatial')});
 op('sidebar',{hidden:bool});
 op('select',window);
 op('add_window',{name:text(60),kind,url:text(),frame:ref('frame')},[]);
@@ -115,30 +111,6 @@ function command(name, properties = {}, required = [], effect = 'read', revision
 }
 command('read',{observed_revision:integer(0)});
 command('describe',{project_id:uuid,catalog:bool});
-// Derive the Normal envelope from the exact service schemas, removing only the
-// authenticated workspace field. No second hand-maintained action vocabulary.
-export const arrangementControlRequests=Object.fromEntries(Object.entries(arrangementRequests).map(([name,schema])=>{
-  const copy=structuredClone(schema);delete copy.properties.workspace_id;
-  copy.required=copy.required.filter(key=>key!=='workspace_id');
-  return [name,copy];
-}));
-command('arrangement',{request:{oneOf:Object.values(arrangementControlRequests)}},['request'],'workspace-proposal','service-validated');
-// Proposal-only Workbench setup suggestion. The authenticated workspace capability
-// may submit an untrusted draft for the owner to review and later adopt into the
-// current live binding. It never grants private project reads or any task,
-// execution or approval authority, and never accepts owner execution verbs,
-// pane/profile/session/actor identity, credentials or root paths. Unknown and
-// additional fields fail closed through the strict request schema.
-const workbenchSetupCheck=enumeration('node-test','host-regression');
-defs.workbenchSetupRequest=object({
-  op_id:uuid,
-  goal:{type:'string',minLength:1,maxLength:4000,pattern:'\\S'},
-  title:{type:'string',minLength:1,maxLength:240,pattern:'\\S'},
-  acceptance_statement:{type:'string',minLength:1,maxLength:4000,pattern:'\\S'},
-  project_id:uuid,
-  check_definition_id:workbenchSetupCheck,
-},['op_id','goal']);
-command('workbench_setup',{request:ref('workbenchSetupRequest')},['request'],'workspace-proposal','service-validated');
 command('history');
 command('checkpoint_preview',{base_revision:integer(0),checkpoint_id:uuid},['base_revision','checkpoint_id'],'read','current-base-revision');
 command('checkpoint',{label:text(limits.maxLabelCharacters)},[],'checkpoint');
@@ -151,7 +123,7 @@ command('preview',batch,Object.keys(batch),'read','current-base-revision');
 // Owner UI composition is deliberately limited to existing-window placement.
 // It cannot create/close panes, install plugins, or replace the whole workspace.
 const layoutOperation = {oneOf:[
-  ...['arrange_windows','arrange_spatial','reorder_windows','select','set_view'].map(name=>operations[name].input),
+  ...['arrange_windows','reorder_windows','select'].map(name=>operations[name].input),
   object({action:{const:'update_window'},window_id:identifier,frame:ref('frame')},['action','window_id','frame']),
 ]};
 const layoutBatch={base_revision:integer(0),operations:array(layoutOperation,{minItems:1,maxItems:limits.maxOperations})};
@@ -161,51 +133,36 @@ commands.layout_preview.permission=commands.layout_apply.permission='authenticat
 command('plugins_apply',batch,Object.keys(batch),'plugin-registration','current-base-revision');
 command('sync',{state:ref('workspace'),base_revision:integer(0),observed_revision:integer(0),client_features:array(enumeration('plugin-instances-v1','plugin-config-schema-v1'),{maxItems:2,uniqueItems:true})},['state'],'layout','required-after-initial-connect');
 command('shelf');
-command('jev_suggest',{request:text(12000),api_key:text(4096),consent:bool},['request','api_key','consent'],'external-model-request');
-command('jev_apply',{action_id:text(100),base_revision:integer(0),confirm:bool},['action_id','base_revision'],'layout','current-base-revision');
 // Ordinary browser polling persists last-seen/observed metadata, unlike control
 // and recovery reads. Do not describe all routes as side-effect-free reads.
 commands.read.sideEffect = 'route-dependent-client-observation';
 commands.read.routeEffects = {browser:'client-observation-write',control:'read',recovery:'read'};
 commands.read.idempotency = 'read-only-on-control-and-recovery; browser-overwrites-observation';
-commands.arrangement.idempotency = 'action-specific; recipe_apply requires the exact retained preview identity and op_id, with durable actor-scoped receipt recovery';
-commands.jev_suggest.permission = 'authenticated-owner-with-external-data-consent';
-commands.jev_suggest.idempotency = 'external-provider-request-not-retry-safe';
 commands.recovery_policy.permission = 'authenticated-owner-on-recovery-route-only';
 commands.recovery_policy.idempotency = 'durable receipt scoped to recovery policy generation; obsolete generation replay rejected';
-commands.workbench_setup.permission = 'authenticated-workspace-capability; proposal-only, never owner, task, execution or approval authority';
-commands.workbench_setup.idempotency = 'durable proposal keyed by authenticated workspace/op_id; returns only the caller-submitted suggestion for owner review, never a setup, authorization or execution receipt';
 defs.recoveryPolicy=object({held:bool,generation:integer(0)});
 defs.snapshot = object({workspace_id:uuid,revision:integer(1),state:ref('workspace'),observed_revision:integer(0),browser_seen:{anyOf:[{type:'number'},{type:'null'}]},app_versions:{type:'object',additionalProperties:{type:'number'}},recovery_policy:ref('recoveryPolicy'),placement:ref('dockingPlacement'),placement_revision:integer(0)},['workspace_id','revision','state','observed_revision','browser_seen']);
 defs.placementSnapshot = object({workspace_id:uuid,revision:integer(1),placement_revision:integer(0),placement:ref('dockingPlacement'),observed_revision:integer(0),browser_seen:{anyOf:[{type:'number'},{type:'null'}]},recovery_policy:ref('recoveryPolicy'),command_receipt:ref('commandReceipt')},['workspace_id','revision','placement_revision','placement','command_receipt']);
 defs.checkpointMetadata = object({id:uuid,created:{type:'number'},label:text(160),revision:integer(1)});
 const outputs = {
-  arrangement:{type:'object',description:'Arrangement service result; structural preview, committed receipt and browser acknowledgement are separate facts'},
   describe:object({workspace_id:uuid,revision:integer(1),version:{const:1},editable_fields:array(text(100),{maxItems:32}),surfaces:array(object({window_id:identifier,pane_id:identifier,kind}),{maxItems:1000}),projects:array(object({id:uuid,name:text(200),generation:integer(1)}),{maxItems:32}),bindings:array(object({id:uuid,project_id:uuid,resource_id:uuid,pane_id:identifier,role:text(40),available:bool}),{maxItems:1000}),extension_compatibility:object({manifest_api:{const:1},multiple_instances:{const:true},private_frame_data:{const:false},network:{const:'legacy-network-capable'}}),unsupported:array(text(200),{maxItems:32}),catalog:{type:'object'}},['workspace_id','revision','version','editable_fields','surfaces','projects','bindings','extension_compatibility','unsupported']),
-  read:ref('snapshot'),sync:ref('snapshot'),apply:ref('snapshot'),plugins_apply:ref('snapshot'),restore:ref('snapshot'),jev_apply:ref('snapshot'),recovery_policy:ref('snapshot'),
+  read:ref('snapshot'),sync:ref('snapshot'),apply:ref('snapshot'),plugins_apply:ref('snapshot'),restore:ref('snapshot'),recovery_policy:ref('snapshot'),
   placement_save:ref('placementSnapshot'),
   checkpoint:object({checkpoint:uuid}),
   history:object({revision:integer(1),checkpoints:array(ref('checkpointMetadata'))}),
   checkpoint_preview:object({workspace_id:uuid,base_revision:integer(1),preview:{const:true},checkpoint:ref('checkpointMetadata'),changes:array(object({target:enumeration('workspace','window','pane','plugin','docking'),kind:enumeration('added','removed','changed'),label:text(160),fields:array(text(60),{maxItems:32})}),{maxItems:300}),truncated:bool,warning:text()}),
   preview:object({workspace_id:uuid,base_revision:integer(1),preview:{const:true},state:ref('workspace'),changed_fields:array(text(100)),warning:text()}),
   shelf:object({items:array(object({title:text(),url:text(),kind:enumeration('app/report','output')}),{maxItems:300})}),
-  // The proposal response returns only the server-assigned suggestion id. The
-  // suggestion itself (the caller's own bounded input) is private setup state,
-  // listed to the owner under its live pane binding, never in this tool result.
-  workbench_setup:object({id:uuid},['id']),
 };
 defs.commandReceipt=object({operation_id:{type:'string',pattern:'^[a-zA-Z0-9_.:-]{1,128}$'},legacy:bool});
-outputs.describe.properties.recipes=array(object({id:uuid,version:integer(1),name:text(60),roles:array(text(40),{maxItems:5}),layout:text(40),renderer:text(40)}),{maxItems:1024});
-outputs.describe.properties.recipe_scope=enumeration('selected-project','select-project-to-list');
-outputs.describe.required.push('recipes','recipe_scope');
 defs.snapshot.properties.command_receipt=ref('commandReceipt');
 outputs.checkpoint.properties.command_receipt=ref('commandReceipt');
 outputs.checkpoint.required.push('command_receipt');
 defs.committedSnapshot=structuredClone(defs.snapshot);
 defs.committedSnapshot.required.push('command_receipt');
 outputs.layout_preview=outputs.preview;
-for(const action of ['sync','apply','layout_apply','plugins_apply','restore','jev_apply','recovery_policy'])outputs[action]=ref('committedSnapshot');
-for(const name of ['sync','apply','layout_apply','plugins_apply','restore','checkpoint','jev_apply']) {
+for(const action of ['sync','apply','layout_apply','plugins_apply','restore','recovery_policy'])outputs[action]=ref('committedSnapshot');
+for(const name of ['sync','apply','layout_apply','plugins_apply','restore','checkpoint']) {
   const command=commands[name];
   Object.assign(command.input.properties,{
     operation_id:{type:'string',pattern:'^[a-zA-Z0-9_.:-]{1,128}$'},
@@ -219,7 +176,7 @@ for(const operation of Object.values(operations))operation.idempotency='receipt 
 // New owner composition clients always retain an exact retry identity.
 commands.layout_apply.input.required.push('operation_id','intent');
 for(const [name,command] of Object.entries(commands)) {
-  command.output = outputs[name] || {type:'object',description:'Legacy optional Jev result; provider output validation remains in server/jev.mjs'};
+  command.output = outputs[name] || {type:'object',description:'Legacy optional command result'};
 }
 export const contract = {
   version:1,limits,errors:{INVALID_OPERATION:'Request does not match the workspace contract',REVISION_CONFLICT:'Workspace changed; read and reconsider',IDEMPOTENCY_CONFLICT:'Operation key was already used with a different request',RECOVERY_HOLD:'Recovery hold prevents active registered plugins',RECOVERY_POLICY_CHANGED:'Recovery policy generation changed since receipt',RESOURCE_BUSY:'Workspace store is busy; retry only with the same operation key and payload',STORE_UNAVAILABLE:'Workspace store unavailable',MIGRATION_REQUIRED:'Explicit legacy store migration required',PERMISSION_REQUIRED:'Workspace authentication required',RESOURCE_GONE:'Workspace or resource unavailable',UPGRADE_REQUIRED:'Client cannot write this workspace version',REQUEST_TOO_LARGE:'Workspace request exceeds the byte budget'},

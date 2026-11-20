@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 test('official regression tests and their fixtures use portable filesystem roots', () => {
   const root=fileURLToPath(new URL('./',import.meta.url));
-  const files=['../scripts/check-local.mjs','../scripts/ci-offline-check.sh','../scripts/smoke-node-quickstart.mjs','../vendor/irc-suite/scripts/run-tests.js'];
+  const files=['../scripts/check-local.mjs','../scripts/ci-offline-check.sh','../scripts/smoke-node-quickstart.mjs'];
   function walk(dir,keep) {
     for(const d of fs.readdirSync(path.join(root,dir),{withFileTypes:true})) {
       const name=path.join(dir,d.name);
@@ -16,7 +16,7 @@ test('official regression tests and their fixtures use portable filesystem roots
       else if(d.isFile() && keep.test(name)) files.push(name);
     }
   }
-  walk('.',/\.mjs$/); walk('fixtures',/\.(?:js|ts|py|json|sh)$/); walk('../vendor/irc-suite',/\.test\.js$/);
+  walk('.',/\.mjs$/); walk('fixtures',/\.(?:js|ts|py|json|sh)$/);
   const authorPath=/\/(?:tmp\/opencode|home\/(?:mojo|kyle)|Users\/(?:mojo|kyle))(?:\/|['"`])/i;
   const bad=files.filter(name=>authorPath.test(fs.readFileSync(path.join(root,name),'utf8')));
   assert.deepEqual(bad,[],'Use tests/fixtures/scratch.mjs or an explicitly provisioned fixture.');

@@ -1,18 +1,16 @@
 # Orbit docking spike: integrated adapter gate
 
-Status: isolated experiment. The implementation contract is
-[`experiments/orbit-docking/CONTRACT.md`](../experiments/orbit-docking/CONTRACT.md).
+Status: historical. The spike, its contract and its browser tests were removed in the
+rizzstack cleanup (they remain in git history before it); product docking is
+`src/docking-*.ts`. The record below is kept for its findings, not as instructions.
 This experiment evaluates Dockview placement against real Orbit PaneView browser
 and terminal surfaces and the v1 workspace model; it is not a production renderer
 or a normalized persistence migration.
 
 ## Reproduce
 
-```sh
-bash experiments/docking/setup.sh /tmp/opencode/orbit-docking-deps
-PLAYWRIGHT_BROWSERS_PATH=/tmp/opencode/orbit-evolution-browsers \
-  /tmp/opencode/orbit-evolution-browser-venv/bin/python tests/orbit-docking.browser.py
-```
+No longer reproducible from this tree: the spike's setup script and browser test were
+removed in the cleanup. Check out a commit from before the cleanup to rerun it.
 
 The test compiles the adapter under `/tmp/opencode/orbit-docking-build` and copies
 the existing `dist/`, server, contracts and built adapter into a disposable server.

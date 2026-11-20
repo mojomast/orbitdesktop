@@ -8,7 +8,6 @@ import {randomUUID} from 'node:crypto';
 import Database from 'better-sqlite3';
 import {initial} from '../src/model.ts';
 import {createWorkspaceService} from '../server/workspace.mjs';
-import {JsonWorkspaceStore} from '../server/workspace-store.mjs';
 
 async function fixture(t) {
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'orbit-recovery-test-')), token=randomUUID(), id=randomUUID();
@@ -79,14 +78,4 @@ test('future-version records cannot be downgraded by a stale sync or restore',as
    const restore=await call('restore',{checkpoint_id:checkpoint.body.checkpoint,base_revision:1,confirm:true});
    assert.equal(restore.status,409);assert.equal(restore.body.category,'UPGRADE_REQUIRED');
    assert.equal(service.store.read(id).state.version,2);
-});
-test('JSON store preserves record metadata and isolates temporary filenames, without transactional claims',t=>{
-  const root=fs.mkdtempSync(path.join(os.tmpdir(),'orbit-store-test-'));
-  t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
-  const store=new JsonWorkspaceStore(root),id=randomUUID(),record={id,state:initial(),revision:1,capability:'fixture-only',futureMetadata:{revoked:true}};
-  store.write(record);store.write({...record,revision:2});
-  assert.deepEqual(store.read(id),{...record,revision:2});
-  assert.deepEqual(fs.readdirSync(path.join(root,'workspaces')),[`${id}.json`]);
-  assert.equal(fs.statSync(store.filename(id)).mode&0o777,0o600);
-  assert.throws(()=>store.read('../other'));
 });
