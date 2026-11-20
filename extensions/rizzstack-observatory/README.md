@@ -76,11 +76,14 @@ string or `{reason}`; `backlog.board` may be a column list, a
 
 ## Configuration
 
-- **Snapshot URL** resolution order: the `#orbit-config=` plugin config
-  fragment field `snapshot_url` (highest), then the operator value saved in the
-  app's Settings (localStorage key `rizzstack.observatory.snapshot_url`), then
-  the same-origin `/obs-snapshot` default. For a standalone bundle, set the
-  snapshot URL to `./snapshot.json` explicitly.
+- **Inside Orbit** (the exact reviewed entry, see below) the pane needs no URL
+  or token: Orbit's trusted host pairs with it over a private MessagePort and
+  reads the snapshot through the owner-authenticated extension proxy. The
+  unauthenticated `/obs-snapshot` route no longer exists.
+- **Snapshot URL** (standalone or operator override) resolution order: the
+  `#orbit-config=` plugin config fragment field `snapshot_url` (highest), then
+  the operator value saved in the app's Settings (localStorage key
+  `rizzstack.observatory.snapshot_url`), then `./snapshot.json`.
 - **Bearer token**: entered once by the operator in the in-app Settings dialog
   and stored only in localStorage key `rizzstack.observatory.token`. It is sent
   exclusively as the `Authorization: Bearer …` header of the snapshot request.
@@ -103,10 +106,11 @@ one `snapshot` proxy, served at
 requires the Orbit owner bearer and injects the server-side collector
 credential (`ORBIT_OBS_COLLECTOR_TOKEN`); the browser never sees that
 credential. See [docs/EXTENSION_PROXY.md](../../docs/EXTENSION_PROXY.md) for the
-route shape, manifest fields and fail-closed rules. The Orbit Hive host now
-reads its snapshot through this proxy. The existing `/obs-snapshot` route
-remains only for the legacy standalone Observatory app until Kyle verifies the
-switch and removes it.
+route shape, manifest fields and fail-closed rules. The Orbit Hive host and the
+Observatory pane host (`src/observatory-host.ts`) read the snapshot through this
+proxy. Only the exact content-addressed entry pinned as `OBSERVATORY_ENTRY` is
+served; after changing any file in `apps/rizzstack-observatory/`, republish and
+update that pin (the test fails until you do).
 
 ## Register and open as an Orbit pane
 

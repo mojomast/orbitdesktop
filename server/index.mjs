@@ -203,28 +203,9 @@ const managedTerminalHandler = managedTerminals
 const managedLedgerLost = existsSync(managedSentinelPath) && !existsSync(managedLedgerPath);
 const extensionStudio=createExtensionStudio({store:workspaceService.store});
 const extensionStudioHandler=ownerRoute({token,port,devOrigins,reply,maxBytes:16384,dispatch:body=>extensionStudio.dispatch(body)});
-// Same-origin authenticated proxy for the Rizzstack observability snapshot collector.
-// The bearer token lives server-side (ORBIT_OBS_COLLECTOR_TOKEN in the Orbit env file,
-// 0600) and is injected on every request: no token is ever shipped to or stored by
-// the browser, and the sandboxed app frame needs no credential. The upstream target
-// is fixed to the loopback collector; this route never proxies arbitrary hosts.
-const OBS_UPSTREAM='http://127.0.0.1:8787';
-const OBS_TOKEN=process.env.ORBIT_OBS_COLLECTOR_TOKEN||'';
-async function serveObsSnapshot(req,res,pathname){
-  if(req.method!=='GET'&&req.method!=='HEAD'){res.writeHead(405);return res.end();}
-  if(!OBS_TOKEN){res.writeHead(503,{'Content-Type':'text/plain'});return res.end('snapshot proxy not configured');}
-  const upstream=OBS_UPSTREAM+pathname.replace(/^\/obs-snapshot/,'')+(new URL(req.url,'http://127.0.0.1').search||'');
-  try{
-    const headers={'authorization':'Bearer '+OBS_TOKEN};
-    if(req.headers.accept)headers.accept=req.headers.accept;
-    const r=await fetch(upstream,{method:req.method,headers,signal:AbortSignal.timeout(20000)});
-    const body=req.method==='HEAD'?undefined:Buffer.from(await r.arrayBuffer());
-    res.writeHead(r.status,{'Content-Type':r.headers.get('content-type')||'application/json','Cache-Control':'no-store','Access-Control-Allow-Origin':'*'});
-    res.end(body);
-  }catch{
-    res.writeHead(502,{'Content-Type':'text/plain'});res.end('snapshot collector unreachable');
-  }
-}
+// The Observatory snapshot is served only through the owner-authenticated
+// extension proxy (/api/ext/rizzstack-observatory/snapshot/...). The old
+// unauthenticated /obs-snapshot route was removed.
 const extensionProxy=createExtensionProxy({
   manifests:loadExtensionManifests(fileURLToPath(new URL('../extensions/',import.meta.url))),
   token,port,devOrigins,env:process.env,
@@ -299,7 +280,6 @@ async function handleOrbitRequest(req, res) {
   if (url.pathname === '/api/workspace-layouts') return workspaceLayouts.handle(req, res);
   if (url.pathname === '/api/output-library') return outputLibrary.handle(req, res);
   if (url.pathname === "/api/workspace/control") return workspaceService.handle(req, res, true);
-  if (url.pathname === "/obs-snapshot" || url.pathname.startsWith("/obs-snapshot/")) return serveObsSnapshot(req, res, url.pathname);
   if (url.pathname.startsWith("/apps/")) return workspaceService.serveApp(req, res, url.pathname);
   if (url.pathname === "/api/agent") return agentHandler(req, res);
   if (url.pathname === '/api/colab-runtime' || url.pathname.startsWith('/api/colab-runtime/')) return colab.handle(req, res, url);

@@ -32,8 +32,8 @@ Reader configuration for an independently authorized installation:
 
 See the [R12 service contract](../../contrib/rails_server/README.md) for the
 separate ledger/reader configuration. Without it the shell reports unavailable.
-GETs do not initialize, ingest, retry or attach to a terminal. The existing
-`/obs-snapshot` collector proxy is **not** the Rails authorization boundary.
+GETs do not initialize, ingest, retry or attach to a terminal. The Observatory
+collector proxy is **not** the Rails authorization boundary.
 
 The reviewed static timeline is served directly from release source at
 `/rails-pane/index.html` in an opaque, scripts-only frame with `connect-src 'none'`.

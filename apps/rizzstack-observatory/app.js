@@ -12,7 +12,11 @@
   const TOKEN_STORAGE_KEY = 'rizzstack.observatory.token';
   const URL_STORAGE_KEY = 'rizzstack.observatory.snapshot_url';
   const DEFAULT_SNAPSHOT_URL = './snapshot.json'; // portable standalone bundle
-  const ORBIT_SNAPSHOT_URL = '/obs-snapshot'; // Orbit injects the collector credential server-side
+  // Inside Orbit the trusted host reads the snapshot through the owner-authenticated
+  // extension proxy and hands this pane only the JSON over a private MessagePort.
+  // The pane never holds an Orbit or collector credential.
+  const HOST_PAIRING = /^#orbit-observatory-document=([a-f\d-]{36})$/;
+  const HOST_TIMEOUT_MS = 25000;
   const CONFIG_FRAGMENT_PREFIX = '#orbit-config=';
   const STALE_AFTER_MS = 10 * 60 * 1000;
   const REFRESH_INTERVAL_MS = 30000;
@@ -905,8 +909,49 @@
     return { url: String(url), init: { headers, cache: 'no-store', credentials: 'omit' } };
   }
 
+  function hostPairing(hash) {
+    const match = HOST_PAIRING.exec(String(hash || ''));
+    return match ? match[1] : null;
+  }
+
+  // One private channel to the Orbit host that opened this reviewed pane.
+  function createHostSource(options) {
+    const opts = options || {};
+    const channel = new (opts.MessageChannelImpl || MessageChannel)();
+    const port = channel.port1, pending = new Map();
+    let next = 0;
+    port.onmessage = event => {
+      const data = event && event.data;
+      if (!data || data.type !== 'snapshot' || !pending.has(data.id)) return;
+      const waiter = pending.get(data.id);
+      pending.delete(data.id);
+      waiter(data);
+    };
+    opts.parentWindow.postMessage({ type: 'orbit-observatory-ready', document: opts.pairing }, opts.targetOrigin, [channel.port2]);
+    return {
+      load() {
+        const id = ++next;
+        return new Promise((resolve, reject) => {
+          const timer = setTimeout(() => { pending.delete(id); reject(new Error('Orbit host did not answer')); }, opts.timeoutMs || HOST_TIMEOUT_MS);
+          pending.set(id, data => {
+            clearTimeout(timer);
+            if (data.ok === true) resolve(data.snapshot);
+            else if (data.status === 'unauthorized') reject(new Error('Orbit session locked or unauthorized; unlock Orbit and refresh'));
+            else if (data.status === 'busy') reject(new Error('refresh throttled; try again shortly'));
+            else reject(new Error('collector snapshot unavailable'));
+          });
+          port.postMessage({ type: 'snapshot-request', id });
+        });
+      },
+    };
+  }
+
   async function loadSnapshot(options) {
     const opts = options || {};
+    if (opts.hostSource) {
+      const raw = await opts.hostSource.load();
+      return { snapshot: normalizeSnapshot(raw, typeof opts.now === 'number' ? opts.now : Date.now()) };
+    }
     const effectiveFetch = opts.fetchImpl || (typeof fetch === 'function' ? fetch : null);
     if (!opts.url) throw new Error('No snapshot URL configured');
     if (!effectiveFetch) throw new Error('No fetch implementation available');
@@ -1144,6 +1189,8 @@
     alertBanners,
     normalizeSnapshot,
     buildRequest,
+    hostPairing,
+    createHostSource,
     loadSnapshot,
     readConfigFragment,
     resolveConfig,
@@ -1203,15 +1250,22 @@
     const state = { url: null, token: '', sortKey: 'id', sortDir: 1, last: null, busy: false, storageNote: '' };
     const canStore = storageAvailable();
     if (!canStore) state.storageNote = 'browser storage unavailable; settings are session-only';
+    const hash = typeof location === 'object' && location ? String(location.hash || '') : '';
+    const pairing = hostPairing(hash);
     const config = resolveConfig({
-      fragment: typeof location === 'object' && location ? String(location.hash || '') : '',
-      fallbackUrl: ORBIT_SNAPSHOT_URL,
+      fragment: hash,
+      fallbackUrl: DEFAULT_SNAPSHOT_URL,
       storedUrl: canStore ? storageGet(URL_STORAGE_KEY) : null,
     });
     state.url = config.snapshotUrl;
+    // Paired by Orbit and no operator URL: read through the host, never a URL.
+    let hostSource = null;
+    if (pairing && config.source === 'default' && window.parent !== window) {
+      try { hostSource = createHostSource({ pairing, parentWindow: window.parent, targetOrigin: location.origin }); } catch { hostSource = null; }
+    }
     if (canStore) state.token = storageGet(TOKEN_STORAGE_KEY) || '';
     elements.urlInput.value = config.source === 'operator' ? state.url : (config.source === 'default' ? '' : state.url);
-    elements.urlInput.placeholder = ORBIT_SNAPSHOT_URL;
+    elements.urlInput.placeholder = hostSource ? 'Orbit host (owner-authenticated proxy)' : DEFAULT_SNAPSHOT_URL;
     elements.tokenInput.placeholder = state.token ? 'Stored in this browser — leave blank to keep' : 'Not stored';
 
     function applyView(snapshot) {
@@ -1277,7 +1331,8 @@
       elements.status.classList.remove('error');
       elements.status.textContent = manual ? 'Refreshing…' : 'Refreshing automatically…';
       try {
-        const loaded = await loadSnapshot({ url: state.url, token: state.token });
+        const loaded = await loadSnapshot(hostSource && state.url === config.snapshotUrl && config.source === 'default'
+          ? { hostSource } : { url: state.url, token: state.token });
         state.last = loaded.snapshot;
         applyView(loaded.snapshot);
         elements.status.textContent = 'Updated ' + new Date().toLocaleTimeString() + (state.storageNote ? ' · ' + state.storageNote : '');

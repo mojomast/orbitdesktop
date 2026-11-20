@@ -1,12 +1,12 @@
 // Phase 3 Observatory move, step 1 (Kyle, 2:35 PM ET: "Observatory: go ahead with your best design").
 // A generic, manifest-driven, owner-authenticated extension proxy: /api/ext/<extension>/<proxy>/<path>.
 // The rizzstack-observatory extension declares one read-only proxy to its loopback snapshot collector.
-// /obs-snapshot stays exactly as it is until the replacement is verified live.
+// /obs-snapshot was kept until the replacement was verified live; OBS-3 removed it.
 // AC-001: the proxy module and the observatory extension manifest exist and are well-formed.
 // AC-002: requests without the owner token, with a wrong token or from another origin are refused before any upstream call.
 // AC-003: an owner request reaches the upstream with only the server-side collector credential; the owner token, cookies and CORS never cross.
 // AC-004: everything not declared is refused (fail-closed): unknown extension/proxy/path, methods, traversal, redirects, missing credential, non-loopback upstream.
-// AC-005: /obs-snapshot is still served (kept until the replacement is verified).
+// AC-005: superseded by OBS-3 (tests/cleanup-obs3-retire-legacy.test.mjs): /obs-snapshot is removed.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -98,8 +98,8 @@ test('AC-004 undeclared requests are refused (fail-closed)', async t => {
   assert.equal(up.seen.length, 0);
 });
 
-test('AC-005 /obs-snapshot is kept until the replacement is verified', () => {
+test('AC-005 /obs-snapshot was removed once the replacement was verified (OBS-3)', () => {
   const index = fs.readFileSync(path.join(root, 'server/index.mjs'), 'utf8');
-  assert.match(index, /\/obs-snapshot/);
-  assert.match(index, /serveObsSnapshot/);
+  assert.doesNotMatch(index, /serveObsSnapshot/);
+  assert.doesNotMatch(index, /pathname\s*===\s*["']\/obs-snapshot/);
 });
