@@ -11,7 +11,9 @@
       "paths": ["/", "/snapshot"],
       "allow_query": true,
       "max_response_bytes": 8388608,
-      "timeout_ms": 20000
+      "timeout_ms": 20000,
+      "cache_ttl_ms": 15000,
+      "cache_stale_ms": 120000
     }
   }
 }

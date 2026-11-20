@@ -42,6 +42,8 @@ declares:
 | `allow_query` | Whether a query string may be forwarded |
 | `max_response_bytes` | Response body ceiling |
 | `timeout_ms` | Upstream fetch timeout |
+| `cache_ttl_ms` | Optional. Serve the last good response from memory for this long (1 ms–10 min) |
+| `cache_stale_ms` | Optional, needs `cache_ttl_ms`. After the TTL, serve it stale for this long while one background refresh runs (0–60 min) |
 
 Validation is strict. Ids and proxy names must match
 `/^[a-z0-9][a-z0-9-]{0,62}$/`, the manifest id must equal its directory name,
@@ -49,6 +51,30 @@ methods may only be `GET`/`HEAD`, paths must be exact strings beginning with
 `/`, and unknown keys reject the manifest. An invalid manifest is skipped with
 one warning naming its file; values are never echoed because they may contain
 operator configuration.
+
+## Response cache (optional)
+
+A slow upstream can opt into a small in-memory cache. The Observatory collector
+computes each snapshot on request (including live CI reads) in about 10 s, which
+is the same as the Hive host's read deadline, so the Observatory manifest sets
+`cache_ttl_ms: 15000` and `cache_stale_ms: 120000`.
+
+- Only `GET` requests without a query string, answered with HTTP 200, are cached.
+  Errors, redirects, oversize bodies, `HEAD` and query requests always go to the
+  upstream and are never stored.
+- Within the TTL the cached body is served (`X-Orbit-Cache: hit`). For the stale
+  window after that it is served immediately (`stale`) while **one** background
+  refresh runs; a failed refresh keeps the last good entry. Past the stale window
+  the read waits for the upstream like an uncached proxy (`miss`), so an
+  unavailable upstream is reported, not hidden.
+- Concurrent misses share one upstream read, and a read whose client gave up
+  still fills the cache for the next reader.
+- Owner authentication and origin checks run before the cache is consulted. The
+  entry stores only status, content type and body (never a credential), and
+  responses stay `Cache-Control: no-store`. The snapshot document carries its own
+  observation times, so a stale copy is labeled by its content.
+- The cache is per Orbit process and is empty after a restart; the first read
+  after a restart, or after the stale window has lapsed, is a full upstream read.
 
 ## Authentication and headers
 
