@@ -46,8 +46,15 @@ test('AC-005 runs the repo script against the committed baseline over the baseli
   assert.ok(!t.includes('secrets.'));
 });
 
-test('AC-006 mode: report-only first (flipped to blocking in a later change)', () => {
+test('AC-006 blocking ratchet: fails only on new findings (--pass-on-unpruned), no report-only, no continue-on-error', () => {
   const t = text();
-  assert.ok(t.includes('--report-only'));
   assert.ok(t.includes('--pass-on-unpruned'));
+  assert.ok(!t.includes('--report-only'));
+  assert.ok(!t.includes('continue-on-error'));
+  assert.match(t, /shell:\s*bash/);
+});
+
+test('AC-007 the baseline is owned via CODEOWNERS', () => {
+  const co = readFileSync(resolve(new URL('../.github/CODEOWNERS', import.meta.url).pathname), 'utf8');
+  assert.match(co, /^\/slop-baseline\.json\s+@mojomast\s*$/m);
 });
