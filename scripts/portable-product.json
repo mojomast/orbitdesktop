@@ -107,6 +107,7 @@
     "scripts/token_widget_export.py",
     "scripts/test-onboarding-hermetic.mjs",
     "scripts/check-local.mjs",
+    "scripts/slop-lint.mjs",
     "scripts/smoke-node-quickstart.mjs",
     "scripts/ci-offline-check.sh",
     "docs/REAL_PROJECT_EVALUATION.md",
