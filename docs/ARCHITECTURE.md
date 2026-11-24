@@ -181,6 +181,16 @@ provisioned with integrity pins. Browser-side engines
 load local assets on demand, without global COOP/COEP. See
 [technology surfaces](TECHNOLOGY_FEATURES.md) and the feature-specific contracts.
 
+### Local workers
+
+`server/local-workers-route.mjs` marks a loopback `create` attempt `ungated` with
+`ungated_reasons` (`no_risk_tier`, `no_preflight`) when its brief lacks a non-empty
+`risk.tier` or a `preflight` object with `ok: true`, and counts those creates in the
+`list` response's `ungated_creates`. Warn-only is the default;
+`ORBIT_LOCAL_WORKERS_REQUIRE_PREFLIGHT=1` instead answers 422 `preflight_required`
+without calling the launcher, while every other value stays warn-only. Brief
+contents are never logged.
+
 ## Exact-artifact Studio
 
 `server/extension-studio.mjs` admits only the finite `focus-timer-v1` generator.
