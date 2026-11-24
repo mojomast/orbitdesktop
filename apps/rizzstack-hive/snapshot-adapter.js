@@ -127,7 +127,7 @@ function sectionStates(s, now, broken) {
 
 function coverage(usage) {
   const { requests, unknown_cost_records: unknown, cost_status: status } = usage.totals;
-  if (requests === null || requests === 0 || unknown === null || unknown > requests || status === 'unavailable' || usage.source.record_count !== requests) return null;
+  if (requests === null || requests === 0 || unknown === null || unknown > requests || status === 'unavailable' || usage.source.record_count === null || requests > usage.source.record_count) return null;
   const priced = requests - unknown;
   if ((status === 'known' && unknown !== 0) || (status === 'unknown' && priced !== 0) || (status === 'partial' && (!priced || !unknown))) return null;
   const errors = usage.source.parse_errors;
