@@ -1,2 +1,16 @@
 # Test fixtures that assert redaction of private-key-shaped strings; not key material.
 0431a5d168db2c682b863133af198e4e9bc44596:tests/host-audit.test.mjs:private-key:98
+
+# Full-history findings triaged 2026-11-24 when the CI gitleaks job was added (all false positives):
+# a fixture dedupe_key, fake test keys, the 'replace-...' ORBIT_TOKEN placeholder in docs,
+# sha256 file hashes in hermes-plugin/normal_resources.py, and a session id in a handoff note.
+3ba4066f4d5197ff10ed1930b68ef67ab3aa14e3:tests/grokbots-app.test.mjs:generic-api-key:156
+42667157e763e9ab26d4c17a0bb50a1d3e6c5076:tests/grokbots-app.test.mjs:generic-api-key:33
+7a4fc173d4d7d2fe642a344499e5d1b73aefab37:tests/project-git-snapshot.test.mjs:generic-api-key:80
+a86eb2ed6390413825bb4c67a1657b564c75adfe:docs/ORBIT_EVOLUTION_HANDOFF.md:generic-api-key:137
+bd1892d5d7658f9305e34ff9c1e9d0343b557366:README.md:generic-api-key:415
+bd1892d5d7658f9305e34ff9c1e9d0343b557366:docs/DEPLOYMENT.md:generic-api-key:327
+c022cd7c97148f0cb38a1acff602c1751458b069:tests/grokbots-browser-fixture.mjs:generic-api-key:49
+c334e1bdcabedad7120fda2aea52ef25c8a72571:hermes-plugin/normal_resources.py:generic-api-key:18
+c334e1bdcabedad7120fda2aea52ef25c8a72571:hermes-plugin/normal_resources.py:generic-api-key:20
+fd1b60e781cfda8421c56fed9d7395a06f4b283c:apps/rizzstack-rails/fixtures/examples.json:generic-api-key:51
