@@ -5,11 +5,11 @@
  "generated": "2026-11-16",
  "plan_only": true,
  "counts": {
-  "server_modules": 94,
-  "server_mjs_files": 108,
+  "server_modules": 93,
+  "server_mjs_files": 107,
   "apps": 4,
   "src_files": 187,
-  "server_loc": 27613,
+  "server_loc": 27602,
   "src_loc": 25851,
   "docs_files": 125
  },
@@ -17,7 +17,7 @@
   "EXTRACT-PROPOSAL": 29,
   "KEEP-CORE": 40,
   "KEEP-PLATFORM": 22,
-  "RETIRE-PROPOSAL": 3
+  "RETIRE-PROPOSAL": 2
  },
  "families": {
   "agent-ops-surfaces": {
@@ -406,26 +406,6 @@
    ],
    "docs": [
     "BUNDLE_REGISTRY.md"
-   ]
-  },
-  "checkpoints.mjs": {
-   "classification": "RETIRE-PROPOSAL",
-   "family": "workspace-state",
-   "evidence": "Legacy fs checkpoint store: zero importers in the tree (verified by import scan); refuses writes when workspace.sqlite exists; superseded by SQLite checkpoint tables.",
-   "loc": 11,
-   "reachable_from_index": false,
-   "consumers": [],
-   "tests": [
-    "browser-appearance-checkpoint-live.py",
-    "browser-plugins-live.py",
-    "hermes-plugin.test.mjs",
-    "recovery.test.mjs",
-    "workspace-receipts.test.mjs",
-    "workspace-schema12.test.mjs",
-    "workspace.test.mjs"
-   ],
-   "docs": [
-    "CHECKPOINTS.md"
    ]
   },
   "colab-job-worker.mjs": {
@@ -1923,7 +1903,6 @@
   }
  },
  "unreachable_from_index": [
-  "checkpoints.mjs",
   "host-recipes.mjs",
   "run-traces-route.mjs"
  ],

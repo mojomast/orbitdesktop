@@ -1,6 +1,24 @@
 import {contract} from '../contracts/workspace-v1.mjs';
 import {featureCapabilities} from '../contracts/feature-capabilities.mjs';
 
+function operationCatalog(name) {
+  if(typeof name!=='string'||!Object.hasOwn(contract.operations,name))throw Object.assign(Error('Unknown catalog operation'),{category:'INVALID_OPERATION'});
+  const operation=contract.operations[name],referenced=new Set();
+  const visit=value=>{
+    if(Array.isArray(value)){for(const item of value)visit(item);return;}
+    if(!value||typeof value!=='object')return;
+    const match=typeof value.$ref==='string'&&/^#\/\$defs\/([A-Za-z0-9_]+)$/.exec(value.$ref);
+    if(match&&!referenced.has(match[1])){
+      referenced.add(match[1]);
+      visit(contract.schema.$defs[match[1]]);
+    }
+    for(const [key,item] of Object.entries(value))if(key!=='$ref')visit(item);
+  };
+  visit(operation);
+  return {version:contract.version,limits:contract.limits,operation:{name,...operation},
+    $defs:Object.fromEntries(Object.entries(contract.schema.$defs).filter(([key])=>referenced.has(key)))};
+}
+
 // Authenticated layout metadata only. A role never confers access to its resource.
 // The operation catalog comes from the same trusted contract as server validation.
 export function describeWorkspace(store, body, capabilities=featureCapabilities()) {
@@ -20,7 +38,7 @@ export function describeWorkspace(store, body, capabilities=featureCapabilities(
     projects:[],bindings:[],
     extension_compatibility:{manifest_api:1,multiple_instances:true,private_frame_data:false,network:'legacy-network-capable'},
     unsupported:['Roles do not authorize resource reads','Private application data is not exposed to generated frames','Browser acknowledgement is not visual verification'],
-    ...(body.catalog?{catalog:{version:contract.version,limits:contract.limits,operations:contract.operations,$defs:contract.schema.$defs}}:{}),
+    ...(body.catalog_operation!==undefined?{catalog:operationCatalog(body.catalog_operation)}:body.catalog?{catalog:{version:contract.version,limits:contract.limits,operations:Object.keys(contract.operations).sort()}}:{}),
   };
 }
 
