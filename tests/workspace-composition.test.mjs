@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -8,7 +9,7 @@ import { createWorkspaceService } from '../server/workspace.mjs';
 import { initial } from '../src/model.ts';
 
 function fixture(t) {
-  const root = fs.mkdtempSync('/tmp/opencode/orbit-composition-');
+  const root = fs.mkdtempSync(scratchPath('orbit-composition-'));
   const workspace_id = randomUUID(), token = 'composition-fixture', port = 4317;
   const service = createWorkspaceService({ token, port, root, reply(res, status, body) { res.status = status; res.end(JSON.stringify(body)); } });
   t.after(() => { service.close(); fs.rmSync(root, { recursive: true, force: true }); });

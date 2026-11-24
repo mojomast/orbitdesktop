@@ -1,10 +1,8 @@
 # Dependency-ordered evolution plan
 
-> Historical plan through the earlier evolution slices. For current Project
-> Workbench implementation and acceptance use
-> [PROJECT_WORKBENCH_LEDGER.md](PROJECT_WORKBENCH_LEDGER.md). Statements below
-> about unwired terminals or transient docking are historical, superseded by
-> [TESTING_BRANCH.md](TESTING_BRANCH.md), not present capability claims.
+> Historical plan through the earlier evolution slices. Project Workbench was removed in cleanup Phase 3; its ledger is retained only in history. Statements
+> below about unwired terminals or transient docking are historical, superseded
+> by [TESTING_BRANCH.md](TESTING_BRANCH.md), not present capability claims.
 
 This is the working backlog, not a claim that phases are complete.
 
@@ -18,9 +16,9 @@ polling are now implemented. Destructive bundle cleanup and SSE/push delivery ar
 Connected DOM reconciliation and isolated import regressions are now implemented;
 see [runtime continuity](RUNTIME_CONTINUITY.md) for the browser evidence and capability
 limits. Isolated pinned docking adapters now pass iframe continuity and pointer-resize
-probes, but selection awaits Orbit model/PTY/spatial integration and accessibility
+probes, but selection awaits Orbit model/PTY integration and accessibility
 evidence; see [comparison](DOCKING_EVALUATION.md). The isolated
-[Orbit integration spike](ORBIT_DOCKING_SPIKE.md) now passes 84 real-pane/PTY/spatial
+[Orbit integration spike](ORBIT_DOCKING_SPIKE.md) now passes 84 real-pane/PTY
 transitions. An [off-by-default normal-frontend adapter](OPTIONAL_DOCKING.md) now
 passes real sync/ack/checkpoint, split/plugin lifecycle and basic keyboard/pointer
 gates. Next: broader graph/focus/browser/accessibility coverage and a persistence
@@ -39,7 +37,7 @@ safe boot or revocation and does not complete Phase B's gate.
    and bounded authenticated event replay, retaining polling compatibility.
 4. Measure stable connected surface hosts against exact licensed docking candidates.
    Extract runtime ownership only with actual iframe/PTY/draft continuity tests;
-   then accessible tabs/docking/recipes and project roles.
+   then accessible tabs and docking.
 5. Separate grants from reversible state. Implement read-only exact-resource terminal
    and controlled-browser observations before input leases and managed jobs. The
    [resource authority proposal](RESOURCE_AUTHORITY_PROPOSAL.md) audits current routes

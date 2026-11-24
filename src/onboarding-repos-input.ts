@@ -20,6 +20,5 @@ export function parseRepoInput(text: string): string[] {
 export function repoInputError(repos: string[]): string {
   if (repos.length > MAX_WATCHED_REPOS) return `At most ${MAX_WATCHED_REPOS} repositories can be watched.`;
   const bad = repos.find(repo => !REPO_PATTERN.test(repo) || ['.', '..'].includes(repo.split('/')[1] ?? ''));
-  return bad ? `"${bad.slice(0, 80)}" is not owner/name (for example octo/hello-world).` : '';
+  return bad ? 'Use owner/name for each repository (for example octo/hello-world).' : '';
 }
-

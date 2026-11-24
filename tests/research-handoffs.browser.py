@@ -15,13 +15,12 @@ os.environ.setdefault('PLAYWRIGHT_BROWSERS_PATH', '/tmp/opencode/orbit-evolution
 with tempfile.TemporaryDirectory(prefix='orbit-handoff-browser-', dir='/tmp/opencode') as tmp:
     root = Path(tmp)
     for name in ('src','contracts','node_modules'): (root/name).symlink_to(ROOT/name)
-    (root/'index.html').write_text('<main id="chat"></main><main id="one"></main><main id="two"></main><main id="mcp"></main><script type="module" src="/fixture.js"></script>')
+    (root/'index.html').write_text('<main id="chat"></main><main id="one"></main><main id="two"></main><script type="module" src="/fixture.js"></script>')
     (root/'vite.config.mjs').write_text('export default {server:{hmr:false,fs:{allow:'+json.dumps([str(ROOT),str(root)])+'}}}')
     (root/'fixture.js').write_text('''
 import {connectWorkspace} from '/src/workspace-sync.ts';
 import {createAgentChat} from '/src/agent-chat.ts';
 import {mountInteractiveResults,queueInteractiveResult,interactiveResultTargets} from '/src/interactive-result-host.ts';
-import {mountMcpApps} from '/src/mcp-apps-host.ts';
 import {completeResultActions} from '/src/interactive-result-delivery.ts';
 import {comparisonExample} from '/src/interactive-result-example.ts';
 connectWorkspace(()=>({version:1,selected:'',arc:14,view:'windows',monitors:[]}),()=>{},()=> 'fixture-token',()=>{});
@@ -29,9 +28,7 @@ window.example=JSON.stringify({a2ui:comparisonExample});window.queue=queueIntera
 createAgentChat(document.querySelector('#chat'),'chat',()=> 'fixture-token');
 window.one=mountInteractiveResults(document.querySelector('#one'),()=> 'fixture-token',{paneId:'one'});
 window.two=mountInteractiveResults(document.querySelector('#two'),()=> 'fixture-token',{paneId:'two'});
-mountMcpApps(document.querySelector('#mcp'),()=> 'fixture-token',{paneId:'mcp'});
 window.remount=()=>{window.one.dispose();window.one=mountInteractiveResults(document.querySelector('#one'),()=> 'fixture-token',{paneId:'one'});};
-window.mcpResult=()=>document.body.append(completeResultActions(JSON.stringify({mcp_snapshot:{title:'Synthetic SDK snapshot',resource_uri:'ui://fixture',html:'<p>snapshot</p>',arguments:{exact:42},result:{content:[{type:'text',text:'exact result'}]}}}),{id:'authenticated-fixture',version:'1'},()=>true));
 // Observe the actual Normal source seam; document engine/storage acceptance is
 // independently exercised by documents.browser.py and canvas.browser.py.
 window.addEventListener('orbit-review-document-result',event=>{event.preventDefault();window.documentRequest={title:event.detail.title,data:event.detail.data};event.detail.respond({status:'rejected',reason:'Synthetic source-seam acknowledgement; no record created.'});});
@@ -64,7 +61,6 @@ window.addEventListener('orbit-review-document-result',event=>{event.preventDefa
                     elif action in ('draft_read','draft_write'): data={'record':{'revision':1,'draft':body.get('text',''),'metadata':{}}}
                     else: data={}
                 elif '/api/interactive-results' in url: data={'items':[]}
-                elif '/api/mcp-apps' in url: data={'available':True,'sandbox_origin':'http://127.0.0.1:1','items':[],'revision':'fixture'}
                 else: data={'revision':1,'state':body.get('state'),'events':[],'cursor':0}
                 route.fulfill(status=200,content_type='application/json',body=json.dumps({'ok':True,**data}))
             page.route('**/api/**',api)
@@ -93,12 +89,6 @@ window.addEventListener('orbit-review-document-result',event=>{event.preventDefa
             assert len({a['deliveryId'] for a in acknowledgements})==8
             assert page.evaluate("window.queue(window.example,{id:'late',version:'1'},window.oldTarget)")['status']=='unavailable'
             expect(page.locator('#one').get_by_role('button',name='Open queued result',exact=True)).to_have_count(0)
-            page.evaluate('window.mcpResult()')
-            page.get_by_role('button',name='Choose an MCP Apps pane; import and execution stay explicit').click()
-            page.get_by_role('dialog').get_by_role('button',name='Deliver to this pane').click()
-            snapshot=json.loads(page.get_by_label('MCP App snapshot JSON').input_value())
-            assert snapshot['arguments']=={'exact':42} and snapshot['result']['content'][0]['text']=='exact result'
-            assert page.locator('#mcp iframe').count()==0
             # A second authenticated complete reply reaches the document adapter
             # after integration of the independent result-action branches.
             document={'title':'Cited synthetic brief','kind':'richtext','format':'lexical','content':json.dumps({'root':{'type':'root','version':1,'format':'','indent':0,'direction':None,'children':[{'type':'paragraph','version':1,'format':'','indent':0,'direction':None,'children':[{'type':'text','version':1,'text':'Exact synthetic brief','format':0,'style':'','mode':'normal','detail':0}]}]}})}
@@ -111,6 +101,6 @@ window.addEventListener('orbit-review-document-result',event=>{event.preventDefa
             assert 'submit' not in actions and 'run' not in actions,actions
             assert not errors,errors
             browser.close()
-            print('PASS actual Normal complete reply -> chosen A2UI pane -> real edit -> exact chat draft; bounded concurrent inbox, stale mount refusal; MCP snapshot staging without opening; no model send')
+            print('PASS actual Normal complete reply -> chosen A2UI pane -> real edit -> exact chat draft; bounded concurrent inbox, stale mount refusal; no model send')
     finally:
         server.terminate();server.wait(timeout=10)

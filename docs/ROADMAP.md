@@ -4,7 +4,7 @@ Orbit's direction is an agent-customizable workspace with reversible changes and
 
 ## Delivered
 
-- Windows/Spatial/Focus views, drag/resize, pane splits, sidebar controls and persistent layout.
+- Windows/Focus views, docking, drag/resize, pane splits, sidebar controls and persistent layout.
 - Real Hermes chat, scoped workspace control, runtime steering/activity, supported live events, skills/toolsets discovery and scheduled-task listing with confirmed pause/resume.
 - Linux tmux-backed shells that retain shell state across browser reload and authenticated reconnect.
 - Live structured appearance controls and automatic checkpoints before agent/controller and plugin-manager mutations.
@@ -22,14 +22,12 @@ The integrated usability, technology and agency source now includes:
 - Saved workspace layouts, a conversation library with host-backed drafts,
   independent stateless widget instances, declarative configuration forms,
   output metadata/search and explicit selected-draft context insertion.
-- Source-backed keyword/optional semantic search, A2UI v0.9 imports, local voice
-  transcription, DuckDB Data Lab, Lexical documents, Excalidraw canvases and traces.
-- Configurable disposable Browser copilot, separate-origin imported MCP Apps, and
-  an optional gVisor check provider requiring suitable host acceptance.
-- Predictable Start keyboard navigation and Spatial tool reveal; acknowledged
+- Keyword-only Shared sources search, A2UI v0.9 imports, local voice
+  transcription, Lexical documents, Excalidraw canvases and run traces.
+- Predictable Start keyboard navigation and Docking tool reveal; acknowledged
   conversation selection, bounded older-title search and goal-first onboarding.
-- One exact-final-draft handoff with full citations and selected data values;
-  explicit complete-result delivery to A2UI, document and MCP snapshot surfaces.
+- One exact-final-draft handoff with full citations; explicit complete-result
+  delivery to A2UI and document surfaces.
 - Same-tab closed-document recovery, reviewed imports, selected-content sharing,
   digest/revision-bound proposals and native editor Undo.
 - Logical arrangement history outside active-preview capacity, recovery of proven
@@ -40,9 +38,8 @@ The integrated usability, technology and agency source now includes:
 
 See [Usability](WORKSPACE_USABILITY.md), [Technology features](TECHNOLOGY_FEATURES.md),
 [prompt examples](WORKSPACE_PROMPTS.md) and [verification status](VERIFICATION.md).
-Owner walkthrough, merges and release-version selection remain pending. Workbench
-stays experimental/off by default. Automatic source crawling, Hermes A2UI/MCP
-server discovery and autonomous browser planning are not implemented. The
+Owner walkthrough, merges and release-version selection remain pending. Automatic
+source crawling and autonomous browser planning are not implemented. The
 [agency evolution](AGENCY_EVOLUTION.md) records cross-feature outcome acceptance.
 Physical task/history compaction, automatic recurring dispatch and a durable
 historical task-transition stream remain separate work.

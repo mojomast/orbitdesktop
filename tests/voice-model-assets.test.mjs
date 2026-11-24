@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, symlink, rm, copyFile, open } from 'node:fs/promises';
@@ -7,7 +8,7 @@ import { provisionVoiceModels } from '../scripts/provision_voice_models.mjs';
 import { createHash } from 'node:crypto';
 
 test('exact allowlist, methods, missing assets, checksum and symlink refusal', async () => {
-  const root = await mkdtemp('/tmp/opencode/voice-assets-');
+  const root = await mkdtemp(scratchPath('voice-assets-'));
   const service = createVoiceModelAssets({ root });
   async function request(url, method = 'GET') {
     let status, body, headers;
@@ -42,7 +43,7 @@ test('exact allowlist, methods, missing assets, checksum and symlink refusal', a
 });
 
 test('trusted external linked dependency resolves once; model-root links and corrupted ORT still fail closed', async () => {
-  const scratch = await mkdtemp('/tmp/opencode/voice-release-');
+  const scratch = await mkdtemp(scratchPath('voice-release-'));
   const app = path.join(scratch, 'app'), external = path.join(scratch, 'external');
   const dependency = path.join(external, 'node_modules/onnxruntime-web');
   const models = path.join(scratch, 'actual-models');
@@ -78,7 +79,7 @@ test('trusted external linked dependency resolves once; model-root links and cor
 });
 
 test('provisioning rejects downloaded corruption and symlink parents without publishing bytes', async () => {
-  const root = await mkdtemp('/tmp/opencode/voice-provision-');
+  const root = await mkdtemp(scratchPath('voice-provision-'));
   try {
     await assert.rejects(provisionVoiceModels({ modelsRoot: root, fetchFile: async () => new Response('{}') }), /checksum mismatch/);
     const linked = path.join(root, 'linked'); await symlink(root, linked);

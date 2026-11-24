@@ -2,7 +2,7 @@
 //
 // The app runs in an opaque-origin sandboxed iframe and only holds its own
 // capability key, so features that need the Orbit host (document review, desktop
-// notifications, opening windows, voice transcripts, clipboard fallback) go
+// notifications, opening windows, conversation transfers, clipboard fallback) go
 // through this postMessage bridge. Only frames whose src is this origin's
 // /apps/grokbots/ are bound, and a message is accepted only when its source is
 // that exact frame's window. The bridge never hands the Orbit token, workspace
@@ -52,8 +52,8 @@ export function bindGrokBots(frame: HTMLIFrameElement): () => void {
     post(message) { frame.contentWindow?.postMessage({ type: 'grokbots-host', ...message }, '*'); },
   };
   frames.add(context);
-  // Each Grok Bots window is a "Choose draft…" target for voice transcripts and
-  // other conversation transfers. Text lands in the app's composer draft only;
+  // Each Grok Bots window is a "Choose draft…" target for conversation
+  // transfers. Text lands in the app's composer draft only;
   // the app never sends it on its own.
   let recipient: ConversationRecipientHandle | null = null;
   try {
@@ -125,10 +125,10 @@ registerGrokBotsOp('open', async message => {
   return { opened: true };
 });
 
-// Workbench: owner-approved, recipient-bound context stays in Workbench panes
-// (server/workbench-context.mjs); Grok Bots can only open a Workbench window.
-registerGrokBotsOp('workbench', async () => {
-  window.dispatchEvent(new CustomEvent('orbit-open-workbench-window', { detail: {} }));
+// Dictation: open the local capture surface; the app's own draft stays the
+// transfer target and nothing is sent when the surface opens.
+registerGrokBotsOp('voice', async () => {
+  window.dispatchEvent(new CustomEvent('orbit-open-host-surface', { detail: { id: 'voice' } }));
   return { opened: true };
 });
 
@@ -148,13 +148,6 @@ registerGrokBotsOp('notify-permission', async () => {
   if (!('Notification' in window)) return { permission: 'unsupported' };
   if (Notification.permission === 'default') { try { await Notification.requestPermission(); } catch {} }
   return { permission: Notification.permission };
-});
-
-// Voice input: open Orbit's local voice capture (Moonshine, on-device). Its
-// "Choose draft…" lists each Grok Bots window as a recipient (above).
-registerGrokBotsOp('voice', async () => {
-  window.dispatchEvent(new CustomEvent('orbit-open-host-surface', { detail: { id: 'voice' } }));
-  return { opened: true };
 });
 // The app reports its current conversation so the recipient list can name it.
 registerGrokBotsOp('conversation', async (message, context) => {

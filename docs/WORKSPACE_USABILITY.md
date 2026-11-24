@@ -13,9 +13,8 @@ prerequisite is missing.
 Start keeps unavailable commands visible with their prerequisite, but Up/Down
 skips disabled buttons. Enter in its search field chooses the first enabled
 result; empty or all-disabled results do nothing, and Escape returns to Start.
-Opening an existing or new built-in surface/document preserves Windows or Spatial
-mode. Spatial approaches the selected window using the existing camera controls;
-Focus remains a temporary full-size presentation. Surviving pane views retain
+Opening an existing or new built-in surface/document preserves the current desktop
+mode. Focus remains a temporary full-size presentation. Surviving pane views retain
 their identity (iframe continuity still requires native `moveBefore`).
 
 Getting started begins with Chat, Voice and Data goals and explicit next actions.
@@ -43,17 +42,11 @@ compare modeled strategies and export a brief derived from the current scenario.
 It uses the existing sandboxed plugin lifecycle and bundled public synthetic data.
 
 The subsequent [technology feature round](TECHNOLOGY_FEATURES.md) adds normal
-workspace surfaces for [source-backed search](KNOWLEDGE_SEARCH.md),
+workspace surfaces for keyword-only Shared sources,
 [interactive results](INTERACTIVE_RESULTS.md), [voice dictation](VOICE_DICTATION.md),
-[data analysis](DATA_LAB.md), documents/whiteboards and [run traces](RUN_TRACES.md).
-Optional [MCP Apps](MCP_APPS.md) and [browser copilot](BROWSER_COPILOT.md) require
-their documented configuration. These integrations retain the same pane identities
-and explicit draft handoff; private content is separate from layout checkpoints.
-
-For agent-authored public CSVs, Data workbench also accepts a hash-pinned published
-input route. Opening it verifies/downloads the exact public bytes into the existing
-browser-local engine; no manual file picker or Desktop browser connection is
-required. Query execution remains explicit. See [Data Lab](DATA_LAB.md).
+documents/whiteboards and [run traces](RUN_TRACES.md). These integrations retain
+the same pane identities and explicit draft handoff; private content is separate
+from layout checkpoints.
 
 ## Plugin editing
 
@@ -76,7 +69,7 @@ updates. New output follows automatically only near the bottom; otherwise a
 whole messages and fenced code. Formatting is intentionally bounded to paragraphs,
 code fences and safe links; generated HTML stays literal text.
 
-An agent chat pane’s **Shared agents** button opens one group transcript for Kyle, Hermes, and Grok Bot. The pane header switches Hermes and Grok Bot, lists earlier sessions (search, date groups, pin, rename, resume, and fork), shows a context meter, and compacts only after confirmation. A cross-provider switch forks a summary into a new session. See [Agent pane session](AGENT_PANE_SESSION.md). `@hermes`, `@grok`, and `@all` choose who answers, and agents continue only when they hand off the floor. Either agent can hand the other a fenced `delegate` task; the pane shows that task and a Cancel button. **Collab** is a separate app in Start and the Orbit menu (`orbit://surface/collab`). **Google Colab** (`orbit://surface/colab-runtime`) is the hosted notebook runtime: a pinned desktop icon, the button at the top of Start, and the first Orbit menu section. `/collab` and a goal in the shared room opens that app. The board has an orchestrator and a tree of subagents. See [Grok Bot](GROK.md#shared-agents), [Collab](COLLAB.md), and [Orchestration](COLLAB_ORCHESTRATION.md). **IRC** is its own window at `orbit://surface/irc`. See [IRC](IRC.md).
+An agent chat pane’s **Shared agents** button opens one group transcript for Kyle, Hermes, and Grok Bot. The pane header switches Hermes and Grok Bot, lists earlier sessions (search, date groups, pin, rename, resume, and fork), shows a context meter, and compacts only after confirmation. A cross-provider switch forks a summary into a new session. See [Agent pane session](AGENT_PANE_SESSION.md). `@hermes`, `@grok`, and `@all` choose who answers, and agents continue only when they hand off the floor. Either agent can hand the other a fenced `delegate` task; the pane shows that task and a Cancel button. **Collab** is a separate app in Start and the Orbit menu (`orbit://surface/collab`). **Google Colab** (`orbit://surface/colab-runtime`) is the hosted notebook runtime: a pinned desktop icon, the button at the top of Start, and the first Orbit menu section. `/collab` and a goal in the shared room opens that app. The board has an orchestrator and a tree of subagents. See [Grok Bot](GROK.md#shared-agents), [Collab](COLLAB.md), and [Orchestration](COLLAB_ORCHESTRATION.md).
 
 History opens the conversation library over the existing Hermes profile/session
 catalog. The next feature round adds host-backed drafts and private Orbit
@@ -86,15 +79,15 @@ and close-time save limits.
 
 ## Default-workspace composition
 
-The normal workspace arranger works on existing windows without registering a
-Workbench project or enabling Project Workbench. It reads the current revision,
+The normal workspace arranger works on existing windows without separate project
+setup. It reads the current revision,
 measures the desktop area and previews validated layout operations before applying
 them. Window and pane identities are retained; it does not start terminal shells,
 replace conversations or install widgets.
 
 The owner-only `layout_preview` and `layout_apply` workspace commands accept a
-restricted operation set: `arrange_windows`, `arrange_spatial`, `reorder_windows`,
-`select`, `set_view`, and frame-only `update_window`. Other operations, including
+restricted operation set: `arrange_windows`, `reorder_windows`, `select`, and
+frame-only `update_window`. Other operations, including
 creating/closing panes, plugin changes and whole-workspace replacement, are
 rejected by the contract. These commands are not exposed on the controller or
 independent recovery routes. Existing controller `preview`/`apply` semantics are
@@ -137,7 +130,7 @@ conversations, files, live processes or external effects. See [Checkpoints](CHEC
 
 ## Delivery verification
 
-Workbench CI remains path-triggered, weekly, manually runnable and full on release
+Technology CI remains path-triggered, weekly, manually runnable and full on release
 branches/tags. The scope detector now treats unreadable diffs conservatively,
 recognizes the deferred entrypoint/fixture paths, and includes pull requests into
 release branches. The default browser suites continue to run for normal changes.
@@ -149,8 +142,8 @@ publication because the bundler intentionally includes tracked files only.
 
 ## Arrangement proposal retention
 
-Project-bound Workbench arrangement previews now reclaim expired never-committed
-records and, under capacity pressure, cancelled/stale never-committed records.
+Arrangement previews reclaim expired never-committed records and, under capacity
+pressure, cancelled/stale never-committed records.
 Committed replay identities and Return references are retained as logical history
 and no longer consume the 200 active-preview slots. Malformed or incomplete
 identity-bearing records remain pinned. Capacity diagnostics distinguish active

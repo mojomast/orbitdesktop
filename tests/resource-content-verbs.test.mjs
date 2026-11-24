@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -16,7 +17,7 @@ const scene=()=>JSON.stringify({type:'excalidraw',version:2,source:'https://exca
   appState:{gridSize:20,viewBackgroundColor:'#ffffff',scrollX:90,scrollY:-12,zoom:{value:1.25},theme:'light',currentItemFontFamily:5,collaborators:{u1:{username:'owner'}},openDialog:'elementProperties'},files:{}});
 
 async function fixture(t){
-  const temp=fs.mkdtempSync('/tmp/opencode/content-verbs-'),root=temp;fs.mkdirSync(root,{recursive:true,mode:0o700});
+  const temp=fs.mkdtempSync(scratchPath('content-verbs-')),root=temp;fs.mkdirSync(root,{recursive:true,mode:0o700});
   const workspaceRead=async()=>({state:{monitors:[]}});
   const knowledge=createKnowledgeSearch({root,workspaceRead}),documents=createDocumentsService({root,workspaceRead});
   const service=await createResourceDelegation({root,workspaceRead,knowledge,documents});
@@ -150,7 +151,7 @@ test('a capability with no delegated implementation grants nothing',async t=>{
   const raised=await r.call({action:'request_permission',op_id:randomUUID(),need:'query_data',reason:'Need to total supplier cost from the manifest CSV.'});
   assert.equal(raised.verb_needed,null,'no delegated verb exists for query execution');
   // The agent is pointed at the supported surface instead of a dead end.
-  assert.match(raised.instruction,/Data workbench/);
+  assert.match(raised.instruction,/documented query surface/);
   const record=(await f.owner('list',{})).recipients.find(x=>x.recipient_id===r.recipient_id);
   const approved=await f.owner('approve_permission',{recipient_id:r.recipient_id,request_id:raised.request.op_id,expected_generation:record.generation});
   assert.deepEqual(approved.grant.verbs,['search','read_source','create_document','request_permission']);

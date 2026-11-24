@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -17,7 +18,7 @@ function snapshot(db){
 }
 
 test('11→12 is a row-preserving writer fence, survives backup, and an authentic schema-11 writer refuses reopen',async t=>{
-  const root=fs.mkdtempSync('/tmp/opencode/orbit-schema12-');
+  const root=fs.mkdtempSync(scratchPath('orbit-schema12-'));
   t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
   const OldStore=await archivedSchema11Store(t);
   const runtime=path.join(root,'runtime'),old=new OldStore(runtime),id=randomUUID();

@@ -1,5 +1,44 @@
 # Verification record
 
+## Running the offline regression suite
+
+After installing the locked dependencies, run `npm test` for the Orbit suite,
+or `npm run check` to also verify generated contracts,
+typecheck and build. Use a full-history checkout: migration tests load source
+from specific historical commits. Use Linux with the Node/npm distribution
+(including its paired npm CLI), Python 3, Git, tmux, and the OpenSSH tools for
+the disposable SSH integration. These are test prerequisites, not requirements
+to open the desktop. `node scripts/check-local.mjs preflight` runs a small
+portable-fixture subset without starting the full suite.
+
+The runner creates a private HOME, temp directory, tmux directory and npm
+cache, and passes an allowlist of environment variables. On Linux it uses
+`unshare` and `ip` to create a loopback-only network, or accepts an existing
+loopback-only environment such as a `--network=none` container. It fails if
+this cannot be established. Use a disposable container without host homes or
+service sockets mounted when filesystem isolation is required; a network
+namespace alone does not hide files. Optional integrations use explicitly
+provisioned fixtures (`ORBIT_TEST_PROVISIONED=1`); the ordinary suite does
+not download a model, provider SDK or other project to run them.
+
+### Rehearse the Node quickstart
+
+Inside a fresh loopback-only Linux namespace with port 4318 free, run:
+
+```sh
+node scripts/smoke-node-quickstart.mjs /absolute/local/source-repo /absolute/disposable/npm-cache /absolute/chromium
+```
+
+Use a **committed local mirror of the intended source**, an npm cache seeded
+with its lockfile's tarballs, a matching Node/npm toolchain and Chromium.
+Native addon builds may also need Python, make, a C++ compiler and matching
+Node headers (`npm_config_nodedir`). The cache is writable; don't supply an
+owner's npm cache. The smoke clones the mirror into a new directory, checks
+for an empty working tree and no dependencies, runtime or build, runs `npm ci`
+offline with install scripts, and runs `npm run up`. It uses the printed
+login URL in a fresh browser, configures a model from a loopback fixture and
+checks that Ctrl+C stops Orbit. It removes the disposable checkout and HOME.
+
 ## Agent content verbs and permission requests — October 7, 2026
 
 The owner asked the agent to complete tasks itself rather than instructing the owner
@@ -83,16 +122,12 @@ remains **12**, and no release/tag publication is implied by this plugin deliver
 
 ## Published CSV handoff — October 2, 2026
 
-Data workbench accepts a strict, same-origin published CSV identity plus SHA-256
-through its built-in surface URL. The browser bounds downloads, verifies bytes
-before loading the existing DuckDB engine, and leaves query execution explicit.
-See [Data Lab](DATA_LAB.md) for the route and publication contract.
+The Data Lab workbench was removed in cleanup Phase 3; its published CSV handoff, DuckDB engine and publication route no longer exist.
 
 - `npm run check`: **1,011 tests, 1,000 passed, 11 optional skips, zero failures**.
-- Real Chromium/DuckDB tests passed auto-loading without a file picker, explicit
-  query results, hash mismatch refusal, recovery with manual input, cancellation
-  versus replacement, and narrow-screen wrapping. The existing CSV/JSON/Parquet,
-  recipe, exact numeric sharing and external-access confinement journeys passed.
+- The former Data Lab browser fixtures were removed in cleanup Phase 3; the
+  CSV/JSON/Parquet, exact numeric sharing and external-access confinement journeys
+  are no longer part of this surface.
 - Publisher tests **9/9** and regenerated Hermes source archive parity **3/3**
   passed. This feature retains schema **12** and package metadata **0.3.1**.
 - Browser-local input state is separate from the layout acknowledgement. These
@@ -111,13 +146,13 @@ workspace schema is **12**, and no new tag or published release is implied.
 Agency application-source validation at `611d3a9e5ca98af94a696815f53ba7c845a626d8`:
 
 - Local `npm run check`: **1,007 tests, 998 passed, nine optional skips, zero
-  failures**, with real MiniLM assets and pinned Hermes context acceptance enabled.
+  failures**, with real MiniLM assets and pinned Hermes context acceptance enabled. (removed in cleanup Phase 3).
 - Hermes adapter 18/18, resource-cache lifecycle 3/3, publisher 9/9 and regenerated
   source archive parity 3/3 passed; 292 relative documentation links resolved.
-- Real browser feature, document/canvas recovery, Normal cited-brief, Workbench
+- Real browser feature, document/canvas recovery, Normal cited-brief, Workbench (removed in cleanup Phase 3)
   recovery, command-palette and integrated technology/release journeys passed.
   Default and Docking were exercised in disposable synthetic workspaces.
-- Exact-head PR-event CI passed: Workbench
+- Exact-head PR-event CI passed: Workbench (removed in cleanup Phase 3)
   [37020536916](https://github.com/mojomast/orbitdesktop/actions/runs/37020536916),
   technology [37020536886](https://github.com/mojomast/orbitdesktop/actions/runs/37020536886),
   plugin [37020537199](https://github.com/mojomast/orbitdesktop/actions/runs/37020537199)
@@ -127,7 +162,7 @@ Normal adapter tests used actual pinned gateway lifecycle, registry and thread
 context with a deterministic agent body; they do not establish provider inference
 quality. [Agency evolution](AGENCY_EVOLUTION.md) describes implemented outcomes;
 [resource delegation](RESOURCE_DELEGATION.md) describes compatible gateway setup.
-Committed arrangements, completed channels and successful adapter operations no
+Completed channels and successful adapter operations no
 longer consume active capacity indefinitely; physical history garbage collection
 remains separate work.
 
@@ -146,11 +181,11 @@ are required by [Deployment](DEPLOYMENT.md).
 - Normal delegation requires the source-pinned local gateway and explicit profile
   mapping. The owner's existing gateway is not source-compatible; use a separately
   provisioned compatible test gateway rather than weakening source checks.
-- gVisor remains unavailable on this host: user-namespace creation is denied and
-  approved runsc/rootfs are absent. No real containment acceptance is claimed.
-- Browser copilot uses disposable signed-out browsers; logged-in Discord and
+- The gVisor isolated-check provider was removed in cleanup Phase 3; no real
+  containment acceptance is claimed.
+- Browser copilot uses disposable signed-out browsers; logged-in Discord and (removed in cleanup Phase 3)
   autonomous provider quality are separate acceptance trials. MCP snapshots retain
-  closed capabilities. Workbench remains experimental and off by default.
+  closed capabilities. Workbench remains experimental and off by default. (removed in cleanup Phase 3)
 - Upstream catalog admission, version selection, tags and release publication are
   separate from this authorized source merge and testing deployment.
 
@@ -158,7 +193,7 @@ are required by [Deployment](DEPLOYMENT.md).
 
 The follow-up documentation update adds feature workflows, refreshed injected
 agent guidance, three revised/new chat shortcuts and an eight-step onboarding
-tour. Local `npm run check` with the provisioned MiniLM passed: 969 total, 960
+tour. Local `npm run check` with the provisioned MiniLM passed: 969 total, 960 (removed in cleanup Phase 3)
 passed, zero failed, nine optional skips. Publisher 9/9, Hermes adapter 16/16,
 regenerated source archive parity 3/3 and 104 relative documentation links passed.
 A disposable copy of the real built frontend exercised the three shortcut drafts
@@ -183,11 +218,11 @@ not retroactively inherit this exact-head CI result.
   [36926014752](https://github.com/mojomast/orbitdesktop/actions/runs/36926014752),
   plugin [36926014768](https://github.com/mojomast/orbitdesktop/actions/runs/36926014768),
   technology [36926014794](https://github.com/mojomast/orbitdesktop/actions/runs/36926014794)
-  (10/10), and Workbench
+  (10/10), and Workbench (removed in cleanup Phase 3)
   [36926014812](https://github.com/mojomast/orbitdesktop/actions/runs/36926014812)
   (7/7 plus aggregate). Expensive browser coverage remains scope-gated with
   weekly/manual coverage; workspace continuity and composition run separately.
-- `npm run check` with real MiniLM assets: 969 tests, 960 passed, zero failed,
+- `npm run check` with real MiniLM assets: 969 tests, 960 passed, zero failed, (removed in cleanup Phase 3)
   nine optional skips. Publisher 9/9, Hermes plugin 16/16 and regenerated archive
   parity 3/3 passed. These counts belong to that run, not all future environments.
 - Packaged Default/Docking × optional capabilities off/configured journeys passed.
@@ -212,12 +247,12 @@ Reproduction: [Technology acceptance](TECHNOLOGY_ACCEPTANCE.md),
 
 - Owner walkthrough and visual acceptance of the actual workspace remain pending;
   disposable automated acceptance does not establish that.
-- gVisor remains off on this host: the unprivileged user-namespace probe is denied,
-  and approved runsc/rootfs are absent. No real containment acceptance is claimed.
-- Browser copilot/MCP Apps are configured on the testing deployment; browsers are
+- The gVisor isolated-check provider was removed in cleanup Phase 3; no real
+  containment acceptance is claimed.
+- Browser copilot/MCP Apps are configured on the testing deployment; browsers are (removed in cleanup Phase 3)
   disposable/signed out, and imported MCP snapshots have closed capabilities.
-- Upstream Hermes catalog admission was pending and Workbench was experimental/off
-  by default. The committed-arrangement capacity limit recorded then is superseded
+- Upstream Hermes catalog admission was pending and Workbench was experimental/off (removed in cleanup Phase 3)
+  by default. The former arrangement capacity limit recorded then is superseded
   by the agency retention implementation above.
 - Merge was subsequently authorized; version selection, tag and release publication
   remain separate owner decisions.
@@ -252,9 +287,9 @@ Tests start a temporary loopback server on port 14318 with an explicitly test-on
 
 ### Interactive browser checks
 
-Verified startup, monitor selection, flat focus, aspect changes, split creation, keyboard splitter resize, chat stub messaging, adding displays, pitch changes, and restoring saved layout after reload. Also verified preset replacement with confirmation and return from focus to the same spatial monitor.
+Verified startup, monitor selection, flat focus, aspect changes, split creation, keyboard splitter resize, chat stub messaging, adding displays, pitch changes, and restoring saved layout after reload. Also verified preset replacement with confirmation and return from focus to the same spatial monitor. (removed in cleanup Phase 3)
 
-The cloud test browser has WebGL disabled. Three.js CSS3D monitor transforms and the functional DOM fallback were exercised; the WebGL grid/room could not be visually verified in that browser. Actual terminal commands were verified through the production backend integration tests; credential entry and live xterm typing were not exercised through the cloud browser.
+The cloud test browser has WebGL disabled. Three.js CSS3D monitor transforms and the functional DOM fallback were exercised; the WebGL grid/room could not be visually verified in that browser. Actual terminal commands were verified through the production backend integration tests; credential entry and live xterm typing were not exercised through the cloud browser. (removed in cleanup Phase 3).
 
 Optional WebMCP registration is feature-detected. The test browser did not provide modelContext, so calls to those optional tools could not be validated. No dependency on WebMCP is required for the UI.
 

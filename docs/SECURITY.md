@@ -12,6 +12,27 @@ The current native deployment runs as mojo on the host. The Orbit token therefor
 
 Published static apps under `/apps/<slug>/` are readable within the tailnet without the Orbit token, just like the main static UI. Do not publish secrets in app bundles. HTML previews have CSP sandbox restrictions and omit `allow-same-origin`; they cannot access the parent workspace, its token, or its localStorage. Static asset CORS is allowed only on the app-file routes; authenticated control endpoints do not enable CORS. Preview isolation is not a substitute for reviewing code that Hermes executes on the host to build an app.
 
+### Job approvals: production route disabled
+
+`server/index.mjs` has no `/api/approvals` mount. List, detail and decision return
+404 even for the Orbit owner. The `rizzstack-approvals` app is not installed by
+`server/builtin-apps.mjs`; its source page is inert. Do not pass an owner token
+into an `/apps/` frame. This is independent of the existing Hermes chat approvals.
+
+Orbit’s owner JSON routes verify an exact allowed Host and Origin and the server’s
+owner bearer. `/api/workspace/control` instead checks a workspace-scoped agent
+capability. Neither an Origin, a loopback peer, a claimed actor/workspace, nor a
+controller credential establishes a human decision. The Orbit bearer unlocks the
+whole host, not a BundleBees owner session for one workspace. The legacy prototype
+has no trusted mapping from its job files to Orbit workspaces. Its `pending/` and
+`decisions/` records also differ from BundleBees’ `job-approvals/requests` and
+`receipts`, exact preview digest, owner capability and one-time consumption. An
+environment signing key in the Orbit server would not be Hermes secret scope and
+could be inherited by child processes. Do not configure that key here or use a
+prototype receipt to start a job. Use the authenticated BundleBees owner flow.
+
+The disabled approvals prototype was deleted; the real approval flow is BundleBees’. Do not configure a prototype signing key here or use a prototype receipt to start a job.
+
 Implemented controls:
 
 - Fresh 256-bit random startup token by default, held only in browser memory after entry.

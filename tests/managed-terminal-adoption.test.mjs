@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, stat, chmod, symlink, readFile, writeFile } from 'node:fs/promises';
@@ -13,7 +14,7 @@ import { literalChunks } from '../server/managed-terminal-contract.mjs';
 const exec = promisify(execFile);
 const pause = () => new Promise(r => setTimeout(r, 30));
 test('private ledger rejects insecure paths and malformed entries without leaking tokens', async t => {
-  const root = await mkdtemp('/tmp/opencode/ledger-');
+  const root = await mkdtemp(scratchPath('ledger-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   await chmod(root, 0o755);
   assert.throws(() => new ManagedTerminalIdentityLedger({ directory: root }), { code: 'invalid_request' });
@@ -31,7 +32,7 @@ test('private ledger rejects insecure paths and malformed entries without leakin
 });
 
 test('fresh ledger creates a private sentinel; missing ledger after initialization fails closed', async t => {
-  const root = await mkdtemp('/tmp/opencode/ledger-loss-');
+  const root = await mkdtemp(scratchPath('ledger-loss-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const file = root + '/identity-ledger.json', sentinel = file + LEDGER_SENTINEL_SUFFIX;
   const fresh = await new ManagedTerminalIdentityLedger({ directory: root }).load();
@@ -56,7 +57,7 @@ test('fresh ledger creates a private sentinel; missing ledger after initializati
 });
 
 test('owner re-adoption recovers a transient attach inspection timeout', async t => {
-  const root = await mkdtemp('/tmp/opencode/attach-timeout-');
+  const root = await mkdtemp(scratchPath('attach-timeout-'));
   const socket = 'timeout-' + randomUUID();
   const sessionName = 'pane-' + randomUUID();
   const env = { PATH: '/usr/bin:/bin', HOME: root, TMUX_TMPDIR: root, TERM: 'xterm-256color' };
@@ -83,7 +84,7 @@ test('owner re-adoption recovers a transient attach inspection timeout', async t
 });
 
 test('LocalHost shell is adopted, durably recovered, fenced on replacement, and never killed by disposal', async t => {
-  const root = await mkdtemp('/tmp/opencode/adoption-');
+  const root = await mkdtemp(scratchPath('adoption-'));
   const socket = 'adopt-' + randomUUID();
   const paneId = 'b45066f1-5751-4ab9-a692-68ff4ef3c481';
   const sessionName = 'pane-' + paneId;

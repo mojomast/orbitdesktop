@@ -76,7 +76,6 @@
   color: #ff9c9c;
   white-space: pre-wrap;
 }
-.knowledge-result,
 .knowledge-source {
   border: 1px solid #8885;
   border-radius: 6px;
@@ -84,20 +83,10 @@
   margin: 8px 0;
   overflow-wrap: anywhere;
 }
-.knowledge-result small,
 .knowledge-source small,
 .knowledge-snapshot small {
   display: block;
   overflow-wrap: anywhere;
-}
-.knowledge-citation {
-  font-family: monospace;
-  font-size: 10px;
-  opacity: 0.8;
-}
-.knowledge-passage {
-  margin: 8px 0;
-  resize: vertical;
 }
 .knowledge-snapshot pre {
   white-space: pre-wrap;
@@ -106,8 +95,4 @@
   overflow: auto;
   border: 1px solid #8885;
   padding: 10px;
-}
-.knowledge-query {
-  border-top: 1px solid #8885;
-  padding-top: 8px;
 }

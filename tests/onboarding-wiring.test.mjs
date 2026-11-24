@@ -1,77 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
 import fs from 'node:fs';
-import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { setTimeout as delay } from 'node:timers/promises';
+import { boot } from './fixtures/local-orbit.mjs';
 import http from 'node:http';
 import { createOrbitSetup, OPENAI_COMPAT_PROVIDER } from '../server/onboarding-wiring.mjs';
 import { buildMinimalConfig } from '../server/orbit-config.mjs';
 import { isGatewayProvider, providerLabel } from '../server/agent-providers.mjs';
 
-const repo = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const SENTINEL = 'sk-orbit-wiring-SENTINEL-4c1d9e';
-
-function freePort() {
-  return new Promise((resolve, reject) => {
-    const probe = net.createServer();
-    probe.once('error', reject);
-    probe.listen(0, '127.0.0.1', () => { const { port } = probe.address(); probe.close(() => resolve(port)); });
-  });
-}
-
-async function boot(t, extraEnv = {}) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'orbit-wiring-'));
-  const home = path.join(root, 'home');
-  const runtime = path.join(root, 'runtime');
-  const bin = path.join(root, 'bin');
-  for (const dir of [home, runtime, bin]) fs.mkdirSync(dir, { recursive: true });
-  // A fake docker on PATH records any invocation: the router must never run.
-  const marker = path.join(root, 'docker-called');
-  fs.writeFileSync(path.join(bin, 'docker'), `#!/bin/sh\necho called >> '${marker}'\nexit 1\n`, { mode: 0o755 });
-  const port = await freePort();
-  const token = `orbit-wiring-${process.pid}-${'y'.repeat(28)}`;
-  const child = spawn(process.execPath, ['--experimental-strip-types', 'server/index.mjs'], {
-    cwd: repo,
-    env: { PATH: `${bin}:/usr/bin:/bin`, HOME: home, TMPDIR: os.tmpdir(), PORT: String(port), ORBIT_TOKEN: token, ORBIT_RUNTIME_DIR: runtime, ORBIT_AGENT_DISCOVERY: 'off', PI_HARNESS_DISABLED: '1', ...extraEnv },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  let logs = '';
-  child.stdout.on('data', chunk => { logs += chunk; });
-  child.stderr.on('data', chunk => { logs += chunk; });
-  t.after(async () => {
-    if (child.exitCode === null) {
-      const exited = new Promise(resolve => child.once('exit', resolve));
-      child.kill('SIGTERM');
-      await Promise.race([exited, delay(4000)]);
-      if (child.exitCode === null) child.kill('SIGKILL');
-    }
-    fs.rmSync(root, { recursive: true, force: true });
-  });
-  const base = `http://127.0.0.1:${port}`;
-  for (let attempt = 0; attempt < 200; attempt++) {
-    if (child.exitCode !== null) throw Error(logs || 'server exited');
-    try { if ((await fetch(`${base}/api/health`)).ok) break; } catch { /* starting */ }
-    await delay(50);
-  }
-  const bodies = [];
-  const call = async (method, pathname, body, headers = {}) => {
-    const response = await fetch(base + pathname, {
-      method,
-      headers: { Authorization: `Bearer ${token}`, ...(body === undefined ? {} : { 'Content-Type': 'application/json', Origin: base }), ...headers },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    });
-    const text = await response.text();
-    bodies.push(text);
-    let data = {};
-    try { data = JSON.parse(text); } catch { data = {}; }
-    return { status: response.status, data };
-  };
-  return { base, call, bodies, logs: () => logs, marker, runtime };
-}
 
 test('fresh boot: first run, owner-only setup routes, minimal install end to end, no key leaks, no router', { timeout: 60000 }, async t => {
   const app = await boot(t);
@@ -185,15 +123,16 @@ test('GitHub connect and repos to watch over the real routes: optional, owner-on
   // Owner-only and same-origin.
   assert.equal((await fetch(`${app.base}/api/onboarding/github`)).status, 401);
   assert.equal((await fetch(`${app.base}/api/settings/repos`)).status, 401);
+  assert.equal((await app.call('GET', '/api/onboarding/github', undefined, { Authorization: app.token })).status,401);
   assert.equal((await app.call('POST', '/api/onboarding/github/token', { token: GH_TOKEN }, { Origin: 'http://evil.example' })).status, 403);
 
   // A bad token is rejected; a good one connects. Neither is echoed.
   assert.equal((await app.call('POST', '/api/onboarding/github/token', { token: 'ghp_wrongwrongwrongwrongwrong' })).status, 400);
   const connected = await app.call('POST', '/api/onboarding/github/token', { token: GH_TOKEN });
   assert.equal(connected.status, 200, JSON.stringify(connected.data));
-  assert.equal(connected.data.login, 'octocat');
+  assert.equal(connected.data.connected, true);
   const listed = await app.call('GET', '/api/settings/github/repos');
-  assert.deepEqual(listed.data.repos, [{ fullName: 'octo/one', private: false }]);
+  assert.deepEqual(listed.data.repos, [{ fullName: 'octo/one' }]);
 
   // Watch list: validated, editable from Settings, persisted in the config.
   assert.equal((await app.call('PUT', '/api/onboarding/repos', { repos: ['not-a-repo'] })).status, 400);
@@ -201,6 +140,10 @@ test('GitHub connect and repos to watch over the real routes: optional, owner-on
   assert.deepEqual(saved.data.repos, ['octo/one', 'octo/two']);
   assert.deepEqual((await app.call('GET', '/api/onboarding/repos')).data.repos, ['octo/one', 'octo/two']);
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(app.runtime, 'orbit-config.json'), 'utf8')).observability.repos, ['octo/one', 'octo/two']);
+  assert.equal((await app.call('POST','/api/onboarding/apply',{})).status,200);
+  const request = fs.readFileSync(path.join(app.runtime,'setup-agent','request.json'),'utf8');
+  assert.doesNotMatch(request,/octo\/one|octo\/two/);
+  assert.equal(request.includes(GH_TOKEN), false);
   assert.deepEqual((await app.call('PUT', '/api/settings/repos', { repos: [] })).data.repos, []);
 
   // Disconnect from Settings removes the token.

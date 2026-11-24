@@ -1,0 +1,6 @@
+{
+  "path": "workflow/specs/hivespec.md §6.4",
+  "commit": "38f7e360b62fe53284ef6680604bba9d0d2fc230",
+  "sha256": "38d160ee45cded3429c14929d11180f1fd60091d01f2792cbd86a6537027168b",
+  "budgets": "Hive frontend proposed acceptance budgets (measure, do not assert): first meaningful overview from a valid local snapshot <=1.5s p95; pointer/keyboard selection feedback <=100ms p95; filtered scene projection <=16ms p95 for 14 attempts/500 retained marks; idle foreground CPU bounded and no 60Hz server polling; no sustained memory leak over 30-minute reconnect; full scene DOM <=500 normal nodes with aggregation; no more than 200 recent marks in synoptic view. If server query is slower, show an honest loading/stale state rather than fake completeness. Test on Windows/Chromium, Linux/Chromium, a real Orbit sandboxed pane and narrow/mobile layouts."
+}

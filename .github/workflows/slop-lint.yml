@@ -1,0 +1,46 @@
+name: slop-lint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: slop-lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  slop-lint:
+    name: slop-lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+      # Blocking ratchet: fails on findings above the committed baseline (new or
+      # higher counts) and on a missing or invalid baseline. Entries that no longer
+      # occur are tolerated (--pass-on-unpruned); shrink the baseline with `prune`.
+      - name: Run slop-lint against the baseline
+        shell: bash
+        run: node scripts/slop-lint.mjs check src server scripts packages --baseline slop-baseline.json --pass-on-unpruned | tee "$RUNNER_TEMP/slop.txt"
+      - name: Append the report to the job summary
+        if: always()
+        run: |
+          {
+            echo "## slop-lint"
+            echo
+            if [ -s "$RUNNER_TEMP/slop.txt" ]; then
+              echo '```'
+              cat "$RUNNER_TEMP/slop.txt"
+              echo '```'
+            else
+              echo "No findings above the baseline."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

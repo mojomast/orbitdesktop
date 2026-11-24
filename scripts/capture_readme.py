@@ -10,7 +10,7 @@ with sync_playwright() as p:
  g.goto(env['ORBIT_PUBLIC_ORIGIN'],wait_until='networkidle');g.get_by_role('button',name='Connect local host',exact=True).click();g.get_by_role('textbox',name='Host session token').fill(env['ORBIT_TOKEN']);g.get_by_role('button',name='Unlock local host',exact=True).click();g.wait_for_timeout(1800)
  wid=g.evaluate('localStorage.getItem("orbit.workspace.id")')
  def control(op):return json.loads(subprocess.check_output(['python3',str(R/'scripts/workspace_control.py'),'--workspace',wid,'apply',json.dumps(op)],text=True))
- result=control([{'action':'plugin_install','manifest':manifest,'config':{'title':'Your workspace, your tools','message':'Built by Hermes. Configured live. Restorable from checkpoints.'}},{'action':'plugin_enable','plugin_id':'notes'},{'action':'set_view','view':'windows'},{'action':'sidebar','hidden':True}])
+ result=control([{'action':'plugin_install','manifest':manifest,'config':{'title':'Your workspace, your tools','message':'Built by Hermes. Configured live. Restorable from checkpoints.'}},{'action':'plugin_enable','plugin_id':'notes'},{'action':'sidebar','hidden':True}])
  ops=[]
  for i,m in enumerate(result['state']['monitors']):
   ops.append({'action':'update_window','window_id':m['id'],'frame':{'x':20+(i%2)*685,'y':30+(i//2)*375,'width':660,'height':355,'z':i+1},'fontSize':14})

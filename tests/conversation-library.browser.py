@@ -1,6 +1,7 @@
 """Real isolated Orbit HTTP server, fake Hermes catalog, no inference/provider calls."""
 import json, os, secrets, shutil, socket, subprocess, tempfile, threading, time, urllib.request, uuid
 from pathlib import Path
+from ui_fixture import copy_ui_source
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from playwright.sync_api import sync_playwright, expect
 
@@ -29,7 +30,8 @@ threading.Thread(target=gateway.serve_forever, daemon=True).start()
 try:
   with tempfile.TemporaryDirectory(prefix='orbit-conversation-browser-', dir='/tmp/opencode') as temporary:
     root = Path(temporary)
-    for name in ('server', 'src', 'contracts', 'public', 'docs', 'scripts'): shutil.copytree(ROOT / name, root / name)
+    copy_ui_source(ROOT, root)
+    for name in ('server', 'contracts', 'public', 'docs', 'scripts'): shutil.copytree(ROOT / name, root / name)
     (root / 'node_modules').symlink_to(ROOT / 'node_modules', target_is_directory=True)
     for name in ('package.json', 'index.html', 'tsconfig.json', 'vite.config.js'): shutil.copy2(ROOT / name, root / name)
     for name in ('runtime', 'home', 'cwd'): (root / name).mkdir()

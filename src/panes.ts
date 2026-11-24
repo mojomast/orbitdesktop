@@ -4,13 +4,14 @@ import "@xterm/xterm/css/xterm.css";
 import { el, button, select } from "./dom";
 import { createAgentChat } from "./agent-chat";
 import { mountSharedBrowser } from './shared-browser';
-import {mountWorkbenchReviewHost,REVIEW_URL} from './workbench-review-host';
-import {mountProjectToolHost,PROJECT_TOOL_URL_PREFIX,projectToolId} from './project-tool-host';
 import { mountManagedTerminalControls } from './managed-terminals';
 import { hostSurfaceId, mountHostSurface } from './host-surfaces';
 import {documentSurfaceId} from './technology-surfaces';
 import { bindToolFeed } from "./tool-feed";
 import { bindGrokBots } from "./grokbots-bridge";
+import { bindRailsNavigation } from './rails-shell';
+import { bindObservatoryHost } from './observatory-host';
+import { bindHiveHost } from './hive-host';
 import type { Pane, PaneKind } from "./model";
 export interface PaneView {
   element: HTMLElement;
@@ -331,14 +332,6 @@ export function createPane(p: Pane, font: number, a: PaneActions): PaneView {
       dispose=()=>mounted.dispose();
     }).catch(()=>{if(!disposed)body.textContent='Document surface unavailable';});
     cleanup=()=>{disposed=true;dispose();};
-  } else if (p.kind === 'browser' && p.url === REVIEW_URL) {
-    body.style.overflow='auto';
-    body.style.padding='.75rem';
-    cleanup=mountWorkbenchReviewHost(body,p.id,()=>sessionToken);
-  } else if (p.kind === 'browser' && p.url.startsWith(PROJECT_TOOL_URL_PREFIX)) {
-    body.style.overflow='auto';
-    body.style.padding='.75rem';
-    cleanup=mountProjectToolHost(body,p.id,()=>sessionToken,projectToolId(p.url)??undefined);
   } else if (p.kind === 'browser' && p.url === 'orbit://shared-browser') {
     head.style.display='none';
     cleanup=mountSharedBrowser(body,()=>sessionToken,p.id);
@@ -364,7 +357,8 @@ export function createPane(p: Pane, font: number, a: PaneActions): PaneView {
       frame.style.height = `${100 / zoom}%`;
       frame.style.transform = `scale(${zoom})`;
     };
-    function navigate(raw: string) {
+    const hiveReadClock = {last:-Infinity};
+    function navigate(raw: string, revoked=false) {
       cleanup();
       cleanup = () => {};
       head.style.display = "";
@@ -445,8 +439,11 @@ export function createPane(p: Pane, font: number, a: PaneActions): PaneView {
           localApp ? "allow-scripts allow-forms allow-modals allow-downloads" : "allow-scripts allow-forms allow-same-origin allow-popups",
         );
         frame.src = current;
+        const unbindHive = localApp ? bindHiveHost(frame,u,()=>sessionToken,surface,
+          {revoked,clearDocument:()=>navigate(current,true),clock:hiveReadClock}) : ()=>{};
+        const unbindObservatory = localApp ? bindObservatoryHost(frame,u,()=>sessionToken) : ()=>{};
         surface.replaceChildren(frame);
-        if (localApp) { const unbindFeed = bindToolFeed(frame), unbindGrokBots = bindGrokBots(frame); cleanup = () => { unbindFeed(); unbindGrokBots(); }; }
+        if (localApp) { const unbindFeed = bindToolFeed(frame), unbindGrokBots = bindGrokBots(frame), unbindRails = bindRailsNavigation(frame,u,()=>sessionToken); cleanup = () => { unbindFeed(); unbindGrokBots(); unbindRails(); unbindHive(); unbindObservatory(); }; }
         zoomFrame();
       } catch (e) {
         surface.replaceChildren(
@@ -483,5 +480,5 @@ export function createPane(p: Pane, font: number, a: PaneActions): PaneView {
   } else {
     cleanup = createAgentChat(body, p.id, () => sessionToken, head);
   }
-  return { element: root, resize, setFont, dispose: cleanup };
+  return { element: root, resize, setFont, dispose: () => cleanup() };
 }

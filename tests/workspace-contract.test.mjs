@@ -37,15 +37,12 @@ test('operation count and encoded request byte limits are exposed and enforced',
   const base = { workspace_id: workspaceId, action: 'apply', base_revision: 1 };
   assert.doesNotThrow(() => validateWorkspaceRequest({ ...base, operations: Array(32).fill({ action: 'sidebar', hidden: true }) }));
   assert.throws(() => validateWorkspaceRequest({ ...base, operations: Array(33).fill({ action: 'sidebar', hidden: true }) }));
-  const withinByteLimit = JSON.stringify({ ...base, action: 'jev_suggest', request: 'a'.repeat(12000), api_key: 'k'.repeat(4096), consent: true });
-  assert.ok(Buffer.byteLength(withinByteLimit) < workspaceLimits.maxRequestBytes);
-  assert.ok(Buffer.byteLength(JSON.stringify({ ...base, action: 'jev_suggest', request: 'a'.repeat(150000), api_key: 'k', consent: true })) > workspaceLimits.maxRequestBytes);
 });
 
 test('current command and operation examples validate', () => {
   assert.doesNotThrow(() => validateWorkspaceRequest({ workspace_id: workspaceId, action: 'sync', state: initial() }));
   assert.doesNotThrow(() => validateWorkspaceRequest({ workspace_id: workspaceId, action: 'apply', base_revision: 3, operations: [
-    { action: 'set_view', view: 'spatial' },
+    { action: 'set_arc', arc: 20 },
     { action: 'set_appearance', appearance: { background: '#123456', wallpaper: '/neon-horizon-v1.svg' } },
     { action: 'update_window', window_id: 'window-1', frame: { x: 10, y: 20, width: 700, height: 450, z: 5 } },
   ] }));

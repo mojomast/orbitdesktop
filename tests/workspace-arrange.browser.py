@@ -1,4 +1,4 @@
-"""Disposable real-server standalone arrangement acceptance (Workbench disabled).
+"""Disposable real-server standalone arrangement acceptance.
 
 PLAYWRIGHT_BROWSERS_PATH=/tmp/opencode/orbit-evolution-browsers \
   /tmp/opencode/orbit-evolution-browser-venv/bin/python tests/workspace-arrange.browser.py --renderer default
@@ -8,6 +8,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+from ui_fixture import copy_ui_source
 import secrets
 import shutil
 import socket
@@ -27,7 +28,8 @@ args = parser.parse_args()
 
 with tempfile.TemporaryDirectory(prefix='orbit-standalone-arrange-', dir='/tmp/opencode') as temporary:
     root = Path(temporary)
-    for directory in ('src', 'server', 'contracts', 'docs', 'scripts', 'public'):
+    copy_ui_source(ROOT, root)
+    for directory in ('server', 'contracts', 'docs', 'scripts', 'public'):
         shutil.copytree(ROOT / directory, root / directory)
     for name in ('index.html', 'package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.js'):
         shutil.copy2(ROOT / name, root / name)
@@ -70,7 +72,7 @@ with tempfile.TemporaryDirectory(prefix='orbit-standalone-arrange-', dir='/tmp/o
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=True, args=['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'])
             context = browser.new_context(viewport={'width': 1600, 'height': 1000})
-            context.add_init_script("if(window===window.top){localStorage.setItem('orbit.onboarding.v1','done');localStorage.setItem('orbit.experimental.v1','{\"version\":1,\"workbench\":false}');localStorage.setItem('orbit.workspace.id',"+json.dumps(workspace)+");localStorage.setItem('orbit.workspace.v1',JSON.stringify("+json.dumps(state)+"));}")
+            context.add_init_script("if(window===window.top){localStorage.setItem('orbit.onboarding.v1','done');localStorage.setItem('orbit.workspace.id',"+json.dumps(workspace)+");localStorage.setItem('orbit.workspace.v1',JSON.stringify("+json.dumps(state)+"));}")
             page = context.new_page(); errors = []; page.on('pageerror', lambda error: errors.append(str(error)))
             page.goto(origin + ('/?renderer=docking' if args.renderer == 'docking' else '/'))
             if args.renderer == 'docking': page.wait_for_function("document.documentElement.dataset.dockingRenderer === 'docking'")
@@ -199,7 +201,7 @@ with tempfile.TemporaryDirectory(prefix='orbit-standalone-arrange-', dir='/tmp/o
             assert page.evaluate('key=>sessionStorage.getItem(key)', retained_key) is None
             page.unroute('**/api/workspace', defer_apply)
             assert not errors, errors
-            print(json.dumps({'renderer': args.renderer, 'workbench': False, 'stable_panes': True, 'stale_preview_rejected': True, 'resize_invalidated': True, 'acknowledged_revision': after['revision']}))
+            print(json.dumps({'renderer': args.renderer, 'stable_panes': True, 'stale_preview_rejected': True, 'resize_invalidated': True, 'acknowledged_revision': after['revision']}))
             browser.close()
     finally:
         server.terminate(); server.wait(timeout=10)

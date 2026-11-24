@@ -14,7 +14,6 @@ import { isGatewayProvider, providerLabel } from './agent-providers';
 import { TECHNOLOGY_SURFACES } from './technology-surfaces';
 import {createTechnologyReadiness} from './technology-readiness';
 import { installCommandPalette } from './command-palette';
-import { experimentalEnabled, subscribeExperimental } from './experimental';
 import { showOnboarding, offerOnboarding } from './onboarding';
 window.addEventListener('load', () => offerOnboarding(onboardingActions), { once: true });
 import { installLayoutSwitcher } from './layout-switcher';
@@ -22,9 +21,9 @@ import './unified-taskbar.css';
 import { xpraApps } from './xpra-apps';
 import { installDesktopIcons } from './desktop-icons';
 import { showConnectionPasswords } from './connection-passwords';
+import { openAcddEvidence } from './acdd-evidence-window';
 import { workspaceId, ensureWorkspaceSynced } from './workspace-sync';
 import { pluginSelector, type PluginInstance } from './plugins';
-import { readPanePrefs, writePanePrefs } from './pane-prefs';
 import { workspaceFetch } from './workspace-client';
 import { installMinimize } from './minimize';
 import { el, button, select } from "./dom";
@@ -48,12 +47,9 @@ import { createDockingSync } from './docking-sync';
 import type { DockingPlacement } from './docking-placement';
 import { placeWindow, wireWindow } from "./windows";
 import { connectWorkspace } from "./workspace-sync";
-import { DesktopScene } from "./scene";
-import { installSpatialControls } from './spatial-controls';
 import { watchStyles } from './live-style';
 watchStyles();
 let state = load();
-state.view ||= 'windows';
 let applyingRemote = false;
 let workspaceBridge: ReturnType<typeof connectWorkspace> | undefined;
 const views = new Map<string, PaneView>();
@@ -82,16 +78,6 @@ window.addEventListener('orbit-focus-agent', event => {
   const monitor=state.monitors.find(m=>leaves(m.layout).some(p=>p.id===paneId));
   if(monitor) {if(focused) unfocus(); choose(monitor.id);}
 });
-// Separate-window launchers. Both create genuine, independent agent panes (no
-// new pane kind or schema); nothing is copied between them.
-window.addEventListener('orbit-open-workbench-window', event => {
-  const detail = (event as CustomEvent<{ paneId?: string }>).detail ?? {};
-  openWorkbenchWindow(detail.paneId);
-});
-window.addEventListener('orbit-open-normal-window', event => {
-  const detail = (event as CustomEvent<{ fromPaneId?: string }>).detail ?? {};
-  openNormalWindow(detail.fromPaneId);
-});
 let saveTimer: ReturnType<typeof setTimeout>;
 let layoutSwitcher: ReturnType<typeof installLayoutSwitcher> | undefined;
 const app = document.querySelector<HTMLDivElement>("#app")!;
@@ -101,7 +87,7 @@ const logoButton = button("", "Open orbit menu", () => orbitMenu.toggle(), "orbi
 logoButton.append(
   el("span", "brand-mark", "◉"),
   el("strong", "", "orbit"),
-  el("span", "brand-tag", "SPATIAL DESKTOP"),
+  el("span", "brand-tag", "DESKTOP"),
 );
 logoButton.setAttribute("aria-haspopup", "true");
 logoButton.setAttribute("aria-controls", "orbit-menu");
@@ -124,42 +110,20 @@ top.append(brand, orbitToolbar, saved, dockingToolbarHost, hostStatus);
 const shell = el("main", "shell"),
   work = el("section", "workspace"),
   stage = el("div", "stage");
-stage.setAttribute("aria-label", "3D monitor workspace");
+stage.setAttribute("aria-label", "Desktop workspace");
 const sub = el("div", "workspace-heading");
 const title = el("div");
 title.append(
   el("span", "eyebrow", "WORKSPACE / 01"),
   el("h1", "", "Your command center"),
 );
-const sceneButton = button(
-    "Spatial",
-    "Switch to spatial view",
-    () => setView('spatial'),
-    "active",
-  ),
-  flatButton = button("Focus", "Focus selected display", () =>
+const flatButton = button("Focus", "Focus selected display", () =>
     focus(state.selected),
   );
-const windowsButton = button('Windows', 'Switch to movable windows', () => setView('windows'));
 sub.append(title);
-const guide = el(
-  "div",
-  "scene-guide",
-  "Drag background to orbit · Shift drag to pan · Scroll to zoom · Navigate for WASD + Q/E",
-);
 const navigation = el("div", "scene-navigation");
 const navDisplays = el("div", "display-tabs");
-const cameraControls = el('div', 'taskbar-camera');
-cameraControls.append(
-  button("−", "Zoom out", () => scene.zoom(0.12)),
-  button("⌖", "Reset camera", () => scene.reset()),
-  button("+", "Zoom in", () => scene.zoom(-0.12)),
-);
-navigation.append(navDisplays, cameraControls);
-navigation.append(button('▦ Desktop', 'Show desktop shortcuts', () => {
-  if(focused)unfocus();setView('windows');
-  state.monitors.forEach(m=>{const element=monitors.get(m.id);if(element)minimizer.hide(m.id,element);});renderTabs();
-}));
+navigation.append(navDisplays);
 const focusHost = el("div", "focus-host");
 // Connected parking keeps surviving panes alive while their previous layout
 // containers are removed (including source-first cross-window edits).
@@ -171,14 +135,13 @@ desktopHost.setAttribute('aria-label', 'Movable workspace windows');
 const desktopIcons = installDesktopIcons(desktopHost, () => [
   {id:'colab-runtime',title:'Google Colab',icon:'▣',pinned:true,run:()=>{void commands.execute('colab-runtime');}},
   {id:'grokbots',title:'Grok Bots',icon:'🤖',pinned:true,run:()=>{void commands.execute('grokbots');}},
-  {id:'kitty-doom',title:'Kitty DOOM',icon:'👾',run:()=>{void commands.execute('kitty-doom');}},
   ...xpraApps.map(a=>({id:`xpra-${a.id}`,title:a.title,icon:a.icon,run:()=>{
     if(focused)unfocus();
     const existing=state.monitors.find(m=>leaves(m.layout).some(p=>p.kind==='browser'&&p.url===a.url));
     if(existing){choose(existing.id);return;}
     const m=monitor(state.monitors.length+1,'browser');m.name=a.title;
     leaves(m.layout)[0].url=a.url;
-    state.monitors.push(m);state.selected=m.id;state.view='windows';
+    state.monitors.push(m);state.selected=m.id;
     work.classList.add('windows-mode');renderAll();choose(m.id);
   }})),
   {id:'plugin-manager',title:'Plugin Manager',icon:'🧩',pinned:true,run:()=>{void commands.execute('hermes-plugins');}},
@@ -190,20 +153,20 @@ const desktopIcons = installDesktopIcons(desktopHost, () => [
   {id:'new-browser',title:'New browser',icon:'◎',run:()=>{void commands.execute('new-browser');}},
 ]);
 const focusBack = button(
-  "←  Back to spatial view",
+  "←  Back to desktop",
   "Exit focus view",
   () => unfocus(),
   "focus-back",
 );
 focusHost.append(focusBack);
-work.append(sub, stage, desktopHost, guide, navigation, focusHost, paneParking);
+work.append(sub, stage, desktopHost, navigation, focusHost, paneParking);
 const inspector = el("aside", "inspector");
-work.classList.toggle('windows-mode', state.view === 'windows');
+work.classList.add('windows-mode');
 shell.append(work, inspector);
 const footer = el("footer", "footer");
 footer.append(
   el("span", "", "ORBIT / LOCAL WORKSPACE"),
-  el("span", "footer-status", "3D + DOM · v0.1 foundation"),
+  el("span", "footer-status", "DOM · v0.1 foundation"),
 );
 app.append(top, shell, footer);
 const taskbarStatus = el('div', 'taskbar-status');
@@ -298,7 +261,7 @@ function menuAgentApi(payload: Record<string, unknown>): Promise<any> {
     return data;
   });
 }
-const hermesIcons: Record<string, string> = { 'shared-browser': '🖥', 'build-queue': '🛠', jev: '⚡', plugins: '🧩', checkpoints: '⛁', catalog: '✦', outputs: '🗂', jobs: '⏱' };
+const hermesIcons: Record<string, string> = { 'shared-browser': '🖥', 'build-queue': '🛠', plugins: '🧩', checkpoints: '⛁', catalog: '✦', outputs: '🗂', jobs: '⏱' };
 setOrbitSettingsNavigation({
     appearance: [
       { title: 'Themes', detail: 'Workspace colors and appearance', run: () => commands.execute('themes') },
@@ -357,7 +320,7 @@ function revealSurface(id: string) {
   state.selected = id;
   renderAll();
   if (inFocus) focus(id);
-  else { choose(id); if (state.view === 'spatial') scene.frameWindow(id); }
+  else choose(id);
   save();
 }
 function openHostSurface(id: HostSurfaceId) {
@@ -437,14 +400,10 @@ const commands = createWorkspaceCommands((): WorkspaceCommand[] => [
   { id: 'browser-layouts', title: 'Browser layout snapshots', detail: 'Browser-local snapshots — active snapshot auto-updates here', group: 'Layout', run: () => navigation.querySelector<HTMLButtonElement>('[aria-label="Choose browser snapshot"]')?.click() },
   ...state.monitors.map(m => ({ id: `window:${m.id}`, title: m.name, detail: 'Open or restore window', group: 'Windows', run: () => { if (focused) focus(m.id); else choose(m.id); } })),
   { id: 'new-agent', title: 'New agent chat', detail: 'Talk to Hermes', group: 'Create', run: () => addMonitor('agent') },
-  { id: 'new-workbench', title: 'New Workbench window', detail: 'Separate Workbench beside Hermes', group: 'Create', hidden: !experimentalEnabled('workbench'), run: () => openWorkbenchWindow() },
   { id: 'new-terminal', title: 'New terminal', detail: 'Open a host terminal pane', group: 'Create', run: () => addMonitor('terminal') },
   { id: 'new-browser', title: 'New browser', detail: 'Open an app or website', group: 'Create', run: () => addMonitor('browser') },
   { id: 'colab-runtime', title: 'Google Colab', detail: 'GPU and TPU runtimes on colab.research.google.com', group: 'Apps', keywords: ['colab', 'gpu', 'tpu', 'notebook'], disabledReason: !sessionToken ? 'Connect host first to use Google Colab.' : undefined, run: () => openHostSurface('colab-runtime') },
   { id: 'grokbots', title: 'Grok Bots', detail: 'Chat with Grok Bot, Pi and Hermes agents, alone or in group rooms', group: 'Apps', keywords: ['grok', 'bots', 'agents', 'chat', 'group', 'pi', 'hermes'], disabledReason: !sessionToken ? 'Connect host first to use Grok Bots.' : undefined, run: () => { void openGrokBots(); } },
-  { id: 'kitty-doom', title: 'Kitty DOOM', detail: 'Play kitty-doom (Freedoom) in a Kitty-graphics window', group: 'Apps', keywords: ['doom', 'game', 'kitty', 'freedoom', 'play'], disabledReason: !sessionToken ? 'Connect host first to use Kitty DOOM.' : undefined, run: () => openHostSurface('kitty-doom') },
-  { id: 'windows', title: 'Windows view', detail: 'Movable desktop windows', group: 'Layout', run: () => windowsButton.click() },
-  { id: 'spatial', title: 'Spatial view', detail: 'Explore your 3D workspace', group: 'Layout', run: () => sceneButton.click() },
   { id: 'focus', title: 'Focus selected window', detail: 'Expand the selected display', group: 'Layout', run: () => flatButton.click() },
   { id: 'arrange', title: 'Arrange workspace', detail: 'Arrange existing windows', group: 'Layout', disabledReason: !sessionToken ? 'Connect host first to arrange workspace.' : undefined, run: openWorkspaceArrange },
   { id: 'panel', title: 'Toggle side panel', detail: 'Workspace layout and settings', group: 'Layout', run: () => sidebarToggle.click() },
@@ -458,17 +417,17 @@ const commands = createWorkspaceCommands((): WorkspaceCommand[] => [
   { id: 'conversation-library', title: 'Conversation library', detail: 'Find, pin and resume agent conversations', group: 'Hermes', disabledReason: !sessionToken ? 'Connect host first to browse conversations.' : undefined, run: openConversationLibrary },
   { id: 'send-selection', title: 'Send selected text to conversation', detail: 'Review recently selected workspace text and choose a draft; never sends automatically', group: 'Hermes', disabledReason: !selectedWorkspaceText ? 'Select up to 20,000 characters of workspace text first.' : undefined, run: sendSelectedContext },
   { id: 'activity', title: 'Live activity', detail: 'Open host activity window', group: 'Hermes', run: () => openHostSurface('activity') },
+  { id: 'acdd-evidence', title: 'ACDD evidence', detail: 'Read-only contracts, RED/GREEN evidence and acceptance from bundlebees', group: 'Hermes', disabledReason: !sessionToken ? 'Connect host first to view ACDD evidence.' : undefined, run: () => { void openAcddEvidence(sessionToken); } },
+  { id:'rizzstack-rails', title:'Rizzstack Rails', detail:'Inspect activity by attempt, job, campaign, session or event ID', group:'Hermes', disabledReason:!sessionToken?'Connect host first to inspect activity.':undefined, run:async()=>{(await import('./rails-shell')).openRailsShell(()=>sessionToken);} },
   { id: 'collab', title: 'Collab', detail: 'Project board for Hermes and Grok Bot', group: 'Hermes', disabledReason: !sessionToken ? 'Connect host first to use Collab.' : undefined, run: () => openHostSurface('collab') },
-  { id: 'irc', title: 'IRC', detail: 'IRC server and channel window', group: 'Apps', disabledReason: !sessionToken ? 'Connect host first to use IRC.' : undefined, run: () => openHostSurface('irc') },
   ...workspaceExtensions.map(extension => ({
     id: `hermes-${extension.id}`, title: extension.title, detail: extension.label, group: 'Hermes',
-    hidden: extension.id === 'project-workbench' && !experimentalEnabled('workbench'),
     disabledReason: !sessionToken && extension.id !== 'outputs' ? 'Connect host first to use this tool.' : undefined,
     run: () => {
       if (extension.id === 'outputs') { openHostSurface('outputs'); return; }
       const focusedChat = focusedAgentChat();
-      if (isGatewayProvider(focusedChat.profileId) && (extension.id === 'build-queue' || extension.id === 'project-workbench')) {
-        notify(`The build queue and Project Workbench use Hermes workers. ${focusedChat.agentName} does not have those APIs. Switch this chat to Hermes, or use Collab for a shared workspace and approved shell commands.`);
+      if (isGatewayProvider(focusedChat.profileId) && extension.id === 'build-queue') {
+        notify(`The build queue uses Hermes workers. ${focusedChat.agentName} does not have that API. Switch this chat to Hermes, or use Collab for a shared workspace and approved shell commands.`);
         return;
       }
       void extension.activate({ token: () => sessionToken, api: menuAgentApi, agentName: focusedChat.agentName, provider: focusedChat.profileId });
@@ -483,19 +442,7 @@ const hermesMenuItems: OrbitMenuItem[] = workspaceExtensions.map(extension => ({
   icon: hermesIcons[extension.id] || '✦',
   button: button(extension.title, extension.title, () => { void commands.execute(`hermes-${extension.id}`); }),
 }));
-// Experimental Project Workbench surfaces stay hidden until the owner enables
-// them in Orbit settings. The settings entry point itself is always available.
-const workbenchWindowMenuButton = button('New Workbench window', 'New Workbench window', () => { void commands.execute('new-workbench'); });
 const orbitSettingsMenuButton = button('Orbit settings', 'Orbit settings', () => { void commands.execute('settings'); });
-const projectWorkbenchMenuButton = hermesMenuItems.find(item => item.id === 'hermes-project-workbench')?.button;
-function syncExperimentalMenuItems() {
-  const on = experimentalEnabled('workbench');
-  for (const node of [workbenchWindowMenuButton, projectWorkbenchMenuButton]) {
-    if (!node) continue;
-    node.hidden = !on;
-    node.closest<HTMLElement>('.orbit-menu-item-slot')?.toggleAttribute('hidden', !on);
-  }
-}
 function openHermesTools() {
   const target = state.monitors.find(m => m.id === (focused ?? state.selected));
   const agent = target ? leaves(target.layout).find(p => p.kind === 'agent') : undefined;
@@ -551,12 +498,7 @@ function orbitMenuSections(): OrbitMenuSection[] {
     { id: 'grokbots', title: 'Grok Bots', detail: 'Multi-agent chat with your bots.', items: [
       { id: 'grokbots', label: 'Grok Bots', icon: '🤖', button: button('Grok Bots', 'Chat with your agents and group rooms', () => { void commands.execute('grokbots'); }) },
     ] },
-    { id: 'games', title: 'Games', detail: 'Play a game inside your workspace.', items: [
-      { id: 'kitty-doom', label: 'Kitty DOOM', icon: '👾', button: button('Kitty DOOM', 'Play kitty-doom with Freedoom', () => { void commands.execute('kitty-doom'); }) },
-    ] },
     { id: 'view', title: 'Workspace view', detail: 'Choose how your windows are arranged.', items: [
-      { id: 'windows', label: 'Windows', icon: '▤', button: windowsButton },
-      { id: 'spatial', label: 'Spatial', icon: '◈', button: sceneButton },
       { id: 'focus', label: 'Focus', icon: '▣', button: flatButton },
       { id: 'arrange', label: 'Arrange workspace', icon: '▦', button: button('Arrange workspace', 'Arrange workspace', () => { void commands.execute('arrange'); }) },
       { id: 'saved-layouts', label: 'Saved workspace layouts', icon: '▦', button: button('Saved workspace layouts', 'Saved workspace layouts', () => { void commands.execute('saved-layouts'); }) },
@@ -570,13 +512,12 @@ function orbitMenuSections(): OrbitMenuSection[] {
     ] },
     { id: 'hermes', title: 'Hermes', detail: 'Hermes runtime tools and conversations, reachable without opening a chat pane.', items: [
       { id: 'hermes-chat', label: 'New Hermes chat', icon: '✧', button: button('New Hermes chat', 'New Hermes chat', () => { void commands.execute('new-agent'); }) },
-      { id: 'hermes-workbench-window', label: 'New Workbench window', icon: '◧', button: workbenchWindowMenuButton },
       { id: 'hermes-tools', label: 'Tools & conversations', icon: '⋯', button: button('Tools & conversations', 'Tools & conversations', () => { void commands.execute('hermes-tools'); }) },
       { id: 'conversation-library', label: 'Conversation library', icon: '☷', button: button('Conversation library', 'Conversation library', () => { void commands.execute('conversation-library'); }) },
       { id: 'send-selection', label: 'Send selected text to conversation', icon: '↗', button: button('Send selected text to conversation', 'Send selected text to conversation', () => { void commands.execute('send-selection'); }) },
       { id: 'activity', label: 'Live activity', icon: '↻', button: button('Live activity', 'Live activity', () => { void commands.execute('activity'); }) },
+      { id: 'acdd-evidence', label: 'ACDD evidence', icon: '✓', button: button('ACDD evidence', 'ACDD evidence', () => { void commands.execute('acdd-evidence'); }) },
       { id: 'collab', label: 'Collab', icon: '▦', button: button('Collab', 'Collab', () => { void commands.execute('collab'); }) },
-      { id: 'irc', label: 'IRC', icon: '#', button: button('IRC', 'IRC', () => { void commands.execute('irc'); }) },
       ...hermesMenuItems,
     ] },
     { id: 'settings', title: 'Settings', detail: 'Preferences saved in this browser.', items: [
@@ -586,15 +527,6 @@ function orbitMenuSections(): OrbitMenuSection[] {
   ];
 }
 const orbitMenu = installOrbitMenu({ toolbar: orbitToolbar, drawerHost: app, logo: logoButton, sections: orbitMenuSections });
-// Place menu items first, then apply and subscribe the experimental gates.
-syncExperimentalMenuItems();
-subscribeExperimental(syncExperimentalMenuItems);
-const scene = new DesktopScene(stage);
-scene.configureCamera(state.spatialCamera, pose => { state.spatialCamera = pose; save(); });
-installSpatialControls(stage, scene, () => state, () => { updateScene(); renderInspector(); save(); });
-if (stage.classList.contains("no-webgl"))
-  footer.querySelector(".footer-status")!.textContent =
-    "CSS3D mode · WebGL unavailable";
 const toast = el("div", "toast");
 toast.role = "status";
 app.append(toast);
@@ -626,7 +558,7 @@ function choose(id: string) {
   minimizer.restore(id, monitors.get(id));
   state.selected = id;
   const chosen = state.monitors.find(m => m.id === id);
-  if (chosen?.frame && state.view === 'windows') chosen.frame.z = Math.min(99999, Math.max(...state.monitors.map(m => m.frame?.z || 0)) + 1);
+  if (chosen?.frame) chosen.frame.z = Math.min(99999, Math.max(...state.monitors.map(m => m.frame?.z || 0)) + 1);
   renderInspector();
   updateScene();
   renderTabs();
@@ -634,7 +566,6 @@ function choose(id: string) {
 }
 function updateScene() {
   if (state.monitors.some((m) => !monitors.has(m.id))) return;
-  scene.retainWindows(state.monitors);
   if (docking) {
     reconcilingDocking = true;
     try { docking.retainWindows(state.monitors, state.selected); }
@@ -644,31 +575,24 @@ function updateScene() {
     const meta = monitors.get(m.id)?.querySelector(".monitor-meta");
     if (meta) meta.textContent = `${m.diagonal}″ / ${m.aspect}`;
   }
-  if (state.view === 'windows') {
-    // Docking placement is an opt-in overlay: it reuses the same live monitor
-    // elements and PaneViews and only changes where they are positioned. A
-    // layout-only change must not dispose or reload any pane runtime.
-    state.monitors.forEach((m, i) => {
-      const element = monitors.get(m.id)!;
-      element.classList.toggle('selected', m.id === state.selected);
-      if (focused !== m.id) {
-        if (docking) {
-          if (element.parentElement !== docking.surfaces) moveConnected(element, docking.surfaces);
-          element.classList.add('desktop-window');
-        } else {
-          if (element.parentElement !== desktopHost) moveConnected(element, desktopHost);
-          element.classList.add('desktop-window');
-          placeWindow(element, m, desktopHost, i);
-        }
+  // Docking placement is an opt-in overlay: it reuses the same live monitor
+  // elements and PaneViews and only changes where they are positioned. A
+  // layout-only change must not dispose or reload any pane runtime.
+  state.monitors.forEach((m, i) => {
+    const element = monitors.get(m.id)!;
+    element.classList.toggle('selected', m.id === state.selected);
+    if (focused !== m.id) {
+      if (docking) {
+        if (element.parentElement !== docking.surfaces) moveConnected(element, docking.surfaces);
+        element.classList.add('desktop-window');
+      } else {
+        if (element.parentElement !== desktopHost) moveConnected(element, desktopHost);
+        element.classList.add('desktop-window');
+        placeWindow(element, m, desktopHost, i);
       }
-    });
-    if (docking) docking.placeWindows(monitors, state.monitors, state.selected, focused);
-  } else {
-    // An inactive docking tab may have hidden its application-owned surface.
-    // Spatial placement shows every non-minimized monitor, not just active tabs.
-    if (docking) monitors.forEach(element => element.style.removeProperty('visibility'));
-    scene.update(state.monitors, monitors, state.selected, state.arc);
-  }
+    }
+  });
+  if (docking) docking.placeWindows(monitors, state.monitors, state.selected, focused);
   views.forEach((v) => v.resize());
 }
 function renderTabs() {
@@ -699,7 +623,6 @@ function focus(id: string) {
   moveConnected(element, focusHost);
   focusHost.classList.add("visible");
   work.classList.add("is-focused");
-  sceneButton.classList.remove("active");
   flatButton.classList.add("active");
   element.classList.add("flat-monitor");
   element.style.transform = "none";
@@ -709,14 +632,10 @@ function unfocus() {
   if (!focused) return;
   const element = monitors.get(focused);
   element?.classList.remove("flat-monitor");
-  if (element) {
-    if (state.view === 'windows') moveConnected(element, desktopHost);
-    else { const anchor = stage.querySelector<HTMLElement>(`[data-anchor-id="${focused}"]`); if (anchor) moveConnected(element, anchor); }
-  }
+  if (element) moveConnected(element, desktopHost);
   focused = null;
   focusHost.classList.remove("visible");
   work.classList.remove("is-focused");
-  sceneButton.classList.add("active");
   flatButton.classList.remove("active");
   updateScene();
 }
@@ -724,26 +643,7 @@ function applySidebar() {
   shell.classList.toggle('sidebar-hidden', !!state.sidebarHidden);
   sidebarToggle.textContent = state.sidebarHidden ? 'Show panel' : 'Hide panel';
   sidebarToggle.setAttribute('aria-expanded', String(!state.sidebarHidden));
-  requestAnimationFrame(() => { scene.resize(); updateScene(); });
-}
-function setView(view: 'windows' | 'spatial') {
-  scene.setNavigation(false);
-  unfocus(); state.view = view;
-  work.classList.toggle('windows-mode', view === 'windows');
-  windowsButton.classList.toggle('active', view === 'windows');
-  sceneButton.classList.toggle('active', view === 'spatial');
-  if (view === 'spatial') {
-    monitors.forEach((element, id) => {
-      element.classList.remove('desktop-window');
-      for (const key of ['left', 'top', 'width', 'height', 'z-index']) element.style.removeProperty(key);
-      const anchor = stage.querySelector<HTMLElement>(`[data-anchor-id="${id}"]`);
-      if (anchor) moveConnected(element, anchor);
-    });
-    scene.update(state.monitors, monitors, state.selected, state.arc);
-  }
-  state.monitors.forEach(m => leaves(m.layout).forEach(p => views.get(p.id)?.setFont(textSize(m))));
-  renderInspector();
-  updateScene(); save();
+  requestAnimationFrame(() => { updateScene(); });
 }
 function confirmChange(text: string, action: () => void) {
   const d = el("dialog", "dialog");
@@ -1046,8 +946,7 @@ function renderMonitor(m: Monitor) {
     }
   }
   oldChildren.forEach(child => child.remove());
-  scene.wireSpatial(bar, resizeHandle, m, () => state.view === 'spatial' && !focused, () => { updateScene(); save(); }, () => { renderInspector(); save(); });
-  wireWindow(outer, bar, resizeHandle, m, desktopHost, () => state.view === 'windows' && !focused && !docking, () => { renderInspector(); views.forEach(v => v.resize()); save(); });
+  wireWindow(outer, bar, resizeHandle, m, desktopHost, () => !focused && !docking, () => { renderInspector(); views.forEach(v => v.resize()); save(); });
   updateScene();
   if (focused === m.id) {
     if (outer.parentElement !== focusHost) moveConnected(outer, focusHost);
@@ -1106,7 +1005,7 @@ function openWindowOptions(id: string) {
       const input = opacity.querySelector('input')!;
       input.value = '100'; input.dispatchEvent(new Event('input'));
     }),
-    range(textSizeLabel(), textSize(m), 6, state.view === 'spatial' ? 96 : 32, 1, ' px', value => {
+    range(textSizeLabel(), textSize(m), 6, 32, 1, ' px', value => {
       const window = live();
       if (window) font(window, value - textSize(window));
     }), status, button('Done', 'Close window options', () => dialog.close()));
@@ -1116,16 +1015,12 @@ function openWindowOptions(id: string) {
   dialog.showModal();
 }
 function textSize(m: Monitor) {
-  return state.view === 'spatial' ? (m.spatialFontSize ?? m.fontSize) : m.fontSize;
+  return m.fontSize;
 }
-function textSizeLabel() { return state.view === 'spatial' ? '3D text size' : 'Desktop text size'; }
+function textSizeLabel() { return 'Desktop text size'; }
 function font(m: Monitor, delta: number, refreshInspector = true) {
-  const value = Math.max(6, Math.min(state.view === 'spatial' ? 96 : 32, textSize(m) + delta));
-  // Freeze the legacy size before either view is edited, so desktop changes
-  // cannot silently change an as-yet unedited spatial setting.
-  m.spatialFontSize ??= m.fontSize;
-  if (state.view === 'spatial') m.spatialFontSize = value;
-  else m.fontSize = value;
+  const value = Math.max(6, Math.min(32, textSize(m) + delta));
+  m.fontSize = value;
   leaves(m.layout).forEach((p) => views.get(p.id)?.setFont(value));
   if (refreshInspector) renderInspector();
   save();
@@ -1248,7 +1143,7 @@ function renderInspector() {
       m.diagonal = v;
       updateScene();
     }),
-    range(textSizeLabel(), textSize(m), 6, state.view === 'spatial' ? 96 : 32, 1, " px", (v) => {
+    range(textSizeLabel(), textSize(m), 6, 32, 1, " px", (v) => {
       font(m, v - textSize(m), false);
     }),
   );
@@ -1282,13 +1177,6 @@ function renderInspector() {
     );
   }
   inspector.append(position);
-  if (m.spatial) {
-    ratios.disabled = true;
-    display.querySelector<HTMLInputElement>('[aria-label="Diagonal"]')!.disabled = true;
-    position.replaceChildren(el('h3', '', 'FREE 3D PLACEMENT'), el('p', '', 'This window uses independent 3D dimensions and coordinates. Use Arrange / edit in Spatial view to change size, position, rotation and resolution.'),
-      button('Edit 3D placement', 'Edit selected 3D placement', () => { if (state.view !== 'spatial') setView('spatial'); stage.querySelector<HTMLButtonElement>('[aria-label="3D layout and window settings"]')?.click(); }));
-  }
-  if (state.monitors.every(window => window.spatial)) preset.querySelector<HTMLInputElement>('[aria-label="Wrap angle"]')!.disabled = true;
   const actions = el("div", "settings-section settings-actions");
   actions.append(
     button("↧  Export layout", "Export workspace layout", exportLayout),
@@ -1347,7 +1235,7 @@ async function openGrokBots(target?: GrokBotsTarget) {
     if (target?.newWindow) {
       const m = monitor(state.monitors.length + 1, 'browser'); m.name = 'Grok Bots';
       leaves(m.layout)[0].url = url;
-      state.monitors.push(m); state.selected = m.id; state.view = 'windows';
+      state.monitors.push(m); state.selected = m.id;
       work.classList.add('windows-mode'); renderAll(); choose(m.id); save(); return;
     }
     const existing = state.monitors.find(m => leaves(m.layout).some(p => p.kind === 'browser' && typeof p.url === 'string' && p.url.startsWith('/apps/grokbots/')));
@@ -1358,7 +1246,7 @@ async function openGrokBots(target?: GrokBotsTarget) {
     }
     const m = monitor(state.monitors.length + 1, 'browser'); m.name = 'Grok Bots';
     leaves(m.layout)[0].url = data.url;
-    state.monitors.push(m); state.selected = m.id; state.view = 'windows';
+    state.monitors.push(m); state.selected = m.id;
     work.classList.add('windows-mode'); renderAll(); choose(m.id); save();
   } catch (error) { notify(String(error instanceof Error ? error.message : error)); }
 }
@@ -1381,64 +1269,6 @@ function addMonitor(kind: PaneKind = 'terminal') {
 }
 function paneExists(paneId: string): boolean {
   return state.monitors.some(m => leaves(m.layout).some(p => p.id === paneId && p.kind === 'agent'));
-}
-function focusPane(paneId: string): boolean {
-  const target = state.monitors.find(m => leaves(m.layout).some(p => p.id === paneId));
-  if (!target) return false;
-  if (focused) unfocus();
-  choose(target.id);
-  return true;
-}
-// Opens (or re-focuses) a dedicated Workbench agent pane beside the Normal one.
-// The new pane's mode is persisted before its first render and it starts its own
-// fresh conversation; no chat, draft, context, grant or candidate is copied.
-// The surface is experimental and off until enabled in Orbit settings.
-function openWorkbenchWindow(normalPaneId?: string) {
-  if (!experimentalEnabled('workbench')) {
-    notify('Project Workbench is experimental and off. Enable it in Orbit settings.');
-    openSettings();
-    return;
-  }
-  if (normalPaneId && !paneExists(normalPaneId)) return;
-  if (normalPaneId) {
-    const paired = readPanePrefs(workspaceId, normalPaneId).pairedPaneId;
-    if (paired && paneExists(paired)) { focusPane(paired); return; }
-  }
-  const m = monitor(state.monitors.length + 1, 'agent');
-  m.name = 'Workbench';
-  const workbenchPane = leaves(m.layout)[0];
-  writePanePrefs(workspaceId, workbenchPane.id, { mode: 'workbench', pairedPaneId: normalPaneId ?? null });
-  if (normalPaneId) writePanePrefs(workspaceId, normalPaneId, { pairedPaneId: workbenchPane.id });
-  if (focused) unfocus();
-  state.monitors.push(m);
-  state.selected = m.id;
-  renderMonitor(m);
-  renderInspector();
-  renderTabs();
-  save();
-}
-// Opens (or re-focuses) the Normal chat paired with a Workbench pane. It never
-// silently replaces the original; the opaque pair id is used.
-function openNormalWindow(workbenchPaneId?: string) {
-  if (workbenchPaneId && !paneExists(workbenchPaneId)) return;
-  if (workbenchPaneId) {
-    const paired = readPanePrefs(workspaceId, workbenchPaneId).pairedPaneId;
-    if (paired && paneExists(paired)) { focusPane(paired); return; }
-  }
-  const m = monitor(state.monitors.length + 1, 'agent');
-  m.name = 'Normal chat';
-  const normalPane = leaves(m.layout)[0];
-  if (workbenchPaneId) {
-    writePanePrefs(workspaceId, normalPane.id, { pairedPaneId: workbenchPaneId });
-    writePanePrefs(workspaceId, workbenchPaneId, { pairedPaneId: normalPane.id });
-  }
-  if (focused) unfocus();
-  state.monitors.push(m);
-  state.selected = m.id;
-  renderMonitor(m);
-  renderInspector();
-  renderTabs();
-  save();
 }
 function deleteMonitor() {
   if (state.monitors.length === 1) {
@@ -1466,8 +1296,8 @@ function renderAll() {
   for (const [id, v] of views) if (!livePaneMonitor(id)) {
     v.dispose(); views.delete(id); paneSignatures.delete(id);
   }
-  // A removed CSS3DObject removes its anchor immediately; park surviving views
-  // before any renderMonitor/updateScene call can prune that old anchor.
+  // Park surviving views before any renderMonitor/updateScene call can prune
+  // their removed containers.
   for (const [id, element] of monitors) if (!state.monitors.some(m => m.id === id)) {
     for (const [paneId, v] of views) if (element.contains(v.element) && livePaneMonitor(paneId)) moveConnected(v.element, paneParking);
   }
@@ -1513,11 +1343,8 @@ importInput.onchange = async () => {
         monitors.forEach(element=>element.remove());
         monitors.clear();
         state = next;
-        state.view ||= 'windows';
-        scene.configureCamera(state.spatialCamera,pose=>{state.spatialCamera=pose;save();});
         applyAppearance(state);
         renderAll();
-        setView(state.view);
         choose(state.selected);
       },
     );
@@ -1596,23 +1423,21 @@ window.addEventListener("beforeunload", () => {
   docking?.dispose();
   dockingSync?.dispose();
   views.forEach((v) => v.dispose());
-  scene.dispose();
 });
 workspaceBridge = connectWorkspace(() => state, next => {
   cancelDockingPlacementGesture();
   applyingRemote = true;
   try {
     const valid = validate(next);
-    // Camera/geometry synchronization must not detach live iframes or terminals.
-    const geometryOnly = valid.view === state.view && valid.monitors.length === state.monitors.length && valid.monitors.every((m, i) => {
+    // Geometry synchronization must not detach live iframes or terminals.
+    const geometryOnly = valid.monitors.length === state.monitors.length && valid.monitors.every((m, i) => {
       const old = state.monitors[i];
       return old.id === m.id && old.name === m.name && old.opacity === m.opacity && JSON.stringify(old.layout) === JSON.stringify(m.layout);
     });
     if (geometryOnly) {
-      valid.monitors = valid.monitors.map((m, i) => { const old = state.monitors[i]; if (!m.spatial) delete old.spatial; if (m.spatialFontSize === undefined) delete old.spatialFontSize; return Object.assign(old, m, {layout: old.layout}); });
+      valid.monitors = valid.monitors.map((m, i) => Object.assign(state.monitors[i], m, {layout: state.monitors[i].layout}));
       state = valid;
       state.monitors.forEach(m => leaves(m.layout).forEach(p => views.get(p.id)?.setFont(textSize(m))));
-      scene.configureCamera(state.spatialCamera, pose => { state.spatialCamera = pose; save(); });
       renderInspector(); renderTabs(); updateScene(); applySidebar(); save();
       return;
     }
@@ -1623,10 +1448,9 @@ workspaceBridge = connectWorkspace(() => state, next => {
       const match = nextPanes.get(p.id);
       if (!match || paneSignature(match.p) !== paneSignature(p)) { views.get(p.id)?.dispose(); views.delete(p.id); paneSignatures.delete(p.id); }
     }
-    valid.monitors = valid.monitors.map(m => { const old = state.monitors.find(x => x.id === m.id); if (old && !m.spatial) delete old.spatial; if (old && m.spatialFontSize === undefined) delete old.spatialFontSize; return old ? Object.assign(old, m) : m; });
-    state = valid; state.view ||= 'windows';
-    scene.configureCamera(state.spatialCamera, pose => { state.spatialCamera = pose; save(); });
-    renderAll(); setView(state.view); choose(state.selected);
+    valid.monitors = valid.monitors.map(m => { const old = state.monitors.find(x => x.id === m.id); return old ? Object.assign(old, m) : m; });
+    state = valid;
+    renderAll(); choose(state.selected);
     if (previousFocus && state.monitors.some(m => m.id === previousFocus) && state.selected === previousFocus) focus(previousFocus);
   } finally { applyingRemote = false; }
 }, () => sessionToken, message => { saved.textContent = message; }, {
@@ -1636,7 +1460,6 @@ workspaceBridge = connectWorkspace(() => state, next => {
   },
 });
 renderAll();
-setView(state.view || 'windows');
 // Opt-in docking placement only when the local URL explicitly asks for it. The
 // library/styles are dynamically imported (Dockview stays out of the main bundle) and
 // refuses explicitly, leaving this default renderer in place, when the browser
@@ -1701,16 +1524,16 @@ layoutSwitcher = installLayoutSwitcher(navigation, `orbit.layouts.${workspaceId}
     if (focused) unfocus();
     next.monitors = next.monitors.map(m => {
       const old = state.monitors.find(w => w.id === m.id)!;
-      for (const key of ['frame', 'spatial', 'spatialFontSize'] as const) if (m[key] === undefined) delete old[key];
+      if (m.frame === undefined) delete old.frame;
       return Object.assign(old, m);
     });
     state = next;
-    scene.configureCamera(state.spatialCamera, pose => { state.spatialCamera = pose; save(); });
     for (const m of state.monitors) {
       const element = monitors.get(m.id)!;
       if (hidden.includes(m.id)) minimizer.hide(m.id, element); else minimizer.restore(m.id, element);
     }
-    setView(state.view || 'windows'); renderTabs();
+    for (const m of state.monitors) leaves(m.layout).forEach(p => views.get(p.id)?.setFont(textSize(m)));
+    renderInspector(); updateScene(); renderTabs(); save();
   }, notify, () => {void commands.execute('saved-layouts');});
 // Optional, page-scoped WebMCP: no terminal input or credentials are exposed.
 const modelContext = (

@@ -1,4 +1,5 @@
 import { el, button, select } from './dom';
+import { contractKey, readBoardEvidence, type BoardEvidence, type ContractRef } from './collab-evidence';
 
 const labels: Record<string, string> = { hermes: 'Hermes', grok: 'Grok Bot', pi: 'Pi', kyle: 'Kyle', orbit: 'Orbit' };
 const skillNames = ['terminal', 'tools', 'code', 'research', 'reasoning', 'writing'];
@@ -13,6 +14,7 @@ const columns: [string, string][] = [
 ];
 
 interface CollabTask {
+  contract?: ContractRef;
   id: string;
   title: string;
   spec: string;
@@ -135,6 +137,7 @@ function lineDiff(before: string, after: string) {
 }
 
 export function mountCollab(options: {
+  token?: () => string;
   request: (body: Record<string, unknown>) => Promise<CollabResponse>;
   onClose: () => void;
   standalone?: boolean;
@@ -158,6 +161,34 @@ export function mountCollab(options: {
   let disposed = false;
   let open = false;
   let projectId = '';
+  const evidence = new Map<string, { value: BoardEvidence; until: number }>();
+  let evidenceScope = '', evidenceToken = '';
+  let evidenceRead = new AbortController();
+  function clearEvidence() {
+    evidenceRead.abort(); evidenceRead = new AbortController(); evidence.clear(); evidenceScope = ''; evidenceToken = '';
+  }
+
+  async function refreshEvidence(data: CollabState, token: string) {
+    if (evidenceScope !== data.project.id || evidenceToken !== token) {
+      clearEvidence(); evidenceScope = data.project.id; evidenceToken = token;
+    }
+    if (!token) return;
+    const refs = new Map(data.tasks.flatMap(task => {
+      const key = contractKey(task.contract);
+      return key && task.contract ? [[key, task.contract] as const] : [];
+    }));
+    for (const key of evidence.keys()) if (!refs.has(key)) evidence.delete(key);
+    // Bound filesystem-backed reads even on large boards. New bindings take
+    // priority over refreshes. Detached projects/credentials never get results.
+    const due = [...refs].filter(([key]) => (evidence.get(key)?.until ?? 0) <= Date.now())
+      .sort(([a],[b]) => (evidence.get(a)?.until ?? 0) - (evidence.get(b)?.until ?? 0)).slice(0,4);
+    const signal = evidenceRead.signal;
+    await Promise.all(due.map(async ([key, ref]) => {
+      const value = await readBoardEvidence(ref, token, AbortSignal.any([signal, AbortSignal.timeout(5000)]))
+        .catch((): BoardEvidence => ({ chip: 'ACDD · evidence unavailable', state: 'pending', rows: [] }));
+      if (!signal.aborted && projectId === data.project.id && options.token?.() === token) evidence.set(key, { value, until: Date.now() + 30_000 });
+    }));
+  }
   let projects: ProjectSummary[] = [];
   let drawerId = '';
   let transcriptId = '';
@@ -182,6 +213,8 @@ export function mountCollab(options: {
 
   async function refresh() {
     if (disposed || !open) return;
+    const token = options.token?.() ?? '';
+    if (evidenceToken && token !== evidenceToken) { clearEvidence(); body.replaceChildren(); }
     clearTimeout(timer);
     try {
       if (!projectId) {
@@ -195,6 +228,9 @@ export function mountCollab(options: {
           options.request({ operation: 'list' }).catch(() => ({ projects })),
         ]);
         if (disposed || !open) return;
+        if (projectId !== data.project.id || (options.token?.() ?? '') !== token) return;
+        await refreshEvidence(data, token);
+        if (disposed || !open || projectId !== data.project.id || (options.token?.() ?? '') !== token) return;
         projects = listed.projects || projects;
         if (!typing()) drawProject(data);
         else status.textContent = data.project.activity || status.textContent;
@@ -319,6 +355,12 @@ export function mountCollab(options: {
     });
     handle.addEventListener('click', event => event.stopPropagation());
     card.append(handle, el('strong', '', task.title), el('p', '', `${labels[task.owner] || task.owner} · reviewer ${labels[task.reviewer] || task.reviewer}`));
+    const key = contractKey(task.contract);
+    if (key) {
+      const value = evidence.get(key)?.value;
+      const chip = el('span', 'collab-evidence-chip', value?.chip ?? 'ACDD · awaiting evidence');
+      chip.dataset.verifier = value?.state ?? 'pending'; card.append(chip);
+    }
     if (task.lastError) card.append(el('p', 'collab-error', task.lastError));
     return card;
   }
@@ -575,6 +617,15 @@ export function mountCollab(options: {
     }
     const wrap = el('section', 'collab-activity-panel');
     wrap.append(el('h3', '', taskId ? 'Task history' : 'Activity'), list);
+    for (const key of new Set(data.tasks.filter(t => !taskId || t.id === taskId).map(t => contractKey(t.contract)).filter(Boolean))) {
+      const rows = evidence.get(key)?.value.rows;
+      if (!rows?.length) continue;
+      const feed = el('ol', 'collab-timeline'); feed.setAttribute('aria-label','Verifier activity');
+      for (const item of rows) {
+        const row = el('li', 'collab-event', item.text); row.dataset.verifier = item.state; feed.append(row);
+      }
+      wrap.append(el('h4', '', `Verifier · ${key.split(':')[0]}`), feed);
+    }
     return wrap;
   }
 
@@ -648,6 +699,7 @@ export function mountCollab(options: {
       void refresh();
     },
     dispose() {
+      clearEvidence();
       disposed = true;
       open = false;
       clearTimeout(timer);

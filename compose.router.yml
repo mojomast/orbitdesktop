@@ -15,9 +15,7 @@
 services:
   router:
     profiles: ["router"]
-    # Override only with another reviewed digest (for example the Advanced
-    # LiteLLM image); the supervisor validates the configured value.
-    image: ${ORBIT_ROUTER_IMAGE:-maximhq/bifrost:v2.5.1@sha256:5ec9873acaf1687556b6e4dd854b92b539d9debf87a5a683b66338648b84d3c8}
+    image: maximhq/bifrost:v2.5.1@sha256:5ec9873acaf1687556b6e4dd854b92b539d9debf87a5a683b66338648b84d3c8
     restart: unless-stopped
     read_only: true
     cap_drop: [ALL]
@@ -26,12 +24,12 @@ services:
     mem_limit: 512m
     environment:
       GOMEMLIMIT: 450MiB
-    # Generated (0600) by the supervisor when the router is enabled. Optional so
-    # `docker compose config` and a plain `up` work on a fresh checkout.
-    # Long-form env_file needs Docker Compose v2.24 or newer.
+    # Required only when this profile is selected. Raw mode preserves literal
+    # dollar signs and quotes in provider credentials (Compose v2.30+).
     env_file:
       - path: ${ORBIT_RUNTIME_DIR:-./runtime}/router/router.env
-        required: false
+        required: true
+        format: raw
     volumes:
       - ${ORBIT_RUNTIME_DIR:-./runtime}/router/data:/app/data
     networks: [orbit-internal]

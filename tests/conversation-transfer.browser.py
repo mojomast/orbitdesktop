@@ -9,6 +9,7 @@ model send happens, and the character bound is reported instead of silently
 truncated.
 """
 from pathlib import Path
+from ui_fixture import copy_ui_source
 import shutil
 import socket
 import subprocess
@@ -21,7 +22,8 @@ from playwright.sync_api import expect, sync_playwright
 ROOT = Path(__file__).resolve().parents[1]
 with tempfile.TemporaryDirectory(prefix='orbit-conversation-transfer-', dir='/tmp/opencode') as temporary:
     root = Path(temporary)
-    for name in ('src', 'contracts', 'server', 'scripts', 'docs'):
+    copy_ui_source(ROOT, root)
+    for name in ('contracts', 'server', 'scripts', 'docs'):
         shutil.copytree(ROOT / name, root / name)
     for name in ('package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.js'):
         shutil.copy2(ROOT / name, root / name)

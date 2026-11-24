@@ -22,7 +22,7 @@ body .minimized-tray { display:none !important; }
 .start-quick { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin-bottom:12px; }
 #app .start-colab, #app .start-quick button { background:#28364c; padding:12px 5px; border-radius:10px; font-size:12px; }
 #app .start-panel { background:#141d2b; }
-@media(max-width:1000px) { .taskbar-status, #app .taskbar-camera { display:none; } }
+@media(max-width:1000px) { .taskbar-status { display:none; } }
 @media(max-width:600px) {
  #app:not(.full-viewport) .scene-navigation { gap:4px; left:4px; right:4px; }
  #app .layout-toggle { max-width:125px; padding:8px; font-size:11px; }

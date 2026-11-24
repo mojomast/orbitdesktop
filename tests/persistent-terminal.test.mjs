@@ -27,16 +27,23 @@ test('startup tmux configuration is explicit, validated and shared with history 
   }
 });
 
-test('persistent host shell retains variable and PID across PTY client disconnect', async () => {
+test('persistent host shell retains variable and PID across PTY client disconnect', async t => {
   const pane_id = randomUUID();
-  const tmuxSocket = `orbit-test-${pane_id.replaceAll('-', '')}`;
-  const root = await mkdtemp(path.join(os.tmpdir(), 'orbit-persistent-'));
+  const tmuxSocket = 'persist';
+  const root = await mkdtemp(path.join(os.tmpdir(), 'pt-'));
+  // The PTY, captureHistory and cleanup must all address the same private socket.
+  const previousTmp = process.env.TMUX_TMPDIR;
+  process.env.TMUX_TMPDIR = root;
+  t.after(() => {
+    if (previousTmp === undefined) delete process.env.TMUX_TMPDIR;
+    else process.env.TMUX_TMPDIR = previousTmp;
+  });
   const home = path.join(root, 'home');
   const cwd = path.join(root, 'cwd');
   const { mkdir } = await import('node:fs/promises');
   await mkdir(home);
   await mkdir(cwd);
-  const provider = new LocalHostProvider({ tmuxSocket, home, cwd, tmuxConfig:'/dev/null', env:{PATH:process.env.PATH,HOME:home,SHELL:'/bin/bash'} });
+  const provider = new LocalHostProvider({ tmuxSocket, home, cwd, tmuxConfig:'/dev/null', env:{PATH:process.env.PATH,HOME:home,SHELL:'/bin/bash',TMUX_TMPDIR:root} });
   let first, second;
   const attach = () => provider.spawn({ cols: 80, rows: 24, pane_id });
   const wait = (pty, command, marker) => new Promise((resolve, reject) => {

@@ -41,7 +41,6 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          three: ["three"],
           terminal: ["@xterm/xterm", "@xterm/addon-fit"],
         },
       },

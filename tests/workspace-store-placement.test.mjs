@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import {tmpdir} from 'node:os';
 import {randomUUID} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 import {Readable} from 'node:stream';
@@ -18,7 +19,7 @@ function command(id,base,placement,operationId=randomUUID()) {
 }
 function setup(t) {
   const root=tempRoot('orbit-placement-');
-  assert.ok(root.startsWith('/tmp/opencode/'));
+  assert.equal(path.dirname(root),tmpdir());
   let store=new SqliteWorkspaceStore(root);
   t.after(()=>{store.close();removeRoot(root);});
   const id=randomUUID();

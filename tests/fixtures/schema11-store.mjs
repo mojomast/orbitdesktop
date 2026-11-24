@@ -1,3 +1,4 @@
+import { scratchPath } from './scratch.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import {execFileSync} from 'node:child_process';
@@ -7,7 +8,7 @@ import {fileURLToPath,pathToFileURL} from 'node:url';
 const COMMIT='b404cf13e4a5a6aef197f7d12394648672061da2';
 export async function archivedSchema11Store(t){
   const root=path.resolve(fileURLToPath(new URL('../..',import.meta.url)));
-  const archived=fs.mkdtempSync('/tmp/opencode/orbit-schema11-source-');
+  const archived=fs.mkdtempSync(scratchPath('orbit-schema11-source-'));
   t.after(()=>fs.rmSync(archived,{recursive:true,force:true}));
   const bytes=execFileSync('git',['archive','--format=tar',COMMIT],{cwd:root,maxBuffer:64*1024*1024});
   execFileSync('tar',['-xf','-','-C',archived],{input:bytes,maxBuffer:64*1024*1024});

@@ -21,7 +21,6 @@
 
 .workspace { background: #080c20 url("/neon-horizon-v1.svg") center / cover no-repeat !important; }
 
-/* The spatial anchor must not retain a full-window hit target. */
 [data-anchor-id="67143ce5-4b26-40e6-9077-b082cb498584"]:has(.guy-minimized) { pointer-events:none!important; }
 [data-monitor-id="67143ce5-4b26-40e6-9077-b082cb498584"].guy-minimized { pointer-events:none!important; }
 [data-monitor-id="67143ce5-4b26-40e6-9077-b082cb498584"].guy-minimized .monitor-bar { height:34px!important; min-height:0!important; padding:0!important; }

@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
@@ -5,7 +6,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { createAgentHandler } from '../server/agent.mjs';
-import { createWorkbenchGate } from '../server/workbench-gate.mjs';
 
 const workspace_id = '12345678-1234-4234-9234-123456789abc';
 const pane_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -18,7 +18,7 @@ const close = server => new Promise(resolve => { server.close(resolve); server.c
 const reply = (res,status,body) => { res.writeHead(status,{'Content-Type':'application/json'}); res.end(JSON.stringify(body)); };
 
 async function setup(t, {lost = false, legacy = false, durable = false, initial = {}, panes = [pane_id], messages = [{role:'user',content:'Earlier'},{role:'assistant',content:'Remembered'},{role:'system',content:'not context'}]} = {}) {
-  const directory = fs.mkdtempSync('/tmp/opencode/ordinary-submission-');
+  const directory = fs.mkdtempSync(scratchPath('ordinary-submission-'));
   const calls = [];
   const runs = new Map();
   let runStatus = 'running', postFault;
@@ -33,12 +33,12 @@ async function setup(t, {lost = false, legacy = false, durable = false, initial 
     if (req.url.startsWith('/api/sessions/')) return reply(res,200,{id:decodeURIComponent(req.url.split('/')[3]),title:'Selected'});
     if (req.url === '/v1/runs' && req.method === 'POST') {
       const session = JSON.parse(text).session_id;
-      const binding = panes.map(id=>{try{return JSON.parse(fs.readFileSync(path.join(directory,'shared-chats',`${workspace_id}.${id}.json`),'utf8'));}catch{return null;}}).find(state=>state?.session===session&&state.workbench_pending);
+      const binding = panes.map(id=>{try{return JSON.parse(fs.readFileSync(path.join(directory,'shared-chats',`${workspace_id}.${id}.json`),'utf8'));}catch{return null;}}).find(state=>state?.session===session&&state.submission_pending);
       const record = JSON.parse(fs.readFileSync(path.join(directory,'ordinary-submissions',`${binding.ordinary_submission_id}.json`),'utf8'));
       assert.equal(record.state,'dispatching');
       assert.equal(JSON.stringify(record.payload),text);
       assert.equal(record.payload_hash,createHash('sha256').update(text).digest('hex'));
-      assert.equal(binding.workbench_pending,record.receipt_id);
+      assert.equal(binding.submission_pending,record.receipt_id);
       if (lost) { req.socket.destroy(); return; }
       postFault?.();
       const id = panes.length > 1 ? `${run_id}_${runs.size}` : run_id;
@@ -52,13 +52,12 @@ async function setup(t, {lost = false, legacy = false, durable = false, initial 
     return reply(res,200,{run_id,session_id,status:runStatus,output:'Finished'});
   });
   await listen(gateway);
-  let handler, gate;
+  let handler;
   const server = http.createServer((req,res) => handler(req,res));
   await listen(server);
   const origin = `http://127.0.0.1:${server.address().port}`;
   const restart = (apiKey = 'private-test-key') => {
-    gate = createWorkbenchGate();
-    handler = createAgentHandler({token,port:server.address().port,devOrigins:[],reply,runtimeDirectory:directory,executionGate:gate,apiUrl:`http://127.0.0.1:${gateway.address().port}`,apiKey,workspaceContext:()=>'\nTrusted workspace context',workspaceRead:()=>({state:{monitors:panes.map(id=>({layout:{type:'pane',pane:{id,kind:'agent'}}}))}})});
+    handler = createAgentHandler({token,port:server.address().port,devOrigins:[],reply,runtimeDirectory:directory,apiUrl:`http://127.0.0.1:${gateway.address().port}`,apiKey,workspaceContext:()=>'\nTrusted workspace context',workspaceRead:()=>({state:{monitors:panes.map(id=>({layout:{type:'pane',pane:{id,kind:'agent'}}}))}})});
   };
   restart();
   t.after(async () => { await close(server); await close(gateway); fs.rmSync(directory,{recursive:true,force:true}); });
@@ -67,7 +66,7 @@ async function setup(t, {lost = false, legacy = false, durable = false, initial 
     return {status:response.status,body:await response.json()};
   }
   assert.equal((await request({action:'shared_chat',initial:{session:session_id,messages:[],...initial}})).status,200);
-  return {request,restart,calls,directory,get workbench(){return handler.workbench;},get gate(){return gate;},setMessages:value=>{messages=value;},setStatus:value=>{runStatus=value;},setPostFault:value=>{postFault=value;}};
+  return {request,restart,calls,directory,setMessages:value=>{messages=value;},setStatus:value=>{runStatus=value;},setPostFault:value=>{postFault=value;}};
 }
 
 test('lost HTTP response persists exact intent and fences restart without a second POST', async t => {
@@ -107,7 +106,7 @@ test('known receipt uses original configuration, normal status clears the fence,
   const status = await f.request({action:'status',run_id});
   assert.equal(status.status,200); assert.equal(status.body.output,'Finished');
   const binding = await f.request({action:'shared_chat'});
-  assert.equal(binding.body.state.workbench_pending,undefined);
+  assert.equal(binding.body.state.submission_pending,undefined);
   assert.equal(binding.body.state.messages.at(-1).text,'Finished');
   assert.equal((await f.request({action:'start',input:'Next'})).status,202);
 });
@@ -203,10 +202,10 @@ test('latest bounded raw page retains earlier conversation through tool-heavy tu
   assert.equal(JSON.stringify(unicode).includes('�'),false);
 });
 
-test('switching conversations reads only the bound session; Workbench card text and unsent drafts stay out', async t => {
+test('switching conversations reads only the bound session; card text and unsent drafts stay out', async t => {
   const other = 'selected-conversation';
   const f = await setup(t,{messages:url=>url.includes(other)
-    ? [{role:'user',content:'Workbench question'},{role:'assistant',content:'Workbench answer'}]
+    ? [{role:'user',content:'Selected question'},{role:'assistant',content:'Selected answer'}]
     : [{role:'user',content:'Normal question'},{role:'assistant',content:'Normal answer'}]});
   assert.equal((await f.request({action:'start',input:'Normal follow-up'})).status,202);
   f.setStatus('completed');
@@ -215,16 +214,16 @@ test('switching conversations reads only the bound session; Workbench card text 
   assert.equal(switched.status,200);
   const file = path.join(f.directory,'shared-chats',`${workspace_id}.${pane_id}.json`);
   const state = JSON.parse(fs.readFileSync(file,'utf8'));
-  fs.writeFileSync(file,JSON.stringify({...state,queued_draft:'Unsent draft',host_result_card:'Private Workbench result'}));
-  assert.equal((await f.request({action:'start',session_id:other,expected_binding_revision:1,input:'Workbench follow-up'})).status,202);
+  fs.writeFileSync(file,JSON.stringify({...state,queued_draft:'Unsent draft',host_result_card:'Private selected result'}));
+  assert.equal((await f.request({action:'start',session_id:other,expected_binding_revision:1,input:'Selected follow-up'})).status,202);
   const posts = f.calls.filter(call=>call.url==='/v1/runs').map(call=>JSON.parse(call.text));
   assert.deepEqual(posts.map(post=>post.conversation_history),[
     [{role:'user',content:'Normal question'},{role:'assistant',content:'Normal answer'}],
-    [{role:'user',content:'Workbench question'},{role:'assistant',content:'Workbench answer'}],
+    [{role:'user',content:'Selected question'},{role:'assistant',content:'Selected answer'}],
   ]);
   assert.equal(posts[0].session_id,session_id);
   assert.equal(posts[1].session_id,other);
-  assert.ok(!JSON.stringify(posts).includes('Private Workbench result'));
+  assert.ok(!JSON.stringify(posts).includes('Private selected result'));
   assert.ok(!JSON.stringify(posts).includes('Unsent draft'));
 });
 
@@ -245,11 +244,11 @@ test('accepted receipt survives shared-binding write failure and restart', async
   assert.equal(result.body.run_id,run_id);
   fs.rmdirSync(tempBinding); f.restart(); f.setStatus('completed');
   assert.equal((await f.request({action:'submission_status'})).body.status,'completed');
-  assert.equal((await f.request({action:'shared_chat'})).body.state.workbench_pending,undefined);
+  assert.equal((await f.request({action:'shared_chat'})).body.state.submission_pending,undefined);
   assert.equal(f.calls.filter(call=>call.method==='POST').length,1);
 });
 
-test('distinct Normal conversations overlap across restart; same session and Workbench remain exclusive', async t => {
+test('distinct Normal conversations overlap across restart; the same session remains exclusive', async t => {
  const second='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', third='cccccccc-cccc-4ccc-8ccc-cccccccccccc';
  const secondSession='orbit-bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
  const f=await setup(t,{panes:[pane_id,second,third]});
@@ -260,19 +259,11 @@ test('distinct Normal conversations overlap across restart; same session and Wor
  const next=await f.request({action:'start',pane_id:second,session_id:secondSession,input:'independent second conversation'});
  assert.equal(next.status,202);assert.notEqual(first.body.run_id,next.body.run_id);
  assert.equal((await f.request({action:'start',pane_id:third,input:'duplicate session'})).status,409);
- const recipient=await f.workbench.readBinding({workspace_id,pane_id:third});
- await assert.rejects(f.workbench.prepareSubmission({workspace_id,pane_id:third,session_id,profile_id:'default',input:'Workbench stays exclusive',expected_binding_revision:0,expected_config_generation:recipient.config_generation}),{code:'busy'});
  f.setStatus('completed');
  const secondDone=await f.request({action:'submission_status',pane_id:second,session_id:secondSession});
  const firstDone=await f.request({action:'submission_status'});
  assert.equal(secondDone.body.output,`Finished ${secondSession}`);assert.equal(firstDone.body.output,`Finished ${session_id}`);
  assert.equal(f.calls.filter(c=>c.method==='POST'&&c.url==='/v1/runs').length,2);
- const release=f.gate.claim('agent','native-worker');
- assert.equal((await f.request({action:'start',pane_id:second,session_id:secondSession,input:'native fence'})).status,409);
- release();
- const releaseJob=f.gate.claim('job','managed-check');
- assert.equal((await f.request({action:'start',pane_id:second,session_id:secondSession,input:'job fence'})).status,409);
- releaseJob();
 });
 
 test('unknown, unreceipted and configuration-drifted conversations cannot admit concurrent Normal work', async t => {

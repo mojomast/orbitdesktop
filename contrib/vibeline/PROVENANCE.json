@@ -1,0 +1,108 @@
+{
+  "rail": "R03",
+  "slice": "S",
+  "lane": "rails",
+  "kind": "vendored-upstream-reference-material",
+  "summary": "Pristine copies of vibeline at an exact upstream pin, vendored under Orbit contrib/vibeline/ as inert reference material with a SHA-256 manifest.",
+  "upstream": {
+    "name": "vibeline",
+    "repo": "https://github.com/listeningpost/vibeline",
+    "pin": "d5d0f425a64906ae1a50c1222314a5420da404d5",
+    "pin_source": "refs/heads/main pointed at this exact commit at fetch time (verified via git ls-remote before cloning)",
+    "fetched_on": "2026-11-17",
+    "fetch_method": "Exactly one fetch: a single 'git clone https://github.com/listeningpost/vibeline' into a scratch directory outside the workspace, then 'git checkout d5d0f425a64906ae1a50c1222314a5420da404d5' (which is refs/heads/main HEAD). Files were copied byte-for-byte from that checked-out worktree; no other revision was fetched or substituted, and the vendored files were re-verified byte-identical against 'git cat-file blob' output at the pin.",
+    "license": "MIT",
+    "copyright": "Copyright (c) 2026 ListeningPost",
+    "license_file": "LICENSE"
+  },
+  "execution_policy": "Inert reference material only. Nothing upstream is executed by Orbit at runtime: Orbit does not import, execute, install or otherwise run any vendored upstream file. The vendored subset carries no startup or install hook (the upstream direct-execution entrypoints __main__.py and cli.py and the install.sh/plugin.yaml/Makefile packaging surfaces were deliberately left out of the vendored subset), and no Orbit runtime code references this directory. The acceptance gate tests/test_rails_vendor.py inspects the vendored bytes statically and proves it never imports any vendored module.",
+  "integrity": {
+    "digest_algorithm": "SHA-256, computed over exact file bytes",
+    "upstream_blob_crosscheck": "Each vendored file's SHA-256 was additionally cross-checked against the SHA-256 of the corresponding git blob object at the pin, so a copy drift between worktree and object database would have been caught.",
+    "house_scan_exceptions": [
+      "Pristine upstream bytes contain lines that match the house secret-scan patterns. Per the frozen spec these files are left byte-identical (unmodified); the coordinator owns any gate exception.",
+      "contrib/vibeline/README.md: line 111",
+      "contrib/vibeline/web.py: lines 209, 289, 400, 405, 407, 408, 410, 421, 422",
+      "contrib/vibeline/web/index.html: lines 276, 279, 356"
+    ]
+  },
+  "files": [
+    {
+      "path": "README.md",
+      "sha256": "7c4dd60ebf0ccf86099e14d86cb51f4dcc53d573e9da9e5ffdd4d978bd12b65a",
+      "bytes": 14424,
+      "upstream_mode": "100644",
+      "upstream_git_blob": "3b5248a47cfd8b485ac83b7d6b1bf778d3d259b0"
+    },
+    {
+      "path": "LICENSE",
+      "sha256": "df20bdb784e05921868c9249e3eba938825da7391fc5985673833c78e24bf6a7",
+      "bytes": 1070,
+      "upstream_mode": "100644",
+      "upstream_git_blob": "59520901b956438822a9eef7a24238e1f0ff8d5f"
+    },
+    {
+      "path": "ledger.py",
+      "sha256": "cc70ca9506127ec4feb4d220eae623339ccbb515913a57f994162b9f688fb0f2",
+      "bytes": 3122,
+      "upstream_mode": "100644",
+      "upstream_git_blob": "3ca78c35df545103ca959b1f0384fce639b59292"
+    },
+    {
+      "path": "rails.py",
+      "sha256": "2cf4e505dd3b5e778c42a367e6718ffb8aee78157c10d1e25b6f84036687566d",
+      "bytes": 10770,
+      "upstream_mode": "100644",
+      "upstream_git_blob": "c6402a0261132a63bc66a1d8d95010a3461df566"
+    },
+    {
+      "path": "web.py",
+      "sha256": "3160139f0e63e6f8016b950c84a6aad8b896747aa457920ec447c05ce368d2d1",
+      "bytes": 19087,
+      "upstream_mode": "100644",
+      "upstream_git_blob": "e9ec387b6747ee0d6c80afb101592a9d131e5654"
+    },
+    {
+      "path": "sessions.py",
+      "sha256": "fe35d767de9d7920003a9be4b0691f7431c613f5ccc58d64b3de260e4da2c80b",
+      "bytes": 12387,
+      "upstream_mode": "100644",
+      "upstream_git_blob": "3622214c3b16d65bb5d028273ec85f4a97fbe9b6"
+    },
+    {
+      "path": "swarm.py",
+      "sha256": "b4fb4fd5c64e908eb4424003fbccb71e3b420fc7ce66449e1aa636ff2ed87480",
+      "bytes": 9379,
+      "upstream_mode": "100644",
+      "upstream_git_blob": "3f2ee4bd1acf8614df54ffdd58ecb17f762d5021"
+    },
+    {
+      "path": "shell.py",
+      "sha256": "ee516e76b5f6476b3da3756bd877a7a4ec8667901aa478af829f1e21aa8bc47b",
+      "bytes": 6401,
+      "upstream_mode": "100644",
+      "upstream_git_blob": "c49fa56819f728cfa601e4d5e911792dcb0a978a"
+    },
+    {
+      "path": "feedback.py",
+      "sha256": "5c00010d4ab1cfe6abcdec0e416856581bdd0a51407786d7df8e1a655bcfc86a",
+      "bytes": 7742,
+      "upstream_mode": "100644",
+      "upstream_git_blob": "171636e51b786bdab60b3fe80e77c1cf351a3443"
+    },
+    {
+      "path": "rewind.py",
+      "sha256": "bc7f0451ccca9f6cf47b881bca99fe6f4e4d68b7087e1ec34bb9f96cc749f854",
+      "bytes": 4012,
+      "upstream_mode": "100644",
+      "upstream_git_blob": "59d34b6a034c5406358f7aae6952850d02ccecf9"
+    },
+    {
+      "path": "web/index.html",
+      "sha256": "2a3974a51a8d78bdea408cac06f256db57a5fe528fb74eabc681eb0fa0a2679c",
+      "bytes": 54719,
+      "upstream_mode": "100644",
+      "upstream_git_blob": "7be914d43597626f7f35c01b9562bff4d2258d52"
+    }
+  ]
+}

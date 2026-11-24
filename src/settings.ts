@@ -362,22 +362,21 @@ export function mountSettings(root: HTMLElement, api: OnboardingApi = createOnbo
     return block;
   }
 
-  function githubEditor(): HTMLElement {
+  function githubEditor(onChange: (connected: boolean) => void): HTMLElement {
     const block = node('section', 'settings-section settings-github');
-    block.append(renderGithubSection({ api: github, notify, heading: 'h2' }));
+    block.append(renderGithubSection({ api: github, notify, heading: 'h2', onChange: status => onChange(status.connected) }));
     return block;
   }
 
-  function reposEditor(): HTMLElement {
+  function reposEditor(repos: ReturnType<typeof renderReposSection>): HTMLElement {
     const block = node('section', 'settings-section settings-repos');
-    const repos = renderReposSection({ api: github, notify, heading: 'h2' });
     const save = node('button', 'onboarding-primary', 'Save repositories') as HTMLButtonElement;
     save.type = 'button';
     save.setAttribute('aria-label', 'Save repositories to watch');
     save.addEventListener('click', async () => {
       try {
         const saved = await repos.save();
-        notify(saved.length ? `Watching ${saved.length} ${saved.length === 1 ? 'repository' : 'repositories'}.` : 'No repositories are watched.');
+        notify(saved.length ? `Saved ${saved.length} ${saved.length === 1 ? 'repository' : 'repositories'} for review.` : 'Repository list cleared.');
       } catch (error) {
         notify(error instanceof Error ? error.message : 'The repositories could not be saved.', true);
       }
@@ -388,7 +387,8 @@ export function mountSettings(root: HTMLElement, api: OnboardingApi = createOnbo
 
   function render(): void {
     if (!state) return;
-    content.replaceChildren(componentsEditor(), providerEditor(), modeEditor(), rolesEditor(), githubEditor(), reposEditor());
+    const repos = renderReposSection({ api: github, notify, heading: 'h2' });
+    content.replaceChildren(componentsEditor(), providerEditor(), modeEditor(), rolesEditor(), githubEditor(repos.setConnected), reposEditor(repos));
     const review = node('section', 'settings-section');
     review.append(node('h2', '', 'Summary'));
     review.append(renderReviewStep(context() as never));

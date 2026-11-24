@@ -1,0 +1,28 @@
+[Unit]
+Description=Orbit read-only Rails HTTP and event stream
+
+[Service]
+Type=simple
+# Example user unit. Set the installed Orbit root in a private drop-in.
+WorkingDirectory=%h/work/orbitdesktop
+EnvironmentFile=%h/.config/orbitdesktop/rails-reader.env
+ExecStart=/usr/bin/python3 -B -E -s -m contrib.rails_server
+Restart=on-failure
+RestartSec=10s
+TimeoutStopSec=5s
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+RestrictAddressFamilies=AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=localhost
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryMax=384M
+TasksMax=64
+LimitNOFILE=128
+
+[Install]
+WantedBy=default.target

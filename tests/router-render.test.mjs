@@ -83,37 +83,33 @@ test('bifrost config is file-only, file-managed and references keys only through
 
   assert.equal(config.config_store.enabled, false);
   assert.equal(config.encryption_key, 'env.BIFROST_ENCRYPTION_KEY');
-  assert.equal(config.management.enabled, true);
-  assert.equal(config.management.auth.enabled, true);
-  assert.match(String(config.management.auth.token), /^env\.[A-Z0-9_]+$/);
-  assert.equal(config.logging.enabled, false);
-  assert.equal(config.logging.content_logging, false);
-  assert.equal(config.drop_excess_requests, true);
+  assert.equal(config.governance.auth_config.is_enabled, true);
+  assert.match(config.governance.auth_config.admin_password, /^env\./);
+  assert.match(config.setup_token, /^env\./);
+  assert.equal(config.client.enable_logging, false);
+  assert.equal(config.client.disable_content_logging, true);
+  assert.equal(config.client.enforce_auth_on_inference, true);
+  assert.equal(config.plugins[0].config.is_vk_mandatory, true);
+  assert.equal(config.client.drop_excess_requests, true);
 
-  assert.equal(config.providers.openrouter.weight, 2);
-  assert.deepEqual(config.providers.openrouter.models, ['deepseek/deepseek-chat']);
+  assert.equal(config.providers.openrouter.keys[0].weight, 2);
+  assert.deepEqual(config.providers.openrouter.keys[0].models, ['deepseek/deepseek-chat']);
   assert.equal(config.providers.openrouter.keys[0].value, 'env.OPENROUTER_API_KEY');
 
-  assert.equal(config.providers.local.base_provider_type, 'openai');
+  assert.equal(config.providers.local.custom_provider_config.base_provider_type, 'openai');
   assert.equal(config.providers.local.network_config.base_url, 'http://10.0.0.5:11434/v1');
   assert.equal(config.providers.local.network_config.allow_private_network, true);
 
-  assert.equal(config.virtual_keys.length, 4);
-  for (const key of config.virtual_keys) {
+  assert.equal(config.governance.virtual_keys.length, 4);
+  for (const key of config.governance.virtual_keys) {
     assert.ok(['setup', 'chat', 'workers', 'summarize'].includes(key.id));
-    assert.ok(Array.isArray(key.allowed_models));
-    assert.equal(typeof key.budget.max_limit, 'number');
-    assert.equal(typeof key.budget.reset_duration, 'string');
-    assert.equal(typeof key.rate_limit.requests, 'number');
+    assert.ok(key.provider_configs.every(grant => grant.allowed_models.length && grant.key_ids.length === 1));
+    const budget = config.governance.budgets.find(b => b.virtual_key_id === key.id);
+    const rate = config.governance.rate_limits.find(r => r.id === key.rate_limit_id);
+    assert.equal(typeof budget.max_limit, 'number');
+    assert.equal(typeof rate.request_max_limit, 'number');
   }
-  const workers = config.virtual_keys.find(key => key.id === 'workers');
-  assert.equal(workers.budget.max_limit, 20);
-  assert.equal(workers.budget.reset_duration, '1M');
-  assert.equal(workers.rate_limit.tokens, 2000000);
-
-  assert.deepEqual(config.fallbacks, [
-    { model: 'deepseek/deepseek-chat', fallback_models: ['local/llama3'] },
-  ]);
+  assert.deepEqual(config.governance.routing_rules[0].fallbacks, ['local/llama3']);
 
   assert.ok(!JSON.stringify(config).includes(SENTINEL));
   assert.ok(!JSON.stringify(config).includes('api_key'));
@@ -122,7 +118,7 @@ test('bifrost config is file-only, file-managed and references keys only through
 test('bifrost blocks a private-network upstream unless that provider allows it', () => {
   const blocked = renderBifrostConfig(
     baseConfig({
-      upstreams: [
+      fallbacks: [], upstreams: [
         {
           providerId: 'local',
           models: ['llama3'],
@@ -155,16 +151,10 @@ test('bifrost blocks a private-network upstream unless that provider allows it',
 
 test('bifrost renders one default virtual key per role with the documented budgets', () => {
   const config = renderBifrostConfig(baseConfig({ virtualKeys: [] }), {});
-  assert.equal(config.virtual_keys.length, 4);
-  const byRole = Object.fromEntries(config.virtual_keys.map(key => [key.id, key]));
-  assert.equal(byRole.setup.budget.max_limit, 2);
-  assert.equal(byRole.setup.budget.reset_duration, '1d');
-  assert.equal(byRole.chat.budget.max_limit, 10);
-  assert.equal(byRole.chat.budget.reset_duration, '1M');
-  assert.equal(byRole.workers.budget.max_limit, 20);
-  assert.equal(byRole.workers.budget.reset_duration, '1M');
-  assert.equal(byRole.summarize.budget.max_limit, 2);
-  assert.equal(byRole.summarize.budget.reset_duration, '1M');
+  assert.equal(config.governance.virtual_keys.length, 4);
+  assert.deepEqual(config.governance.budgets.map(b => [b.virtual_key_id, b.max_limit, b.reset_duration]), [
+    ['setup', 2, '1d'], ['chat', 10, '1M'], ['workers', 20, '1M'], ['summarize', 2, '1M'],
+  ]);
 });
 
 test('litellm render is YAML with env references only and no inline secrets', () => {

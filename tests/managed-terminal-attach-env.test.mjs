@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import childProcess from 'node:child_process';
@@ -10,7 +11,7 @@ import { randomUUID } from 'node:crypto';
 // free environment. It must never inherit HERMES_PROFILES_JSON / HERMES_API_KEY /
 // ORBIT_TOKEN from the server process, nor a nested TMUX address.
 test('attach-mode tmux client exec environment excludes owner/agent credentials', async (t) => {
-  const root = await mkdtemp('/tmp/opencode/attach-env-');
+  const root = await mkdtemp(scratchPath('attach-env-'));
   await chmod(root, 0o700);
   const saved = {};
   for (const key of ['HERMES_PROFILES_JSON', 'HERMES_API_KEY', 'ORBIT_TOKEN', 'TMUX', 'API_SERVER_KEY', 'SAND_GATEWAY_TOKEN', 'GROK_BOT_API_KEY', 'GROKBOT_GATEWAY_TOKEN']) saved[key] = process.env[key];

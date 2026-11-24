@@ -6,7 +6,7 @@ PLAYWRIGHT_BROWSERS_PATH=/tmp/opencode/orbit-evolution-browsers
   /tmp/opencode/orbit-evolution-browser-venv/bin/python tests/runtime-continuity.browser.py
 Pass --pty only when the fixture tmux override is supported and tmux is installed.
 Docking panels must exactly equal live v1 window ids at every transition, including
-spatial/focus and source-window removal, without first returning to Windows.
+focus and source-window removal.
 """
 import argparse
 import json
@@ -25,6 +25,7 @@ import uuid
 
 from playwright.sync_api import expect, sync_playwright
 from browser_workspace import wait_for_workspace_connection
+from ui_fixture import copy_ui_source
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -37,7 +38,8 @@ if args.pty and (not shutil.which("tmux") or "ORBIT_TMUX_SOCKET" not in (ROOT / 
 
 with tempfile.TemporaryDirectory(prefix="orbit-continuity-", dir="/tmp/opencode") as temporary:
     root = Path(temporary)
-    for name in ("server", "src", "contracts", "scripts", "public", "docs"):
+    copy_ui_source(ROOT, root)
+    for name in ("server", "contracts", "scripts", "public", "docs"):
         shutil.copytree(ROOT / name, root / name)
     for name in ("index.html", "package.json", "package-lock.json", "tsconfig.json", "vite.config.js"):
         shutil.copy2(ROOT / name, root / name)
@@ -230,7 +232,7 @@ with tempfile.TemporaryDirectory(prefix="orbit-continuity-", dir="/tmp/opencode"
                 expected = result["state"]
                 try:
                     page.wait_for_function("""expected => {const s=JSON.parse(localStorage.getItem('orbit.workspace.v1')||'null');
-                    if(!s) return false; return s.view===expected.view && s.selected===expected.selected &&
+                    if(!s) return false; return s.selected===expected.selected &&
                     JSON.stringify(s.monitors.map(m=>[m.id,m.name,m.layout,m.diagonal,m.height,m.distance,m.pitch,m.yaw,m.offset,m.frame?.x,m.frame?.y,m.frame?.width,m.frame?.height])) ===
                     JSON.stringify(expected.monitors.map(m=>[m.id,m.name,m.layout,m.diagonal,m.height,m.distance,m.pitch,m.yaw,m.offset,m.frame?.x,m.frame?.y,m.frame?.width,m.frame?.height])) &&
                     JSON.stringify(s.appearance||{})===JSON.stringify(expected.appearance||{});}""", arg=expected, timeout=15000)
@@ -247,22 +249,15 @@ with tempfile.TemporaryDirectory(prefix="orbit-continuity-", dir="/tmp/opencode"
                   "pane_id": panes[0], "axis": "row", "kind": "browser"})
             checkpoint = api("checkpoint", control=True, label="Continuity baseline")["checkpoint"]
 
+            expect(page.locator(".workspace")).to_have_class(re.compile(r"windows-mode"))
             for cycle in range(10):
-                # Real UI view/focus/minimize interactions; exact structural changes use scoped API.
-                menu_click("Switch to spatial view")
-                expect(page.locator(".workspace")).not_to_have_class(re.compile(r"windows-mode"))
-                verify(f"{cycle}: spatial")
-                transitions += 1
+                # Real UI focus/minimize interactions; exact structural changes use scoped API.
                 menu_click("Focus selected display")
                 expect(page.locator(".focus-host .monitor")).to_have_count(1)
                 verify(f"{cycle}: focus")
                 transitions += 1
                 page.get_by_role("button", name="Exit focus view").click()
                 verify(f"{cycle}: unfocus")
-                transitions += 1
-                menu_click("Switch to movable windows")
-                expect(page.locator(".workspace")).to_have_class(re.compile(r"windows-mode"))
-                verify(f"{cycle}: windows")
                 transitions += 1
                 first = api("read")["state"]["monitors"][0]["id"]
                 apply(f"{cycle}: metadata", {"action": "update_window", "window_id": first,
@@ -310,7 +305,6 @@ with tempfile.TemporaryDirectory(prefix="orbit-continuity-", dir="/tmp/opencode"
                                         "first": target["layout"], "second": source["layout"]}
             merged["monitors"] = [target]
             merged["selected"] = target["id"]
-            merged["view"] = "spatial"
             apply("source-window removal and runtime reparent", {"action": "set_workspace", "state": merged})
             transitions += 1
 

@@ -1,199 +1,138 @@
-# Optional built-in token router
+# Optional token router
 
-Orbit can route model traffic for all of your agents through one local gateway.
-This is an **opt-in** feature: it is off by default, and when it is off Orbit
-renders no profile, writes no router configuration, starts no container or
-process and listens on no port. A direct provider configuration remains the
-default path and never depends on this feature.
+**Leave the router unchecked to use direct providers.** On a fresh install,
+Orbit writes no router files, enables no router profile and opens no router
+port. The included Compose service has `profiles: ["router"]`; its inclusion
+does not select it. `docker compose config --services` lists only `orbit`.
 
-The router is useful when several agents or roles should share one URL, one set
-of upstream credentials and per-role budgets instead of repeating provider keys
-in every agent. It is not required for a first deployment, and it is not needed
-for the OpenCode free models described at the end of this page.
+| Choice in setup | What Orbit does |
+| --- | --- |
+| Direct (default) | Uses the chosen provider and model without a router. |
+| Built-in (Bifrost) | Prepares a profile, private environment and role policies. A separate Linux foreground command accepts an operator-approved binary. |
+| Advanced (LiteLLM) | Records the pinned engine choice. An operator can issue one inference-only role key against an existing database-backed local service. |
+| External | Uses one OpenAI-compatible base URL and one key reference. No local router, generated role keys or Compose profile. |
 
-## What the three modes mean
+OpenCode free models stay **direct**, through the OpenCode adapter. An
+`opencode-free` provider cannot be selected as a router upstream.
 
-| Mode | What runs locally | Use it when |
-| --- | --- | --- |
-| Built-in router (Bifrost) | One container, internal compose network | You want budgets, virtual keys and fallbacks managed by Orbit |
-| Built-in router (LiteLLM, Advanced) | One container, internal compose network | You specifically need LiteLLM coverage and accept its larger footprint |
-| External router | Nothing | You already run a compatible router elsewhere, or use one hosted endpoint |
+## Built-in configuration
 
-`components.router` and `router.enabled` in `orbit-config.json` must agree. When
-`router.enabled` is false, Orbit skips rendering and never calls the supervisor's
-start path. Provider kind `router` (id `router`) is the identity that roles
-reference; it is not a generic pass-through for a free tier.
+In Custom setup select Token router, add the upstream providers you want it
+to use, and map each routed role to provider `router` and a model. The
+supervisor only prepares Bifrost files for an enabled built-in selection.
+Selection and file presence are not evidence that inference or limits work.
 
-## Engine choice
+| Private path under the Orbit runtime | Purpose |
+| --- | --- |
+| `keys/<provider>.key` | Owner's original provider key. Only file references of configured upstreams are copied; other providers and unrelated keys are excluded. |
+| `router/router.env` | Only generated **router input** containing upstream values. Also holds management and role credentials. Never print a resolved Compose config for an owner's runtime. |
+| `router/data/config.json` | Provider definitions, mandatory virtual-key governance, role-specific grants, budgets and rate limits. Secrets appear as `env.NAME` references. |
+| `keys/router-vk-<role>.key` | Credential for exactly one built-in role. Its contents match that role's environment reference. |
+| `.env` | Adds `router` to `COMPOSE_PROFILES`, preserving other profiles. |
 
-**Bifrost is the default.** It is a single Go container with a file-only
-configuration, no database, a small idle footprint and OpenAI- and
-Anthropic-compatible endpoints. The pinned release is:
+Generated files use mode `0600`, router/key directories `0700`. Use an
+owner-private runtime outside the source tree. These permissions do not isolate
+processes running as the same OS user. The registry includes only the endpoint,
+model and role's key-file reference for a routed role. The default endpoint is
+`http://router:8080/v1` on the Compose network; it is **not** reachable from
+host-run agents by default. Ordinary direct provider mappings stay direct.
 
+The four default budget windows are `$2/day` (setup), `$10/month` (chat),
+`$20/month` (workers) and `$2/month` (summarize). Edit `router.virtualKeys`
+in configuration or the role budget controls; these are requested limits, not
+measured enforcement. Credential/policy rendering follows the [Bifrost
+transports/v2.5.1 schema](https://github.com/maximhq/bifrost/blob/transports/v2.5.1/transports/config.schema.json).
+Online key rotation is refused until reload and revocation can be verified.
+
+### Host binary: explicit foreground start and stop (Linux)
+
+Set `bind: "loopback"`, select at least one upstream with a private key file,
+map at least one role to `router`, and prepare the configuration in setup.
+Use a dedicated **unprivileged** router account/runtime inaccessible to workers;
+do not put an operator manifest, executable or master key in a workspace.
+Orbit does not ship or fetch a binary. Before use, the administrator must
+verify the artifact's provenance and approve its SHA-256 independently.
+
+Create a private JSON manifest **outside** the runtime, containing exactly
+`engine` (`bifrost`), `version` (`2.5.1`, the supported config contract),
+`binary` (canonical absolute path to that Linux ELF executable), `sha256`
+(64 lowercase hex digits for that file), and `runtimeDir` (canonical absolute
+path). Manifest and runtime inputs must be `0600` or stricter, runtime
+directories `0700`, and the binary not group/world writable or set-ID.
+Do not substitute an image digest or use a version command as a checksum.
+
+```sh
+node scripts/orbit-router-host.mjs start "$RUNTIME" "$MANIFEST"
 ```
-maximhq/bifrost:v2.5.1@sha256:5ec9873acaf1687556b6e4dd854b92b539d9debf87a5a683b66338648b84d3c8
+
+This is an operator command, never a wizard or setup-agent action. It checks
+the copied executable bytes, compares the entire prepared Bifrost config with
+the current Orbit configuration and checks each credential binding, including
+role-file separation. It runs with loopback-only host arguments, a private
+config snapshot and only the required router environment. Child output is not
+forwarded. It reports child startup, **not** health or budget enforcement.
+Stop with Ctrl-C or SIGTERM to the foreground launcher; it signals only its
+own child, waits, then cleans up the snapshot. Do not edit/disable the router
+until it has exited. A stale `router/host-run` after an unclean shutdown blocks
+another start: verify the old process is stopped before manually removing it.
+There is no detached service, reboot startup, stale-PID kill or automatic pull.
+
+### Advanced LiteLLM: issue one scoped role key
+
+The operator must already operate the **reviewed LiteLLM image** with its
+database, model mappings, loopback inference port and a protected Unix socket
+which forwards `POST /key/generate` **only to that same proxy**. Orbit does
+not install LiteLLM/Postgres, create its master key, or start a socket proxy.
+Do not use a public or workspace-controlled management transport. Keep the
+socket and master key file under operator-owned `0700` directories outside
+the Orbit runtime; no master credential is accepted through the wizard,
+environment, command line, or agent registry. Use External instead when all
+you need is an existing endpoint and one ordinary inference key.
+
+For each routed role set `engine: "litellm"`, `bind: "loopback"`, a concrete
+model allowed by that role, a positive dollar budget with a minutes/hours/days
+window, and explicit positive per-minute token and request limits (`reset:
+"1m"`). The issuer refuses unsupported windows and absolute expiry rather
+than changing their meaning. The CLI's private operator manifest contains
+exactly `runtimeDir`, `baseUrl` (`http://127.0.0.1:<configured-port>/v1`),
+`socketPath`, and `masterKeyFile` (both canonical absolute paths).
+
+```sh
+node scripts/orbit-router-litellm.mjs plan "$RUNTIME" workers
+# Review the exact role, inference URL, model, budget, and rates, then:
+node scripts/orbit-router-litellm.mjs issue "$RUNTIME" workers "$MANIFEST" "$POLICY_SHA256"
 ```
 
-Two management-API remote-code-execution issues in 2026 were fixed in earlier
-v2 releases; stay at or above the pinned version and keep management
-authentication enabled.
+The command requests `key_type: llm_api` and **only** the mapped model. It
+checks the returned `allowed_routes`, model list, limits and issuance alias
+before publishing the proxy-issued key to the role's never-overwritten `0600`
+file. The API contract is [LiteLLM virtual keys](https://docs.litellm.ai/docs/proxy/virtual_keys).
+A lost or incompatible response leaves `keys/.litellm-issue-<role>.pending`;
+reconcile/revoke the named alias in the proxy before removing that marker or
+retrying. A successful receipt ends in `.json` and records the alias, not the
+key. Local disable/file deletion **does not revoke** the remote key. Revoke
+at the issuer and reconcile receipts before rotating or changing engines.
 
-**LiteLLM is offered only under the Advanced disclosure.** It has wider provider
-coverage, but in 2026 it had two supply-chain compromises (the March package
-incident and the October image/tag incident), plus a SQL-injection issue and an
-SSRF issue fixed in later releases. It also needs more memory and a database for
-virtual keys. Orbit pins one reviewed digest and never installs LiteLLM from a
-package index at runtime:
+## External mode
 
-```
-litellm/litellm:v1.108.6-lts@sha256:c64fe10f82a1f77906f88574f954317c50f67c617e0c97b70ac8fc61b74d3ec3
-```
+Supply the service's base URL (including its API prefix) and its key in the
+owner setup form, never in chat or the URL. Use HTTPS outside loopback. The
+supervisor probes `GET <base-url>/models` with the key, refusing redirects.
+All externally routed roles use that **same** key file. Budgeting, issuance
+and rotation belong to the external service, not Orbit. API reachability is
+not a successful inference test.
 
-Do not substitute `latest`, `main-latest` or another floating tag. If an image is
-not pinned by digest, the supervisor refuses to start it.
+## Known limitation: the built-in router when Orbit itself runs in Docker
 
-## External router mode
+The shipped Compose file (v2.30+ for raw env files) fixes Bifrost to the
+version and digest in `server/orbit-config.mjs`. The root filesystem is
+read-only, privileges and capabilities are dropped, and no host port or Docker
+socket is mounted. Orbit's container runtime volume is not the host bind
+directory used by the router service. Do not mount the Docker socket or
+weaken file modes to bridge that gap.
 
-External mode runs nothing locally. Configure one base URL and one key reference;
-Orbit stores the key under the runtime directory and probes the endpoint's models
-route server-side. This mode never invokes the container supervisor or writes a
-compose profile. It is suitable for a router you operate elsewhere or for a
-hosted OpenAI-compatible endpoint, subject to that service's own policy and
-retention terms.
-
-## What runs, and where
-
-When a built-in engine is enabled, Orbit writes:
-
-- `runtime/router/router.env` (mode 0600, parent directory 0700)
-- `runtime/router/data/config.json` for Bifrost, or `config.yaml` for LiteLLM
-  (mode 0600)
-- `runtime/keys/router-vk-<role>.key` for each role (mode 0600)
-- `COMPOSE_PROFILES=router` in the runtime `.env`, preserving other lines
-
-The supervisor runs exactly `docker compose --profile router up -d router`.
-Because the service carries `profiles: ["router"]`, an ordinary
-`docker compose up` starts nothing router-related. The container runs read-only,
-as a non-root user, with all capabilities dropped, `no-new-privileges`, a 512 MB
-memory limit and `GOMEMLIMIT=450MiB`.
-
-### Known limitation: the built-in router when Orbit itself runs in Docker
-
-The supervisor's `docker compose --profile router up -d router` is meant to run
-**on the host**, which is the `npm run up` path. When Orbit runs inside the
-`docker compose` deployment, the built-in router does not work end to end yet:
-
-- The Orbit image has no Docker CLI, so the supervisor cannot start the router
-  service from inside the container.
-- The Orbit container keeps its runtime in a named volume. `compose.router.yml`
-  reads `router.env` and the router data from the host bind
-  `${ORBIT_RUNTIME_DIR:-./runtime}`, so files the container writes are not the
-  files the router service reads.
-
-Orbit will **never** mount the Docker socket (`/var/run/docker.sock`) into its
-container to get around this. Socket access is root on the host. Until a
-host-side helper exists, use one of these in Docker mode:
-
-- Use **External router** mode (a hosted router or one you run yourself). It
-  starts nothing locally and works the same in both deployments.
-- Start the router yourself on the host with
-  `COMPOSE_PROFILES=router docker compose up -d router`, after writing
-  `runtime/router/router.env` with the wizard on a host (`npm run up`) install.
-
-The host `npm run up` path is the supported built-in path. It has unit and
-supervisor tests, but no end-to-end run against a real Bifrost container yet.
-
-### Ports
-
-No host port is published by default. Containers on the compose network use
-`http://router:8080`. A host-run agent needs the commented loopback publish
-`127.0.0.1:8080:8080` and `router.bind: "loopback"`. Never publish the router on
-`0.0.0.0` or a LAN address. External mode has no local listener at all.
-
-## Key handling
-
-- Upstream keys stay in `runtime/keys/<provider>.key` (mode 0600). The renderer
-  emits only `env.<NAME>` references; the supervisor copies values into the 0600
-  `router.env` and nowhere else.
-- `orbit-config.json` contains no secret values, only key-file references.
-- Bifrost's file configuration uses `config_store.enabled: false`, an encryption
-  key referenced through the environment, management authentication, content
-  logging off and `drop_excess_requests: true`.
-- LiteLLM configuration uses `os.environ/<NAME>` references, an environment-held
-  master key and salt key, and `disable_env_credential_login: true`.
-- Virtual keys are generated server-side as `sk-bf-` plus 32 random bytes. They
-  are written to the role's 0600 file and are never returned in API status
-  output. Logs redact `Authorization`, `x-api-key`, `x-bf-vk` and `sk-` values.
-- Rotation replaces one role's key file. Disabling the router keeps upstream
-  keys but deletes generated router configuration and virtual keys.
-
-## Virtual keys and budgets
-
-Each routed role gets its own virtual key with an allow-list, a dollar budget, a
-rate limit and an optional expiry. Default budgets are editable during setup:
-
-| Role | Default budget | Reset |
-| --- | --- | --- |
-| `setup` | $2 | daily |
-| `chat` | $10 | monthly |
-| `workers` | $20 | monthly |
-| `summarize` | $2 | monthly |
-
-Agents receive a role-specific base URL and key file, not the upstream
-credentials. The registry projection is an OpenAI-compatible entry whose base
-URL is `http://router:8080/v1` (or `http://127.0.0.1:8080/v1` for loopback) and
-whose key file is `router-vk-<role>.key`.
-
-Private-network upstreams are blocked unless that provider explicitly permits
-them (the private-network option in the setup flow). Self-hosted
-OpenAI-compatible servers use a custom provider with an OpenAI base type.
-
-## Health
-
-The Orbit server polls `GET /health` on the built-in router and only then issues
-virtual keys and marks the router installed. External mode probes
-`GET {baseUrl}/models` with the external key server-side. There is deliberately
-no compose healthcheck that assumes `wget` or another tool exists inside the
-image. Settings show the current health and the pinned image.
-
-## Upgrade and rollback
-
-Upgrades are explicit and digest-based. Orbit never auto-pulls a moving tag and
-never runs a package install. To upgrade, switch `router.image` to the reviewed
-digest, re-render and restart, then run a models request as a smoke test. Keep
-the previous digest for one-step rollback. To roll back, pin the previous digest,
-re-render and restart. Do not reuse a container from another digest.
-
-## Turning it off
-
-Turning the router off requires confirmation. Orbit runs
-`docker compose --profile router down router`, removes `COMPOSE_PROFILES=router`
-from the runtime `.env`, and deletes `router.env`, the generated config and the
-`router-vk-*.key` files. Upstream key files are retained unless you delete them.
-The router status then reports disabled and no process or listener remains.
-
-## Security checklist
-
-- [ ] Off by default; no render, profile, process or port unless opted in.
-- [ ] No host port by default; loopback only, never `0.0.0.0`.
-- [ ] Image pinned by digest; never `latest`; no PyPI install at runtime.
-- [ ] Bifrost at the reviewed version or later with management auth enabled.
-- [ ] LiteLLM only if needed, digest-pinned, with master and salt keys from the
-      environment and environment credential login disabled.
-- [ ] Upstream keys only in 0600 files; masked or absent in API responses and
-      redacted in logs.
-- [ ] One virtual key per role with a model allow-list, budget and rate limit.
-- [ ] Content logging off; usage metadata only.
-- [ ] Container is read-only, non-root, capability-dropped and memory-limited.
-- [ ] Private-network upstreams blocked unless explicitly allowed per provider.
-- [ ] Disabling removes the service, generated config and virtual keys.
-- [ ] Health-gated status, post-change smoke test and a kept rollback digest.
-- [ ] The workspace UI stays in the existing dark theme; no light-theme variant
-      is introduced by this feature.
-
-## OpenCode free models stay direct
-
-OpenCode Zen free models are gated to OpenCode's own clients and cannot be
-fronted by any router. They remain a direct `opencode-free` provider used only by
-the OpenCode adapter. A paid OpenCode Zen key can be a router upstream because it
-is an ordinary OpenAI-compatible credential, but the free tier is separate.
+The supervisor's Compose executor remains an integration seam. The explicit
+host binary command does not grant Docker control to Orbit. Container UID
+access, network reachability, engine acceptance/enforcement and LiteLLM's
+pinned-image response scope still need a separately authorized rehearsal.
+Changes to shipped image or binary dependencies require operator review.

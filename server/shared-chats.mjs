@@ -11,10 +11,11 @@ export function createSharedChats(directory) {
     if (!uuid.test(workspace || '') || !uuid.test(pane || '')) throw Error('Invalid shared pane');
     return path.join(directory, `${workspace}.${pane}.json`);
   }
-  function read(workspace, pane) { try { const state = JSON.parse(fs.readFileSync(file(workspace,pane),'utf8')); return {...state,profile_id:state.profile_id || 'default',binding_revision:revision(state.binding_revision)}; } catch(e) { if(e.code === 'ENOENT') return null; throw e; } }
+  function read(workspace, pane) { try { const state = JSON.parse(fs.readFileSync(file(workspace,pane),'utf8')); if(state.submission_pending === undefined && state.workbench_pending !== undefined) state.submission_pending = state.workbench_pending; return {...state,profile_id:state.profile_id || 'default',binding_revision:revision(state.binding_revision)}; } catch(e) { if(e.code === 'ENOENT') return null; throw e; } }
   function write(workspace, pane, state) {
     const dest = file(workspace,pane), temp = dest+'.tmp';
     const next = {...state,profile_id:state.profile_id || 'default',binding_revision:revision(state.binding_revision)};
+    if(next.submission_pending === undefined) delete next.workbench_pending;
     fs.writeFileSync(temp, JSON.stringify(next), {mode:0o600}); fs.renameSync(temp,dest); return next;
   }
   function bind(workspace,pane,initial) {
@@ -38,9 +39,9 @@ export function createSharedChats(directory) {
     }
     return false;
   }
-  // Any other pane carrying an active run or an unresolved Workbench submission
-  // fences a new Workbench dispatch (single runtime lane for this milestone).
-  // The caller's own pane is excluded so an owned marker cannot self-fence.
+  // Any other pane carrying an active run or an unresolved submission fences a
+  // new dispatch (single runtime lane for this milestone). The caller's own pane
+  // is excluded so an owned marker cannot self-fence.
   function anyActive(exceptWorkspace, exceptPane, allowConcurrent) {
     const files = fs.readdirSync(directory).filter(name => uuid.test(name.slice(0,36)) && name.endsWith('.json'));
     if (files.length > 10000) return true;
@@ -48,7 +49,7 @@ export function createSharedChats(directory) {
       if (name === `${exceptWorkspace}.${exceptPane}.json`) continue;
       try {
         const state = JSON.parse(fs.readFileSync(path.join(directory,name),'utf8'));
-        if ((state.run || state.workbench_pending) && !allowConcurrent?.(state,name.slice(0,36),name.slice(37,73))) return true;
+        if ((state.run || state.submission_pending || state.workbench_pending) && !allowConcurrent?.(state,name.slice(0,36),name.slice(37,73))) return true;
       } catch { return true; }
     }
     return false;

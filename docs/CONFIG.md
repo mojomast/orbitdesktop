@@ -231,6 +231,8 @@ disclosure. Both use pinned image digests and never `latest`:
 | LiteLLM | `litellm/litellm:v1.108.6-lts@sha256:c64fe10f82a1f77906f88574f954317c50f67c617e0c97b70ac8fc61b74d3ec3` |
 
 Orbit never installs a router from PyPI at runtime and never uses a floating tag.
+These are repository pins, not an installation receipt. See [router
+availability](ROUTER.md) for the host-launcher and LiteLLM limitations.
 
 ```json
 {
@@ -290,7 +292,7 @@ Orbit never installs a router from PyPI at runtime and never uses a floating tag
       { "providerId": "anthropic", "weight": 1, "models": ["*"] }
     ],
     "fallbacks": [
-      { "model": "chat-model", "then": ["small-model"] }
+      { "model": "chat-model", "then": ["openrouter/small-model"] }
     ],
     "virtualKeys": [
       {
@@ -409,9 +411,9 @@ so the owner can switch back, but Orbit ignores it while the router is off.
 | Field | Meaning |
 | --- | --- |
 | `enabled` | Opt-in switch. Must equal `components.router`. |
-| `mode` | `builtin` runs an engine locally; `external` uses one endpoint and runs nothing. |
+| `mode` | `builtin` prepares local engine configuration; `external` uses one endpoint and starts no router. |
 | `engine` | `bifrost` (default) or `litellm` (Advanced). |
-| `image` | Digest-pinned container image. `latest` is rejected. |
+| `image` | Must exactly match the repository pin for the selected engine. |
 | `bind` | `internal` or `loopback`. Never public. |
 | `port` | Local or internal router port, default `8080`. |
 | `contentLogging` | Prompt/response logging. Default and recommended value `false`. |
@@ -426,7 +428,7 @@ Virtual-key entries use these fields:
 | Entry field | Meaning |
 | --- | --- |
 | `role` | Role id this key belongs to, for example `chat` or `workers`. |
-| `keyRef.file` | File under `<runtime>/keys/`; file references only. |
+| `keyRef.file` | Must be `router-vk-<role>.key` under `<runtime>/keys/`. |
 | `allowedModels` | Model ids this key may call, or `["*"]`. |
 | `budget.usd` | USD budget for the reset window. Defaults come from the role table above. |
 | `budget.reset` | Budget window: `Nm`, `Nh`, `Nd`, `Nw` or `Nmo`. |
@@ -444,11 +446,19 @@ Virtual keys are generated server-side and stored as
 `<runtime>/keys/router-vk-<role>.key` with mode `0600`. The router configuration is
 rendered from `orbit-config.json` plus key files. Upstream keys appear only as
 environment/file references in the generated router configuration, never inline.
-The generated router environment file is `0600`, and the proxy binds to loopback
-or the deployment's private network with its own generated master key. The
-management surface is not exposed directly to the browser.
+The generated environment file is `0600` and contains only the selected upstream
+credentials and generated router secrets. The Compose service publishes no host
+port. Generating these files does not establish a running, authenticated proxy.
 
 ## Key storage
+
+### GitHub and repository preferences
+
+The optional GitHub step is owner-only. Opening setup, skipping GitHub, and manually editing `observability.repos` make no GitHub requests. The field defaults to `[]`; Settings accepts up to 50 distinct `owner/name` entries and can remove them all. This is a list for review. It does not fetch commits, pull requests, CI runs, or repository contents and does not share the list with the setup agent or worker registry.
+
+To choose names from GitHub, use **Connect with token** with a fine-grained metadata-read token limited to your chosen repositories. Orbit checks it with `GET /user`; it does not retain the account response. **Choose from my GitHub repositories** explicitly fetches the first page of up to 100 names. A name outside that page can be entered manually. Only the selected names are persisted. If your operator supplies an OAuth app via `ORBIT_GITHUB_CLIENT_ID`, device sign-in requests no extra scopes (public metadata); enter the displayed code at GitHub and choose **Check sign-in**. Denial, expiry and rate limiting require user action. No background poll or silent retry runs.
+
+The GitHub credential is stored in `<runtime>/github/token` (0600; directory 0700), not in `orbit-config.json`, browser storage or agent settings. **Disconnect GitHub** removes the local file; revoke the credential at the issuer to invalidate other copies. The local list remains editable. Optional enterprise `ORBIT_GITHUB_API` and `ORBIT_GITHUB_WEB` endpoints must use HTTPS (HTTP only for loopback tests); redirects are refused. The installation remains usable if the connection is unavailable.
 
 Secrets live only in:
 

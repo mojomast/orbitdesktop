@@ -104,7 +104,7 @@ external router is allowed because it starts nothing locally; the built-in
 router is not part of Minimal install. See
 [Setup modes](CONFIG.md#setup-modes-minimal-install-and-custom).
 
-### Custom (the granular path)
+### Custom (the six-step path)
 
 Custom is the full wizard:
 
@@ -114,22 +114,17 @@ Custom is the full wizard:
    one endpoint.
 3. **Models** — choose one model per role: `setup`, `chat`, `workers` and
    `summarize`, plus `compaction` and `vision` when present.
-4. **Connect GitHub (optional)** — paste a token or use device sign-in, or
-   choose **Skip GitHub for now**. The token is stored on this machine only
-   (0600) and never shown again.
-5. **Repos to watch** — the `owner/name` repositories whose commits, pull
-   requests and CI Orbit tracks. Empty by default.
+4. **Connect GitHub (optional)** — skip this to keep setup offline. To list names from GitHub later, connect in Settings.
+5. **Repos to watch** — enter the `owner/name` entries you want to keep for review, or leave the list empty. Saving the list does not start monitoring.
 6. **Review and apply** — confirm the components, providers, models and router
    choice.
 
-Minimal install skips steps 3 to 5. Its Review step has a card that opens
-Connect GitHub and Repos to watch, and both are also in Settings. See
-[ONBOARDING-GITHUB.md](ONBOARDING-GITHUB.md).
+On either path you can edit the list in Settings. [GitHub and repository preferences](CONFIG.md#github-and-repository-preferences) explains what leaves the machine. To exercise first-run setup locally with preinstalled locked dependencies and a disposable home, run `node scripts/test-onboarding-hermetic.mjs`.
 
 The review step records `appliedAt` and marks each selected component pending.
-The setup agent then installs only what you selected and reports progress back
-to the wizard. It never asks for a key in chat; enter secrets only in the
-onboarding form or through a server-side environment reference.
+Orbit records a setup-agent request with its checklist. A pending component is
+not proof that an installer ran or that an agent answered. Enter secrets only
+in the owner onboarding form or through a server-side environment reference.
 
 ### Where keys and configuration live
 
@@ -181,10 +176,11 @@ External mode starts nothing locally. The built-in router is a real, opt-in
 component: it is unchecked by default, and an ordinary `docker compose up` does
 not start a router container. When enabled, the default engine is **Bifrost**,
 pinned by image digest. **LiteLLM** is offered only under the **Advanced**
-disclosure, also pinned by digest. No router image is ever a floating tag and
-nothing is installed from a package index at runtime. See
-[docs/ROUTER.md](ROUTER.md) for the modes, virtual keys, budgets, health checks,
-upgrade and rollback, and the security checklist.
+disclosure, also pinned by digest. Setup prepares Bifrost files. Trusted host
+operators can supply a checksum-approved binary for foreground launch, or
+issue a scoped role key against an already-provisioned local LiteLLM service.
+Use External for a single inference endpoint/key. See [docs/ROUTER.md](ROUTER.md) for
+availability, key handling and how to distinguish preparation from activation.
 
 ## The setup agent
 
@@ -306,6 +302,9 @@ rm -rf .runtime dist
 
 Then delete the checkout if you no longer need it. No system service, cron job or
 global package is installed by the launcher.
+
+For a repeatable offline rehearsal of the Node path, see
+[Rehearse the Node quickstart](VERIFICATION.md#rehearse-the-node-quickstart).
 
 ## Verify a fresh install in development
 

@@ -9,36 +9,10 @@ export interface SearchSource {
   created_at: number;
   status: string;
 }
-export interface SearchResult {
-  chunk_id: number;
-  source_id: string;
-  source_kind: string;
-  title: string;
-  location: string;
-  content_sha256: string;
-  text_sha256: string;
-  extractor_version: string;
-  char_start: number;
-  char_end: number;
-  snippet: string;
-  score: number;
-  matched: string;
-}
 export interface SearchStatus {
   source_count: number;
   chunk_count: number;
-  semantic_chunk_count: number;
   consent_generation: number;
-  indexing: boolean;
-  semantic: {
-    present: boolean;
-    ready: boolean;
-    vector_available: boolean;
-    note: string;
-    id: string;
-    revision: string;
-    error: string | null;
-  };
 }
 export interface SourceSnapshot {
   source_id: string;
@@ -71,7 +45,7 @@ export function createSearchClient(token: () => string, signal: AbortSignal) {
       throw new SearchError(
         "permission_denied",
         null,
-        "Unlock host access to use local search.",
+        "Unlock host access to use shared sources.",
       );
     const response = await fetch("/api/search", {
       method: "POST",

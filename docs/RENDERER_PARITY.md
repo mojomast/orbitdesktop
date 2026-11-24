@@ -74,7 +74,7 @@ comparable.
 Both renderers are driven through the same sequence, mixing real UI interactions
 with revision-checked controller API calls:
 
-- real UI: switch to spatial view, focus selected display, exit focus view,
+- real UI: focus selected display, exit focus view,
   switch to movable windows, minimize/restore a window;
 - controller API: nested split ratio/axis, `update_window` name/frame,
   `reorder_windows`, `update_split`, cross-window `swap_panes`,
@@ -118,17 +118,17 @@ A physical sash drag must subsequently advance the server placement revision,
 with retained iframe identities, nonces, drafts and live shell still intact.
 The companion `tests/runtime-continuity.browser.py` asserts the same strict
 `panels == live v1 window ids` pruning at **every** transition for the docking
-renderer — including source-window removal/reparent in spatial view and checkpoint
+renderer — including source-window removal/reparent and checkpoint
 restoration — without ever switching back to windows view to reconcile.
 
 ## Findings
 
 - **Authoritative frames and panel reconciliation preserved.** The default renderer
-  now preserves authoritative frames across spatial → windows transitions, even
+  now preserves authoritative frames across layout transitions, even
   when the desktop host is unsized. The parity gate hard-asserts exact restored
   frame equality for both renderers and compares full frames across renderers.
   Docking reconciles its complete panel set in every view/focus state, including
-  immediately after source-window removal in spatial view.
+  immediately after source-window removal.
 - **CSP-safe predicates.** The served UI sets `script-src 'self'`, so Playwright
   `wait_for_function` with a plain-expression string fails with a CSP `EvalError`
   when it must poll. The gate uses arrow-function predicates; the same fix is

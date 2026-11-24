@@ -21,7 +21,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          # Same tested Node as the Workbench and Technology jobs. On 22.14.0,
+          # Same tested Node as the Technology job. On 22.14.0,
           # tests/resource-content-verbs.test.mjs (oversized scene) never finishes.
           node-version: '22.23.1'
           cache: npm
@@ -30,9 +30,12 @@ jobs:
           python-version: '3.11'
       - run: sudo apt-get update && sudo apt-get install -y tmux
       - run: npm ci
-      - name: Prepare isolated test scratch directory
-        run: mkdir -p /tmp/opencode
-      - run: npm run check
+      - name: Offline regression gate (isolated loopback, private home)
+        run: bash scripts/ci-offline-check.sh
+      - name: Rails HTTP and vendored source contracts
+        run: |
+          python3 tests/test_rails_vendor.py
+          python3 -m unittest discover -s tests -p test_rails_http.py -v
       - run: python3 -m unittest discover -s tests -p test_hermes_plugin.py -v
       - run: python3 -m unittest discover -s tests -p test_normal_resource_retention.py -v
       - name: Widget schema and publisher parity
@@ -40,3 +43,54 @@ jobs:
           python3 tests/plugin-config-schema.test.py
           python3 tests/plugin-publish.test.py
           python3 tests/test_orbit_bundle.py
+
+  secret-scan:
+    name: gitleaks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install gitleaks 8.21.2 (checksum-verified)
+        run: |
+          curl -sSfL -o gitleaks.tgz \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz
+          echo "5bc41815076e6ed6ef8fbecc9d9b75bcae31f39029ceb55da08086315316e3ba  gitleaks.tgz" | sha256sum -c -
+          tar -xzf gitleaks.tgz gitleaks
+      - name: Scan history (.gitleaksignore lists triaged false positives)
+        run: ./gitleaks detect --source . --redact --no-banner
+
+  ci-gate:
+    name: ci-gate
+    # The main ruleset requires this one check. It passes only when every job
+    # in this file succeeded, so new jobs must be added to needs (checked below).
+    if: ${{ always() }}
+    needs:
+      - test
+      - secret-scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: ci-gate needs every job in this file
+        run: python3 .github/scripts/check_ci_gate.py .github/workflows/test.yml
+      - name: Fail unless every needed job succeeded
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os, sys
+          results = {job: data["result"] for job, data in json.loads(os.environ["NEEDS"]).items()}
+          for job, result in sorted(results.items()):
+              print(f"{job}: {result}")
+          failed = sorted(job for job, result in results.items() if result != "success")
+          if failed or not results:
+              print("ci-gate FAILED: " + (", ".join(failed) or "no jobs"))
+              sys.exit(1)
+          PY

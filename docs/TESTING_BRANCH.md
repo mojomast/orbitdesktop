@@ -8,9 +8,8 @@ status; the branch/schema labels below describe their original milestones.
 
 Branch: **`testing/orbit-docking-managed-terminals`**
 
-**Current work:** [Comet Project Workbench](PROJECT_WORKBENCH.md) adds the inspector,
-bounded context packets, native attempt tools, supervised candidate checks and schema 7. Its [current ledger](WORKBENCH_AGENT_LOOP_LEDGER.md) tracks
-fresh CI/baseline results and remaining slices. The release-integration evidence
+**Historical note:** Project Workbench was removed in cleanup Phase 3; its old
+ledger is retained only as history. The release-integration evidence
 below describes the reviewed `78b6a8f` increment (schema 4), not the newer feature.
 
 This branch starts from implementation commit `23a1afe` and includes the cumulative
@@ -137,7 +136,7 @@ pruned in every view, not only Windows. See [renderer parity](RENDERER_PARITY.md
 | --- | --- |
 | `npm run check` | Build and **209/209 Node tests**, no skips |
 | Eight Python adapter/publisher/archive suites | **55/55 tests** |
-| Optional docking, isolated live PTY | **85 numbered checks / 73 layout transitions**, plus rendered-pixel, Windows focus and hidden-tab Spatial regressions |
+| Optional docking, isolated live PTY | **85 numbered checks / 73 layout transitions**, plus rendered-pixel, Windows focus and hidden-tab Spatial regressions | (removed in cleanup Phase 3)
 | Default renderer, isolated live PTY | **94/94 continuity transitions** |
 | Managed terminal lifecycle | **17/17 tests**, included in Node total |
 | Independent recovery fixture | **13/13** |

@@ -92,6 +92,31 @@ test('failed local backup is disclosed rather than claiming saved recovery data'
   assert.match(f.statuses.at(-1),/backup unavailable/);
 });
 
+test('a missing workspace on first connection is created from the local layout',async()=>{
+  const local={plugins:[],monitors:[],arc:12};
+  const f=fixture([{status:404,body:{}},{status:200,body:{state:local,revision:1}}]);
+  f.edit(local);
+  await f.flush();
+  assert.deepEqual(f.requests.map(r=>r.action),['read','sync']);
+  assert.equal(f.requests[1].base_revision,0);
+  assert.deepEqual(f.requests[1].state,local);
+});
+
+test('a missing workspace after an uncertain creation does not trigger another save',async()=>{
+  const local={plugins:[],monitors:[],arc:12};
+  const f=fixture([{status:404,body:{}},{transportError:true},
+    {status:404,body:{}},{status:200,body:{state:local,revision:1}}]);
+  f.edit(local);
+  await assert.rejects(f.flush(),/timeout/);
+  await assert.rejects(f.flush(),/save is unresolved/);
+  assert.deepEqual(f.requests.map(r=>r.action),['read','sync','read']);
+  assert.deepEqual(JSON.parse(f.storage.get('orbit.workspace.conflict-backup')),local);
+  // Once the committed state is visible, a read can resolve the hold.
+  await f.flush();
+  assert.deepEqual(f.requests.map(r=>r.action),['read','sync','read','read']);
+  assert.deepEqual(f.applied,[local]);
+});
+
 test('pagehide suspends both polling paths and pageshow restarts them once',()=>{
   const f=fixture([]);assert.deepEqual(f.lifecycle,{started:1,closed:0,intervals:1});
   f.dispatch('pagehide');assert.deepEqual(f.lifecycle,{started:1,closed:1,intervals:1});

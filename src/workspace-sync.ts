@@ -36,7 +36,12 @@ export function connectWorkspace(getState: () => Workspace, apply: (state: Works
     let data: any;
     try { data = await response.json(); }
     catch (error) { if (action === 'sync') holdLocalChanges(); throw error; }
-    if (response.status === 404 && action === 'read') return request('sync');
+    if (response.status === 404 && action === 'read') {
+      // A missing snapshot after a lost save response is not permission to
+      // submit the held layout again with a new operation ID.
+      if (uncertain) throw Error(`Workspace save is unresolved; no saved workspace found. ${backupSaved ? 'Local backup saved.' : 'Local backup unavailable; keep this page open.'}`);
+      return request('sync');
+    }
     if (response.status === 409 && (!data.state || !Number.isSafeInteger(data.revision))) {
       // Policy errors do not contain a replacement layout. Never treat them as
       // successful saves or repeatedly submit the rejected local snapshot.

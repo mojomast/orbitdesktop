@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 // Release boundary regressions: recursive manifest integrity over nested values,
 // complete inventory/required/path/mode/symlink verification, real-SQLite schema
 // compatibility, separated-root enforcement and truthful activation/rollback.
@@ -13,7 +14,7 @@ import {ManifestError,assertCompatComplete,buildManifest,canonicalJson,manifestI
 import {PinError,activate,checkCompatibility,currentSchemaVersion,probeReleaseIdentity,readPointer,resolveLaunch,rollback,startRelease,writePointerAtomic} from '../scripts/release_pin.mjs';
 import {assertSeparatedRoots} from '../scripts/release_roots.mjs';
 
-const root=()=>fs.mkdtempSync('/tmp/opencode/orbit-rel-');
+const root=()=>fs.mkdtempSync(scratchPath('orbit-rel-'));
 const write=(target,text,mode)=>{fs.mkdirSync(path.dirname(target),{recursive:true});fs.writeFileSync(target,text);if(mode)fs.chmodSync(target,mode);};
 const sha=value=>createHash('sha256').update(value).digest('hex');
 const CONTRACTS=['workspace-v1.mjs','workbench-v1.mjs','workbench-result-v1.mjs'];
@@ -23,7 +24,7 @@ function fakeRelease(base,release_id,{compat={schema_min:7,schema_max:7},lock={l
   write(path.join(dir,'dist/index.html'),'<h1>served</h1>');
   write(path.join(dir,'server/index.mjs'),`// server ${release_id}\n`);
   for(const name of CONTRACTS)write(path.join(dir,'contracts',name),`// contract ${name}\n`);
-  write(path.join(dir,'hermes-plugin/workbench.py'),'# plugin\n');
+  write(path.join(dir,'hermes-plugin/__init__.py'),'# plugin\n');
   write(path.join(dir,'package.json'),'{}');
   write(path.join(dir,'package-lock.json'),JSON.stringify(lock));
   const manifest=buildManifest({root:dir,release_id,compat,revision:'test',created_at:1});
@@ -232,7 +233,7 @@ test('external Node dependencies are bound by lock hash and ABI',async t=>{
   write(path.join(dir,'dist/index.html'),'x');
   write(path.join(dir,'server/index.mjs'),'// s');
   for(const name of CONTRACTS)write(path.join(dir,'contracts',name),'// c');
-  write(path.join(dir,'hermes-plugin/workbench.py'),'# p');
+  write(path.join(dir,'hermes-plugin/__init__.py'),'# p');
   write(path.join(dir,'package.json'),'{}');
   write(path.join(dir,'package-lock.json'),'{"lockfileVersion":3,"packages":{}}');
   const lockHash=sha(fs.readFileSync(path.join(dir,'package-lock.json')));

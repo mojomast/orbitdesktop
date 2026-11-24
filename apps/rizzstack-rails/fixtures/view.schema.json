@@ -1,0 +1,201 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/mojomast/workflow/schemas/rails/view.schema.json",
+  "title": "Rizzstack Rails view projection \u2014 rizzstack.rails-view/1",
+  "$comment": "R01 freeze candidate. Presentation projection for the SVG app, CLI markdown and TUI JSON (spec sections 6 and 8): upstream parents/subs/events shape preserved plus an explicit lane tree, per-lane source status, evidence references and timing quality. The projection pages or aggregates at overview scale; opening a mark retrieves its safe detail by id. Bounds: at most 2000 visible marks across the view (500 per lane here); deep child trees stay navigable through breadcrumbs and focus, not through unbounded trees.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "generated_at",
+    "lanes",
+    "completeness",
+    "missing_sources",
+    "integrity"
+  ],
+  "properties": {
+    "schema": {
+      "const": "rizzstack.rails-view/1"
+    },
+    "generated_at": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z$"
+    },
+    "lanes": {
+      "type": "array",
+      "maxItems": 500,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "lane_id",
+          "parent_lane_id",
+          "status",
+          "source_status",
+          "marks"
+        ],
+        "properties": {
+          "lane_id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$"
+          },
+          "parent_lane_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "enum": [
+              "open",
+              "closed",
+              "orphan",
+              "ghost",
+              "unknown"
+            ]
+          },
+          "source_status": {
+            "enum": [
+              "live",
+              "stale",
+              "unavailable",
+              "unknown"
+            ]
+          },
+          "marks": {
+            "type": "array",
+            "maxItems": 500,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "event_id",
+                "kind",
+                "occurred_at",
+                "duration_ms",
+                "timing_quality",
+                "outcome",
+                "evidence_refs",
+                "ghost"
+              ],
+              "properties": {
+                "event_id": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$"
+                },
+                "kind": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$"
+                },
+                "occurred_at": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{6}Z$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "duration_ms": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "timing_quality": {
+                  "enum": [
+                    "measured",
+                    "estimated",
+                    "unknown"
+                  ]
+                },
+                "outcome": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 80,
+                      "pattern": "^[A-Za-z0-9_:-]{1,80}$"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "evidence_refs": {
+                  "type": "array",
+                  "maxItems": 20,
+                  "items": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$"
+                  }
+                },
+                "ghost": {
+                  "type": "boolean"
+                }
+              },
+              "$comment": "occurred_at/duration_ms/timing_quality carry the projection's timing honesty rules: paired monotonic durations are measured, timestamp-derived ones are estimated, missing ones stay unknown and are never fabricated. Marks are references to origin events; a view never fabricates origin events for visual grouping."
+            }
+          }
+        },
+        "$comment": "parent_lane_id null means root lane; a declared parent that is absent from the selected view renders as an orphan placeholder, never as an invented origin. Parent cycles are refused upstream; ghost lanes are history-superseded and stay visible."
+      }
+    },
+    "completeness": {
+      "enum": [
+        "complete",
+        "partial",
+        "empty"
+      ]
+    },
+    "missing_sources": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "string",
+        "maxLength": 80,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$"
+      }
+    },
+    "integrity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "checked_through"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "unchecked",
+            "ok",
+            "failed"
+          ]
+        },
+        "checked_through": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 256
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

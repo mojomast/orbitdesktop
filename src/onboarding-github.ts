@@ -6,7 +6,7 @@ import './onboarding-github.css';
 import { MAX_WATCHED_REPOS, parseRepoInput, repoInputError } from './onboarding-repos-input';
 export { MAX_WATCHED_REPOS, parseRepoInput, repoInputError };
 
-export interface GithubStatus { connected: boolean; login: string | null; method: 'token' | 'device' | null; scopes: string[]; connectedAt: string | null; deviceFlow: boolean; revokeUrl?: string }
+export interface GithubStatus { connected: boolean; deviceFlow: boolean; revokeUrl?: string }
 export interface DeviceStart { flowId: string; userCode: string; verificationUri: string; interval: number; expiresIn: number }
 export interface GithubApi {
   githubStatus(): Promise<GithubStatus>;
@@ -14,18 +14,20 @@ export interface GithubApi {
   githubDeviceStart(): Promise<DeviceStart>;
   githubDevicePoll(flowId: string): Promise<GithubStatus & { pending?: boolean; interval?: number }>;
   githubDisconnect(): Promise<GithubStatus>;
-  githubRepos(): Promise<{ repos: Array<{ fullName: string; private: boolean }> }>;
+  githubRepos(): Promise<{ repos: Array<{ fullName: string }> }>;
   getRepos(): Promise<{ repos: string[]; githubConnected: boolean }>;
   saveRepos(repos: string[]): Promise<{ repos: string[]; githubConnected: boolean }>;
 }
 
 export function createGithubApi(options: { basePath?: string; getToken?: () => string | null | undefined; fetchImpl?: typeof fetch } = {}): GithubApi {
   const basePath = (options.basePath ?? '/api/onboarding').replace(/\/+$/, '');
+  if (!['/api/onboarding', '/api/settings'].includes(basePath)) throw new Error('Invalid setup route.');
   const request = async <T>(method: string, pathname: string, body?: unknown): Promise<T> => {
     const token = options.getToken?.();
+    if (!token) throw new Error('Unlock Orbit to edit repository preferences.');
     const response = await (options.fetchImpl ?? fetch)(`${basePath}${pathname}`, {
       method,
-      credentials: 'same-origin',
+      credentials: 'omit', redirect: 'error', cache: 'no-store',
       headers: { ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
@@ -68,24 +70,20 @@ export function renderGithubSection(options: GithubSectionOptions): HTMLElement 
   const { api, notify } = options;
   const section = node('section', 'orbit-github-step');
   section.append(node(options.heading ?? 'h2', '', 'Connect GitHub (optional)'));
-  section.append(node('p', 'orbit-github-lede', 'Lets Orbit read commits, pull requests and CI for the repositories you choose to watch. You can skip this and connect later in Settings.'));
+  section.append(node('p', 'orbit-github-lede', 'Optional: list repository names for local review. Orbit does not fetch contents, start monitoring, or send this selection to agents. You can skip this and enter names manually.'));
   const body = node('div', 'orbit-github-body');
   section.append(body);
-  let timer: ReturnType<typeof setTimeout> | undefined;
-
-  const stopPolling = () => { if (timer) clearTimeout(timer); timer = undefined; };
 
   async function load() {
     try { draw(await api.githubStatus()); } catch (error) { notify(error instanceof Error ? error.message : 'GitHub status is unavailable.', true); }
   }
 
   function draw(status: GithubStatus) {
-    stopPolling();
     body.replaceChildren();
     options.onChange?.(status);
     if (status.connected) {
       const card = node('div', 'orbit-github-card');
-      card.append(node('strong', '', `Connected as ${status.login}`), node('span', 'orbit-github-meta', `${status.method === 'device' ? 'Device sign-in' : 'Personal access token'}${status.scopes.length ? ` · scopes: ${status.scopes.join(', ')}` : ''}`));
+      card.append(node('strong', '', 'GitHub connected'));
       card.append(node('p', 'orbit-github-hint', 'The token is stored only on this machine, readable by Orbit alone (0600). It is never shown again.'));
       card.append(action('Disconnect GitHub', 'orbit-github-danger', async () => {
         try {
@@ -104,7 +102,7 @@ export function renderGithubSection(options: GithubSectionOptions): HTMLElement 
     }
     const tokenBox = node('div', 'orbit-github-card');
     tokenBox.append(node('strong', '', 'Paste a token'));
-    tokenBox.append(node('p', 'orbit-github-hint', 'A fine-grained token with read access to Contents, Pull requests and Actions (or a classic token with repo) is enough. GitHub checks it once before Orbit saves it.'));
+    tokenBox.append(node('p', 'orbit-github-hint', 'Use a fine-grained token limited to selected repositories and read-only metadata. Contents, pull request, Actions and write permissions are unnecessary.'));
     const label = node('label', 'orbit-github-field');
     label.append(node('span', '', 'GitHub token'));
     const input = node('input', 'orbit-github-input') as HTMLInputElement;
@@ -116,7 +114,7 @@ export function renderGithubSection(options: GithubSectionOptions): HTMLElement 
       const value = input.value.trim();
       input.value = '';
       if (!value) { notify('Paste a token first, or skip this step.', true); return; }
-      try { notify('Checking the token with GitHub…'); const result = await api.githubConnectToken(value); notify(`Connected as ${result.login}.`); draw(result); }
+      try { notify('Checking the token with GitHub…'); const result = await api.githubConnectToken(value); notify('GitHub connected.'); draw(result); }
       catch (error) { notify(error instanceof Error ? error.message : 'GitHub did not accept that token.', true); }
     }));
     body.append(tokenBox);
@@ -135,16 +133,13 @@ export function renderGithubSection(options: GithubSectionOptions): HTMLElement 
           const link = node('a', 'orbit-github-link', `Open ${started.verificationUri} ↗`) as HTMLAnchorElement;
           link.href = started.verificationUri; link.target = '_blank'; link.rel = 'noopener noreferrer';
           code.append(link);
-          const poll = async (delay: number) => {
-            timer = setTimeout(async () => {
-              try {
-                const result = await api.githubDevicePoll(started.flowId);
-                if (result.pending) { void poll(Math.max(result.interval ?? delay, 1) * 1000); return; }
-                notify(`Connected as ${result.login}.`); draw(result);
-              } catch (error) { notify(error instanceof Error ? error.message : 'GitHub sign-in did not finish.', true); code.replaceChildren(); }
-            }, delay);
-          };
-          void poll(Math.max(started.interval, 1) * 1000);
+          code.append(action('Check sign-in', 'orbit-github-secondary', async () => {
+            try {
+              const result = await api.githubDevicePoll(started.flowId);
+              if (result.pending) { notify('Waiting for authorization. Finish sign-in on GitHub, then check again.'); return; }
+              notify('GitHub connected.'); draw(result);
+            } catch (error) { notify(error instanceof Error ? error.message : 'GitHub sign-in did not finish.', true); }
+          }));
         } catch (error) { notify(error instanceof Error ? error.message : 'GitHub sign-in could not start.', true); }
       }));
       device.append(code);
@@ -157,18 +152,18 @@ export function renderGithubSection(options: GithubSectionOptions): HTMLElement 
 }
 
 export interface ReposSectionOptions { api: GithubApi; notify(message: string, error?: boolean): void; heading?: 'h2' | 'h3' }
-export interface ReposSectionHandle { element: HTMLElement; save(): Promise<string[]> }
+export interface ReposSectionHandle { element: HTMLElement; save(): Promise<string[]>; setConnected(value: boolean): void }
 
 /** Repos to watch: free-text list plus picks from GitHub when connected. Empty by default. */
 export function renderReposSection(options: ReposSectionOptions): ReposSectionHandle {
   const { api, notify } = options;
   const section = node('section', 'orbit-repos-step');
   section.append(node(options.heading ?? 'h2', '', 'Repos to watch'));
-  section.append(node('p', 'orbit-github-lede', 'Orbit’s observability views track commits, pull requests and CI for these repositories. Leave it empty if you do not want any; you can edit it later in Settings.'));
+  section.append(node('p', 'orbit-github-lede', 'Save a local review list. Saving names does not read repository contents, enable CI or start tracking activity. Remove a name from the field to stop listing it.'));
   const label = node('label', 'orbit-github-field');
   label.append(node('span', '', 'Repositories (owner/name, one per line or comma-separated)'));
   const area = node('textarea', 'orbit-github-input orbit-repos-input') as HTMLTextAreaElement;
-  area.rows = 5; area.spellcheck = false; area.placeholder = 'octo/hello-world';
+  area.rows = 5; area.spellcheck = false; area.placeholder = 'octo/hello-world'; area.disabled = true;
   area.setAttribute('aria-label', 'Repositories to watch');
   label.append(area);
   const error = node('p', 'orbit-github-error');
@@ -184,27 +179,36 @@ export function renderReposSection(options: ReposSectionOptions): ReposSectionHa
     error.textContent = repoInputError(current);
   }
 
-  void (async () => {
-    try {
-      const saved = await api.getRepos();
-      area.value = saved.repos.join('\n');
-      if (saved.githubConnected) {
+  let pickerGeneration = 0;
+  function setConnected(connected: boolean) {
+      const generation = ++pickerGeneration;
+      picks.replaceChildren();
+      if (connected) {
         picks.append(action('Choose from my GitHub repositories', 'orbit-github-secondary', async () => {
           try {
             const listed = await api.githubRepos();
+            if (generation !== pickerGeneration) return;
             picks.replaceChildren(node('span', 'orbit-github-meta', listed.repos.length ? 'Select to add:' : 'GitHub returned no repositories.'));
             const list = node('div', 'orbit-repos-list');
-            for (const repo of listed.repos) list.append(action(`${repo.fullName}${repo.private ? ' · private' : ''}`, 'orbit-repos-chip', () => addRepo(repo.fullName), `Watch ${repo.fullName}`));
+            for (const repo of listed.repos) list.append(action(repo.fullName, 'orbit-repos-chip', () => addRepo(repo.fullName), `Watch ${repo.fullName}`));
             picks.append(list);
           } catch (failure) { notify(failure instanceof Error ? failure.message : 'GitHub repositories could not be listed.', true); }
         }));
       } else {
-        picks.append(node('p', 'orbit-github-hint', 'Connect GitHub to pick from your repositories, or type them in. Public repositories work without a token.'));
+        picks.append(node('p', 'orbit-github-hint', 'Type repository names without connecting, or connect GitHub to list names.'));
       }
+  }
+  void (async () => {
+    try {
+      const saved = await api.getRepos();
+      area.value = saved.repos.join('\n');
+      area.disabled = false;
+      if (!pickerGeneration) setConnected(saved.githubConnected);
     } catch (failure) { notify(failure instanceof Error ? failure.message : 'The watch list could not be loaded.', true); }
   })();
 
   async function save(): Promise<string[]> {
+    if (area.disabled) throw new Error('Load the saved list before editing.');
     const repos = parseRepoInput(area.value);
     const problem = repoInputError(repos);
     error.textContent = problem;
@@ -214,5 +218,5 @@ export function renderReposSection(options: ReposSectionOptions): ReposSectionHa
     return result.repos;
   }
 
-  return { element: section, save };
+  return { element: section, save, setConnected };
 }

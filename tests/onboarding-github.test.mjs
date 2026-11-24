@@ -53,7 +53,7 @@ function noLeak(value, ...secrets) {
 test('starts disconnected and skipping makes no network call', async t => {
   const gh = fakeGithub();
   const conn = createGithubConnection({ runtimeDir: tmp(t), fetchImpl: gh.fetchImpl, env: {} });
-  assert.deepEqual(await conn.status(), { ok: true, connected: false, login: null, method: null, scopes: [], connectedAt: null, deviceFlow: false });
+  assert.deepEqual(await conn.status(), { ok: true, connected: false, deviceFlow: false });
   assert.equal(gh.calls.length, 0);
 });
 
@@ -64,15 +64,12 @@ test('a pasted token is verified, stored 0600 and never echoed or logged', async
   const conn = createGithubConnection({ runtimeDir, fetchImpl: gh.fetchImpl, env: {}, log: line => logs.push(line) });
   const connected = await conn.connectToken(TOKEN);
   assert.equal(connected.connected, true);
-  assert.equal(connected.login, 'octocat');
-  assert.equal(connected.method, 'token');
-  assert.deepEqual(connected.scopes, ['repo', 'read:org']);
+  assert.deepEqual(Object.keys(connected).sort(), ['connected','deviceFlow','ok']);
   const tokenFile = path.join(runtimeDir, 'github', 'token');
   assert.equal(fs.readFileSync(tokenFile, 'utf8'), TOKEN);
   assert.equal(fs.statSync(tokenFile).mode & 0o777, 0o600);
   assert.equal(fs.statSync(path.join(runtimeDir, 'github')).mode & 0o777, 0o700);
-  assert.equal(fs.statSync(path.join(runtimeDir, 'github', 'account.json')).mode & 0o777, 0o600);
-  noLeak(fs.readFileSync(path.join(runtimeDir, 'github', 'account.json'), 'utf8'), TOKEN);
+  assert.deepEqual(fs.readdirSync(path.join(runtimeDir, 'github')), ['token']);
   noLeak(connected, TOKEN);
   noLeak(await conn.status(), TOKEN);
   noLeak(logs.join('\n'), TOKEN);
@@ -132,7 +129,7 @@ test('device flow keeps the device code server-side and stores the token on succ
   assert.equal(pending.pending, true);
   const done = await conn.devicePoll(started.flowId);
   assert.equal(done.connected, true);
-  assert.equal(done.method, 'device');
+  assert.equal(JSON.parse(gh.calls[0].body).scope, '');
   noLeak(done, DEVICE_TOKEN, 'DEVICE-CODE-SECRET');
   assert.equal(fs.readFileSync(path.join(runtimeDir, 'github', 'token'), 'utf8'), DEVICE_TOKEN);
   await assert.rejects(conn.devicePoll(started.flowId), error => error.status === 404, 'a finished flow cannot be replayed');
@@ -144,8 +141,41 @@ test('repositories are listed by name only, and only when connected', async t =>
   await assert.rejects(conn.listRepos(), error => error.status === 409);
   await conn.connectToken(TOKEN);
   const listed = await conn.listRepos();
-  assert.deepEqual(listed.repos, [{ fullName: 'octo/one', private: false }, { fullName: 'octo/two', private: true }]);
+  assert.deepEqual(listed.repos, [{ fullName: 'octo/one' }, { fullName: 'octo/two' }]);
   noLeak(listed, TOKEN);
+});
+
+test('device denial, expiry and rate limit have actionable errors without retries', async t => {
+  for (const [status, error, expected] of [[200,'access_denied',/denied.*Start again/], [200,'expired_token',/expired.*Start again/], [200,'slow_down',/rate limit.*Wait/], [429,'',/rate limit.*Wait/]]) {
+    const gh = fakeGithub(); let polls = 0;
+    const conn = createGithubConnection({runtimeDir: tmp(t), env: { ORBIT_GITHUB_CLIENT_ID: 'fixture' }, fetchImpl: (url, init) => {
+      if (url.endsWith('/access_token')) { polls++; return reply(status, { error }); }
+      return gh.fetchImpl(url, init);
+    }});
+    const { flowId } = await conn.deviceStart();
+    await assert.rejects(conn.devicePoll(flowId), expected);
+    assert.equal(polls, 1);
+    assert.equal((await conn.status()).connected, false);
+  }
+});
+
+test('a late verification cannot undo a disconnect', async t => {
+  let resolve;
+  const pending = new Promise(done => { resolve = done; });
+  const conn = createGithubConnection({runtimeDir: tmp(t), env: {}, fetchImpl: () => pending});
+  const checking = conn.connectToken(TOKEN);
+  await conn.disconnect(); resolve(reply(200,{login:'fixture'}));
+  await assert.rejects(checking, /cancelled/i);
+  assert.equal((await conn.status()).connected, false);
+});
+
+test('re-auth with a rejected token forgets the previous credential', async t => {
+  const runtimeDir = tmp(t);
+  const conn = createGithubConnection({runtimeDir, env:{}, fetchImpl:fakeGithub().fetchImpl});
+  await conn.connectToken(TOKEN);
+  await assert.rejects(conn.connectToken('invalid-replacement-token'), /did not accept/);
+  assert.equal((await conn.status()).connected,false);
+  assert.equal(fs.existsSync(path.join(runtimeDir,'github','token')),false);
 });
 
 test('only https or loopback http API bases are accepted', async t => {

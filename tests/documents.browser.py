@@ -19,6 +19,7 @@ import urllib.error
 import urllib.request
 import uuid
 from pathlib import Path
+from ui_fixture import copy_ui_source
 from playwright.sync_api import expect, sync_playwright
 from browser_workspace import wait_for_workspace_connection
 
@@ -44,7 +45,8 @@ def post(origin, token, path, body):
 def run_fixture(kind='richtext'):
     with tempfile.TemporaryDirectory(prefix='orbit-documents-browser-', dir='/tmp/opencode') as temporary:
         root = Path(temporary)
-        for name in ('src', 'server', 'contracts', 'public', 'docs'):
+        copy_ui_source(ROOT, root)
+        for name in ('server', 'contracts', 'public', 'docs'):
             shutil.copytree(ROOT / name, root / name)
         for name in ('index.html', 'package.json', 'tsconfig.json'):
             shutil.copy2(ROOT / name, root / name)
@@ -339,10 +341,8 @@ def run_fixture(kind='richtext'):
                 # Stable native editor/React island across actual core renderer/focus moves.
                 page.evaluate('(id)=>{window.__documentNode=document.querySelector(`[data-document-id="${id}"]`);window.__editorNode=window.__documentNode.querySelector(".richdoc-content,.canvas-island");window.__spare=document.querySelector(`[data-pane-id="' + spare_pane + '"]`);}', document_id)
                 for _ in range(2):
-                    page.get_by_role('button', name='Switch to spatial view', exact=True).click()
                     page.get_by_role('button', name='Focus selected display', exact=True).click()
                     page.get_by_role('button', name='Exit focus view', exact=True).click()
-                    page.get_by_role('button', name='Switch to movable windows', exact=True).click()
                     assert page.evaluate('window.__documentNode.isConnected&&window.__editorNode.isConnected&&window.__spare.isConnected')
                 # Export actual current engine output.
                 with page.expect_download() as download:

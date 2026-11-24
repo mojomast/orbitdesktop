@@ -29,7 +29,7 @@ module = importlib.import_module('retention_plugin.normal_resources')
 
 class CacheRetention(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix='resource-cache-', dir='/tmp/opencode')
+        self.temp = tempfile.TemporaryDirectory(prefix='rc-')
         self.root = Path(self.temp.name)
         self.clock = 10000.0
         self.identity = contextvars.ContextVar('fixture_identity')

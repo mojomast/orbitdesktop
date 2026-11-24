@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 // Private minimal packaging + cleanup unit. A synthetic git-tracked source root and
 // a synthetic dist (no external dependencies) exercise packageRelease and
 // removeOwnedRelease end to end. Nothing here touches a shared dependency tree or a
@@ -13,7 +14,7 @@ import {buildManifest,MANIFEST_NAME,verifyManifest,readManifest} from '../script
 
 const sha256=value=>createHash('sha256').update(value).digest('hex');
 const mode=target=>fs.statSync(target).mode&0o777;
-const scratch=()=>fs.mkdtempSync('/tmp/opencode/orbit-pkg-');
+const scratch=()=>fs.mkdtempSync(scratchPath('orbit-pkg-'));
 const write=(target,text)=>{fs.mkdirSync(path.dirname(target),{recursive:true});fs.writeFileSync(target,text);};
 
 function syntheticSource(base){
@@ -22,9 +23,7 @@ function syntheticSource(base){
     'server/index.mjs':'// server\n',
     'server/extra.mjs':'// tracked extra\n',
     'contracts/workspace-v1.mjs':'// contract\n',
-    'contracts/workbench-v1.mjs':'// contract\n',
-    'contracts/workbench-result-v1.mjs':'// contract\n',
-    'hermes-plugin/workbench.py':'# plugin\n',
+    'hermes-plugin/__init__.py':'# plugin\n',
     'package.json':'{"type":"module"}\n',
     'package-lock.json':'{"lockfileVersion":3,"packages":{}}\n',
   };

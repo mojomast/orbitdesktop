@@ -9,3 +9,6 @@
 /src/plugins.ts @mojomast
 /src/plugin-manager.ts @mojomast
 /.github/ @mojomast
+
+# Raising the slop-lint baseline needs an owner review.
+/slop-baseline.json @mojomast

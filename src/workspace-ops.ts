@@ -1,5 +1,4 @@
 import { pluginOperation } from './plugins.ts';
-import { tileSpatial } from './spatial-layout.ts';
 import { validate, monitor, leaves, replace, remove, pane, type Workspace, type PaneKind, type Monitor } from './model.ts';
 import type { WorkspaceOperation } from './workspace-contract.generated.ts';
 
@@ -9,13 +8,6 @@ export function applyOperation(input: Workspace, operation: WorkspaceOperation):
   if (typeof op.action === 'string' && op.action.startsWith('plugin_')) { pluginOperation(state, op); return validate(state); }
   const target = () => { const m = state.monitors.find(m => m.id === op.window_id); if (!m) throw Error('Unknown window_id'); return m; };
   switch (op.action) {
-    case 'set_spatial_camera': state.spatialCamera = op.camera; break;
-    case 'arrange_spatial': {
-      const ids = op.window_ids ?? state.monitors.map(m => m.id);
-      if (!Array.isArray(ids) || !ids.length || new Set(ids).size !== ids.length) throw Error('Provide distinct window IDs');
-      const windows = ids.map((id:string) => { const m = state.monitors.find(m => m.id === id); if (!m) throw Error('Unknown window ID'); return m; });
-      tileSpatial(windows, op.mode ?? 'grid', op.columns, op.gap); state.view = 'spatial'; break;
-    }
     case 'reset_appearance': {
       if (!Array.isArray(op.keys) || op.keys.some((k:unknown)=>typeof k!=='string' || !['theme','surfaceColor','panelColor','borderColor','mutedColor','titlebarColor','titlebarTextColor','buttonColor','buttonTextColor','controlRadius','titlebarHeight','uiFont','background','wallpaper','textColor','cornerRadius','fullViewport','headerHeight','sidebarWidth','workspaceGap','accentColor','navigationPosition','wallpaperFit'].includes(k as string))) throw Error('Invalid appearance reset keys');
       for(const key of op.keys) if(state.appearance) delete (state.appearance as any)[key];break;
@@ -44,7 +36,7 @@ export function applyOperation(input: Workspace, operation: WorkspaceOperation):
       if(!Number.isFinite(width)||!Number.isFinite(height)||width<280||height<180||width>16000||height>16000||!Number.isFinite(gap)||gap<0||gap>100||!Number.isInteger(columns)||columns<1||columns>windows.length)throw Error('Invalid arrangement bounds');
       const rows=Math.ceil(windows.length/columns),w=(width-gap*(columns-1))/columns,h=(height-gap*(rows-1))/rows;
       if(w<280||h<180)throw Error('Viewport too small for requested grid');
-      windows.forEach((m:Monitor,i:number)=>{m.frame={x:(i%columns)*(w+gap),y:Math.floor(i/columns)*(h+gap),width:w,height:h,z:i+1};});state.view='windows';break;
+      windows.forEach((m:Monitor,i:number)=>{m.frame={x:(i%columns)*(w+gap),y:Math.floor(i/columns)*(h+gap),width:w,height:h,z:i+1};});break;
     }
     case 'set_workspace': return validate(structuredClone(op.state));
     case 'patch_appearance': {
@@ -64,7 +56,6 @@ export function applyOperation(input: Workspace, operation: WorkspaceOperation):
       break;
     }
     case 'set_appearance': state.appearance = op.appearance; break;
-    case 'set_view': state.view = op.view; break;
     case 'sidebar': state.sidebarHidden = op.hidden; break;
     case 'select': state.selected = target().id; break;
     case 'add_window': {
@@ -76,7 +67,7 @@ export function applyOperation(input: Workspace, operation: WorkspaceOperation):
     }
     case 'update_window': {
       const m = target();
-      const keys = ['name', 'diagonal', 'aspect', 'height', 'distance', 'pitch', 'yaw', 'offset', 'fontSize', 'spatialFontSize', 'opacity', 'frame', 'spatial'] as const;
+      const keys = ['name', 'diagonal', 'aspect', 'height', 'distance', 'pitch', 'yaw', 'offset', 'fontSize', 'opacity', 'frame'] as const;
       for (const key of keys) if (op[key] !== undefined) (m as any)[key] = op[key];
       break;
     }

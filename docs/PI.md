@@ -96,7 +96,7 @@ Bot and is not a special-cased board member.
 | Workspace operator block, app build and publish | Yes |
 | Shared room, @mention, delegate target | Yes, when the profile is configured |
 | Collab board | Yes, when Pi is configured |
-| Build queue, Project Workbench | No API. 409, as for Grok Bot |
+| Build queue | No API. 409, as for Grok Bot |
 | Scheduled tasks (`listAllAutomations`) | Empty list. The Pi gateway has no automations surface |
 | Skills catalog | 404. The pane says Pi does not advertise this catalog |
 | Toolsets | One built-in toolset reported: `pi-builtin` (`read, bash, edit, write`) |

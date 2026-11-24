@@ -1,3 +1,4 @@
+import { scratchPath } from './fixtures/scratch.mjs';
 import assert from 'node:assert/strict';
 import childProcess, { execFile, spawn } from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
@@ -33,7 +34,7 @@ test('attach startup needs no fresh directory or server and rejects destructive 
 });
 
 async function fixture(t, label = 'managed') {
-  const root = await mkdtemp('/tmp/opencode/orbit-managed-');
+  const root = await mkdtemp(scratchPath('orbit-managed-'));
   const socket = `${label}-${randomUUID()}`;
   const env = { PATH: '/usr/bin:/bin', HOME: root, XDG_CONFIG_HOME: root,
     TMUX_TMPDIR: root, SHELL: '/bin/bash', LC_ALL: 'C', TERM: 'xterm-256color' };

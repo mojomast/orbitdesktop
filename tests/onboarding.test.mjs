@@ -7,7 +7,8 @@ import { createOrbitConfig } from '../server/orbit-config.mjs';
 import { createOnboarding } from '../server/onboarding.mjs';
 
 const sentinel = 'sk-orbit-test-SENTINEL-9f3a';
-const root = () => fs.mkdtempSync('/tmp/opencode/orbit-onboarding-');
+import { tmpdir } from 'node:os';
+const root = () => fs.mkdtempSync(path.join(tmpdir(), 'orbit-onboarding-'));
 
 function request({ method = 'GET', body } = {}) {
   const req = Readable.from(body === undefined ? [] : [Buffer.from(typeof body === 'string' ? body : JSON.stringify(body))]);

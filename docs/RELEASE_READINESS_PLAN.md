@@ -7,21 +7,17 @@ after all candidate CI passed. The same source tree is deployed as `orbit-c87d54
 Version 0.3.0 now aligns desktop and Hermes plugin metadata for a separately pinned
 catalog package; see [release notes](RELEASE_0.3.0.md) and the GitHub release for
 the final immutable pin and packaging evidence. Desktop remains default, Docking
-experimental, and native Workbench execution separately configured.
+experimental, and native Workbench execution removed in cleanup Phase 3.
 
 The plan below is the **historical assessment from 2026-09-28**, including its
 then-open decisions and baseline versions. It is retained as evidence, not a
 current deployment instruction or a claim that every proposed usability,
 performance or accessibility assessment has been completed.
 
-Post-release follow-up on `main`: Project Workbench is now an **experimental,
-off-by-default** surface enabled in **Orbit settings** (◉ orbit menu → Orbit
-settings → Experimental features → Project Workbench). All Workbench entry points
-and task-result cards stay hidden while it is off; stored tasks, candidates,
-results and per-pane mode preferences are preserved, and the server authority
-boundaries are unchanged. `tests/experimental-workbench.browser.py` covers the
-gate. This change is not part of the published 0.3.0 pin; it is prepared for the
-0.3.1 package on `release/0.3.1`.
+Project Workbench was removed in cleanup Phase 3. The post-release follow-up on
+`main` had made it an experimental, off-by-default surface together with its task
+surfaces and browser gate; its stored tables remain inert. That follow-up was not
+part of the published 0.3.0 pin.
 
 ## Baseline and release decision
 
@@ -130,7 +126,7 @@ Capture labeled before/after screenshots and owner observations. Keep identical
 content/theme/viewport for the initial comparison.
 
 Technical gates: runtime continuity and terminal identity; docking tab/float/grid
-persistence; stale placement conflicts; theme coverage; chat/Workbench parity;
+persistence; stale placement conflicts; theme coverage; chat and workspace parity;
 unsupported-browser fallback. Existing tests cover many of these invariants, but
 do not establish that either renderer is easier to use.
 
@@ -145,8 +141,9 @@ beyond experimental status.
 Owner steering also identified an unnecessary global exclusion between Normal
 chats. The candidate permits independent accepted ordinary conversations to
 overlap, using durable receipt/run/binding/configuration checks. Same-session
-duplicates, uncertain or unreceipted work, native Workbench execution and managed
-jobs keep their guards. The host gateway still controls its own concurrency cap.
+duplicates, uncertain or unreceipted work, the former native Workbench execution
+(removed in cleanup Phase 3) and managed jobs keep their guards. The host gateway
+still controls its own concurrency cap.
 
 Exit: owner chooses the release default based on the walkthrough; documentation
 explains selection and saved-layout behavior. If Docking remains experimental,
@@ -156,15 +153,11 @@ that status must be visible and its browser limitations explicit.
 
 Deliver one current user-facing entry point and keep historical evidence dated.
 
-- `README.md`: current capabilities, quick start, chat/Workbench distinction,
-  renderer choice and links to the release guide. Its present introductory
-  Workbench paragraph still describes native tools/acceptance as pending in terms
-  that need reconciliation with later milestone evidence.
+- `README.md`: current capabilities, quick start, chat and workspace distinction,
+  renderer choice and links to the release guide. The Project Workbench material was removed in cleanup Phase 3 and is no longer referenced here.
 - `docs/HERMES.md` and `docs/AGENT_PANE_UX.md`: actual control locations, conversation
   and draft behavior, tool visibility, status/error meanings and recovery.
-- `docs/WORKBENCH_SETUP.md`: supported `node-test` preparation flow and separately
-  configured native execution. The current live service has no native worker
-  configuration; successful preparation is not a successful worker launch.
+- `docs/WORKBENCH_SETUP.md`: removed in cleanup Phase 3 together with the rest of Project Workbench.
 - `docs/THEMES.md`: preset/override semantics and the boundaries of parent styling.
 - `docs/RENDERER_COMPARISON.md`, `docs/OPTIONAL_DOCKING.md`,
   `docs/RENDERER_PARITY.md`: user guide versus technical/historical evidence.
@@ -184,10 +177,11 @@ as historical; do not rewrite their old measurements as current evidence.
 1. Fix the blockers, review the owner journeys, and agree renderer/version policy.
 2. Freeze a candidate SHA. Map every release-blocking issue to a reproducible test
    or a recorded manual acceptance result; record browser/viewport/build identity.
-3. Run `npm run check`, relevant publisher/portable parity checks, and all seven
-   Workbench CI suites plus the aggregate gate on that exact candidate. Required
-   local-model native acceptance must run in its configured CI environment, not
-   be counted as an optional local skip. Record any rerun and its cause.
+3. Run `npm run check`, relevant publisher/portable parity checks, and the former
+   Workbench CI suites (removed in cleanup Phase 3) plus the aggregate gate on that
+   exact candidate. Required local-model native acceptance must run in its
+   configured CI environment, not be counted as an optional local skip. Record any
+   rerun and its cause.
 4. Validate clean install and upgrade from the actually supported main runtime
    version using disposable copies. The live schema-11 hotfix rehearsal alone
    does not validate upgrading every installation from main. Verify full restore
@@ -220,8 +214,9 @@ provider acceptance separately if the owner elects to perform it.
    needed for a 1.0 release.
 2. Choose renderer policy after the comparison; Desktop default plus experimental
    Docking is the starting recommendation.
-3. Decide whether native Workbench execution configuration/provider acceptance is
-   part of this release's live rollout or a clearly documented optional setup.
+3. Decide whether the removed native Workbench execution configuration/provider
+   acceptance (cleanup Phase 3) is part of this release's live rollout or a
+   clearly documented optional setup.
 
 ## Assessment evidence
 

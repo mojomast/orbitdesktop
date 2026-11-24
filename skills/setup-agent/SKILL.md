@@ -98,19 +98,17 @@ for keys in chat.
 
 - If `router.mode` is `external`, point the router-backed agents at the external
   base URL from the config view. Orbit does not start or supervise that router.
-- If the built-in router is selected, wait for the wizard or Settings to report
-  it healthy, then configure agents with its loopback base URL.
-- Each role gets its own virtual key (for example `setup`, `chat`, `workers` and
+- If built-in configuration is selected, report preparation separately from
+  activation. Only the operator invokes the host launcher. See `docs/ROUTER.md`.
+- Each built-in role gets its own virtual key (for example `setup`, `chat`, `workers` and
   `summarize`). Orbit stores each key as a `0600` file under the runtime key
   directory and injects the matching key into that role. Show only masked
   status.
 - OpenCode free models stay direct to OpenCode. They cannot be fronted by the
   router; only paid or self-hosted OpenCode endpoints can use the router.
-- A local LiteLLM proxy is an explicit advanced opt-in. If and only if
-  `components.litellmLocal` is true, follow the documented commands in
-  `docs/SETUP_CHECKLIST.md`: loopback bind, upstream keys referenced as
-  `os.environ/<NAME>` from `0600` files, and a generated master key in a `0600`
-  file. Never inline an upstream key.
+- Advanced LiteLLM has a repository image pin and a separate operator issuer.
+  Do not request a master key, issue credentials or start an extra service.
+  External mode uses one inference key.
 
 ## Finish
 

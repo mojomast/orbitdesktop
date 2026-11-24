@@ -6,6 +6,7 @@ Checks actual pointer hits without force-clicking and live iframe/Lexical identi
 import copy
 import json
 from pathlib import Path
+from ui_fixture import copy_ui_source
 import shutil
 import socket
 import subprocess
@@ -18,7 +19,8 @@ from playwright.sync_api import expect, sync_playwright
 ROOT = Path(__file__).resolve().parents[1]
 with tempfile.TemporaryDirectory(prefix='orbit-docking-narrow-', dir='/tmp/opencode') as temporary:
     root = Path(temporary)
-    for name in ('src', 'contracts', 'server', 'scripts', 'docs', 'public'):
+    copy_ui_source(ROOT, root)
+    for name in ('contracts', 'server', 'scripts', 'docs', 'public'):
         shutil.copytree(ROOT / name, root / name)
     for name in ('index.html', 'package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.js'):
         shutil.copy2(ROOT / name, root / name)
@@ -32,8 +34,8 @@ with tempfile.TemporaryDirectory(prefix='orbit-docking-narrow-', dir='/tmp/openc
     state = {'version': 1, 'selected': windows[6], 'arc': 14, 'view': 'windows', 'monitors': []}
     for i in range(13):
         url = {1: 'https://narrow-identity.invalid/', 3: f'orbit://document/{document_id}',
-               6: 'orbit://surface/interactive-results', 7: 'orbit://surface/voice'}.get(i, 'orbit://welcome')
-        name = {1: 'Narrow iframe', 3: 'Narrow editor', 6: 'Narrow card', 7: 'Adjacent voice'}.get(i, f'Neighbor {i}')
+               6: 'orbit://surface/interactive-results', 7: 'orbit://surface/documents'}.get(i, 'orbit://welcome')
+        name = {1: 'Narrow iframe', 3: 'Narrow editor', 6: 'Narrow card', 7: 'Adjacent documents'}.get(i, f'Neighbor {i}')
         state['monitors'].append({'id': windows[i], 'name': name, 'diagonal': 32, 'aspect': '16:9',
             'height': 0, 'distance': 0, 'pitch': 0, 'yaw': 0, 'offset': 0, 'fontSize': 16,
             'frame': {'x': 20, 'y': 20, 'width': 600, 'height': 700, 'z': i},
@@ -88,7 +90,7 @@ with tempfile.TemporaryDirectory(prefix='orbit-docking-narrow-', dir='/tmp/openc
                 if path.endswith('/api/auth'):
                     return reply({'ok': True})
                 if path.endswith('/api/technology-capabilities'):
-                    return reply({'ok': True, 'browser_copilot': False, 'mcp_apps': False})
+                    return reply({'ok': True})
                 if path.endswith('/api/workspace/events'):
                     return reply({'workspace_id': workspace, 'events': [], 'cursor': 0, 'has_more': False, 'reset_required': False})
                 if path.endswith('/api/interactive-results'):

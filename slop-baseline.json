@@ -1,0 +1,256 @@
+{
+  "scripts/orbit-up.mjs": {
+    "empty-catch": 3
+  },
+  "scripts/release_launch.mjs": {
+    "empty-catch": 2
+  },
+  "scripts/release_package.mjs": {
+    "empty-catch": 3
+  },
+  "scripts/smoke-node-quickstart.mjs": {
+    "empty-catch": 1
+  },
+  "server/acdd-evidence.mjs": {
+    "empty-catch": 1
+  },
+  "server/agent-gateways.mjs": {
+    "empty-catch": 3
+  },
+  "server/agent-status.mjs": {
+    "empty-catch": 2
+  },
+  "server/agent.mjs": {
+    "empty-catch": 15
+  },
+  "server/build-queue.mjs": {
+    "empty-catch": 1
+  },
+  "server/colab-job-worker.mjs": {
+    "empty-catch": 3
+  },
+  "server/colab-orchestrator.mjs": {
+    "empty-catch": 15
+  },
+  "server/collab-board.mjs": {
+    "empty-catch": 2
+  },
+  "server/collab-orchestrator.mjs": {
+    "empty-catch": 1
+  },
+  "server/collab-store.mjs": {
+    "empty-catch": 7
+  },
+  "server/collab.mjs": {
+    "empty-catch": 6
+  },
+  "server/conversation-private-store.mjs": {
+    "empty-catch": 1
+  },
+  "server/documents-store.mjs": {
+    "empty-catch": 1
+  },
+  "server/extension-proxy.mjs": {
+    "empty-catch": 2
+  },
+  "server/extension-studio.mjs": {
+    "empty-catch": 1
+  },
+  "server/gateway-chat.mjs": {
+    "empty-catch": 11
+  },
+  "server/grokbots-activity.mjs": {
+    "empty-catch": 3
+  },
+  "server/grokbots-app.mjs": {
+    "empty-catch": 5
+  },
+  "server/grokbots-controls-hermes.mjs": {
+    "empty-catch": 4
+  },
+  "server/grokbots-controls-pi.mjs": {
+    "empty-catch": 1
+  },
+  "server/grokbots-groups.mjs": {
+    "empty-catch": 7
+  },
+  "server/grokbots-prefs.mjs": {
+    "empty-catch": 1
+  },
+  "server/grokbots-uploads.mjs": {
+    "empty-catch": 2
+  },
+  "server/hive-reports.mjs": {
+    "empty-catch": 2
+  },
+  "server/index.mjs": {
+    "empty-catch": 4
+  },
+  "server/knowledge-index-store.mjs": {
+    "empty-catch": 1
+  },
+  "server/local-workers.mjs": {
+    "empty-catch": 2
+  },
+  "server/managed-terminal-ledger.mjs": {
+    "empty-catch": 1
+  },
+  "server/managed-terminal-provider.mjs": {
+    "empty-catch": 1
+  },
+  "server/onboarding-apply.mjs": {
+    "empty-catch": 1
+  },
+  "server/onboarding-github.mjs": {
+    "empty-catch": 1
+  },
+  "server/onboarding-wiring.mjs": {
+    "empty-catch": 3
+  },
+  "server/onboarding.mjs": {
+    "empty-catch": 3
+  },
+  "server/openai-compat-gateway.mjs": {
+    "empty-catch": 18
+  },
+  "server/opencode-detect.mjs": {
+    "empty-catch": 2
+  },
+  "server/orbit-config.mjs": {
+    "empty-catch": 8
+  },
+  "server/output-library.mjs": {
+    "empty-catch": 2
+  },
+  "server/pi-gateway.mjs": {
+    "empty-catch": 10
+  },
+  "server/pi-rpc.mjs": {
+    "empty-catch": 2
+  },
+  "server/resource-delegation.mjs": {
+    "empty-catch": 4
+  },
+  "server/router-supervisor.mjs": {
+    "empty-catch": 4
+  },
+  "server/run-trace-tee.mjs": {
+    "empty-catch": 2
+  },
+  "server/run-traces.mjs": {
+    "empty-catch": 1
+  },
+  "server/shared-agents.mjs": {
+    "empty-catch": 4
+  },
+  "server/ssh-config.mjs": {
+    "empty-catch": 1
+  },
+  "server/ssh-hosts.mjs": {
+    "empty-catch": 10
+  },
+  "server/technology-assets.mjs": {
+    "empty-catch": 1
+  },
+  "server/workspace-layouts-storage.mjs": {
+    "empty-catch": 1
+  },
+  "server/workspace.mjs": {
+    "empty-catch": 1
+  },
+  "src/agent-chat.ts": {
+    "empty-catch": 8
+  },
+  "src/agent-live-timeline.ts": {
+    "empty-catch": 2
+  },
+  "src/agent-pane-context.ts": {
+    "empty-catch": 2
+  },
+  "src/agent-pane-session.ts": {
+    "empty-catch": 1
+  },
+  "src/chat-message-renderer.ts": {
+    "empty-catch": 1
+  },
+  "src/colab-orchestrator.ts": {
+    "empty-catch": 1
+  },
+  "src/collab.ts": {
+    "empty-catch": 1
+  },
+  "src/conversation-draft.ts": {
+    "empty-catch": 2
+  },
+  "src/docking-sync.ts": {
+    "empty-catch": 1
+  },
+  "src/document-creations.ts": {
+    "empty-catch": 1
+  },
+  "src/document-drafts.ts": {
+    "empty-catch": 1
+  },
+  "src/extension-studio.ts": {
+    "as-any": 1,
+    "empty-catch": 1
+  },
+  "src/first-run.ts": {
+    "empty-catch": 1
+  },
+  "src/grokbots-bridge.ts": {
+    "empty-catch": 1
+  },
+  "src/hive-follow.ts": {
+    "empty-catch": 1
+  },
+  "src/inline-tools.ts": {
+    "empty-catch": 2
+  },
+  "src/interactive-result-adapter.ts": {
+    "empty-catch": 1
+  },
+  "src/interactive-result-host.ts": {
+    "empty-catch": 3
+  },
+  "src/live-style.ts": {
+    "empty-catch": 1
+  },
+  "src/main.ts": {
+    "empty-catch": 5
+  },
+  "src/minimize.ts": {
+    "empty-catch": 1
+  },
+  "src/mobile.ts": {
+    "empty-catch": 2
+  },
+  "src/onboarding.ts": {
+    "as-any": 1,
+    "empty-catch": 5
+  },
+  "src/orbit-menu.ts": {
+    "empty-catch": 2
+  },
+  "src/output-library.ts": {
+    "empty-catch": 1
+  },
+  "src/panes.ts": {
+    "empty-catch": 1
+  },
+  "src/rails-shell.ts": {
+    "empty-catch": 1
+  },
+  "src/shared-agents.ts": {
+    "empty-catch": 1
+  },
+  "src/viewport.ts": {
+    "empty-catch": 2
+  },
+  "src/workspace-ops.ts": {
+    "as-any": 2
+  },
+  "src/workspace-sync.ts": {
+    "empty-catch": 3
+  }
+}

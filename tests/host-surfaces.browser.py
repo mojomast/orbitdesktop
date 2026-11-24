@@ -1,12 +1,13 @@
 """Isolated Vite + real desktop renderer fixture; owner API responses are mocked.
 
 No owner runtime, terminals or providers. Exercises persisted host URLs, actual
-Windows/Spatial/focus reconciliation, modal pin requests, registry deep links,
+Windows/focus reconciliation, modal pin requests, registry deep links,
 subscription cardinality and close/in-flight request cleanup.
 """
 import copy
 import json
 from pathlib import Path
+from ui_fixture import copy_ui_source
 import shutil
 import socket
 import subprocess
@@ -20,7 +21,8 @@ from playwright.sync_api import expect, sync_playwright
 ROOT = Path(__file__).resolve().parents[1]
 with tempfile.TemporaryDirectory(prefix='orbit-host-surfaces-', dir='/tmp/opencode') as temporary:
     root = Path(temporary)
-    for name in ('src', 'contracts', 'public', 'server', 'scripts', 'docs'):
+    copy_ui_source(ROOT, root)
+    for name in ('contracts', 'public', 'server', 'scripts', 'docs'):
         shutil.copytree(ROOT / name, root / name)
     for name in ('index.html', 'package.json', 'package-lock.json', 'tsconfig.json', 'vite.config.js'):
         shutil.copy2(ROOT / name, root / name)
@@ -147,13 +149,10 @@ with tempfile.TemporaryDirectory(prefix='orbit-host-surfaces-', dir='/tmp/openco
                 assert not errors, errors
 
             for cycle in range(3):
-                page.get_by_role('button', name='Switch to spatial view', exact=True).click()
-                verify()
                 page.get_by_role('button', name='Focus selected display', exact=True).click()
                 expect(page.locator('.focus-host .monitor')).to_have_count(1)
                 verify()
                 page.get_by_role('button', name='Exit focus view', exact=True).click()
-                page.get_by_role('button', name='Switch to movable windows', exact=True).click()
                 verify()
                 # New remote metadata revision exercises real layout reconciliation.
                 page.wait_for_timeout(1600)

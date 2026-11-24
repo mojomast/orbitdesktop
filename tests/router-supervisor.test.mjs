@@ -118,6 +118,7 @@ function routerConfig(overrides = {}) {
   };
   return {
     components: { router: router.enabled },
+    providers: [{ id: 'openrouter', kind: 'openrouter', ...(overrides.upstreamKey ? { keyRef: { file: 'openrouter.key' } } : {}) }],
     router,
     roles: {
       setup: { provider: 'router', model: 'deepseek/deepseek-chat' },
@@ -186,7 +187,8 @@ test('enable writes private files, the compose profile and the exact compose com
   fs.writeFileSync(keyFile, `${SENTINEL}\n`, { mode: 0o600 });
   fs.writeFileSync(path.join(runtimeDir, '.env'), 'FOO=bar\n', { mode: 0o600 });
 
-  const { exec, fetchImpl, log, supervisor } = setup(routerConfig(), { runtimeDir });
+  fs.writeFileSync(path.join(runtimeDir, 'keys', 'unrelated.key'), 'UNRELATED-PRIVATE-FIXTURE', { mode: 0o600 });
+  const { exec, fetchImpl, log, supervisor } = setup(routerConfig({ upstreamKey: true }), { runtimeDir });
   try {
     assert.equal(fs.readFileSync(path.join(runtimeDir, '.env'), 'utf8').includes('COMPOSE_PROFILES'), false);
 
@@ -194,9 +196,9 @@ test('enable writes private files, the compose profile and the exact compose com
 
     assert.equal(exec.calls.length, 1);
     assert.equal(exec.calls[0].file, 'docker');
-    assert.deepEqual(exec.calls[0].args, ['compose', '--profile', 'router', 'up', '-d', 'router']);
+    assert.deepEqual(exec.calls[0].args, ['compose', '-f', path.join(path.dirname(COMPOSE), 'docker-compose.yml'), '--profile', 'router', 'up', '-d', 'router']);
     assert.equal(exec.calls[0].options.env.ORBIT_RUNTIME_DIR, runtimeDir);
-    assert.match(exec.calls[0].options.env.ORBIT_ROUTER_IMAGE, /@sha256:[a-f0-9]{64}$/);
+    assert.deepEqual(Object.keys(exec.calls[0].options.env).sort(), ['ORBIT_RUNTIME_DIR', 'PATH']);
 
     const envText = fs.readFileSync(path.join(runtimeDir, '.env'), 'utf8');
     assert.match(envText, /^FOO=bar$/m);
@@ -212,6 +214,7 @@ test('enable writes private files, the compose profile and the exact compose com
 
     const upstreamOnly = fs.readFileSync(routerEnv, 'utf8');
     assert.ok(upstreamOnly.includes(SENTINEL));
+    assert.ok(!upstreamOnly.includes('UNRELATED-PRIVATE-FIXTURE'));
     const configText = fs.readFileSync(renderedConfig, 'utf8');
     assert.ok(!configText.includes(SENTINEL));
     const statusText = JSON.stringify(supervisor.status());
@@ -219,7 +222,8 @@ test('enable writes private files, the compose profile and the exact compose com
     assert.ok(!log.lines.join('\n').includes(SENTINEL));
 
     const rendered = JSON.parse(configText);
-    assert.equal(rendered.virtual_keys.length, 4);
+    assert.equal(rendered.governance.virtual_keys.length, 4);
+    const distinct = new Set();
 
     for (const role of ['setup', 'chat', 'workers', 'summarize']) {
       const file = path.join(runtimeDir, 'keys', `router-vk-${role}.key`);
@@ -227,8 +231,13 @@ test('enable writes private files, the compose profile and the exact compose com
       assert.equal(mode(file), 0o600);
       const value = fs.readFileSync(file, 'utf8').trim();
       assert.match(value, /^sk-bf-[A-Za-z0-9_-]{20,}$/);
+      distinct.add(value);
+      const ref = rendered.governance.virtual_keys.find(vk => vk.id === role).value.slice(4);
+      assert.ok(upstreamOnly.split('\n').includes(`${ref}=${value}`));
+      assert.ok(!configText.includes(value));
       assert.ok(!statusText.includes(value));
     }
+    assert.equal(distinct.size, 4);
 
     assert.equal(supervisor.status().health, 'healthy');
     assert.ok(fetchImpl.calls.length >= 1);
@@ -274,7 +283,7 @@ test('disable refuses without confirmation, then removes generated state but kee
 
     const last = exec.calls.at(-1);
     assert.equal(last.file, 'docker');
-    assert.deepEqual(last.args, ['compose', '--profile', 'router', 'down', 'router']);
+    assert.deepEqual(last.args, ['compose', '-f', path.join(path.dirname(COMPOSE), 'docker-compose.yml'), '--profile', 'router', 'down', 'router']);
 
     const envText = fs.readFileSync(path.join(runtimeDir, '.env'), 'utf8');
     assert.match(envText, /^FOO=bar$/m);
@@ -349,7 +358,7 @@ test('registry entries describe each routed role without exposing key material',
   }
 });
 
-test('rotateKey replaces one virtual key only and issueVirtualKeys is idempotent', async () => {
+test('online rotation refuses rather than desynchronizing the role file and engine', async () => {
   const runtimeDir = tempRuntime();
   const { supervisor } = setup(routerConfig(), { runtimeDir });
   try {
@@ -359,10 +368,8 @@ test('rotateKey replaces one virtual key only and issueVirtualKeys is idempotent
     const chatBefore = fs.readFileSync(chatFile, 'utf8');
     const setupBefore = fs.readFileSync(setupFile, 'utf8');
 
-    const summary = supervisor.rotateKey('chat');
-    assert.equal(summary.role, 'chat');
-    assert.equal(summary.rotated, true);
-    assert.notEqual(fs.readFileSync(chatFile, 'utf8'), chatBefore);
+    assert.throws(() => supervisor.rotateKey('chat'), /reload and verify/);
+    assert.equal(fs.readFileSync(chatFile, 'utf8'), chatBefore);
     assert.equal(fs.readFileSync(setupFile, 'utf8'), setupBefore);
     assert.equal(mode(chatFile), 0o600);
 
@@ -389,7 +396,7 @@ test('failed starts and errors never leak key material through logs', async () =
     const joined = log.lines.join('\n');
     assert.ok(!joined.includes(SENTINEL));
     assert.ok(!joined.includes('sk-test'));
-    assert.match(joined, /\[redacted\]/);
+    assert.match(joined, /start failed/i);
   } finally {
     cleanup(runtimeDir);
   }

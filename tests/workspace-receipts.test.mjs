@@ -77,7 +77,7 @@ test('same operation key and payload replays its exact response after a newer re
   const command = apply(1, 'replay-exact-1', { action: 'sidebar', hidden: true });
   const first = await request(command, { control: true, capability });
   assert.equal(first.status, 200);
-  const second = await request(apply(2, 'later-operation-1', { action: 'set_view', view: 'spatial' }), { control: true, capability });
+  const second = await request(apply(2, 'later-operation-1', { action: 'set_arc', arc: 20 }), { control: true, capability });
   assert.equal(second.status, 200);
   assert.equal(second.body.revision, 3);
   const replay = await request(command, { control: true, capability });
@@ -126,7 +126,7 @@ test('concurrent stale human and agent fetches allow one commit without lost cha
     action: 'sync', state: { ...initial(), sidebarHidden: true }, base_revision: 1,
     operation_id: 'concurrent-owner-1', intent: 'owner state update',
   };
-  const agent = apply(1, 'concurrent-agent-1', { action: 'set_view', view: 'spatial' });
+  const agent = apply(1, 'concurrent-agent-1', { action: 'set_arc', arc: 21 });
   const results = await Promise.all([request(owner), request(agent, { control: true, capability })]);
   assert.deepEqual(results.map(result => result.status).sort(), [200, 409]);
   const committed = results.find(result => result.status === 200);
@@ -136,7 +136,7 @@ test('concurrent stale human and agent fetches allow one commit without lost cha
   assert.equal(rejected.body.category, 'REVISION_CONFLICT');
   const final = service.store.read(id).state;
   if (committed.body.state.sidebarHidden) assert.equal(final.sidebarHidden, true);
-  else assert.equal(final.view, 'spatial');
+  else assert.equal(final.arc, 21);
 });
 
 test('restore and manual checkpoint mutations return durable receipts and save checkpoints', async t => {
@@ -175,7 +175,7 @@ test('invalid operation batch creates no receipt, checkpoint, or event', async t
   const events = service.store.eventsAfter(0);
   const result = await request({
     action: 'apply', base_revision: 1, operation_id: 'invalid-batch-1', intent: 'invalid batch',
-    operations: [{ action: 'sidebar', hidden: true }, { action: 'set_view', view: 'not-a-view' }],
+    operations: [{ action: 'sidebar', hidden: true }, { action: 'set_arc', arc: 99 }],
   }, { control: true, capability });
   assert.equal(result.status, 400);
   assert.equal(service.store.read(id).revision, 1);

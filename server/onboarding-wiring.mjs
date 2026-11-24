@@ -3,7 +3,7 @@
  * orbit-config.json (server/orbit-config.mjs), the onboarding wizard and
  * Settings routes (server/onboarding.mjs, server/onboarding-apply.mjs), the
  * opt-in token router (server/router-supervisor.mjs), the setup agent
- * (server/setup-agent.mjs), SSH hosts (server/ssh-hosts.mjs, server/host-api.mjs,
+ * (server/setup-agent.mjs), SSH hosts (server/ssh-hosts.mjs,
  * server/host-audit.mjs) and the generic OpenAI-compatible adapter
  * (server/openai-compat-gateway.mjs).
  *
@@ -56,7 +56,8 @@ function atomicPrivate(file, text) {
 /** A key-free copy of a config view for the setup agent and its checklist. */
 function keyFreeConfig(view) {
   const providers = (view.providers ?? []).map(({ key, keyRef, ...rest }) => ({ ...rest, keySet: Boolean(key?.set) }));
-  return { ...view, providers, roles: resolveRoles(view) };
+  const { observability, ...setup } = view;
+  return { ...setup, providers, roles: resolveRoles(view) };
 }
 
 function hostIdFrom(text) {
@@ -118,8 +119,8 @@ export function createOrbitSetup({
   try {
     github = createGithubConnection({ runtimeDir, env, log: safeLog, fetchImpl: githubFetch });
   } catch {
-    safeLog('Ignoring an invalid ORBIT_GITHUB_API or ORBIT_GITHUB_WEB; using github.com.');
-    github = createGithubConnection({ runtimeDir, env: { ORBIT_GITHUB_CLIENT_ID: env?.ORBIT_GITHUB_CLIENT_ID }, log: safeLog, fetchImpl: githubFetch });
+    safeLog('Invalid GitHub endpoint configuration; optional connection disabled.');
+    github = { connected: () => false, route() { throw Object.assign(Error('Invalid GitHub endpoint. Correct the host configuration or enter repositories manually.'), { status: 409 }); } };
   }
 
   function reposView() {
@@ -136,16 +137,22 @@ export function createOrbitSetup({
 
   /** GitHub and repo routes, shared by /api/onboarding/* and /api/settings/*. */
   async function githubAndRepos(req, res, rest) {
+    // The enclosing server verifies the secret and rejects foreign Origin
+    // headers. Require an explicit bearer (never a bare token/cookie), too.
+    if (!/^Bearer [^\s]+$/.test(req.headers.authorization ?? '')) {
+      json(res, 401, { ok: false, error: 'Unlock Orbit first.' }); return true;
+    }
     const method = String(req.method || 'GET').toUpperCase();
     const parts = rest.split('/').filter(Boolean);
     if (parts[0] === 'repos' && parts.length === 1) {
-      if (method === 'GET') return json(res, 200, reposView()), true;
-      if (method === 'PUT' || method === 'POST') return json(res, 200, await putRepos(await readJson(req))), true;
-      return json(res, 405, { ok: false, error: 'Method not allowed.' }), true;
+      if (method === 'GET') json(res, 200, reposView());
+      else if (method === 'PUT') json(res, 200, await putRepos(await readJson(req)));
+      else json(res, 405, { ok: false, error: 'Method not allowed.' });
+      return true;
     }
     if (parts[0] === 'github') {
       const body = ['POST', 'PUT'].includes(method) ? await readJson(req) : {};
-      return json(res, 200, await github.route(method, parts.slice(1), body)), true;
+      json(res, 200, await github.route(method, parts.slice(1), body)); return true;
     }
     return false;
   }
@@ -327,5 +334,5 @@ export function createOrbitSetup({
     }
   }
 
-  return { store, handle, firstRun, agentProfiles, startSetupAgent, routerSupervisor, github };
+  return { store, handle, firstRun, agentProfiles, startSetupAgent, routerSupervisor };
 }
