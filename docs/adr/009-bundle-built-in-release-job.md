@@ -1,6 +1,6 @@
 # ADR 009: build `orbit-source.tar.gz` in a release job instead of committing it
 
-Status: accepted direction (Kyle, chat t1650u); implementation not started; install path open for the owner.
+Status: accepted direction (Kyle, chat t1650u); install path decided (Kyle, chat t1659u); implementation not started.
 
 ## Context
 
@@ -22,10 +22,12 @@ Consumers today:
 1. **Release job.** Add a workflow that runs `python3 scripts/bundle_hermes.py --output dist/orbit-source.tar.gz`
    on the owner's release trigger, writes a `.sha256` next to the tarball, and attaches both as release assets.
    Only the owner creates tags and releases.
-2. **Plugin setup.** `orbit.py setup` accepts `--bundle <path>` and checks it against a published sha256. With no
-   `--bundle`, if the plugin directory sits inside a full checkout, it builds the bundle there with
-   `bundle_hermes.py --output` into a temporary path. Anything else fails closed with a message naming both options.
-   It never downloads anything by itself, which keeps the no-self-update rule.
+2. **Plugin setup: install from a full checkout** (Kyle, chat t1659u). Each host installs Orbit from a full git
+   checkout of this repository. `orbit.py setup` builds the bundle in that checkout with
+   `bundle_hermes.py --output` into a temporary path, then unpacks it. `--bundle <path>` stays **optional**:
+   it is for installing a release asset and is checked against the published sha256. It is never required.
+   If there is no `--bundle` and the plugin is not inside a full checkout, setup fails closed with a message
+   naming both options. It never downloads anything by itself, which keeps the no-self-update rule.
 3. **Tests** build the bundle into a temporary directory. They keep the determinism and inclusion-policy checks:
    two builds give the same bytes, and the policy and credential scans still hold. They stop comparing against a
    committed file.
@@ -38,11 +40,14 @@ Consumers today:
 - orbitdesktop #91 (0.4.0) has merged and T2-REV27 (#92) has merged.
 - Wave A slices T2a → T2b → T3 each regenerate the tarball. The switch lands after T3 merges, so those slices
   are not rebased onto a moving install contract.
-- Implementation is one slice, test-first: the RED tests are the new temp-build bundle tests plus a
+- Implementation is one slice, test-first: the RED tests are the new temp-build bundle tests, an in-checkout `setup` build test and a
   `setup --bundle` sha256 refusal test.
+
+## Decided
+
+- Install path (Kyle, chat t1659u): Orbit installs from a full checkout, because the owner intends to use it more
+  intensively. The in-checkout build is the default path and `--bundle` stays optional.
 
 ## Open for the owner
 
-- How each host installs the plugin today: a full checkout, or only the `hermes-plugin/` directory. This decides
-  whether the in-checkout build path is enough or `--bundle` becomes required.
 - Changing the install on a running host is a deploy. It waits until the owner asks.
