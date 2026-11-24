@@ -45,6 +45,7 @@ test('60 short view/replay cycles do not turn a slow successful view into a 503'
   const pending = new Set();
   let views = 0;
   let streams = 0;
+  let failures = 0;
   const upstreamPort = await listen(t, (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     if (url.pathname === '/v1/view') {
@@ -88,6 +89,7 @@ test('60 short view/replay cycles do not turn a slow successful view into a 503'
     const elapsed = performance.now() - viewStarted;
     latencies.push(elapsed);
     if (response.status !== 200) {
+      failures += 1;
       if (cycle === slowCycle && elapsed < slowMs + 25) await delay(slowMs + 25 - elapsed);
       assert.equal(response.status, 200, JSON.stringify({
         cycle,
@@ -107,7 +109,7 @@ test('60 short view/replay cycles do not turn a slow successful view into a 503'
     cycles,
     views,
     streams,
-    status_503: 0,
+    status_503: failures,
     duration_ms: Math.round(performance.now() - started),
     view_max_ms: Math.round(Math.max(...latencies)),
     view_over_10s: latencies.filter(value => value >= 10000).length,
@@ -116,10 +118,11 @@ test('60 short view/replay cycles do not turn a slow successful view into a 503'
   console.log('RAILS_VIEW_LOAD ' + JSON.stringify(summary));
   assert.equal(views, cycles);
   assert.equal(streams, cycles);
+  assert.equal(failures, 0);
   assert.ok(latencies[slowCycle - 1] >= slowMs);
 });
 
-test('a stalled view still fails closed at the bounded non-stream deadline', async t => {
+test('a stalled view still fails closed at the bounded non-stream deadline', {timeout: 5000}, async t => {
   const owner = credential();
   const readToken = credential();
   let notify;
@@ -141,9 +144,21 @@ test('a stalled view still fails closed at the bounded non-stream deadline', asy
   let settled = false;
   void pending.then(() => { settled = true; });
   await requested;
-  t.mock.timers.tick(29_999);
-  await Promise.resolve();
-  assert.equal(settled, false);
+  // The mocked clock only moves when this test moves it, so every sample below
+  // must still show the view pending: a 10 s or 15 s deadline fails here while
+  // the 30 s bound passes. One microtask is not enough to deliver a socket
+  // response, so each sample gives the event loop a bounded real-time window.
+  const stillPending = async () => {
+    const until = Date.now() + 100;
+    while (Date.now() < until && !settled) await new Promise(resolve => setImmediate(resolve));
+    return !settled;
+  };
+  let advanced = 0;
+  for (const at of [10_001, 20_001, 29_999]) {
+    t.mock.timers.tick(at - advanced);
+    advanced = at;
+    assert.equal(await stillPending(), true, `the stalled view settled before the 30 s deadline (${at} ms)`);
+  }
   t.mock.timers.tick(1);
   const response = await pending;
   assert.equal(response.status, 503);
