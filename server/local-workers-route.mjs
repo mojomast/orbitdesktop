@@ -21,6 +21,9 @@ export function createLocalWorkersRoute({ runtimeRoot, port, env = process.env, 
     maxConcurrent: Number(env.ORBIT_LOCAL_WORKERS_MAX || 1), artifactMaxBytes: artifactMax, log,
   });
   let busy = false;
+  // Warn-only by default; exactly '1' makes a missing risk tier/preflight blocking.
+  const requirePreflight = env.ORBIT_LOCAL_WORKERS_REQUIRE_PREFLIGHT === '1';
+  let ungatedCreates = 0;
   const tick = async () => { if (busy) return; busy = true; try { await lw.tick(); } catch (e) { log(`local-workers tick: ${e.message}`); } finally { busy = false; } };
   setTimeout(tick, 500); // restart recovery: reconcile before anything else
   const timer = setInterval(tick, Number(env.ORBIT_LOCAL_WORKERS_POLL_MS || 3000)); timer.unref?.();
@@ -42,8 +45,19 @@ export function createLocalWorkersRoute({ runtimeRoot, port, env = process.env, 
     try {
       b = JSON.parse(b || '{}');
       switch (b.op) {
-        case 'create': { const a = await lw.create({ taskId: b.task_id, boardEntry: b.board_entry || b.task_id, group: b.group, coordinator: b.coordinator || 'MR.INDIA', brief: b.brief, model: b.model, tier: b.tier }); return send(201, { ...view(a), artifact_capability: a.artifact_capability }); }
-        case 'list': return send(200, { attempts: lw.list().map(view), cap: lw.cap, paused: lw.paused });
+        case 'create': {
+          // Reasons come from brief shape only; brief contents are never logged.
+          const brief = b.brief && typeof b.brief === 'object' ? b.brief : undefined;
+          const reasons = [];
+          if (!(typeof brief?.risk?.tier === 'string' && brief.risk.tier.length > 0)) reasons.push('no_risk_tier');
+          if (!(brief?.preflight && typeof brief.preflight === 'object' && brief.preflight.ok === true)) reasons.push('no_preflight');
+          if (reasons.length) ungatedCreates += 1;
+          if (requirePreflight && reasons.length) return send(422, { code: 'preflight_required', error: 'local worker create requires risk tier and passing preflight', fix: 'set brief.risk.tier to a non-empty string and brief.preflight to an object with ok true', ungated_reasons: reasons });
+          const a = await lw.create({ taskId: b.task_id, boardEntry: b.board_entry || b.task_id, group: b.group, coordinator: b.coordinator || 'MR.INDIA', brief: b.brief, model: b.model, tier: b.tier });
+          if (reasons.length) { a.ungated = true; a.ungated_reasons = reasons; }
+          return send(201, { ...view(a), artifact_capability: a.artifact_capability });
+        }
+        case 'list': return send(200, { attempts: lw.list().map(view), cap: lw.cap, paused: lw.paused, ungated_creates: ungatedCreates });
         case 'get': return send(200, view(lw.get(b.attempt_id)) || { error: 'unknown' });
         case 'cancel': return send(202, view(await lw.cancel(b.attempt_id)));
         case 'review': return send(200, view(await lw.review(b.attempt_id, { accepted: b.accepted, note: b.note, by: b.by })));
