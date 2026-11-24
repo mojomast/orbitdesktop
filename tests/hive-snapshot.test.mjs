@@ -56,6 +56,20 @@ test('maps real selectors and keeps distinct evidence scopes and public identiti
   assert.ok(!JSON.stringify(v).includes('private'));
 });
 
+test('usage coverage counts usage-bearing requests without blanking on raw ledger rows', () => {
+  const expected = { active: 3, available: 1, capacity: 4, eligible: 1, cost: 0.09 };
+  const s = snapshot();
+  s.usage.source.record_count = 8;
+  assert.deepEqual(project(s, clock).metrics, { ...expected, costCoverage: '2/3 priced' });
+  s.usage.source.record_count = 3;
+  assert.deepEqual(project(s, clock).metrics, { ...expected, costCoverage: '2/3 priced' });
+  s.usage.totals.requests = 4;
+  assert.deepEqual(project(s, clock).metrics, { ...expected, costCoverage: null });
+  s.usage.totals.requests = 3;
+  s.usage.source.record_count = null;
+  assert.deepEqual(project(s, clock).metrics, { ...expected, costCoverage: null });
+});
+
 test('older /1 payloads render independent sections; omissions and unknown cost stay unknown', () => {
   const s = snapshot(); delete s.decisions; delete s.bottlenecks; delete s.fleet.source;
   s.fleet.bee_cap = 14; s.usage.totals.cost_usd = null; s.usage.totals.cost_status = 'unknown'; s.usage.totals.unknown_cost_records = 3;
