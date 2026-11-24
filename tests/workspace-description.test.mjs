@@ -37,8 +37,8 @@ test('description is authenticated, bounded layout metadata with contract-derive
   const ownerDescription=(await request({action:'describe'})).body.capabilities;
   assert.equal(ownerDescription.observed_at,new Date(2000).toISOString());
   assert.ok(ownerDescription.features.every(f=>f.content.availability==='owner_authenticated'));
-  assert.deepEqual(response.body.catalog.operations,contract.operations);
-  assert.deepEqual(response.body.catalog.$defs,contract.schema.$defs);
+  assert.deepEqual(response.body.catalog.operations,Object.keys(contract.operations).sort());
+  assert.equal(Object.hasOwn(response.body.catalog,'$defs'),false);
   assert.equal(Object.hasOwn(response.body.catalog,'arrangements'),false);
   assert.deepEqual(response.body.projects,[]);
   assert.deepEqual(response.body.bindings,[]);
