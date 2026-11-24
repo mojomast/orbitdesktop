@@ -157,9 +157,9 @@ export function createWorkspaceService({ token, port, devOrigins, reply: sendRep
   }
   function context(id) {
     const parts = contextParts(id);
-    // Operator block first, then the full guide. Hermes still receives both,
-    // with no truncation and no disk-only substitution.
-    return `${parts.operator}Orbit workspace operating instructions:\n${parts.guide}\n`;
+    // Operator block first, then a pointer to the on-disk guide. Callers that
+    // need the full text can use context.parts(id).guide instead.
+    return `${parts.operator}Orbit workspace operating instructions:\nRead ${parts.guidePath} from disk for the full workspace operator guide before changing the workspace. That guide is not inlined in this prompt; it covers workspace_control.py, plugin_publish.py, plugin_install, plugin_update, browser_applied, base_revision and tmux sessions.\n`;
   }
   context.parts = contextParts;
   async function serveApp(req, res, pathname) {
