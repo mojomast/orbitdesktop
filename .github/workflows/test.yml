@@ -69,6 +69,7 @@ jobs:
     if: ${{ always() }}
     needs:
       - test
+      - secret-scan
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
