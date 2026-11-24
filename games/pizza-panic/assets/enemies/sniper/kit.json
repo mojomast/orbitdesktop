@@ -1,0 +1,72 @@
+{
+ "head": {
+  "file": "sniper_head.png",
+  "w": 40,
+  "h": 53,
+  "px": 18,
+  "py": 48,
+  "parent": "torso",
+  "ax": 21,
+  "ay": 6
+ },
+ "torso": {
+  "file": "sniper_torso.png",
+  "w": 42,
+  "h": 68,
+  "px": 21,
+  "py": 34,
+  "parent": null,
+  "ax": 0,
+  "ay": 0
+ },
+ "uarm": {
+  "file": "sniper_uarm.png",
+  "w": 17,
+  "h": 30,
+  "px": 8,
+  "py": 4,
+  "parent": "torso",
+  "ax": 13,
+  "ay": 16
+ },
+ "farm": {
+  "file": "sniper_farm.png",
+  "w": 21,
+  "h": 63,
+  "px": 9,
+  "py": 8,
+  "parent": "uarm",
+  "ax": 7,
+  "ay": 25
+ },
+ "thigh": {
+  "file": "sniper_thigh.png",
+  "w": 23,
+  "h": 72,
+  "px": 12,
+  "py": 9,
+  "parent": "torso",
+  "ax": 17,
+  "ay": 60
+ },
+ "shin": {
+  "file": "sniper_shin.png",
+  "w": 32,
+  "h": 58,
+  "px": 10,
+  "py": 7,
+  "parent": "thigh",
+  "ax": 8,
+  "ay": 62
+ },
+ "weapon": {
+  "file": "sniper_weapon.png",
+  "w": 95,
+  "h": 37,
+  "px": 18,
+  "py": 28,
+  "parent": "farm",
+  "ax": 12,
+  "ay": 53
+ }
+}

@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Silly Man</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <div class="app">
+    <header class="top">
+      <div class="brand">
+        <span class="brand-dot" aria-hidden="true"></span>
+        <h1 id="title">Silly Man</h1>
+      </div>
+      <div class="tools">
+        <button id="voiceBtn" class="icon-btn" type="button" aria-pressed="false" title="Toggle voice">
+          <span aria-hidden="true">🔈</span><span class="sr-only">Toggle voice</span>
+        </button>
+        <button id="resetBtn" class="icon-btn" type="button" title="Start over">
+          <span aria-hidden="true">↺</span><span class="sr-only">Start over</span>
+        </button>
+      </div>
+    </header>
+
+    <main class="stage">
+      <section class="guy" aria-hidden="true">
+        <svg id="face" viewBox="0 0 220 230" data-mood="neutral" data-talking="false">
+          <defs>
+            <linearGradient id="skinGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop id="skinHi" offset="0"></stop>
+              <stop id="skinLo" offset="1"></stop>
+            </linearGradient>
+          </defs>
+
+          <!-- body -->
+          <path class="shirt" d="M70 228 Q70 168 110 168 Q150 168 150 228 Z"></path>
+          <path class="collar" d="M96 170 L110 184 L124 170"></path>
+          <path class="arm arm-l" d="M74 188 Q46 192 38 214"></path>
+          <path class="arm arm-r" d="M146 188 Q174 192 182 214"></path>
+          <circle class="hand" cx="38" cy="214" r="9"></circle>
+          <circle class="hand" cx="182" cy="214" r="9"></circle>
+
+          <!-- ears -->
+          <circle class="skin" cx="48" cy="110" r="13"></circle>
+          <circle class="skin" cx="172" cy="110" r="13"></circle>
+
+          <!-- head -->
+          <rect class="skin" x="48" y="44" width="124" height="124" rx="60"></rect>
+
+          <!-- beanie -->
+          <path class="beanie" d="M58 58 Q110 0 162 58 Z"></path>
+          <rect class="brim" x="52" y="54" width="116" height="13" rx="6.5"></rect>
+          <g class="prop">
+            <ellipse cx="92" cy="9" rx="20" ry="4"></ellipse>
+            <ellipse cx="128" cy="9" rx="20" ry="4"></ellipse>
+            <circle class="hub" cx="110" cy="9" r="5"></circle>
+          </g>
+
+          <!-- brows -->
+          <path id="browL" class="brow" d="M66 86 Q80 78 94 84"></path>
+          <path id="browR" class="brow" d="M126 84 Q140 78 154 86"></path>
+
+          <!-- eyes -->
+          <g class="eye eye-l">
+            <ellipse class="white" cx="80" cy="106" rx="14" ry="16"></ellipse>
+            <circle class="pupil" cx="80" cy="108" r="6.5"></circle>
+          </g>
+          <g class="eye eye-r">
+            <ellipse class="white" cx="140" cy="106" rx="14" ry="16"></ellipse>
+            <circle class="pupil" cx="140" cy="108" r="6.5"></circle>
+          </g>
+
+          <!-- nose -->
+          <path class="nose" d="M110 114 Q106 126 113 128"></path>
+
+          <!-- cheeks -->
+          <ellipse class="cheek" cx="66" cy="132" rx="12" ry="7"></ellipse>
+          <ellipse class="cheek" cx="154" cy="132" rx="12" ry="7"></ellipse>
+
+          <!-- mouth -->
+          <path id="mouthLine" class="mouth" d="M92 140 Q110 150 128 140"></path>
+          <ellipse id="mouthOpen" class="mouth-open" cx="110" cy="144" rx="16" ry="0"></ellipse>
+        </svg>
+
+        <div class="tag">
+          <span class="tag-name" id="nameTag">Silly Man</span>
+          <span class="tag-mood" id="mood">just vibing</span>
+        </div>
+      </section>
+
+      <section class="chat">
+        <div id="log" class="log" role="log" aria-live="polite" aria-label="Conversation with Silly Man"></div>
+
+        <form id="form" class="composer" autocomplete="off">
+          <label class="sr-only" for="input">Say something to Silly Man</label>
+          <input id="input" type="text" maxlength="400" placeholder="Say something…" autocomplete="off">
+          <button id="send" type="submit">Say it</button>
+        </form>
+
+        <div class="chips" id="chips" aria-label="Conversation starters"></div>
+      </section>
+    </main>
+  </div>
+
+  <script src="./app.js"></script>
+</body>
+</html>

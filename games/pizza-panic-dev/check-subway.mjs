@@ -1,0 +1,149 @@
+// Subway train level checks (cheese, t_fc41e51cbeb94db3): level table + order,
+// collision band, beats (types/events/stations/gate), boss registry, signal
+// hazards (jump the low box, duck the gantry), station braking, art files, a
+// Node bot that walks the level end to end, and a headless browser run with
+// screenshots and 0 console errors.
+// usage: node check-subway.mjs [url] [shotdir]
+import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+import http from 'node:http'; import fs from 'node:fs'; import path from 'node:path';
+globalThis.window = globalThis.window || { addEventListener() {}, dispatchEvent() { return true; } };
+const G = new URL('../pizza-panic/', import.meta.url);
+const L = await import(new URL('logic.js', G).href);
+const K = await import(new URL('collision.js', G).href);
+const E = await import(new URL('events.js', G).href);
+const C = await import(new URL('combat.js', G).href);
+const B = await import(new URL('boss.js', G).href);
+const D = await import(new URL('subway-data.js', G).href);
+const SW = await import(new URL('subway.js', G).href);
+let pass = 0, total = 0;
+const t = async (name, fn) => { total++; try { await fn(); pass++; console.log('PASS', name); } catch (e) { console.log('FAIL', name, '-', e.message.split('\n')[0]); } };
+const LV = D.SUBWAY_LEVEL_INDEX;
+const fresh = () => { const s = L.createState(); s.hpMode = true; C.createCombat(s); E.ensureEvents(s); s.wave = L.LEVEL_ORDER.indexOf(LV); L.spawnWave(s); return s; };
+
+await t('subway is level 5, right after skate in the play order', () => {
+  assert.equal(LV, 5); assert.equal(K.LEVELS[LV].id, 'subway'); assert.equal(K.LEVELS[4].id, 'tower', 'tower keeps index 4');
+  const o = L.LEVEL_ORDER; assert.equal(o[o.indexOf(3) + 1], LV); assert.ok(o.indexOf(LV) < o.length - 1, 'subway is not the last level');
+  assert.equal(L.levelForWave(o.indexOf(LV) + 1), LV);
+});
+await t('collision: one floor band 372-452 across the 5442px train; the roof run is the middle tile', () => {
+  const lv = K.LEVELS[LV]; assert.equal(lv.width, K.WORLD_W);
+  for (let x = 20; x < lv.width; x += 97) { assert.ok(K.isWalkable(LV, x, 412, 14), 'walkable at ' + x); assert.ok(!K.isWalkable(LV, x, 360, 0) && !K.isWalkable(LV, x, 460, 0), 'band edges at ' + x); }
+  assert.deepEqual([D.SUBWAY_ROOF.x0, D.SUBWAY_ROOF.x1], [1814, 3628]);
+  for (let i = 0; i < 50; i++) { const y = lv.spawnY(Math.random); assert.ok(y > 372 && y < 452); }
+});
+await t('spawnWave starts the subway as a walking level at the left end', () => {
+  const s = fresh(); assert.equal(s.level, LV); assert.ok(s.walkLevel && s.holdWave); assert.equal(s.player.x, 80); assert.ok(K.isWalkable(LV, s.player.x, s.player.y, s.player.r));
+});
+await t('beats: >= 6 segmented types incl. skater + drone, breach/hazardRun/flyover/ambushBoth/gate, two station boardings, gate last with camera', () => {
+  const plan = E.levelPlan(LV), seg = new Set(E.SEGMENTED_KINDS);
+  const kinds = plan.kinds.filter(k => seg.has(k)); assert.ok(kinds.length >= 6 && kinds.includes('skater') && kinds.includes('drone'), kinds.join(','));
+  for (const ev of ['breach', 'hazardRun', 'flyover', 'ambushBoth', 'gate', 'bark']) assert.ok(plan.events.includes(ev), ev);
+  assert.equal(plan.beats.filter(b => b.station != null).length, 2);
+  for (const b of plan.beats.filter(b => b.station != null)) { const st = D.SUBWAY_STATIONS[b.station]; assert.ok(b.x >= st.x0 - 160 && b.spawnAt <= st.x1 + 200, 'boarding inside station ' + st.name); }
+  const last = plan.beats.reduce((a, b) => (b.x > a.x ? b : a)); assert.equal(last.event, 'gate'); assert.ok(last.cam != null && last.boss);
+  assert.ok(last.x < K.LEVELS[LV].width - 420, 'gate before the level-end line');
+  const hz = plan.beats.find(b => b.event === 'hazardRun'); assert.ok(hz.x >= D.SUBWAY_ROOF.x0 && hz.x < D.SUBWAY_ROOF.x1 && !hz.kinds.length, 'hazard run is a non-fighting roof beat');
+});
+await t('boss registry: level 5 is THE CONDUCTOR (distinct from every other boss) and adopts the gate spawn', () => {
+  const d = B.bossFor(LV); assert.equal(d.name, 'THE CONDUCTOR');
+  for (const lv of L.LEVEL_ORDER) if (lv !== LV) assert.notEqual(B.bossFor(lv).id, d.id);
+  const s = fresh(); const bosses = B.createBosses ? B.createBosses({}) : null;
+  const gate = E.levelPlan(LV).beats.find(b => b.event === 'gate');
+  s.player.x = gate.x + 5; s.ninjas.length = 0; for (const b of E.levelPlan(LV).beats) if (b !== gate) s.events.fired[b.level + ':' + b.x] = true;
+  E.stepEvents(s, 1 / 60); const n = s.ninjas.find(n => n.levelBoss); assert.ok(n && n.name === 'THE CONDUCTOR', 'gate spawned the conductor');
+  assert.notEqual(n.kind, 'blocker', 'boss body is not a guard-everything blocker');
+  if (bosses) { for (let i = 0; i < 30; i++) bosses.step(s, 1 / 60); assert.ok(n.scripted && n.rigKind === d.rig, 'boss.js adopted it'); }
+});
+// ---- hazards
+const hz = () => { const s = fresh(); s.ninjas.length = 0; s.player.x = 2300; s.cameraX = 2300 - 330; s.events.log.push({ level: LV, event: 'hazardRun' }); s.invuln = 0; return s; };
+await t('signal hazards spawn only on the roof run, after its beat, with a warning first', () => {
+  const sub = SW.createSubway({}); const s = hz(); sub.step(s, 0.01);
+  s.subway.next = 0; sub.step(s, 0.01); assert.equal(s.subway.hz.length, 1); assert.ok(s.subway.hz[0].warn > 0.5, 'warned');
+  const s2 = hz(); s2.player.x = 900; sub.step(s2, 0.01); s2.subway.next = 0; for (let i = 0; i < 10; i++) sub.step(s2, 0.05); assert.equal(s2.subway.hz.length, 0, 'none in the carriage / station');
+  const s3 = hz(); s3.events.log.length = 0; sub.step(s3, 0.01); s3.subway.next = 0; for (let i = 0; i < 10; i++) sub.step(s3, 0.05); assert.equal(s3.subway.hz.length, 0, 'none before the beat');
+});
+const runHazard = (kind, setup) => {
+  const sub = SW.createSubway({ forceDuck: kind === 'duck' }); const s = hz(); sub.step(s, 0.01);
+  s.subway.next = 99; s.subway.hz.push({ kind: kind === 'duck' ? 'high' : kind, x: s.player.x + 300, warn: 0, passed: false });
+  const hp0 = s.hp; for (let i = 0; i < 120; i++) { if (setup) setup(s); sub.step(s, 1 / 60); if (s.subway.hz[0] && s.subway.hz[0].passed) break; }
+  return { hp0, hp: s.hp, s };
+};
+await t('low signal box hits a grounded hero (10 HP + knockdown) but a jump clears it', () => {
+  const a = runHazard('low'); assert.equal(a.hp0 - a.hp, D.SUBWAY_TRAIN_SPEED ? 10 : 0); assert.ok(a.s.playerDown > 0, 'knocked down');
+  const b = runHazard('low', s => { s.player.z = 40; }); assert.equal(b.hp, b.hp0, 'jumped');
+});
+await t('high gantry hits a standing (or jumping) hero; holding Down to duck clears it and shows the crouch pose', () => {
+  const a = runHazard('high'); assert.equal(a.hp0 - a.hp, 10);
+  const j = runHazard('high', s => { s.player.z = 40; }); assert.equal(j.hp0 - j.hp, 10, 'jumping into a gantry hurts');
+  const d = runHazard('duck'); assert.equal(d.hp, d.hp0, 'ducked'); assert.ok(d.s.player.duck);
+  const rig = { playerPose: () => 'idle' }; SW.createSubway({ rig }); assert.equal(rig.playerPose({ level: LV, player: { duck: true } }), 'crouch'); assert.equal(rig.playerPose({ level: 0, player: { duck: true } }), 'idle');
+});
+await t('the train brakes to a stop at stations (doors open, station art) and pulls out after', () => {
+  const sub = SW.createSubway({}); const s = fresh(); s.ninjas.length = 0;
+  s.player.x = 300; for (let i = 0; i < 60; i++) sub.step(s, 1 / 30); assert.ok(s.subway.speed > 600, 'cruising');
+  s.player.x = 1100; for (let i = 0; i < 120; i++) sub.step(s, 1 / 30); assert.equal(s.subway.speed, 0); assert.equal(s.subway.station, 0); assert.ok(s.subway.stop > 0.9);
+  s.player.x = 1700; for (let i = 0; i < 150; i++) sub.step(s, 1 / 30); assert.ok(s.subway.speed > 500 && s.subway.stop === 0, 'pulled out');
+  const s2 = fresh(); s2.level = 0; sub.step(s2, 0.1); assert.ok(!s2.subway || s2.level !== LV, 'other levels untouched');
+});
+await t('art: tunnel + station far layers (1814x510), three carriage tiles with see-through windows, signal sprites', () => {
+  const dir = new URL('assets/levels/subway/', G).pathname;
+  for (const f of ['far_tunnel.jpg', 'far_station.jpg', 'mid_car_a.png', 'mid_roof.png', 'mid_car_b.png', 'signal_low.png', 'signal_high.png', 'fg_pillar.png']) assert.ok(fs.existsSync(dir + f) && fs.statSync(dir + f).size > 300, f);
+  const png = f => { const b = fs.readFileSync(dir + f); return { w: b.readUInt32BE(16), h: b.readUInt32BE(20), colorType: b[25] }; };
+  for (const f of ['mid_car_a.png', 'mid_roof.png', 'mid_car_b.png']) { const p = png(f); assert.deepEqual([p.w, p.h], [1814, 510], f + ' 1814x510'); assert.ok(p.colorType === 6 || (p.colorType === 3 && fs.readFileSync(dir + f).includes('tRNS')), f + ' has alpha (RGBA or quantized palette+tRNS)'); }
+});
+await t('a bot walks the subway end to end (fights auto-won) and the next wave is the next level in LEVEL_ORDER', () => {
+  const s = fresh(); let i = 0;
+  for (; i < 60 * 400 && s.level === LV; i++) {
+    for (const n of s.ninjas) if (!n.dead && Math.abs(n.x - s.player.x) < 400) { n.hp = 0; n.dead = true; }
+    C.combatWalk(s, 1, 0, 1 / 60); C.combatStep(s, 1 / 60); E.stepEvents(s, 1 / 60); L.update(s, 1 / 60); s.invuln = 1;
+  }
+  const lg = s.events ? s.events.log : [];
+  assert.equal(s.level, L.LEVEL_ORDER[L.LEVEL_ORDER.indexOf(LV) + 1], `reached the next level (level ${s.level}, x ${Math.round(s.player.x)}, ${Math.round(i / 60)}s)`);
+});
+
+// ---- browser
+const require = createRequire('/home/box/orbitdesktop/package.json');
+const { chromium } = require('playwright-core');
+let url = process.argv[2], server; const shots = process.argv[3] || '/workspace/pizza-qa/';
+if (!url || url === '-') {
+  const types = { '.js': 'text/javascript', '.html': 'text/html', '.png': 'image/png', '.jpg': 'image/jpeg', '.json': 'application/json', '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.wav': 'audio/wav' };
+  server = http.createServer((q, r) => { if (q.url.startsWith('/favicon')) { r.writeHead(204); return r.end(); } const f = path.join(G.pathname, decodeURIComponent(q.url.split('?')[0]).replace(/\/$/, '/index.html')); if (!f.startsWith(G.pathname) || !fs.existsSync(f)) { r.writeHead(404); return r.end(); } r.writeHead(200, { 'content-type': types[path.extname(f)] || 'application/octet-stream' }); fs.createReadStream(f).pipe(r); });
+  await new Promise(res => server.listen(0, '127.0.0.1', res)); url = `http://127.0.0.1:${server.address().port}/`;
+}
+const browser = await chromium.launch({ executablePath: '/usr/bin/google-chrome', args: ['--autoplay-policy=no-user-gesture-required'] });
+const page = await browser.newPage({ viewport: { width: 740, height: 510 } });
+const errors = []; page.on('pageerror', e => errors.push(String(e))); page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
+page.on('response', r => { if (r.status() >= 400) errors.push('HTTP ' + r.status() + ' ' + r.url()); });
+const w = ms => page.waitForTimeout(ms), ev = f => page.evaluate(f);
+const snap = async f => { const d = await ev(() => { try { return document.getElementById('c').toDataURL('image/png'); } catch (_) { return null; } }); if (d) fs.writeFileSync(f, Buffer.from(d.split(',')[1], 'base64')); else await page.screenshot({ path: f }); }; // canvas pixels (headless screenshots can lag a frame); the sandboxed served app taints the canvas, so fall back
+await t('browser: the subway level draws its own art, stations stop the train, the roof run throws hazards, 0 console errors', async () => {
+  await page.goto(url); await w(1000); await page.keyboard.press('Enter');
+  for (let i = 0; i < 80 && !(await ev(() => window.__ppSelect.active)); i++) { await page.keyboard.press('Enter'); await w(100); }
+  await page.keyboard.press('Enter'); await w(300);
+  for (let i = 0; i < 12 && await ev(() => window.__ppCinema.isActive()); i++) { await page.keyboard.press('Escape'); await w(150); }
+  await page.evaluate(async () => { const L = await import('./logic.js'); const s = window.__ppState; s.ninjas.length = 0; s.wave = L.LEVEL_ORDER.indexOf(5); L.spawnWave(s); });
+  await w(800); if (await ev(() => window.__ppScreens.mode())) { await w(1300); await page.keyboard.press('Enter'); await w(200); }
+  await ev(() => { if (window.__ppShop && window.__ppShop.active()) window.__ppShop.leave(); }); await w(100); // DOLAN's between-stage shop follows the card
+  assert.equal(await ev(() => window.__ppState.level), 5);
+  const imgs = await ev(() => Object.keys(window.__ppSubway.images).sort().join(','));
+  assert.equal(imgs, 'carA,carB,high,low,pillar,roof,seg0,seg2,station,tunnel', 'all subway art loaded (seg0/seg2: baba_booey non-repeating carriage segments)');
+  const d0 = await ev(() => window.__ppSubway.stats().drew); await w(300); assert.ok(await ev(() => window.__ppSubway.stats().drew) > d0, 'subway.back drawing');
+  await snap(shots + 'subway-1-carriage.png');
+  // station: put the hero in CANAL ST with the beats before it done
+  await page.evaluate(() => { const s = window.__ppState; s.ninjas.length = 0; s.player.x = 1000; s.events.fired['5:300'] = true; s.events.lock = null; });
+  await w(2600); assert.equal(await ev(() => window.__ppState.subway.speed), 0, 'stopped at the station');
+  await snap(shots + 'subway-2-station.png');
+  // roof hazard run: every beat before the roof done, lock cleared, invulnerable
+  await page.evaluate(() => { const s = window.__ppState; for (const x of [300, 950, 1560, 1900]) s.events.fired['5:' + x] = true; s.events.log.push({ level: 5, event: 'hazardRun' }); s.ninjas.length = 0; s.events.lock = null; s.events.camX = null; s.events.camT = 0; s.player.x = 2200; s.subway.speed = 640; s.subway.next = 0; });
+  await page.keyboard.down('ArrowRight'); await w(1600); console.log('   roof dbg', JSON.stringify(await ev(() => { const s = window.__ppState; return { x: Math.round(s.player.x), cam: Math.round(s.cameraX), ecam: s.events.camX, lock: s.events.lock, mode: window.__ppScreens.mode(), paused: window.__ppPause.isOpen(), cine: window.__ppCinema.isActive(), down: s.playerDown, sub: { sp: s.subway.speed, hz: s.subway.hz.length } }; }))); for (let k = 0; k < 20; k++) { await w(80); if (await ev(() => { const s = window.__ppState; return !(s.invuln > 0) && s.subway.hz.some(h => h.warn <= 0 && h.x > s.cameraX && h.x < s.cameraX + 740); })) break; } await snap(shots + 'subway-3-roof-hazard.png'); await w(1200); await page.keyboard.up('ArrowRight');
+  const st = await ev(() => window.__ppSubway.stats()); assert.ok(st.hazards >= 1, 'hazards spawned: ' + JSON.stringify(st));
+  await page.evaluate(() => { const s = window.__ppState; s.subway.speed = 1; s.subway.next = 99; s.ninjas.length = 0; s.subway.hz = [{ kind: 'low', x: s.cameraX + 250, warn: 0, passed: true }, { kind: 'high', x: s.cameraX + 470, warn: 0, passed: true }]; });
+  await w(150); await snap(shots + 'subway-4-signals.png');
+  await page.keyboard.down('ArrowDown'); await w(200); const duck = await ev(() => window.__ppState.player.duck); await page.keyboard.up('ArrowDown');
+  assert.ok(duck, 'holding Down ducks on the subway');
+  assert.deepEqual(errors, []);
+});
+await browser.close(); if (server) server.close();
+console.log(`${pass}/${total} subway checks passed`);
+process.exit(pass === total ? 0 : 1);

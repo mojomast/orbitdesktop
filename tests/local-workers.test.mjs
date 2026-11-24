@@ -25,7 +25,9 @@ async function startLauncher(max = 1, dataDir = mkdtempSync(path.join(os.tmpdir(
 function adapter(url, extra = {}) {
   const runtimeDir = extra.runtimeDir || mkdtempSync(path.join(os.tmpdir(), 'lw-orbit-'));
   const board = extra.board || fakeBoard();
-  return { lw: createLocalWorkers({ runtimeDir, launcherUrl: url, launcherToken: TOKEN, board, maxConcurrent: extra.max || 1, timeoutMs: extra.timeoutMs || 3000 }), board, runtimeDir };
+  return { lw: createLocalWorkers({ runtimeDir, launcherUrl: url, launcherToken: TOKEN, board, maxConcurrent: extra.max || 1, timeoutMs: extra.timeoutMs || 3000,
+    // legacy tests expect an immediate flip; hysteresis/retry have their own tests below
+    retries: extra.retries ?? 0, disconnectFails: extra.disconnectFails ?? 1, disconnectMs: extra.disconnectMs ?? 0, now: extra.now, retryBaseMs: 20 }), board, runtimeDir };
 }
 const done = (lw, id) => until(async () => { await lw.tick(); return ['succeeded', 'failed', 'cancelled', 'not_started'].includes(lw.get(id).state); });
 const brief = (o = {}) => ({ objective: 'write out.txt', deliverables: ['out.txt'], acceptance: ['file exists'], ...o });
@@ -131,10 +133,11 @@ test('failure: start error and 429 backoff are visible and terminal', async () =
 
 // ---- fake launcher for transport edge cases
 function fakeLauncher() {
-  const s = { attempts: {}, posts: 0, dropNextPostResponse: false, down: false };
+  const s = { attempts: {}, posts: 0, dropNextPostResponse: false, down: false, dropGets: 0, gets: 0, events: [] };
   const srv = http.createServer((req, res) => {
     let body = ''; req.on('data', (c) => (body += c)); req.on('end', () => {
       if (s.down) return req.socket.destroy();
+      if (req.method === 'GET') { s.gets++; if (s.dropGets > 0) { s.dropGets--; return req.socket.destroy(); } }
       const send = (c, o) => { res.writeHead(c, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(o)); };
       const m = req.url.match(/^\/v1\/attempts\/?([^/?]*)\/?([a-z]*)/);
       if (req.method === 'POST' && req.url === '/v1/attempts') {
@@ -144,7 +147,7 @@ function fakeLauncher() {
         return send(201, s.attempts[b.attempt_id]);
       }
       const a = m && s.attempts[m[1]]; if (!a) return send(404, { error: 'unknown' });
-      if (m[2] === 'events') return send(200, { events: [], cursor: 0, state: a.state });
+      if (m[2] === 'events') { const ev = s.events.splice(0); return send(200, { events: ev, cursor: ev.length, state: a.state }); }
       if (m[2] === 'result') return send(409, {});
       if (m[2] === 'cancel') { a.state = 'cancel_requested'; return send(202, a); }
       return send(200, a);
@@ -267,4 +270,58 @@ test('control-plane hooks: dispatch.json pause holds new dispatch, running conti
     const noauth = await fetch(L.url + '/v1/config', { method: 'POST', body: '{"max_concurrent":2}' });
     assert.equal(noauth.status, 401);
   } finally { L.stop(); }
+});
+
+// ---- plan B (LAUNCHER-DROPOUTS.md): retry, hysteresis, rx stamp, keep-alive
+test('GET transport errors are retried; a single blip never surfaces', async () => {
+  const F = await fakeLauncher();
+  try {
+    const { lw } = adapter(F.url, { retries: 2, disconnectFails: 3, disconnectMs: 45000 });
+    const a = await lw.create({ taskId: 'r', group: 'g', brief: brief() });
+    F.s.dropGets = 2; await lw.poll(a.attempt_id);
+    assert.equal(lw.get(a.attempt_id).state, 'running'); assert.equal(lw.get(a.attempt_id).fail_streak, 0);
+    assert.ok(lw.get(a.attempt_id).last_ok_at); assert.equal(F.s.posts, 1);
+  } finally { F.close(); }
+});
+
+test('hysteresis: disconnected only after 3 failures spanning 45 s, and it recovers', async () => {
+  const F = await fakeLauncher();
+  let t = 1_000_000; const now = () => t;
+  try {
+    const { lw } = adapter(F.url, { timeoutMs: 500, disconnectFails: 3, disconnectMs: 45000, now });
+    const a = await lw.create({ taskId: 'h', group: 'g', brief: brief() });
+    F.s.down = true;
+    await lw.poll(a.attempt_id); t += 20000; await lw.poll(a.attempt_id); t += 20000; await lw.poll(a.attempt_id);
+    assert.equal(lw.get(a.attempt_id).state, 'running', '3 fails in 40 s is still a blip');
+    assert.equal(lw.get(a.attempt_id).fail_streak, 3);
+    t += 6000; await lw.poll(a.attempt_id);
+    assert.equal(lw.get(a.attempt_id).state, 'disconnected');
+    F.s.down = false; await lw.tick();
+    assert.equal(lw.get(a.attempt_id).state, 'running'); assert.equal(lw.get(a.attempt_id).fail_streak, 0); assert.equal(F.s.posts, 1);
+  } finally { F.close(); }
+});
+
+test('received events get an rx stamp; worker ts is preserved', async () => {
+  const F = await fakeLauncher();
+  try {
+    const { lw } = adapter(F.url);
+    const a = await lw.create({ taskId: 'e', group: 'g', brief: brief() });
+    F.s.events.push({ kind: 'worker:text', text: 'hi' }, { kind: 'state', ts: '2026-01-01T00:00:00Z', state: 'running' });
+    await lw.poll(a.attempt_id);
+    const lines = readFileSync(lw.get(a.attempt_id).log_ref, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+    assert.equal(lines.length, 2); assert.ok(lines.every((e) => e.rx)); assert.equal(lines[1].ts, '2026-01-01T00:00:00Z');
+  } finally { F.close(); }
+});
+
+test('keep-alive client reuses one socket across calls', async () => {
+  const { keepAliveFetch } = await import('../server/local-workers.mjs');
+  const socks = new Set();
+  const srv = http.createServer((req, res) => { socks.add(req.socket); res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{"ok":true}'); });
+  srv.keepAliveTimeout = 5000;
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  try {
+    const f = keepAliveFetch({ connectTimeoutMs: 2000 });
+    for (let i = 0; i < 3; i++) { const r = await f(`http://127.0.0.1:${srv.address().port}/x`); assert.equal(r.status, 200); assert.deepEqual(await r.json(), { ok: true }); }
+    assert.equal(socks.size, 1);
+  } finally { srv.closeAllConnections?.(); srv.close(); }
 });

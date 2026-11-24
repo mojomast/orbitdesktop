@@ -1,0 +1,12 @@
+import { W, H, createState, spawnWave, movePlayer, collides, update, loseLife } from '../pizza-panic/logic.js';
+const ok = (c, m) => { if (!c) { console.log('FAIL ' + m); process.exit(1); } console.log('PASS ' + m); };
+let s = createState(); const n1 = spawnWave(s, () => .5); const n2 = spawnWave(s, () => .5);
+ok(n1 > 0 && n2 > n1 && s.wave === 2, `wave spawn (wave1=${n1}, wave2=${n2})`);
+const p = createState().player; movePlayer(p, -1, -1, 100); const a = p.x === p.r && p.y === p.r; movePlayer(p, 1, 1, 100);
+ok(a && p.x === W - p.r && p.y === H - p.r, 'movement clamp');
+s = createState(); s.wave = 1; s.pizzas.push({ x: 300, y: 200, r: 8, vx: 0 }); s.ninjas.push({ x: 305, y: 200, r: 14, vx: 0 }, { x: 600, y: 400, r: 14, vx: 0 });
+ok(collides(s.pizzas[0], s.ninjas[0]), 'pizza/ninja collision detect'); update(s, 0);
+ok(s.score === 100 && s.combo === 1 && s.bestCombo === 1 && s.ninjas.length === 1 && s.pizzas.length === 0, 'pizza/ninja hit scoring (score=100, combo=1)');
+s = createState(); s.ninjas.push({ x: s.player.x, y: s.player.y, r: 14, vx: 0 }); update(s, 0);
+ok(s.lives === 2, 'life loss on ninja contact');
+loseLife(s); loseLife(s); ok(s.over && s.lives === 0, 'game over at 0 lives');

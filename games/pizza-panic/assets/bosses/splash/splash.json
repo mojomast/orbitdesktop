@@ -1,0 +1,47 @@
+{
+ "enforcer": {
+  "w": 512,
+  "h": 334,
+  "cut": true
+ },
+ "bruiser": {
+  "w": 512,
+  "h": 363,
+  "cut": true
+ },
+ "rider": {
+  "w": 512,
+  "h": 397,
+  "cut": false
+ },
+ "skytalon": {
+  "w": 512,
+  "h": 319,
+  "cut": false
+ },
+ "shredclaw": {
+  "w": 512,
+  "h": 311,
+  "cut": true
+ },
+ "conductor": {
+  "w": 512,
+  "h": 313,
+  "cut": true
+ },
+ "hookclaw": {
+  "w": 512,
+  "h": 311,
+  "cut": true
+ },
+ "highscore": {
+  "w": 512,
+  "h": 384,
+  "cut": true
+ },
+ "mech": {
+  "w": 512,
+  "h": 359,
+  "cut": false
+ }
+}

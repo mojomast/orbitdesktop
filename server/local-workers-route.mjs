@@ -9,7 +9,7 @@ export function createLocalWorkersRoute({ runtimeRoot, port, env = process.env, 
   const node = env.ORBIT_LOCAL_WORKERS_NODE || 'brrrrrrrr';
   const lw = createLocalWorkers({
     runtimeDir: runtimeRoot, node,
-    launcherUrl: env.ORBIT_LOCAL_WORKERS_URL || 'http://100.120.158.68:47821',
+    launcherUrl: env.ORBIT_LOCAL_WORKERS_URL || 'http://<tailnet-ip>:47821',
     tokenFile: env.ORBIT_LOCAL_WORKERS_TOKEN_FILE || path.join(runtimeRoot, 'local-workers', `${node}.token`),
     board: collabBoardClient({ runtimeDir: runtimeRoot, port }),
     maxConcurrent: Number(env.ORBIT_LOCAL_WORKERS_MAX || 1), log,
@@ -39,8 +39,9 @@ export function createLocalWorkersRoute({ runtimeRoot, port, env = process.env, 
         case 'get': return send(200, view(lw.get(b.attempt_id)) || { error: 'unknown' });
         case 'cancel': return send(202, view(await lw.cancel(b.attempt_id)));
         case 'review': return send(200, view(await lw.review(b.attempt_id, { accepted: b.accepted, note: b.note, by: b.by })));
+        case 'archive': return send(200, lw.archive({ olderThanMs: b.older_than_ms ?? 86400000, target: b.target ?? 400, exclude: Array.isArray(b.exclude) ? b.exclude : [] }));
         case 'tick': await tick(); return send(200, { ok: true });
-        default: return send(400, { error: 'op must be create|list|get|cancel|review|tick' });
+        default: return send(400, { error: 'op must be create|list|get|cancel|review|tick|archive' });
       }
     } catch (e) { return send(e.status || 400, { error: e.message }); }
   }

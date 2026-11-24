@@ -1,0 +1,41 @@
+{
+  "fields": [
+    {
+      "key": "name",
+      "type": "string",
+      "title": "Character name",
+      "description": "What the little guy calls himself.",
+      "default": "Silly Man"
+    },
+    {
+      "key": "greeting",
+      "type": "string",
+      "title": "Greeting",
+      "description": "The first thing he says when the window opens.",
+      "default": "Oh hi! I'm Silly Man. Ask me anything — I probably won't know it, but I'll be very enthusiastic about it."
+    },
+    {
+      "key": "silliness",
+      "type": "number",
+      "title": "Silliness",
+      "description": "0 = mild, 3 = absolute chaos.",
+      "default": 1,
+      "min": 0,
+      "max": 3
+    },
+    {
+      "key": "accentColor",
+      "type": "string",
+      "title": "Accent colour",
+      "description": "Six-digit hex used for his hat and buttons.",
+      "default": "#ffb84d"
+    },
+    {
+      "key": "voice",
+      "type": "boolean",
+      "title": "Voice",
+      "description": "Read replies aloud with the browser's local speech engine.",
+      "default": false
+    }
+  ]
+}

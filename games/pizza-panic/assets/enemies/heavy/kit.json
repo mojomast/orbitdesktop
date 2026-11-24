@@ -1,0 +1,72 @@
+{
+ "head": {
+  "file": "heavy_head.png",
+  "w": 45,
+  "h": 61,
+  "px": 18,
+  "py": 55,
+  "parent": "torso",
+  "ax": 31,
+  "ay": 6
+ },
+ "torso": {
+  "file": "heavy_torso.png",
+  "w": 55,
+  "h": 68,
+  "px": 27,
+  "py": 34,
+  "parent": null,
+  "ax": 0,
+  "ay": 0
+ },
+ "uarm": {
+  "file": "heavy_uarm.png",
+  "w": 33,
+  "h": 69,
+  "px": 14,
+  "py": 8,
+  "parent": "torso",
+  "ax": 34,
+  "ay": 15
+ },
+ "farm": {
+  "file": "heavy_farm.png",
+  "w": 39,
+  "h": 50,
+  "px": 25,
+  "py": 6,
+  "parent": "uarm",
+  "ax": 18,
+  "ay": 60
+ },
+ "thigh": {
+  "file": "heavy_thigh.png",
+  "w": 33,
+  "h": 45,
+  "px": 15,
+  "py": 5,
+  "parent": "torso",
+  "ax": 22,
+  "ay": 60
+ },
+ "shin": {
+  "file": "heavy_shin.png",
+  "w": 38,
+  "h": 59,
+  "px": 17,
+  "py": 7,
+  "parent": "thigh",
+  "ax": 18,
+  "ay": 39
+ },
+ "weapon": {
+  "file": "heavy_weapon.png",
+  "w": 53,
+  "h": 55,
+  "px": 5,
+  "py": 30,
+  "parent": "farm",
+  "ax": 14,
+  "ay": 41
+ }
+}

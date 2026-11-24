@@ -1,0 +1,9 @@
+<!doctype html><html><head><meta charset="utf-8"><title>AGENT ARMEGEDDON: CLAWPOCALYPSE NOW</title>
+<style>html,body{margin:0;height:100%;background:#000;display:flex;align-items:center;justify-content:center;overflow:hidden;font-family:monospace}
+canvas{image-rendering:pixelated}
+#ppLoad{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#000;color:#63f7a0;font-weight:bold;z-index:10;transition:opacity .25s}
+#ppLoad.done{opacity:0;pointer-events:none}
+#ppLoad .box{min-width:280px;text-align:center}
+#ppLoad .bar{height:10px;background:#0b1410;border:2px solid #63f7a0;margin-top:14px}
+#ppLoad .fill{height:100%;width:0%;background:#63f7a0;transition:width .12s}</style>
+</head><body><canvas id="c" width="740" height="510"></canvas><div id="ppLoad"><div class="box"><div>Loading AGENT ARMEGEDDON...</div><div class="bar"><div id="ppFill" class="fill"></div></div></div></div><script type="module" src="./game.js"></script></body></html>
