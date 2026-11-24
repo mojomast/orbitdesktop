@@ -376,7 +376,7 @@ their gates are exercised in production; both are already process-shaped
 
 1. `server/host-api.mjs` + `server/host-recipes.mjs` (unreachable; test-only). Move any test fixtures that still want the API shape into the test file or drop them with the tests.
 2. `server/browser-copilot-route.mjs`, `server/run-traces-route.mjs` (unwired duplicates of `technologyOwnerRoute` paths; update the two test fixtures to the live seam).
-3. `server/checkpoints.mjs`, `server/workspace-store.mjs` (legacy stores). Precondition: re-verify the legacy export path once (`sqlite-workspace-store.exportLegacy`) and archive the legacy migration docs.
+3. `server/checkpoints.mjs` (deleted, Kyle t1650u), `server/workspace-store.mjs` (legacy stores). Precondition: re-verify the legacy export path once (`sqlite-workspace-store.exportLegacy`) and archive the legacy migration docs.
 4. `server/ssh-bootstrap.mjs` (test-only; hosts UI never sends it).
 5. `server/mobile-proxy.mjs` + `server/mobile-security.mjs` (personal bindings; already outside the portable bundle).
 6. Kitty DOOM (owner decision D-7): `server/kitty-doom.mjs`, the two `.py` helpers, `src/kitty-doom.ts/.css`, `verify-kitty-doom-live.mjs`, and the Start/menu entries in `src/host-surfaces.ts`/`desktop-icons.ts`.
@@ -415,7 +415,7 @@ PR. Nothing moves without a tick. (All 53 proposals are listed; the
 - D-2 `server/host-recipes.mjs` — approve retire / keep (with D-1)
 - D-3 `server/browser-copilot-route.mjs` — approve retire / keep
 - D-4 `server/run-traces-route.mjs` — approve retire / keep
-- D-5 `server/checkpoints.mjs` — approve retire / keep
+- D-5 `server/checkpoints.mjs` — retired (Kyle t1650u; deleted)
 - D-6 `server/workspace-store.mjs` — approve retire / keep (after export-parity re-verification)
 - D-7 `server/kitty-doom.mjs` + `server/kitty-graphics-demo.py` + `server/kitty-terminal-probe.py` (+ src/verify tail) — approve retire / keep
 - D-8 `server/mobile-proxy.mjs` + `server/mobile-security.mjs` — approve retire / keep
