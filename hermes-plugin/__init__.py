@@ -24,7 +24,7 @@ SCHEMA = {
     "name": "orbit_workspace",
     "description": (
         "Read or edit the Orbit workspace explicitly configured for this Hermes profile. "
-        "Use describe with catalog=true to discover the validated operation schemas and actual role bindings. "
+        "Use describe with catalog=true for the operation index, then catalog_operation for one validated schema. "
         "Read first; use actual IDs and revision. Preview before large edits. "
         "Apply/restore require base_revision; do not retry conflicts blindly. "
         "Restore requires the user's explicit rollback request and confirm=true. "
@@ -37,6 +37,7 @@ SCHEMA = {
             "action": {"type": "string", "enum": list(ACTIONS)},
             "project_id": {"type": "string"},
             "catalog": {"type": "boolean"},
+            "catalog_operation": {"type": "string", "minLength": 1, "maxLength": 128},
             "request": {"type": "object", "description": "Exact workspace request from the discovered catalog; omit workspace_id and actor. Keep op_id when recovering an unknown result."},
             "base_revision": {"type": "integer", "minimum": 0},
             "operations": {"type": "array", "items": {"type": "object"}, "minItems": 1, "maxItems": maxOperations},
@@ -175,9 +176,11 @@ def invoke(ctx, params):
     action = params["action"]
     allowed = {"action"}
     if action == "describe":
-        allowed |= {"project_id", "catalog"}
+        allowed |= {"project_id", "catalog", "catalog_operation"}
         if "catalog" in params and type(params["catalog"]) is not bool:
             raise ValueError("catalog must be boolean")
+        if "catalog_operation" in params and (not isinstance(params["catalog_operation"], str) or not 1 <= len(params["catalog_operation"]) <= 128):
+            raise ValueError("Invalid Orbit catalog_operation")
         if "project_id" in params and (not isinstance(params["project_id"], str) or not UUID.fullmatch(params["project_id"])):
             raise ValueError("Invalid project_id")
     if action in ("apply", "preview"):

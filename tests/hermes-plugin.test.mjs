@@ -44,7 +44,9 @@ ctx=Context(); module.register(ctx); print(ctx.handler(json.loads(sys.argv[4])))
   assert.equal(read.ok, true);
   const description=await call({action:'describe',catalog:true});
   assert.equal(description.ok,true);
-  assert.equal(description.result.catalog.operations.layout_panes.input.properties.action.const,'layout_panes');
+  assert.ok(description.result.catalog.operations.includes('layout_panes'));
+  const one=await call({action:'describe',catalog_operation:'layout_panes'});
+  assert.equal(one.result.catalog.operation.input.properties.action.const,'layout_panes');
   assert.equal(description.result.catalog.limits.maxOperations,32);
   assert.deepEqual(description.result.bindings,[],'unbound initial panes must not invent project roles');
   const revision = read.result.revision;
