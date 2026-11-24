@@ -44,6 +44,24 @@ jobs:
           python3 tests/plugin-publish.test.py
           python3 tests/test_orbit_bundle.py
 
+  secret-scan:
+    name: gitleaks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install gitleaks 8.21.2 (checksum-verified)
+        run: |
+          curl -sSfL -o gitleaks.tgz \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz
+          echo "5bc41815076e6ed6ef8fbecc9d9b75bcae31f39029ceb55da08086315316e3ba  gitleaks.tgz" | sha256sum -c -
+          tar -xzf gitleaks.tgz gitleaks
+      - name: Scan history (.gitleaksignore lists triaged false positives)
+        run: ./gitleaks detect --source . --redact --no-banner
+
   ci-gate:
     name: ci-gate
     # The main ruleset requires this one check. It passes only when every job
@@ -51,6 +69,7 @@ jobs:
     if: ${{ always() }}
     needs:
       - test
+      - secret-scan
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
