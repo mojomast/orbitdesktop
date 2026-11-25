@@ -389,6 +389,29 @@ export function project(snapshot, { now = Date.now() } = {}) {
       if (token(r.model) && token(r.provider)) meterRow(`model:${r.provider}:${r.model}`, `${r.provider} · ${r.model}`, r);
     }
     for (const r of list(s.usage.by_repo)) if (repoSlug(r.repo)) meterRow(`repo:${r.repo}`, r.repo, r);
+    const at = s.usage.collected_at;
+    const cost = value => value === null || value === undefined ? 'null (unknown)' : String(value);
+    const tokens = r => `requests: ${fmt(r?.requests)}; input/output/thinking/total tokens: ${fmt(r?.input)}/${fmt(r?.output)}/${fmt(r?.thinking)}/${fmt(r?.total)}`;
+    const patch = s.usage.tokens_per_verified_patch;
+    if (patch?.value !== null && patch?.value !== undefined) {
+      record('usage', 'tokens-per-verified-patch', 'build', 'Tokens per verified patch', 'observed', 'usage', at,
+        `Headline: ${patch.value} tokens per verified patch; worker tokens: ${fmt(patch.numerator)}; distinct verified attempts: ${fmt(patch.denominator)}; scope: all time.`);
+    }
+    const roles = s.usage.by_role;
+    if (roles?.coordinator && roles?.worker) {
+      const coordinator = roles.coordinator, worker = roles.worker;
+      record('usage', 'roles', 'build', 'Coordinator vs worker usage', 'observed', 'usage', at,
+        `Coordinator (${coordinator.source}): ${tokens(coordinator)}; cost USD: ${cost(coordinator.cost_usd)}. Worker (${worker.source}): ${tokens(worker)}; cost USD: ${cost(worker.cost_usd)}.`);
+    }
+    const bee = s.usage.bee;
+    for (const r of bee?.by_model ?? []) {
+      if (token(r?.model) && token(r?.provider)) record('usage', `bee-model:${r.provider}:${r.model}`, 'build', `${r.provider} · ${r.model}`, 'observed', 'usage', at,
+        `Worker ${tokens(r)}; cost USD: ${cost(r.cost_usd)}; priced/unknown-cost records: ${fmt(r.priced)}/${fmt(r.unknown_cost)}.`);
+    }
+    for (const r of bee?.by_repo ?? []) {
+      if (repoSlug(r?.repo)) record('usage', `bee:repo:${r.repo}`, 'build', r.repo, 'observed', 'usage', at,
+        `Worker attempts: ${fmt(r.attempts)}; ${tokens(r)}.`);
+    }
   }
   });
 
