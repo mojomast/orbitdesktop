@@ -5,7 +5,7 @@ import {createStore} from '../apps/rizzstack-hive/store.js';
 
 // Publish with scripts/plugin_publish.py. This exact registry-verified entry is
 // the ONLY app eligible for the operator's per-document read grant.
-const HIVE_ENTRY = '/apps/rizzstack-hive-b530ed6ef2aa90ca162212bb/index.html';
+const HIVE_ENTRY = '/apps/rizzstack-hive-ad9e96271a8aa98dbfc635e0/index.html';
 const PERIOD = 30_000;
 const turns=reportTurns(PERIOD);
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$/;

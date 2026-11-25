@@ -114,6 +114,48 @@ function repoSlug(s) {
   const parts = s.split('/');
   return parts.length === 2 && parts.every(token) ? s : null;
 }
+// Bee usage is additive: a snapshot that predates those fields, or a partial
+// rollout, simply has no section. Never throw from this optional reader — a
+// shape it cannot consume hides the section instead of degrading `usage`.
+// Producer prose is published contract text, but it is still untrusted input:
+// scrub URL/credential-shaped runs and cap it before display.
+const displayText = s => typeof s === 'string'
+  ? s.replace(/[a-z][a-z0-9+.-]*:\/\/\S+/gi, '[redacted]')
+      .replace(/\b(?:gh[pousr]_|github_pat_|glpat-|AKIA|ASIA|eyJ)[\w.-]{8,}/g, '[redacted]')
+      .trim().slice(0, 300)
+  : '';
+const whole = n => Number.isInteger(n) && n >= 0 ? n : null;
+const roleUsage = (role, bucket) => ({
+  role,
+  status: typeof bucket?.status === 'string' ? bucket.status : 'unknown',
+  requests: whole(bucket?.requests), input: whole(bucket?.input), output: whole(bucket?.output),
+  thinking: whole(bucket?.thinking), total: whole(bucket?.total),
+});
+function beeTokens(usage, stale) {
+  const roles = usage?.by_role, bee = usage?.bee, patch = usage?.tokens_per_verified_patch;
+  if (!roles || !bee || !patch || typeof roles !== 'object' || typeof bee !== 'object' || typeof patch !== 'object') return null;
+  if (typeof patch.basis !== 'string' || typeof patch.denominator_rule !== 'string' || !Array.isArray(bee.by_model)) return null;
+  if (!roles.coordinator || !roles.worker) return null;
+  const value = typeof patch.value === 'number' && Number.isFinite(patch.value) && patch.value >= 0 ? patch.value : null;
+  const split = [roleUsage('coordinator', roles.coordinator), roleUsage('worker', roles.worker), roleUsage('unknown', roles.unknown)]
+    .filter(r => r.role !== 'unknown' || (r.requests ?? 0) > 0 || (r.total ?? 0) > 0);
+  const models = bee.by_model.filter(m => token(m?.model) && token(m?.provider)).slice(0, 24).map(m => ({
+    model: token(m.model), provider: token(m.provider), requests: whole(m.requests),
+    input: whole(m.input), output: whole(m.output), thinking: whole(m.thinking), total: whole(m.total),
+  }));
+  return {
+    stale: stale === true,
+    status: typeof bee.status === 'string' ? bee.status : 'unknown',
+    attempts: whole(bee.attempts),
+    patch: {
+      value, numerator: whole(patch.numerator), denominator: whole(patch.denominator),
+      basis: displayText(patch.basis), rule: displayText(patch.denominator_rule),
+      scope: displayText(patch.scope), cost: displayText(patch.cost?.note),
+    },
+    split, models,
+  };
+}
+
 function sectionStates(s, now, broken) {
   return SECTIONS.map(id => {
     if (broken.has(id)) return { id, state: 'unavailable', at: null };
@@ -486,5 +528,8 @@ export function project(snapshot, { now = Date.now() } = {}) {
   const health = observations.every(x => x.state === 'unavailable') ? 'unavailable'
     : observations.every(x => x.state !== 'live') ? 'stale'
     : observations.some(x => x.state !== 'live') || s.health?.scheduler?.liveness !== 'live' ? 'degraded' : 'live';
-  return { generatedAt: s.generated_at, health: fleetConflict ? 'degraded' : health, sections, metrics, attempts: attempts.slice(0, 100), stations, attention: shown, records: bounded };
+  return { generatedAt: s.generated_at, health: fleetConflict ? 'degraded' : health, sections, metrics, attempts: attempts.slice(0, 100), stations, attention: shown, records: bounded,
+    // Additive and optional: null when the snapshot has no bee usage fields, and
+    // never shown from a section this projection itself could not read.
+    beeTokens: readable('usage') ? beeTokens(s.usage, !live('usage')) : null };
 }

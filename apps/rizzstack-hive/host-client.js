@@ -8,10 +8,27 @@ const object=v=>!!v && typeof v==='object' && !Array.isArray(v);
 const keys=(v,names)=>object(v) && Object.keys(v).length===names.length && names.every(k=>Object.hasOwn(v,k));
 // Transport envelope/shape checks. Full snapshot validation, redaction, scope
 // membership and the byte ceiling remain on the trusted side of this port.
+const VIEW_KEYS=['generatedAt','health','metrics','sections','attempts','stations','attention','records'];
+const count=n=>n===null||(Number.isSafeInteger(n)&&n>=0);
+const text=(s,max)=>typeof s==='string'&&s.length<=max;
+const usageRow=r=>keys(r,['role','status','requests','input','output','thinking','total'])&&text(r.role,16)&&text(r.status,32)&&
+  ['requests','input','output','thinking','total'].every(k=>count(r[k]));
+const modelRow=m=>keys(m,['model','provider','requests','input','output','thinking','total'])&&text(m.model,128)&&text(m.provider,64)&&
+  ['requests','input','output','thinking','total'].every(k=>count(m[k]));
+// Optional additive bee block. Absent on older producers; null when the
+// snapshot carries none of its fields.
+const beeShape=b=>b===null||(keys(b,['stale','status','attempts','patch','split','models'])&&
+  typeof b.stale==='boolean'&&text(b.status,32)&&count(b.attempts)&&
+  keys(b.patch,['value','numerator','denominator','basis','rule','scope','cost'])&&
+  (b.patch.value===null||(Number.isFinite(b.patch.value)&&b.patch.value>=0))&&count(b.patch.numerator)&&count(b.patch.denominator)&&
+  ['basis','rule','scope','cost'].every(k=>text(b.patch[k],300))&&
+  Array.isArray(b.split)&&b.split.length<=4&&b.split.every(usageRow)&&
+  Array.isArray(b.models)&&b.models.length<=24&&b.models.every(modelRow));
 function viewShape(v) {
-  return keys(v,['generatedAt','health','metrics','sections','attempts','stations','attention','records']) &&
+  return (keys(v,VIEW_KEYS)||keys(v,[...VIEW_KEYS,'beeTokens'])) &&
     typeof v.generatedAt==='string' && Number.isFinite(Date.parse(v.generatedAt)) && ['live','stale','degraded','unavailable'].includes(v.health) &&
     keys(v.metrics,['active','available','capacity','eligible','cost','costCoverage']) &&
+    (!Object.hasOwn(v,'beeTokens')||beeShape(v.beeTokens)) &&
     [['sections',10,10],['stations',8,8],['attempts',0,100],['attention',0,50],['records',0,200]].every(([key,min,max])=>
       Array.isArray(v[key]) && v[key].length>=min && v[key].length<=max && v[key].every(r=>object(r) && typeof r.id==='string'));
 }

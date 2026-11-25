@@ -87,6 +87,67 @@ export function createWorkbench({ root, shift, onChoose, onRelease }) {
     });
     tabs.append(tab); panels.append(panel); return { d, tab, panel };
   });
+  // Bee usage is an optional section of the Usage desk: a snapshot without the
+  // additive fields hides it entirely rather than showing zeros or blanking.
+  const bee = el('section', 'hw-bee'), beeSignal = el('span', 'hw-basis');
+  bee.id = 'bee-tokens'; bee.hidden = true; bee.setAttribute('aria-labelledby', 'bee-tokens-title');
+  const beeTitle = el('h3', '', 'Bee tokens'); beeTitle.id = 'bee-tokens-title';
+  const beeHead = heading('Usage / bee receipts', beeTitle);
+  beeHead.append(beeSignal);
+  bee.append(beeHead);
+  switches[desks.findIndex(d => d.scope === 'usage')].panel.append(bee);
+  const num = n => n == null ? 'unknown' : n.toLocaleString('en-US');
+  const ratio = n => n == null ? 'unknown' : n.toLocaleString('en-US', { maximumFractionDigits: 1 });
+  function beeRow(cells, title) {
+    const li = el('li', 'hw-bee-row');
+    for (const [tone, content] of cells) li.append(el('span', tone, content));
+    if (title) li.title = title;
+    return li;
+  }
+  function beeTable(caption, columns, rows, empty) {
+    const table = el('section', 'hw-bee-table'), line = el('div', 'hw-bee-cols');
+    table.append(el('h4', '', caption));
+    for (const name of columns) line.append(el('span', '', name));
+    table.append(line);
+    if (!rows.length) table.append(el('p', 'hw-bee-empty', empty));
+    else { const list = el('ul', 'hw-list'); list.append(...rows); table.append(list); }
+    return table;
+  }
+  function buildBee(data) {
+    const patch = data.patch, stale = data.stale ? ' Last observed.' : '';
+    const figure = el('div', 'hw-bee-figure');
+    figure.append(el('small', '', 'Tokens per verified patch'), el('strong', '', ratio(patch.value)),
+      el('span', '', `${num(patch.numerator)} tokens ÷ ${num(patch.denominator)} verified patches · ${patch.scope || 'scope unknown'}`));
+    figure.title = [patch.rule && `Denominator: ${patch.rule}`, patch.basis && `Basis: ${patch.basis}`,
+      patch.cost && `Cost: ${patch.cost}`, stale.trim()].filter(Boolean).join(' · ');
+    const note = el('p', 'hw-bee-note', data.status === 'empty'
+      ? 'No worker receipts in this observation.' + stale
+      : `Receipts: ${data.status}; attempts: ${num(data.attempts)}.${stale} Basis: ${patch.basis || 'not published'}.`);
+    const top = el('div', 'hw-bee-top'); top.append(figure, note);
+    const split = beeTable('Coordinator vs worker', ['Role', 'Requests', 'Tokens', 'Status'],
+      data.split.map(r => beeRow([['hw-bee-name', titleCase(r.role)], ['', `${num(r.requests)} requests`],
+        ['hw-bee-num', `${num(r.total)} tokens`], ['hw-bee-state', r.status]])),
+      'No role buckets reported.');
+    const models = beeTable('Bee tokens by model', ['Model', 'Requests', 'Tokens', 'Input · output · thinking'],
+      data.models.map(m => beeRow([['hw-bee-name', `${m.model}`], ['', `${num(m.requests)} requests`],
+        ['hw-bee-num', `${num(m.total)} tokens`],
+        ['hw-bee-detail', `${num(m.input)} in · ${num(m.output)} out · ${num(m.thinking)} thinking`],
+      ], `${m.provider} · ${num(m.total)} tokens`)),
+      'No bee model receipts in this observation.');
+    const tables = el('div', 'hw-bee-tables'); tables.append(split, models);
+    return [top, tables];
+  }
+  let beeSig = '';
+  function drawBee() {
+    const data = desk.scope === 'usage' ? view?.beeTokens ?? null : null;
+    if (!data) { bee.hidden = true; beeSig = ''; return; }
+    bee.hidden = false;
+    const sig = JSON.stringify([data, desk.scope]);
+    if (sig === beeSig) return;
+    beeSig = sig;
+    beeSignal.textContent = data.stale ? 'Last observed' : 'Reported usage';
+    bee.replaceChildren(beeHead, ...buildBee(data));
+  }
   const filters = el('div', 'hw-filters'), search = el('input'), scope = select('scope', scopes);
   search.id = 'search'; search.type = 'search'; search.maxLength = QUERY; search.placeholder = 'ID, task, route or source…';
   const sort = select('hw-sort', { recent: 'Last observed', name: 'Name · A to Z', state: 'State · A to Z' });
@@ -213,7 +274,7 @@ export function createWorkbench({ root, shift, onChoose, onRelease }) {
     write(empty, query && scoped.length ? 'No matching records. Try a different ID, route or source.' : 'No public records in this scope. Check source coverage.');
     prev.disabled = page === 0; next.disabled = start + PAGE >= rows.length; foot.hidden = rows.length <= PAGE;
     release.hidden = desk.scope !== 'evidence' || typeof onRelease !== 'function';
-    reconcile(list, portion, false); drawQueue();
+    reconcile(list, portion, false); drawBee(); drawQueue();
   }
   function turn(delta) {
     page += delta; drawRegister();
