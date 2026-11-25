@@ -293,3 +293,121 @@ test('bounded selection retains pending gate and its exact evidence under crowde
   s.pipeline.jobs.reverse(); s.backlog.features.reverse(); s.decisions.requests.reverse(); s.ci.prs.reverse();
   assert.deepEqual(replay(s), v);
 });
+
+// Post-BU2 additive usage fields. The pane may read ONLY these; a snapshot
+// without them must project exactly as it did before they existed.
+const roleBucket = (source, status, requests, input, output, thinking, total) => ({
+  status, source, requests, input, output, thinking, total,
+  cost_usd: null, priced: null, unknown_cost: requests, cache_read: 0,
+});
+const beeFields = () => ({
+  by_role: {
+    coordinator: roleBucket('bee.usage/v1', 'known', 5, 2065, 615, 0, 2670),
+    worker: roleBucket('rizzstack-rails/usage.observed', 'known', 3, 500, 180, 40, 720),
+    unknown: roleBucket('bee.usage/v1', 'unknown', null, null, null, null, null),
+  },
+  bee: {
+    status: 'known', source: 'rizzstack-rails/usage.observed', attempts: 3, requests: 3,
+    input: 500, output: 180, thinking: 40, total: 720, cost_usd: null, priced: 0, unknown_cost: 3,
+    by_model: [
+      { model: 'deepseek-v4.1-flash', provider: 'go', requests: 2, input: 460, output: 160, thinking: 40, total: 660, cost_usd: null, priced: 0, unknown_cost: 2 },
+      { model: 'worker-mystery', provider: 'go', requests: 1, input: 40, output: 20, thinking: 0, total: 60, cost_usd: null, priced: 0, unknown_cost: 1 },
+    ],
+    by_repo: [{ repo: 'mojomast/workflow', attempts: 2, requests: 2, input: 300, output: 100, thinking: 20, total: 420 }],
+  },
+  tokens_per_verified_patch: {
+    value: 360, numerator: 720, denominator: 2, unit: 'tokens',
+    denominator_rule: 'attempt ids whose verify-results/<attempt_id>.json has ok true and sha matching ^[0-9a-f]{40}$',
+    basis: 'worker usage.observed receipts: input+output+thinking tokens', scope: 'all time',
+    cost: { status: 'partial', note: 'launcher receipts carry no cost' },
+  },
+});
+const beeSnapshot = () => { const s = snapshot(); Object.assign(s.usage, beeFields()); return s; };
+const withoutBee = v => { const { beeTokens, ...rest } = v; return rest; };
+
+test('bee tokens project only from the additive usage fields, with denominator and basis', () => {
+  const s = beeSnapshot(), v = project(s, clock);
+  assert.deepEqual(v.beeTokens, {
+    stale: false, status: 'known', attempts: 3,
+    patch: {
+      value: 360, numerator: 720, denominator: 2,
+      basis: 'worker usage.observed receipts: input+output+thinking tokens',
+      rule: 'attempt ids whose verify-results/<attempt_id>.json has ok true and sha matching ^[0-9a-f]{40}$',
+      scope: 'all time', cost: 'launcher receipts carry no cost',
+    },
+    split: [
+      { role: 'coordinator', status: 'known', requests: 5, input: 2065, output: 615, thinking: 0, total: 2670 },
+      { role: 'worker', status: 'known', requests: 3, input: 500, output: 180, thinking: 40, total: 720 },
+    ],
+    models: [
+      { model: 'deepseek-v4.1-flash', provider: 'go', requests: 2, input: 460, output: 160, thinking: 40, total: 660 },
+      { model: 'worker-mystery', provider: 'go', requests: 1, input: 40, output: 20, thinking: 0, total: 60 },
+    ],
+  });
+  assert.equal(v.sections.find(x => x.id === 'usage').state, 'live');
+  assert.deepEqual(s.degraded, []);
+});
+
+test('a snapshot without the additive fields projects exactly as before and hides the section', () => {
+  const bare = project(snapshot(), clock);
+  assert.equal(bare.beeTokens, null);
+  assert.deepEqual(withoutBee(project(beeSnapshot(), clock)), withoutBee(bare));
+  // Null is the schema-approved partial-rollout shape for both blocks.
+  const off = beeSnapshot(); off.usage.bee = null;
+  const tpp = beeSnapshot(); tpp.usage.tokens_per_verified_patch = null;
+  for (const v of [project(off, clock), project(tpp, clock)]) assert.equal(v.beeTokens, null);
+});
+
+test('a partial bee rollout hides the section without degrading usage', () => {
+  const base = withoutBee(project(snapshot(), clock));
+  for (const key of ['by_role', 'bee', 'tokens_per_verified_patch']) {
+    const s = beeSnapshot(); delete s.usage[key];
+    const v = project(s, clock);
+    assert.equal(v.beeTokens, null, key);
+    assert.deepEqual(withoutBee(v), base, key);
+    assert.equal(v.sections.find(x => x.id === 'usage').state, 'live', key);
+    assert.deepEqual(s.degraded, [], key);
+  }
+});
+
+test('a measured-empty bee block stays visible with its published zero and denominator', () => {
+  const s = beeSnapshot();
+  Object.assign(s.usage.bee, { status: 'empty', attempts: 0, requests: 0, input: 0, output: 0, thinking: 0, total: 0, by_model: [] });
+  Object.assign(s.usage.by_role.worker, { status: 'empty', requests: 0, input: 0, output: 0, thinking: 0, total: 0 });
+  Object.assign(s.usage.tokens_per_verified_patch, { value: 0, numerator: 0, denominator: 353 });
+  const b = project(s, clock).beeTokens;
+  assert.equal(b.status, 'empty');
+  assert.deepEqual(b.models, []);
+  assert.equal(b.patch.value, 0);
+  assert.equal(b.patch.denominator, 353);
+  assert.equal(b.split.find(r => r.role === 'worker').requests, 0);
+  assert.equal(b.split.find(r => r.role === 'unknown'), undefined);
+});
+
+test('producer prose in the additive fields is scrubbed before it can reach the pane', () => {
+  const s = beeSnapshot();
+  s.usage.tokens_per_verified_patch.basis = 'see https://private.invalid/x for the ledger';
+  s.usage.tokens_per_verified_patch.denominator_rule = 'token ghp_' + 'a'.repeat(30) + ' checked';
+  const b = project(s, clock).beeTokens;
+  assert.ok(!JSON.stringify(b).includes('private.invalid'));
+  assert.match(b.patch.basis, /\[redacted\]/);
+  assert.match(b.patch.rule, /\[redacted\]/);
+});
+
+test('a usage section this projection could not read never publishes the bee block', () => {
+  const s = beeSnapshot();
+  // An unknown key fails the frozen schema for the usage section only.
+  s.usage.unreviewed = true;
+  const v = project(s, clock);
+  assert.equal(v.sections.find(x => x.id === 'usage').state, 'unavailable');
+  assert.equal(v.beeTokens, null);
+  assert.ok(!v.records.some(r => r.kind === 'usage'));
+  // A stale but readable section keeps its numbers, labelled for display.
+  const stale = beeSnapshot();
+  stale.generated_at = '2026-11-16T15:00:00Z';
+  const late = { now: Date.parse('2026-11-17T15:00:00Z') };
+  const sv = project(stale, late);
+  assert.equal(sv.sections.find(x => x.id === 'usage').state, 'stale');
+  assert.equal(sv.beeTokens.stale, true);
+  assert.equal(sv.beeTokens.patch.value, 360);
+});

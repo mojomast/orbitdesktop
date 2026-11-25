@@ -99,6 +99,47 @@
 .hw-queue .sheet-head > h2 { font: normal 21px/1.2 Georgia, serif; }
 .hw-queue h3 { margin: 5px 0; font-size: 15px; }
 .hw-queue p { margin: 6px 0; color: var(--hw-dim); font-size: 13px; line-height: 1.45; }
+/* Optional bee-metrics summary; removed whenever the snapshot lacks the fields. */
+.hw-bee { border-bottom: 2px solid var(--hw-line); background: var(--ground, #10161d); }
+.hw-bee .hw-head { padding-block: 13px 7px; align-items: baseline; }
+.hw-bee h3 { margin: 4px 0 0; font: normal 21px/1.2 Georgia, serif; letter-spacing: -.02em; }
+.hw-bee-top {
+  display: flex; flex-wrap: wrap; align-items: end; gap: 6px 26px;
+  padding: 2px var(--hw-inset) 11px;
+}
+.hw-bee-figure { display: grid; gap: 2px; min-width: 15ch; }
+.hw-bee-figure small {
+  color: var(--hw-dim); font: 10px/1.4 var(--hw-mono); letter-spacing: .08em; text-transform: uppercase;
+}
+.hw-bee-figure strong {
+  color: var(--hw-brass); font: 650 30px/1.05 Georgia, serif; font-variant-numeric: tabular-nums;
+}
+.hw-bee-figure span, .hw-bee-note { color: var(--hw-dim); font: 11px/1.45 var(--hw-mono); }
+.hw-bee-note { margin: 0; max-width: 62ch; }
+.hw-bee-tables { display: grid; gap: 11px; padding: 0 var(--hw-inset) 13px; }
+.hw-bee-table h4 {
+  margin: 0 0 3px; color: var(--hw-dim);
+  font: 600 10px/1.4 var(--hw-mono); letter-spacing: .08em; text-transform: uppercase;
+}
+.hw-bee-cols, .hw-bee-row {
+  display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(84px, .7fr) minmax(88px, .8fr) minmax(0, 1.4fr);
+  align-items: baseline; gap: 3px 14px;
+}
+.hw-bee-cols {
+  padding-block: 4px; color: var(--hw-dim); border-bottom: 1px solid var(--hw-line);
+  font: 10px/1.4 var(--hw-mono); letter-spacing: .06em; text-transform: uppercase;
+}
+.hw-bee-row {
+  padding-block: 6px; border-bottom: 1px solid var(--hw-line);
+  font: 13px/1.35 system-ui, sans-serif; overflow-wrap: anywhere;
+}
+.hw-bee-row:last-child { border-bottom: 0; }
+.hw-bee-name { color: var(--hw-ink); font-weight: 620; }
+.hw-bee-num, .hw-bee-detail { color: var(--hw-dim); font: 12px/1.4 var(--hw-mono); font-variant-numeric: tabular-nums; }
+.hw-bee-state { color: var(--hw-brass); font: 10px/1.4 var(--hw-mono); letter-spacing: .06em; text-transform: uppercase; }
+.hw-bee-cols > :nth-child(3), .hw-bee-row > :nth-child(3) { text-align: right; }
+.hw-bee-cols > :last-child { text-align: right; }
+.hw-bee-empty { margin: 5px 0 0; color: var(--hw-dim); font: 12px/1.45 var(--hw-mono); }
 @container (max-width: 620px) {
   .hw-head { padding-block: 10px; }
   .hw-tabs { gap: 0 9px; }
