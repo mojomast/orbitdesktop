@@ -42,7 +42,9 @@ export function createWorkspaceService({ token, port, devOrigins, reply: sendRep
       for await (const chunk of req) { size += Buffer.byteLength(chunk); if (size > workspaceLimits.maxRequestBytes) return reply(res, 413, { error: 'Workspace request too large', category: 'REQUEST_TOO_LARGE' }); chunks.push(Buffer.from(chunk)); }
       raw = new TextDecoder('utf-8',{fatal:true}).decode(Buffer.concat(chunks));
       body = JSON.parse(raw);
-      validateWorkspaceRequest(body);
+      const validationBody=body?.action==='describe'&&Object.hasOwn(body,'catalog_operation')
+        ?Object.fromEntries(Object.entries(body).filter(([key])=>key!=='catalog_operation')):body;
+      validateWorkspaceRequest(validationBody);
       // Recovery policy is owner-only and cannot be set through workspace control.
       if(body.action==='recovery_policy'&&!recovery)return reply(res,403,{error:'Action unavailable on this route'});
       if(['layout_preview','layout_apply'].includes(body.action)&&(control||recovery))return reply(res,403,{error:'Action unavailable on this route'});
@@ -157,9 +159,9 @@ export function createWorkspaceService({ token, port, devOrigins, reply: sendRep
   }
   function context(id) {
     const parts = contextParts(id);
-    // Operator block first, then the full guide. Hermes still receives both,
-    // with no truncation and no disk-only substitution.
-    return `${parts.operator}Orbit workspace operating instructions:\n${parts.guide}\n`;
+    // Operator block first, then a pointer to the on-disk guide. Callers that
+    // need the full text can use context.parts(id).guide instead.
+    return `${parts.operator}Orbit workspace operating instructions:\nRead ${parts.guidePath} from disk for the full workspace operator guide before changing the workspace. That guide is not inlined in this prompt; it covers workspace_control.py, plugin_publish.py, plugin_install, plugin_update, browser_applied, base_revision and tmux sessions.\n`;
   }
   context.parts = contextParts;
   async function serveApp(req, res, pathname) {

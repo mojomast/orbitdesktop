@@ -81,8 +81,8 @@ export function createRailsProxy({token,port,devOrigins=[],upstreamPort,readToke
       backend=http.request({hostname:'127.0.0.1',port:backendPort,path:'/v1/'+route+url.search,method:'GET',agent:false,
         headers:{Authorization:'Bearer '+reader,Accept:stream?'text/event-stream':'*/*',...(last?{'Last-Event-ID':last}:{})}});
       // Reopen long streams through both authorization boundaries periodically.
-      timer=setTimeout(()=>{backend.destroy();fail(res,'source_unavailable');},stream?300_000:10_000);timer.unref();
-      backend.setTimeout(stream?35_000:8_000,()=>backend.destroy());
+      timer=setTimeout(()=>{backend.destroy();fail(res,'source_unavailable');},stream?300_000:30_000);timer.unref();
+      backend.setTimeout(35_000,()=>backend.destroy());
       backend.on('error',()=>fail(res,'source_unavailable'));
       backend.on('response',async upstream=>{
         try {
