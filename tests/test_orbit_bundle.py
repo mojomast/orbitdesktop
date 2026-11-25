@@ -11,6 +11,18 @@ import tarfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
+
+def _ensure_git_index():
+    index = Path(subprocess.check_output(
+        ['git', 'rev-parse', '--git-path', 'index'], cwd=ROOT, text=True
+    ).strip())
+    if not index.is_absolute():
+        index = ROOT / index
+    if not index.exists():
+        subprocess.run(['git', 'add', '--all', '--', '.'], cwd=ROOT, check=True)
+
+_ensure_git_index()
+
 spec = importlib.util.spec_from_file_location('orbit_launcher', ROOT / 'hermes-plugin/orbit.py')
 launcher = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(launcher)
