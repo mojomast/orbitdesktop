@@ -29,6 +29,7 @@ token, password or secret value. Keys are stored separately, by reference (see
 | `providers` | no | Provider definitions. Each contains only a key *reference*. |
 | `roles` | no | Which provider and model each part of Orbit uses. |
 | `router` | no | Optional token-router settings. Defaults to disabled. |
+| `observability` | no | `{ "repos": ["owner/name", …] }`: GitHub repositories whose commits, PRs and CI are tracked. Empty by default, at most 50, de-duplicated case-insensitively. Edit in Settings → Repos to watch. The GitHub token is **not** stored here; it lives in `runtime/github/token` (0600). See [ONBOARDING-GITHUB.md](ONBOARDING-GITHUB.md). |
 | `providerMode` | no | Compatibility summary: `direct` when the router is off, `router` when it is on. `router.enabled` is authoritative; Orbit rewrites this field on save. |
 | `appliedAt` | no | ISO timestamp of the last review/apply action. |
 | `installState` | no | Per-component `pending`, `installed`, `failed` or `skipped`. |
