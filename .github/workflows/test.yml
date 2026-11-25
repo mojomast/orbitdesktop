@@ -62,6 +62,29 @@ jobs:
       - name: Scan history (.gitleaksignore lists triaged false positives)
         run: ./gitleaks detect --source . --redact --no-banner
 
+  legacy-launcher-guard:
+    name: legacy-launcher-guard
+    # pc-launcher/launcher.py and pc-launcher/scripts/*.ps1 are frozen
+    # (pc-launcher/DEPRECATED.md): a PR changing them needs the
+    # legacy-launcher-ok label. Labels are read live, so label and re-run.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Guard tests
+        run: python3 -m unittest discover -s tests -p test_legacy_launcher_guard.py -v
+      - name: Frozen legacy launcher needs the legacy-launcher-ok label
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/legacy_launcher_guard.py
+
   ci-gate:
     name: ci-gate
     # The main ruleset requires this one check. It passes only when every job
@@ -70,6 +93,7 @@ jobs:
     needs:
       - test
       - secret-scan
+      - legacy-launcher-guard
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:

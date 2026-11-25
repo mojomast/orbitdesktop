@@ -1,5 +1,11 @@
 # Local workers (Cua + OpenCode on Kyle's PC)
 
+> **DEPRECATED launcher.** `pc-launcher/launcher.py` is frozen at 0.1.9. The maintained
+> worker host is **hyvv** (`hyvv/launcher.py`, [mojomast/hyvv](https://github.com/mojomast/hyvv));
+> install and run it from there. This page still describes the legacy launcher,
+> which remains only as Orbit's test double and the usage-ingest home
+> (see [pc-launcher/DEPRECATED.md](../pc-launcher/DEPRECATED.md)).
+
 Orbit (box) coordinates; OpenCode workers execute in Cua sandboxes on **brrrrrrrr** (Windows 11, Docker Desktop, runc).
 The OpenCode Go key lives only on the PC. Orbit holds a per-launcher API token only.
 
