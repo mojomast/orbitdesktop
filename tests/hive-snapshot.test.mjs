@@ -32,6 +32,23 @@ function snapshot() {
   };
 }
 const station = (v, id) => v.stations.find(s => s.id === id);
+
+test('DEPLOY-METRIC open PRs and four-surface deploy debt validate additively', () => {
+  const s = snapshot();
+  s.bottlenecks.deploy_debt = {
+    status: 'known', debt: 3, open_prs: 24,
+    surfaces: [
+      { surface: 'plugin', merged: '1'.repeat(40), deployed: '1'.repeat(40), verdict: 'parity' },
+      { surface: 'collector', merged: '2'.repeat(12), deployed: '3'.repeat(12), verdict: 'drift' },
+      { surface: 'obs_app', merged: '4'.repeat(12), deployed: '5'.repeat(12), verdict: 'drift' },
+      { surface: 'hyvv', merged: '6'.repeat(40), deployed: '7'.repeat(40), verdict: 'drift' },
+    ],
+  };
+  s.bottlenecks.open_prs = 24;
+  assert.equal(validate(s), true, JSON.stringify(validate.errors));
+  assert.equal(validate(snapshot()), true, JSON.stringify(validate.errors));
+});
+
 const usageRole = (source, values = {}) => ({ status: 'known', source, requests: null, input: null, output: null, thinking: null, total: null,
   cost_usd: null, priced: null, unknown_cost: null, cache_read: null, ...values });
 const emptyUsageRole = source => usageRole(source, { status: 'empty', requests: 0, input: 0, output: 0, thinking: 0, total: 0,
