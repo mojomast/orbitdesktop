@@ -1,4 +1,4 @@
-// Orbit-side adapter for local workers running on Kyle's PC (pc-launcher/).
+// Orbit-side adapter for local workers (worker host: hyvv/launcher.py; pc-launcher/ is the frozen legacy launcher and test double).
 // Holds only the per-launcher scoped API token. Never sees the provider key or a
 // Cua/spacesd host token. Board updates use the existing collab-board API
 // server-side (the board key stays on this host).

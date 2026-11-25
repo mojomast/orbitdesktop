@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { project } from '../apps/rizzstack-hive/snapshot-adapter.js';
+import validate from '../apps/rizzstack-hive/validate-snapshot.js';
 import { fixtures, fixtureTime } from '../apps/rizzstack-hive/fixtures.js';
 
 // Synthetic snapshot/1 observations, not a deployed collector or owner receipt.
@@ -31,6 +32,53 @@ function snapshot() {
   };
 }
 const station = (v, id) => v.stations.find(s => s.id === id);
+
+test('DEPLOY-METRIC open PRs and four-surface deploy debt validate additively', () => {
+  const s = snapshot();
+  s.bottlenecks.deploy_debt = {
+    status: 'known', debt: 3, open_prs: 24,
+    surfaces: [
+      { surface: 'plugin', merged: '1'.repeat(40), deployed: '1'.repeat(40), verdict: 'parity' },
+      { surface: 'collector', merged: '2'.repeat(12), deployed: '3'.repeat(12), verdict: 'drift' },
+      { surface: 'obs_app', merged: '4'.repeat(12), deployed: '5'.repeat(12), verdict: 'drift' },
+      { surface: 'hyvv', merged: '6'.repeat(40), deployed: '7'.repeat(40), verdict: 'drift' },
+    ],
+  };
+  s.bottlenecks.open_prs = 24;
+  assert.equal(validate(s), true, JSON.stringify(validate.errors));
+  assert.equal(validate(snapshot()), true, JSON.stringify(validate.errors));
+});
+
+const usageRole = (source, values = {}) => ({ status: 'known', source, requests: null, input: null, output: null, thinking: null, total: null,
+  cost_usd: null, priced: null, unknown_cost: null, cache_read: null, ...values });
+const emptyUsageRole = source => usageRole(source, { status: 'empty', requests: 0, input: 0, output: 0, thinking: 0, total: 0,
+  cost_usd: 0, priced: 0, unknown_cost: 0, cache_read: 0 });
+function addPostBU2Usage(s) {
+  const usageAt = '2026-11-17T14:59:30Z';
+  s.usage.collected_at = usageAt;
+  s.usage.by_role = {
+    coordinator: usageRole('bee.usage/v1', { requests: 2, input: 100, output: 50, total: 150, cost_usd: 0.25, priced: 2, unknown_cost: 0, cache_read: 5 }),
+    worker: usageRole('rizzstack-rails/usage.observed', { requests: 3, input: 30, output: 12, thinking: 1, total: 43, priced: 0, unknown_cost: 3 }),
+    unknown: emptyUsageRole('bee.usage/v1'),
+  };
+  s.usage.bee = {
+    status: 'known', source: 'rizzstack-rails/usage.observed', attempts: 3, requests: 3,
+    input: 30, output: 12, thinking: 1, total: 43, cost_usd: null, priced: 0, unknown_cost: 3,
+    by_model: [
+      { model: 'model-a', provider: 'provider-a', requests: 2, input: 20, output: 8, thinking: 1, total: 29, cost_usd: null, priced: 0, unknown_cost: 2 },
+      { model: 'model-b', provider: 'provider-b', requests: 1, input: 10, output: 4, thinking: 0, total: 14, cost_usd: 0, priced: 1, unknown_cost: 0 },
+    ],
+    by_repo: [
+      { repo: 'example/factory', attempts: 2, requests: 2, input: 20, output: 8, thinking: 1, total: 29 },
+      { repo: 'another/repo', attempts: 1, requests: 1, input: 10, output: 4, thinking: 0, total: 14 },
+      { repo: 'unknown', attempts: 0, requests: 0, input: 0, output: 0, thinking: 0, total: 0 },
+    ],
+  };
+  s.usage.tokens_per_verified_patch = { value: 21.5, numerator: 43, denominator: 2, unit: 'tokens',
+    denominator_rule: 'distinct verified attempts', basis: 'worker usage.observed receipts', scope: 'all time',
+    cost: { status: 'partial', note: 'worker cost_usd is null' } };
+  return usageAt;
+}
 
 test('maps real selectors and keeps distinct evidence scopes and public identities', () => {
   const s = snapshot();
@@ -159,6 +207,73 @@ test('a section timestamp on an old row and a contradicted fleet tally cannot re
 
 const replay = (s = fixtures.dense) => project(s, {now: fixtureTime});
 const byId = (rows, id) => rows.find(r => r.id === id);
+
+test('post-BU2 usage validates and projects fail-soft worker rows with source times and unknown costs', () => {
+  const s = snapshot(), usageAt = addPostBU2Usage(s);
+  assert.equal(validate(s), true, JSON.stringify(validate.errors));
+  const v = project(s, clock);
+  const ids = ['usage:roles', 'usage:tokens-per-verified-patch', 'usage:bee-model:provider-a:model-a',
+    'usage:bee-model:provider-b:model-b', 'usage:bee:repo:example/factory', 'usage:bee:repo:another/repo'];
+  assert.deepEqual(v.records.filter(r => ids.includes(r.id)).map(r => r.id).sort(), [...ids].sort());
+  for (const id of ids) assert.equal(byId(v.records, id).at, usageAt, id);
+  assert.equal(v.records.filter(r => r.id === 'usage:roles').length, 1);
+  assert.equal(byId(v.records, 'usage:bee:repo:unknown'), undefined);
+  const split = byId(v.records, 'usage:roles');
+  assert.match(split.title, /Coordinator vs worker/);
+  assert.match(split.detail, /Coordinator \(bee\.usage\/v1\)/);
+  assert.match(split.detail, /Worker \(rizzstack-rails\/usage\.observed\)/);
+  assert.match(split.detail, /Worker \(rizzstack-rails\/usage\.observed\): .*cost USD: null \(unknown\)\./);
+  const headline = byId(v.records, 'usage:tokens-per-verified-patch');
+  assert.match(headline.detail, /21\.5 tokens per verified patch/);
+  assert.match(headline.detail, /worker tokens: 43; distinct verified attempts: 2/);
+  assert.match(byId(v.records, 'usage:bee-model:provider-a:model-a').detail, /cost USD: null \(unknown\)/);
+  assert.match(byId(v.records, 'usage:bee-model:provider-b:model-b').detail, /cost USD: 0;/);
+  assert.match(byId(v.records, 'usage:bee:repo:example/factory').detail, /Worker attempts: 2; requests: 2/);
+});
+
+test('pre-BU2 and null optional usage extensions preserve the legacy projection without a null headline', () => {
+  const expected = project(snapshot(), clock);
+  assert.deepEqual(project(snapshot(), clock), expected);
+  const nullOptionals = snapshot();
+  nullOptionals.usage.bee = null;
+  nullOptionals.usage.tokens_per_verified_patch = null;
+  assert.equal(validate(nullOptionals), true, JSON.stringify(validate.errors));
+  assert.deepEqual(project(nullOptionals, clock), expected);
+  const nullHeadline = snapshot();
+  nullHeadline.usage.tokens_per_verified_patch = { value: null, numerator: null, denominator: 0, unit: 'tokens',
+    denominator_rule: 'distinct verified attempts', basis: 'worker usage.observed receipts', scope: 'all time',
+    cost: { status: 'partial', note: 'worker cost_usd is null' } };
+  assert.equal(validate(nullHeadline), true, JSON.stringify(validate.errors));
+  assert.deepEqual(project(nullHeadline, clock), expected);
+  const nullRoles = snapshot();
+  nullRoles.usage.by_role = { coordinator: usageRole('bee.usage/v1'), worker: usageRole('rizzstack-rails/usage.observed'), unknown: emptyUsageRole('bee.usage/v1') };
+  assert.equal(validate(nullRoles), true, JSON.stringify(validate.errors));
+  const actual = project(nullRoles, clock);
+  assert.match(byId(actual.records, 'usage:roles').detail, /cost USD: null \(unknown\)/);
+  assert.deepEqual(actual.records.filter(r => r.id !== 'usage:roles'), expected.records);
+  assert.deepEqual(actual.stations, expected.stations);
+  assert.deepEqual(actual.metrics, expected.metrics);
+});
+
+test('null or incomplete BU2 containers degrade only usage instead of throwing or blanking other evidence', () => {
+  const legacyRecords = project(snapshot(), clock).records.filter(r => r.kind !== 'usage');
+  for (const mutate of [
+    s => { s.usage.by_role = null; },
+    s => { s.usage.bee = { by_model: null, by_repo: null }; },
+    s => { addPostBU2Usage(s); delete s.usage.by_role.worker; },
+    s => { s.usage.tokens_per_verified_patch = { value: null }; },
+  ]) {
+    const s = snapshot();
+    mutate(s);
+    let v;
+    assert.doesNotThrow(() => { v = project(s, clock); });
+    assert.equal(v.sections.find(x => x.id === 'usage').state, 'unavailable');
+    assert.ok(!v.records.some(r => r.kind === 'usage'));
+    assert.deepEqual(v.records.filter(r => r.kind !== 'usage'), legacyRecords);
+    assert.deepEqual(v.stations.map(x => x.id), ['auth','dispatch','build','verify','review','integrate','deploy','receiver']);
+  }
+});
+
 test('verifier ticket opens the same stage and retains uncertainty about recovery',()=>{
   const v=replay(), signal=v.attention.find(r=>r.id==='section:verifier-failure');
   const evidence=byId(v.records,signal.detail);assert.equal(evidence.source,signal.source);assert.equal(evidence.stage,'verify');assert.match(evidence.detail,/Recovery status is unknown/);
@@ -323,7 +438,6 @@ const beeFields = () => ({
   },
 });
 const beeSnapshot = () => { const s = snapshot(); Object.assign(s.usage, beeFields()); return s; };
-const withoutBee = v => { const { beeTokens, ...rest } = v; return rest; };
 
 test('bee tokens project only from the additive usage fields, with denominator and basis', () => {
   const s = beeSnapshot(), v = project(s, clock);
@@ -348,25 +462,56 @@ test('bee tokens project only from the additive usage fields, with denominator a
   assert.deepEqual(s.degraded, []);
 });
 
-test('a snapshot without the additive fields projects exactly as before and hides the section', () => {
+// The flat usage records are the canonical evidence (#106); the bee block is a
+// derived view over the same three additive fields, never a second source of
+// truth. The owner approved this acceptance criterion for #105: the fields may
+// add records, and `beeTokens` must agree with the records that were kept.
+const usageIds = v => v.records.filter(r => r.kind === 'usage').map(r => r.id).sort();
+const usageRow = (v, id) => v.records.find(r => r.id === id);
+const roleLine = r => `requests: ${r.requests}; input/output/thinking/total tokens: ${r.input}/${r.output}/${r.thinking}/${r.total}`;
+const METER = ['usage:model:deepseek:flash', 'usage:totals'];
+const DERIVED = ['usage:bee-model:go:deepseek-v4.1-flash', 'usage:bee-model:go:worker-mystery',
+  'usage:bee:repo:mojomast/workflow', 'usage:roles', 'usage:tokens-per-verified-patch'];
+const usageSet = (...groups) => groups.flat().sort();
+
+test('a snapshot without the additive fields keeps the flat usage records and hides the derived section', () => {
   const bare = project(snapshot(), clock);
   assert.equal(bare.beeTokens, null);
-  assert.deepEqual(withoutBee(project(beeSnapshot(), clock)), withoutBee(bare));
-  // Null is the schema-approved partial-rollout shape for both blocks.
-  const off = beeSnapshot(); off.usage.bee = null;
-  const tpp = beeSnapshot(); tpp.usage.tokens_per_verified_patch = null;
-  for (const v of [project(off, clock), project(tpp, clock)]) assert.equal(v.beeTokens, null);
+  assert.deepEqual(usageIds(bare), METER);
+  // The fields add exactly the rows #106 defines, in projection order, and the
+  // meter rows already canonical without them are untouched.
+  const full = project(beeSnapshot(), clock);
+  assert.deepEqual(usageIds(full), usageSet(METER, DERIVED));
+  for (const id of usageIds(bare)) assert.ok(usageIds(full).includes(id), id);
+  // The derived block restates that record set: one row per bee-model record,
+  // and the patch/role figures the canonical details print.
+  assert.deepEqual(full.beeTokens.models.map(m => `usage:bee-model:${m.provider}:${m.model}`),
+    DERIVED.filter(id => id.startsWith('usage:bee-model:')));
+  assert.match(usageRow(full, 'usage:tokens-per-verified-patch').detail,
+    new RegExp(`Headline: ${full.beeTokens.patch.value} tokens per verified patch; worker tokens: ${full.beeTokens.patch.numerator}; distinct verified attempts: ${full.beeTokens.patch.denominator};`));
+  const roles = usageRow(full, 'usage:roles').detail;
+  for (const role of full.beeTokens.split) assert.ok(roles.includes(roleLine(role)), role.role);
+  for (const model of full.beeTokens.models)
+    assert.ok(usageRow(full, `usage:bee-model:${model.provider}:${model.model}`).detail.includes(`Worker ${roleLine(model)}`), model.model);
 });
 
-test('a partial bee rollout hides the section without degrading usage', () => {
-  const base = withoutBee(project(snapshot(), clock));
-  for (const key of ['by_role', 'bee', 'tokens_per_verified_patch']) {
-    const s = beeSnapshot(); delete s.usage[key];
+test('a partial bee rollout hides the derived section and keeps every canonical row it can still support', () => {
+  const workerRows = DERIVED.filter(id => id.startsWith('usage:bee'));
+  const cases = {
+    'by_role removed': [s => { delete s.usage.by_role; }, ['usage:roles']],
+    'bee removed': [s => { delete s.usage.bee; }, workerRows],
+    'tokens_per_verified_patch removed': [s => { delete s.usage.tokens_per_verified_patch; }, ['usage:tokens-per-verified-patch']],
+    // Null is the schema-approved partial-rollout shape for both blocks.
+    'bee null': [s => { s.usage.bee = null; }, workerRows],
+    'tokens_per_verified_patch null': [s => { s.usage.tokens_per_verified_patch = null; }, ['usage:tokens-per-verified-patch']],
+  };
+  for (const [name, [mutate, gone]] of Object.entries(cases)) {
+    const s = beeSnapshot(); mutate(s);
     const v = project(s, clock);
-    assert.equal(v.beeTokens, null, key);
-    assert.deepEqual(withoutBee(v), base, key);
-    assert.equal(v.sections.find(x => x.id === 'usage').state, 'live', key);
-    assert.deepEqual(s.degraded, [], key);
+    assert.equal(v.beeTokens, null, name);
+    assert.deepEqual(usageIds(v), usageSet(METER, DERIVED.filter(id => !gone.includes(id))), name);
+    assert.equal(v.sections.find(x => x.id === 'usage').state, 'live', name);
+    assert.deepEqual(s.degraded, [], name);
   }
 });
 
