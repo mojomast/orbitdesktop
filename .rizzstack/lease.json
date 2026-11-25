@@ -1,0 +1,14 @@
+{
+  "id": "orbitdesktop-lease-tamper-gate",
+  "lease_version": "rizzstack.lease/1",
+  "source_rev": "e42b276490f2aa152208e9ac5dc116e15bc49c43",
+  "scope": {
+    "assigned_files": [
+      ".github/scripts/lease_tamper.py",
+      ".github/workflows/test.yml",
+      ".rizzstack/lease.json"
+    ],
+    "test_files": [],
+    "prohibited": []
+  }
+}
