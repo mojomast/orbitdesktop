@@ -2,7 +2,11 @@ name: Orbit plugin tests
 env:
   ONNXRUNTIME_NODE_INSTALL: skip
 on:
+  # Only main gets its own push run. A feature-branch push would start a second
+  # identical matrix and post the same required checks on the same head SHA as
+  # the pull_request run, so whichever run finishes last would decide them.
   push:
+    branches: [main]
   pull_request:
     # `labeled`/`unlabeled` re-evaluate the owner-held hold: adding the label
     # fails the required ci-gate check, removing it lets the pull request pass.
