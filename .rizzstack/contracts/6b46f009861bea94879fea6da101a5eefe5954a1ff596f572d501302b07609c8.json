@@ -1,0 +1,149 @@
+{
+  "contract_version": "acdd/1",
+  "id": "wave-b-b5a",
+  "title": "Orbit sends rizzstack.brief/1 and reads rizzstack.attempt/1 states while keeping client_state",
+  "outcome": {
+    "summary": "orbitdesktop vendors the standalone JS validator B3 lands (validators/js/rizzstack-validators.mjs) and validates the brief it POSTs to the worker launcher's /v1/attempts. The ledger keeps its own client_state column; the launcher's answer is mapped through a rizzstack.attempt/1 state table so a launcher state the client does not know is recorded as unknown rather than silently coerced. No dispatch policy changes: a brief that fails validation is still dispatched, with the problems recorded on the attempt row.",
+    "observable_behavior": [
+      "A brief that validates against the vendored rizzstack.brief/1 schema is POSTed unchanged and the attempt row records brief_problems [].",
+      "A brief that fails validation is still POSTed and the attempt row records the problems from validateBrief().",
+      "The launcher's state is mapped through an explicit rizzstack.attempt/1 table; a state outside the table becomes 'unknown' with the raw state kept in remote_state, and client_state is never overwritten by the remote state.",
+      "The vendored validator is a verbatim copy of B3's file (sha256 pinned by the approved test) and the Orbit pane keeps reading client_state."
+    ]
+  },
+  "interfaces": [
+    {
+      "name": "server/local-workers.mjs create/dispatch",
+      "kind": "function",
+      "change": "modify",
+      "notes": "Validate brief with validateBrief before POST; record brief_problems on the attempt row."
+    },
+    {
+      "name": "server/local-workers.mjs applyRemote",
+      "kind": "function",
+      "change": "modify",
+      "notes": "Map remote.state through ATTEMPT_STATES; unknown -> client state 'unknown' with remote_state preserved; client_state never replaced."
+    },
+    {
+      "name": "validators/js/rizzstack-validators.mjs",
+      "kind": "module",
+      "change": "add",
+      "notes": "Verbatim copy of workflow mojomast/workflow#177 validators/js/rizzstack-validators.mjs. Read-only given."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-001",
+      "statement": "a schema-valid brief is POSTed unchanged and the attempt row records no brief problems",
+      "verification": "test",
+      "tests": [
+        "tests/local-workers-brief-v1.test.mjs::valid brief passes validation and is posted unchanged with no problems"
+      ]
+    },
+    {
+      "id": "AC-002",
+      "statement": "a brief that fails validation is still dispatched and the problems are recorded on the attempt row",
+      "verification": "test",
+      "tests": [
+        "tests/local-workers-brief-v1.test.mjs::an invalid brief is still dispatched with its problems recorded"
+      ]
+    },
+    {
+      "id": "AC-003",
+      "statement": "an unknown launcher state becomes unknown with remote_state preserved and client_state untouched",
+      "verification": "test",
+      "tests": [
+        "tests/local-workers-brief-v1.test.mjs::an unknown remote state never replaces client state and keeps the raw state"
+      ]
+    },
+    {
+      "id": "AC-004",
+      "statement": "the vendored validator is the frozen B3 copy (sha256) and exports validateBrief/validateAttempt",
+      "verification": "test",
+      "tests": [
+        "tests/local-workers-brief-v1.test.mjs::the vendored validator is the frozen copy and exports both validators"
+      ],
+      "regression": true
+    }
+  ],
+  "dependencies": [
+    "B3 (mojomast/workflow#177, merged 4d22c070 as 1ea44bea) supplies validators/js/rizzstack-validators.mjs; this RED is cut from orbitdesktop main ca540693 and adds only the approved test plus the verbatim validator",
+    "RED commit 16a3397cca7d7cf2939b9328f58e29e6a9d9e0ab is test-and-given only: tests/local-workers-brief-v1.test.mjs fails because no brief_problems are recorded and an unknown launcher state is still dropped; the validator is byte-identical to workflow 1ea44bea and read-only for the bee"
+  ],
+  "assumptions": [
+    "the dispatch POST body shape {attempt_id, brief, model} is unchanged; only brief content and state mapping change",
+    "client_state is the ledger column the Hive pane reads; it is not renamed",
+    "orbitdesktop's node test runner is `node --test`; the verify sandbox has no node_modules, so the node suite is CI-verified"
+  ],
+  "scope": {
+    "assigned_files": [
+      "server/local-workers.mjs"
+    ],
+    "test_files": [
+      "tests/local-workers-brief-v1.test.mjs"
+    ],
+    "read_only": [
+      "apps/rizzstack-hive/queue-data.js",
+      "validators/js/rizzstack-validators.mjs"
+    ],
+    "prohibited": [
+      "tests/local-workers-brief-v1.test.mjs",
+      "validators/js/rizzstack-validators.mjs",
+      "CHANGELOG.md",
+      ".github/workflows/**",
+      "package.json",
+      "package-lock.json"
+    ]
+  },
+  "source_rev": "16a3397cca7d7cf2939b9328f58e29e6a9d9e0ab",
+  "tdd": {
+    "applicable": false,
+    "reason": "node:test suite; bundlebees TDD collection is pytest-only. RED was recorded by hand on the RED commit and is described in the approval list.",
+    "test_first": true
+  },
+  "verification": {
+    "independent": true,
+    "commands": [
+      "node --test tests/local-workers-brief-v1.test.mjs"
+    ],
+    "integration": false
+  },
+  "evidence_required": [
+    "red",
+    "green",
+    "review"
+  ],
+  "authorization": {
+    "human_gates": [
+      "merge",
+      "tag",
+      "release",
+      "deploy",
+      "publish"
+    ],
+    "not_authorized": [
+      "merge",
+      "deploy",
+      "restart",
+      "tag",
+      "release",
+      "publish",
+      "force-push",
+      "branch deletion"
+    ]
+  },
+  "risk": {
+    "tier": "medium",
+    "reasons": [
+      "changes the brief a live dispatch sends to the worker launcher",
+      "a state-table mistake mislabels finished attempts in the Hive pane"
+    ],
+    "blast_radius": "every local-worker dispatch and the Hive pane's attempt columns"
+  },
+  "review": {
+    "status": "approved",
+    "approved_by": "Kyle (owner), typed approval in chat, 2026-11-26: approved: 6b46f009 (B5a)",
+    "approved_at": "2026-11-26T22:40:08Z",
+    "contract_sha256": "6b46f009861bea94879fea6da101a5eefe5954a1ff596f572d501302b07609c8"
+  }
+}
