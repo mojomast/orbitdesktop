@@ -428,6 +428,8 @@ Run npm run check for typechecking, the production build, and Node tests. Run py
 
 Live browser tests under tests/ exercise integrations separately and require a configured deployment. Passing a build alone does not prove an app rendered or that a live browser applied a workspace mutation. Verify real interaction, reconnect behavior, and saved results before reporting success.
 
+Changes land through pull requests that need the required `ci-gate` check. Agents never act as the owner on GitHub. The coordinator opens, updates and merges PRs and reruns CI as the `rizzstack-coordinator[bot]` GitHub App, outside reviews are posted as `rizzstack-reviewer[bot]`, and owner approvals and release yeses come from the owner's own account. Neither app can change rulesets, settings or secrets. Setup: [rizzstack docs/github-apps.md](https://github.com/mojomast/rizzstack/blob/main/docs/github-apps.md). Gating reviews by bot login is planned, not yet enforced.
+
 Preserve the owner's uncommitted changes, existing pane IDs, running sessions, and older plugin bundles. Never commit .runtime, tokens, transcripts, or private screenshots.
 
 The desktop, Writer, and connection-control screenshots were captured in an isolated browser workspace using `scripts/capture_xpra_readme.py`. The COCS and OmniVoice examples were freshly captured from the running applications in separate headless browser contexts for this documentation release. They show the game asset library and announcer-take workflow, not the owner's desktop or conversations. No generation jobs, source updates, or live workspace rearrangements were performed for these captures. Project-specific applications shown here are examples, not dependencies or bundled local services.
