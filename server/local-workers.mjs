@@ -7,6 +7,7 @@ import { randomBytes, createHash } from 'node:crypto';
 import path from 'node:path';
 import http from 'node:http';
 import https from 'node:https';
+import { validateBrief } from '../validators/js/rizzstack-validators.mjs';
 
 export const TERMINAL = new Set(['succeeded', 'failed', 'cancelled', 'superseded', 'not_started', 'accepted', 'rejected']);
 // detailed state -> board column (todo|doing|review|done|blocked)
@@ -60,7 +61,10 @@ export const MAX_WORKERS = 10; // hard ceiling, matches the PC launcher
 // Model tiers: 'simple' -> the launcher's pool of free OpenCode models (rotates on rate limits, then falls back to flash), 'standard' -> flash via OpenCode Go.
 export const MODEL_TIERS = { simple: 'pool:free', standard: 'deepseek-v4.1-flash' };
 export const BOARD_POSTER = 'local-workers';
-const LAUNCHER_STATES = new Set(['queued', 'launcher_queued', 'starting', 'running', 'backoff', 'cancel_requested', 'succeeded', 'failed', 'cancelled']);
+const LAUNCHER_STATES = new Map([
+  ['queued', 'launcher_queued'], ['provisioning', 'starting'], ['running', 'running'], ['backoff', 'backoff'],
+  ['succeeded', 'succeeded'], ['failed', 'failed'], ['cancelled', 'cancelled'],
+]);
 
 export function manifestHash(brief) {
   const keys = ['objective', 'deliverables', 'acceptance', 'project', 'branch', 'source_rev', 'assigned_files', 'workdir', 'commands', 'deps'];
@@ -159,7 +163,7 @@ export function createLocalWorkers({
       capability_sha256: createHash('sha256').update(artifactCapability).digest('hex'),
       generation: (prev?.generation || 0) + 1, node, env_id: null, cua_run_id: null, opencode_session_id: null,
       workdir: brief.workdir || null, source_rev: brief.source_rev || null, input_manifest_sha256: manifestHash(brief),
-      provider, model, tier: tier || null, brief: { ...brief, input_manifest_sha256: manifestHash(brief) }, state: 'queued', detail: 'waiting for a slot',
+      provider, model, tier: tier || null, brief: { ...brief, input_manifest_sha256: manifestHash(brief) }, brief_problems: validateBrief(brief), state: 'queued', detail: 'waiting for a slot',
       created_at: new Date(now()).toISOString(), updated_at: null, dispatched_at: null, ended_at: null,
       event_cursor: 0, log_ref: null, artifact_refs: [], result: null, checks: [], review: null, history: [],
     };
@@ -183,9 +187,11 @@ export function createLocalWorkers({
   }
 
   async function applyRemote(a, remote) {
-    if (!remote || !LAUNCHER_STATES.has(remote.state)) return a;
-    if (remote.state === 'queued') remote = { ...remote, state: 'launcher_queued', detail: `${remote.detail}${remote.queue_position ? ` (position ${remote.queue_position})` : ''}` };
-    const extra = { cua_run_id: remote.run_id || a.cua_run_id, env_id: remote.sandbox || a.env_id };
+    if (!remote) return a;
+    const remoteState = remote.state;
+    remote = { ...remote, state: LAUNCHER_STATES.get(remoteState) || 'unknown' };
+    if (remoteState === 'queued') remote.detail = `${remote.detail}${remote.queue_position ? ` (position ${remote.queue_position})` : ''}`;
+    const extra = { remote_state: remoteState, cua_run_id: remote.run_id || a.cua_run_id, env_id: remote.sandbox || a.env_id };
     if (remote.model) extra.model_used = remote.model;
     if (remote.fallback) extra.fallback = remote.fallback;
     if (a.state === 'cancel_requested' && !['cancelled', 'succeeded', 'failed'].includes(remote.state)) return Object.assign(a, extra);

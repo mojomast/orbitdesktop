@@ -101,7 +101,8 @@
     "scripts/worker-join/tailcat-plan.mjs",
     "server/worker-join-artifact.mjs",
     "server/worker-join-route.mjs",
-    "server/worker-join-store.mjs"
+    "server/worker-join-store.mjs",
+    "validators/js/rizzstack-validators.mjs"
   ],
   "excluded": [
     "scripts/token_widget_export.py",
